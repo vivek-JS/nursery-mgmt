@@ -1,0 +1,56 @@
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen", "Ubuntu",
+    "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #e2e5f4 #f6f6f9;
+}
+
+/* Works on Chrome/Edge/Safari */
+*::-webkit-scrollbar {
+  width: 10px;
+}
+
+*::-webkit-scrollbar:horizontal {
+  width: 10px;
+  height: 9px !important;
+}
+
+*::-webkit-scrollbar-track {
+  background: #f6f6f9;
+}
+*::-webkit-scrollbar-thumb {
+  background-color: #e2e5f4;
+  border-radius: 4px;
+  border: 3px solid #f6f6f9;
+}
+
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, "Courier New", monospace;
+}
+
+.input-error .PhoneInputInput {
+  height: 45px !important;
+  border-radius: 4px;
+  border: 1px solid #ff0040;
+  padding: 0px 12px;
+}
+
+.input-field .PhoneInputInput {
+  height: 45px !important;
+  border-radius: 4px;
+  border: 1px solid rgb(205, 202, 202);
+  padding: 0px 12px;
+}
+
+.input-field .PhoneInputInput:hover {
+  border: 1px solid rgb(22, 21, 21);
+}
+
+.PhoneInputInput:focus-visible {
+  outline: 1px solid #ff0040;
+}

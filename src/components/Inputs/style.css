@@ -1,0 +1,23 @@
+.rowCenter {
+    border: "solid 1px #EDECF5";
+    height: 42px;
+    border-radius: 8;
+    position: "relative"
+  }
+  .InputBase {
+    font-weight: 200;
+    padding-left: 10px;
+    width: "90%"
+  }
+  .imgStyle{
+    position:"absolute";
+    right: 5
+  }
+  .customTextField {
+    font-size: "13px";
+    font-weight:  "600";
+    color: "#222B45"
+  }
+  .crossStyle {
+    cursor: "pointer"
+  }
