@@ -7,6 +7,7 @@ import InventoryIcon from "@mui/icons-material/Inventory"
 import PaidIcon from "@mui/icons-material/Paid"
 import AdminPanelSettingsIcon from "@mui/icons-material/AdminPanelSettings"
 import GroupIcon from "@mui/icons-material/Group"
+import AodIcon from "@mui/icons-material/Aod"
 class MenuPath {
   constructor(title, icon, route, alias = null) {
     this.title = title
@@ -20,8 +21,9 @@ export const DashboardMenus = [
   new MenuPath("Dahboard", <HomeIcon />, "/u/dashboard"),
   new MenuPath("Weekly", <DateRangeOutlinedIcon />, "/u/weekly"),
   new MenuPath("Transactions", <PaidIcon />, "/u/transactions"),
-  new MenuPath("Patients", <GroupIcon />, "/u/patients"),
+  new MenuPath("Employees", <GroupIcon />, "/u/employeese"),
   new MenuPath("Inventory", <InventoryIcon />, "/u/inventory"),
   // new MenuPath("Settings", <SettingsSuggestIcon />, "/u/settings"),
-  new MenuPath("Admin", <AdminPanelSettingsIcon />, "/u/admin")
+  new MenuPath("Admin", <AdminPanelSettingsIcon />, "/u/admin"),
+  new MenuPath("CMS", <AodIcon />, "/u/cms")
 ]

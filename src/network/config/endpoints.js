@@ -37,7 +37,7 @@ export const API = {
   },
   HOSPITAL: {
     LOGIN_HOSPITAL: new APIWithOfflineRouter(
-      "api/v2/hospital/loginHospital",
+      "/api/v1/user/login",
       HTTP_METHODS.POST,
       OFFLINE.LOGIN
     ),

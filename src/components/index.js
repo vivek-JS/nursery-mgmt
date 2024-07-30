@@ -13,7 +13,7 @@ import PageLoader from "./Loader/PageLoader"
 import CheckInModal from "./Modals/CheckInModal"
 import DoctorsModal from "./Modals/DoctorsModal"
 import MedicalHistory from "./Modals/MedicalHistory"
-
+import ToggleBtns from "./FormField/ToggleBtns"
 export {
   SearchInput,
   AddButton,
@@ -29,5 +29,6 @@ export {
   PageLoader,
   CheckInModal,
   DoctorsModal,
-  MedicalHistory
+  MedicalHistory,
+  ToggleBtns
 }

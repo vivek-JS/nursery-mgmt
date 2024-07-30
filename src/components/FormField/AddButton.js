@@ -1,39 +1,32 @@
 import React from "react"
-import { styled } from "@mui/material/styles"
 import Button from "@mui/material/Button"
-import PersonAddAltIcon from "@mui/icons-material/PersonAddAlt"
+import AddIcon from "@mui/icons-material/Add"
+import { styled } from "@mui/material/styles"
 
-const BootstrapButton = styled(Button)({
-  boxShadow: "none",
-  textTransform: "none",
-  fontSize: 16,
-  fontWeight: 500,
-  padding: "6px 12px",
-  lineHeight: 1.5,
-  // backgroundColor: "#0063cc",
-  border: "1px solid #3A4BB6",
-  color: "#3A4BB6",
-  height: 40,
-
+const StyledButton = styled(Button)(({ theme }) => ({
+  backgroundColor: "#3A4BB6",
+  color: theme.palette.common.white,
+  padding: "10px 20px",
   "&:hover": {
-    backgroundColor: "#d8dcf3",
-    borderColor: "#d8dcf3",
-    boxShadow: "none"
+    backgroundColor: "#32CD32"
   },
-  "&:active": {
-    boxShadow: "none",
-    //backgroundColor: "#0062cc",
-    borderColor: "#005cbf"
-  },
-  "&:focus": {
-    boxShadow: "0 0 0 0.2rem rgba(0,123,255,.5)"
+  borderRadius: "20px",
+  textTransform: "none",
+  fontSize: "16px",
+  fontWeight: "bold",
+  boxShadow: "0 3px 5px 2px rgba(0, 0, 0, .3)"
+}))
+
+const AddEmployeeButton = () => {
+  const handleClick = () => {
+    console.log("Add Employee button clicked")
   }
-})
-const AddButton = ({ onClick }) => {
+
   return (
-    <BootstrapButton onClick={onClick} disableRipple endIcon={<PersonAddAltIcon />}>
-      Add
-    </BootstrapButton>
+    <StyledButton variant="contained" startIcon={<AddIcon />} onClick={handleClick}>
+      Add Employee
+    </StyledButton>
   )
 }
-export default AddButton
+
+export default AddEmployeeButton

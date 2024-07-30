@@ -5,7 +5,8 @@ export const useStyles = () => {
   const theme = useTheme()
   return {
     imgLogo: {
-      height: 40
+      height: 60,
+      weight: 60
     },
     flexDisplay: {
       display: "flex",
@@ -135,15 +136,15 @@ export const useStyles = () => {
       marginLeft: 4
     },
     drawerHeaderTxt: {
-      fontSize: "0.938rem",
+      fontSize: "2rem",
       fontWeight: 500,
-      marginTop: 10,
-      marginLeft: 4
+      marginLeft: 8
     },
     imageContainer: {
       background: `url(${SideBanner})`,
       backgroundSize: "cover",
       height: "100vh"
-    }
+    },
+    header: {}
   }
 }

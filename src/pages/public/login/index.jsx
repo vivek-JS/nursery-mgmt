@@ -8,8 +8,8 @@ import { LoginValidator } from "helpers/validators/login"
 import { useLoginController } from "./login.controller"
 import FormField from "components/FormField"
 //import { GoogleLogin, FacebookLogin } from "library/SocialLogin"
-import peLogo from "assets/icons/Asset 3@4x.png"
-import SideBanner from "assets/images/placeholders/onboarding.svg"
+import peLogo from "assets/icons/ramLogo.png"
+import SideBanner from "assets/icons/ramInner.png"
 
 const Login = () => {
   const styles = useStyles()
@@ -27,12 +27,9 @@ const Login = () => {
     <Grid container>
       <Grid item xs={5}>
         <Box sx={styles.container}>
-          <Grid>
-            <div style={styles.flexDisplay}>
-              <img src={peLogo} style={styles.imgLogo}></img>
-              <span style={styles.drawerHeader}>{process.env.REACT_APP_APP_NAME}</span>
-            </div>
-            <Typography style={styles.drawerHeaderTxt}>Practise Managment Reimagined</Typography>
+          <Grid container alignItems={"center"}>
+            <img src={peLogo} style={styles.imgLogo}></img>
+            <Typography style={styles.drawerHeaderTxt}>राम बायोटेक</Typography>
           </Grid>
           <Grid sx={styles.form} container spacing={2}>
             <Divider />
@@ -111,8 +108,10 @@ const Login = () => {
       </Grid> */}
         </Box>
       </Grid>
-      <Grid item xs={7}>
-        <img src={SideBanner} style={{ width: "100%", height: "99vh", objectFit: "cover" }}></img>
+      <Grid item xs={7} container justifyContent={"center"} alignItems={"center"}>
+        <img
+          src={SideBanner}
+          style={{ width: "80%", height: "100vh", objectFit: "cover", borderRadius: "30px" }}></img>
       </Grid>
     </Grid>
   )
