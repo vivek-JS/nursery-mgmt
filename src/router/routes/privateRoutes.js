@@ -13,14 +13,14 @@ const Admin = React.lazy(() => import("pages/private/admin"))
 const Cms = React.lazy(() => import("pages/private/cms"))
 
 export const PrivateRoutes = [
-  { path: "/u/dashboard", exact: true, component: Dashboard },
-  { path: "/u/weekly", exact: true, component: Weekly },
-  { path: "/u/transactions", exact: true, component: Transactions },
-  { path: "/u/employeese", exact: true, component: Patients },
-  { path: "/u/patients/patientDetails", exact: true, component: PatientDetails },
+  { path: "/u/dashboard", exact: true, component: Cms },
+  // { path: "/u/weekly", exact: true, component: Weekly },
+  // { path: "/u/transactions", exact: true, component: Transactions },
+  // { path: "/u/employeese", exact: true, component: Patients },
+  // { path: "/u/patients/patientDetails", exact: true, component: PatientDetails },
 
-  { path: "/u/sub-admins", exact: true, component: SubAdmins },
-  { path: "/u/inventory", exact: true, component: Inventory },
+  // { path: "/u/sub-admins", exact: true, component: SubAdmins },
+  // { path: "/u/inventory", exact: true, component: Inventory },
 
   // {
   //   path: "/u/settings",
