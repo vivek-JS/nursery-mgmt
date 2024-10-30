@@ -176,10 +176,17 @@ export const API = {
   ADMIN: {
     ADD_ADMIN: new APIRouter("api/v2/admin/createAdmin", HTTP_METHODS.POST, OFFLINE.PROFILE),
     UPDATE_ADMIN: new APIRouter("api/v2/admin/updateAdmin", HTTP_METHODS.PATCH, OFFLINE.PROFILE),
-    DELETE_ADMIN: new APIRouter("api/v2/admin/deleteAdmin", HTTP_METHODS.DELETE, OFFLINE.PROFILE)
+    DELETE_ADMIN: new APIRouter("api/v2/admin/deleteAdmin", HTTP_METHODS.DEL, OFFLINE.PROFILE)
   },
   THIRD_PARTY: {
     // If the base url is different from default
     CHECK: new APICustomRouter("https://example.com", "/test", HTTP_METHODS.GET)
+  },
+  EMPLOYEE: {
+    ADD_EMPLOYEE: new APIRouter("api/v1/employee/createEmployee", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    GET_EMPLOYEE: new APIRouter("api/v1/employee/getEmployees", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    DELETE_EMPLOYEE: new APIRouter("api/v1/employee/deleteEmployee", HTTP_METHODS.DEL, OFFLINE.PROFILE),
+    UPDATE_EMPLOYEE: new APIRouter("api/v1/employee/updateEmployee", HTTP_METHODS.PATCH, OFFLINE.PROFILE),
+
   }
 }

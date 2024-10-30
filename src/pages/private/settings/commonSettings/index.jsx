@@ -44,7 +44,7 @@ const CommonSettings = () => {
         .trim()
         .oneOf([Yup.ref("newpassword")], "Password doesn't match")
     }),
-    onSubmit: async (values) => {}
+    onSubmit: async () => {}
   }
   return (
     <div>
