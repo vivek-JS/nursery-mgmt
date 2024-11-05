@@ -60,7 +60,6 @@ const EmployeeManagement = () => {
       console.log(response)
 
     } else {
-      // Add new employee logic
       const instance = NetworkManager(API.EMPLOYEE.ADD_EMPLOYEE);
       const response = await instance.request(newEmployee);
       console.log(response)

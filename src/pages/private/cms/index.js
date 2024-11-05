@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Tabs, Tab, Box } from '@mui/material';
-import PrimaryHardening from './primaryHardening';
+import JobTitles from './jobTitles';
 
 export default function TabbedStructure() {
   const [selectedTab, setSelectedTab] = useState(0);
@@ -13,14 +13,14 @@ export default function TabbedStructure() {
     <Box sx={{ width: '100%', bgcolor: 'background.paper' }}>
 
       <Tabs value={selectedTab} onChange={handleTabChange} aria-label="basic tabs example">
-        <Tab label="Primary Hardening" />
-        <Tab label="Secondary Hardening" />
+        <Tab label="Job Titles" />
+        <Tab label="Job Titles" />
       </Tabs>
 
 
       <Box sx={{ p: 3 }}>
-        {selectedTab === 0 && <PrimaryHardening />}
-        {selectedTab === 1 && <PrimaryHardening />}
+        {selectedTab === 0 && <JobTitles />}
+        {selectedTab === 1 && <JobTitles />}
       </Box>
     </Box>
   );
