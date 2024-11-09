@@ -5,6 +5,7 @@ import HomeIcon from "@mui/icons-material/Dashboard"
 import GroupIcon from "@mui/icons-material/Group"
 import AodIcon from "@mui/icons-material/Aod"
 import BiotechIcon from "@mui/icons-material/Biotech"
+import ListAltIcon from "@mui/icons-material/ListAlt"
 
 class MenuPath {
   constructor(title, icon, route, alias = null) {
@@ -24,5 +25,6 @@ export const DashboardMenus = [
   // new MenuPath("Settings", <SettingsSuggestIcon />, "/u/settings"),
   // new MenuPath("Admin", <AdminPanelSettingsIcon />, "/u/admin"),
   new MenuPath("CMS", <AodIcon />, "/u/cms"),
-  new MenuPath("Labs", <BiotechIcon />, "/u/labs")
+  new MenuPath("Labs", <BiotechIcon />, "/u/labs"),
+  new MenuPath("Order", <ListAltIcon />, "/u/orders")
 ]

@@ -233,9 +233,8 @@ const CheckInModal = ({
               className={classes.paymentContainer}
               justifyContent={"space-between"}>
               {!showPaymentMode && (
-                <Button className={classes.collect}>{`Collect Payment of ₹ ${
-                  appointmentData?.treatment?.amount || ""
-                }`}</Button>
+                <Button className={classes.collect}>{`Collect Payment of ₹ ${appointmentData?.treatment?.amount || ""
+                  }`}</Button>
               )}
 
               {showPaymentMode && (

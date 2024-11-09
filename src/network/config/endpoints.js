@@ -183,10 +183,23 @@ export const API = {
     CHECK: new APICustomRouter("https://example.com", "/test", HTTP_METHODS.GET)
   },
   EMPLOYEE: {
-    ADD_EMPLOYEE: new APIRouter("api/v1/employee/createEmployee", HTTP_METHODS.POST, OFFLINE.PROFILE),
-    GET_EMPLOYEE: new APIRouter("api/v1/employee/getEmployees", HTTP_METHODS.GET, OFFLINE.PROFILE),
-    DELETE_EMPLOYEE: new APIRouter("api/v1/employee/deleteEmployee", HTTP_METHODS.DEL, OFFLINE.PROFILE),
-    UPDATE_EMPLOYEE: new APIRouter("api/v1/employee/updateEmployee", HTTP_METHODS.PATCH, OFFLINE.PROFILE),
+    ADD_EMPLOYEE: new APIRouter(
+      "api/v1/employee/createEmployee",
+      HTTP_METHODS.POST,
+      OFFLINE.PROFILE
+    ),
+    ADD_EMPLOYEE_LOGIN: new APIRouter("api/v1/user/createUser", HTTP_METHODS.POST, OFFLINE.PROFILE),
 
+    GET_EMPLOYEE: new APIRouter("api/v1/employee/getEmployees", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    DELETE_EMPLOYEE: new APIRouter(
+      "api/v1/employee/deleteEmployee",
+      HTTP_METHODS.DEL,
+      OFFLINE.PROFILE
+    ),
+    UPDATE_EMPLOYEE: new APIRouter(
+      "api/v1/employee/updateEmployee",
+      HTTP_METHODS.PATCH,
+      OFFLINE.PROFILE
+    )
   }
 }

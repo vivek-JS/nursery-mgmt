@@ -52,25 +52,25 @@ const DrawerHeader = styled("div")(({ theme }) => ({
 }))
 
 export default function PrivateLayout(props) {
-  useEffect(() => {
-    const source = new EventSource(`${process.env.REACT_APP_BASE_URL}api/v2/sse/init`)
+  // useEffect(() => {
+  //   const source = new EventSource(`${process.env.REACT_APP_BASE_URL}api/v2/sse/init`)
 
-    source.addEventListener("open", () => {})
-    source.onmessage = (event) => {
-      const appointment = JSON.parse(event.data)
-      if (appointment?.appointmentStatus === 2 || appointment?.appointmentStatus === 3)
-        PatientDispatcher.checkInActive(appointment)
-    }
-    source.addEventListener("post", (e) => {
-      const data = JSON.parse(e.data)
-      PatientDispatcher.checkInActive(data[0])
-      //   setDonation(data)
-    })
+  //   source.addEventListener("open", () => {})
+  //   source.onmessage = (event) => {
+  //     const appointment = JSON.parse(event.data)
+  //     if (appointment?.appointmentStatus === 2 || appointment?.appointmentStatus === 3)
+  //       PatientDispatcher.checkInActive(appointment)
+  //   }
+  //   source.addEventListener("post", (e) => {
+  //     const data = JSON.parse(e.data)
+  //     PatientDispatcher.checkInActive(data[0])
+  //     //   setDonation(data)
+  //   })
 
-    return () => {
-      //source.close()
-    }
-  }, [])
+  //   return () => {
+  //     //source.close()
+  //   }
+  // }, [])
   const styles = useStyles()
 
   const userType = useSelector((state) => state?.userData?.userData?.type)
