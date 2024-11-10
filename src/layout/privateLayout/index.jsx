@@ -16,8 +16,6 @@ import LogoutIcon from "@mui/icons-material/Logout"
 import { usePrivateLayoutController } from "./privateLayout.controller"
 import { useStyles } from "layout/privateLayoutStyles"
 import Logo from "assets/icons/Asset 3@4x.png"
-import { useEffect } from "react"
-import { PatientDispatcher } from "redux/dispatcher/PatientState"
 import { useSelector } from "react-redux"
 const drawerWidth = 65
 
