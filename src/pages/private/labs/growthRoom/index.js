@@ -1,13 +1,111 @@
 import React, { useState } from 'react';
-import { TextField, Button, Stack, Box, Typography } from '@mui/material';
+import { Box, Button, Grid, IconButton } from '@mui/material';
+import { Edit, Delete } from '@mui/icons-material';
+import { makeStyles } from 'tss-react/mui';
+import GrowthRoomModal from './growthRoomModal';
+
+const useStyles = makeStyles()(() => ({
+    inventoryContainer: {
+        padding: 5,
+        background: "#F0F0F0",
+        marginTop: 12,
+        width: '100%'
+    },
+    noMarginRight: {
+        marginRight: 0
+    },
+    label: {
+        height: 35,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontSize: 17,
+        fontWeight: 700,
+        background: "#FFF",
+        color: "#3A4BB6",
+        marginRight: "0.7%"
+    },
+    tableHead: {
+        boxShadow: "0px 3px 3px 0px rgba(0, 0, 0, 0.15)",
+        background: "#FFF"
+    },
+    tableCell: {
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "#FFF",
+        height: 43,
+        fontWeight: 500,
+        fontSize: 17,
+        marginRight: "0.7%"
+    },
+    tableRow: {
+        marginTop: 4
+    },
+    actionCell: {
+        display: 'flex',
+        gap: 8,
+        justifyContent: "center"
+    },
+    actionButton: {
+        height: 30,
+        fontSize: 14,
+        boxShadow: 'none',
+        '&:hover': {
+            boxShadow: 'none'
+        }
+    }
+}));
 
 const GrowthRoom = () => {
+    const { classes } = useStyles();
     const [formData, setFormData] = useState({
         numberOfEmployeeEngaged: '',
         listOfEmployeeEngaged: '',
         in: '',
         out: ''
     });
+
+    const [growthRoomEntries, setGrowthRoomEntries] = useState([
+        { id: 1, numberOfEmployeeEngaged: 5, listOfEmployeeEngaged: 'Alice, Bob', in: 2, out: 3 },
+        { id: 2, numberOfEmployeeEngaged: 3, listOfEmployeeEngaged: 'John, Jane', in: 1, out: 2 }
+    ]);
+
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [editIndex, setEditIndex] = useState(null);
+
+    const handleOpenModal = (index = null) => {
+        if (index !== null) {
+            setFormData(growthRoomEntries[index]);
+        } else {
+            setFormData({
+                numberOfEmployeeEngaged: '',
+                listOfEmployeeEngaged: '',
+                in: '',
+                out: ''
+            });
+        }
+        setEditIndex(index);
+        setIsModalOpen(true);
+    };
+
+    const handleCloseModal = () => setIsModalOpen(false);
+
+    const handleDelete = (index) => {
+        const updatedEntries = growthRoomEntries.filter((_, i) => i !== index);
+        setGrowthRoomEntries(updatedEntries);
+    };
+
+    const handleSubmit = () => {
+        if (editIndex !== null) {
+            const updatedEntries = [...growthRoomEntries];
+            updatedEntries[editIndex] = { ...formData, id: updatedEntries[editIndex].id };
+            setGrowthRoomEntries(updatedEntries);
+        } else {
+            setGrowthRoomEntries([...growthRoomEntries, { ...formData, id: Date.now() }]);
+        }
+        setIsModalOpen(false);
+    };
 
     const handleInputChange = (e) => {
         const { name, value } = e.target;
@@ -17,58 +115,44 @@ const GrowthRoom = () => {
         }));
     };
 
-    const handleSubmit = (e) => {
-        e.preventDefault();
-        console.log('Submitted data:', formData);
-    };
-
     return (
-        <Box sx={{ p: 3, borderRadius: 2, boxShadow: 2 }}>
-            <Typography variant="h6" sx={{ mb: 2 }}>
-                Growth Room
-            </Typography>
-            <form onSubmit={handleSubmit}>
-                <Stack spacing={2}>
-                    <TextField
-                        label="Number of Employees Engaged"
-                        name="numberOfEmployeeEngaged"
-                        value={formData.numberOfEmployeeEngaged}
-                        type="number"
-                        onChange={handleInputChange}
-                        sx={{ width: '300px' }}
-                    />
-                    <TextField
-                        label="List of Employees Engaged"
-                        name="listOfEmployeeEngaged"
-                        value={formData.listOfEmployeeEngaged}
-                        onChange={handleInputChange}
-                        sx={{ width: '300px' }}
-                    />
-                    <TextField
-                        label="In"
-                        name="in"
-                        value={formData.in}
-                        type="number"
-                        onChange={handleInputChange}
-                        sx={{ width: '300px' }}
-                    />
-                    <TextField
-                        label="Out"
-                        name="out"
-                        value={formData.out}
-                        type="number"
-                        onChange={handleInputChange}
-                        sx={{ width: '300px' }}
-                    />
-                    <Button
-                        type="submit"
-                        variant="contained"
-                        sx={{ width: '100px', mt: 2 }}
-                    >
-                        Submit
-                    </Button>
-                </Stack>
-            </form>
+        <Box sx={{ p: 3 }}>
+            <Button variant="contained" onClick={() => handleOpenModal()} sx={{ mb: 2, fontSize: 'large' }}>
+                Add New Growth Room Entry
+            </Button>
+            <Grid container className={classes.inventoryContainer}>
+                <Grid container className={classes.tableHead}>
+                    <Grid item xs={2} className={classes.label}>Employees Engaged</Grid>
+                    <Grid item xs={3} className={classes.label}>List of Employees</Grid>
+                    <Grid item xs={2} className={classes.label}>In</Grid>
+                    <Grid item xs={2} className={classes.label}>Out</Grid>
+                    <Grid item xs={2} className={`${classes.label} ${classes.noMarginRight}`}>Actions</Grid>
+                </Grid>
+                {growthRoomEntries.map((entry, index) => (
+                    <Grid container className={classes.tableRow} key={entry.id}>
+                        <Grid item xs={2} className={classes.tableCell}>{entry.numberOfEmployeeEngaged}</Grid>
+                        <Grid item xs={3} className={classes.tableCell}>{entry.listOfEmployeeEngaged}</Grid>
+                        <Grid item xs={2} className={classes.tableCell}>{entry.in}</Grid>
+                        <Grid item xs={2} className={classes.tableCell}>{entry.out}</Grid>
+                        <Grid item xs={2} className={`${classes.tableCell} ${classes.noMarginRight} ${classes.actionCell}`}>
+                            <IconButton color="primary" onClick={() => handleOpenModal(index)} className={classes.actionButton}>
+                                <Edit />
+                            </IconButton>
+                            <IconButton color="error" onClick={() => handleDelete(index)} className={classes.actionButton}>
+                                <Delete />
+                            </IconButton>
+                        </Grid>
+                    </Grid>
+                ))}
+            </Grid>
+
+            <GrowthRoomModal
+                open={isModalOpen}
+                handleClose={handleCloseModal}
+                formData={formData}
+                onInputChange={handleInputChange}
+                onSubmit={handleSubmit}
+            />
         </Box>
     );
 };

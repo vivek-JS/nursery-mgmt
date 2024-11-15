@@ -6,6 +6,7 @@ import Washing from './washing';
 import Plate from './plates';
 import GrowthRoom from './growthRoom';
 import RootingOut from './rootingOut';
+import { Typography } from '@mui/material';
 
 export default function TabbedStructure() {
     const [selectedTab, setSelectedTab] = useState(0);
@@ -14,9 +15,13 @@ export default function TabbedStructure() {
         setSelectedTab(newValue);
     };
 
+
     return (
         <Box sx={{ width: '100%', bgcolor: 'background.paper' }}>
 
+            <Typography variant="h3" sx={{ mb: 5, ml: 5, fontWeight: 'bold' }}>
+                Labs Section
+            </Typography>
             <Tabs value={selectedTab} onChange={handleTabChange} aria-label="basic tabs example">
                 <Tab label="Inoculation Room" />
                 <Tab label="Media" />
