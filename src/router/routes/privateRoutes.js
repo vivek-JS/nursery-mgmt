@@ -12,6 +12,9 @@ const Admin = React.lazy(() => import("pages/private/admin"))
 const Cms = React.lazy(() => import("pages/private/cms"))
 const Labs = React.lazy(() => import("pages/private/labs"))
 const Order = React.lazy(() => import("pages/private/order"))
+const Plants = React.lazy(() => import("pages/private/Plants/slots"))
+const Slots = React.lazy(() => import("pages/private/SlotsView/index"))
+
 export const PrivateRoutes = [
   { path: "/u/dashboard", exact: true, component: Dashboard },
   { path: "/u/weekly", exact: true, component: Weekly },
@@ -31,5 +34,6 @@ export const PrivateRoutes = [
   { path: "/u/cms", exact: true, component: Cms },
   { path: "/u/labs", exact: true, component: Labs },
   { path: "/u/orders", exact: true, component: Order },
-
+  { path: "/u/plants", exact: true, component: Plants },
+  { path: "/u/slots", exact: true, component: Slots }
 ]

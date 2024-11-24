@@ -5,7 +5,7 @@ export const FPValidator = {
     email: ""
   },
   validationSchema: Yup.object().shape({
-    email: Yup.string().email("Enter a valid email").required("Email is required")
+    email: Yup.string().required("Email is required")
   })
 }
 

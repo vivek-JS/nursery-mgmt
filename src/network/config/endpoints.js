@@ -36,11 +36,7 @@ export const API = {
     REFRESH_TOKEN: new APIRouter("/user/token/refresh", HTTP_METHODS.POST)
   },
   HOSPITAL: {
-    LOGIN_HOSPITAL: new APIWithOfflineRouter(
-      "/api/v1/user/login",
-      HTTP_METHODS.POST,
-      OFFLINE.LOGIN
-    ),
+    LOGIN_HOSPITAL: new APIWithOfflineRouter("/user/login", HTTP_METHODS.POST, OFFLINE.LOGIN),
     CREATE_HOSPITAL: new APIRouter(
       "/api/v2/hospital/createHospital/",
       HTTP_METHODS.POST,
@@ -188,9 +184,9 @@ export const API = {
       HTTP_METHODS.POST,
       OFFLINE.PROFILE
     ),
-    ADD_EMPLOYEE_LOGIN: new APIRouter("api/v1/user/createUser", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    ADD_EMPLOYEE_LOGIN: new APIRouter("user/createUser", HTTP_METHODS.POST, OFFLINE.PROFILE),
 
-    GET_EMPLOYEE: new APIRouter("api/v1/employee/getEmployees", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_EMPLOYEE: new APIRouter("employee/getEmployees", HTTP_METHODS.GET, OFFLINE.PROFILE),
     DELETE_EMPLOYEE: new APIRouter(
       "api/v1/employee/deleteEmployee",
       HTTP_METHODS.DEL,
@@ -201,5 +197,21 @@ export const API = {
       HTTP_METHODS.PATCH,
       OFFLINE.PROFILE
     )
+  },
+  ORDER: {
+    GET_ORDERS: new APIRouter("/order/getOrders", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    UPDATE_ORDER: new APIRouter("/order/updateOrder", HTTP_METHODS.PATCH, OFFLINE.PROFILE)
+  },
+  plantCms: {
+    POST_NEWPLANT: new APIRouter("/plantcms/plants", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    GET_PLANTS: new APIRouter("/plantcms/plants", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    UPDATE_PLANT: new APIRouter("/plantcms/plants", HTTP_METHODS.PUT, OFFLINE.PROFILE),
+    DELETE_PLANT: new APIRouter("/plantcms/plants", HTTP_METHODS.DEL, OFFLINE.PROFILE)
+  },
+  slots: {
+    GET_PLANTS: new APIRouter("/slots/get-plants", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_PLANTS_SUBTYPE: new APIRouter("/slots/subtyps", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_PLANTS_SLOTS: new APIRouter("/slots/getslots", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    UPDATE_SLOT: new APIRouter("/slots", HTTP_METHODS.PUT, OFFLINE.PROFILE)
   }
 }

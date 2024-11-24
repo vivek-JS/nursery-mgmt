@@ -13,7 +13,6 @@ function Dashboard() {
 
   return (
     <Grid  className={classes.padding14}>
-      {/* {loading && <PageLoader />} */}
       <h1>Orders</h1>
       <FarmerOrdersTable/>
     </Grid>

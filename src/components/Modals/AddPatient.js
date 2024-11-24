@@ -194,7 +194,7 @@ export default function AddPatient({ open, handleClose, timeToAdd, date, patient
     validationSchema: Yup.object().shape({
       name: Yup.string().required("Patient Name is required."),
       address: Yup.string().required("Address is required"),
-      email: Yup.string().email("Invalid email").required("email is required"),
+      email: Yup.string().required("email is required"),
       mobileNumber: Yup.string().required("Mobile Number is required"),
       gender: Yup.string().required("Gender is required"),
       dob: Yup.date()

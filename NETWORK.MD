@@ -31,7 +31,7 @@ Once you have setup the env file, navigate to [serverConfig.js](/src/network/con
 // serverConfig.js
 export const APIConfig = {
   BASE_URL: process.env.REACT_APP_BASE_URL,
-  TIMEOUT: 15000,
+  TIMEOUT: 50000,
   API_AUTH_HEADER: "Authorization",
   AUTH_TYPE: "",
   DEFAULT_VERSION: "v1",

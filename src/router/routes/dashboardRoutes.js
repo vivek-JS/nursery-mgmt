@@ -6,7 +6,7 @@ import GroupIcon from "@mui/icons-material/Group"
 import AodIcon from "@mui/icons-material/Aod"
 import BiotechIcon from "@mui/icons-material/Biotech"
 import ListAltIcon from "@mui/icons-material/ListAlt"
-
+import AlignHorizontalLeftIcon from "@mui/icons-material/AlignHorizontalLeft"
 class MenuPath {
   constructor(title, icon, route, alias = null) {
     this.title = title
@@ -26,5 +26,7 @@ export const DashboardMenus = [
   // new MenuPath("Admin", <AdminPanelSettingsIcon />, "/u/admin"),
   new MenuPath("CMS", <AodIcon />, "/u/cms"),
   new MenuPath("Labs", <BiotechIcon />, "/u/labs"),
-  new MenuPath("Order", <ListAltIcon />, "/u/orders")
+  new MenuPath("Order", <ListAltIcon />, "/u/orders"),
+  new MenuPath("Plants and Products", <AlignHorizontalLeftIcon />, "/u/plants"),
+  new MenuPath("Slots Managment", <BiotechIcon />, "/u/slots")
 ]

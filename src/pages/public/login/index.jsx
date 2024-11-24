@@ -42,12 +42,12 @@ const Login = () => {
                 <React.Fragment>
                   <Grid item xs={12}>
                     <FormField
-                      label={" Email ID"}
-                      placeholder="Enter Your Email"
+                      label={"Phone Number"}
+                      placeholder="Enter Your Mobile Number"
                       formik={formik}
-                      name={"email"}
+                      name={"phoneNumber"}
                       required
-                      type={"email"}
+                      type={"phoneNumber"}
                     />
                   </Grid>
 
