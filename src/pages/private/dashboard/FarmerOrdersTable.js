@@ -7,6 +7,7 @@ import { PageLoader } from "components"
 import moment from "moment"
 import debounce from "lodash.debounce" // Optional: Use lodash for debouncing
 import { Grid } from "@mui/material"
+import RenderExpandedContent from "./RenderExpandedContent"
 
 const FarmerOrdersTable = () => {
   const today = new Date()
@@ -96,19 +97,22 @@ const FarmerOrdersTable = () => {
       emps?.data?.data?.map((data, index) => {
         const {
           farmer,
-          typeOfPlants,
+          //   typeOfPlants,
           numberOfPlants,
           rate,
           advance,
           salesPerson,
           createdAt,
           orderStatus,
-          id
+          id,
+          plantName,
+          plantSubtype,
+          payment
         } = data || {}
         return {
           sr: index + 1,
           farmerName: farmer?.name,
-          plantType: typeOfPlants,
+          plantType: `${plantName} -> ${plantSubtype}`,
           quantity: numberOfPlants,
           orderDate: moment(createdAt).format("DD/MM/YYYY"),
           rate,
@@ -124,10 +128,7 @@ const FarmerOrdersTable = () => {
             soilType: "Sandy loam",
             irrigationType: "Sprinkler system",
             lastDelivery: "2024-11-05",
-            paymentHistory: [
-              { date: "2024-10-20", amount: 8000, type: "Advance" },
-              { date: "2024-11-05", amount: 7000, type: "Second installment" }
-            ],
+            payment,
             orderid: id
           }
         }
@@ -206,38 +207,6 @@ const FarmerOrdersTable = () => {
       return newEditingRows
     })
   }
-
-  const renderExpandedContent = (details) => (
-    <div className="p-4 bg-gray-50 border-t border-gray-200">
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        <div>
-          <h4 className="font-semibold text-gray-700 mb-2">Contact Details</h4>
-          <p className="text-sm">Address: {details.address}</p>
-          <p className="text-sm">Contact: {details.contact}</p>
-        </div>
-        <div>
-          <h4 className="font-semibold text-gray-700 mb-2">Farming Details</h4>
-          <p className="text-sm">Soil Type: {details.soilType}</p>
-          <p className="text-sm">Irrigation: {details.irrigationType}</p>
-          <p className="text-sm">Last Delivery: {details.lastDelivery}</p>
-        </div>
-        <div>
-          <h4 className="font-semibold text-gray-700 mb-2">Payment History</h4>
-          {details.paymentHistory.map((payment, idx) => (
-            <div key={idx} className="text-sm mb-1">
-              <span className="text-gray-600">{payment.date}:</span>{" "}
-              <span className="font-medium">₹{payment.amount}</span>{" "}
-              <span className="text-gray-500">({payment.type})</span>
-            </div>
-          ))}
-        </div>
-      </div>
-      <div className="mt-4">
-        <h4 className="font-semibold text-gray-700 mb-2">Order Notes</h4>
-        <p className="text-sm text-gray-600">{details.orderNotes}</p>
-      </div>
-    </div>
-  )
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -399,7 +368,15 @@ const FarmerOrdersTable = () => {
                 {expandedRows.has(index) && (
                   <tr>
                     <td colSpan={Object.keys(row).length + 1}>
-                      {renderExpandedContent(row.details)}
+                      <RenderExpandedContent
+                        farmer={{
+                          name: "John Doe",
+                          address: "123 Greenfield St, Village XYZ, Country",
+                          contact: "+1234567890"
+                        }}
+                        details={{ payment: row?.details?.payment }}
+                        orderId={row?.details?.orderid}
+                      />
                     </td>
                   </tr>
                 )}
