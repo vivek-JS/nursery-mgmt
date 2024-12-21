@@ -40,7 +40,7 @@ const ParentAccordion = () => {
   //const sections = ["Section 1", "Section 2", "Section 3"] // Replace with dynamic data as needed
 
   return (
-    <div className=" bg-gray-100 rounded-lg shadow-lg p-6 space-y-4 max-w-5xl">
+    <div className=" bg-gray-100 rounded-lg shadow-lg p-6 space-y-4">
       {months.map((section, sectionIndex) => (
         <div key={sectionIndex} className="border rounded-lg overflow-hidden">
           <button

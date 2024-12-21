@@ -9,60 +9,8 @@ import debounce from "lodash.debounce" // Optional: Use lodash for debouncing
 import { Grid } from "@mui/material"
 import RenderExpandedContent from "./RenderExpandedContent"
 
-const FarmerOrdersTable = () => {
+const FarmerOrdersTable = ({ slotId }) => {
   const today = new Date()
-
-  // const [data, setData] = useState([
-  //   {
-  //     sr: 1,
-  //     farmerName: "John Doe",
-  //     plantType: "Tomatoes",
-  //     quantity: 500,
-  //     rate: 45.5,
-  //     advance: 10000,
-  //     remainingAmt: 12750,
-  //     orderStatus: "Pending",
-  //     expectedDeliveryDate: "2024-12-15",
-  //     salesmenName: "Mike Johnson",
-  //     details: {
-  //       address: "123 Farm Road, Agricultural Zone",
-  //       contact: "+1 234-567-8900",
-  //       orderNotes: "Organic farming certified",
-  //       soilType: "Loamy",
-  //       irrigationType: "Drip irrigation",
-  //       lastDelivery: "2024-11-01",
-  //       paymentHistory: [
-  //         { date: "2024-10-15", amount: 5000, type: "Advance" },
-  //         { date: "2024-11-01", amount: 5000, type: "Second installment" }
-  //       ]
-  //     }
-  //   },
-  //   {
-  //     sr: 2,
-  //     farmerName: "Sarah Smith",
-  //     plantType: "Potatoes",
-  //     quantity: 1000,
-  //     rate: 25.75,
-  //     advance: 15000,
-  //     remainingAmt: 10750,
-  //     orderStatus: "Confirmed",
-  //     expectedDeliveryDate: "2024-12-20",
-  //     salesmenName: "Tom Wilson",
-  //     details: {
-  //       address: "456 Agricultural Avenue, Rural District",
-  //       contact: "+1 345-678-9012",
-  //       orderNotes: "Premium quality seed potatoes",
-  //       soilType: "Sandy loam",
-  //       irrigationType: "Sprinkler system",
-  //       lastDelivery: "2024-11-05",
-  //       paymentHistory: [
-  //         { date: "2024-10-20", amount: 8000, type: "Advance" },
-  //         { date: "2024-11-05", amount: 7000, type: "Second installment" }
-  //       ]
-  //     }
-  //   }
-  // ])
-
   const [sorting, setSorting] = useState({ column: null, direction: "asc" })
   const [searchTerm, setSearchTerm] = useState("")
   const [expandedRows, setExpandedRows] = useState(new Set())
@@ -73,25 +21,44 @@ const FarmerOrdersTable = () => {
   const [patchLoading, setpatchLoading] = useState(false)
   const [startDate, endDate] = selectedDateRange
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("")
-
+  const [refresh, setRefresh] = useState(false)
   const orderStatusOptions = ["Accepted", "Pending", "Rejected", "Dispatched", "Completed"]
+
   useEffect(() => {
-    getOrders()
-  }, [debouncedSearchTerm])
+    if (startDate && endDate) {
+      getOrders()
+    }
+  }, [debouncedSearchTerm, refresh, startDate, endDate])
   const debouncedSearchChange = debounce((value) => {
     setDebouncedSearchTerm(value)
   }, 500)
-  console.log(orders)
   const handleSearchChange = (val) => {
     setSearchTerm(val)
     debouncedSearchChange(val)
   }
+  const getTotalPaidAmount = (payments) => {
+    return payments.reduce((total, payment) => total + payment.paidAmount, 0)
+  }
   const getOrders = async () => {
-    console.log("In")
     setLoading(true)
-    const instance = NetworkManager(API.ORDER.GET_ORDERS)
-    const emps = await instance.request({}, { search: debouncedSearchTerm })
-    console.log(emps)
+    const date = new Date(startDate)
+    const formattedStartDate = moment(date).format("DD-MM-YYYY")
+    const edate = new Date(endDate)
+    const formattedEndtDate = moment(edate).format("DD-MM-YYYY")
+    const instance = slotId
+      ? NetworkManager(API.ORDER.GET_ORDERS_SLOTS)
+      : NetworkManager(API.ORDER.GET_ORDERS)
+    const emps = slotId
+      ? await instance.request({}, { slotId: slotId })
+      : await instance.request(
+          {},
+          {
+            search: debouncedSearchTerm,
+            startDate: formattedStartDate,
+            endDate: formattedEndtDate,
+            dispatched: false
+          }
+        )
 
     setOrders(
       emps?.data?.data?.map((data, index) => {
@@ -100,14 +67,14 @@ const FarmerOrdersTable = () => {
           //   typeOfPlants,
           numberOfPlants,
           rate,
-          advance,
           salesPerson,
           createdAt,
           orderStatus,
           id,
           plantName,
           plantSubtype,
-          payment
+          payment,
+          bookingSlot
         } = data || {}
         return {
           sr: index + 1,
@@ -116,20 +83,23 @@ const FarmerOrdersTable = () => {
           quantity: numberOfPlants,
           orderDate: moment(createdAt).format("DD/MM/YYYY"),
           rate,
-          advance: advance,
-          remainingAmt: Number(rate * numberOfPlants) - Number(advance),
+          "Paid Amt": Number(getTotalPaidAmount(payment)),
+          total: Number(rate * numberOfPlants),
+          "remaining Amt": `₹ ${
+            Number(rate * numberOfPlants) - Number(getTotalPaidAmount(payment))
+          }`,
           orderStatus: orderStatus,
-          expectedDeliveryDate: "2024-12-20",
-          salesmenName: salesPerson,
+          Delivery: `${bookingSlot?.startDay} ${bookingSlot?.month} - ${bookingSlot?.endDay} ${bookingSlot?.month}`,
           details: {
-            name: farmer.name,
+            farmer,
             contact: farmer?.mobileNumber,
             orderNotes: "Premium quality seed potatoes",
             soilType: "Sandy loam",
             irrigationType: "Sprinkler system",
             lastDelivery: "2024-11-05",
             payment,
-            orderid: id
+            orderid: id,
+            salesPerson
           }
         }
       })
@@ -139,7 +109,6 @@ const FarmerOrdersTable = () => {
     // setEmployees(emps?.data?.data)
   }
   const pacthOrders = async (patchObj) => {
-    console.log(patchObj)?.setLoading(true)
     setpatchLoading(true)
 
     const instance = NetworkManager(API.ORDER.UPDATE_ORDER)
@@ -152,7 +121,6 @@ const FarmerOrdersTable = () => {
 
     // setEmployees(emps?.data?.data)
   }
-  console.log(startDate)
 
   const toggleRow = (index) => {
     const newExpandedRows = new Set(expandedRows)
@@ -163,36 +131,6 @@ const FarmerOrdersTable = () => {
     }
     setExpandedRows(newExpandedRows)
   }
-
-  // const handleStatusChange = (index, newStatus) => {
-  //   const newData = [...data]
-  //   newData[index].orderStatus = newStatus
-  //   setData(newData)
-  // }
-
-  // const filteredData = useMemo(() => {
-  //   return data.filter((row) => {
-  //     if (searchTerm) {
-  //       const searchValue = searchTerm.toLowerCase()
-  //       return Object.values(row).some((value) => String(value).toLowerCase().includes(searchValue))
-  //     }
-  //     return true
-  //   })
-  // }, [data, searchTerm])
-
-  // const sortedData = useMemo(() => {
-  //   if (!sorting.column) return filteredData
-
-  //   return [...filteredData].sort((a, b) => {
-  //     if (a[sorting.column] < b[sorting.column]) {
-  //       return sorting.direction === "asc" ? -1 : 1
-  //     }
-  //     if (a[sorting.column] > b[sorting.column]) {
-  //       return sorting.direction === "asc" ? 1 : -1
-  //     }
-  //     return 0
-  //   })
-  // }, [filteredData, sorting])
 
   const handleSort = (column) => {
     setSorting((current) => ({
@@ -240,7 +178,9 @@ const FarmerOrdersTable = () => {
     newData[index][key] = value
     //  setData(newData)
   }
-
+  const refreshComponent = () => {
+    setRefresh(!refresh)
+  }
   return (
     <div className="w-full p-6 bg-gray-100">
       {(loading || patchLoading) && <PageLoader />}
@@ -358,9 +298,7 @@ const FarmerOrdersTable = () => {
                         <Edit2Icon size={16} />
                       </button>
                     )}
-                    <button
-                      onClick={() => console.log(`Paused order ${index}`)}
-                      className="text-gray-500 hover:text-gray-700 focus:outline-none">
+                    <button className="text-gray-500 hover:text-gray-700 focus:outline-none">
                       <PauseIcon size={16} />
                     </button>
                   </td>
@@ -370,12 +308,18 @@ const FarmerOrdersTable = () => {
                     <td colSpan={Object.keys(row).length + 1}>
                       <RenderExpandedContent
                         farmer={{
-                          name: "John Doe",
-                          address: "123 Greenfield St, Village XYZ, Country",
+                          name: row?.details?.farmer?.name,
+                          address: `${row?.details?.farmer?.village}`,
                           contact: "+1234567890"
+                        }}
+                        salesPerson={{
+                          name: row?.details?.salesPerson?.name,
+                          contact: row?.details?.salesPerson?.phoneNumber
                         }}
                         details={{ payment: row?.details?.payment }}
                         orderId={row?.details?.orderid}
+                        getOrders={getOrders}
+                        refreshComponent={refreshComponent}
                       />
                     </td>
                   </tr>

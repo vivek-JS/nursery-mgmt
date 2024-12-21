@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from "react"
 import { ChevronDown, ChevronUp, Check, X, Edit2 } from "react-feather"
+import { CheckCircle, AlertCircle } from "lucide-react"
+
 import {
   Switch,
   TextField as Input,
@@ -11,6 +13,7 @@ import { ExpandMore } from "@mui/icons-material"
 import { API, NetworkManager } from "network/core"
 import { PageLoader } from "components"
 import { Toast } from "helpers/toasts/toastHelper"
+import FarmerOrdersTable from "../dashboard/FarmerOrdersTable"
 
 const Subtypes = ({ plantId, plantSubId }) => {
   const [expandedMonths, setExpandedMonths] = useState({})
@@ -19,7 +22,6 @@ const Subtypes = ({ plantId, plantSubId }) => {
   const [slotsByMonth, setSlotsByMonth] = useState({})
   const [editValue, setEditValue] = useState("")
   const [loading, setLoading] = useState(false)
-
   useEffect(() => {
     fetchPlantsSlots()
   }, [])
@@ -34,7 +36,7 @@ const Subtypes = ({ plantId, plantSubId }) => {
         {},
         { plantId, subtypeId: plantSubId, year: "2024", status: true }
       )
-      const slots = response?.data?.[0]?.subtypeSlots?.[0]?.slots || []
+      const slots = response?.data?.slots[0]?.subtypeSlots?.[0]?.slots || []
       const groupedSlots = groupSlotsByMonth(slots)
       setSlotsByMonth(groupedSlots)
     } catch (error) {
@@ -47,7 +49,6 @@ const Subtypes = ({ plantId, plantSubId }) => {
     if (e) {
       e.stopPropagation()
     }
-    console.log(status)
     setLoading(true)
     try {
       const instance = NetworkManager(API.slots.UPDATE_SLOT)
@@ -126,150 +127,184 @@ const Subtypes = ({ plantId, plantSubId }) => {
   const isSlotExpanded = (monthName, slotIndex) => expandedSlots[`${monthName}-${slotIndex}`]
 
   if (loading) return <PageLoader />
+  function calculateSummary(slots) {
+    // Initialize the sum variables
+    let totalPlants = 0
+    let totalBookedPlants = 0
+    let remainingPlants = 0
 
+    // Iterate over each slot in the array and accumulate the sums
+    slots.forEach((slot) => {
+      totalPlants += slot.totalPlants
+      totalBookedPlants += slot.totalBookedPlants
+      remainingPlants += slot.totalPlants - slot.totalBookedPlants
+    })
+
+    // Return the summary object with all calculated values
+    return {
+      totalPlants,
+      totalBookedPlants,
+      remainingPlants
+    }
+  }
   return (
-    <div className="max-w-4xl mx-auto bg-white rounded-lg shadow">
-      {Object.keys(slotsByMonth).map((monthName) => (
-        <Accordion
-          key={monthName}
-          expanded={expandedMonths[monthName] || false}
-          onChange={() => toggleMonth(monthName)}
-          sx={{
-            "&.MuiAccordion-root": {
-              border: "none",
-              boxShadow: "none",
-              "&:before": {
-                display: "none"
-              }
-            }
-          }}>
-          <AccordionSummary
-            expandIcon={<ExpandMore />}
+    <div className="mx-auto bg-white rounded-lg shadow">
+      {Object.keys(slotsByMonth).map((monthName) => {
+        const total = calculateSummary(slotsByMonth[monthName])
+        const { totalPlants, totalBookedPlants, remainingPlants } = total || {}
+        return (
+          <Accordion
+            key={monthName}
+            expanded={expandedMonths[monthName] || false}
+            onChange={() => toggleMonth(monthName)}
             sx={{
-              backgroundColor: "#f8fafc",
-              borderBottom: "1px solid #e2e8f0",
-              "&:hover": {
-                backgroundColor: "#f1f5f9"
+              "&.MuiAccordion-root": {
+                border: "none",
+                boxShadow: "none",
+                "&:before": {
+                  display: "none"
+                }
               }
             }}>
-            <span className="text-lg font-semibold text-gray-800">{monthName}</span>
-          </AccordionSummary>
-          <AccordionDetails sx={{ padding: "0" }}>
-            {slotsByMonth[monthName].map((slot, index) => {
-              const { startDay, endDay, totalPlants, status, month, totalBookedPlants } = slot || {}
-              const slotKey = `${monthName}-${index}`
-              const isEditing = editingSlot === slotKey
+            <AccordionSummary
+              expandIcon={<ExpandMore />}
+              sx={{
+                backgroundColor: "#f8fafc",
+                borderBottom: "1px solid #e2e8f0",
+                "&:hover": {
+                  backgroundColor: "#f1f5f9"
+                }
+              }}>
+              <div className="flex flex-col">
+                {/* Month Name */}
+                <span className="text-lg font-semibold text-gray-800">{monthName}</span>
 
-              return (
-                <div
-                  key={slotKey}
-                  className="border-b last:border-b-0 hover:bg-gray-50 transition-colors">
-                  <div className="p-4">
-                    <div
-                      className="grid gap-4 items-center"
-                      style={{
-                        gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr" // Date range column gets more space
-                      }}>
-                      {/* Date Range Column */}
-                      <div className="flex items-center space-x-4">
-                        <button
-                          onClick={() => toggleSlot(monthName, index)}
-                          className="flex items-center space-x-2 text-gray-700 hover:text-gray-900">
-                          {isSlotExpanded(monthName, index) ? (
-                            <ChevronUp className="w-4 h-4" />
-                          ) : (
-                            <ChevronDown className="w-4 h-4" />
-                          )}
-                          <span className="font-medium">
-                            {`${startDay} ${month}`}-{`${endDay} ${month}`}
-                          </span>
-                        </button>
-                      </div>
-
-                      {/* Total Plants Column */}
-                      <div className="flex items-center space-x-3">
-                        {isEditing ? (
-                          <div className="flex items-center space-x-2">
-                            <Input
-                              value={editValue}
-                              onChange={handleEditChange}
-                              onKeyDown={(e) => handleKeyPress(e, monthName, index)}
-                              size="small"
-                              sx={{ width: "100px" }}
-                            />
-                            <button
-                              onClick={(e) => updateSlots(e, slot?._id)}
-                              className="p-1 hover:bg-green-50 rounded-full text-green-600">
-                              <Check className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={cancelEdit}
-                              className="p-1 hover:bg-red-50 rounded-full text-red-600">
-                              <X className="w-4 h-4" />
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="flex items-center space-x-1">
-                            <span className="text-gray-700">{totalPlants}</span>
-                            <button
-                              onClick={() => startEditing(monthName, index, totalPlants)}
-                              className="p-1 hover:bg-blue-50 rounded-full text-blue-600">
-                              <Edit2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Booked Plants Column */}
-                      <div className="flex items-center space-x-1">
-                        <span className="text-gray-700">{totalBookedPlants}</span>
-                      </div>
-
-                      <div className="flex items-center space-x-2">
-                        <span className="text-gray-700">{totalPlants - totalBookedPlants}</span>
-                      </div>
-
-                      {/* Status Column */}
-                      <div className="flex items-center justify-between">
-                        <Switch
-                          checked={status}
-                          onChange={(e) => updateSlots(e, slot?._id, status)} // Call the handler with necessary params
-                          sx={{
-                            "& .MuiSwitch-switchBase.Mui-checked": {
-                              color: "#10b981"
-                            },
-                            "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track": {
-                              backgroundColor: "#10b981"
-                            }
-                          }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Expanded Content */}
-                  {isSlotExpanded(monthName, index) && (
-                    <div className="bg-gray-50 p-4 border-t">
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <h4 className="text-sm font-medium text-gray-500 mb-1">Slot Duration</h4>
-                          <p className="text-gray-700">{endDay - startDay + 1} days</p>
-                        </div>
-                        <div>
-                          <h4 className="text-sm font-medium text-gray-500 mb-1">Availability</h4>
-                          <p className="text-gray-700">
-                            {totalPlants - totalBookedPlants} slots available
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  )}
+                {/* Summary Section */}
+                <div className="text-sm flex gap-8 items-center mt-2">
+                  <span className="flex items-center gap-1 text-gray-700">
+                    <strong>{totalPlants || 0}</strong> Total Plants
+                  </span>
+                  <span className="flex items-center gap-1 text-green-600">
+                    <CheckCircle className="w-4 h-4" />
+                    <strong>{totalBookedPlants || 0}</strong> Booked
+                  </span>
+                  <span className="flex items-center gap-1 text-yellow-500">
+                    <AlertCircle className="w-4 h-4" />
+                    <strong>{remainingPlants}</strong> Remaining
+                  </span>
                 </div>
-              )
-            })}
-          </AccordionDetails>
-        </Accordion>
-      ))}
+              </div>
+            </AccordionSummary>
+
+            <AccordionDetails sx={{ padding: "0" }}>
+              {slotsByMonth[monthName].map((slot, index) => {
+                console.log(slot)
+                const { startDay, endDay, totalPlants, status, month, totalBookedPlants, _id } =
+                  slot || {}
+                const slotKey = `${monthName}-${index}`
+                const isEditing = editingSlot === slotKey
+
+                return (
+                  <div
+                    key={slotKey}
+                    className="border-b last:border-b-0 hover:bg-gray-50 transition-colors">
+                    <div className="p-4">
+                      <div
+                        className="grid gap-4 items-center"
+                        style={{
+                          gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr" // Date range column gets more space
+                        }}>
+                        {/* Date Range Column */}
+                        <div className="flex items-center space-x-4">
+                          <button
+                            onClick={() => toggleSlot(monthName, index)}
+                            className="flex items-center space-x-2 text-gray-700 hover:text-gray-900">
+                            {isSlotExpanded(monthName, index) ? (
+                              <ChevronUp className="w-4 h-4" />
+                            ) : (
+                              <ChevronDown className="w-4 h-4" />
+                            )}
+
+                            <div className="flex flex-col gap-1">
+                              <div className="flex items-center gap-3">
+                                <span className="font-medium">
+                                  {`${startDay} ${month}`}-{`${endDay} ${month}`}
+                                </span>{" "}
+                              </div>
+                            </div>
+                          </button>
+                        </div>
+
+                        {/* Total Plants Column */}
+                        <div className="flex items-center space-x-3">
+                          {isEditing ? (
+                            <div className="flex items-center space-x-2">
+                              <Input
+                                value={editValue}
+                                onChange={handleEditChange}
+                                onKeyDown={(e) => handleKeyPress(e, monthName, index)}
+                                size="small"
+                                sx={{ width: "100px" }}
+                              />
+                              <button
+                                onClick={(e) => updateSlots(e, slot?._id)}
+                                className="p-1 hover:bg-green-50 rounded-full text-green-600">
+                                <Check className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={cancelEdit}
+                                className="p-1 hover:bg-red-50 rounded-full text-red-600">
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center space-x-1">
+                              <span className="text-gray-700">{totalPlants}</span>
+                              <button
+                                onClick={() => startEditing(monthName, index, totalPlants)}
+                                className="p-1 hover:bg-blue-50 rounded-full text-blue-600">
+                                <Edit2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Booked Plants Column */}
+                        <div className="flex items-center space-x-1">
+                          <span className="text-gray-700">{totalBookedPlants}</span>
+                        </div>
+
+                        <div className="flex items-center space-x-2">
+                          <span className="text-gray-700">{totalPlants + totalBookedPlants}</span>
+                        </div>
+
+                        {/* Status Column */}
+                        <div className="flex items-center justify-between">
+                          <Switch
+                            checked={status}
+                            onChange={(e) => updateSlots(e, slot?._id, status)} // Call the handler with necessary params
+                            sx={{
+                              "& .MuiSwitch-switchBase.Mui-checked": {
+                                color: "#10b981"
+                              },
+                              "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track": {
+                                backgroundColor: "#10b981"
+                              }
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Expanded Content */}
+                    {isSlotExpanded(monthName, index) && <FarmerOrdersTable slotId={_id} />}
+                  </div>
+                )
+              })}
+            </AccordionDetails>
+          </Accordion>
+        )
+      })}
     </div>
   )
 }

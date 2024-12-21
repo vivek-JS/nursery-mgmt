@@ -200,12 +200,14 @@ export const API = {
   },
   ORDER: {
     GET_ORDERS: new APIRouter("/order/getOrders", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_ORDERS_SLOTS: new APIRouter("/order/getOrders", HTTP_METHODS.GET, OFFLINE.PROFILE),
     UPDATE_ORDER: new APIRouter("/order/updateOrder", HTTP_METHODS.PATCH, OFFLINE.PROFILE),
     UPDATE_PAYMENT_STATUS: new APIRouter(
       "/order/updatePaymentStatus",
       HTTP_METHODS.PATCH,
       OFFLINE.PROFILE
-    )
+    ),
+    ADD_PAYMENT: new APIRouter("order/payment", HTTP_METHODS.PATCH, OFFLINE.PROFILE)
   },
   plantCms: {
     POST_NEWPLANT: new APIRouter("/plantcms/plants", HTTP_METHODS.POST, OFFLINE.PROFILE),

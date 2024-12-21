@@ -16,10 +16,8 @@ import { API, NetworkManager } from "network/core"
 
 const EmployeeManagement = () => {
   const getEmployees = async () => {
-    console.log("In")
     const instance = NetworkManager(API.EMPLOYEE.GET_EMPLOYEE)
     const emps = await instance.request({})
-    console.log(emps)
     setEmployees(emps?.data?.data)
   }
 

@@ -61,7 +61,7 @@ const Dialog = ({ open, onOpenChange, children }) =>
   open ? (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="fixed inset-0 bg-black/50" onClick={() => onOpenChange(false)} />
-      <div className="z-50 w-full max-w-md rounded-lg bg-white p-6 shadow-lg">{children}</div>
+      <div className="z-50 w-full max-w-md rounded-lg bg-white p-3 shadow-lg">{children}</div>
     </div>
   ) : null
 
@@ -252,6 +252,10 @@ const Slots = () => {
                                   {subtype.description}
                                 </div>
                               )}
+                              <div className="mt-2">
+                                <span className="font-medium">Rates:</span>{" "}
+                                {subtype.rates.join(", ")}
+                              </div>
                             </div>
                           ))}
                         </div>
@@ -273,7 +277,7 @@ const Slots = () => {
               initialValues={{
                 name: editPlant?.name || "",
                 slotSize: editPlant?.slotSize || "",
-                subtypes: editPlant?.subtypes || [{ name: "", description: "" }]
+                subtypes: editPlant?.subtypes || [{ name: "", description: "", rates: [""] }]
               }}
               validationSchema={plantSchema}
               onSubmit={handleSubmit}>
@@ -343,13 +347,58 @@ const Slots = () => {
                                     </Button>
                                   )}
                                 </div>
+
+                                <div className="mt-2 space-y-2 w-96">
+                                  <Label>Rates for Subtype {index + 1}</Label>
+                                  <FieldArray name={`subtypes.${index}.rates`}>
+                                    {({ push, remove }) => (
+                                      <>
+                                        <div className="flex gap-2">
+                                          {subtype.rates.map((rate, rateIndex) => (
+                                            <div
+                                              key={rateIndex}
+                                              className="flex items-center gap-2">
+                                              <Input
+                                                name={`subtypes.${index}.rates.${rateIndex}`}
+                                                placeholder="Rate"
+                                                value={rate}
+                                                onChange={handleChange}
+                                                onBlur={handleBlur}
+                                                className="w-32" // Limit width to prevent overflow
+                                              />
+                                              {subtype.rates.length > 1 && (
+                                                <Button
+                                                  type="button"
+                                                  variant="outline"
+                                                  size="sm"
+                                                  onClick={() => remove(rateIndex)}
+                                                  className="text-red-600 hover:bg-red-50 hover:text-red-700">
+                                                  <Trash2 className="h-4 w-4" />
+                                                </Button>
+                                              )}
+                                            </div>
+                                          ))}
+                                        </div>
+                                        <Button
+                                          type="button"
+                                          variant="outline"
+                                          size="sm"
+                                          onClick={() => push("")}
+                                          className="mt-2 gap-2">
+                                          <Plus className="h-4 w-4" />
+                                          Add Rate
+                                        </Button>
+                                      </>
+                                    )}
+                                  </FieldArray>
+                                </div>
                               </div>
                             ))}
                             <Button
                               type="button"
                               variant="outline"
                               size="sm"
-                              onClick={() => push({ name: "", description: "" })}
+                              onClick={() => push({ name: "", description: "", rates: [""] })}
                               className="mt-2 gap-2">
                               <Plus className="h-4 w-4" />
                               Add Subtype

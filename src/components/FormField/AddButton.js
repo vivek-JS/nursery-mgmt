@@ -18,9 +18,7 @@ const StyledButton = styled(Button)(({ theme }) => ({
 }))
 
 const AddEmployeeButton = () => {
-  const handleClick = () => {
-    console.log("Add Employee button clicked")
-  }
+  const handleClick = () => {}
 
   return (
     <StyledButton variant="contained" startIcon={<AddIcon />} onClick={handleClick}>

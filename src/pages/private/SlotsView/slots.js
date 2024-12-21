@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react"
-import { ChevronDown, ChevronUp, Leaf } from "lucide-react"
+import { ChevronDown, ChevronUp, Leaf, CheckCircle, AlertCircle } from "lucide-react"
 import { API, NetworkManager } from "network/core"
 import { PageLoader } from "components"
 import Subtypes from "./Subtypes"
@@ -20,7 +20,7 @@ const SlotAccordionView = ({ plantId }) => {
     setLoading(true)
     try {
       const instance = NetworkManager(API.slots.GET_PLANTS_SUBTYPE)
-      const response = await instance.request({}, { plantId })
+      const response = await instance.request({}, { plantId, year: 2024 })
       console.log(response?.data)
       if (response?.data) {
         setMonths(response?.data)
@@ -55,23 +55,40 @@ const SlotAccordionView = ({ plantId }) => {
   const isMonthExpanded = (monthIndex) => expandedMonths.includes(monthIndex)
 
   // Sample data - replace with actual data
-
+  console.log(months)
   return (
     <div className=" bg-white rounded-lg shadow-lg p-6">
       {loading && <PageLoader />}
 
       <div className="space-y-3">
-        {months.map((month, monthIndex) => (
+        {months?.plant?.subtypes?.map((month, monthIndex) => (
           <div key={month?.name} className="border rounded-lg overflow-hidden">
             <button
               onClick={() => toggleMonth(monthIndex)}
               className="w-full px-4 py-3 bg-gray-50 flex items-center justify-between hover:bg-gray-100 transition-colors">
-              <div className="flex items-center gap-3">
-                <span className="font-medium text-gray-700">{month?.name}</span>
-                <Leaf className="w-4 h-4 text-green-600" />
-                <span className="text-sm text-gray-500">
-                  {isMonthExpanded(monthIndex) ? "Click to collapse" : "Click to expand"}
-                </span>
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-3">
+                  <span className="font-medium text-gray-700">{month?.name}</span>
+                  <Leaf className="w-4 h-4 text-green-600" />
+                </div>
+                <div className="text-sm flex gap-6">
+                  <span className="flex items-center gap-1 text-gray-700">
+                    <strong> {months?.totals?.totalPlants || 0}</strong> Total Plants
+                  </span>
+                  <span className="flex items-center gap-1 text-green-600">
+                    <CheckCircle className="w-4 h-4" />{" "}
+                    <strong> {months?.totals?.totalBookedPlants || 0}</strong> Booked
+                  </span>
+                  <span className="flex items-center gap-1 text-yellow-500">
+                    <AlertCircle className="w-4 h-4" />{" "}
+                    <strong>
+                      {" "}
+                      {Number(months?.totals?.totalPlants) -
+                        Number(months?.totals?.totalBookedPlants)}
+                    </strong>{" "}
+                    Remaining
+                  </span>
+                </div>
               </div>
               {isMonthExpanded(monthIndex) ? (
                 <ChevronUp className="w-5 h-5 text-gray-500" />
