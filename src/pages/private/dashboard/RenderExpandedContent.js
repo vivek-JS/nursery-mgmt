@@ -299,10 +299,14 @@ const RenderExpandedContent = ({ details, farmer, orderId, refreshComponent, sal
     )
   }
 
-  const totalPaidAmount = updatedPayments?.reduce(
-    (sum, payment) => sum + Number(payment.paidAmount || 0),
-    0
-  )
+  const getTotalPaidAmount = (payments) => {
+    console.log(payments)
+    return payments.reduce(
+      (total, payment) => total + (payment?.paymentStatus == "COLLECTED" ? payment.paidAmount : 0),
+      0
+    )
+  }
+  const totalPaidAmount = getTotalPaidAmount(updatedPayments)
   const totalRemainingAmount = 1000 - totalPaidAmount // Adjusted to dynamically calculate remaining amount
 
   return (

@@ -31,12 +31,12 @@ const EmployeeManagement = () => {
   const [filterJobTitle, setFilterJobTitle] = useState("")
   const [newEmployee, setNewEmployee] = useState({
     name: "",
-    email: "",
     phoneNumber: "",
-    jobTitle: ""
+    jobTitle: "",
+    birthDate: null
   })
 
-  const jobTitles = ["Manager", "HR"]
+  const jobTitles = ["Manager", "HR", "SALES", "OFFICE_STAFF", "PRIMARY", "DRIVER"]
 
   const handleInputChange = (e) => {
     const { name, value } = e.target
@@ -60,7 +60,7 @@ const EmployeeManagement = () => {
       console.log(response)
     }
 
-    setNewEmployee({ name: "", email: "", phoneNumber: "", jobTitle: "" })
+    setNewEmployee({ name: "", phoneNumber: "", jobTitle: "" })
     setIsModalOpen(false)
     getEmployees()
   }
@@ -79,9 +79,7 @@ const EmployeeManagement = () => {
   }
 
   const filteredEmployees = employees?.filter((employee) => {
-    const matchesSearch =
-      employee.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      employee.email.toLowerCase().includes(searchQuery.toLowerCase())
+    const matchesSearch = employee.name.toLowerCase().includes(searchQuery.toLowerCase())
     const matchesJobTitle = !filterJobTitle || employee.jobTitle === filterJobTitle
     return matchesSearch && matchesJobTitle
   })

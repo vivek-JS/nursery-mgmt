@@ -1,30 +1,38 @@
 import React, { useState } from "react"
 import { Tabs, Tab, Box } from "@mui/material"
-import PrimaryHardening from "./primaryHardening"
-import CommonData from "./Common Data"
-import JobTitles from "./jobTitles"
+import VehicleTable from "./VehicleTable"
+import ShadeTable from "./ShadeTable"
+import TrayTable from "./Traytable"
+// import DriverTable from "./tables/DriverTable"
 
-export default function TabbedStructure() {
-  const [selectedTab, setSelectedTab] = useState(0)
+const DispatchManagement = () => {
+  const [activeTab, setActiveTab] = useState(0)
 
   const handleTabChange = (event, newValue) => {
-    setSelectedTab(newValue)
+    setActiveTab(newValue)
   }
 
   return (
-    <Box sx={{ width: "100%", bgcolor: "background.paper" }}>
-      <h3>content management system</h3>
-      <Tabs value={selectedTab} onChange={handleTabChange} aria-label="basic tabs example">
-        <Tab label="Job Titles" />
-        <Tab label="Job Titles" />
-      </Tabs>
+    <div className="p-6">
+      <div className="mb-6 flex justify-between items-center">
+        <h1 className="text-2xl font-semibold text-gray-800">Dispatch Management</h1>
+      </div>
 
-      <Box sx={{ p: 3 }}>
-        {selectedTab === 0 && <PrimaryHardening />}
-        {selectedTab === 1 && <CommonData />}
-        {selectedTab === 0 && <JobTitles />}
-        {selectedTab === 1 && <JobTitles />}
+      <Box sx={{ borderBottom: 1, borderColor: "divider" }}>
+        <Tabs value={activeTab} onChange={handleTabChange}>
+          <Tab label="Vehicles" />
+          <Tab label="Shades" />
+          <Tab label="Tray" />
+        </Tabs>
       </Box>
-    </Box>
+
+      <div className="mt-6">
+        {activeTab === 0 && <VehicleTable />}
+        {activeTab === 1 && <ShadeTable />}
+        {activeTab === 2 && <TrayTable />}
+      </div>
+    </div>
   )
 }
+
+export default DispatchManagement

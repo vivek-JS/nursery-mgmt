@@ -63,7 +63,8 @@ export const API = {
   USER: {
     PROFILE: new APIWithOfflineRouter("/user/profile/", HTTP_METHODS.GET, OFFLINE.PROFILE),
     UPDATE: new APIRouter("/user/profile/", HTTP_METHODS.PATCH, OFFLINE.UPDATE),
-    LOGOUT: new APIWithOfflineRouter("/user/logout/", HTTP_METHODS.DEL, OFFLINE.LOGOUT)
+    LOGOUT: new APIWithOfflineRouter("/user/logout/", HTTP_METHODS.DEL, OFFLINE.LOGOUT),
+    GET_USERS: new APIRouter("user/allusers", HTTP_METHODS.GET)
   },
   PATIENT: {
     ADD_PATIENT_LIST: new APIRouter("api/v2/users/", HTTP_METHODS.POST, OFFLINE.PROFILE),
@@ -207,7 +208,8 @@ export const API = {
       HTTP_METHODS.PATCH,
       OFFLINE.PROFILE
     ),
-    ADD_PAYMENT: new APIRouter("order/payment", HTTP_METHODS.PATCH, OFFLINE.PROFILE)
+    ADD_PAYMENT: new APIRouter("order/payment", HTTP_METHODS.PATCH, OFFLINE.PROFILE),
+    GET_SLOTS: new APIRouter("slots/getslots", HTTP_METHODS.GET, OFFLINE.PROFILE)
   },
   plantCms: {
     POST_NEWPLANT: new APIRouter("/plantcms/plants", HTTP_METHODS.POST, OFFLINE.PROFILE),
@@ -220,5 +222,32 @@ export const API = {
     GET_PLANTS_SUBTYPE: new APIRouter("/slots/subtyps", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_PLANTS_SLOTS: new APIRouter("/slots/getslots", HTTP_METHODS.GET, OFFLINE.PROFILE),
     UPDATE_SLOT: new APIRouter("/slots", HTTP_METHODS.PUT, OFFLINE.PROFILE)
+  },
+  VEHICLE: {
+    CREATE_VEHICLE: new APIRouter("vehicles/create", HTTP_METHODS.POST),
+    GET_VEHICLES: new APIRouter("vehicles/all", HTTP_METHODS.GET),
+    GET_ACTIVE_VEHICLES: new APIRouter("vehicles/active", HTTP_METHODS.GET),
+    GET_VEHICLE_BY_ID: new APIRouter("vehicles/get", HTTP_METHODS.GET),
+    UPDATE_VEHICLE: new APIRouter("vehicles/update", HTTP_METHODS.PATCH),
+    DELETE_VEHICLE: new APIRouter("vehicles/delete", HTTP_METHODS.DEL),
+    BULK_UPDATE_VEHICLES: new APIRouter("vehicles/bulk-update", HTTP_METHODS.PATCH)
+  },
+  SHADE: {
+    CREATE_SHADE: new APIRouter("shade/create", HTTP_METHODS.POST),
+    GET_SHADES: new APIRouter("shade/all", HTTP_METHODS.GET),
+    UPDATE_SHADE: new APIRouter("shade/update", HTTP_METHODS.PATCH),
+    TOGGLE_STATUS: new APIRouter("shade/toggle-status", HTTP_METHODS.PATCH)
+  },
+  TRAY: {
+    CREATE_TRAY: new APIRouter("tray/create", HTTP_METHODS.POST),
+    GET_TRAYS: new APIRouter("tray/all", HTTP_METHODS.GET),
+    UPDATE_TRAY: new APIRouter("tray/update", HTTP_METHODS.PATCH),
+    TOGGLE_STATUS: new APIRouter("tray/toggle-stat        us", HTTP_METHODS.PATCH)
+  },
+
+  DISPATCHED: {
+    GET_TRAYS: new APIRouter("dispatched", HTTP_METHODS.GET),
+    CREATE_TRAY: new APIRouter("dispatched", HTTP_METHODS.POST),
+    DELETE_TRANSPORT: new APIRouter("dispatched/transport", HTTP_METHODS.DEL)
   }
 }

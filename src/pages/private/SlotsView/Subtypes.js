@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from "react"
 import { ChevronDown, ChevronUp, Check, X, Edit2 } from "react-feather"
 import { CheckCircle, AlertCircle } from "lucide-react"
-
 import {
   Switch,
   TextField as Input,
@@ -14,6 +13,7 @@ import { API, NetworkManager } from "network/core"
 import { PageLoader } from "components"
 import { Toast } from "helpers/toasts/toastHelper"
 import FarmerOrdersTable from "../dashboard/FarmerOrdersTable"
+import moment from "moment"
 
 const Subtypes = ({ plantId, plantSubId }) => {
   const [expandedMonths, setExpandedMonths] = useState({})
@@ -32,11 +32,14 @@ const Subtypes = ({ plantId, plantSubId }) => {
     setLoading(true)
     try {
       const instance = NetworkManager(API.slots.GET_PLANTS_SLOTS)
-      const response = await instance.request(
-        {},
-        { plantId, subtypeId: plantSubId, year: "2024", status: true }
-      )
-      const slots = response?.data?.slots[0]?.subtypeSlots?.[0]?.slots || []
+      const response = await instance.request({}, { plantId, subtypeId: plantSubId, year: 2025 })
+      console.log(response?.data?.slots[0]?.slots?.[0])
+      console.log(response?.data?.slots[0]?.slots)
+
+      const slots = response?.data?.slots[0]?.slots || []
+      console.log(slots)
+      console.log(response?.data?.slots[0]?.slots?.[0])
+
       const groupedSlots = groupSlotsByMonth(slots)
       setSlotsByMonth(groupedSlots)
     } catch (error) {
@@ -151,7 +154,9 @@ const Subtypes = ({ plantId, plantSubId }) => {
     <div className="mx-auto bg-white rounded-lg shadow">
       {Object.keys(slotsByMonth).map((monthName) => {
         const total = calculateSummary(slotsByMonth[monthName])
-        const { totalPlants, totalBookedPlants, remainingPlants } = total || {}
+        const { totalPlants, totalBookedPlants } = total || {}
+
+        // Combine into the desired format
         return (
           <Accordion
             key={monthName}
@@ -182,7 +187,7 @@ const Subtypes = ({ plantId, plantSubId }) => {
                 {/* Summary Section */}
                 <div className="text-sm flex gap-8 items-center mt-2">
                   <span className="flex items-center gap-1 text-gray-700">
-                    <strong>{totalPlants || 0}</strong> Total Plants
+                    <strong>{totalBookedPlants || 0}</strong> Total Plants
                   </span>
                   <span className="flex items-center gap-1 text-green-600">
                     <CheckCircle className="w-4 h-4" />
@@ -190,7 +195,7 @@ const Subtypes = ({ plantId, plantSubId }) => {
                   </span>
                   <span className="flex items-center gap-1 text-yellow-500">
                     <AlertCircle className="w-4 h-4" />
-                    <strong>{remainingPlants}</strong> Remaining
+                    <strong>{totalPlants + totalBookedPlants}</strong> Remaining
                   </span>
                 </div>
               </div>
@@ -199,11 +204,12 @@ const Subtypes = ({ plantId, plantSubId }) => {
             <AccordionDetails sx={{ padding: "0" }}>
               {slotsByMonth[monthName].map((slot, index) => {
                 console.log(slot)
-                const { startDay, endDay, totalPlants, status, month, totalBookedPlants, _id } =
-                  slot || {}
+                const { startDay, endDay, totalPlants, status, totalBookedPlants, _id } = slot || {}
                 const slotKey = `${monthName}-${index}`
                 const isEditing = editingSlot === slotKey
-
+                const start = moment(startDay, "DD-MM-YYYY").format("D")
+                const end = moment(endDay, "DD-MM-YYYY").format("D")
+                const monthYear = moment(startDay, "DD-MM-YYYY").format("MMMM, YYYY")
                 return (
                   <div
                     key={slotKey}
@@ -228,7 +234,7 @@ const Subtypes = ({ plantId, plantSubId }) => {
                             <div className="flex flex-col gap-1">
                               <div className="flex items-center gap-3">
                                 <span className="font-medium">
-                                  {`${startDay} ${month}`}-{`${endDay} ${month}`}
+                                  {`${start} - ${end} ${monthYear}`}
                                 </span>{" "}
                               </div>
                             </div>

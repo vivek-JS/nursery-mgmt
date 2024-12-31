@@ -16,9 +16,7 @@ const EmployeeTable = ({ employees, onEdit, onDelete }) => {
         <Grid item style={getDynamicStyle(2, 12, 14, true)} className={classes.label}>
           Employee Name
         </Grid>
-        <Grid item style={getDynamicStyle(3, 12, 14, true)} className={classes.label}>
-          Email
-        </Grid>
+
         <Grid item style={getDynamicStyle(2, 12, 14, true)} className={classes.label}>
           Phone Number
         </Grid>
@@ -40,9 +38,7 @@ const EmployeeTable = ({ employees, onEdit, onDelete }) => {
             className={`${classes.tableCell} ${classes.nameClass}`}>
             {employee.name}
           </Grid>
-          <Grid item style={getDynamicStyle(3, 12, 14)} className={classes.tableCell}>
-            {employee.email}
-          </Grid>
+
           <Grid item style={getDynamicStyle(2, 12, 14)} className={classes.tableCell}>
             {employee.phoneNumber}
           </Grid>
