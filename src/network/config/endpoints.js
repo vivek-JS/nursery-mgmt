@@ -242,12 +242,30 @@ export const API = {
     CREATE_TRAY: new APIRouter("tray/create", HTTP_METHODS.POST),
     GET_TRAYS: new APIRouter("tray/all", HTTP_METHODS.GET),
     UPDATE_TRAY: new APIRouter("tray/update", HTTP_METHODS.PATCH),
-    TOGGLE_STATUS: new APIRouter("tray/toggle-stat        us", HTTP_METHODS.PATCH)
+    TOGGLE_STATUS: new APIRouter("tray/toggle-status", HTTP_METHODS.PATCH)
   },
 
   DISPATCHED: {
     GET_TRAYS: new APIRouter("dispatched", HTTP_METHODS.GET),
     CREATE_TRAY: new APIRouter("dispatched", HTTP_METHODS.POST),
-    DELETE_TRANSPORT: new APIRouter("dispatched/transport", HTTP_METHODS.DEL)
+    DELETE_TRANSPORT: new APIRouter("dispatched/transport", HTTP_METHODS.DEL),
+    UPDATE_COMPLETE: new APIRouter("dispatched/complete", HTTP_METHODS.PATCH)
+  },
+  BATCH: {
+    CREATE_BATCH: new APIRouter("batch/create", HTTP_METHODS.POST),
+    GET_BATCHES: new APIRouter("batch/all", HTTP_METHODS.GET),
+    UPDATE_BATCH: new APIRouter("batch/update", HTTP_METHODS.PATCH),
+    TOGGLE_STATUS: new APIRouter("batch/toggle-status", HTTP_METHODS.PATCH)
+  },
+  PLANT_OUTWARD: {
+    ADD_LAB: new APIRouter("laboutward/batch/labs", HTTP_METHODS.POST),
+    UPDATE_LAB: new APIRouter("batch/outward/lab", HTTP_METHODS.PUT),
+    GET_OUTWARDS: new APIRouter("laboutward/outwards", HTTP_METHODS.GET)
+  },
+  POLLY_HOUSE: {
+    CREATE_HOUSE: new APIRouter("pollyhouse/create", HTTP_METHODS.POST),
+    GET_HOUSES: new APIRouter("pollyhouse/all", HTTP_METHODS.GET),
+    UPDATE_HOUSE: new APIRouter("pollyhouse/update", HTTP_METHODS.PATCH),
+    TOGGLE_STATUS: new APIRouter("pollyhouse/toggle-status", HTTP_METHODS.PATCH)
   }
 }

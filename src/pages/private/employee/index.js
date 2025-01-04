@@ -36,7 +36,15 @@ const EmployeeManagement = () => {
     birthDate: null
   })
 
-  const jobTitles = ["Manager", "HR", "SALES", "OFFICE_STAFF", "PRIMARY", "DRIVER"]
+  const jobTitles = [
+    "Manager",
+    "HR",
+    "SALES",
+    "OFFICE_STAFF",
+    "PRIMARY",
+    "DRIVER",
+    "LABORATORY_MANAGER"
+  ]
 
   const handleInputChange = (e) => {
     const { name, value } = e.target
@@ -60,8 +68,8 @@ const EmployeeManagement = () => {
       console.log(response)
     }
 
-    setNewEmployee({ name: "", phoneNumber: "", jobTitle: "" })
-    setIsModalOpen(false)
+    //  setNewEmployee({ name: "", phoneNumber: "", jobTitle: "" })
+    //setIsModalOpen(false)
     getEmployees()
   }
 

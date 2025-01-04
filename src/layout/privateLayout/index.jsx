@@ -71,8 +71,8 @@ export default function PrivateLayout(props) {
   // }, [])
   const styles = useStyles()
 
-  const userType = useSelector((state) => state?.userData?.userData?.type)
-
+  const userType = useSelector((state) => state?.userData?.userData?.jobTitle)
+console.log(userType)
   const { navigate, handleLogout, activeMenu } = usePrivateLayoutController(props)
 
   return (
@@ -99,7 +99,7 @@ export default function PrivateLayout(props) {
 
           {DashboardMenus.filter(
             (item) =>
-              !(userType === "compounder" && (item.title === "Settings" || item.title === "Admin"))
+              (userType === "LABORATORY_MANAGER" ?(item.title === "Labs"):true)
           ).map((item) => {
             return (
               <ListItemButton

@@ -209,13 +209,20 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
         const extraPlants =
           (plant?.quantity / plant?.cavityDetails?.cavitySize) * Number(plant.extraPlantsPerTray) ||
           0
+        console.log(extraPlants)
         const totalPlants =
           plant.pickupDetails.reduce((sum, detail) => sum + Number(detail.quantity), 0) +
           extraPlants
         numberPerCrate = Number(numberPerCrate) || selectedCavity?.numberPerCrate || 1
+        console.log(totalPlants)
+
+        console.log(numberPerCrate)
 
         const numberOfCavityTrays = Math.floor(totalPlants / cavitySize)
-        const remainder = totalPlants % numberPerCrate
+        const remainder = (totalPlants / cavitySize) % numberPerCrate
+
+        console.log(numberOfCavityTrays)
+        console.log(remainder)
 
         updatedPlants[plantIndex].selectedCavity = value
         updatedPlants[plantIndex].cavityDetails = {
@@ -465,7 +472,21 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
                   <div className="flex items-center gap-2">
                     <Leaf className="text-green-600" size={20} />
                     <span className="font-medium">{plant.name}</span>
-                    <span className="text-sm text-green-600">({plant.quantity} plants)</span>
+                    <div className="flex items-center gap-1">
+                      <span className="text-sm text-green-600 bg-green-100 px-2 py-0.5 rounded-full">
+                        {plant.quantity.toLocaleString()} plants
+                      </span>
+                      {plant.extraPlantsPerTray > 0 && (
+                        <span className="text-sm text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full flex items-center gap-1">
+                          <span className="text-xs">+</span>
+                          {Math.round(
+                            (Number(plant?.quantity) / Number(plant?.cavityDetails?.cavitySize)) *
+                              Number(plant.extraPlantsPerTray)
+                          ).toLocaleString()}{" "}
+                          extra
+                        </span>
+                      )}
+                    </div>
                   </div>
                   {expandedPlants[plant.id] ? (
                     <ChevronUp className="text-green-600" size={20} />

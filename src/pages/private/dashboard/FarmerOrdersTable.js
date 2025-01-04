@@ -640,6 +640,7 @@ const FarmerOrdersTable = ({ slotId }) => {
                         <td key={key} className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
                           {key === "orderStatus" ? (
                             <select
+                              disabled={value === "DISPATCH_PROCESS" || value === "COMPLETED"}
                               value={value}
                               onChange={(e) =>
                                 pacthOrders(

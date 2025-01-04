@@ -3,8 +3,9 @@ import { Tabs, Tab, Box } from "@mui/material"
 import VehicleTable from "./VehicleTable"
 import ShadeTable from "./ShadeTable"
 import TrayTable from "./Traytable"
+import BatchTable from "./BatchTable"
+import PollyHouseTable from "./PollyHouseTable"
 // import DriverTable from "./tables/DriverTable"
-
 const DispatchManagement = () => {
   const [activeTab, setActiveTab] = useState(0)
 
@@ -23,6 +24,8 @@ const DispatchManagement = () => {
           <Tab label="Vehicles" />
           <Tab label="Shades" />
           <Tab label="Tray" />
+          <Tab label="Batch" />
+          <Tab label="Pollyhouse" />
         </Tabs>
       </Box>
 
@@ -30,6 +33,8 @@ const DispatchManagement = () => {
         {activeTab === 0 && <VehicleTable />}
         {activeTab === 1 && <ShadeTable />}
         {activeTab === 2 && <TrayTable />}
+        {activeTab === 3 && <BatchTable />}
+        {activeTab === 4 && <PollyHouseTable />}
       </div>
     </div>
   )

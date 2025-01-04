@@ -28,5 +28,6 @@ export const DashboardMenus = [
   new MenuPath("Labs", <BiotechIcon />, "/u/labs"),
   new MenuPath("Order", <ListAltIcon />, "/u/orders"),
   new MenuPath("Plants and Products", <AlignHorizontalLeftIcon />, "/u/plants"),
-  new MenuPath("Slots Managment", <BiotechIcon />, "/u/slots")
+  new MenuPath("Slots Managment", <BiotechIcon />, "/u/slots"),
+  new MenuPath("Hardening", <BiotechIcon />, "/u/hardening")
 ]

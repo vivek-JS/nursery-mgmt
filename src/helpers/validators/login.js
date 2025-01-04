@@ -6,6 +6,6 @@ export const LoginValidator = {
     password: ""
   },
   validationSchema: Yup.object().shape({
-    password: Yup.string().required("Password is Required").min(8)
+    //  password: Yup.string().required("Password is Required").min(8)
   })
 }

@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from "react"
 import { NetworkManager, API } from "network/core"
-import { Truck, Trash2 } from "lucide-react"
+import { Truck, Trash2, CheckCircle } from "lucide-react"
 import DispatchForm from "./DispatchedForm"
 import CollectSlipPDF from "./CollectSlipPDF"
 import DeliveryChallanPDF from "./DeliveryChallan"
+import OrderCompleteDialog from "./OrderCompleteDialog"
 const DispatchList = ({ setisDispatchtab, viewMode }) => {
   const [dispatches, setDispatches] = useState([])
   const [loading, setLoading] = useState(true)
@@ -12,6 +13,8 @@ const DispatchList = ({ setisDispatchtab, viewMode }) => {
   const [isDispatchFormOpen, setIsDispatchFormOpen] = useState(false)
   const [isCollectSlipOpen, setIsCollectSlipOpen] = useState(false)
   const [isDCOpen, setIsDCOpen] = useState(false)
+  const [isOrderCompleteOpen, setIsOrderCompleteOpen] = useState(false)
+
   useEffect(() => {
     fetchDispatches()
   }, [viewMode])
@@ -92,6 +95,11 @@ const DispatchList = ({ setisDispatchtab, viewMode }) => {
       transportId: dispatchData.transportId,
       plants: plants
     }
+  }
+  const handleOrderComplete = (dispatch, e) => {
+    e.stopPropagation()
+    setSelectedDispatch(dispatch)
+    setIsOrderCompleteOpen(true)
   }
 
   function transformDataToMap(data) {
@@ -216,6 +224,18 @@ const DispatchList = ({ setisDispatchtab, viewMode }) => {
       }
     }
   }
+  const getStatusChipStyles = (status) => {
+    switch (status) {
+      case "DELIVERED":
+        return "bg-green-100 text-green-800 border-green-200"
+      case "IN_TRANSIT":
+        return "bg-blue-100 text-blue-800 border-blue-200"
+      case "CANCELLED":
+        return "bg-red-100 text-red-800 border-red-200"
+      default: // PENDING
+        return "bg-yellow-100 text-yellow-800 border-yellow-200"
+    }
+  }
   return (
     <>
       {viewMode === "dispatch_process" && (
@@ -241,6 +261,15 @@ const DispatchList = ({ setisDispatchtab, viewMode }) => {
                     </th>
                     <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">
                       Driver
+                    </th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">
+                      Order IDs
+                    </th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">
+                      Date
+                    </th>
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">
+                      Status
                     </th>
                     <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">
                       Total Plants
@@ -269,6 +298,37 @@ const DispatchList = ({ setisDispatchtab, viewMode }) => {
                         {dispatch.driverName}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-gray-600">
+                        {new Date(dispatch.createdAt).toLocaleDateString("en-IN", {
+                          day: "numeric",
+                          month: "short",
+                          year: "numeric"
+                        })}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-gray-600">
+                        <div className="flex items-center gap-1">
+                          {dispatch.orderIds?.slice(0, 3).map((order) => (
+                            <span
+                              key={order.order}
+                              className="inline-flex items-center px-2 py-0.5 rounded bg-gray-100 text-gray-800 text-xs">
+                              #{order.order}
+                            </span>
+                          ))}
+                          {dispatch.orderIds?.length > 3 && (
+                            <span className="text-gray-500 text-xs">
+                              +{dispatch.orderIds.length - 3} more
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span
+                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getStatusChipStyles(
+                            dispatch.transportStatus
+                          )}`}>
+                          {dispatch.transportStatus || "PENDING"}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-gray-600">
                         {dispatch.plantsDetails.reduce((sum, plant) => sum + plant.quantity, 0)}
                       </td>
                       <td className="px-6 py-4 text-gray-600">
@@ -285,16 +345,25 @@ const DispatchList = ({ setisDispatchtab, viewMode }) => {
                           className="inline-flex items-center px-3 py-1.5 bg-green-600 text-white text-sm font-medium rounded hover:bg-green-700">
                           DC
                         </button>
-
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation() // Prevent row click
-                            handleDelete(dispatch)
-                          }}
-                          className="inline-flex items-center px-3 py-1.5 bg-red-100 text-red-700 text-sm font-medium rounded hover:bg-red-200">
-                          <Trash2 size={16} className="mr-1" />
-                          Delete
-                        </button>
+                        {dispatch.transportStatus !== "DELIVERED" && (
+                          <>
+                            <button
+                              onClick={(e) => handleOrderComplete(dispatch, e)}
+                              className="inline-flex items-center px-3 py-1.5 bg-purple-600 text-white text-sm font-medium rounded hover:bg-purple-700">
+                              <CheckCircle size={16} className="mr-1" />
+                              Order Completed
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleDelete(dispatch)
+                              }}
+                              className="inline-flex items-center px-3 py-1.5 bg-red-100 text-red-700 text-sm font-medium rounded hover:bg-red-200">
+                              <Trash2 size={16} className="mr-1" />
+                              Delete
+                            </button>
+                          </>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -325,6 +394,14 @@ const DispatchList = ({ setisDispatchtab, viewMode }) => {
             <DeliveryChallanPDF
               open={isDCOpen}
               onClose={() => setIsDCOpen(false)}
+              dispatchData={selectedDispatch}
+            />
+          )}
+          {/* New Order Complete Dialog */}
+          {isOrderCompleteOpen && (
+            <OrderCompleteDialog
+              open={isOrderCompleteOpen}
+              onClose={() => setIsOrderCompleteOpen(false)}
               dispatchData={selectedDispatch}
             />
           )}
