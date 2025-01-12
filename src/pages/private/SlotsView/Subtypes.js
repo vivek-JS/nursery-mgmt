@@ -33,12 +33,8 @@ const Subtypes = ({ plantId, plantSubId }) => {
     try {
       const instance = NetworkManager(API.slots.GET_PLANTS_SLOTS)
       const response = await instance.request({}, { plantId, subtypeId: plantSubId, year: 2025 })
-      console.log(response?.data?.slots[0]?.slots?.[0])
-      console.log(response?.data?.slots[0]?.slots)
 
       const slots = response?.data?.slots[0]?.slots || []
-      console.log(slots)
-      console.log(response?.data?.slots[0]?.slots?.[0])
 
       const groupedSlots = groupSlotsByMonth(slots)
       setSlotsByMonth(groupedSlots)
@@ -64,8 +60,6 @@ const Subtypes = ({ plantId, plantSubId }) => {
         setEditingSlot(null)
         fetchPlantsSlots()
       }
-
-      console.log(response)
     } catch (error) {
       console.error("Error fetching plants:", error)
     }
@@ -186,16 +180,16 @@ const Subtypes = ({ plantId, plantSubId }) => {
 
                 {/* Summary Section */}
                 <div className="text-sm flex gap-8 items-center mt-2">
-                  <span className="flex items-center gap-1 text-gray-700">
-                    <strong>{totalBookedPlants || 0}</strong> Total Plants
+                  <span className="flex items-center gap-1 text-yellow-500">
+                    <AlertCircle className="w-4 h-4" />
+                    <strong>{totalPlants}</strong> Remaining
                   </span>
                   <span className="flex items-center gap-1 text-green-600">
                     <CheckCircle className="w-4 h-4" />
                     <strong>{totalBookedPlants || 0}</strong> Booked
                   </span>
-                  <span className="flex items-center gap-1 text-yellow-500">
-                    <AlertCircle className="w-4 h-4" />
-                    <strong>{totalPlants + totalBookedPlants}</strong> Remaining
+                  <span className="flex items-center gap-1 text-gray-700">
+                    <strong>{totalPlants + totalBookedPlants || 0}</strong> Total Plants
                   </span>
                 </div>
               </div>
@@ -203,7 +197,6 @@ const Subtypes = ({ plantId, plantSubId }) => {
 
             <AccordionDetails sx={{ padding: "0" }}>
               {slotsByMonth[monthName].map((slot, index) => {
-                console.log(slot)
                 const { startDay, endDay, totalPlants, status, totalBookedPlants, _id } = slot || {}
                 const slotKey = `${monthName}-${index}`
                 const isEditing = editingSlot === slotKey

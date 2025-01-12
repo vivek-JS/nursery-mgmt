@@ -7,9 +7,9 @@ const ParentAccordion = () => {
   const [expandedSections, setExpandedSections] = useState([])
   const [loading, setLoading] = useState(false)
   const [months, setMonths] = useState([])
-  const [selectedYear, setSelectedYear] = useState("2024")
+  const [selectedYear, setSelectedYear] = useState("2025")
 
-  const years = ["2024", "2025", "2026"]
+  const years = ["2025"]
 
   const toggleSection = (sectionIndex) => {
     setExpandedSections((prev) =>
@@ -72,16 +72,6 @@ const ParentAccordion = () => {
                 <div className="w-full flex items-start justify-center flex-col">
                   <span className="font-medium text-gray-700">{section?.name}</span>
                   <div className="text-sm flex gap-6">
-                    <span className="flex items-center gap-1 text-gray-700">
-                      <strong>
-                        {Number(section?.totalPlants) + Number(section?.totalBookedPlants) || 0}
-                      </strong>{" "}
-                      Total Plants
-                    </span>
-                    <span className="flex items-center gap-1 text-green-600">
-                      <CheckCircle className="w-4 h-4" />{" "}
-                      <strong>{Number(section?.totalBookedPlants) || 0}</strong> Booked
-                    </span>
                     <span className="flex items-center gap-1 text-yellow-500">
                       <AlertCircle className="w-4 h-4" />{" "}
                       <strong>
@@ -90,6 +80,17 @@ const ParentAccordion = () => {
                           Number(section?.totalBookedPlants) || 0}
                       </strong>{" "}
                       Remaining
+                    </span>
+                    <span className="flex items-center gap-1 text-green-600">
+                      <CheckCircle className="w-4 h-4" />{" "}
+                      <strong>{Number(section?.totalBookedPlants) || 0}</strong> Booked
+                    </span>
+
+                    <span className="flex items-center gap-1 text-gray-700">
+                      <strong>
+                        {Number(section?.totalPlants) + Number(section?.totalBookedPlants) || 0}
+                      </strong>{" "}
+                      Total Plants
                     </span>
                   </div>
                 </div>

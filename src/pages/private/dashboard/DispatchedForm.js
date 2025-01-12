@@ -12,7 +12,6 @@ import { Leaf, Truck, Trash2, ChevronDown, ChevronUp } from "lucide-react"
 import { NetworkManager, API } from "network/core"
 
 const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatchData = null }) => {
-  console.log(selectedOrders)
   const [formData, setFormData] = useState({
     driverName: "",
     vehicleName: "",
@@ -26,7 +25,6 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
   const [shades, setShades] = useState([])
   const [cavities, setCavities] = useState([])
   const [isEditing, setIsEditing] = useState(false)
-  console.log(formData)
   // Fetch functions for each dropdown
   const getDrivers = async () => {
     try {
@@ -209,20 +207,12 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
         const extraPlants =
           (plant?.quantity / plant?.cavityDetails?.cavitySize) * Number(plant.extraPlantsPerTray) ||
           0
-        console.log(extraPlants)
         const totalPlants =
           plant.pickupDetails.reduce((sum, detail) => sum + Number(detail.quantity), 0) +
           extraPlants
         numberPerCrate = Number(numberPerCrate) || selectedCavity?.numberPerCrate || 1
-        console.log(totalPlants)
-
-        console.log(numberPerCrate)
-
         const numberOfCavityTrays = Math.floor(totalPlants / cavitySize)
         const remainder = (totalPlants / cavitySize) % numberPerCrate
-
-        console.log(numberOfCavityTrays)
-        console.log(remainder)
 
         updatedPlants[plantIndex].selectedCavity = value
         updatedPlants[plantIndex].cavityDetails = {

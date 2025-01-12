@@ -21,7 +21,6 @@ const SlotAccordionView = ({ plantId, year }) => {
     try {
       const instance = NetworkManager(API.slots.GET_PLANTS_SUBTYPE)
       const response = await instance.request({}, { plantId, year: 2025 })
-      console.log(response?.data)
       if (response?.data) {
         setMonths(response?.data)
       }
@@ -30,7 +29,6 @@ const SlotAccordionView = ({ plantId, year }) => {
     }
     setLoading(false)
   }
-  console.log(months)
   // const months = [
   //   "January",
   //   "February",
@@ -55,7 +53,6 @@ const SlotAccordionView = ({ plantId, year }) => {
   const isMonthExpanded = (monthIndex) => expandedMonths.includes(monthIndex)
 
   // Sample data - replace with actual data
-  console.log(months)
   return (
     <div className=" bg-white rounded-lg shadow-lg p-6">
       {loading && <PageLoader />}
@@ -72,13 +69,6 @@ const SlotAccordionView = ({ plantId, year }) => {
                   <Leaf className="w-4 h-4 text-green-600" />
                 </div>
                 <div className="text-sm flex gap-6">
-                  <span className="flex items-center gap-1 text-gray-700">
-                    <strong> {month?.totalPlants || 0}</strong> Total Plants
-                  </span>
-                  <span className="flex items-center gap-1 text-green-600">
-                    <CheckCircle className="w-4 h-4" />{" "}
-                    <strong> {month?.totalBookedPlants || 0}</strong> Booked
-                  </span>
                   <span className="flex items-center gap-1 text-yellow-500">
                     <AlertCircle className="w-4 h-4" />{" "}
                     <strong>
@@ -87,6 +77,15 @@ const SlotAccordionView = ({ plantId, year }) => {
                         0}
                     </strong>{" "}
                     Remaining
+                  </span>
+                  <span className="flex items-center gap-1 text-green-600">
+                    <CheckCircle className="w-4 h-4" />{" "}
+                    <strong> {month?.totalBookedPlants || 0}</strong> Booked
+                  </span>
+
+                  <span className="flex items-center gap-1 text-gray-700">
+                    <strong> {month?.totalPlants + month?.totalBookedPlants || 0}</strong> Total
+                    Plants
                   </span>
                 </div>
               </div>

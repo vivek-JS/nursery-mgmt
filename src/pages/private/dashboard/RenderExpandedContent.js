@@ -5,7 +5,14 @@ import { API, NetworkManager } from "network/core"
 import { PageLoader } from "components"
 import { Toast } from "helpers/toasts/toastHelper"
 
-const RenderExpandedContent = ({ details, farmer, orderId, refreshComponent, salesPerson }) => {
+const RenderExpandedContent = ({
+  details,
+  farmer,
+  orderId,
+  refreshComponent,
+  salesPerson,
+  orderDetaisl
+}) => {
   const [editablePaymentId, setEditablePaymentId] = useState(null)
   const [updatedPayments, setUpdatedPayments] = useState(details.payment)
   const [loading, setLoading] = useState(false)
@@ -25,7 +32,7 @@ const RenderExpandedContent = ({ details, farmer, orderId, refreshComponent, sal
       setUpdatedPayments(updatedPayment)
     }
   }
-
+  console.log(orderDetaisl)
   const handleCancelEdit = () => {
     setEditablePaymentId(null)
     setUpdatedPayments(details.payment) // Reset to initial state
@@ -51,7 +58,6 @@ const RenderExpandedContent = ({ details, farmer, orderId, refreshComponent, sal
   const handleAddPaymentToDb = async () => {
     setLoading(true)
     const instance = NetworkManager(API.ORDER.ADD_PAYMENT)
-    console.log(updatedPayments)
     const payload = { ...updatedPayments[0] }
     payload.paymentStatus = "COLLECTED"
     const emps = await instance.request(payload, [orderId])
@@ -300,14 +306,12 @@ const RenderExpandedContent = ({ details, farmer, orderId, refreshComponent, sal
   }
 
   const getTotalPaidAmount = (payments) => {
-    console.log(payments)
     return payments.reduce(
       (total, payment) => total + (payment?.paymentStatus == "COLLECTED" ? payment.paidAmount : 0),
       0
     )
   }
   const totalPaidAmount = getTotalPaidAmount(updatedPayments)
-  const totalRemainingAmount = 1000 - totalPaidAmount // Adjusted to dynamically calculate remaining amount
 
   return (
     <div className="flex flex-col lg:flex-row gap-6 p-6 bg-gray-100">
@@ -340,7 +344,10 @@ const RenderExpandedContent = ({ details, farmer, orderId, refreshComponent, sal
             Total Paid Amount: <span className="text-green-600">₹{totalPaidAmount}</span>
           </p>
           <p className="text-gray-700 text-lg font-semibold mt-2">
-            Total Remaining Amount: <span className="text-red-600">₹{totalRemainingAmount}</span>
+            Total Remaining Amount:{" "}
+            <span className="text-red-600">
+              ₹{Number(orderDetaisl?.rate * orderDetaisl?.numberOfPlants) - totalPaidAmount}
+            </span>
           </p>
         </div>
       </div>

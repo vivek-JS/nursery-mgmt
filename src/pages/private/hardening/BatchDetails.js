@@ -3,7 +3,10 @@ import { ChevronDownIcon, ChevronRightIcon, ArrowRightIcon, PackageIcon } from "
 const BatchDetails = ({ batch, isOpen, onToggle }) => {
   const primaryInward = batch?.primaryInward || []
   const outward = batch?.outward || []
-
+  const formatDate = (date) => {
+    if (!date) return "-"
+    return new Date(date).toLocaleDateString()
+  }
   return (
     <>
       <tr
@@ -62,6 +65,10 @@ const BatchDetails = ({ batch, isOpen, onToggle }) => {
                           <th className="text-right p-4 text-sm font-medium text-gray-600">
                             Quantity
                           </th>
+                          <th className="text-right font-medium p-4 text-gray-600">
+                            Expected Outward Date
+                          </th>
+
                           <th className="text-right p-4 text-sm font-medium text-gray-600">
                             Labour
                           </th>
@@ -83,6 +90,9 @@ const BatchDetails = ({ batch, isOpen, onToggle }) => {
                             <td className="p-4 text-right">{entry.cavity?.toLocaleString()}</td>
                             <td className="p-4 text-right">
                               {entry.totalQuantity?.toLocaleString()}
+                            </td>
+                            <td className="p-4 text-right font-medium">
+                              {formatDate(entry.primaryOutwardExpectedDate)}
                             </td>
                             <td className="p-4 text-right">{entry.laboursEngaged}</td>
                           </tr>

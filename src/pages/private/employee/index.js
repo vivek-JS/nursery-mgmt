@@ -43,7 +43,9 @@ const EmployeeManagement = () => {
     "OFFICE_STAFF",
     "PRIMARY",
     "DRIVER",
-    "LABORATORY_MANAGER"
+    "LABORATORY_MANAGER",
+    "DEALER",
+    "OFFICE_ADMIN"
   ]
 
   const handleInputChange = (e) => {
@@ -58,7 +60,6 @@ const EmployeeManagement = () => {
     e.preventDefault()
 
     if (isEdit) {
-      console.log("new", newEmployee)
       const instance = NetworkManager(API.EMPLOYEE.UPDATE_EMPLOYEE)
       const response = await instance.request(newEmployee)
       console.log(response)

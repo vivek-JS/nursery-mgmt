@@ -7,7 +7,6 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData }) => {
   const [returnedPlants, setReturnedPlants] = useState({})
   const [expandedRows, setExpandedRows] = useState(new Set())
   const [returnReasons, setReturnReasons] = useState({})
-  console.log(dispatchData)
   const handleReturnedPlantsChange = (orderId, value) => {
     setReturnedPlants((prev) => ({
       ...prev,
@@ -59,17 +58,12 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData }) => {
 
   const handleCompleteOrders = async () => {
     try {
-      console.log(
-        "Dispatch update payload:",
-        processReturnedPlants(dispatchData, returnedPlants, returnReasons)
-      )
       // Add your API call here
       const instance = NetworkManager(API.DISPATCHED.UPDATE_COMPLETE)
       const user = await instance.request(
         { ...processReturnedPlants(dispatchData, returnedPlants, returnReasons) },
         [dispatchData?._id]
       )
-      console.log(user)
       if (user?.data?.status) {
         onClose()
         Toast.success(user?.data?.message)

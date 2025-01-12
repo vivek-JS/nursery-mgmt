@@ -58,7 +58,6 @@ const FilterComponent = ({ onApplyFilters }) => {
       console.error("Error fetching batches:", error)
     }
   }
-  console.log(batches)
   return (
     <div className="relative">
       {/* Filter Button */}

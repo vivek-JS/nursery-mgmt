@@ -33,7 +33,7 @@ const FarmerOrdersTable = ({ slotId }) => {
     { label: "Rejected", value: "REJECTED" },
     { label: "Dispatched", value: "DISPATCHED" },
     { label: "Completed", value: "COMPLETED" },
-    { label: "Farm Ready", value: "FARM_READY" },
+    { label: "Ready For Dispatch", value: "FARM_READY" },
     { label: "Loading", value: "DISPATCH_PROCESS" }
   ]
   const [slots, setSlots] = useState([])
@@ -86,7 +86,6 @@ const FarmerOrdersTable = ({ slotId }) => {
     }
   }
   useEffect(() => {
-    console.log(startDate)
     if (startDate && endDate) {
       getOrders()
     }
@@ -151,7 +150,6 @@ const FarmerOrdersTable = ({ slotId }) => {
 
   const getOrders = async () => {
     setLoading(true)
-    console.log(endDate)
     const date = new Date(startDate)
     const formattedStartDate = moment(date).format("DD-MM-YYYY")
     const edate = new Date(endDate)
@@ -177,13 +175,23 @@ const FarmerOrdersTable = ({ slotId }) => {
     if (viewMode === "farmready") {
       params.status = "FARM_READY"
     }
+    if (viewMode === "farmready" || viewMode === "dispatch_process") {
+      params.startDate = null
+    }
+
+    if (viewMode === "farmready" || viewMode === "dispatch_process") {
+      params.endDate = null
+    }
     if (viewMode === "farmready") {
       params.status = "FARM_READY"
     }
-
     if (viewMode === "dispatch_process") {
       params.status = "DISPATCH_PROCESS"
     }
+    if (viewMode === "dispatch_process") {
+      params.dispatched = false
+    }
+    console.log(params)
 
     const emps = slotId
       ? await instance.request({}, { slotId: slotId })
@@ -236,7 +244,9 @@ const FarmerOrdersTable = ({ slotId }) => {
             salesPerson,
             plantID: plantType?.id,
             plantSubtypeID: plantSubtype?.id,
-            bookingSlot: bookingSlot[0]
+            bookingSlot: bookingSlot[0],
+            rate: rate,
+            numberOfPlants
           }
         }
       })
@@ -250,7 +260,7 @@ const FarmerOrdersTable = ({ slotId }) => {
 
     const instance = NetworkManager(API.ORDER.UPDATE_ORDER)
     const emps = await instance.request({ ...patchObj, numberOfPlants: patchObj?.quantity })
-    console.log(emps?.error)
+    refreshComponent()
     if (emps?.error) {
       Toast.error(emps?.error)
       setpatchLoading(false)
@@ -413,7 +423,6 @@ const FarmerOrdersTable = ({ slotId }) => {
     setUpdatedObject(null)
     setSelectedRow(null)
   }
-  console.log(isDispatchtab)
 
   return (
     <div className="w-full p-6 bg-gray-100">
@@ -489,7 +498,13 @@ const FarmerOrdersTable = ({ slotId }) => {
           </div>
         </div>
       </Grid>
-      {<DispatchList setisDispatchtab={setisDispatchtab} viewMode={viewMode} />}{" "}
+      {
+        <DispatchList
+          setisDispatchtab={setisDispatchtab}
+          viewMode={viewMode}
+          refresh={refresh} // Pass refresh state as prop
+        />
+      }{" "}
       <div className="overflow-x-auto">
         <table className="w-full border-collapse bg-white rounded-lg shadow-md">
           <thead>
@@ -642,7 +657,15 @@ const FarmerOrdersTable = ({ slotId }) => {
                             <select
                               disabled={value === "DISPATCH_PROCESS" || value === "COMPLETED"}
                               value={value}
-                              onChange={(e) =>
+                              onChange={(e) => {
+                                if (
+                                  e.target.value === "DISPATCH_PROCESS" ||
+                                  e.target.value === "DISPATCHED" ||
+                                  e.target.value === "COMPLETED"
+                                ) {
+                                  Toast.info("This status cant be change directly")
+                                  return
+                                }
                                 pacthOrders(
                                   {
                                     id: row?.details?.orderid,
@@ -650,7 +673,7 @@ const FarmerOrdersTable = ({ slotId }) => {
                                   },
                                   row
                                 )
-                              }
+                              }}
                               className={`${getStatusColor(
                                 value
                               )} px-3 py-1 rounded-md text-sm focus:outline-none`}>
@@ -696,28 +719,33 @@ const FarmerOrdersTable = ({ slotId }) => {
                         </td>
                       )
                     })}
-                  <td className="px-6 py-4 text-right">
-                    {editingRows.has(index) ? (
-                      <>
-                        <button
-                          onClick={() => saveEditedRow(index, row)}
-                          className="text-green-500 hover:text-green-700 focus:outline-none mr-2">
-                          <CheckIcon size={16} />
-                        </button>
-                        <button
-                          onClick={() => cancelEditing(index)}
-                          className="text-red-500 hover:text-red-700 focus:outline-none">
-                          <XIcon size={16} />
-                        </button>
-                      </>
-                    ) : (
-                      <button
-                        onClick={() => toggleEditing(index, row)}
-                        className="text-gray-500 hover:text-gray-700 focus:outline-none">
-                        <Edit2Icon size={16} />
-                      </button>
+                  {viewMode !== "dispatch_process" &&
+                    row?.orderStatus !== "COMPLETED" &&
+                    row?.orderStatus !== "DISPATCH_PROCESS" &&
+                    row?.orderStatus !== "DISPATCHED" && (
+                      <td className="px-6 py-4 text-right">
+                        {editingRows.has(index) ? (
+                          <>
+                            <button
+                              onClick={() => saveEditedRow(index, row)}
+                              className="text-green-500 hover:text-green-700 focus:outline-none mr-2">
+                              <CheckIcon size={16} />
+                            </button>
+                            <button
+                              onClick={() => cancelEditing(index)}
+                              className="text-red-500 hover:text-red-700 focus:outline-none">
+                              <XIcon size={16} />
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            onClick={() => toggleEditing(index, row)}
+                            className="text-gray-500 hover:text-gray-700 focus:outline-none">
+                            <Edit2Icon size={16} />
+                          </button>
+                        )}
+                      </td>
                     )}
-                  </td>
                 </tr>
                 {expandedRows.has(index) && (
                   <tr>
@@ -735,6 +763,7 @@ const FarmerOrdersTable = ({ slotId }) => {
                         details={{ payment: row?.details?.payment }}
                         orderId={row?.details?.orderid}
                         getOrders={getOrders}
+                        orderDetaisl={row?.details}
                         refreshComponent={refreshComponent}
                       />
                     </td>

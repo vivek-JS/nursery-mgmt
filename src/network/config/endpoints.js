@@ -267,5 +267,8 @@ export const API = {
     GET_HOUSES: new APIRouter("pollyhouse/all", HTTP_METHODS.GET),
     UPDATE_HOUSE: new APIRouter("pollyhouse/update", HTTP_METHODS.PATCH),
     TOGGLE_STATUS: new APIRouter("pollyhouse/toggle-status", HTTP_METHODS.PATCH)
+  },
+  STATS_SLOTS: {
+    GET_HOUSES: new APIRouter("slots/stats", HTTP_METHODS.GET)
   }
 }

@@ -5,7 +5,8 @@ import DispatchForm from "./DispatchedForm"
 import CollectSlipPDF from "./CollectSlipPDF"
 import DeliveryChallanPDF from "./DeliveryChallan"
 import OrderCompleteDialog from "./OrderCompleteDialog"
-const DispatchList = ({ setisDispatchtab, viewMode }) => {
+import { Toast } from "helpers/toasts/toastHelper"
+const DispatchList = ({ setisDispatchtab, viewMode, refresh }) => {
   const [dispatches, setDispatches] = useState([])
   const [loading, setLoading] = useState(true)
   const [selectedDispatch, setSelectedDispatch] = useState(null)
@@ -17,7 +18,7 @@ const DispatchList = ({ setisDispatchtab, viewMode }) => {
 
   useEffect(() => {
     fetchDispatches()
-  }, [viewMode])
+  }, [viewMode, refresh])
 
   const fetchDispatches = async () => {
     try {
@@ -98,6 +99,23 @@ const DispatchList = ({ setisDispatchtab, viewMode }) => {
   }
   const handleOrderComplete = (dispatch, e) => {
     e.stopPropagation()
+    const incompletePayments = dispatch.orderIds.filter((order) => !order.paymentCompleted)
+
+    if (incompletePayments.length > 0) {
+      // Create error message with order details
+      const errorMessage = incompletePayments
+        .map(
+          (order) =>
+            `Order #${order.order} - ${order.farmerName}: Payment not completed\n` +
+            `Total Amount: ${order.total}\n` +
+            `Paid Amount: ${order["Paid Amt"]}\n` +
+            `Remaining: ${order["remaining Amt"]}`
+        )
+        .join("\n\n")
+
+      Toast.error("Cannot complete order due to pending payments:\n" + errorMessage)
+      return
+    }
     setSelectedDispatch(dispatch)
     setIsOrderCompleteOpen(true)
   }
@@ -176,7 +194,7 @@ const DispatchList = ({ setisDispatchtab, viewMode }) => {
 
   const handleDialogOpen = (type, dispatch, e) => {
     e.stopPropagation()
-
+    console.log(type)
     const formattedData = transformDispatchForForm(dispatch)
     switch (type) {
       case "view":
@@ -213,7 +231,6 @@ const DispatchList = ({ setisDispatchtab, viewMode }) => {
   }
   const handleDelete = async (dispatch) => {
     // Add delete functionality here
-    console.log(dispatch)
     if (window.confirm("Are you sure you want to delete this dispatch?")) {
       try {
         const instance = NetworkManager(API.DISPATCHED.DELETE_TRANSPORT)
@@ -235,6 +252,13 @@ const DispatchList = ({ setisDispatchtab, viewMode }) => {
       default: // PENDING
         return "bg-yellow-100 text-yellow-800 border-yellow-200"
     }
+  }
+  const handleRowClick = (dispatch, e) => {
+    // Don't open the view dialog if clicked on any button
+    if (e.target.closest("button")) {
+      return
+    }
+    handleDialogOpenView("view", dispatch, e)
   }
   return (
     <>
@@ -287,7 +311,7 @@ const DispatchList = ({ setisDispatchtab, viewMode }) => {
                     <tr
                       key={dispatch._id}
                       className="hover:bg-gray-50 transition-colors cursor-pointer"
-                      onClick={(e) => handleDialogOpenView("view", dispatch, e)}>
+                      onClick={(e) => handleRowClick(dispatch, e)}>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center">
                           <Truck className="text-green-600 mr-2" size={20} />
@@ -351,7 +375,7 @@ const DispatchList = ({ setisDispatchtab, viewMode }) => {
                               onClick={(e) => handleOrderComplete(dispatch, e)}
                               className="inline-flex items-center px-3 py-1.5 bg-purple-600 text-white text-sm font-medium rounded hover:bg-purple-700">
                               <CheckCircle size={16} className="mr-1" />
-                              Order Completed
+                              Complete Order
                             </button>
                             <button
                               onClick={(e) => {

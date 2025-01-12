@@ -15,6 +15,7 @@ const Order = React.lazy(() => import("pages/private/order"))
 const Plants = React.lazy(() => import("pages/private/Plants/slots"))
 const Slots = React.lazy(() => import("pages/private/SlotsView/index"))
 const Hardening = React.lazy(() => import("pages/private/hardening/Index"))
+const Stats = React.lazy(() => import("pages/private/slotsStats"))
 
 export const PrivateRoutes = [
   { path: "/u/dashboard", exact: true, component: Dashboard },
@@ -37,5 +38,6 @@ export const PrivateRoutes = [
   { path: "/u/orders", exact: true, component: Order },
   { path: "/u/plants", exact: true, component: Plants },
   { path: "/u/slots", exact: true, component: Slots },
-  { path: "/u/hardening", exact: true, component: Hardening }
+  { path: "/u/hardening", exact: true, component: Hardening },
+  { path: "/u/slotstats", exact: true, component: Stats }
 ]

@@ -106,7 +106,6 @@ const PlantTrackingTable = () => {
       const response = await instance.request({})
 
       if (response.data?.data) {
-        console.log(response?.data)
         setBatches(response.data.data?.data)
       }
     } catch (error) {
@@ -115,7 +114,6 @@ const PlantTrackingTable = () => {
       setLoading(false)
     }
   }
-  console.log(batches)
   const getOutwards = async () => {
     setLoading(true)
     try {
@@ -133,7 +131,6 @@ const PlantTrackingTable = () => {
     }
   }
   const sizes = ["R1", "R2", "R3"]
-  console.log(entries)
   const calculateAge = (rootingDate, outwardDate) => {
     const diffTime = Math.abs(new Date(outwardDate) - new Date(rootingDate))
     return Math.ceil(diffTime / (1000 * 60 * 60 * 24))
@@ -142,7 +139,6 @@ const PlantTrackingTable = () => {
   const handleLabSubmit = async (e) => {
     e.preventDefault()
     setLoading(true)
-    console.log(newEntry)
     try {
       const instance = NetworkManager(API.PLANT_OUTWARD.ADD_LAB)
       const payload = {

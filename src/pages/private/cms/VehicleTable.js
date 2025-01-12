@@ -19,7 +19,6 @@ const VehicleTable = () => {
     try {
       const instance = NetworkManager(API.VEHICLE.GET_VEHICLES)
       const response = await instance.request()
-      console.log(response?.data?.data?.data)
       setVehicles(response?.data?.data?.data)
     } catch (error) {
       console.error("Error fetching vehicles:", error)
@@ -34,7 +33,6 @@ const VehicleTable = () => {
   const handleSubmit = async (e) => {
     e.preventDefault()
     setLoading(true)
-    console.log(editingVehicle)
     try {
       const instance = NetworkManager(
         editingVehicle ? API.VEHICLE.UPDATE_VEHICLE : API.VEHICLE.CREATE_VEHICLE
