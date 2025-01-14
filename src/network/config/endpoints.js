@@ -270,5 +270,9 @@ export const API = {
   },
   STATS_SLOTS: {
     GET_HOUSES: new APIRouter("slots/stats", HTTP_METHODS.GET)
+  },
+  DATA:{
+    CREATE_BACKUP: new APIRouter("backup/generateBackup", HTTP_METHODS.GET),
+    IMPORT_BACKUP: new APIRouter("backup/importBackup", HTTP_METHODS.POST)
   }
 }

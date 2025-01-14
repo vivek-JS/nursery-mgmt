@@ -16,6 +16,7 @@ const Plants = React.lazy(() => import("pages/private/Plants/slots"))
 const Slots = React.lazy(() => import("pages/private/SlotsView/index"))
 const Hardening = React.lazy(() => import("pages/private/hardening/Index"))
 const Stats = React.lazy(() => import("pages/private/slotsStats"))
+const DataBackupRestore = React.lazy(() => import("pages/private/backup"))
 
 export const PrivateRoutes = [
   { path: "/u/dashboard", exact: true, component: Dashboard },
@@ -39,5 +40,6 @@ export const PrivateRoutes = [
   { path: "/u/plants", exact: true, component: Plants },
   { path: "/u/slots", exact: true, component: Slots },
   { path: "/u/hardening", exact: true, component: Hardening },
-  { path: "/u/slotstats", exact: true, component: Stats }
+  { path: "/u/slotstats", exact: true, component: Stats },
+  { path: "/u/data", exact: true, component: DataBackupRestore },
 ]
