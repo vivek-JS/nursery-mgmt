@@ -271,8 +271,15 @@ export const API = {
   STATS_SLOTS: {
     GET_HOUSES: new APIRouter("slots/stats", HTTP_METHODS.GET)
   },
+<<<<<<< HEAD
   DATA:{
     CREATE_BACKUP: new APIRouter("backup/generateBackup", HTTP_METHODS.GET),
     IMPORT_BACKUP: new APIRouter("backup/importBackup", HTTP_METHODS.POST)
+=======
+  FARMER: {
+    GET_FARMERS: new APIRouter("farmer/getFarmers", HTTP_METHODS.GET),
+    CREATE_FARMER: new APIRouter("farmer/createFarmer", HTTP_METHODS.POST),
+    UPDATE_FARMER: new APIRouter("farmer/updateFarmer", HTTP_METHODS.PATCH)
+>>>>>>> b3e8c3c (last commit)
   }
 }

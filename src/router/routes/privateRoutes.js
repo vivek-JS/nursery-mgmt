@@ -16,7 +16,11 @@ const Plants = React.lazy(() => import("pages/private/Plants/slots"))
 const Slots = React.lazy(() => import("pages/private/SlotsView/index"))
 const Hardening = React.lazy(() => import("pages/private/hardening/Index"))
 const Stats = React.lazy(() => import("pages/private/slotsStats"))
+<<<<<<< HEAD
 const DataBackupRestore = React.lazy(() => import("pages/private/backup"))
+=======
+const FarmerComponent = React.lazy(() => import("pages/private/farmer/Farmer"))
+>>>>>>> b3e8c3c (last commit)
 
 export const PrivateRoutes = [
   { path: "/u/dashboard", exact: true, component: Dashboard },
@@ -41,5 +45,9 @@ export const PrivateRoutes = [
   { path: "/u/slots", exact: true, component: Slots },
   { path: "/u/hardening", exact: true, component: Hardening },
   { path: "/u/slotstats", exact: true, component: Stats },
+<<<<<<< HEAD
   { path: "/u/data", exact: true, component: DataBackupRestore },
+=======
+  { path: "/u/farmers", exact: true, component: FarmerComponent }
+>>>>>>> b3e8c3c (last commit)
 ]

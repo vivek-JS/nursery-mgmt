@@ -31,5 +31,9 @@ export const DashboardMenus = [
   new MenuPath("Slots Managment", <BiotechIcon />, "/u/slots"),
   new MenuPath("Hardening", <BiotechIcon />, "/u/hardening"),
   new MenuPath("SlotsStats", <BiotechIcon />, "/u/slotstats"),
+<<<<<<< HEAD
   new MenuPath("Backup & Import", <BiotechIcon />, "/u/data")
+=======
+  new MenuPath("Farmers", <BiotechIcon />, "/u/farmers")
+>>>>>>> b3e8c3c (last commit)
 ]
