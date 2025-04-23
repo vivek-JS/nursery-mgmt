@@ -19,7 +19,7 @@ const FarmerOrdersTable = ({ slotId }) => {
   const [searchTerm, setSearchTerm] = useState("")
   const [expandedRows, setExpandedRows] = useState(new Set())
   const [editingRows, setEditingRows] = useState(new Set())
-  const [selectedDateRange, setSelectedDateRange] = useState([today, today])
+  const [selectedDateRange, setSelectedDateRange] = useState([new Date(today.getFullYear(), 0, 1), today])
   const [loading, setLoading] = useState(false)
   const [orders, setOrders] = useState([])
   const [patchLoading, setpatchLoading] = useState(false)
@@ -227,9 +227,8 @@ const FarmerOrdersTable = ({ slotId }) => {
           rate,
           total: `₹ ${Number(rate * numberOfPlants)}`,
           "Paid Amt": `₹ ${Number(getTotalPaidAmount(payment))}`,
-          "remaining Amt": `₹ ${
-            Number(rate * numberOfPlants) - Number(getTotalPaidAmount(payment))
-          }`,
+          "remaining Amt": `₹ ${Number(rate * numberOfPlants) - Number(getTotalPaidAmount(payment))
+            }`,
           orderStatus: orderStatus,
           Delivery: `${start} - ${end} ${monthYear}`,
           details: {
@@ -454,41 +453,37 @@ const FarmerOrdersTable = ({ slotId }) => {
         <div className="flex justify-start mb-4">
           <div className="inline-flex items-center bg-gray-100 rounded-lg p-1 shadow-sm">
             <button
-              className={`px-4 py-1.5 text-xs font-medium rounded-md transition-all duration-200 ${
-                viewMode === "booking"
+              className={`px-4 py-1.5 text-xs font-medium rounded-md transition-all duration-200 ${viewMode === "booking"
                   ? "bg-white text-blue-600 shadow-sm"
                   : "text-gray-600 hover:text-gray-800"
-              }`}
+                }`}
               onClick={() => setViewMode("booking")}>
               All
             </button>
 
             <button
-              className={`px-4 py-1.5 text-xs font-medium rounded-md ml-1 transition-all duration-200 ${
-                viewMode === "dispatched"
+              className={`px-4 py-1.5 text-xs font-medium rounded-md ml-1 transition-all duration-200 ${viewMode === "dispatched"
                   ? "bg-white text-blue-600 shadow-sm"
                   : "text-gray-600 hover:text-gray-800"
-              }`}
+                }`}
               onClick={() => setViewMode("dispatched")}>
               To be Dispatched
             </button>
             <button
-              className={`px-4 py-1.5 text-xs font-medium rounded-md ml-1 transition-all duration-200 ${
-                viewMode === "farmready"
+              className={`px-4 py-1.5 text-xs font-medium rounded-md ml-1 transition-all duration-200 ${viewMode === "farmready"
                   ? "bg-white text-blue-600 shadow-sm"
                   : "text-gray-600 hover:text-gray-800"
-              }`}
+                }`}
               onClick={() => setViewMode("farmready")}>
               Ready To Dispatch
             </button>
             {isDispatchtab && (
               <button
                 className={`px-4 py-1.5 text-xs font-medium rounded-md ml-1 transition-all duration-200 
-        ${
-          viewMode === "dispatch_process"
-            ? "bg-white text-blue-600 shadow-sm"
-            : "text-gray-600 hover:text-gray-800"
-        }
+        ${viewMode === "dispatch_process"
+                    ? "bg-white text-blue-600 shadow-sm"
+                    : "text-gray-600 hover:text-gray-800"
+                  }
         ${"animate-pulse bg-green-100"}
       `}
                 onClick={() => setViewMode("dispatch_process")}>
@@ -620,11 +615,10 @@ const FarmerOrdersTable = ({ slotId }) => {
             {orders.map((row, index) => (
               <React.Fragment key={index}>
                 <tr
-                  className={`hover:bg-gray-50 transition-colors ${
-                    row?.details?.payment.some((payment) => payment.paymentStatus === "PENDING")
+                  className={`hover:bg-gray-50 transition-colors ${row?.details?.payment.some((payment) => payment.paymentStatus === "PENDING")
                       ? "animate-blink"
                       : ""
-                  }`}>
+                    }`}>
                   {viewMode === "farmready" && (
                     <td className="w-10 px-6 py-3">
                       <div className="relative inline-block">

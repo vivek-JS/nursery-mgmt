@@ -15,7 +15,6 @@ import { Outlet } from "react-router-dom"
 import LogoutIcon from "@mui/icons-material/Logout"
 import { usePrivateLayoutController } from "./privateLayout.controller"
 import { useStyles } from "layout/privateLayoutStyles"
-import Logo from "assets/icons/Asset 3@4x.png"
 import { useSelector } from "react-redux"
 const drawerWidth = 65
 
@@ -72,7 +71,7 @@ export default function PrivateLayout(props) {
   const styles = useStyles()
 
   const userType = useSelector((state) => state?.userData?.userData?.jobTitle)
-console.log(userType)
+  console.log(userType)
   const { navigate, handleLogout, activeMenu } = usePrivateLayoutController(props)
 
   return (
@@ -81,12 +80,7 @@ console.log(userType)
         <List>
           <DrawerHeader>
             <ListItemButton style={{ padding: 10 }} sx={{ paddingLeft: "10px !important" }}>
-              <ListItemIcon>
-                <img src={Logo} style={{ height: 30 }}></img>
-              </ListItemIcon>
-              <ListItemText>
-                <Typography>Practease</Typography>
-              </ListItemText>
+
             </ListItemButton>
 
             {/* <Typography sx={styles.drawerHeader} variant="h4">
@@ -99,7 +93,7 @@ console.log(userType)
 
           {DashboardMenus.filter(
             (item) =>
-              (userType === "LABORATORY_MANAGER" ?(item.title === "Labs"):true)
+              (userType === "LABORATORY_MANAGER" ? (item.title === "Labs") : true)
           ).map((item) => {
             return (
               <ListItemButton

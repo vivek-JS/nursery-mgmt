@@ -16,7 +16,6 @@ import {
 const PlantStatisticsCharts = () => {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
 
   useEffect(() => {
     fetchPlants()
@@ -42,7 +41,6 @@ const PlantStatisticsCharts = () => {
   }
 
   if (loading) return <div>Loading...</div>
-  if (error) return <div>Error: {error}</div>
   if (!data) return <div>No data available</div>
   console.log(data)
   return (

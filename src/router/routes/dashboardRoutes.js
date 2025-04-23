@@ -18,22 +18,20 @@ class MenuPath {
 
 export const DashboardMenus = [
   new MenuPath("Orders", <HomeIcon />, "/u/dashboard"),
+  new MenuPath("Stats", <BiotechIcon />, "/u/stats"),
+  new MenuPath("Plants and Products", <AlignHorizontalLeftIcon />, "/u/plants"),
+  new MenuPath("Slots Managment", <BiotechIcon />, "/u/slots"),
+  new MenuPath("Hardening", <BiotechIcon />, "/u/hardening"),
+  new MenuPath("CMS", <AodIcon />, "/u/cms"),
+  new MenuPath("Backup & Import", <BiotechIcon />, "/u/data"),
+  new MenuPath("Farmers", <BiotechIcon />, "/u/farmers"),
   // new MenuPath("Weekly", <DateRangeOutlinedIcon />, "/u/weekly"),
   // new MenuPath("Transactions", <PaidIcon />, "/u/transactions"),
   new MenuPath("Employees", <GroupIcon />, "/u/employeese"),
   // new MenuPath("Inventory", <InventoryIcon />, "/u/inventory"),
   // new MenuPath("Settings", <SettingsSuggestIcon />, "/u/settings"),
   // new MenuPath("Admin", <AdminPanelSettingsIcon />, "/u/admin"),
-  new MenuPath("CMS", <AodIcon />, "/u/cms"),
   new MenuPath("Labs", <BiotechIcon />, "/u/labs"),
   new MenuPath("Order", <ListAltIcon />, "/u/orders"),
-  new MenuPath("Plants and Products", <AlignHorizontalLeftIcon />, "/u/plants"),
-  new MenuPath("Slots Managment", <BiotechIcon />, "/u/slots"),
-  new MenuPath("Hardening", <BiotechIcon />, "/u/hardening"),
-  new MenuPath("SlotsStats", <BiotechIcon />, "/u/slotstats"),
-<<<<<<< HEAD
-  new MenuPath("Backup & Import", <BiotechIcon />, "/u/data")
-=======
-  new MenuPath("Farmers", <BiotechIcon />, "/u/farmers")
->>>>>>> b3e8c3c (last commit)
+
 ]
