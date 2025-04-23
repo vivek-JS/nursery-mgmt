@@ -29,7 +29,9 @@ const Login = () => {
         <Box sx={styles.container}>
           <Grid container alignItems={"center"}>
             <img src={peLogo} style={styles.imgLogo}></img>
-            <Typography style={styles.drawerHeaderTxt}>राम बायोटेक</Typography>
+            <Typography style={styles.drawerHeaderTxt}>Nursery Management Reimagined
+
+            </Typography>
           </Grid>
           <Grid sx={styles.form} container spacing={2}>
             <Divider />
