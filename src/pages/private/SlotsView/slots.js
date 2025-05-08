@@ -6,11 +6,8 @@ import Subtypes from "./Subtypes"
 
 const SlotAccordionView = ({ plantId, year }) => {
   const [expandedMonths, setExpandedMonths] = useState([])
-
   const [loading, setLoading] = useState(false)
-  //const [slots, setSlots] = useState([])
   const [months, setMonths] = useState([])
-  //console.log(plantId)
 
   useEffect(() => {
     fetchPlants()
@@ -29,20 +26,6 @@ const SlotAccordionView = ({ plantId, year }) => {
     }
     setLoading(false)
   }
-  // const months = [
-  //   "January",
-  //   "February",
-  //   "March",
-  //   "April",
-  //   "May",
-  //   "June",
-  //   "July",
-  //   "August",
-  //   "September",
-  //   "October",
-  //   "November",
-  //   "December"
-  // ]
 
   const toggleMonth = (monthIndex) => {
     setExpandedMonths((prev) =>
@@ -52,56 +35,103 @@ const SlotAccordionView = ({ plantId, year }) => {
 
   const isMonthExpanded = (monthIndex) => expandedMonths.includes(monthIndex)
 
-  // Sample data - replace with actual data
+  // Helper function to calculate percentage
+  const calculatePercentage = (booked, total) => {
+    if (total === 0) return 0
+    return Math.round((booked / total) * 100)
+  }
+
   return (
-    <div className=" bg-white rounded-lg shadow-lg p-6">
-      {loading && <PageLoader />}
+    <div className="bg-white rounded-lg shadow-lg p-6">
+      {loading ? (
+        <PageLoader />
+      ) : (
+        <div className="space-y-4">
+          {months?.subtypes?.map((subtype, subtypeIndex) => {
+            const totalCapacity = subtype?.totalPlants + subtype?.totalBookedPlants || 0
+            const bookedPercentage = calculatePercentage(
+              subtype?.totalBookedPlants || 0,
+              totalCapacity
+            )
 
-      <div className="space-y-3">
-        {months?.subtypes?.map((month, monthIndex) => (
-          <div key={month?.name} className="border rounded-lg overflow-hidden">
-            <button
-              onClick={() => toggleMonth(monthIndex)}
-              className="w-full px-4 py-3 bg-gray-50 flex items-center justify-between hover:bg-gray-100 transition-colors">
-              <div className="flex flex-col gap-1">
-                <div className="flex items-center gap-3">
-                  <span className="font-medium text-gray-700">{month?.subtypeName}</span>
-                  <Leaf className="w-4 h-4 text-green-600" />
-                </div>
-                <div className="text-sm flex gap-6">
-                  <span className="flex items-center gap-1 text-yellow-500">
-                    <AlertCircle className="w-4 h-4" />{" "}
-                    <strong>
-                      {" "}
-                      {month?.totalPlants + month?.totalBookedPlants - month?.totalBookedPlants ||
-                        0}
-                    </strong>{" "}
-                    Remaining
-                  </span>
-                  <span className="flex items-center gap-1 text-green-600">
-                    <CheckCircle className="w-4 h-4" />{" "}
-                    <strong> {month?.totalBookedPlants || 0}</strong> Booked
-                  </span>
+            return (
+              <div
+                key={subtype?.subtypeId}
+                className="border border-gray-200 rounded-lg overflow-hidden shadow-sm transition-all hover:shadow-md">
+                <div
+                  onClick={() => toggleMonth(subtypeIndex)}
+                  className="cursor-pointer w-full px-5 py-4 bg-gradient-to-r from-gray-50 to-white flex items-center justify-between hover:bg-gray-100 transition-colors">
+                  <div className="flex flex-col gap-2 w-full">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <Leaf className="w-5 h-5 text-green-600" />
+                        <h3 className="font-semibold text-gray-800 text-lg">
+                          {subtype?.subtypeName}
+                        </h3>
+                      </div>
+                      {isMonthExpanded(subtypeIndex) ? (
+                        <ChevronUp className="w-5 h-5 text-gray-500" />
+                      ) : (
+                        <ChevronDown className="w-5 h-5 text-gray-500" />
+                      )}
+                    </div>
 
-                  <span className="flex items-center gap-1 text-gray-700">
-                    <strong> {month?.totalPlants + month?.totalBookedPlants || 0}</strong> Total
-                    Plants
-                  </span>
+                    <div className="w-full bg-gray-200 rounded-full h-2.5">
+                      <div
+                        className={`h-2.5 rounded-full ${
+                          bookedPercentage > 80
+                            ? "bg-green-600"
+                            : bookedPercentage > 50
+                            ? "bg-green-500"
+                            : bookedPercentage > 20
+                            ? "bg-yellow-500"
+                            : "bg-orange-500"
+                        }`}
+                        style={{ width: `${bookedPercentage}%` }}></div>
+                    </div>
+
+                    <div className="flex justify-between items-center text-sm mt-1">
+                      <div className="grid grid-cols-3 gap-6 w-full">
+                        <div className="flex items-center gap-1 text-yellow-600">
+                          <AlertCircle className="w-4 h-4" />
+                          {console.log("subtype", subtype)}
+                          <span className="font-medium">{subtype?.totalPlants || 0} Remaining</span>
+                        </div>
+
+                        <div className="flex items-center gap-1 text-green-600">
+                          <CheckCircle className="w-4 h-4" />
+                          <span className="font-medium">
+                            {subtype?.totalBookedPlants || 0} Booked
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-1 text-gray-700">
+                          <span className="font-medium">
+                            {totalCapacity || 0} Total Plants ({bookedPercentage}%)
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
+
+                {isMonthExpanded(subtypeIndex) && (
+                  <div className="border-t border-gray-200">
+                    <Subtypes plantId={plantId} plantSubId={subtype.subtypeId} year={year} />
+                  </div>
+                )}
               </div>
-              {isMonthExpanded(monthIndex) ? (
-                <ChevronUp className="w-5 h-5 text-gray-500" />
-              ) : (
-                <ChevronDown className="w-5 h-5 text-gray-500" />
-              )}
-            </button>
+            )
+          })}
 
-            {isMonthExpanded(monthIndex) && (
-              <Subtypes plantId={plantId} plantSubId={month.subtypeId} year={year} />
-            )}
-          </div>
-        ))}
-      </div>
+          {months?.subtypes?.length === 0 && (
+            <div className="text-center py-10 text-gray-500">
+              <Leaf className="w-10 h-10 mx-auto mb-3 text-gray-300" />
+              <p className="text-lg">No subtypes available for this plant</p>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

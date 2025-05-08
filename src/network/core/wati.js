@@ -18,9 +18,9 @@ export async function sendWatiTemplateAxios(requestBody, number) {
   console.log("API Call Start...")
 
   // Construct query string
-  const queryString = new URLSearchParams({
-    whatsappNumber: number
-  }).toString()
+  // const queryString = new URLSearchParams({
+  //   whatsappNumber: number
+  // }).toString()
 
   // Debug request body
 

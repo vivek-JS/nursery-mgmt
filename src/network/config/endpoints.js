@@ -213,6 +213,8 @@ export const API = {
   },
   plantCms: {
     POST_NEWPLANT: new APIRouter("/plantcms/plants", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    VALIDATE_EXCEL: new APIRouter("/excel/validate-excel", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    IMPORT_EXCEL: new APIRouter("/excel/import-excel", HTTP_METHODS.POST, OFFLINE.PROFILE),
     GET_PLANTS: new APIRouter("/plantcms/plants", HTTP_METHODS.GET, OFFLINE.PROFILE),
     UPDATE_PLANT: new APIRouter("/plantcms/plants", HTTP_METHODS.PUT, OFFLINE.PROFILE),
     DELETE_PLANT: new APIRouter("/plantcms/plants", HTTP_METHODS.DEL, OFFLINE.PROFILE)

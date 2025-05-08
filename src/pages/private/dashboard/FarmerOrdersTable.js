@@ -1,25 +1,30 @@
 import React, { useState, useEffect } from "react"
-import { Edit2Icon, CheckIcon, XIcon, FilterIcon } from "lucide-react"
+import { Edit2Icon, CheckIcon, XIcon, FilterIcon, Info } from "lucide-react"
 import DatePicker from "react-datepicker"
 import "react-datepicker/dist/react-datepicker.css"
 import { API, NetworkManager } from "network/core"
 import { PageLoader } from "components"
 import moment from "moment"
 import debounce from "lodash.debounce" // Optional: Use lodash for debouncing
-import { Grid, MenuItem, Select, Popover } from "@mui/material"
+import { Grid, MenuItem, Select, Popover, Tooltip } from "@mui/material"
 import RenderExpandedContent from "./RenderExpandedContent"
 import { sendWatiTemplateAxios } from "network/core/wati"
 import DownloadPDFButton from "./OrdereRecipt"
 import DispatchForm from "./DispatchedForm"
 import DispatchList from "./DispatchedList"
 import { Toast } from "helpers/toasts/toastHelper"
-const FarmerOrdersTable = ({ slotId }) => {
+import { renderOrderRemarks, renderReturnHistory, renderStatusHistory } from "./helpsers"
+
+const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   const today = new Date()
   const [sorting, setSorting] = useState({ column: null, direction: "asc" })
   const [searchTerm, setSearchTerm] = useState("")
   const [expandedRows, setExpandedRows] = useState(new Set())
   const [editingRows, setEditingRows] = useState(new Set())
-  const [selectedDateRange, setSelectedDateRange] = useState([new Date(today.getFullYear(), 0, 1), today])
+  const [selectedDateRange, setSelectedDateRange] = useState([
+    new Date(today.getFullYear(), 0, 1),
+    today
+  ])
   const [loading, setLoading] = useState(false)
   const [orders, setOrders] = useState([])
   const [patchLoading, setpatchLoading] = useState(false)
@@ -44,9 +49,22 @@ const FarmerOrdersTable = ({ slotId }) => {
   const [anchorEl, setAnchorEl] = useState(null)
   const [isDispatchFormOpen, setIsDispatchFormOpen] = useState(false)
   const [isDispatchtab, setisDispatchtab] = useState(false)
+  const [newRemark, setNewRemark] = useState("") // State for new remark input
 
   // Add these handler functions
+  const handleAddRemark = (orderId) => {
+    if (!newRemark.trim()) return
 
+    pacthOrders(
+      {
+        id: orderId,
+        orderRemarks: newRemark
+      },
+      selectedRow
+    )
+
+    setNewRemark("")
+  }
   const handleFilterClick = (event) => {
     setAnchorEl(event.currentTarget)
   }
@@ -124,20 +142,23 @@ const FarmerOrdersTable = ({ slotId }) => {
       if (emps.data) {
         const data = apiSlots?.filter((slot) => slot?.status)
         setSlots(
-          data?.map((district) => {
-            const { startDay, endDay, totalBookedPlants, totalPlants, status, _id } = district || {}
-            const start = moment(startDay, "DD-MM-YYYY").format("D")
-            const end = moment(endDay, "DD-MM-YYYY").format("D")
-            const monthYear = moment(startDay, "DD-MM-YYYY").format("MMMM, YYYY")
-            if (!status) {
-              return
-            }
-            return {
-              label: `${start} - ${end} ${monthYear} (${totalPlants})`,
-              value: _id,
-              available: totalPlants - totalBookedPlants
-            }
-          })
+          data
+            ?.map((district) => {
+              const { startDay, endDay, totalBookedPlants, totalPlants, status, _id } =
+                district || {}
+              const start = moment(startDay, "DD-MM-YYYY").format("D")
+              const end = moment(endDay, "DD-MM-YYYY").format("D")
+              const monthYear = moment(startDay, "DD-MM-YYYY").format("MMMM, YYYY")
+              if (!status) {
+                return
+              }
+              return {
+                label: `${start} - ${end} ${monthYear} (${totalPlants})`,
+                value: _id,
+                available: totalPlants - totalBookedPlants
+              }
+            })
+            .filter((data) => data?.available)
         )
       }
     } catch (error) {
@@ -194,7 +215,7 @@ const FarmerOrdersTable = ({ slotId }) => {
     console.log(params)
 
     const emps = slotId
-      ? await instance.request({}, { slotId: slotId })
+      ? await instance.request({}, { slotId, monthName, startDay, endDay })
       : await instance.request({}, params)
 
     setOrders(
@@ -212,7 +233,11 @@ const FarmerOrdersTable = ({ slotId }) => {
           bookingSlot,
           orderId,
           plantType,
-          plantSubtype
+          plantSubtype,
+          remainingPlants,
+          returnedPlants,
+          statusChanges,
+          orderRemarks
         } = data || {}
         const { startDay, endDay } = bookingSlot[0] || {}
         const start = moment(startDay, "DD-MM-YYYY").format("D")
@@ -227,8 +252,11 @@ const FarmerOrdersTable = ({ slotId }) => {
           rate,
           total: `₹ ${Number(rate * numberOfPlants)}`,
           "Paid Amt": `₹ ${Number(getTotalPaidAmount(payment))}`,
-          "remaining Amt": `₹ ${Number(rate * numberOfPlants) - Number(getTotalPaidAmount(payment))
-            }`,
+          "remaining Amt": `₹ ${
+            Number(rate * numberOfPlants) - Number(getTotalPaidAmount(payment))
+          }`,
+          "remaining Plants": remainingPlants || numberOfPlants,
+          "returned Plants": returnedPlants || 0,
           orderStatus: orderStatus,
           Delivery: `${start} - ${end} ${monthYear}`,
           details: {
@@ -245,7 +273,10 @@ const FarmerOrdersTable = ({ slotId }) => {
             plantSubtypeID: plantSubtype?.id,
             bookingSlot: bookingSlot[0],
             rate: rate,
-            numberOfPlants
+            numberOfPlants,
+
+            statusChanges: statusChanges || [],
+            orderRemarks: orderRemarks || []
           }
         }
       })
@@ -259,6 +290,7 @@ const FarmerOrdersTable = ({ slotId }) => {
 
     const instance = NetworkManager(API.ORDER.UPDATE_ORDER)
     const emps = await instance.request({ ...patchObj, numberOfPlants: patchObj?.quantity })
+    console.log(emps)
     refreshComponent()
     if (emps?.error) {
       Toast.error(emps?.error)
@@ -427,18 +459,20 @@ const FarmerOrdersTable = ({ slotId }) => {
     <div className="w-full p-6 bg-gray-100">
       {(loading || patchLoading) && <PageLoader />}
       <Grid container justifyContent={"space-between"}>
-        <div className="relative">
-          <DatePicker
-            selectsRange={true}
-            startDate={startDate}
-            endDate={endDate}
-            onChange={(update) => setSelectedDateRange(update)}
-            isClearable={true}
-            placeholderText="Select date range"
-            className="p-3 border rounded-md shadow focus:outline-none focus:ring-2 focus:ring-blue-500 w-full"
-            calendarClassName="custom-datepicker"
-          />
-        </div>
+        {!slotId && (
+          <div className="relative">
+            <DatePicker
+              selectsRange={true}
+              startDate={startDate}
+              endDate={endDate}
+              onChange={(update) => setSelectedDateRange(update)}
+              isClearable={true}
+              placeholderText="Select date range"
+              className="p-3 border rounded-md shadow focus:outline-none focus:ring-2 focus:ring-blue-500 w-full"
+              calendarClassName="custom-datepicker"
+            />
+          </div>
+        )}
         <div className="mb-6">
           <input
             type="text"
@@ -453,39 +487,43 @@ const FarmerOrdersTable = ({ slotId }) => {
         <div className="flex justify-start mb-4">
           <div className="inline-flex items-center bg-gray-100 rounded-lg p-1 shadow-sm">
             <button
-              className={`px-4 py-1.5 text-xs font-medium rounded-md transition-all duration-200 ${viewMode === "booking"
+              className={`px-4 py-1.5 text-xs font-medium rounded-md transition-all duration-200 ${
+                viewMode === "booking"
                   ? "bg-white text-blue-600 shadow-sm"
                   : "text-gray-600 hover:text-gray-800"
-                }`}
+              }`}
               onClick={() => setViewMode("booking")}>
               All
             </button>
 
             <button
-              className={`px-4 py-1.5 text-xs font-medium rounded-md ml-1 transition-all duration-200 ${viewMode === "dispatched"
+              className={`px-4 py-1.5 text-xs font-medium rounded-md ml-1 transition-all duration-200 ${
+                viewMode === "dispatched"
                   ? "bg-white text-blue-600 shadow-sm"
                   : "text-gray-600 hover:text-gray-800"
-                }`}
+              }`}
               onClick={() => setViewMode("dispatched")}>
               To be Dispatched
             </button>
             <button
-              className={`px-4 py-1.5 text-xs font-medium rounded-md ml-1 transition-all duration-200 ${viewMode === "farmready"
+              className={`px-4 py-1.5 text-xs font-medium rounded-md ml-1 transition-all duration-200 ${
+                viewMode === "farmready"
                   ? "bg-white text-blue-600 shadow-sm"
                   : "text-gray-600 hover:text-gray-800"
-                }`}
+              }`}
               onClick={() => setViewMode("farmready")}>
               Ready To Dispatch
             </button>
             {isDispatchtab && (
               <button
                 className={`px-4 py-1.5 text-xs font-medium rounded-md ml-1 transition-all duration-200 
-        ${viewMode === "dispatch_process"
-                    ? "bg-white text-blue-600 shadow-sm"
-                    : "text-gray-600 hover:text-gray-800"
-                  }
-        ${"animate-pulse bg-green-100"}
-      `}
+      ${
+        viewMode === "dispatch_process"
+          ? "bg-white text-blue-600 shadow-sm"
+          : "text-gray-600 hover:text-gray-800"
+      }
+      ${"animate-pulse bg-green-100"}
+    `}
                 onClick={() => setViewMode("dispatch_process")}>
                 Loading
               </button>
@@ -512,9 +550,9 @@ const FarmerOrdersTable = ({ slotId }) => {
                       onChange={toggleSelectAll}
                       checked={selectedRows.size === orders.length && orders.length > 0}
                       className="w-5 h-5 rounded-md border-2 border-gray-300 text-blue-600 
-                               checked:bg-blue-600 checked:border-blue-600
-                               hover:border-blue-500 cursor-pointer transition-colors
-                               focus:ring-2 focus:ring-blue-200 focus:ring-offset-0"
+                             checked:bg-blue-600 checked:border-blue-600
+                             hover:border-blue-500 cursor-pointer transition-colors
+                             focus:ring-2 focus:ring-blue-200 focus:ring-offset-0"
                     />
                   </div>
                 </th>
@@ -615,10 +653,11 @@ const FarmerOrdersTable = ({ slotId }) => {
             {orders.map((row, index) => (
               <React.Fragment key={index}>
                 <tr
-                  className={`hover:bg-gray-50 transition-colors ${row?.details?.payment.some((payment) => payment.paymentStatus === "PENDING")
+                  className={`hover:bg-gray-50 transition-colors ${
+                    row?.details?.payment.some((payment) => payment.paymentStatus === "PENDING")
                       ? "animate-blink"
                       : ""
-                    }`}>
+                  }`}>
                   {viewMode === "farmready" && (
                     <td className="w-10 px-6 py-3">
                       <div className="relative inline-block">
@@ -627,9 +666,9 @@ const FarmerOrdersTable = ({ slotId }) => {
                           onChange={() => toggleRowSelection(row.details.orderid, row)}
                           checked={selectedRows.has(row.details.orderid)}
                           className="w-5 h-5 rounded-md border-2 border-gray-300 text-blue-600 
-                               checked:bg-blue-600 checked:border-blue-600
-                               hover:border-blue-500 cursor-pointer transition-colors
-                               focus:ring-2 focus:ring-blue-200 focus:ring-offset-0"
+                             checked:bg-blue-600 checked:border-blue-600
+                             hover:border-blue-500 cursor-pointer transition-colors
+                             focus:ring-2 focus:ring-blue-200 focus:ring-offset-0"
                         />
                       </div>
                     </td>
@@ -648,35 +687,59 @@ const FarmerOrdersTable = ({ slotId }) => {
                       return (
                         <td key={key} className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
                           {key === "orderStatus" ? (
-                            <select
-                              disabled={value === "DISPATCH_PROCESS" || value === "COMPLETED"}
-                              value={value}
-                              onChange={(e) => {
-                                if (
-                                  e.target.value === "DISPATCH_PROCESS" ||
-                                  e.target.value === "DISPATCHED" ||
-                                  e.target.value === "COMPLETED"
-                                ) {
-                                  Toast.info("This status cant be change directly")
-                                  return
-                                }
-                                pacthOrders(
-                                  {
-                                    id: row?.details?.orderid,
-                                    orderStatus: e.target.value
-                                  },
-                                  row
-                                )
-                              }}
-                              className={`${getStatusColor(
-                                value
-                              )} px-3 py-1 rounded-md text-sm focus:outline-none`}>
-                              {orderStatusOptions.map((option) => (
-                                <option key={option?.value} value={option?.value}>
-                                  {option?.label}
-                                </option>
-                              ))}
-                            </select>
+                            <div className="flex items-center">
+                              <Tooltip
+                                title={renderStatusHistory(row.details.statusChanges)}
+                                placement="right"
+                                arrow
+                                PopperProps={{
+                                  sx: {
+                                    "& .MuiTooltip-tooltip": {
+                                      backgroundColor: "white",
+                                      color: "rgba(0, 0, 0, 0.87)",
+                                      boxShadow: "0px 2px 10px rgba(0, 0, 0, 0.2)",
+                                      padding: 0,
+                                      maxWidth: "none"
+                                    },
+                                    "& .MuiTooltip-arrow": {
+                                      color: "white"
+                                    }
+                                  }
+                                }}>
+                                <select
+                                  disabled={value === "DISPATCH_PROCESS" || value === "COMPLETED"}
+                                  value={value}
+                                  onChange={(e) => {
+                                    if (
+                                      e.target.value === "DISPATCH_PROCESS" ||
+                                      e.target.value === "DISPATCHED" ||
+                                      e.target.value === "COMPLETED"
+                                    ) {
+                                      Toast.info("This status cant be change directly")
+                                      return
+                                    }
+                                    pacthOrders(
+                                      {
+                                        id: row?.details?.orderid,
+                                        orderStatus: e.target.value
+                                      },
+                                      row
+                                    )
+                                  }}
+                                  className={`${getStatusColor(
+                                    value
+                                  )} px-3 py-1 rounded-md text-sm focus:outline-none`}>
+                                  {orderStatusOptions.map((option) => (
+                                    <option key={option?.value} value={option?.value}>
+                                      {option?.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </Tooltip>
+                              <span className="ml-1 cursor-pointer text-blue-500">
+                                <Info size={16} />
+                              </span>
+                            </div>
                           ) : key === "Delivery" && editingRows.has(index) ? (
                             <Select
                               value={
@@ -707,8 +770,65 @@ const FarmerOrdersTable = ({ slotId }) => {
                             key.includes("rate") ||
                             key.includes("advance") ? (
                             `₹${Number(value).toFixed(2)}`
+                          ) : key === "returned Plants" ? (
+                            <div className="flex items-center">
+                              {value}
+                              {row.details.returnHistory &&
+                                row.details.returnHistory.length > 0 && (
+                                  <Tooltip
+                                    title={renderReturnHistory(row.details.returnHistory)}
+                                    placement="right"
+                                    arrow
+                                    PopperProps={{
+                                      sx: {
+                                        "& .MuiTooltip-tooltip": {
+                                          backgroundColor: "white",
+                                          color: "rgba(0, 0, 0, 0.87)",
+                                          boxShadow: "0px 2px 10px rgba(0, 0, 0, 0.2)",
+                                          padding: 0,
+                                          maxWidth: "none"
+                                        },
+                                        "& .MuiTooltip-arrow": {
+                                          color: "white"
+                                        }
+                                      }
+                                    }}>
+                                    <span className="ml-1 cursor-pointer text-blue-500">
+                                      <Info size={16} />
+                                    </span>
+                                  </Tooltip>
+                                )}
+                            </div>
                           ) : (
-                            value
+                            <div className="flex items-center">
+                              {value}
+                              {key === "order" &&
+                                row.details.orderRemarks &&
+                                row.details.orderRemarks.length > 0 && (
+                                  <Tooltip
+                                    title={renderOrderRemarks(row.details.orderRemarks)}
+                                    placement="right"
+                                    arrow
+                                    PopperProps={{
+                                      sx: {
+                                        "& .MuiTooltip-tooltip": {
+                                          backgroundColor: "white",
+                                          color: "rgba(0, 0, 0, 0.87)",
+                                          boxShadow: "0px 2px 10px rgba(0, 0, 0, 0.2)",
+                                          padding: 0,
+                                          maxWidth: "none"
+                                        },
+                                        "& .MuiTooltip-arrow": {
+                                          color: "white"
+                                        }
+                                      }
+                                    }}>
+                                    <span className="ml-1 cursor-pointer text-amber-500">
+                                      <Info size={16} />
+                                    </span>
+                                  </Tooltip>
+                                )}
+                            </div>
                           )}
                         </td>
                       )
@@ -719,18 +839,41 @@ const FarmerOrdersTable = ({ slotId }) => {
                     row?.orderStatus !== "DISPATCHED" && (
                       <td className="px-6 py-4 text-right">
                         {editingRows.has(index) ? (
-                          <>
-                            <button
-                              onClick={() => saveEditedRow(index, row)}
-                              className="text-green-500 hover:text-green-700 focus:outline-none mr-2">
-                              <CheckIcon size={16} />
-                            </button>
-                            <button
-                              onClick={() => cancelEditing(index)}
-                              className="text-red-500 hover:text-red-700 focus:outline-none">
-                              <XIcon size={16} />
-                            </button>
-                          </>
+                          <div className="flex flex-col">
+                            <div className="flex mb-2">
+                              <button
+                                onClick={() => saveEditedRow(index, row)}
+                                className="text-green-500 hover:text-green-700 focus:outline-none mr-2">
+                                <CheckIcon size={16} />
+                              </button>
+                              <button
+                                onClick={() => cancelEditing(index)}
+                                className="text-red-500 hover:text-red-700 focus:outline-none">
+                                <XIcon size={16} />
+                              </button>
+                            </div>
+
+                            {/* Add remark while editing */}
+                            <div className="flex items-center mt-2">
+                              <input
+                                type="text"
+                                placeholder="Add remark..."
+                                value={newRemark}
+                                onChange={(e) => setNewRemark(e.target.value)}
+                                className="w-32 px-2 py-1 text-xs border border-gray-300 rounded mr-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                              />
+                              <button
+                                onClick={() => {
+                                  if (newRemark.trim()) {
+                                    handleAddRemark(row.details.orderid)
+                                  }
+                                }}
+                                disabled={!newRemark.trim()}
+                                className="text-xs px-2 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed">
+                                Add
+                              </button>
+                            </div>
+                          </div>
                         ) : (
                           <button
                             onClick={() => toggleEditing(index, row)}
@@ -744,22 +887,130 @@ const FarmerOrdersTable = ({ slotId }) => {
                 {expandedRows.has(index) && (
                   <tr>
                     <td colSpan={Object.keys(row).length + 1}>
-                      <RenderExpandedContent
-                        farmer={{
-                          name: row?.details?.farmer?.name,
-                          address: `${row?.details?.farmer?.village}`,
-                          contact: "+1234567890"
-                        }}
-                        salesPerson={{
-                          name: row?.details?.salesPerson?.name,
-                          contact: row?.details?.salesPerson?.phoneNumber
-                        }}
-                        details={{ payment: row?.details?.payment }}
-                        orderId={row?.details?.orderid}
-                        getOrders={getOrders}
-                        orderDetaisl={row?.details}
-                        refreshComponent={refreshComponent}
-                      />
+                      <div>
+                        <RenderExpandedContent
+                          farmer={{
+                            name: row?.details?.farmer?.name,
+                            address: `${row?.details?.farmer?.village}`,
+                            contact: "+1234567890"
+                          }}
+                          salesPerson={{
+                            name: row?.details?.salesPerson?.name,
+                            contact: row?.details?.salesPerson?.phoneNumber
+                          }}
+                          details={{ payment: row?.details?.payment }}
+                          orderId={row?.details?.orderid}
+                          getOrders={getOrders}
+                          orderDetaisl={row?.details}
+                          refreshComponent={refreshComponent}
+                        />
+
+                        {/* Returns Section */}
+                        {row.details.returnHistory && row.details.returnHistory.length > 0 && (
+                          <div className="mt-4 border-t pt-4 px-6">
+                            <h3 className="text-lg font-medium text-gray-800 mb-2">
+                              Plant Returns
+                            </h3>
+                            <div className="bg-gray-50 p-4 rounded-md">
+                              <div className="grid grid-cols-3 gap-4 mb-4">
+                                <div className="border-r pr-4">
+                                  <span className="text-gray-500 text-sm">Total Plants</span>
+                                  <div className="text-xl font-medium">{row.quantity}</div>
+                                </div>
+                                <div className="border-r pr-4">
+                                  <span className="text-gray-500 text-sm">Returned Plants</span>
+                                  <div className="text-xl font-medium text-amber-600">
+                                    {row["returned Plants"]}
+                                  </div>
+                                </div>
+                                <div>
+                                  <span className="text-gray-500 text-sm">Remaining Plants</span>
+                                  <div className="text-xl font-medium text-green-600">
+                                    {row["remaining Plants"]}
+                                  </div>
+                                </div>
+                              </div>
+
+                              <h4 className="font-medium text-gray-700 mt-4 mb-2">
+                                Return History:
+                              </h4>
+                              <div className="max-h-40 overflow-y-auto">
+                                {row.details.returnHistory.map((returnItem, returnIndex) => (
+                                  <div
+                                    key={returnIndex}
+                                    className="mb-3 p-2 bg-white rounded-md shadow-sm">
+                                    <div className="flex justify-between items-start">
+                                      <div>
+                                        <span className="font-medium text-amber-600">
+                                          {returnItem.quantity} plants returned
+                                        </span>
+                                      </div>
+                                      <span className="text-sm text-gray-500">
+                                        {returnItem.date
+                                          ? moment(returnItem.date).format("DD/MM/YYYY")
+                                          : "N/A"}
+                                      </span>
+                                    </div>
+                                    {returnItem.reason && (
+                                      <div className="text-sm text-gray-600 mt-1">
+                                        <span className="font-medium">Reason:</span>{" "}
+                                        {returnItem.reason}
+                                      </div>
+                                    )}
+                                    {returnItem.processedBy && (
+                                      <div className="text-xs text-gray-500 mt-1">
+                                        Processed by: {returnItem.processedBy.name || "Unknown"}
+                                      </div>
+                                    )}
+                                    {returnItem.dispatchId && (
+                                      <div className="text-xs text-gray-500 mt-1">
+                                        Dispatch ID: {returnItem.dispatchId}
+                                      </div>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Order Remarks Section */}
+                        <div className="mt-4 border-t pt-4 px-6">
+                          <h3 className="text-lg font-medium text-gray-800 mb-2">Order Remarks</h3>
+
+                          {/* Display existing remarks */}
+                          {row?.details?.orderRemarks && row?.details?.orderRemarks.length > 0 ? (
+                            <div className="mb-4">
+                              <ul className="list-disc pl-5 space-y-1">
+                                {row.details.orderRemarks.map((remark, remarkIndex) => (
+                                  <li key={remarkIndex} className="text-gray-700">
+                                    {remark}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          ) : (
+                            <p className="text-gray-500 italic mb-4">No remarks added yet</p>
+                          )}
+
+                          {/* Add new remark */}
+                          <div className="flex">
+                            <input
+                              type="text"
+                              placeholder="Add a new remark..."
+                              value={newRemark}
+                              onChange={(e) => setNewRemark(e.target.value)}
+                              className="flex-grow p-2 border border-gray-300 rounded-md mr-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                            <button
+                              onClick={() => handleAddRemark(row.details.orderid)}
+                              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
+                              disabled={!newRemark.trim()}>
+                              Add Remark
+                            </button>
+                          </div>
+                        </div>
+                      </div>
                     </td>
                   </tr>
                 )}

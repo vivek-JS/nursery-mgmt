@@ -17,11 +17,13 @@ export class APIResponse {
  * @description API Error model
  */
 export class APIError {
-  constructor(error = "", code) {
+  constructor(error = "", code, fullError, colError) {
     this.success = false
     this.data = null
     this.error = error
     this.message = error
     this.code = code
+    this.colError = colError
+    this.fullError = fullError
   }
 }

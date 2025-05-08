@@ -68,27 +68,36 @@ export default function networkManager(router, withFile = false) {
 
       return new APIResponse(response, response.success, result.status, response.data?.message)
     } catch (err) {
-      // Catch all errors
-      apiError(err?.response?.data?.message)
-      const IsNetworkError = err.code === HTTP_STATUS.NETWORK_ERR
-      if (router instanceof APIWithOfflineRouter && AppEnvIsDev && IsNetworkError) {
+      console.log(err?.response?.data)
+      const fullError = err?.response?.data?.rowErrors
+      const colError = err?.response?.data?.errors
+
+      apiError(fullError?.message || "Unknown error")
+
+      const isNetworkError = err.code === HTTP_STATUS.NETWORK_ERR
+
+      if (router instanceof APIWithOfflineRouter && AppEnvIsDev && isNetworkError) {
         offlineNotation()
         return offlineManager(router.offlineJson)
       }
+
       if (err.response?.status === 401) {
         if (refreshCount < APIConfig.MAX_REFRESH_ATTEMPTS) {
           const refreshToken = cookie.get(CookieKeys.REFRESH_TOKEN)
           await refreshAuthToken(refreshToken)
           refreshCount++
-          // pass the control back to network manager
           return await request(body, params)
         } else {
           UserState.observeLogout()
         }
-      } else if (err.code === HTTP_STATUS.NETWORK_ERR) {
+      } else if (isNetworkError) {
         apiError("Internal server error!")
       }
-      return new APIError(err?.response?.data?.message, err.code)
+      console.log(fullError)
+      console.log(colError)
+
+      // ✅ Return full data here
+      return new APIError(fullError?.message || "Request failed", err.code, fullError, colError)
     }
   }
   return {

@@ -38,7 +38,6 @@ const ParentAccordion = () => {
   }
 
   const isSectionExpanded = (sectionIndex) => expandedSections.includes(sectionIndex)
-
   return (
     <div className="space-y-6">
       {/* Year Toggle Section */}
@@ -66,6 +65,7 @@ const ParentAccordion = () => {
         ) : (
           months.map((section, sectionIndex) => (
             <div key={sectionIndex} className="border rounded-lg overflow-hidden">
+              {console.log(section)}
               <button
                 onClick={() => toggleSection(sectionIndex)}
                 className="w-full px-4 py-3 bg-gray-50 flex items-center justify-between hover:bg-gray-100 transition-colors">
@@ -74,12 +74,7 @@ const ParentAccordion = () => {
                   <div className="text-sm flex gap-6">
                     <span className="flex items-center gap-1 text-yellow-500">
                       <AlertCircle className="w-4 h-4" />{" "}
-                      <strong>
-                        {Number(section?.totalPlants) +
-                          Number(section?.totalBookedPlants) -
-                          Number(section?.totalBookedPlants) || 0}
-                      </strong>{" "}
-                      Remaining
+                      <strong>{Number(section?.totalPlants) || 0}</strong> Remaining
                     </span>
                     <span className="flex items-center gap-1 text-green-600">
                       <CheckCircle className="w-4 h-4" />{" "}

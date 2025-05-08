@@ -66,7 +66,7 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh }) => {
           bookingSlot: order.details.bookingSlot
         }
       }))
-
+      console.log(plant?.pickupDetails)
       return {
         id: plant.id,
         name: plant.name,
@@ -74,13 +74,17 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh }) => {
         pickupDetails: plant.pickupDetails?.map((pickup) => ({
           shade: pickup.shade,
           quantity: pickup.quantity,
-          shadeName: pickup.shadeName
+          shadeName: pickup.shadeName,
+          cavityName: pickup.cavityName
         })),
-        crates: plant.crates[0].crateDetails?.map((crate) => ({
-          numberOfCavityTrays: Math.ceil(crate.plantCount / plant.crates[0].cavitySize),
-          numberOfCrates: crate.crateCount,
-          quantity: crate.plantCount
-        })),
+        crates: plant.crates?.map((crate) => {
+          return {
+            numberOfCavityTrays: Math.ceil(crate?.crateDetails[0]?.plantCount / crate?.cavitySize),
+            numberOfCrates: crate?.crateDetails[0]?.crateCount,
+            quantity: crate?.crateDetails[0]?.plantCount,
+            cavityName: crate?.cavityName
+          }
+        }),
         selectedCavity: plant.crates[0].cavity,
         cavityDetails: {
           cavityName: plant.crates[0].cavityName,

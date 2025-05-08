@@ -25,6 +25,7 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
   const [shades, setShades] = useState([])
   const [cavities, setCavities] = useState([])
   const [isEditing, setIsEditing] = useState(false)
+
   // Fetch functions for each dropdown
   const getDrivers = async () => {
     try {
@@ -86,18 +87,65 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
     }
 
     formData.plants.forEach((plant) => {
-      const emptyShade = plant.pickupDetails.find((detail) => !detail.shade)
-      if (emptyShade) {
-        throw new Error(`Please select all shades for ${plant.name}`)
+      if (!plant.cavityGroups || plant.cavityGroups.length === 0) {
+        throw new Error(`Please select at least one cavity for ${plant.name}`)
       }
 
-      const pickupTotal = plant.pickupDetails?.reduce(
-        (sum, detail) => sum + Number(detail.quantity),
+      // Check if every cavity group has a cavity selected
+      const emptyCavity = plant.cavityGroups.find((group) => !group.cavity)
+      if (emptyCavity) {
+        throw new Error(`Please select a cavity for all cavity groups for ${plant.name}`)
+      }
+
+      // Check for valid pickup details in each cavity group
+      plant.cavityGroups.forEach((cavityGroup) => {
+        if (!cavityGroup.pickupDetails || cavityGroup.pickupDetails.length === 0) {
+          throw new Error(
+            `Please add pickup details for ${plant.name} (Cavity: ${cavityGroup.cavityName})`
+          )
+        }
+
+        // Check for empty shades
+        const emptyShade = cavityGroup.pickupDetails.find((detail) => !detail.shade)
+        if (emptyShade) {
+          throw new Error(
+            `Please select all shades for ${plant.name} (Cavity: ${cavityGroup.cavityName})`
+          )
+        }
+
+        // Check for valid quantities
+        const invalidQuantity = cavityGroup.pickupDetails.find(
+          (detail) => !detail.quantity || Number(detail.quantity) <= 0
+        )
+        if (invalidQuantity) {
+          throw new Error(
+            `All quantities must be greater than 0 for ${plant.name} (Cavity: ${cavityGroup.cavityName})`
+          )
+        }
+
+        // Check total pickup quantity for this cavity group
+        const pickupTotal = cavityGroup.pickupDetails?.reduce(
+          (sum, detail) => sum + Number(detail.quantity),
+          0
+        )
+
+        if (pickupTotal <= 0) {
+          throw new Error(
+            `Total pickup quantity must be greater than 0 for ${plant.name} (Cavity: ${cavityGroup.cavityName})`
+          )
+        }
+      })
+
+      // Check if total pickup quantity across all cavity groups matches required plant quantity
+      const totalPickup = plant.cavityGroups.reduce(
+        (sum, group) =>
+          sum + group.pickupDetails.reduce((subSum, detail) => subSum + Number(detail.quantity), 0),
         0
       )
-      if (pickupTotal !== plant.quantity) {
+
+      if (totalPickup !== plant.quantity) {
         throw new Error(
-          `Total pickup quantity (${pickupTotal}) doesn't match required quantity (${plant.quantity}) for ${plant.name}`
+          `Total pickup quantity (${totalPickup}) doesn't match required quantity (${plant.quantity}) for ${plant.name}`
         )
       }
     })
@@ -110,30 +158,67 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
     const orderIds = Array.from(selectedOrders.keys())
     const plantsDetails = formData.plants?.map((plant) => {
       const firstOrder = plant.orders[0]?.details
+
+      // Transform cavity groups into the expected API format
+      const pickupDetailsList = []
+      const cratesList = []
+
+      plant.cavityGroups.forEach((cavityGroup) => {
+        if (!cavityGroup.cavity) return
+
+        // Process pickup details for this cavity
+        cavityGroup.pickupDetails.forEach((detail) => {
+          if (!detail.shade || Number(detail.quantity) <= 0) return
+
+          pickupDetailsList.push({
+            shade: detail.shade,
+            shadeName: detail.shadeName || "",
+            quantity: Number(detail.quantity),
+            cavity: cavityGroup.cavity,
+            cavityName: cavityGroup.cavityName
+          })
+        })
+
+        // Process crates for this cavity
+        if (cavityGroup.crates && cavityGroup.crates.length > 0) {
+          const totalCrateCount = cavityGroup.crates.reduce(
+            (sum, crate) => sum + (crate.numberOfCrates || 0),
+            0
+          )
+
+          const totalPlantCount = cavityGroup.crates.reduce(
+            (sum, crate) => sum + Number(crate.quantity || 0),
+            0
+          )
+
+          const crateDetails = cavityGroup.crates
+            .map((crate) => ({
+              crateCount: crate.numberOfCrates || 0,
+              plantCount: Number(crate.quantity || 0)
+            }))
+            .filter((detail) => detail.crateCount > 0)
+
+          if (crateDetails.length > 0) {
+            cratesList.push({
+              cavity: cavityGroup.cavity,
+              cavityName: cavityGroup.cavityName,
+              crateCount: totalCrateCount,
+              plantCount: totalPlantCount,
+              crateDetails: crateDetails
+            })
+          }
+        }
+      })
+
       return {
         name: plant.name,
         id: plant.id,
         plantId: firstOrder?.plantID || "",
         subTypeId: firstOrder?.plantSubtypeID || "",
         quantity: plant.quantity,
-        totalPlants: plant.pickupDetails.reduce((sum, detail) => sum + Number(detail.quantity), 0),
-        pickupDetails: plant.pickupDetails?.map((detail) => ({
-          shade: detail.shade,
-          shadeName: detail.shadeName || "",
-          quantity: Number(detail.quantity)
-        })),
-        crates: [
-          {
-            cavity: plant.selectedCavity,
-            cavityName: plant.cavityDetails?.cavityName,
-            crateCount: plant.crates.reduce((sum, crate) => sum + crate.numberOfCrates, 0),
-            plantCount: plant.crates.reduce((sum, crate) => sum + Number(crate.quantity), 0),
-            crateDetails: plant.crates.map((crate) => ({
-              crateCount: crate.numberOfCrates,
-              plantCount: Number(crate.quantity)
-            }))
-          }
-        ]
+        totalPlants: pickupDetailsList.reduce((sum, detail) => sum + Number(detail.quantity), 0),
+        pickupDetails: pickupDetailsList,
+        crates: cratesList
       }
     })
 
@@ -165,67 +250,130 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
     }
   }
 
-  const handleAddPickupDetail = (plantIndex) => {
+  const handleAddCavityGroup = (plantIndex) => {
     setFormData((prev) => {
       const updatedPlants = [...prev.plants]
-      updatedPlants[plantIndex].pickupDetails.push({ shade: "", quantity: 0 })
+      if (!updatedPlants[plantIndex].cavityGroups) {
+        updatedPlants[plantIndex].cavityGroups = []
+      }
+
+      updatedPlants[plantIndex].cavityGroups.push({
+        cavity: "",
+        cavityName: "",
+        pickupDetails: [],
+        crates: []
+      })
+
       return { ...prev, plants: updatedPlants }
     })
   }
 
-  const handlePickupDetailChange = (plantIndex, detailIndex, field, value) => {
+  const handleCavityChange = (plantIndex, groupIndex, value) => {
     setFormData((prev) => {
       const updatedPlants = [...prev.plants]
+      const selectedCavity = cavities.find((cavity) => cavity.id === value)
+
+      // Check if this cavity is already selected in another group
+      const isDuplicate = updatedPlants[plantIndex].cavityGroups.some(
+        (group, idx) => idx !== groupIndex && group.cavity === value
+      )
+
+      if (isDuplicate) {
+        setError(
+          `Cavity ${selectedCavity?.name} is already selected. Please choose a different cavity.`
+        )
+        return prev
+      }
+
+      const cavitySize = selectedCavity?.cavity || 1
+      const numberPerCrate = selectedCavity?.numberPerCrate || 1
+
+      updatedPlants[plantIndex].cavityGroups[groupIndex] = {
+        ...updatedPlants[plantIndex].cavityGroups[groupIndex],
+        cavity: value,
+        cavityName: selectedCavity?.name || "",
+        cavitySize: cavitySize,
+        numberPerCrate: numberPerCrate
+      }
+
+      // Reset pickup details whenever cavity changes, and ensure they have the cavity reference
+      updatedPlants[plantIndex].cavityGroups[groupIndex].pickupDetails = [
+        {
+          shade: "",
+          quantity: 0,
+          cavity: value,
+          cavityName: selectedCavity?.name || ""
+        }
+      ]
+
+      // Reset crates
+      updatedPlants[plantIndex].cavityGroups[groupIndex].crates = []
+
+      return { ...prev, plants: updatedPlants }
+    })
+  }
+
+  const handleDeleteCavityGroup = (plantIndex, groupIndex) => {
+    setFormData((prev) => {
+      const updatedPlants = [...prev.plants]
+      updatedPlants[plantIndex].cavityGroups = updatedPlants[plantIndex].cavityGroups.filter(
+        (_, index) => index !== groupIndex
+      )
+      return { ...prev, plants: updatedPlants }
+    })
+  }
+
+  const handleAddPickupDetail = (plantIndex, groupIndex) => {
+    setFormData((prev) => {
+      const updatedPlants = [...prev.plants]
+      const cavityGroup = updatedPlants[plantIndex].cavityGroups[groupIndex]
+
+      // Add the new pickup detail with cavity reference
+      cavityGroup.pickupDetails.push({
+        shade: "",
+        quantity: 0,
+        cavity: cavityGroup.cavity,
+        cavityName: cavityGroup.cavityName
+      })
+
+      return { ...prev, plants: updatedPlants }
+    })
+  }
+
+  const handlePickupDetailChange = (plantIndex, groupIndex, detailIndex, field, value) => {
+    setFormData((prev) => {
+      const updatedPlants = [...prev.plants]
+      const cavityGroup = updatedPlants[plantIndex].cavityGroups[groupIndex]
+
       if (field === "shade") {
         const selectedShade = shades.find((shade) => shade.id === value)
-        updatedPlants[plantIndex].pickupDetails[detailIndex][field] = value
-        updatedPlants[plantIndex].pickupDetails[detailIndex].shadeName = selectedShade?.name || ""
+        cavityGroup.pickupDetails[detailIndex][field] = value
+        cavityGroup.pickupDetails[detailIndex].shadeName = selectedShade?.name || ""
+
+        // Make sure each pickup detail has the cavity reference
+        cavityGroup.pickupDetails[detailIndex].cavity = cavityGroup.cavity
+        cavityGroup.pickupDetails[detailIndex].cavityName = cavityGroup.cavityName
       } else {
-        updatedPlants[plantIndex].pickupDetails[detailIndex][field] = value
+        cavityGroup.pickupDetails[detailIndex][field] = value
       }
 
-      const plant = updatedPlants[plantIndex]
-      if (plant.selectedCavity) {
-        const selectedOption = document.querySelector(`option[value="${plant.selectedCavity}"]`)
-        const numberPerCrate = selectedOption?.getAttribute("tpc")
-        handleCrateChange(plantIndex, 0, "cavity", plant.selectedCavity, numberPerCrate)
-      }
+      // Recalculate crates based on the total pickup quantity for this cavity
+      const totalQuantity = cavityGroup.pickupDetails.reduce(
+        (sum, detail) => sum + Number(detail.quantity),
+        0
+      )
 
-      return { ...prev, plants: updatedPlants }
-    })
-  }
+      if (totalQuantity > 0 && cavityGroup.cavitySize && cavityGroup.numberPerCrate) {
+        const cavitySize = Number(cavityGroup.cavitySize)
+        const numberPerCrate = Number(cavityGroup.numberPerCrate)
 
-  const handleCrateChange = (plantIndex, crateIndex, field, value, numberPerCrate) => {
-    setFormData((prev) => {
-      const updatedPlants = [...prev.plants]
-      const plant = updatedPlants[plantIndex]
+        const numberOfCavityTrays = Math.floor(totalQuantity / cavitySize)
+        const remainder = (totalQuantity / cavitySize) % numberPerCrate
 
-      if (field === "cavity") {
-        const selectedCavity = cavities.find((cavity) => cavity.id === value)
-
-        const cavitySize = selectedCavity?.cavity || 1
-        const extraPlants =
-          (plant?.quantity / plant?.cavityDetails?.cavitySize) * Number(plant.extraPlantsPerTray) ||
-          0
-        const totalPlants =
-          plant.pickupDetails.reduce((sum, detail) => sum + Number(detail.quantity), 0) +
-          extraPlants
-        numberPerCrate = Number(numberPerCrate) || selectedCavity?.numberPerCrate || 1
-        const numberOfCavityTrays = Math.floor(totalPlants / cavitySize)
-        const remainder = (totalPlants / cavitySize) % numberPerCrate
-
-        updatedPlants[plantIndex].selectedCavity = value
-        updatedPlants[plantIndex].cavityDetails = {
-          cavityName: selectedCavity?.name,
-          cavitySize: cavitySize,
-          numberPerCrate: numberPerCrate,
-          extraPlantsPerTray: extraPlants
-        }
-
-        updatedPlants[plantIndex].crates = []
+        cavityGroup.crates = []
 
         if (numberOfCavityTrays > 0) {
-          updatedPlants[plantIndex].crates.push({
+          cavityGroup.crates.push({
             numberOfCavityTrays: numberOfCavityTrays,
             numberOfCrates: Math.floor(numberOfCavityTrays / numberPerCrate),
             quantity: Math.floor(numberOfCavityTrays / numberPerCrate) * numberPerCrate * cavitySize
@@ -233,11 +381,11 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
         }
 
         if (remainder > 0) {
-          updatedPlants[plantIndex].crates.push({
+          cavityGroup.crates.push({
             numberOfCavityTrays: 1,
             numberOfCrates: 1,
             quantity:
-              totalPlants -
+              totalQuantity -
               Math.floor(numberOfCavityTrays / numberPerCrate) * numberPerCrate * cavitySize
           })
         }
@@ -246,15 +394,20 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
       return { ...prev, plants: updatedPlants }
     })
   }
-  const handleDeletePickupDetail = (plantIndex, detailIndex) => {
+
+  const handleDeletePickupDetail = (plantIndex, groupIndex, detailIndex) => {
     setFormData((prev) => {
       const updatedPlants = [...prev.plants]
-      if (updatedPlants[plantIndex].pickupDetails.length === 1) {
+      const pickupDetails = updatedPlants[plantIndex].cavityGroups[groupIndex].pickupDetails
+
+      if (pickupDetails.length === 1) {
         return prev
       }
-      updatedPlants[plantIndex].pickupDetails = updatedPlants[plantIndex].pickupDetails.filter(
+
+      updatedPlants[plantIndex].cavityGroups[groupIndex].pickupDetails = pickupDetails.filter(
         (_, index) => index !== detailIndex
       )
+
       return { ...prev, plants: updatedPlants }
     })
   }
@@ -282,14 +435,68 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
 
   useEffect(() => {
     if (mode === "view" && dispatchData) {
-      const plants = dispatchData.plants
+      // Transform the existing dispatchData to match the new data structure with cavity groups
+      const transformedPlants = dispatchData.plants.map((plant) => {
+        // Group by cavity
+        const cavityGroups = {}
+
+        // Group pickup details by cavity
+        if (plant.pickupDetails && plant.pickupDetails.length > 0) {
+          plant.pickupDetails.forEach((detail) => {
+            const cavityId = detail.cavity || "default"
+            if (!cavityGroups[cavityId]) {
+              cavityGroups[cavityId] = {
+                cavity: detail.cavity,
+                cavityName: detail.cavityName || "",
+                cavitySize: detail.cavitySize,
+                numberPerCrate: detail.numberPerCrate,
+                pickupDetails: [],
+                crates: []
+              }
+            }
+            // Copy all properties including cavity reference
+            cavityGroups[cavityId].pickupDetails.push({
+              shade: detail.shade,
+              shadeName: detail.shadeName,
+              quantity: detail.quantity,
+              cavity: detail.cavity,
+              cavityName: detail.cavityName
+            })
+          })
+        }
+
+        // Group crates by cavity
+        if (plant.crates && plant.crates.length > 0) {
+          plant.crates.forEach((crate) => {
+            const cavityId = crate.cavity || "default"
+            if (cavityGroups[cavityId]) {
+              // Convert crateDetails to the format expected in the form
+              const transformedCrates =
+                crate.crateDetails?.map((detail) => ({
+                  numberOfCrates: detail.crateCount || 0,
+                  quantity: detail.plantCount || 0,
+                  numberOfCavityTrays:
+                    Math.ceil(detail.plantCount / cavityGroups[cavityId].cavitySize) || 0
+                })) || []
+
+              cavityGroups[cavityId].crates = transformedCrates
+            }
+          })
+        }
+
+        return {
+          ...plant,
+          cavityGroups: Object.values(cavityGroups)
+        }
+      })
+
       setFormData({
         driverName: dispatchData.driverName,
         vehicleName: dispatchData.vehicleName,
-        plants: plants
+        plants: transformedPlants
       })
 
-      const initialExpandedState = plants?.reduce((acc, plant) => {
+      const initialExpandedState = transformedPlants?.reduce((acc, plant) => {
         acc[plant.id] = true
         return acc
       }, {})
@@ -306,24 +513,12 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
             id: plantId,
             name: order.plantType,
             quantity: order.quantity || 0,
-            pickupDetails: [
-              {
-                shade: "",
-                quantity: order.quantity || 0
-              }
-            ],
-            crates: [
-              {
-                cavity: "",
-                quantity: 0
-              }
-            ],
+            // Initialize with empty cavity groups - user must add cavities manually
+            cavityGroups: [],
             orders: []
           }
         } else {
           acc[key].quantity += order.quantity || 0
-          acc[key].pickupDetails[0].quantity += order.quantity || 0
-          acc[key].crates[0].quantity += order.quantity || 0
         }
 
         acc[key].orders.push(order)
@@ -342,6 +537,7 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
       setExpandedPlants(initialExpandedState)
     }
   }, [mode, dispatchData, selectedOrders?.size])
+
   const handleCancelEdit = () => {
     if (dispatchData) {
       setFormData(dispatchData)
@@ -466,16 +662,6 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
                       <span className="text-sm text-green-600 bg-green-100 px-2 py-0.5 rounded-full">
                         {plant.quantity.toLocaleString()} plants
                       </span>
-                      {plant.extraPlantsPerTray > 0 && (
-                        <span className="text-sm text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full flex items-center gap-1">
-                          <span className="text-xs">+</span>
-                          {Math.round(
-                            (Number(plant?.quantity) / Number(plant?.cavityDetails?.cavitySize)) *
-                              Number(plant.extraPlantsPerTray)
-                          ).toLocaleString()}{" "}
-                          extra
-                        </span>
-                      )}
                     </div>
                   </div>
                   {expandedPlants[plant.id] ? (
@@ -487,140 +673,165 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
 
                 {expandedPlants[plant.id] && (
                   <div className="p-4 space-y-4">
-                    {/* Pickup Details */}
-                    <div className="space-y-2">
-                      <div className="flex justify-between items-center">
-                        <h4 className="font-medium">Pickup Details</h4>
-                        {!isViewMode && (
-                          <button
-                            onClick={() => handleAddPickupDetail(plantIndex)}
-                            className="text-sm text-green-600 hover:text-green-700">
-                            + Add Pickup Detail
-                          </button>
-                        )}
+                    {/* Add Cavity Button */}
+                    {!isViewMode && (
+                      <div className="flex justify-end">
+                        <button
+                          onClick={() => handleAddCavityGroup(plantIndex)}
+                          className="text-sm bg-green-50 text-green-600 hover:bg-green-100 px-3 py-1.5 rounded-md border border-green-200">
+                          + Add Cavity
+                        </button>
                       </div>
-                      {plant.pickupDetails?.map((detail, detailIndex) => (
-                        <div key={detailIndex} className="flex gap-4 items-center">
-                          <select
-                            className="flex-1 p-2 border rounded"
-                            value={detail.shade}
-                            onChange={(e) =>
-                              handlePickupDetailChange(
-                                plantIndex,
-                                detailIndex,
-                                "shade",
-                                e.target.value
-                              )
-                            }
-                            disabled={isViewMode && !isEditing}>
-                            <option value="">Select Shade</option>
-                            {shades?.map((shade) => (
-                              <option key={shade.id} value={shade.id}>
-                                {shade.name}
-                              </option>
-                            ))}
-                          </select>
-                          <input
-                            type="number"
-                            className="flex-1 p-2 border rounded"
-                            value={detail.quantity}
-                            onChange={(e) =>
-                              handlePickupDetailChange(
-                                plantIndex,
-                                detailIndex,
-                                "quantity",
-                                e.target.value
-                              )
-                            }
-                            placeholder="Quantity"
-                            disabled={isViewMode && !isEditing}
-                          />
-                          {!isViewMode && (
-                            <IconButton
-                              onClick={() => handleDeletePickupDetail(plantIndex, detailIndex)}
-                              disabled={plant.pickupDetails.length === 1}>
-                              <Trash2 size={20} className="text-red-500" />
-                            </IconButton>
-                          )}
-                        </div>
-                      ))}
-                    </div>
+                    )}
 
-                    {/* Cavity Details */}
-                    <div className="space-y-2">
-                      <div className="flex justify-between items-center">
-                        <h4 className="font-medium">Cavity</h4>
-                      </div>
-                      <div className="space-y-4">
-                        <div className="flex gap-4">
-                          <select
-                            className="flex-1 p-2 border rounded"
-                            value={plant.selectedCavity || ""}
-                            onChange={(e) => {
-                              const selectedOption = e.target.options[e.target.selectedIndex]
-                              const numberPerCrate = selectedOption.getAttribute("tpc")
-                              handleCrateChange(
-                                plantIndex,
-                                0,
-                                "cavity",
-                                e.target.value,
-                                numberPerCrate
-                              )
-                            }}
-                            disabled={isViewMode && !isEditing}>
-                            <option value="">Select Cavity</option>
-                            {cavities?.map((cavity) => (
-                              <option key={cavity.id} value={cavity.id} tpc={cavity.numberPerCrate}>
-                                {cavity.name}
-                              </option>
-                            ))}
-                          </select>
-                          <input
-                            type="number"
-                            className="w-32 p-2 border rounded"
-                            placeholder="Extra plants"
-                            value={plant.extraPlantsPerTray || ""}
-                            onChange={(e) => {
-                              const value = e.target.value
-                              setFormData((prev) => {
-                                const updatedPlants = [...prev.plants]
-                                updatedPlants[plantIndex].extraPlantsPerTray = value
-
-                                if (updatedPlants[plantIndex].selectedCavity) {
-                                  handleCrateChange(
-                                    plantIndex,
-                                    0,
-                                    "cavity",
-                                    updatedPlants[plantIndex].selectedCavity,
-                                    updatedPlants[plantIndex].cavityDetails?.numberPerCrate
-                                  )
-                                }
-
-                                return { ...prev, plants: [...updatedPlants] }
-                              })
-                            }}
-                            disabled={isViewMode && !isEditing}
-                          />
-                        </div>
-
-                        {/* Crate Details */}
-                        {plant.selectedCavity &&
-                          plant.crates?.map((crate, crateIndex) => (
-                            <div
-                              key={crateIndex}
-                              className="grid grid-cols-2 gap-4 p-2 bg-gray-50 rounded">
-                              <div className="text-sm">
-                                <span className="text-gray-500">Crates: </span>
-                                <span className="font-medium">{crate.numberOfCrates}</span>
-                              </div>
-                              <div className="text-sm">
-                                <span className="text-gray-500">Plants: </span>
-                                <span className="font-medium">{crate.quantity}</span>
-                              </div>
+                    {/* Cavity Groups */}
+                    {plant.cavityGroups?.length > 0 ? (
+                      <div className="space-y-6">
+                        {plant.cavityGroups.map((cavityGroup, groupIndex) => (
+                          <div
+                            key={groupIndex}
+                            className="border rounded-lg bg-white p-4 space-y-4">
+                            {/* Cavity Selection */}
+                            <div className="flex items-center justify-between">
+                              <h4 className="font-medium">Cavity Selection</h4>
+                              {!isViewMode && (
+                                <IconButton
+                                  onClick={() => handleDeleteCavityGroup(plantIndex, groupIndex)}
+                                  disabled={isViewMode}>
+                                  <Trash2 size={18} className="text-red-500" />
+                                </IconButton>
+                              )}
                             </div>
-                          ))}
+
+                            <div className="flex gap-4">
+                              <select
+                                className="flex-1 p-2 border rounded"
+                                value={cavityGroup.cavity || ""}
+                                onChange={(e) =>
+                                  handleCavityChange(plantIndex, groupIndex, e.target.value)
+                                }
+                                disabled={(isViewMode && !isEditing) || cavityGroup.cavity}>
+                                <option value="">Select Cavity</option>
+                                {cavities?.map((cavity) => (
+                                  <option
+                                    key={cavity.id}
+                                    value={cavity.id}
+                                    disabled={plant.cavityGroups.some(
+                                      (group, idx) =>
+                                        idx !== groupIndex && group.cavity === cavity.id
+                                    )}>
+                                    {cavity.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+
+                            {/* Pickup Details - only shown if cavity is selected */}
+                            {cavityGroup.cavity && (
+                              <div className="space-y-4 mt-4 pt-4 border-t">
+                                <div className="flex justify-between items-center">
+                                  <h4 className="font-medium">
+                                    Pickup Details for {cavityGroup.cavityName}
+                                  </h4>
+                                  {!isViewMode && (
+                                    <button
+                                      onClick={() => handleAddPickupDetail(plantIndex, groupIndex)}
+                                      className="text-sm text-green-600 hover:text-green-700">
+                                      + Add Pickup Detail
+                                    </button>
+                                  )}
+                                </div>
+
+                                {cavityGroup.pickupDetails?.map((detail, detailIndex) => (
+                                  <div key={detailIndex} className="flex gap-4 items-center">
+                                    <select
+                                      className="flex-1 p-2 border rounded"
+                                      value={detail.shade}
+                                      onChange={(e) =>
+                                        handlePickupDetailChange(
+                                          plantIndex,
+                                          groupIndex,
+                                          detailIndex,
+                                          "shade",
+                                          e.target.value
+                                        )
+                                      }
+                                      disabled={isViewMode && !isEditing}>
+                                      <option value="">Select Shade</option>
+                                      {shades?.map((shade) => (
+                                        <option key={shade.id} value={shade.id}>
+                                          {shade.name}
+                                        </option>
+                                      ))}
+                                    </select>
+
+                                    <input
+                                      type="number"
+                                      className="flex-1 p-2 border rounded"
+                                      value={detail.quantity}
+                                      onChange={(e) =>
+                                        handlePickupDetailChange(
+                                          plantIndex,
+                                          groupIndex,
+                                          detailIndex,
+                                          "quantity",
+                                          e.target.value
+                                        )
+                                      }
+                                      placeholder="Quantity"
+                                      disabled={isViewMode && !isEditing}
+                                    />
+
+                                    {!isViewMode && (
+                                      <IconButton
+                                        onClick={() =>
+                                          handleDeletePickupDetail(
+                                            plantIndex,
+                                            groupIndex,
+                                            detailIndex
+                                          )
+                                        }
+                                        disabled={cavityGroup.pickupDetails.length === 1}>
+                                        <Trash2 size={20} className="text-red-500" />
+                                      </IconButton>
+                                    )}
+                                  </div>
+                                ))}
+
+                                {/* Crate Details */}
+                                {cavityGroup.crates?.length > 0 && (
+                                  <div className="mt-4 pt-4 border-t">
+                                    <h4 className="font-medium mb-2">Crate Details</h4>
+                                    <div className="space-y-2">
+                                      {cavityGroup.crates.map((crate, crateIndex) => (
+                                        <div
+                                          key={crateIndex}
+                                          className="grid grid-cols-2 gap-4 p-2 bg-gray-50 rounded">
+                                          <div className="text-sm">
+                                            <span className="text-gray-500">Crates: </span>
+                                            <span className="font-medium">
+                                              {crate.numberOfCrates}
+                                            </span>
+                                          </div>
+                                          <div className="text-sm">
+                                            <span className="text-gray-500">Plants: </span>
+                                            <span className="font-medium">{crate.quantity}</span>
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        ))}
                       </div>
-                    </div>
+                    ) : (
+                      <div className="text-center py-6 text-gray-500 italic">
+                        Please add a cavity to continue
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

@@ -33,5 +33,5 @@ export const DashboardMenus = [
   // new MenuPath("Admin", <AdminPanelSettingsIcon />, "/u/admin"),
   new MenuPath("Labs", <BiotechIcon />, "/u/labs"),
   new MenuPath("Order", <ListAltIcon />, "/u/orders"),
-
+  new MenuPath("Orders-upload", <ListAltIcon />, "/u/upload-orders")
 ]
