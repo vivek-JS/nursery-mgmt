@@ -18,8 +18,12 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh }) => {
 
   useEffect(() => {
     fetchDispatches()
+    // Reset all dialog states when component re-renders due to viewMode or refresh changes
+    setIsCollectSlipOpen(false)
+    setIsDCOpen(false)
+    setIsDispatchFormOpen(false)
+    setIsOrderCompleteOpen(false)
   }, [viewMode, refresh])
-
   const fetchDispatches = async () => {
     try {
       setLoading(true)
@@ -197,20 +201,24 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh }) => {
   // Example usage
 
   const handleDialogOpen = (type, dispatch, e) => {
-    e.stopPropagation()
-    console.log(type)
-    const formattedData = transformDispatchForForm(dispatch)
+    e.stopPropagation() // Prevent the event from bubbling up
+
+    let formattedData
+
     switch (type) {
       case "view":
+        formattedData = transformDispatchForForm(dispatch)
         setSelectedDispatch(formattedData)
         setSelectedOrders(transformDataToMap(dispatch))
         setIsDispatchFormOpen(true)
         break
       case "collectSlip":
+        formattedData = transformDispatchForForm(dispatch)
         setSelectedDispatch(formattedData)
         setIsCollectSlipOpen(true)
         break
       case "dc":
+        // For DC we don't need to transform the data
         setSelectedDispatch(dispatch)
         setIsDCOpen(true)
         break
@@ -218,6 +226,7 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh }) => {
         break
     }
   }
+
   const handleDialogOpenView = (type, dispatch, e) => {
     e.stopPropagation()
     const formattedData = transformDispatchForForm(dispatch)
@@ -258,10 +267,18 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh }) => {
     }
   }
   const handleRowClick = (dispatch, e) => {
-    // Don't open the view dialog if clicked on any button
-    if (e.target.closest("button")) {
+    // Don't open the view dialog if clicked on any button or if a dialog is already open
+    if (
+      e.target.closest("button") ||
+      isDispatchFormOpen ||
+      isCollectSlipOpen ||
+      isDCOpen ||
+      isOrderCompleteOpen
+    ) {
       return
     }
+
+    // Only open the view dialog if nothing else is open
     handleDialogOpenView("view", dispatch, e)
   }
   return (
@@ -400,36 +417,48 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh }) => {
             </div>
           )}
 
-          {isDispatchFormOpen && (
+          {isDispatchFormOpen && selectedDispatch && (
             <DispatchForm
               open={isDispatchFormOpen}
-              onClose={() => setIsDispatchFormOpen(false)}
+              onClose={() => {
+                setIsDispatchFormOpen(false)
+                setSelectedDispatch(null) // Reset selected dispatch when closing
+              }}
               dispatchData={selectedDispatch}
               mode="view"
               selectedOrders={selectedOrders}
             />
           )}
 
-          {isCollectSlipOpen && (
+          {isCollectSlipOpen && selectedDispatch && (
             <CollectSlipPDF
               open={isCollectSlipOpen}
-              onClose={() => setIsCollectSlipOpen(false)}
+              onClose={() => {
+                setIsCollectSlipOpen(false)
+                setSelectedDispatch(null) // Reset selected dispatch when closing
+              }}
               dispatchData={selectedDispatch}
             />
           )}
 
-          {isDCOpen && (
+          {isDCOpen && selectedDispatch && (
             <DeliveryChallanPDF
               open={isDCOpen}
-              onClose={() => setIsDCOpen(false)}
+              onClose={() => {
+                setIsDCOpen(false)
+                setSelectedDispatch(null) // Reset selected dispatch when closing
+              }}
               dispatchData={selectedDispatch}
             />
           )}
-          {/* New Order Complete Dialog */}
-          {isOrderCompleteOpen && (
+
+          {isOrderCompleteOpen && selectedDispatch && (
             <OrderCompleteDialog
               open={isOrderCompleteOpen}
-              onClose={() => setIsOrderCompleteOpen(false)}
+              onClose={() => {
+                setIsOrderCompleteOpen(false)
+                setSelectedDispatch(null) // Reset selected dispatch when closing
+              }}
               dispatchData={selectedDispatch}
             />
           )}

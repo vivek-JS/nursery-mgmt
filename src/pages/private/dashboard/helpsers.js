@@ -93,35 +93,60 @@ export const renderOrderRemarks = (remarks) => {
   )
 }
 
+// Enhanced version of renderReturnHistory function for helpers.js
 export const renderReturnHistory = (returnHistory) => {
   if (!returnHistory || returnHistory.length === 0) {
-    return <div className="p-2 text-sm">No returns recorded</div>
+    return (
+      <div className="p-4">
+        <p className="text-gray-500 italic">No return history recorded</p>
+      </div>
+    )
   }
 
   return (
-    <div className="p-3 max-w-md">
-      <h3 className="font-medium text-gray-800 mb-2">Return History</h3>
-      <div className="max-h-60 overflow-y-auto">
-        {returnHistory.map((returnItem, index) => (
-          <div key={index} className="mb-3 border-b pb-2 last:border-0">
-            <div className="flex justify-between items-start mb-1">
-              <div className="text-sm font-medium">{returnItem.quantity} plants returned</div>
-              <span className="text-xs text-gray-500">
-                {returnItem.date ? moment(returnItem.date).format("DD/MM/YY") : "N/A"}
-              </span>
+    <div className="bg-white p-4 rounded-md shadow-md w-96 max-h-96 overflow-y-auto">
+      <h3 className="text-lg font-medium text-gray-800 mb-3 border-b pb-2">Return History</h3>
+      <div className="space-y-4">
+        {returnHistory.map((returnItem, index) => {
+          const returnDate = returnItem.date ? new Date(returnItem.date).toLocaleString() : "N/A"
+          const showBorder = index !== returnHistory.length - 1
+
+          return (
+            <div key={index} className={`pb-3 ${showBorder ? "border-b border-gray-100" : ""}`}>
+              <div className="flex-grow">
+                <div className="flex justify-between items-start">
+                  <div className="text-sm font-medium text-blue-600 bg-blue-50 inline-block px-2 py-1 rounded mb-2">
+                    {returnDate}
+                  </div>
+                  <div className="text-amber-600 bg-amber-50 text-sm font-medium px-2 py-1 rounded">
+                    {returnItem.quantity} plants
+                  </div>
+                </div>
+
+                {returnItem.reason && (
+                  <div className="text-sm text-gray-600 bg-gray-50 p-2 rounded-md border-l-2 border-amber-400 mb-2">
+                    <span className="font-medium text-amber-600">Reason: </span>
+                    {returnItem.reason}
+                  </div>
+                )}
+
+                {returnItem.dispatchId && (
+                  <div className="text-xs text-gray-500 bg-gray-50 px-2 py-1 rounded inline-block">
+                    <span className="font-medium">Dispatch ID: </span>
+                    {returnItem.dispatchId}
+                  </div>
+                )}
+
+                {returnItem.processedBy && returnItem.processedBy.name && (
+                  <div className="text-xs text-gray-500 mt-1">
+                    <span className="font-medium">Processed by: </span>
+                    {returnItem.processedBy.name}
+                  </div>
+                )}
+              </div>
             </div>
-            {returnItem.reason && (
-              <div className="text-sm text-gray-600 mt-1">
-                <span className="font-medium">Reason:</span> {returnItem.reason}
-              </div>
-            )}
-            {returnItem.processedBy && (
-              <div className="text-xs text-gray-500 mt-1">
-                Processed by: {returnItem.processedBy.name || "Unknown"}
-              </div>
-            )}
-          </div>
-        ))}
+          )
+        })}
       </div>
     </div>
   )

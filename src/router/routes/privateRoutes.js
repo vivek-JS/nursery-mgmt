@@ -19,6 +19,8 @@ const Stats = React.lazy(() => import("pages/private/slotsStats"))
 const DataBackupRestore = React.lazy(() => import("pages/private/backup"))
 const FarmerComponent = React.lazy(() => import("pages/private/farmer/Farmer"))
 const OrdersUpload = React.lazy(() => import("pages/private/ordersUpload/OrdersUpload"))
+const Dealers = React.lazy(() => import("pages/private/dealers/Dealer"))
+const DealersDetails = React.lazy(() => import("pages/private/dealers/DelaerDetails"))
 
 export const PrivateRoutes = [
   { path: "/u/dashboard", exact: true, component: Dashboard },
@@ -45,5 +47,7 @@ export const PrivateRoutes = [
   { path: "/u/stats", exact: true, component: Stats },
   { path: "/u/data", exact: true, component: DataBackupRestore },
   { path: "/u/farmers", exact: true, component: FarmerComponent },
-  { path: "/u/upload-orders", exact: true, component: OrdersUpload }
+  { path: "/u/upload-orders", exact: true, component: OrdersUpload },
+  { path: "/u/dealers", exact: true, component: Dealers },
+  { path: "/u/dealers/:id", exact: true, component: DealersDetails }
 ]

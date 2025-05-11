@@ -1,12 +1,18 @@
 import React, { useState, useEffect } from "react"
-import { ChevronDown, ChevronUp, Check, X, Edit2 } from "react-feather"
-import { CheckCircle, AlertCircle, Calendar } from "lucide-react"
+import { ChevronDown, ChevronUp, Edit2, Trash2 } from "react-feather" // Added Trash2 icon
+import { CheckCircle, AlertCircle, Calendar, Zap } from "lucide-react"
 import {
   Switch,
   TextField as Input,
   Accordion,
   AccordionSummary,
-  AccordionDetails
+  AccordionDetails,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions,
+  Button
 } from "@mui/material"
 import { ExpandMore } from "@mui/icons-material"
 import { API, NetworkManager } from "network/core"
@@ -22,6 +28,10 @@ const Subtypes = ({ plantId, plantSubId }) => {
   const [slotsByMonth, setSlotsByMonth] = useState({})
   const [editValue, setEditValue] = useState("")
   const [loading, setLoading] = useState(false)
+
+  // States for delete confirmation
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [slotToDelete, setSlotToDelete] = useState(null)
 
   useEffect(() => {
     fetchPlantsSlots()
@@ -88,6 +98,39 @@ const Subtypes = ({ plantId, plantSubId }) => {
       Toast.error("Failed to update. Please try again.")
     }
     setLoading(false)
+  }
+
+  // Function to handle slot deletion
+  const handleDeleteSlot = async () => {
+    if (!slotToDelete) return
+
+    setLoading(true)
+    try {
+      // Replace the placeholder in the URL with the actual slotId
+      const instance = NetworkManager(API.slots.DELETE_MANUAL_SLOT)
+      console.log(instance)
+      const response = await instance.request({}, [slotToDelete])
+      console.log(slotToDelete)
+      if (response?.data?.success) {
+        Toast.success(response?.data?.message || "Slot deleted successfully")
+        setDeleteDialogOpen(false)
+        setSlotToDelete(null)
+        fetchPlantsSlots() // Refresh data after deletion
+      } else {
+        Toast.error(response?.data?.message || "Failed to delete slot")
+      }
+    } catch (error) {
+      console.error("Error deleting slot:", error)
+      Toast.error(error.message || "An error occurred while deleting the slot")
+    }
+    setLoading(false)
+  }
+
+  // Function to open delete confirmation dialog
+  const openDeleteConfirmation = (e, slotId) => {
+    e.stopPropagation()
+    setSlotToDelete(slotId)
+    setDeleteDialogOpen(true)
   }
 
   const groupSlotsByMonth = (slots) => {
@@ -294,6 +337,27 @@ const Subtypes = ({ plantId, plantSubId }) => {
       {/* Edit Modal */}
       <EditModal />
 
+      {/* Delete Confirmation Dialog */}
+      <Dialog
+        open={deleteDialogOpen}
+        onClose={() => setDeleteDialogOpen(false)}
+        aria-labelledby="delete-dialog-title">
+        <DialogTitle id="delete-dialog-title">Delete Manual Slot</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Are you sure you want to delete this manually added slot? This action cannot be undone.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteDialogOpen(false)} color="primary">
+            Cancel
+          </Button>
+          <Button onClick={handleDeleteSlot} color="error" autoFocus>
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       {Object.keys(slotsByMonth).length === 0 ? (
         <div className="text-center py-8 text-gray-500">
           <Calendar className="w-10 h-10 mx-auto mb-3 text-gray-300" />
@@ -302,7 +366,7 @@ const Subtypes = ({ plantId, plantSubId }) => {
       ) : (
         Object.keys(slotsByMonth).map((monthName) => {
           const summary = calculateSummary(slotsByMonth[monthName])
-          const { totalPlants, totalBookedPlants, remainingPlants } = summary
+          const { totalPlants, totalBookedPlants } = summary
           const totalCapacity = totalPlants + totalBookedPlants
           const bookedPercentage = calculatePercentage(totalBookedPlants, totalCapacity)
           console.log("summary", summary)
@@ -382,10 +446,17 @@ const Subtypes = ({ plantId, plantSubId }) => {
                   </div>
 
                   {slotsByMonth[monthName].map((slot, index) => {
-                    const { startDay, endDay, totalPlants, status, totalBookedPlants, _id } =
-                      slot || {}
+                    const {
+                      startDay,
+                      endDay,
+                      totalPlants,
+                      status,
+                      totalBookedPlants,
+                      _id,
+                      isManual // Get the isManual flag
+                    } = slot || {}
+
                     const slotKey = `${monthName}-${index}`
-                    const isEditing = editingSlot === slotKey
                     const start = moment(startDay, "DD-MM-YYYY").format("D")
                     const end = moment(endDay, "DD-MM-YYYY").format("D")
                     const monthYear = moment(startDay, "DD-MM-YYYY").format("MMMM, YYYY")
@@ -419,9 +490,21 @@ const Subtypes = ({ plantId, plantSubId }) => {
                                 )}
 
                                 <div className="flex flex-col">
-                                  <span className="font-medium">
-                                    {`${start} - ${end} ${monthYear}`}
-                                  </span>
+                                  <div className="flex items-center">
+                                    <span className="font-medium">
+                                      {`${start} - ${end} ${monthYear}`}
+                                    </span>
+
+                                    {/* Display the "instant" icon for manual slots */}
+                                    {isManual && (
+                                      <div
+                                        className="ml-2 flex items-center text-amber-500"
+                                        title="Manually Added Slot">
+                                        <Zap className="w-4 h-4" />
+                                        <span className="text-xs ml-1 font-medium">Instant</span>
+                                      </div>
+                                    )}
+                                  </div>
 
                                   {/* Micro progress bar for each slot */}
                                   <div className="w-24 bg-gray-200 rounded-full h-1.5 mt-1">
@@ -468,20 +551,32 @@ const Subtypes = ({ plantId, plantSubId }) => {
                               </span>
                             </div>
 
-                            {/* Status Column */}
+                            {/* Status Column with Delete Button for Manual Slots */}
                             <div className="flex items-center justify-between">
-                              <Switch
-                                checked={status}
-                                onChange={(e) => updateSlots(e, _id, status)}
-                                sx={{
-                                  "& .MuiSwitch-switchBase.Mui-checked": {
-                                    color: "#10b981"
-                                  },
-                                  "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track": {
-                                    backgroundColor: "#10b981"
-                                  }
-                                }}
-                              />
+                              <div className="flex items-center gap-3">
+                                <Switch
+                                  checked={status}
+                                  onChange={(e) => updateSlots(e, _id, status)}
+                                  sx={{
+                                    "& .MuiSwitch-switchBase.Mui-checked": {
+                                      color: "#10b981"
+                                    },
+                                    "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track": {
+                                      backgroundColor: "#10b981"
+                                    }
+                                  }}
+                                />
+
+                                {/* Delete button for manual slots */}
+                                {isManual && totalBookedPlants === 0 && (
+                                  <button
+                                    onClick={(e) => openDeleteConfirmation(e, _id)}
+                                    className="p-1 hover:bg-red-50 rounded-full text-red-600"
+                                    title="Delete manual slot">
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                )}
+                              </div>
                             </div>
                           </div>
                         </div>

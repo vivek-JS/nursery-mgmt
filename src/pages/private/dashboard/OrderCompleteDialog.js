@@ -1,5 +1,5 @@
 import React, { useState } from "react"
-import { ChevronDown, ChevronRight, Plus } from "lucide-react"
+import { ChevronDown, ChevronRight, Plus, RefreshCw, Check } from "lucide-react"
 import { API, NetworkManager } from "network/core"
 import { Toast } from "helpers/toasts/toastHelper"
 import ReplaceOrderDialog from "./ReplaceOrderDialog"
@@ -8,23 +8,30 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData }) => {
   const [returnedPlants, setReturnedPlants] = useState({})
   const [expandedRows, setExpandedRows] = useState(new Set())
   const [returnReasons, setReturnReasons] = useState({})
-  const [notCompletedOrders, setNotCompletedOrders] = useState({})
-  const [actualDelivered, setActualDelivered] = useState({})
   const [showAddOrderDialog, setShowAddOrderDialog] = useState(false)
   const [ordersToAdd, setOrdersToAdd] = useState([])
   const [availableOrders, setAvailableOrders] = useState([])
   const [selectedOrders, setSelectedOrders] = useState([])
   const [isLoading, setIsLoading] = useState(false)
+  // Actions for each order row
+  const [orderActions, setOrderActions] = useState({})
+
+  // Initialize default actions for each order
+  React.useEffect(() => {
+    if (dispatchData?.orderIds) {
+      const initialActions = {}
+      dispatchData.orderIds.forEach((order) => {
+        initialActions[order.details.orderid] = {
+          addToInventory: false, // Default to false
+          completeOrder: true // Default to true
+        }
+      })
+      setOrderActions(initialActions)
+    }
+  }, [dispatchData])
 
   const handleReturnedPlantsChange = (orderId, value) => {
     setReturnedPlants((prev) => ({
-      ...prev,
-      [orderId]: value
-    }))
-  }
-
-  const handleActualDeliveredChange = (orderId, value) => {
-    setActualDelivered((prev) => ({
       ...prev,
       [orderId]: value
     }))
@@ -37,10 +44,13 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData }) => {
     }))
   }
 
-  const handleNotCompletedChange = (orderId, checked) => {
-    setNotCompletedOrders((prev) => ({
+  const handleActionChange = (orderId, action, checked) => {
+    setOrderActions((prev) => ({
       ...prev,
-      [orderId]: checked
+      [orderId]: {
+        ...prev[orderId],
+        [action]: checked
+      }
     }))
   }
 
@@ -86,11 +96,7 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData }) => {
 
       if (response?.data?.status) {
         Toast.success("Orders added successfully")
-        // Update the dispatch data with the newly added orders
-        // This may require updating the parent component state or refetching the dispatch data
         handleCloseAddOrderDialog()
-        // You might need to add a callback to refresh the dispatch data
-        // onOrdersAdded() or similar
       }
     } catch (error) {
       console.error("Error adding orders to dispatch:", error)
@@ -100,13 +106,8 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData }) => {
     }
   }
 
-  const processReturnedPlants = (
-    dispatchData,
-    returnedPlants,
-    returnReasons,
-    notCompletedOrders,
-    actualDelivered
-  ) => {
+  // Process returned plants function
+  const processReturnedPlants = (dispatchData, returnedPlants, returnReasons, orderActions) => {
     // Validate inputs
     if (!dispatchData?.orderIds) {
       throw new Error("Invalid dispatch data")
@@ -115,35 +116,22 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData }) => {
     // Initialize orderUpdates array
     const orderUpdates = []
 
-    // Process each order that has returned plants or is not completed
+    // Process each order
     dispatchData.orderIds.forEach((order) => {
       const orderId = order.details.orderid
-      const isNotCompleted = notCompletedOrders[orderId] || false
       const returnedQuantity = returnedPlants[orderId] || 0
-      const actualDeliveredQuantity = actualDelivered[orderId] || order.quantity
+      const actions = orderActions[orderId] || { addToInventory: false, completeOrder: true }
 
-      if (
-        isNotCompleted ||
-        (returnedQuantity && returnedQuantity > 0) ||
-        actualDeliveredQuantity != order.quantity
-      ) {
-        orderUpdates.push({
-          orderId: orderId,
-          returnedPlants: Number(returnedQuantity),
-          actualDelivered: Number(actualDeliveredQuantity),
-          returnReason: returnReasons[orderId] || "Not specified",
-          isCompleted: !isNotCompleted
-        })
-      } else {
-        // For fully completed orders with no returns
-        orderUpdates.push({
-          orderId: orderId,
-          returnedPlants: 0,
-          actualDelivered: Number(actualDeliveredQuantity),
-          returnReason: "",
-          isCompleted: true
-        })
-      }
+      // Add order to updates
+      orderUpdates.push({
+        orderId: orderId,
+        returnedPlants: Number(returnedQuantity),
+        returnReason: returnReasons[orderId] || "",
+        actions: {
+          addToInventory: actions.addToInventory,
+          completeOrder: actions.completeOrder
+        }
+      })
     })
 
     // Return formatted payload
@@ -152,28 +140,35 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData }) => {
     }
   }
 
-  const handleCompleteOrders = async () => {
+  const handleCompleteOrders = async (e) => {
+    e.stopPropagation()
+    e.preventDefault()
+
     try {
-      // Add your API call here
+      setIsLoading(true)
+
+      // Make API call
       const instance = NetworkManager(API.DISPATCHED.UPDATE_COMPLETE)
       const user = await instance.request(
         {
-          ...processReturnedPlants(
-            dispatchData,
-            returnedPlants,
-            returnReasons,
-            notCompletedOrders,
-            actualDelivered
-          )
+          ...processReturnedPlants(dispatchData, returnedPlants, returnReasons, orderActions)
         },
         [dispatchData?._id]
       )
+
       if (user?.data?.status) {
         onClose()
         Toast.success(user?.data?.message)
       }
     } catch (error) {
       console.error("Error completing orders:", error)
+      if (error.message && error.message.includes("Order #")) {
+        Toast.error(error.message)
+      } else {
+        Toast.error("Error processing orders")
+      }
+    } finally {
+      setIsLoading(false)
     }
   }
 
@@ -218,10 +213,7 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData }) => {
                       Plant Details
                     </th>
                     <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">
-                      To Be Delivered
-                    </th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">
-                      Actual Delivered
+                      Total Plants
                     </th>
                     <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">
                       Returned Plants
@@ -229,7 +221,7 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData }) => {
                     <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">
                       Return Reason
                     </th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900 w-64">
                       Actions
                     </th>
                   </tr>
@@ -273,19 +265,6 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData }) => {
                             max={order.quantity}
                             className="w-24 px-2 py-1 border rounded focus:ring-2 focus:ring-green-500 focus:border-green-500"
                             placeholder="0"
-                            value={actualDelivered[order.details.orderid] || ""}
-                            onChange={(e) =>
-                              handleActualDeliveredChange(order.details.orderid, e.target.value)
-                            }
-                          />
-                        </td>
-                        <td className="px-4 py-4">
-                          <input
-                            type="number"
-                            min="0"
-                            max={order.quantity}
-                            className="w-24 px-2 py-1 border rounded focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                            placeholder="0"
                             value={returnedPlants[order.details.orderid] || ""}
                             onChange={(e) =>
                               handleReturnedPlantsChange(order.details.orderid, e.target.value)
@@ -304,27 +283,61 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData }) => {
                           />
                         </td>
                         <td className="px-4 py-4">
-                          <div className="flex items-center">
-                            <input
-                              type="checkbox"
-                              id={`not-completed-${order.details.orderid}`}
-                              className="w-4 h-4 text-green-600 rounded focus:ring-green-500"
-                              checked={notCompletedOrders[order.details.orderid] || false}
-                              onChange={(e) =>
-                                handleNotCompletedChange(order.details.orderid, e.target.checked)
-                              }
-                            />
-                            <label
-                              htmlFor={`not-completed-${order.details.orderid}`}
-                              className="ml-2 text-sm text-gray-900">
-                              Order not completed
-                            </label>
+                          <div className="space-y-2">
+                            {/* Per-row actions */}
+                            <div className="flex items-center">
+                              <input
+                                type="checkbox"
+                                id={`inventory-${order.details.orderid}`}
+                                className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                                checked={
+                                  orderActions[order.details.orderid]?.addToInventory !== false
+                                }
+                                onChange={(e) =>
+                                  handleActionChange(
+                                    order.details.orderid,
+                                    "addToInventory",
+                                    e.target.checked
+                                  )
+                                }
+                              />
+                              <label
+                                htmlFor={`inventory-${order.details.orderid}`}
+                                className="ml-2 flex items-center text-sm text-gray-900">
+                                <RefreshCw className="w-3.5 h-3.5 mr-1 text-blue-600" />
+                                Add to Inventory
+                              </label>
+                            </div>
+
+                            <div className="flex items-center">
+                              <input
+                                type="checkbox"
+                                id={`complete-${order.details.orderid}`}
+                                className="w-4 h-4 text-green-600 rounded focus:ring-green-500"
+                                checked={
+                                  orderActions[order.details.orderid]?.completeOrder !== false
+                                }
+                                onChange={(e) =>
+                                  handleActionChange(
+                                    order.details.orderid,
+                                    "completeOrder",
+                                    e.target.checked
+                                  )
+                                }
+                              />
+                              <label
+                                htmlFor={`complete-${order.details.orderid}`}
+                                className="ml-2 flex items-center text-sm text-gray-900">
+                                <Check className="w-3.5 h-3.5 mr-1 text-green-600" />
+                                Complete Order
+                              </label>
+                            </div>
                           </div>
                         </td>
                       </tr>
                       {expandedRows.has(index) && (
                         <tr className="bg-gray-50">
-                          <td colSpan={9} className="px-4 py-4">
+                          <td colSpan={8} className="px-4 py-4">
                             <div className="text-sm space-y-4">
                               <div className="grid grid-cols-3 gap-4">
                                 <div>
@@ -368,13 +381,36 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData }) => {
               <div className="flex justify-end space-x-3">
                 <button
                   onClick={onClose}
-                  className="px-4 py-2 border border-gray-300 rounded text-gray-700 hover:bg-gray-100">
+                  className="px-4 py-2 border border-gray-300 rounded text-gray-700 hover:bg-gray-100"
+                  disabled={isLoading}>
                   Cancel
                 </button>
                 <button
-                  onClick={handleCompleteOrders}
-                  className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">
-                  Complete Orders
+                  onClick={(e) => handleCompleteOrders(e)}
+                  className={`px-4 py-2 ${
+                    isLoading ? "bg-gray-400" : "bg-green-600 hover:bg-green-700"
+                  } text-white rounded flex items-center`}
+                  disabled={isLoading}>
+                  {isLoading && (
+                    <svg
+                      className="animate-spin -ml-1 mr-2 h-4 w-4 text-white"
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24">
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"></circle>
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                  )}
+                  Process Orders
                 </button>
               </div>
             </div>
@@ -383,7 +419,9 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData }) => {
       </div>
 
       {/* Add Order Dialog */}
-      {showAddOrderDialog && <ReplaceOrderDialog open={showAddOrderDialog} />}
+      {showAddOrderDialog && (
+        <ReplaceOrderDialog open={showAddOrderDialog} onClose={handleCloseAddOrderDialog} />
+      )}
     </>
   )
 }

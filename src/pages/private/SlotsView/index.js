@@ -1,13 +1,16 @@
 import React, { useEffect, useState } from "react"
 import SlotAccordionView from "./slots"
 import { API, NetworkManager } from "network/core"
-import { ChevronDown, ChevronUp, CheckCircle, AlertCircle } from "lucide-react"
+import { ChevronDown, ChevronUp, CheckCircle, AlertCircle, Plus } from "lucide-react"
+import AddManualSlotModal from "./AddManualSlotModal"
 
 const ParentAccordion = () => {
   const [expandedSections, setExpandedSections] = useState([])
   const [loading, setLoading] = useState(false)
   const [months, setMonths] = useState([])
   const [selectedYear, setSelectedYear] = useState("2025")
+  const [isModalOpen, setIsModalOpen] = useState(false) // State to control modal visibility
+  const [plants, setPlants] = useState([]) // State to store plants data for the dropdown
 
   const years = ["2025"]
 
@@ -21,6 +24,7 @@ const ParentAccordion = () => {
 
   useEffect(() => {
     fetchPlants()
+    fetchAllPlants() // Fetch all plants for the dropdown
   }, [selectedYear])
 
   const fetchPlants = async () => {
@@ -37,11 +41,31 @@ const ParentAccordion = () => {
     setLoading(false)
   }
 
+  const fetchAllPlants = async () => {
+    try {
+      const instance = NetworkManager(API.plantCms.GET_PLANTS)
+      const response = await instance.request()
+
+      if (response?.data?.message) {
+        setPlants(response?.data?.data)
+      }
+    } catch (error) {
+      console.error("Error fetching plants:", error)
+    }
+  }
+
   const isSectionExpanded = (sectionIndex) => expandedSections.includes(sectionIndex)
+
+  const handleAddSuccess = () => {
+    // Refresh the plants data after adding a new slot
+    fetchPlants()
+    setIsModalOpen(false)
+  }
+
   return (
     <div className="space-y-6">
-      {/* Year Toggle Section */}
-      <div className="bg-white rounded-lg p-2 shadow-sm">
+      {/* Year Toggle and Add Slot Button Section */}
+      <div className="bg-white rounded-lg p-2 shadow-sm flex justify-between items-center">
         <div className="flex justify-start items-center space-x-2">
           {years.map((year) => (
             <button
@@ -56,6 +80,14 @@ const ParentAccordion = () => {
             </button>
           ))}
         </div>
+
+        {/* Add Manual Slot Button */}
+        <button
+          onClick={() => setIsModalOpen(true)}
+          className="px-4 py-2 bg-green-600 text-white rounded-md flex items-center gap-2 hover:bg-green-700 transition-colors">
+          <Plus className="w-4 h-4" />
+          Add Manual Slot
+        </button>
       </div>
 
       {/* Main Accordion Section */}
@@ -65,7 +97,6 @@ const ParentAccordion = () => {
         ) : (
           months.map((section, sectionIndex) => (
             <div key={sectionIndex} className="border rounded-lg overflow-hidden">
-              {console.log(section)}
               <button
                 onClick={() => toggleSection(sectionIndex)}
                 className="w-full px-4 py-3 bg-gray-50 flex items-center justify-between hover:bg-gray-100 transition-colors">
@@ -105,6 +136,17 @@ const ParentAccordion = () => {
           ))
         )}
       </div>
+
+      {/* Add Manual Slot Modal */}
+      {isModalOpen && (
+        <AddManualSlotModal
+          isOpen={isModalOpen}
+          onClose={() => setIsModalOpen(false)}
+          plants={plants}
+          selectedYear={selectedYear}
+          onSuccess={handleAddSuccess}
+        />
+      )}
     </div>
   )
 }

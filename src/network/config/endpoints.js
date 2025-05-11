@@ -64,7 +64,11 @@ export const API = {
     PROFILE: new APIWithOfflineRouter("/user/profile/", HTTP_METHODS.GET, OFFLINE.PROFILE),
     UPDATE: new APIRouter("/user/profile/", HTTP_METHODS.PATCH, OFFLINE.UPDATE),
     LOGOUT: new APIWithOfflineRouter("/user/logout/", HTTP_METHODS.DEL, OFFLINE.LOGOUT),
-    GET_USERS: new APIRouter("user/allusers", HTTP_METHODS.GET)
+    GET_USERS: new APIRouter("user/allusers", HTTP_METHODS.GET),
+    GET_DEALERS: new APIRouter("user/dealers", HTTP_METHODS.GET),
+    GET_DEALERS_STATS: new APIRouter("user/dealerssss/stats", HTTP_METHODS.GET),
+
+    GET_DEALERS_TRANSACTIONS: new APIRouter("user/dealers/transactions", HTTP_METHODS.GET)
   },
   PATIENT: {
     ADD_PATIENT_LIST: new APIRouter("api/v2/users/", HTTP_METHODS.POST, OFFLINE.PROFILE),
@@ -223,7 +227,9 @@ export const API = {
     GET_PLANTS: new APIRouter("/slots/get-plants", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_PLANTS_SUBTYPE: new APIRouter("/slots/subtyps", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_PLANTS_SLOTS: new APIRouter("/slots/getslots", HTTP_METHODS.GET, OFFLINE.PROFILE),
-    UPDATE_SLOT: new APIRouter("/slots", HTTP_METHODS.PUT, OFFLINE.PROFILE)
+    UPDATE_SLOT: new APIRouter("/slots", HTTP_METHODS.PUT, OFFLINE.PROFILE),
+    ADD_MANUAL_SLOT: new APIRouter("/slots/manual", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    DELETE_MANUAL_SLOT: new APIRouter("/slots/manual", HTTP_METHODS.DEL, OFFLINE.PROFILE)
   },
   VEHICLE: {
     CREATE_VEHICLE: new APIRouter("vehicles/create", HTTP_METHODS.POST),
