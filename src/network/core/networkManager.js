@@ -68,7 +68,7 @@ export default function networkManager(router, withFile = false) {
 
       return new APIResponse(response, response.success, result.status, response.data?.message)
     } catch (err) {
-      console.log(err?.response?.data)
+      console.log(err?.response?.data?.message)
       const fullError = err?.response?.data?.rowErrors
       const colError = err?.response?.data?.errors
 
@@ -97,7 +97,12 @@ export default function networkManager(router, withFile = false) {
       console.log(colError)
 
       // ✅ Return full data here
-      return new APIError(fullError?.message || "Request failed", err.code, fullError, colError)
+      return new APIError(
+        fullError?.message || err?.response?.data?.message || "Request failed",
+        err.code,
+        fullError,
+        colError
+      )
     }
   }
   return {

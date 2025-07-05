@@ -1,5 +1,4 @@
 import React, { useState } from "react"
-import moment from "moment"
 import DatePicker from "react-datepicker"
 import "react-datepicker/dist/react-datepicker.css"
 import { Toast } from "helpers/toasts/toastHelper"
@@ -36,18 +35,20 @@ const FarmReadyButton = ({ orderId, onUpdateOrder, refreshOrders }) => {
     setLoading(true)
 
     try {
-      // Send the date as a JavaScript Date object instead of a formatted string
-      // This will ensure Mongoose can properly handle the date
+      // Log the date we're sending to ensure it's what we expect
+      console.log("Selected date:", farmReadyDate)
+      console.log("Formatted date:", farmReadyDate.toISOString())
+
+      // Make sure we're sending a valid date object or ISO string
       await onUpdateOrder({
         id: orderId,
         orderStatus: "FARM_READY",
-        farmReadyDate: farmReadyDate // Send the actual Date object, not a formatted string
+        // Make sure we're sending the date as ISO string for consistency
+        farmReadyDateUpdate: farmReadyDate.toISOString()
       })
 
-      // Show success message
       Toast.success("Order marked as Farm Ready")
 
-      // Refresh the orders list
       if (refreshOrders) {
         refreshOrders()
       }

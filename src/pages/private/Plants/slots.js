@@ -8,6 +8,10 @@ import * as Yup from "yup"
 const plantSchema = Yup.object().shape({
   name: Yup.string().required("Plant name is required"),
   slotSize: Yup.number().required("Slot size is required").min(1, "Slot size must be at least 1"),
+  dailyDispatchCapacity: Yup.number()
+    .required("Daily dispatch capacity is required")
+    .min(1, "Capacity must be at least 1")
+    .integer("Capacity must be a whole number"),
   subtypes: Yup.array()
     .of(
       Yup.object().shape({
@@ -131,6 +135,7 @@ const Slots = () => {
       const payload = {
         name: values.name,
         slotSize: values.slotSize,
+        dailyDispatchCapacity: values.dailyDispatchCapacity,
         subtypes: values.subtypes
       }
 
@@ -230,6 +235,10 @@ const Slots = () => {
                   <div className="mb-2">
                     <span className="font-medium">Slot Size:</span> {plant.slotSize || "N/A"}
                   </div>
+                  <div className="mb-2">
+                    <span className="font-medium">Daily Dispatch Capacity:</span>{" "}
+                    {plant.dailyDispatchCapacity?.toLocaleString() || "2000"} plants
+                  </div>
                   <div className="rounded-md border">
                     <button
                       onClick={() => toggleExpand(plant._id)}
@@ -277,6 +286,7 @@ const Slots = () => {
               initialValues={{
                 name: editPlant?.name || "",
                 slotSize: editPlant?.slotSize || "",
+                dailyDispatchCapacity: editPlant?.dailyDispatchCapacity || 2000,
                 subtypes: editPlant?.subtypes || [{ name: "", description: "", rates: [""] }]
               }}
               validationSchema={plantSchema}
@@ -310,6 +320,23 @@ const Slots = () => {
                         touched={touched.slotSize}
                         placeholder="Enter slot size"
                       />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="dailyDispatchCapacity">Daily Dispatch Capacity</Label>
+                      <Input
+                        id="dailyDispatchCapacity"
+                        name="dailyDispatchCapacity"
+                        type="number"
+                        onChange={handleChange}
+                        onBlur={handleBlur}
+                        value={values.dailyDispatchCapacity}
+                        error={errors.dailyDispatchCapacity}
+                        touched={touched.dailyDispatchCapacity}
+                        placeholder="Enter daily dispatch capacity"
+                      />
+                      <p className="text-xs text-gray-500">
+                        Maximum number of plants that can be dispatched per day
+                      </p>
                     </div>
                     <div className="space-y-2">
                       <Label>Subtypes</Label>
