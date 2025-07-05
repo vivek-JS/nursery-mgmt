@@ -1,6 +1,7 @@
 import { Loader } from "redux/dispatcher/Loader"
 import { useGoogleModel } from "./google.model"
 import { useUserSession } from "hooks/userSession"
+import { UserState } from "redux/dispatcher/UserState"
 
 export const useGoogleController = () => {
   const model = useGoogleModel()
@@ -17,6 +18,8 @@ export const useGoogleController = () => {
 
     if (response.success) {
       userSession.setSession(response.data)
+      // Dispatch login action to Redux to update the app state
+      UserState.login(response.data.user || response.data)
     }
     Loader.hide()
   }

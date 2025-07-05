@@ -2,7 +2,7 @@ import { createSlice } from "@reduxjs/toolkit"
 
 const initialState = {
   user: {},
-  isLogged: true,
+  isLogged: false,
   observe: null
 }
 
@@ -16,7 +16,7 @@ export const appSlice = createSlice({
     },
     logout: (state) => {
       state.user = {}
-      state.isLogged = true
+      state.isLogged = false
       state.observe = null
     },
     update: (state, action) => {

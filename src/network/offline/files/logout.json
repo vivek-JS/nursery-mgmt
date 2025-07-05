@@ -1,7 +1,6 @@
 {
   "success": true,
   "code": 200,
-  "data": {
-    "message": "You're logged out."
-  }
+  "data": null,
+  "message": "Logged out successfully"
 }

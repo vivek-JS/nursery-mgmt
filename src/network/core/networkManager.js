@@ -44,6 +44,9 @@ export default function networkManager(router, withFile = false) {
 
   if (authToken && authToken !== "undefined") {
     axios.defaults.headers.common[API_AUTH_HEADER] = `${AUTH_TYPE} ${authToken}`
+  } else {
+    // Remove Authorization header if no token
+    delete axios.defaults.headers.common[API_AUTH_HEADER]
   }
 
   const AppEnvIsDev = process.env.REACT_APP_APP_ENV === "dev"
@@ -66,7 +69,10 @@ export default function networkManager(router, withFile = false) {
       // If token expired, get it refreshed
       const response = result.data
 
-      return new APIResponse(response, response.success, result.status, response.data?.message)
+      // Handle both response formats: response.success (boolean) and response.status === "Success"
+      const isSuccess = response.success === true || response.status === "Success"
+
+      return new APIResponse(response, isSuccess, result.status, response.data?.message)
     } catch (err) {
       console.log(err?.response?.data?.message)
       const fullError = err?.response?.data?.rowErrors

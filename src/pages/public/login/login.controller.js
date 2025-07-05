@@ -15,8 +15,28 @@ export const useLoginController = () => {
 
   const handleLogin = async (values) => {
     setShowLoader(true)
-    await model.loginByEmail(values)
-    setShowLoader(false)
+
+    try {
+      const success = await model.loginByEmail(values)
+
+      if (success) {
+        // Force a small delay to ensure Redux state is updated
+        setTimeout(() => {
+          navigate("/u/dashboard", { replace: true })
+        }, 500)
+
+        // Fallback: if navigation doesn't work, force a page reload
+        setTimeout(() => {
+          if (window.location.pathname !== "/u/dashboard") {
+            window.location.href = "/u/dashboard"
+          }
+        }, 2000)
+      }
+    } catch (error) {
+      console.error("Login error:", error)
+    } finally {
+      setShowLoader(false)
+    }
   }
 
   const navigateToForgotPassword = () => {

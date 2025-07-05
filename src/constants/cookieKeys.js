@@ -7,9 +7,8 @@ export const CookieKeys = {
 
 export const CookieOptions = {
   expires: Dates().addInCurrent(10, "days")._d,
-  sameSite: "strict",
+  sameSite: "lax", // Changed from "strict" to "lax" for better compatibility
   path: "/",
-  ...(window !== undefined && {
-    secure: window.location.protocol === "https:"
-  })
+  httpOnly: false, // Allow JavaScript access
+  secure: false // Disable secure for localhost development
 }

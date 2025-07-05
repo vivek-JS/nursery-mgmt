@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom"
 import { useSignUpModel } from "./signup.model"
 import UserImg from "assets/images/backgrounds/DefaultImg.png"
 import { useUserSession } from "hooks/userSession"
+import { UserState } from "redux/dispatcher/UserState"
 
 export const useSignupController = () => {
   const [showPassword, setShowPassword] = useState(false)
@@ -36,6 +37,8 @@ export const useSignupController = () => {
     setShowLoader(false)
     if (response.success) {
       userSession.setSession(response.data)
+      // Dispatch login action to Redux to update the app state
+      UserState.login(response.data.user || response.data)
     }
   }
 

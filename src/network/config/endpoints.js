@@ -33,10 +33,10 @@ export const API = {
       OFFLINE.RESETPASSWORD
     ),
     VERIFYOTP: new APIWithOfflineRouter("/auth/login", HTTP_METHODS.POST, OFFLINE.LOGIN),
-    REFRESH_TOKEN: new APIRouter("/user/token/refresh", HTTP_METHODS.POST)
+    REFRESH_TOKEN: new APIRouter("user/refresh-token", HTTP_METHODS.POST)
   },
   HOSPITAL: {
-    LOGIN_HOSPITAL: new APIWithOfflineRouter("/user/login", HTTP_METHODS.POST, OFFLINE.LOGIN),
+    LOGIN_HOSPITAL: new APIWithOfflineRouter("user/login", HTTP_METHODS.POST, OFFLINE.LOGIN),
     CREATE_HOSPITAL: new APIRouter(
       "/api/v2/hospital/createHospital/",
       HTTP_METHODS.POST,
@@ -63,7 +63,7 @@ export const API = {
   USER: {
     PROFILE: new APIWithOfflineRouter("/user/profile/", HTTP_METHODS.GET, OFFLINE.PROFILE),
     UPDATE: new APIRouter("/user/profile/", HTTP_METHODS.PATCH, OFFLINE.UPDATE),
-    LOGOUT: new APIWithOfflineRouter("/user/logout/", HTTP_METHODS.DEL, OFFLINE.LOGOUT),
+    LOGOUT: new APIWithOfflineRouter("user/logout", HTTP_METHODS.POST, OFFLINE.LOGOUT),
     GET_USERS: new APIRouter("user/allusers", HTTP_METHODS.GET),
     GET_DEALERS: new APIRouter("user/dealers", HTTP_METHODS.GET),
     GET_DEALERS_STATS: new APIRouter("user/dealerssss/stats", HTTP_METHODS.GET),

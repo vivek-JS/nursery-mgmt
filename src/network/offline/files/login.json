@@ -1,10 +1,17 @@
 {
   "success": true,
   "data": {
-    "token": "eyJhbGciOiJIUzI1NiJ9.eyJSb2xlIjoiQWRtaW4iLCJJc3N1ZXIiOiJJc3N1ZXIiLCJVc2VybmFtZSI6IkphdmFJblVzZSIsImV4cCI6MTY3NjM4MzEzMCwiaWF0IjoxNjc2MzgzMTMwfQ.NHoUhpRyP_9r_dIidMn9vV8w6i01buAlYnEp6tcfx4w",
-    "refresh": "eyJhbGciOiJIUzI1NiJ9.eyJSb2xlIjoiQWRtaW4iLCJJc3N1ZXIiOiJJc3N1ZXIiLCJVc2VybmFtZSI6IkphdmFJblVzZSIsImV4cCI6MTY3NjM4MzEzMCwiaWF0IjoxNjc2MzgzMTMwfQ.NHoUhpRyP_9r_dIidMn9vV8w6i01buAlYnEp6tcfx4w"
+    "user": {
+      "_id": "offline_user_id",
+      "name": "Offline User",
+      "phoneNumber": "1234567890",
+      "role": "ADMIN"
+    },
+    "accessToken": "eyJhbGciOiJIUzI1NiJ9.eyJSb2xlIjoiQWRtaW4iLCJJc3N1ZXIiOiJJc3N1ZXIiLCJVc2VybmFtZSI6IkphdmFJblVzZSIsImV4cCI6MTY3NjM4MzEzMCwiaWF0IjoxNjc2MzgzMTMwfQ.NHoUhpRyP_9r_dIidMn9vV8w6i01buAlYnEp6tcfx4w",
+    "refreshToken": "eyJhbGciOiJIUzI1NiJ9.eyJSb2xlIjoiQWRtaW4iLCJJc3N1ZXIiOiJJc3N1ZXIiLCJVc2VybmFtZSI6IkphdmFJblVzZSIsImV4cCI6MTY3NjM4MzEzMCwiaWF0IjoxNjc2MzgzMTMwfQ.NHoUhpRyP_9r_dIidMn9vV8w6i01buAlYnEp6tcfx4w",
+    "expiresIn": "15m"
   },
   "error": null,
-  "message": "User logged-In successfully",
+  "message": "Login successful",
   "code": 200
 }

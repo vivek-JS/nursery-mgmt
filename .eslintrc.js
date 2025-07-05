@@ -44,7 +44,7 @@ module.exports = {
     "no-mixed-spaces-and-tabs": 0,
     "space-infix-ops": 0,
     "space-unary-ops": 0,
-    "no-console": "warn",
+    "no-console": "off",
     "no-unused-vars": 0 // Disabled unused variable check
   },
   settings: {

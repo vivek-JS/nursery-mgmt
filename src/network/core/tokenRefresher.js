@@ -8,28 +8,7 @@ import { API } from "../config/endpoints"
 import { APIConfig } from "../config/serverConfig"
 import { CookieKeys, CookieOptions } from "constants/cookieKeys"
 
-export async function refreshAuthToken(refreshToken) {
-  try {
-    const { method } = API.AUTH.REFRESH_TOKEN
-    const url = urlBuilder(API.AUTH.REFRESH_TOKEN, {})
-
-    const response = await fetch(url, {
-      method,
-      headers: { "Content-Type": APIConfig.CONTENT_TYPE.JSON },
-      body: JSON.stringify({ refresh: refreshToken })
-    }).then((res) => res.json())
-    const cookies = new Cookies()
-    if (response.success) {
-      cookies.set(CookieKeys.Auth, response.data?.token, CookieOptions)
-    }
-    return response.success
-  } catch (err) {
-    // eslint-disable-next-line no-console
-
-    return false
-  }
-}
-
+// Helper function to build URL
 function urlBuilder(router, params) {
   let uri = ""
   if (typeof router.version === "string") {
@@ -43,4 +22,30 @@ function urlBuilder(router, params) {
     }
   }
   return uri
+}
+
+export async function refreshAuthToken(refreshToken) {
+  try {
+    const { method } = API.AUTH.REFRESH_TOKEN
+    const url = urlBuilder(API.AUTH.REFRESH_TOKEN, {})
+
+    const fullUrl = `${APIConfig.BASE_URL}/${url}`
+
+    const response = await fetch(fullUrl, {
+      method,
+      headers: { "Content-Type": APIConfig.CONTENT_TYPE.JSON },
+      body: JSON.stringify({ refreshToken: refreshToken })
+    }).then((res) => res.json())
+
+    const cookies = new Cookies()
+    if (response.success && response.data) {
+      // Store new tokens from the backend response
+      cookies.set(CookieKeys.Auth, response.data.accessToken, CookieOptions)
+      cookies.set(CookieKeys.REFRESH_TOKEN, response.data.refreshToken, CookieOptions)
+    }
+    return response.success
+  } catch (err) {
+    console.error("Token refresh failed:", err)
+    return false
+  }
 }
