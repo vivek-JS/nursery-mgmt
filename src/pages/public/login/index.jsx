@@ -29,9 +29,7 @@ const Login = () => {
         <Box sx={styles.container}>
           <Grid container alignItems={"center"}>
             <img src={peLogo} style={styles.imgLogo}></img>
-            <Typography style={styles.drawerHeaderTxt}>Nursery Management Reimagined
-
-            </Typography>
+            <Typography style={styles.drawerHeaderTxt}>Nursery Management Reimagined</Typography>
           </Grid>
           <Grid sx={styles.form} container spacing={2}>
             <Divider />
@@ -69,12 +67,12 @@ const Login = () => {
                   <Grid sx={styles.buttonContainer} item xs={12}>
                     <LoadingButton
                       type="submit"
-                      disabled={!formik.isValid || showLoader}
+                      disabled={!formik.isValid}
                       variant="contained"
                       sx={styles.submitBtn}
                       size="large"
                       onClick={formik.handleSubmit}
-                      loading={showLoader}
+                      loading={false}
                       loadingPosition="start"
                       startIcon={<LockOpenIcon />}>
                       Sign In

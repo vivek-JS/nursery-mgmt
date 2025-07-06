@@ -28,22 +28,13 @@ export const useLoginController = () => {
 
   const handleLogin = async (values) => {
     console.log("🔄 Starting login process...", values)
-    setShowLoader(true)
-
-    // Add a timeout to prevent infinite loading
-    const timeoutId = setTimeout(() => {
-      console.log("⏰ Login timeout - hiding loader")
-      setShowLoader(false)
-      toast.error("Login timeout. Please try again.")
-    }, 15000) // 15 seconds timeout
+    // setShowLoader(true) // COMMENTED OUT - loader causing problems
 
     try {
       // Test API connectivity first
       console.log("🔍 Testing API connectivity...")
       const apiReachable = await testAPI()
       if (!apiReachable) {
-        clearTimeout(timeoutId)
-        setShowLoader(false)
         toast.error("Cannot connect to server. Please check your internet connection.")
         return
       }
@@ -52,12 +43,8 @@ export const useLoginController = () => {
       const success = await model.loginByEmail(values)
       console.log("📡 API call completed, success:", success)
 
-      // Clear the timeout since we got a response
-      clearTimeout(timeoutId)
-
       if (success) {
         console.log("✅ Login successful, navigating to dashboard...")
-        setShowLoader(false) // Hide loader before navigation
         // Force a small delay to ensure Redux state is updated
         setTimeout(() => {
           navigate("/u/dashboard", { replace: true })
@@ -71,14 +58,11 @@ export const useLoginController = () => {
         }, 2000)
       } else {
         console.log("❌ Login failed")
-        setShowLoader(false)
         // Show error message if login fails
         toast.error("Login failed. Please check your phone number and password.")
       }
     } catch (error) {
       console.error("💥 Login error:", error)
-      clearTimeout(timeoutId)
-      setShowLoader(false)
       toast.error("Login error. Please try again.")
     }
   }
