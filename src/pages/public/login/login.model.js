@@ -47,6 +47,11 @@ export const useLoginModel = () => {
         return true
       } else {
         console.log("Login failed - response not successful:", response)
+        // Check if it's a server error (500)
+        if (response.status === 500 || response.message?.includes("Something went very wrong")) {
+          console.error("Server error detected:", response.message)
+          throw new Error("Server is experiencing issues. Please try again later.")
+        }
         return false
       }
     } catch (error) {
