@@ -1,7 +1,6 @@
 services:
-  - type: web
+  - type: static
     name: nursery-mgmt-frontend
-    env: static
     buildCommand: npm run build:prod
     staticPublishPath: ./build
     envVars:
