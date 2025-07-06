@@ -15,12 +15,16 @@ export const useLoginController = () => {
   }
 
   const handleLogin = async (values) => {
+    console.log("🔄 Starting login process...", values)
     setShowLoader(true)
 
     try {
+      console.log("📡 Making API call...")
       const success = await model.loginByEmail(values)
+      console.log("📡 API call completed, success:", success)
 
       if (success) {
+        console.log("✅ Login successful, navigating to dashboard...")
         // Force a small delay to ensure Redux state is updated
         setTimeout(() => {
           navigate("/u/dashboard", { replace: true })
@@ -33,13 +37,15 @@ export const useLoginController = () => {
           }
         }, 2000)
       } else {
+        console.log("❌ Login failed")
         // Show error message if login fails
         toast.error("Login failed. Please check your phone number and password.")
       }
     } catch (error) {
-      console.error("Login error:", error)
+      console.error("💥 Login error:", error)
       toast.error("Login error. Please try again.")
     } finally {
+      console.log("🏁 Login process finished, hiding loader")
       setShowLoader(false)
     }
   }

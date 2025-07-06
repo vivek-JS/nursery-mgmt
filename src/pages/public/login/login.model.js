@@ -7,8 +7,19 @@ export const useLoginModel = () => {
 
   const loginByEmail = async (values) => {
     try {
+      console.log("🔗 Creating network instance...")
       const instance = NetworkManager(API.HOSPITAL.LOGIN_HOSPITAL)
-      const response = await instance.request(values)
+
+      console.log("📡 Making request to:", API.HOSPITAL.LOGIN_HOSPITAL.endpoint)
+      console.log("📡 With payload:", values)
+
+      // Add timeout to prevent infinite loading
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error("Request timeout")), 30000) // 30 seconds
+      })
+
+      const requestPromise = instance.request(values)
+      const response = await Promise.race([requestPromise, timeoutPromise])
 
       console.log("Login response:", response) // Debug log
 

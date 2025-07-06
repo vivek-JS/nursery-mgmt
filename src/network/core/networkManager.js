@@ -31,10 +31,10 @@ import { UserState } from "redux/dispatcher/UserState"
 // ********************
 
 export default function networkManager(router, withFile = false) {
-  const { TIMEOUT, API_AUTH_HEADER, AUTH_TYPE, CONTENT_TYPE } = APIConfig
+  const { BASE_URL, TIMEOUT, API_AUTH_HEADER, AUTH_TYPE, CONTENT_TYPE } = APIConfig
   const REQ_CONTENT_TYPE = withFile ? CONTENT_TYPE.MULTIPART : CONTENT_TYPE.JSON
 
-  axios.defaults.baseURL = router.baseURL
+  axios.defaults.baseURL = BASE_URL
   axios.defaults.timeout = TIMEOUT
   axios.defaults.headers.common["Content-Type"] = REQ_CONTENT_TYPE
   axios.defaults.headers.common["Accept-Language"] = "en"
