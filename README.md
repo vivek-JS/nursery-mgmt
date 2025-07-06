@@ -394,7 +394,7 @@ Open `src/network/core/endpoints.js` and place the endpoint for the call. For ex
 ```js
 export const API = {
   AUTH: {
-    LOGIN: new Endpoint("/api/v1/user/login", HTTP_METHODS.POST)
+    LOGIN: new Endpoint("/user/login", HTTP_METHODS.POST)
   }
 }
 ```

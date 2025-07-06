@@ -9,7 +9,7 @@ import { HTTP_METHODS, APIRouter, APIWithOfflineRouter, APICustomRouter } from "
 export const API = {
   AUTH: {
     // if you want to return offline json if api fails
-    LOGIN: new APIWithOfflineRouter("api/v1/user/login", HTTP_METHODS.POST, OFFLINE.LOGIN),
+    LOGIN: new APIWithOfflineRouter("/user/login", HTTP_METHODS.POST, OFFLINE.LOGIN),
     LOGIN_GOOGLE: new APIWithOfflineRouter(
       "/user/google-login/",
       HTTP_METHODS.POST,
@@ -32,8 +32,8 @@ export const API = {
       HTTP_METHODS.PATCH,
       OFFLINE.RESETPASSWORD
     ),
-    VERIFYOTP: new APIWithOfflineRouter("api/v1/user/login", HTTP_METHODS.POST, OFFLINE.LOGIN),
-    REFRESH_TOKEN: new APIRouter("api/v1/user/refresh-token", HTTP_METHODS.POST)
+    VERIFYOTP: new APIWithOfflineRouter("/user/login", HTTP_METHODS.POST, OFFLINE.LOGIN),
+    REFRESH_TOKEN: new APIRouter("/user/refresh-token", HTTP_METHODS.POST)
   },
   HOSPITAL: {
     LOGIN_HOSPITAL: new APIWithOfflineRouter("api/v1/user/login", HTTP_METHODS.POST, OFFLINE.LOGIN),

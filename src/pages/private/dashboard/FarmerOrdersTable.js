@@ -577,7 +577,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
 
       {/* Orders Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
-        {orders.map((row, index) => (
+        {(orders || []).map((row, index) => (
           <div
             key={index}
             className={`bg-white rounded-lg shadow-sm border hover:shadow-md transition-all duration-200 cursor-pointer ${
