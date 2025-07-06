@@ -4,6 +4,17 @@ services:
     env: static
     buildCommand: npm run build:prod
     staticPublishPath: ./build
+    envVars:
+      - key: REACT_APP_BASE_URL
+        value: https://final-nursery-be-1.onrender.com/api/v1
+      - key: REACT_APP_APP_ENV
+        value: prod
+      - key: REACT_APP_FACEBOOK_APP_ID
+        value: 1313663559186335
+      - key: REACT_APP_GOOGLE_APP_ID
+        value: 632571890732-igmo756qdm8v46ngaqf8gr78h6o02ps7.apps.googleusercontent.com
+      - key: PUBLIC_URL
+        value: https://ram-biotek.onrender.com
     routes:
       - type: rewrite
         source: /*
