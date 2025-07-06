@@ -15,5 +15,11 @@ services:
 
     routes:
       - type: rewrite
+        source: /u/*
+        destination: /index.html
+      - type: rewrite
+        source: /auth/*
+        destination: /index.html
+      - type: rewrite
         source: /*
         destination: /index.html

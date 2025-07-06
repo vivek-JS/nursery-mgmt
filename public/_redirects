@@ -1,1 +1,10 @@
+# SPA Routing - All routes redirect to index.html
+/*    /index.html   200
+
+# Specific route redirects for better compatibility
+/u/*    /index.html   200
+/auth/*    /index.html   200
+/api/*    /index.html   200
+
+# Fallback for any unmatched routes
 /*    /index.html   200
