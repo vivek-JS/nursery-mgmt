@@ -2,6 +2,7 @@
   "name": "react-web-template",
   "version": "1.0.0",
   "private": true,
+
   "scripts": {
     "start": "env-cmd -f .env.dev react-scripts start",
     "start:qa": "env-cmd -f .env.qa react-scripts start",
