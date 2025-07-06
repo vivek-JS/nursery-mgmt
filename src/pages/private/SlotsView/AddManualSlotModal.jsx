@@ -143,6 +143,8 @@ const AddManualSlotModal = ({ isOpen, onClose, plants, selectedYear, onSuccess }
     </div>
   ))
 
+  CustomDatePickerInput.displayName = "CustomDatePickerInput"
+
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError("")
