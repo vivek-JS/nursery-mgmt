@@ -15,3 +15,7 @@ services:
         value: 632571890732-igmo756qdm8v46ngaqf8gr78h6o02ps7.apps.googleusercontent.com
       - key: PUBLIC_URL
         value: https://ram-biotek.onrender.com
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
