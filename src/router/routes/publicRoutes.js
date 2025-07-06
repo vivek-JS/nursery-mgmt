@@ -9,6 +9,7 @@ const HospitalOnboarding = React.lazy(() => import("components/Modals/HospitalOn
 
 export const PublicRoutes = [
   { path: "/auth/login", exact: true, component: Login },
+  { path: "/login", exact: true, component: Login }, // Added for convenience
   { path: "/auth/loginsss", exact: true, component: Login },
 
   { path: "/auth/signup", exact: true, component: SignUp },
