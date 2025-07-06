@@ -36,7 +36,7 @@ export const API = {
     REFRESH_TOKEN: new APIRouter("user/refresh-token", HTTP_METHODS.POST)
   },
   HOSPITAL: {
-    LOGIN_HOSPITAL: new APIWithOfflineRouter("api/v1/user/login", HTTP_METHODS.POST, OFFLINE.LOGIN),
+    LOGIN_HOSPITAL: new APIWithOfflineRouter("user/login", HTTP_METHODS.POST, OFFLINE.LOGIN),
     CREATE_HOSPITAL: new APIRouter(
       "/api/v2/hospital/createHospital/",
       HTTP_METHODS.POST,
@@ -61,14 +61,14 @@ export const API = {
     )
   },
   USER: {
-    PROFILE: new APIWithOfflineRouter("api/v1/user/profile/", HTTP_METHODS.GET, OFFLINE.PROFILE),
-    UPDATE: new APIRouter("api/v1/user/profile/", HTTP_METHODS.PATCH, OFFLINE.UPDATE),
-    LOGOUT: new APIWithOfflineRouter("api/v1/user/logout", HTTP_METHODS.POST, OFFLINE.LOGOUT),
-    GET_USERS: new APIRouter("api/v1/user/allusers", HTTP_METHODS.GET),
-    GET_DEALERS: new APIRouter("api/v1/user/dealers", HTTP_METHODS.GET),
-    GET_DEALERS_STATS: new APIRouter("api/v1/user/dealerssss/stats", HTTP_METHODS.GET),
+    PROFILE: new APIWithOfflineRouter("/user/profile/", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    UPDATE: new APIRouter("/user/profile/", HTTP_METHODS.PATCH, OFFLINE.UPDATE),
+    LOGOUT: new APIWithOfflineRouter("user/logout", HTTP_METHODS.POST, OFFLINE.LOGOUT),
+    GET_USERS: new APIRouter("user/allusers", HTTP_METHODS.GET),
+    GET_DEALERS: new APIRouter("user/dealers", HTTP_METHODS.GET),
+    GET_DEALERS_STATS: new APIRouter("user/dealerssss/stats", HTTP_METHODS.GET),
 
-    GET_DEALERS_TRANSACTIONS: new APIRouter("api/v1/user/dealers/transactions", HTTP_METHODS.GET)
+    GET_DEALERS_TRANSACTIONS: new APIRouter("user/dealers/transactions", HTTP_METHODS.GET)
   },
   PATIENT: {
     ADD_PATIENT_LIST: new APIRouter("api/v2/users/", HTTP_METHODS.POST, OFFLINE.PROFILE),
@@ -189,7 +189,7 @@ export const API = {
       HTTP_METHODS.POST,
       OFFLINE.PROFILE
     ),
-    ADD_EMPLOYEE_LOGIN: new APIRouter("api/v1/user/createUser", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    ADD_EMPLOYEE_LOGIN: new APIRouter("user/createUser", HTTP_METHODS.POST, OFFLINE.PROFILE),
 
     GET_EMPLOYEE: new APIRouter("employee/getEmployees", HTTP_METHODS.GET, OFFLINE.PROFILE),
     DELETE_EMPLOYEE: new APIRouter(

@@ -31,10 +31,10 @@ import { UserState } from "redux/dispatcher/UserState"
 // ********************
 
 export default function networkManager(router, withFile = false) {
-  const { BASE_URL, TIMEOUT, API_AUTH_HEADER, AUTH_TYPE, CONTENT_TYPE } = APIConfig
+  const { TIMEOUT, API_AUTH_HEADER, AUTH_TYPE, CONTENT_TYPE } = APIConfig
   const REQ_CONTENT_TYPE = withFile ? CONTENT_TYPE.MULTIPART : CONTENT_TYPE.JSON
 
-  axios.defaults.baseURL = BASE_URL
+  axios.defaults.baseURL = router.baseURL
   axios.defaults.timeout = TIMEOUT
   axios.defaults.headers.common["Content-Type"] = REQ_CONTENT_TYPE
   axios.defaults.headers.common["Accept-Language"] = "en"
@@ -72,26 +72,13 @@ export default function networkManager(router, withFile = false) {
       // Handle both response formats: response.success (boolean) and response.status === "Success"
       const isSuccess = response.success === true || response.status === "Success"
 
-      console.log("🌐 Network response:", {
-        status: result.status,
-        isSuccess,
-        data: response,
-        message: response.data?.message || response.message
-      })
-
       return new APIResponse(response, isSuccess, result.status, response.data?.message)
     } catch (err) {
-      console.log("🌐 Network error:", {
-        status: err?.response?.status,
-        message: err?.response?.data?.message,
-        error: err.message,
-        code: err.code
-      })
-
+      console.log(err?.response?.data?.message)
       const fullError = err?.response?.data?.rowErrors
       const colError = err?.response?.data?.errors
 
-      apiError(fullError?.message || err?.response?.data?.message || "Unknown error")
+      apiError(fullError?.message || "Unknown error")
 
       const isNetworkError = err.code === HTTP_STATUS.NETWORK_ERR
 

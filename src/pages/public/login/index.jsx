@@ -67,12 +67,12 @@ const Login = () => {
                   <Grid sx={styles.buttonContainer} item xs={12}>
                     <LoadingButton
                       type="submit"
-                      disabled={!formik.isValid}
+                      disabled={!formik.isValid || showLoader}
                       variant="contained"
                       sx={styles.submitBtn}
                       size="large"
                       onClick={formik.handleSubmit}
-                      loading={false}
+                      loading={showLoader}
                       loadingPosition="start"
                       startIcon={<LockOpenIcon />}>
                       Sign In
