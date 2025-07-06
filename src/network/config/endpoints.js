@@ -36,7 +36,7 @@ export const API = {
     REFRESH_TOKEN: new APIRouter("/user/refresh-token", HTTP_METHODS.POST)
   },
   HOSPITAL: {
-    LOGIN_HOSPITAL: new APIWithOfflineRouter("api/v1/user/login", HTTP_METHODS.POST, OFFLINE.LOGIN),
+    LOGIN_HOSPITAL: new APIWithOfflineRouter("/user/login", HTTP_METHODS.POST, OFFLINE.LOGIN),
     CREATE_HOSPITAL: new APIRouter(
       "/api/v2/hospital/createHospital/",
       HTTP_METHODS.POST,
@@ -184,24 +184,12 @@ export const API = {
     CHECK: new APICustomRouter("https://example.com", "/test", HTTP_METHODS.GET)
   },
   EMPLOYEE: {
-    ADD_EMPLOYEE: new APIRouter(
-      "api/v1/employee/createEmployee",
-      HTTP_METHODS.POST,
-      OFFLINE.PROFILE
-    ),
+    ADD_EMPLOYEE: new APIRouter("/employee/createEmployee", HTTP_METHODS.POST, OFFLINE.PROFILE),
     ADD_EMPLOYEE_LOGIN: new APIRouter("user/createUser", HTTP_METHODS.POST, OFFLINE.PROFILE),
 
     GET_EMPLOYEE: new APIRouter("employee/getEmployees", HTTP_METHODS.GET, OFFLINE.PROFILE),
-    DELETE_EMPLOYEE: new APIRouter(
-      "api/v1/employee/deleteEmployee",
-      HTTP_METHODS.DEL,
-      OFFLINE.PROFILE
-    ),
-    UPDATE_EMPLOYEE: new APIRouter(
-      "api/v1/employee/updateEmployee",
-      HTTP_METHODS.PATCH,
-      OFFLINE.PROFILE
-    )
+    DELETE_EMPLOYEE: new APIRouter("/employee/deleteEmployee", HTTP_METHODS.DEL, OFFLINE.PROFILE),
+    UPDATE_EMPLOYEE: new APIRouter("/employee/updateEmployee", HTTP_METHODS.PATCH, OFFLINE.PROFILE)
   },
   ORDER: {
     GET_ORDERS: new APIRouter("/order/getOrders", HTTP_METHODS.GET, OFFLINE.PROFILE),
