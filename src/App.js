@@ -33,7 +33,7 @@ function App() {
       <Provider store={store}>
         <PersistGate loading={null} persistor={persistor}>
           <ThemeProvider theme={currentTheme}>
-            <AppLoader />
+            {/* <AppLoader /> */}
 
             <AppRouter />
             <ToastContainer />
