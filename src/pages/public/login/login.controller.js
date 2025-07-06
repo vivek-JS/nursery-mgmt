@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { useLoginModel } from "./login.model"
+import { toast } from "react-toastify"
 
 export const useLoginController = () => {
   const [showPassword, setShowPassword] = useState(false)
@@ -31,9 +32,13 @@ export const useLoginController = () => {
             window.location.href = "/u/dashboard"
           }
         }, 2000)
+      } else {
+        // Show error message if login fails
+        toast.error("Login failed. Please check your phone number and password.")
       }
     } catch (error) {
       console.error("Login error:", error)
+      toast.error("Login error. Please try again.")
     } finally {
       setShowLoader(false)
     }
