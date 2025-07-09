@@ -1,28 +1,23 @@
-import { CookieKeys, CookieOptions } from "constants/cookieKeys"
-import { useCookies } from "react-cookie"
 import { UserDataDispatcher } from "redux/dispatcher/userDataState"
-export function useUserSession() {
-  const [cookies, setCookie, removeCookie] = useCookies([CookieKeys.Auth, CookieKeys.REFRESH_TOKEN])
 
+export function useUserSession() {
   const setSession = (data) => {
-    setCookie(CookieKeys.Auth, data.token, CookieOptions)
-    setCookie(CookieKeys.REFRESH_TOKEN, data.refresh_token, CookieOptions)
+    localStorage.setItem("accessToken", data.token)
+    localStorage.setItem("refreshToken", data.refresh_token)
     UserDataDispatcher.saveData(data?.response?.data)
   }
 
   const deleteSession = () => {
-    const cookieNames = Object.keys(cookies)
-    cookieNames.map((cookie) => {
-      removeCookie(cookie, CookieOptions)
-    })
+    localStorage.removeItem("accessToken")
+    localStorage.removeItem("refreshToken")
   }
 
   const isValidSession = () => {
     const hasToken =
-      cookies[CookieKeys.Auth] !== undefined &&
-      cookies[CookieKeys.Auth] !== null &&
-      cookies[CookieKeys.Auth] !== "undefined" &&
-      cookies[CookieKeys.Auth] !== "null"
+      localStorage.getItem("accessToken") !== undefined &&
+      localStorage.getItem("accessToken") !== null &&
+      localStorage.getItem("accessToken") !== "undefined" &&
+      localStorage.getItem("accessToken") !== "null"
 
     return hasToken
   }

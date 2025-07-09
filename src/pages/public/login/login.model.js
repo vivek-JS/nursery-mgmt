@@ -1,37 +1,95 @@
-import { useUserSession } from "hooks/userSession"
 import { NetworkManager, API } from "network/core"
 import { UserState } from "redux/dispatcher/UserState"
+import { useUserSession } from "hooks/userSession"
 
 export const useLoginModel = () => {
   const userSession = useUserSession()
 
   const loginByEmail = async (values) => {
-    const instance = NetworkManager(API.HOSPITAL.LOGIN_HOSPITAL)
-    const response = await instance.request(values)
+    console.log("🔐 loginByEmail called")
+    console.log("📱 Phone:", values.phoneNumber)
+    console.log("🔑 Password:", values.password ? "***" : "empty")
 
-    if (response.success && response.data) {
-      // Store tokens from the new backend response format
-      // The backend response has nested structure: response.data.data.accessToken
-      const actualData = response.data.data || response.data
-      const tokenData = {
-        token: actualData.accessToken,
-        refresh_token: actualData.refreshToken,
-        response: {
-          data: actualData.user
-        }
+    // Use the correct backend endpoint
+    const loginEndpoint = {
+      endpoint: "/user/login",
+      method: "POST",
+      baseURL: "http://localhost:8000/api/v1"
+    }
+
+    console.log("🌐 API endpoint:", loginEndpoint)
+
+    const instance = NetworkManager(loginEndpoint)
+    console.log("🌐 NetworkManager instance created")
+
+    try {
+      // Prepare the request payload in the format expected by your backend
+      const payload = {
+        phoneNumber: parseInt(values.phoneNumber),
+        password: values.password
       }
 
-      // Store the session
-      userSession.setSession(tokenData)
+      console.log("📦 Request payload:", { ...payload, password: "***" })
 
-      // Dispatch login action to Redux to update the app state
-      UserState.login(actualData.user)
+      const response = await instance.request(payload)
+      console.log("✅ Request completed successfully")
+      console.log("📡 Response success:", response.success)
+      console.log("📡 Response data:", response.data ? "exists" : "null")
+      console.log("📡 Full response:", response)
 
-      // Force a small delay to ensure Redux state is updated
-      await new Promise((resolve) => setTimeout(resolve, 100))
+      if (response.success && response.data) {
+        console.log("🎉 Login successful, setting session...")
 
-      return true
-    } else {
+        // Extract user data from the response
+        const userData = response.data.user || response.data
+        const accessToken = response.data.accessToken
+        const refreshToken = response.data.refreshToken
+
+        console.log("👤 User data:", userData)
+        console.log("🔑 Access token:", accessToken ? "exists" : "missing")
+        console.log("🔄 Refresh token:", refreshToken ? "exists" : "missing")
+
+        // Store tokens in localStorage
+        if (accessToken) {
+          localStorage.setItem("accessToken", accessToken)
+          console.log("💾 Access token stored in localStorage")
+        }
+
+        if (refreshToken) {
+          localStorage.setItem("refreshToken", refreshToken)
+          console.log("💾 Refresh token stored in localStorage")
+        }
+
+        // Prepare session data in the format expected by userSession.setSession
+        const sessionData = {
+          token: accessToken,
+          refresh_token: refreshToken,
+          response: {
+            data: userData
+          }
+        }
+
+        console.log("📦 Session data prepared:", {
+          hasToken: !!sessionData.token,
+          hasRefreshToken: !!sessionData.refresh_token,
+          hasUser: !!sessionData.response?.data
+        })
+
+        // Set the session
+        userSession.setSession(sessionData)
+
+        // Dispatch login action to Redux to update the app state
+        UserState.login(userData)
+
+        return true
+      } else {
+        console.log("❌ Login failed - no success or data")
+        console.log("❌ Response details:", response)
+        return false
+      }
+    } catch (error) {
+      console.log("❌ Login failed with error:", error.message || error)
+      console.log("❌ Error details:", error)
       return false
     }
   }

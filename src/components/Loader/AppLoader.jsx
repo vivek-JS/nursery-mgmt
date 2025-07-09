@@ -17,6 +17,11 @@ function AppLoader({ visible: isVisible = false }) {
     }
   }, [visible, isVisible])
 
+  // Temporarily disable all loaders
+  return null
+
+  // Original loader logic (commented out to prevent unreachable code)
+  /*
   if (!showLoader) return null
 
   return (
@@ -25,6 +30,7 @@ function AppLoader({ visible: isVisible = false }) {
       {Boolean(message) && <Typography>{message}</Typography>}
     </div>
   )
+  */
 }
 
 export default AppLoader

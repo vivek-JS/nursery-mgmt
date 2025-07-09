@@ -4,7 +4,6 @@ import AppRouter from "./router"
 import { ThemeProvider, createTheme } from "@mui/material/styles"
 import { defaultTheme } from "./themes/defaultTheme"
 
-import { CookiesProvider } from "react-cookie"
 import "./styles/global.scss"
 import AppLoader from "components/Loader/AppLoader"
 import { ToastContainer } from "react-toastify"
@@ -28,19 +27,17 @@ function App() {
   const currentTheme = createTheme(defaultTheme)
 
   return (
-    <CookiesProvider>
-      <Provider store={store}>
-        <PersistGate loading={null} persistor={persistor}>
-          <ThemeProvider theme={currentTheme}>
-            <AppLoader />
+    <Provider store={store}>
+      <PersistGate loading={null} persistor={persistor}>
+        <ThemeProvider theme={currentTheme}>
+          <AppLoader />
 
-            <AppRouter />
-            <ToastContainer />
-            <SessionObserver />
-          </ThemeProvider>
-        </PersistGate>
-      </Provider>
-    </CookiesProvider>
+          <AppRouter />
+          <ToastContainer />
+          <SessionObserver />
+        </ThemeProvider>
+      </PersistGate>
+    </Provider>
   )
 }
 

@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react'
+import React, { useState, useRef } from "react"
 import {
   Box,
   Button,
@@ -9,13 +9,11 @@ import {
   Paper,
   CircularProgress,
   Fade
-} from '@mui/material'
-import BackupIcon from '@mui/icons-material/Backup'
-import RestoreIcon from '@mui/icons-material/Restore'
-import { API } from 'network/core'
-import axios from 'axios'
-import { Cookies } from "react-cookie"
-import { CookieKeys } from "constants/cookieKeys"
+} from "@mui/material"
+import BackupIcon from "@mui/icons-material/Backup"
+import RestoreIcon from "@mui/icons-material/Restore"
+import { API } from "network/core"
+import axios from "axios"
 
 const DataBackupRestore = () => {
   const [isBackingUp, setIsBackingUp] = useState(false)
@@ -28,45 +26,46 @@ const DataBackupRestore = () => {
       setIsBackingUp(true)
       setStatus(null)
 
-      // Override axios defaults for this specific request
-      const cookie = new Cookies()
-      const authToken = cookie.get(CookieKeys.Auth)
+      // Get token from localStorage
+      const authToken = localStorage.getItem("accessToken")
 
       // Override axios defaults for this specific request
       const customAxios = axios.create({
-        responseType: 'blob',
+        responseType: "blob",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
           // Add auth token to headers
-          'Authorization': `Bearer ${authToken}`
+          Authorization: `Bearer ${authToken}`
         }
       })
 
       // Make the request using the base URL from your router
-      const result = await customAxios.get(`${API.DATA.CREATE_BACKUP.baseURL}/${API.DATA.CREATE_BACKUP.endpoint}`)
-      
+      const result = await customAxios.get(
+        `${API.DATA.CREATE_BACKUP.baseURL}/${API.DATA.CREATE_BACKUP.endpoint}`
+      )
+
       // Create download from blob response
       const url = window.URL.createObjectURL(new Blob([result.data]))
-      const link = document.createElement('a')
+      const link = document.createElement("a")
       link.href = url
       link.download = `backup-${new Date().toISOString()}.zip`
       document.body.appendChild(link)
       link.click()
       window.URL.revokeObjectURL(url)
       document.body.removeChild(link)
-      
-      setStatus({ 
-        severity: 'success', 
-        title: 'Success',
-        message: 'Backup downloaded successfully!' 
+
+      setStatus({
+        severity: "success",
+        title: "Success",
+        message: "Backup downloaded successfully!"
       })
     } catch (error) {
-      setStatus({ 
-        severity: 'error', 
-        title: 'Error',
-        message: 'Failed to create backup. Please try again.' 
+      setStatus({
+        severity: "error",
+        title: "Error",
+        message: "Failed to create backup. Please try again."
       })
-      console.error('Backup error:', error)
+      console.error("Backup error:", error)
     } finally {
       setIsBackingUp(false)
     }
@@ -79,74 +78,70 @@ const DataBackupRestore = () => {
     try {
       setIsImporting(true)
       setStatus(null)
-      
-      const cookie = new Cookies()
-      const authToken = cookie.get(CookieKeys.Auth)
+
+      const authToken = localStorage.getItem("accessToken")
 
       const formData = new FormData()
-      formData.append('backup', file)
+      formData.append("backup", file)
 
       const customAxios = axios.create({
         headers: {
-          'Content-Type': 'multipart/form-data',
-          'Authorization': `Bearer ${authToken}`
+          "Content-Type": "multipart/form-data",
+          Authorization: `Bearer ${authToken}`
         }
       })
 
-      await customAxios.post(`${API.DATA.IMPORT_BACKUP.baseURL}/${API.DATA.IMPORT_BACKUP.endpoint}`, formData)
-      
-      setStatus({ 
-        severity: 'success', 
-        title: 'Success',
-        message: 'Data imported successfully!' 
+      await customAxios.post(
+        `${API.DATA.IMPORT_BACKUP.baseURL}/${API.DATA.IMPORT_BACKUP.endpoint}`,
+        formData
+      )
+
+      setStatus({
+        severity: "success",
+        title: "Success",
+        message: "Data imported successfully!"
       })
     } catch (error) {
-      setStatus({ 
-        severity: 'error', 
-        title: 'Error',
-        message: 'Failed to import data. Please try again.' 
+      setStatus({
+        severity: "error",
+        title: "Error",
+        message: "Failed to import data. Please try again."
       })
     } finally {
       setIsImporting(false)
       // Reset file input
       if (fileInputRef.current) {
-        fileInputRef.current.value = ''
+        fileInputRef.current.value = ""
       }
     }
   }
 
   return (
-    <Paper 
-      elevation={2} 
-      sx={{ 
+    <Paper
+      elevation={2}
+      sx={{
         p: 4,
-        bgcolor: 'background.paper',
+        bgcolor: "background.paper",
         borderRadius: 2
-      }}
-    >
+      }}>
       <Typography variant="h5" component="h2" gutterBottom sx={{ mb: 4, fontWeight: 600 }}>
         Data Management
       </Typography>
-      
-      <Stack 
-        direction={{ xs: 'column', sm: 'row' }} 
-        spacing={2} 
-        sx={{ mb: status ? 3 : 0 }}
-      >
+
+      <Stack direction={{ xs: "column", sm: "row" }} spacing={2} sx={{ mb: status ? 3 : 0 }}>
         <Button
           variant="contained"
           color="primary"
-          startIcon={isBackingUp  ? <CircularProgress size={20} color="inherit" /> : <BackupIcon />}
+          startIcon={isBackingUp ? <CircularProgress size={20} color="inherit" /> : <BackupIcon />}
           onClick={handleBackup}
           disabled={isBackingUp || isImporting}
           sx={{
             minWidth: 180,
-            '&:hover': {
-              backgroundColor: 'primary.dark',
+            "&:hover": {
+              backgroundColor: "primary.dark"
             }
-          }}
-        >
-          {isBackingUp ? 'Creating Backup...' : 'Backup Data'}
+          }}>
+          {isBackingUp ? "Creating Backup..." : "Backup Data"}
         </Button>
 
         <Box position="relative">
@@ -155,7 +150,7 @@ const DataBackupRestore = () => {
             ref={fileInputRef}
             onChange={handleImport}
             accept=".zip"
-            style={{ display: 'none' }}
+            style={{ display: "none" }}
             id="file-upload"
           />
           <label htmlFor="file-upload">
@@ -163,16 +158,17 @@ const DataBackupRestore = () => {
               variant="contained"
               color="secondary"
               component="span"
-              startIcon={isImporting ? <CircularProgress size={20} color="inherit" /> : <RestoreIcon />}
+              startIcon={
+                isImporting ? <CircularProgress size={20} color="inherit" /> : <RestoreIcon />
+              }
               disabled={isBackingUp || isImporting}
               sx={{
                 minWidth: 180,
-                '&:hover': {
-                  backgroundColor: 'secondary.dark',
+                "&:hover": {
+                  backgroundColor: "secondary.dark"
                 }
-              }}
-            >
-              {isImporting ? 'Importing...' : 'Import Data'}
+              }}>
+              {isImporting ? "Importing..." : "Import Data"}
             </Button>
           </label>
         </Box>
@@ -181,15 +177,14 @@ const DataBackupRestore = () => {
       <Fade in={Boolean(status)} timeout={500}>
         <Box sx={{ mt: 3 }}>
           {status && (
-            <Alert 
+            <Alert
               severity={status.severity}
               variant="outlined"
               sx={{
-                '& .MuiAlert-icon': {
-                  fontSize: '24px'
+                "& .MuiAlert-icon": {
+                  fontSize: "24px"
                 }
-              }}
-            >
+              }}>
               <AlertTitle>{status.title}</AlertTitle>
               {status.message}
             </Alert>

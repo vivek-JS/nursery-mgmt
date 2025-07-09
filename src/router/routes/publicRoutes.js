@@ -1,8 +1,8 @@
 // Export all the public routes
 import React from "react"
+import Login from "pages/public/login"
 
 const ForgotPassword = React.lazy(() => import("pages/public/forgot-password"))
-const Login = React.lazy(() => import("pages/public/login"))
 const SignUp = React.lazy(() => import("pages/public/signup"))
 const ResetPassword = React.lazy(() => import("pages/public/reset-password"))
 const HospitalOnboarding = React.lazy(() => import("components/Modals/HospitalOnboarding"))

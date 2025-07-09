@@ -79,9 +79,9 @@ export default function PrivateLayout(props) {
       <Drawer open={false} sx={styles.drawer} variant="permanent" anchor="left">
         <List>
           <DrawerHeader>
-            <ListItemButton style={{ padding: 10 }} sx={{ paddingLeft: "10px !important" }}>
-
-            </ListItemButton>
+            <ListItemButton
+              style={{ padding: 10 }}
+              sx={{ paddingLeft: "10px !important" }}></ListItemButton>
 
             {/* <Typography sx={styles.drawerHeader} variant="h4">
               <img src={Logo} style={{ height: 30 }}></img>
@@ -91,9 +91,8 @@ export default function PrivateLayout(props) {
           </DrawerHeader>
           <Divider sx={styles.divider} />
 
-          {DashboardMenus.filter(
-            (item) =>
-              (userType === "LABORATORY_MANAGER" ? (item.title === "Labs") : true)
+          {DashboardMenus.filter((item) =>
+            userType === "LABORATORY_MANAGER" ? item.title === "Labs" : true
           ).map((item) => {
             return (
               <ListItemButton
@@ -126,6 +125,7 @@ export default function PrivateLayout(props) {
         </List>
       </Drawer>
       <Main open={open}>
+        {console.log("🔄 Rendering Outlet")}
         <Outlet />
       </Main>
     </Box>

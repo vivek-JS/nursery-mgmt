@@ -1,27 +1,28 @@
 // Export all the private routes
 import React from "react"
 
-const Dashboard = React.lazy(() => import("pages/private/dashboard"))
-const Settings = React.lazy(() => import("pages/private/settings"))
-const SubAdmins = React.lazy(() => import("pages/private/sub-admins"))
-const Weekly = React.lazy(() => import("pages/private/weekly"))
-const Inventory = React.lazy(() => import("pages/private/inventory"))
-const Transactions = React.lazy(() => import("pages/private/transaction"))
-const Patients = React.lazy(() => import("pages/private/employee"))
-const Admin = React.lazy(() => import("pages/private/admin"))
-const Cms = React.lazy(() => import("pages/private/cms"))
-const Labs = React.lazy(() => import("pages/private/labs"))
-const Order = React.lazy(() => import("pages/private/order"))
-const Plants = React.lazy(() => import("pages/private/Plants/slots"))
-const Slots = React.lazy(() => import("pages/private/SlotsView/index"))
-const Hardening = React.lazy(() => import("pages/private/hardening/Index"))
-const Stats = React.lazy(() => import("pages/private/slotsStats"))
-const DataBackupRestore = React.lazy(() => import("pages/private/backup"))
-const FarmerComponent = React.lazy(() => import("pages/private/farmer/Farmer"))
-const OrdersUpload = React.lazy(() => import("pages/private/ordersUpload/OrdersUpload"))
-const Dealers = React.lazy(() => import("pages/private/dealers/Dealer"))
-const DealersDetails = React.lazy(() => import("pages/private/dealers/DelaerDetails"))
-const CapacityInsights = React.lazy(() => import("pages/private/capacityinsights/CapacityInsights"))
+// Temporarily use regular imports for debugging
+import Dashboard from "pages/private/dashboard/TestDashboard"
+import Settings from "pages/private/settings"
+import SubAdmins from "pages/private/sub-admins"
+import Weekly from "pages/private/weekly"
+import Inventory from "pages/private/inventory"
+import Transactions from "pages/private/transaction"
+import Patients from "pages/private/employee"
+import Admin from "pages/private/admin"
+import Cms from "pages/private/cms"
+import Labs from "pages/private/labs"
+import Order from "pages/private/order"
+import Plants from "pages/private/Plants/slots"
+import Slots from "pages/private/SlotsView/index"
+import Hardening from "pages/private/hardening/Index"
+import Stats from "pages/private/slotsStats"
+import DataBackupRestore from "pages/private/backup"
+import FarmerComponent from "pages/private/farmer/Farmer"
+import OrdersUpload from "pages/private/ordersUpload/OrdersUpload"
+import Dealers from "pages/private/dealers/Dealer"
+import DealersDetails from "pages/private/dealers/DelaerDetails"
+import CapacityInsights from "pages/private/capacityinsights/CapacityInsights"
 
 export const PrivateRoutes = [
   { path: "/u/dashboard", exact: true, component: Dashboard },

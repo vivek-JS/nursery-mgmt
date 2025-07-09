@@ -16,6 +16,7 @@ import { faHourglassEmpty } from "@fortawesome/free-solid-svg-icons"
 import { FaUser, FaCreditCard, FaEdit, FaFileAlt } from "react-icons/fa"
 
 const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
+  console.log("📊 FarmerOrdersTable component rendered")
   const today = new Date()
   const [searchTerm, setSearchTerm] = useState("")
   const [expandedRows, setExpandedRows] = useState(new Set())
@@ -188,8 +189,18 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
     }
   }
   useEffect(() => {
+    console.log("🔄 useEffect triggered:", {
+      startDate,
+      endDate,
+      debouncedSearchTerm,
+      refresh,
+      viewMode
+    })
     if (startDate && endDate) {
+      console.log("📞 Calling getOrders...")
       getOrders()
+    } else {
+      console.log("❌ startDate or endDate missing:", { startDate, endDate })
     }
   }, [debouncedSearchTerm, refresh, startDate, endDate, viewMode])
 
@@ -263,6 +274,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   }
 
   const getOrders = async () => {
+    console.log("🚀 getOrders function called")
     setLoading(true)
     const date = new Date(startDate)
     const formattedStartDate = moment(date).format("DD-MM-YYYY")

@@ -1,8 +1,7 @@
 import React from "react"
-import { Typography, Grid, Divider, Box } from "@mui/material"
+import { Typography, Grid, Divider, Box, Button } from "@mui/material"
 import { Formik } from "formik"
 import { useStyles } from "../commonStyles"
-import { LoadingButton } from "@mui/lab"
 import LockOpenIcon from "@mui/icons-material/LockOpen"
 import { LoginValidator } from "helpers/validators/login"
 import { useLoginController } from "./login.controller"
@@ -15,11 +14,11 @@ const Login = () => {
   const styles = useStyles()
 
   const {
-    showLoader,
     showPassword,
     togglePasswordVisiblity,
     handleLogin,
-    navigateToForgotPassword
+    navigateToForgotPassword,
+    errorMessage
     //navigateToSignUp
   } = useLoginController()
 
@@ -37,7 +36,10 @@ const Login = () => {
               validateOnMount
               initialValues={LoginValidator.initialValues}
               validationSchema={LoginValidator.validationSchema}
-              onSubmit={handleLogin}>
+              onSubmit={(values) => {
+                console.log("🔐 Form submitted")
+                return handleLogin(values)
+              }}>
               {(formik) => (
                 <React.Fragment>
                   <Grid item xs={12}>
@@ -64,24 +66,77 @@ const Login = () => {
                     />
                   </Grid>
 
+                  {errorMessage && (
+                    <Grid item xs={12}>
+                      <Typography
+                        sx={{
+                          color: "error.main",
+                          textAlign: "center",
+                          fontSize: "14px",
+                          marginBottom: "10px"
+                        }}
+                        variant="body2">
+                        {errorMessage}
+                      </Typography>
+                    </Grid>
+                  )}
                   <Grid sx={styles.buttonContainer} item xs={12}>
-                    <LoadingButton
+                    <Button
                       type="submit"
-                      disabled={!formik.isValid || showLoader}
+                      disabled={!formik.isValid}
                       variant="contained"
                       sx={styles.submitBtn}
                       size="large"
                       onClick={formik.handleSubmit}
-                      loading={showLoader}
-                      loadingPosition="start"
                       startIcon={<LockOpenIcon />}>
                       Sign In
-                    </LoadingButton>
+                    </Button>
                     <Typography
                       onClick={navigateToForgotPassword}
                       sx={styles.forgotPassword}
                       variant="c3">
                       Forgot Password?
+                    </Typography>
+                    <Typography
+                      onClick={() => {
+                        console.log("🔍 Debug: Current auth state")
+                        console.log("🔍 Debug: Local Storage", localStorage)
+                        console.log("🔍 Debug: Local Storage", localStorage)
+                        console.log("🔍 Debug: Session Storage", sessionStorage)
+                        console.log(
+                          "🔍 Debug: Redux State",
+                          window.__REDUX_DEVTOOLS_EXTENSION__?.connect().init()
+                        )
+                      }}
+                      sx={{
+                        ...styles.forgotPassword,
+                        cursor: "pointer",
+                        fontSize: "12px",
+                        marginTop: "10px"
+                      }}
+                      variant="c3">
+                      Debug Info
+                    </Typography>
+                    <Typography
+                      onClick={() => {
+                        console.log("🚪 Force logout")
+                        // Clear all storage
+                        localStorage.clear()
+                        sessionStorage.clear()
+                        // Clear localStorage
+                        localStorage.clear()
+                        // Force reload
+                        window.location.reload()
+                      }}
+                      sx={{
+                        ...styles.forgotPassword,
+                        cursor: "pointer",
+                        fontSize: "12px",
+                        marginTop: "5px",
+                        color: "error.main"
+                      }}
+                      variant="c3">
+                      Force Logout
                     </Typography>
                   </Grid>
                   {/* <Grid item xs={12}>

@@ -1,8 +1,8 @@
 import { Dates } from "helpers/app-dates/dates"
 export const CookieKeys = {
-  Auth: `${process.env.REACT_APP_APP_ENV}:Auth-Token`,
-  API_TOKEN: `${process.env.REACT_APP_APP_ENV}:api-key`,
-  REFRESH_TOKEN: `${process.env.REACT_APP_APP_ENV}:Refresh-Token`
+  Auth: `${process.env.REACT_APP_APP_ENV || "dev"}:Auth-Token`,
+  API_TOKEN: `${process.env.REACT_APP_APP_ENV || "dev"}:api-key`,
+  REFRESH_TOKEN: `${process.env.REACT_APP_APP_ENV || "dev"}:Refresh-Token`
 }
 
 export const CookieOptions = {
