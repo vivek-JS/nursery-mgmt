@@ -22,9 +22,15 @@ import {
   FileSpreadsheet,
   CheckSquare,
   Upload,
-  RefreshCw
+  RefreshCw,
+  UserPlus,
+  Plus
 } from "lucide-react"
 import { API, NetworkManager } from "network/core"
+import AddEmployeeModal from "../employee/addEmployee"
+import { Toast } from "helpers/toasts/toastHelper"
+import AddPlantModal from "../Plants/AddPlantModal"
+import AddVarietyModal from "../Plants/AddVarietyModal"
 
 const ExcelUpload = () => {
   const [file, setFile] = useState(null)
@@ -35,7 +41,337 @@ const ExcelUpload = () => {
   const [importSummary, setImportSummary] = useState(null)
   const [activeStep, setActiveStep] = useState(0)
 
+  // Employee modal state
+  const [isEmployeeModalOpen, setIsEmployeeModalOpen] = useState(false)
+  const [newEmployeeData, setNewEmployeeData] = useState({
+    name: "",
+    phoneNumber: "",
+    jobTitle: "SALES",
+    birthDate: ""
+  })
+  const [creatingEmployee, setCreatingEmployee] = useState(false)
+  const [employeeCreated, setEmployeeCreated] = useState(false)
+  const [resolvedSalesPersons, setResolvedSalesPersons] = useState(new Set())
+
+  // Plant modal state
+  const [isPlantModalOpen, setIsPlantModalOpen] = useState(false)
+  const [newPlantData, setNewPlantData] = useState({
+    name: "",
+    slotSize: 5,
+    dailyDispatchCapacity: 2000,
+    subtypes: [{ name: "", description: "", rates: [""] }]
+  })
+  const [creatingPlant, setCreatingPlant] = useState(false)
+  const [plantCreated, setPlantCreated] = useState(false)
+  const [resolvedPlants, setResolvedPlants] = useState(new Set())
+
+  // Variety modal state
+  const [isVarietyModalOpen, setIsVarietyModalOpen] = useState(false)
+  const [newVarietyData, setNewVarietyData] = useState({
+    varietyName: "",
+    plantName: "",
+    description: "",
+    rates: [""]
+  })
+  const [creatingVariety, setCreatingVariety] = useState(false)
+  const [varietyCreated, setVarietyCreated] = useState(false)
+  const [resolvedVarieties, setResolvedVarieties] = useState(new Set())
+
   const steps = ["Select File", "Validate Data", "Import Data"]
+
+  const jobTitles = [
+    "Manager",
+    "HR",
+    "SALES",
+    "OFFICE_STAFF",
+    "PRIMARY",
+    "DRIVER",
+    "LABORATORY_MANAGER",
+    "DEALER",
+    "OFFICE_ADMIN"
+  ]
+
+  // Parse error message to extract sales person name
+  const extractSalesPersonName = (errorMessage) => {
+    const match = errorMessage.match(/Sales person "([^"]+)" not found/)
+    return match ? match[1] : null
+  }
+
+  // Parse error message to extract plant name
+  const extractPlantName = (errorMessage) => {
+    const match = errorMessage.match(/Plant type "([^"]+)" not found/)
+    return match ? match[1] : null
+  }
+
+  // Parse error message to extract variety and plant name
+  const extractVarietyAndPlant = (errorMessage) => {
+    const match = errorMessage.match(/Variety "([^"]+)" not found for ([^"]+)/)
+    return match ? { variety: match[1], plantName: match[2] } : null
+  }
+
+  // Handle employee input change
+  const handleEmployeeInputChange = (e) => {
+    const { name, value } = e.target
+    setNewEmployeeData((prev) => ({
+      ...prev,
+      [name]: value
+    }))
+  }
+
+  // Handle employee creation
+  const handleCreateEmployee = async (e) => {
+    e.preventDefault()
+
+    // Basic validation
+    if (!newEmployeeData.name || !newEmployeeData.phoneNumber) {
+      Toast.error("Please fill in all required fields")
+      return
+    }
+
+    // Phone number validation
+    if (!/^\d{10}$/.test(newEmployeeData.phoneNumber.toString())) {
+      Toast.error("Please enter a valid 10-digit phone number")
+      return
+    }
+
+    setCreatingEmployee(true)
+
+    try {
+      const instance = NetworkManager(API.EMPLOYEE.ADD_EMPLOYEE_LOGIN)
+      const response = await instance.request(newEmployeeData)
+
+      if (response?.data?.status === "success" || response?.code === 201) {
+        setEmployeeCreated(true)
+        setIsEmployeeModalOpen(false)
+
+        // Add the sales person to resolved list
+        setResolvedSalesPersons((prev) => new Set([...prev, newEmployeeData.name]))
+
+        // Show success message
+        Toast.success("Sales person created successfully")
+
+        // Reset employee data
+        setNewEmployeeData({
+          name: "",
+          phoneNumber: "",
+          jobTitle: "SALES",
+          birthDate: ""
+        })
+
+        // Optionally retry the import
+        setTimeout(() => {
+          setEmployeeCreated(false)
+        }, 3000)
+      }
+    } catch (err) {
+      console.error("Error creating employee:", err)
+
+      // Extract error message from API response
+      const errorMessage = err?.data?.message || err?.message || "Failed to create sales person"
+      Toast.error(errorMessage)
+    } finally {
+      setCreatingEmployee(false)
+    }
+  }
+
+  // Open employee modal with pre-filled name
+  const openEmployeeModal = (salesPersonName) => {
+    setNewEmployeeData({
+      name: salesPersonName,
+      phoneNumber: "",
+      jobTitle: "SALES",
+      birthDate: ""
+    })
+    setIsEmployeeModalOpen(true)
+  }
+
+  // Handle plant input change
+  const handlePlantInputChange = (e) => {
+    const { name, value } = e.target
+    setNewPlantData((prev) => ({
+      ...prev,
+      [name]: value
+    }))
+  }
+
+  // Handle plant creation
+  const handleCreatePlant = async (e) => {
+    e.preventDefault()
+
+    // Basic validation
+    if (!newPlantData.name || !newPlantData.slotSize || !newPlantData.dailyDispatchCapacity) {
+      Toast.error("Please fill in all required fields")
+      return
+    }
+
+    // Validate subtypes
+    if (!newPlantData.subtypes || newPlantData.subtypes.length === 0) {
+      Toast.error("At least one subtype is required")
+      return
+    }
+
+    const hasEmptySubtypeName = newPlantData.subtypes.some((subtype) => !subtype.name.trim())
+    if (hasEmptySubtypeName) {
+      Toast.error("All subtypes must have names")
+      return
+    }
+
+    setCreatingPlant(true)
+
+    try {
+      const instance = NetworkManager(API.plantCms.POST_NEWPLANT)
+      const response = await instance.request(newPlantData)
+
+      if (response?.data?.status === "success" || response?.code === 201) {
+        setPlantCreated(true)
+        setIsPlantModalOpen(false)
+
+        // Add the plant to resolved list
+        setResolvedPlants((prev) => new Set([...prev, newPlantData.name]))
+
+        // Show success message
+        Toast.success("Plant created successfully")
+
+        // Reset plant data
+        setNewPlantData({
+          name: "",
+          slotSize: 5,
+          dailyDispatchCapacity: 2000,
+          subtypes: [{ name: "", description: "", rates: [""] }]
+        })
+
+        // Optionally retry the import
+        setTimeout(() => {
+          setPlantCreated(false)
+        }, 3000)
+      }
+    } catch (err) {
+      console.error("Error creating plant:", err)
+
+      // Extract error message from API response
+      const errorMessage = err?.data?.message || err?.message || "Failed to create plant"
+      Toast.error(errorMessage)
+    } finally {
+      setCreatingPlant(false)
+    }
+  }
+
+  // Open plant modal with pre-filled name
+  const openPlantModal = (plantName) => {
+    setNewPlantData({
+      name: plantName,
+      slotSize: 5,
+      dailyDispatchCapacity: 2000,
+      subtypes: [{ name: "", description: "", rates: [""] }]
+    })
+    setIsPlantModalOpen(true)
+  }
+
+  // Handle variety input change
+  const handleVarietyInputChange = (e) => {
+    const { name, value } = e.target
+    setNewVarietyData((prev) => ({
+      ...prev,
+      [name]: value
+    }))
+  }
+
+  // Handle variety creation
+  const handleCreateVariety = async (e) => {
+    e.preventDefault()
+
+    // Basic validation
+    if (!newVarietyData.varietyName || !newVarietyData.plantName) {
+      Toast.error("Please fill in all required fields")
+      return
+    }
+
+    setCreatingVariety(true)
+
+    try {
+      // First, get the existing plant to add the variety to it
+      const getPlantInstance = NetworkManager(API.plantCms.GET_PLANTS)
+      const plantsResponse = await getPlantInstance.request()
+
+      if (plantsResponse?.data?.data) {
+        const existingPlant = plantsResponse.data.data.find(
+          (plant) => plant.name.toLowerCase() === newVarietyData.plantName.toLowerCase()
+        )
+
+        if (existingPlant) {
+          // Add the new variety to the existing plant
+          const updatedSubtypes = [
+            ...existingPlant.subtypes,
+            {
+              name: newVarietyData.varietyName,
+              description: newVarietyData.description,
+              rates: newVarietyData.rates.filter((rate) => rate.trim() !== "")
+            }
+          ]
+
+          const updatePayload = {
+            name: existingPlant.name,
+            slotSize: existingPlant.slotSize,
+            dailyDispatchCapacity: existingPlant.dailyDispatchCapacity,
+            subtypes: updatedSubtypes
+          }
+
+          const updateInstance = NetworkManager(API.plantCms.UPDATE_PLANT)
+          const response = await updateInstance.request(updatePayload, [existingPlant._id])
+
+          if (response?.data?.status === "success" || response?.code === 200) {
+            setVarietyCreated(true)
+            setIsVarietyModalOpen(false)
+
+            // Add the variety to resolved list
+            const varietyKey = `${newVarietyData.plantName}-${newVarietyData.varietyName}`
+            setResolvedVarieties((prev) => new Set([...prev, varietyKey]))
+
+            // Show success message
+            Toast.success(
+              `Variety "${newVarietyData.varietyName}" added to plant "${newVarietyData.plantName}" successfully`
+            )
+
+            // Reset variety data
+            setNewVarietyData({
+              varietyName: "",
+              plantName: "",
+              description: "",
+              rates: [""]
+            })
+
+            // Optionally retry the import
+            setTimeout(() => {
+              setVarietyCreated(false)
+            }, 3000)
+          }
+        } else {
+          Toast.error(
+            `Plant "${newVarietyData.plantName}" not found. Please create the plant first.`
+          )
+        }
+      }
+    } catch (err) {
+      console.error("Error creating variety:", err)
+
+      // Extract error message from API response
+      const errorMessage = err?.data?.message || err?.message || "Failed to create variety"
+      Toast.error(errorMessage)
+    } finally {
+      setCreatingVariety(false)
+    }
+  }
+
+  // Open variety modal with pre-filled data
+  const openVarietyModal = (varietyName, plantName) => {
+    setNewVarietyData({
+      varietyName: varietyName,
+      plantName: plantName,
+      description: "",
+      rates: [""]
+    })
+    setIsVarietyModalOpen(true)
+  }
 
   const handleFileChange = (e) => {
     const selectedFile = e.target.files[0]
@@ -224,6 +560,81 @@ const ExcelUpload = () => {
         </Box>
       </Paper>
 
+      {/* Success Message for Employee Creation */}
+      {employeeCreated && (
+        <Paper elevation={3} className="mb-6 overflow-hidden">
+          <Box className="bg-green-50 px-6 py-4 border-b border-green-100">
+            <Typography variant="h6" className="font-bold text-green-800">
+              <CheckCircle className="inline mr-2 mb-1" size={18} />
+              Sales Person Created Successfully
+            </Typography>
+          </Box>
+          <Box className="p-6">
+            <Typography variant="body2" className="text-green-700 mb-4">
+              The sales person has been added to the system. You can now retry the import.
+            </Typography>
+            <Button
+              variant="contained"
+              color="primary"
+              onClick={handleImport}
+              disabled={loading}
+              startIcon={<Upload size={16} />}>
+              Retry Import
+            </Button>
+          </Box>
+        </Paper>
+      )}
+
+      {/* Success Message for Plant Creation */}
+      {plantCreated && (
+        <Paper elevation={3} className="mb-6 overflow-hidden">
+          <Box className="bg-green-50 px-6 py-4 border-b border-green-100">
+            <Typography variant="h6" className="font-bold text-green-800">
+              <CheckCircle className="inline mr-2 mb-1" size={18} />
+              Plant Created Successfully
+            </Typography>
+          </Box>
+          <Box className="p-6">
+            <Typography variant="body2" className="text-green-700 mb-4">
+              The plant has been added to the system. You can now retry the import.
+            </Typography>
+            <Button
+              variant="contained"
+              color="primary"
+              onClick={handleImport}
+              disabled={loading}
+              startIcon={<Upload size={16} />}>
+              Retry Import
+            </Button>
+          </Box>
+        </Paper>
+      )}
+
+      {/* Success Message for Variety Creation */}
+      {varietyCreated && (
+        <Paper elevation={3} className="mb-6 overflow-hidden">
+          <Box className="bg-green-50 px-6 py-4 border-b border-green-100">
+            <Typography variant="h6" className="font-bold text-green-800">
+              <CheckCircle className="inline mr-2 mb-1" size={18} />
+              Variety Added Successfully
+            </Typography>
+          </Box>
+          <Box className="p-6">
+            <Typography variant="body2" className="text-green-700 mb-4">
+              The variety has been added to the plant. You can now retry the import.
+            </Typography>
+            <Button
+              variant="contained"
+              color="primary"
+              onClick={handleImport}
+              disabled={loading}
+              startIcon={<Upload size={16} />}>
+              Retry Import
+            </Button>
+          </Box>
+        </Paper>
+      )}
+
       {/* Import Summary */}
       {importSummary && (
         <Paper elevation={3} className="mb-6 overflow-hidden">
@@ -286,23 +697,93 @@ const ExcelUpload = () => {
           </Box>
 
           <Box className="divide-y divide-gray-200">
-            {failedImports.map((item, index) => (
-              <Box key={index} className="p-4 hover:bg-gray-50">
-                <Box className="flex">
-                  <Box className="flex-shrink-0 mr-3">
-                    <XCircle size={20} className="text-red-500 mt-1" />
-                  </Box>
-                  <Box>
-                    <Typography variant="subtitle1" className="font-medium">
-                      Booking: {item.bookingNo}
-                    </Typography>
-                    <Typography variant="body2" className="text-red-700 mt-1">
-                      {item.error}
-                    </Typography>
+            {failedImports.map((item, index) => {
+              const salesPersonName = extractSalesPersonName(item.error)
+              const plantName = extractPlantName(item.error)
+              const varietyData = extractVarietyAndPlant(item.error)
+              const isSalesPersonResolved =
+                salesPersonName && resolvedSalesPersons.has(salesPersonName)
+              const isPlantResolved = plantName && resolvedPlants.has(plantName)
+              const isVarietyResolved =
+                varietyData &&
+                resolvedVarieties.has(`${varietyData.plantName}-${varietyData.variety}`)
+              const isResolved = isSalesPersonResolved || isPlantResolved || isVarietyResolved
+
+              return (
+                <Box key={index} className="p-4 hover:bg-gray-50">
+                  <Box className="flex">
+                    <Box className="flex-shrink-0 mr-3">
+                      {isResolved ? (
+                        <CheckCircle size={20} className="text-green-500 mt-1" />
+                      ) : (
+                        <XCircle size={20} className="text-red-500 mt-1" />
+                      )}
+                    </Box>
+                    <Box className="flex-1">
+                      <Typography variant="subtitle1" className="font-medium">
+                        Booking: {item.bookingNo}
+                      </Typography>
+                      {isResolved ? (
+                        <Typography variant="body2" className="text-green-700 mt-1">
+                          {isSalesPersonResolved &&
+                            `✅ Sales person &ldquo;${salesPersonName}&rdquo; has been created successfully`}
+                          {isPlantResolved &&
+                            `✅ Plant &ldquo;${plantName}&rdquo; has been created successfully`}
+                          {isVarietyResolved &&
+                            `✅ Variety &ldquo;${varietyData.variety}&rdquo; has been added to plant &ldquo;${varietyData.plantName}&rdquo;`}
+                        </Typography>
+                      ) : (
+                        <Typography variant="body2" className="text-red-700 mt-1">
+                          {item.error}
+                        </Typography>
+                      )}
+                      {salesPersonName && !isSalesPersonResolved && (
+                        <Box className="mt-3">
+                          <Button
+                            variant="outlined"
+                            color="primary"
+                            size="small"
+                            startIcon={<UserPlus size={16} />}
+                            onClick={() => openEmployeeModal(salesPersonName)}
+                            className="text-blue-600 border-blue-600 hover:bg-blue-50">
+                            Add Sales Person &ldquo;{salesPersonName}&rdquo;
+                          </Button>
+                        </Box>
+                      )}
+                      {plantName && !isPlantResolved && (
+                        <Box className="mt-3">
+                          <Button
+                            variant="outlined"
+                            color="primary"
+                            size="small"
+                            startIcon={<Plus size={16} />}
+                            onClick={() => openPlantModal(plantName)}
+                            className="text-green-600 border-green-600 hover:bg-green-50">
+                            Add Plant &ldquo;{plantName}&rdquo;
+                          </Button>
+                        </Box>
+                      )}
+                      {varietyData && !isVarietyResolved && (
+                        <Box className="mt-3">
+                          <Button
+                            variant="outlined"
+                            color="primary"
+                            size="small"
+                            startIcon={<Plus size={16} />}
+                            onClick={() =>
+                              openVarietyModal(varietyData.variety, varietyData.plantName)
+                            }
+                            className="text-purple-600 border-purple-600 hover:bg-purple-50">
+                            Add Variety &ldquo;{varietyData.variety}&rdquo; to &ldquo;
+                            {varietyData.plantName}&rdquo;
+                          </Button>
+                        </Box>
+                      )}
+                    </Box>
                   </Box>
                 </Box>
-              </Box>
-            ))}
+              )
+            })}
           </Box>
 
           <Box className="bg-red-50 p-4 border-t border-red-100">
@@ -325,23 +806,134 @@ const ExcelUpload = () => {
           </Box>
 
           <Box className="p-6">
-            {validationResult.map((rowErr, idx) => (
-              <Box key={idx} className="mb-4 last:mb-0 bg-gray-50 rounded-lg p-4">
-                <Typography variant="subtitle2" className="font-medium mb-2">
-                  Row {rowErr.row}:
-                </Typography>
-                <Box className="ml-4 pl-3 border-l-2 border-yellow-400">
-                  {rowErr?.errors?.map((e, j) => (
-                    <Typography key={j} variant="body2" className="mb-1 last:mb-0 text-gray-700">
-                      • {e}
-                    </Typography>
-                  ))}
+            {validationResult.map((rowErr, idx) => {
+              const salesPersonName = extractSalesPersonName(rowErr?.errors?.[0] || "")
+              const plantName = extractPlantName(rowErr?.errors?.[0] || "")
+              const varietyData = extractVarietyAndPlant(rowErr?.errors?.[0] || "")
+              return (
+                <Box key={idx} className="mb-4 last:mb-0 bg-gray-50 rounded-lg p-4">
+                  <Typography variant="subtitle2" className="font-medium mb-2">
+                    Row {rowErr.row}:
+                  </Typography>
+                  <Box className="ml-4 pl-3 border-l-2 border-yellow-400">
+                    {rowErr?.errors?.map((e, j) => {
+                      const extractedSalesPerson = extractSalesPersonName(e)
+                      const extractedPlant = extractPlantName(e)
+                      const extractedVariety = extractVarietyAndPlant(e)
+                      const isSalesPersonResolved =
+                        extractedSalesPerson && resolvedSalesPersons.has(extractedSalesPerson)
+                      const isPlantResolved = extractedPlant && resolvedPlants.has(extractedPlant)
+                      const isVarietyResolved =
+                        extractedVariety &&
+                        resolvedVarieties.has(
+                          `${extractedVariety.plantName}-${extractedVariety.variety}`
+                        )
+                      const isResolved =
+                        isSalesPersonResolved || isPlantResolved || isVarietyResolved
+
+                      return (
+                        <Box key={j} className="mb-1 last:mb-0">
+                          {isResolved ? (
+                            <Typography variant="body2" className="text-green-700">
+                              {isSalesPersonResolved &&
+                                `✅ Sales person &ldquo;${extractedSalesPerson}&rdquo; has been created successfully`}
+                              {isPlantResolved &&
+                                `✅ Plant &ldquo;${extractedPlant}&rdquo; has been created successfully`}
+                              {isVarietyResolved &&
+                                `✅ Variety &ldquo;${extractedVariety.variety}&rdquo; has been added to plant &ldquo;${extractedVariety.plantName}&rdquo;`}
+                            </Typography>
+                          ) : (
+                            <Typography variant="body2" className="text-gray-700">
+                              • {e}
+                            </Typography>
+                          )}
+                          {extractedSalesPerson && !isSalesPersonResolved && (
+                            <Box className="mt-2">
+                              <Button
+                                variant="outlined"
+                                color="primary"
+                                size="small"
+                                startIcon={<UserPlus size={16} />}
+                                onClick={() => openEmployeeModal(extractedSalesPerson)}
+                                className="text-blue-600 border-blue-600 hover:bg-blue-50">
+                                Add Sales Person &ldquo;{extractedSalesPerson}&rdquo;
+                              </Button>
+                            </Box>
+                          )}
+                          {extractedPlant && !isPlantResolved && (
+                            <Box className="mt-2">
+                              <Button
+                                variant="outlined"
+                                color="primary"
+                                size="small"
+                                startIcon={<Plus size={16} />}
+                                onClick={() => openPlantModal(extractedPlant)}
+                                className="text-green-600 border-green-600 hover:bg-green-50">
+                                Add Plant &ldquo;{extractedPlant}&rdquo;
+                              </Button>
+                            </Box>
+                          )}
+                          {extractedVariety && !isVarietyResolved && (
+                            <Box className="mt-2">
+                              <Button
+                                variant="outlined"
+                                color="primary"
+                                size="small"
+                                startIcon={<Plus size={16} />}
+                                onClick={() =>
+                                  openVarietyModal(
+                                    extractedVariety.variety,
+                                    extractedVariety.plantName
+                                  )
+                                }
+                                className="text-purple-600 border-purple-600 hover:bg-purple-50">
+                                Add Variety &ldquo;{extractedVariety.variety}&rdquo; to &ldquo;
+                                {extractedVariety.plantName}&rdquo;
+                              </Button>
+                            </Box>
+                          )}
+                        </Box>
+                      )
+                    })}
+                  </Box>
                 </Box>
-              </Box>
-            ))}
+              )
+            })}
           </Box>
         </Paper>
       )}
+
+      {/* Employee Modal */}
+      <AddEmployeeModal
+        isOpen={isEmployeeModalOpen}
+        onClose={() => setIsEmployeeModalOpen(false)}
+        onSubmit={handleCreateEmployee}
+        employeeData={newEmployeeData}
+        onInputChange={handleEmployeeInputChange}
+        jobTitles={jobTitles}
+        isEdit={false}
+        loading={creatingEmployee}
+      />
+
+      {/* Plant Modal */}
+      <AddPlantModal
+        isOpen={isPlantModalOpen}
+        onClose={() => setIsPlantModalOpen(false)}
+        onSubmit={handleCreatePlant}
+        plantData={newPlantData}
+        onInputChange={handlePlantInputChange}
+        loading={creatingPlant}
+      />
+
+      {/* Variety Modal */}
+      <AddVarietyModal
+        isOpen={isVarietyModalOpen}
+        onClose={() => setIsVarietyModalOpen(false)}
+        onSubmit={handleCreateVariety}
+        varietyData={newVarietyData}
+        onInputChange={handleVarietyInputChange}
+        loading={creatingVariety}
+      />
     </Box>
   )
 }

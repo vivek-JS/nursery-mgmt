@@ -12,7 +12,6 @@ import "react-toastify/dist/ReactToastify.css"
 import { SessionObserver } from "auth/Observer"
 import { persistor, store } from "redux/store"
 import { PersistGate } from "redux-persist/integration/react"
-import AuthDebugger from "components/AuthDebugger"
 
 /**
  * @description Check if browser is Safar
@@ -38,7 +37,6 @@ function App() {
             <AppRouter />
             <ToastContainer />
             <SessionObserver />
-            <AuthDebugger />
           </ThemeProvider>
         </PersistGate>
       </Provider>

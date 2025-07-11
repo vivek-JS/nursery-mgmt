@@ -11,13 +11,6 @@ import PrivateLayout from "layout/privateLayout"
 const Router = () => {
   const isLoggedIn = useIsLoggedIn()
 
-  // Debug logging for router
-  console.log("🛣️ Router Debug:", {
-    isLoggedIn,
-    currentPath: window.location.pathname,
-    timestamp: new Date().toISOString()
-  })
-
   return (
     <AuthContext.Provider value={isLoggedIn}>
       <Suspense fallback={<AppLoader visible={true} />}>

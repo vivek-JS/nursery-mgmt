@@ -31,7 +31,8 @@ const AddEmployeeModal = ({
   employeeData,
   onInputChange,
   jobTitles,
-  isEdit
+  isEdit,
+  loading = false
 }) => {
   return (
     <Modal open={isOpen} onClose={onClose}>
@@ -83,8 +84,8 @@ const AddEmployeeModal = ({
                 ))}
               </Select>
             </FormControl>
-            <Button type="submit" variant="contained">
-              {isEdit ? "Save" : "Add Employee"}
+            <Button type="submit" variant="contained" disabled={loading}>
+              {loading ? "Creating..." : isEdit ? "Save" : "Add Employee"}
             </Button>
           </Stack>
         </form>
