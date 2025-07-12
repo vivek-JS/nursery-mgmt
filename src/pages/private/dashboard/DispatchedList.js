@@ -348,13 +348,6 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh }) => {
                         {dispatch.driverName}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-gray-600">
-                        {new Date(dispatch.createdAt).toLocaleDateString("en-IN", {
-                          day: "numeric",
-                          month: "short",
-                          year: "numeric"
-                        })}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-gray-600">
                         <div className="flex items-center gap-1">
                           {dispatch.orderIds?.slice(0, 3).map((order) => (
                             <span
@@ -369,6 +362,13 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh }) => {
                             </span>
                           )}
                         </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-gray-600">
+                        {new Date(dispatch.createdAt).toLocaleDateString("en-IN", {
+                          day: "numeric",
+                          month: "short",
+                          year: "numeric"
+                        })}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span

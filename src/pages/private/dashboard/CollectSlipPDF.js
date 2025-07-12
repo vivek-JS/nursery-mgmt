@@ -10,9 +10,6 @@ const CollectSlipPDF = ({ dispatchData }) => {
   // Header
   doc.setFont("helvetica", "bold")
   doc.setFontSize(14)
-  doc.text("संग्रह पर्ची", pageWidth / 2, yPos, { align: "center" })
-  yPos += 4
-  doc.setFontSize(12)
   doc.text("COLLECTION SLIP", pageWidth / 2, yPos, { align: "center" })
 
   yPos += 5
@@ -24,21 +21,21 @@ const CollectSlipPDF = ({ dispatchData }) => {
   doc.setFontSize(8)
   const currentDate = new Date().toLocaleDateString()
   const currentTime = new Date().toLocaleTimeString()
-  doc.text(`दिनांक / Date: ${currentDate}`, 5, yPos)
-  doc.text(`वेळ / Time: ${currentTime}`, pageWidth - 5, yPos, { align: "right" })
+  doc.text(`Date: ${currentDate}`, 5, yPos)
+  doc.text(`Time: ${currentTime}`, pageWidth - 5, yPos, { align: "right" })
 
   // Driver and Vehicle Info
   yPos += 8
   doc.setFont("helvetica", "normal")
-  doc.text("चालक / Driver:", 5, yPos)
+  doc.text("Driver:", 5, yPos)
   doc.setFont("helvetica", "bold")
-  doc.text(dispatchData?.driverName || "", 25, yPos)
+  doc.text(dispatchData?.driverName || "", 20, yPos)
 
   yPos += 5
   doc.setFont("helvetica", "normal")
-  doc.text("वाहन / Vehicle:", 5, yPos)
+  doc.text("Vehicle:", 5, yPos)
   doc.setFont("helvetica", "bold")
-  doc.text(dispatchData?.vehicleName || "", 25, yPos)
+  doc.text(dispatchData?.vehicleName || "", 20, yPos)
 
   yPos += 5
   doc.setLineDashPattern([1, 1], 0)
@@ -110,7 +107,7 @@ const CollectSlipPDF = ({ dispatchData }) => {
       if (pickupTableData.length > 0) {
         doc.autoTable({
           startY: yPos + 4,
-          head: [["छाया / Shade", "प्रमाण / Qty"]],
+          head: [["Shade", "Qty"]],
           body: pickupTableData,
           theme: "grid",
           styles: {
@@ -146,7 +143,7 @@ const CollectSlipPDF = ({ dispatchData }) => {
       if (cratesData.length > 0) {
         doc.autoTable({
           startY: yPos + 2,
-          head: [["क्रेट्स / Crates", "रोपे / Plants"]],
+          head: [["Crates", "Plants"]],
           body: cratesData,
           theme: "grid",
           styles: {
@@ -179,8 +176,8 @@ const CollectSlipPDF = ({ dispatchData }) => {
 
       doc.setFont("helvetica", "bold")
       doc.setFontSize(8)
-      doc.text(`एकूण क्रेट्स / Total Crates: ${totalCrates}`, 5, yPos)
-      doc.text(`एकूण रोपे / Total Plants: ${totalPlants}`, pageWidth - 5, yPos, { align: "right" })
+      doc.text(`Total Crates: ${totalCrates}`, 5, yPos)
+      doc.text(`Total Plants: ${totalPlants}`, pageWidth - 5, yPos, { align: "right" })
 
       // Add divider between cavity groups (if not the last one)
       if (cavityIndex < cavityGroups.length - 1) {
@@ -207,17 +204,15 @@ const CollectSlipPDF = ({ dispatchData }) => {
 
   doc.line(5, yPos, 35, yPos)
   yPos += 4
-  doc.text("पर्यवेक्षक स्वाक्षरी / Supervisor Signature", 5, yPos)
+  doc.text("Supervisor Signature", 5, yPos)
 
   doc.line(45, yPos - 4, 75, yPos - 4)
-  doc.text("चालक स्वाक्षरी / Driver Signature", 45, yPos)
+  doc.text("Driver Signature", 45, yPos)
 
   // Footer
   yPos += 8
   doc.setFontSize(6)
-  doc.text("आपल्या सेवेबद्दल धन्यवाद / Thank you for your service", pageWidth / 2, yPos, {
-    align: "center"
-  })
+  doc.text("Thank you for your service", pageWidth / 2, yPos, { align: "center" })
 
   doc.autoPrint()
   window.open(doc.output("bloburl"), "_blank")

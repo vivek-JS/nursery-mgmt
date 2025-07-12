@@ -19,11 +19,10 @@ const DeliveryChallanPDF = ({ open, onClose, dispatchData }) => {
       <div className="challan-page relative bg-white p-8 break-after-page">
         {/* Header */}
         <div className="text-center border-b pb-6">
-          <h1 className="text-3xl font-bold text-gray-900">डिलिव्हरी चलन</h1>
-          <h2 className="text-2xl font-semibold text-gray-700 mt-1">DELIVERY CHALLAN</h2>
-          <p className="text-gray-600 mt-2">दिनांक / Date: {today}</p>
+          <h1 className="text-3xl font-bold text-gray-900">DELIVERY CHALLAN</h1>
+          <p className="text-gray-600 mt-2">Date: {today}</p>
           <p className="text-gray-600">
-            चलन क्रमांक / Challan No: {dispatchData.transportId}-{order.order}
+            Challan No: {dispatchData.transportId}-{order.order}
           </p>
         </div>
 
@@ -31,33 +30,33 @@ const DeliveryChallanPDF = ({ open, onClose, dispatchData }) => {
         <div className="grid grid-cols-2 gap-8 mt-6">
           <div className="space-y-4">
             <div>
-              <h3 className="text-lg font-semibold mb-2">वाहतूक तपशील / Transport Details</h3>
+              <h3 className="text-lg font-semibold mb-2">Transport Details</h3>
               <div className="space-y-1">
                 <p>
-                  <span className="text-gray-600">चालक / Driver:</span> {dispatchData.driverName}
+                  <span className="text-gray-600">Driver:</span> {dispatchData.driverName}
                 </p>
                 <p>
-                  <span className="text-gray-600">वाहन / Vehicle:</span> {dispatchData.vehicleName}
+                  <span className="text-gray-600">Vehicle:</span> {dispatchData.vehicleName}
                 </p>
               </div>
             </div>
             <div>
-              <h3 className="text-lg font-semibold mb-2">रोपे तपशील / Plant Details</h3>
+              <h3 className="text-lg font-semibold mb-2">Plant Details</h3>
               <div className="space-y-1">
                 <p>
-                  <span className="text-gray-600">रोपे नाव / Plant Name:</span> {plant?.name}
+                  <span className="text-gray-600">Plant Name:</span> {plant?.name}
                 </p>
                 <p>
-                  <span className="text-gray-600">प्रमाण / Quantity:</span> {order.quantity}
+                  <span className="text-gray-600">Quantity:</span> {order.quantity}
                 </p>
                 {plant?.crates[0] && (
                   <>
                     <p>
-                      <span className="text-gray-600">कॅव्हिटी प्रकार / Cavity Type:</span>{" "}
+                      <span className="text-gray-600">Cavity Type:</span>{" "}
                       {plant.crates[0].cavityName}
                     </p>
                     <p>
-                      <span className="text-gray-600">एकूण क्रेट्स / Total Crates:</span>{" "}
+                      <span className="text-gray-600">Total Crates:</span>{" "}
                       {plant.crates[0].crateCount}
                     </p>
                   </>
@@ -67,20 +66,19 @@ const DeliveryChallanPDF = ({ open, onClose, dispatchData }) => {
           </div>
 
           <div>
-            <h3 className="text-lg font-semibold mb-2">शेतकरी तपशील / Farmer Details</h3>
+            <h3 className="text-lg font-semibold mb-2">Farmer Details</h3>
             <div className="space-y-1">
               <p>
-                <span className="text-gray-600">नाव / Name:</span> {order.details.farmer.name}
+                <span className="text-gray-600">Name:</span> {order.details.farmer.name}
               </p>
               <p>
-                <span className="text-gray-600">मोबाईल / Mobile:</span>{" "}
-                {order.details.farmer.mobileNumber}
+                <span className="text-gray-600">Mobile:</span> {order.details.farmer.mobileNumber}
               </p>
               <p>
-                <span className="text-gray-600">गाव / Village:</span> {order.details.farmer.village}
+                <span className="text-gray-600">Village:</span> {order.details.farmer.village}
               </p>
               <p>
-                <span className="text-gray-600">डिलिव्हरी ठिकाण / Delivery Location:</span>{" "}
+                <span className="text-gray-600">Delivery Location:</span>{" "}
                 {order.Delivery || "Not specified"}
               </p>
             </div>
@@ -89,14 +87,14 @@ const DeliveryChallanPDF = ({ open, onClose, dispatchData }) => {
 
         {/* Order Details */}
         <div className="mt-8">
-          <h3 className="text-lg font-semibold mb-4">ऑर्डर सारांश / Order Summary</h3>
+          <h3 className="text-lg font-semibold mb-4">Order Summary</h3>
           <table className="w-full border-collapse">
             <thead>
               <tr className="bg-gray-50">
-                <th className="border p-2 text-left">विवरण / Description</th>
-                <th className="border p-2 text-right">प्रमाण / Quantity</th>
-                <th className="border p-2 text-right">दर / Rate</th>
-                <th className="border p-2 text-right">रक्कम / Amount</th>
+                <th className="border p-2 text-left">Description</th>
+                <th className="border p-2 text-right">Quantity</th>
+                <th className="border p-2 text-right">Rate</th>
+                <th className="border p-2 text-right">Amount</th>
               </tr>
             </thead>
             <tbody>
@@ -112,29 +110,28 @@ const DeliveryChallanPDF = ({ open, onClose, dispatchData }) => {
 
         {/* Payment Details */}
         <div className="mt-6">
-          <h3 className="text-lg font-semibold mb-4">पेमेंट तपशील / Payment Details</h3>
+          <h3 className="text-lg font-semibold mb-4">Payment Details</h3>
           <div className="space-y-2">
             <p>
-              <span className="text-gray-600">एकूण रक्कम / Total Amount:</span> {order.total}
+              <span className="text-gray-600">Total Amount:</span> {order.total}
             </p>
             <p>
-              <span className="text-gray-600">भरलेली रक्कम / Paid Amount:</span> ₹{totalPaid}
+              <span className="text-gray-600">Paid Amount:</span> ₹{totalPaid}
             </p>
             <p>
-              <span className="text-gray-600">उर्वरित रक्कम / Remaining Amount:</span>{" "}
-              {order["remaining Amt"]}
+              <span className="text-gray-600">Remaining Amount:</span> {order["remaining Amt"]}
             </p>
           </div>
 
           {order.details.payment.length > 0 && (
             <div className="mt-4">
-              <h4 className="font-medium mb-2">पेमेंट इतिहास / Payment History</h4>
+              <h4 className="font-medium mb-2">Payment History</h4>
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-gray-50">
-                    <th className="border p-2 text-left">दिनांक / Date</th>
-                    <th className="border p-2 text-left">पद्धत / Mode</th>
-                    <th className="border p-2 text-right">रक्कम / Amount</th>
+                    <th className="border p-2 text-left">Date</th>
+                    <th className="border p-2 text-left">Mode</th>
+                    <th className="border p-2 text-right">Amount</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -158,11 +155,11 @@ const DeliveryChallanPDF = ({ open, onClose, dispatchData }) => {
           <div className="flex justify-between">
             <div className="text-center">
               <div className="border-b border-black w-40 h-16"></div>
-              <p className="text-sm text-gray-600 mt-2">ग्राहक स्वाक्षरी / Customer Signature</p>
+              <p className="text-sm text-gray-600 mt-2">Customer Signature</p>
             </div>
             <div className="text-center">
               <div className="border-b border-black w-40 h-16"></div>
-              <p className="text-sm text-gray-600 mt-2">अधिकृत स्वाक्षरी / Authorized Signature</p>
+              <p className="text-sm text-gray-600 mt-2">Authorized Signature</p>
             </div>
           </div>
         </div>
