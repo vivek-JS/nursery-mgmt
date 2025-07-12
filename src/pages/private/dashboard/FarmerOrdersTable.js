@@ -84,11 +84,12 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
         orderRemarks: newRemark
       },
       selectedRow
-    ).then(() => {
-      // Refresh modal data after successful remark
+    ).then(async () => {
+      // Refresh both modal data and main list
+      await getOrders()
       setTimeout(() => {
         refreshModalData()
-      }, 1000)
+      }, 500)
     })
 
     setNewRemark("")
@@ -120,10 +121,11 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
           remark: "",
           receiptPhoto: []
         })
-        // Refresh modal data after successful payment
+        // Refresh both modal data and main list
+        await getOrders()
         setTimeout(() => {
           refreshModalData()
-        }, 1000)
+        }, 500)
       } else {
         Toast.error("Failed to add payment")
       }
@@ -192,6 +194,19 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
       getOrders()
     }
   }, [debouncedSearchTerm, refresh, startDate, endDate, viewMode])
+
+  // Listen for dispatch creation events to refresh the list
+  useEffect(() => {
+    const handleDispatchCreated = () => {
+      getOrders()
+    }
+
+    window.addEventListener("dispatchCreated", handleDispatchCreated)
+
+    return () => {
+      window.removeEventListener("dispatchCreated", handleDispatchCreated)
+    }
+  }, [])
 
   useEffect(() => {
     if (selectedRow?.details?.plantID && selectedRow?.details?.plantSubtypeID) {
@@ -415,7 +430,14 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
         }
         setEditingRows(new Set())
         setUpdatedObject(null)
-        getOrders()
+        // Refresh the main list immediately
+        await getOrders()
+        // Also refresh modal data if modal is open
+        if (selectedOrder) {
+          setTimeout(() => {
+            refreshModalData()
+          }, 500)
+        }
       }
     } catch (error) {
       console.error("Error updating order:", error)

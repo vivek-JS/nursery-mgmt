@@ -203,6 +203,11 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh }) => {
   const handleDialogOpen = (type, dispatch, e) => {
     e.stopPropagation() // Prevent the event from bubbling up
 
+    // Prevent multiple opens by checking if already open
+    if (isCollectSlipOpen || isDCOpen || isDispatchFormOpen || isOrderCompleteOpen) {
+      return
+    }
+
     let formattedData
 
     switch (type) {

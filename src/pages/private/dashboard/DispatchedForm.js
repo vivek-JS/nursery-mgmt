@@ -240,6 +240,10 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
         ...transformDispatchData(formData, selectedOrders)
       })
       if (response.data) {
+        // Trigger refresh of parent components
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("dispatchCreated"))
+        }
         onClose()
       }
     } catch (error) {
