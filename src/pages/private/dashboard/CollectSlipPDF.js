@@ -15,7 +15,7 @@ const CollectSlipPDF = ({ open, onClose, dispatchData }) => {
     // Header
     doc.setFont("helvetica", "bold")
     doc.setFontSize(14)
-    doc.text("COLLECTION SLIP", pageWidth / 2, yPos, { align: "center" })
+    doc.text("COLLECTION SLIP / संग्रह पर्ची", pageWidth / 2, yPos, { align: "center" })
 
     yPos += 5
     doc.setLineWidth(0.5)
@@ -26,19 +26,19 @@ const CollectSlipPDF = ({ open, onClose, dispatchData }) => {
     doc.setFontSize(8)
     const currentDate = new Date().toLocaleDateString()
     const currentTime = new Date().toLocaleTimeString()
-    doc.text(`Date: ${currentDate}`, 5, yPos)
-    doc.text(`Time: ${currentTime}`, pageWidth - 5, yPos, { align: "right" })
+    doc.text(`Date / तारीख: ${currentDate}`, 5, yPos)
+    doc.text(`Time / वेळ: ${currentTime}`, pageWidth - 5, yPos, { align: "right" })
 
     // Driver and Vehicle Info
     yPos += 8
     doc.setFont("helvetica", "normal")
-    doc.text("Driver:", 5, yPos)
+    doc.text("Driver / चालक:", 5, yPos)
     doc.setFont("helvetica", "bold")
     doc.text(dispatchData?.driverName || "", 20, yPos)
 
     yPos += 5
     doc.setFont("helvetica", "normal")
-    doc.text("Vehicle:", 5, yPos)
+    doc.text("Vehicle / वाहन:", 5, yPos)
     doc.setFont("helvetica", "bold")
     doc.text(dispatchData?.vehicleName || "", 20, yPos)
 
@@ -100,7 +100,7 @@ const CollectSlipPDF = ({ open, onClose, dispatchData }) => {
         yPos += 6
         doc.setFontSize(9)
         doc.setFont("helvetica", "bold")
-        doc.text(`Cavity: ${cavityGroup.cavityName || "N/A"}`, 5, yPos)
+        doc.text(`Cavity / कॅव्हिटी: ${cavityGroup.cavityName || "N/A"}`, 5, yPos)
 
         // Pickup details table for this cavity
         const pickupTableData =
@@ -112,7 +112,7 @@ const CollectSlipPDF = ({ open, onClose, dispatchData }) => {
         if (pickupTableData.length > 0) {
           doc.autoTable({
             startY: yPos + 4,
-            head: [["Shade", "Qty"]],
+            head: [["Shade / सावली", "Qty / प्रमाण"]],
             body: pickupTableData,
             theme: "grid",
             styles: {
@@ -148,7 +148,7 @@ const CollectSlipPDF = ({ open, onClose, dispatchData }) => {
         if (cratesData.length > 0) {
           doc.autoTable({
             startY: yPos + 2,
-            head: [["Crates", "Plants"]],
+            head: [["Crates / खोकी", "Plants / रोपे"]],
             body: cratesData,
             theme: "grid",
             styles: {
@@ -181,8 +181,10 @@ const CollectSlipPDF = ({ open, onClose, dispatchData }) => {
 
         doc.setFont("helvetica", "bold")
         doc.setFontSize(8)
-        doc.text(`Total Crates: ${totalCrates}`, 5, yPos)
-        doc.text(`Total Plants: ${totalPlants}`, pageWidth - 5, yPos, { align: "right" })
+        doc.text(`Total Crates / एकूण खोकी: ${totalCrates}`, 5, yPos)
+        doc.text(`Total Plants / एकूण रोपे: ${totalPlants}`, pageWidth - 5, yPos, {
+          align: "right"
+        })
 
         // Add divider between cavity groups (if not the last one)
         if (cavityIndex < cavityGroups.length - 1) {
@@ -209,15 +211,17 @@ const CollectSlipPDF = ({ open, onClose, dispatchData }) => {
 
     doc.line(5, yPos, 35, yPos)
     yPos += 4
-    doc.text("Supervisor Signature", 5, yPos)
+    doc.text("Supervisor Signature / पर्यवेक्षक स्वाक्षरी", 5, yPos)
 
     doc.line(45, yPos - 4, 75, yPos - 4)
-    doc.text("Driver Signature", 45, yPos)
+    doc.text("Driver Signature / चालक स्वाक्षरी", 45, yPos)
 
     // Footer
     yPos += 8
     doc.setFontSize(6)
-    doc.text("Thank you for your service", pageWidth / 2, yPos, { align: "center" })
+    doc.text("Thank you for your service / आपल्या सेवेबद्दल धन्यवाद", pageWidth / 2, yPos, {
+      align: "center"
+    })
 
     doc.autoPrint()
     window.open(doc.output("bloburl"), "_blank")
@@ -228,7 +232,7 @@ const CollectSlipPDF = ({ open, onClose, dispatchData }) => {
       <div className="fixed inset-0 flex items-center justify-center z-50">
         <div className="bg-white rounded-lg w-full max-w-2xl">
           <div className="flex justify-between items-center p-4 border-b sticky top-0 bg-white z-10">
-            <h2 className="text-xl font-semibold">Collection Slip</h2>
+            <h2 className="text-xl font-semibold">Collection Slip / संग्रह पर्ची</h2>
             <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
               <span className="sr-only">Close</span>
               <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -244,22 +248,22 @@ const CollectSlipPDF = ({ open, onClose, dispatchData }) => {
 
           <div className="p-6">
             <div className="mb-6">
-              <h3 className="text-lg font-semibold mb-4">Dispatch Information</h3>
+              <h3 className="text-lg font-semibold mb-4">Dispatch Information / वाहतूक माहिती</h3>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <p className="text-sm text-gray-600">Transport ID</p>
+                  <p className="text-sm text-gray-600">Transport ID / वाहतूक आयडी</p>
                   <p className="font-medium">{dispatchData.transportId}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-gray-600">Driver</p>
+                  <p className="text-sm text-gray-600">Driver / चालक</p>
                   <p className="font-medium">{dispatchData.driverName}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-gray-600">Vehicle</p>
+                  <p className="text-sm text-gray-600">Vehicle / वाहन</p>
                   <p className="font-medium">{dispatchData.vehicleName}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-gray-600">Total Plants</p>
+                  <p className="text-sm text-gray-600">Total Plants / एकूण रोपे</p>
                   <p className="font-medium">
                     {dispatchData.plants?.reduce((sum, plant) => {
                       return (
@@ -276,7 +280,7 @@ const CollectSlipPDF = ({ open, onClose, dispatchData }) => {
             </div>
 
             <div className="mb-6">
-              <h3 className="text-lg font-semibold mb-4">Plant Details</h3>
+              <h3 className="text-lg font-semibold mb-4">Plant Details / रोपांचे तपशील</h3>
               <div className="space-y-4">
                 {dispatchData.plants?.map((plant, index) => (
                   <div key={index} className="border rounded-lg p-4">
@@ -284,9 +288,9 @@ const CollectSlipPDF = ({ open, onClose, dispatchData }) => {
                     <div className="grid grid-cols-2 gap-4 text-sm">
                       {plant.crates?.map((crate, crateIndex) => (
                         <div key={crateIndex}>
-                          <p className="text-gray-600">Cavity: {crate.cavityName}</p>
-                          <p>Crates: {crate.numberOfCrates}</p>
-                          <p>Plants: {crate.quantity}</p>
+                          <p className="text-gray-600">Cavity / कॅव्हिटी: {crate.cavityName}</p>
+                          <p>Crates / खोकी: {crate.numberOfCrates}</p>
+                          <p>Plants / रोपे: {crate.quantity}</p>
                         </div>
                       ))}
                     </div>
@@ -307,7 +311,7 @@ const CollectSlipPDF = ({ open, onClose, dispatchData }) => {
                     d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
                   />
                 </svg>
-                Generate Collection Slip
+                Generate Collection Slip / संग्रह पर्ची तयार करा
               </button>
             </div>
           </div>
