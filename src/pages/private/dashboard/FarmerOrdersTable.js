@@ -600,7 +600,11 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                   {viewMode === "farmready" && (
                     <input
                       type="checkbox"
-                      onChange={() => toggleRowSelection(row.details.orderid, row)}
+                      onChange={(e) => {
+                        e.stopPropagation()
+                        toggleRowSelection(row.details.orderid, row)
+                      }}
+                      onClick={(e) => e.stopPropagation()}
                       checked={selectedRows.has(row.details.orderid)}
                       className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                     />
@@ -617,6 +621,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                   }
                   value={row.orderStatus}
                   onChange={(e) => {
+                    e.stopPropagation()
                     if (
                       e.target.value === "DISPATCH_PROCESS" ||
                       e.target.value === "DISPATCHED" ||
@@ -633,6 +638,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                       row
                     )
                   }}
+                  onClick={(e) => e.stopPropagation()}
                   className={`${getStatusColor(
                     row.orderStatus
                   )} px-2 py-1 rounded-full text-xs font-medium focus:outline-none`}>
@@ -712,19 +718,28 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                     {editingRows.has(index) ? (
                       <>
                         <button
-                          onClick={() => saveEditedRow(index, row)}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            saveEditedRow(index, row)
+                          }}
                           className="text-green-500 hover:text-green-700">
                           <CheckIcon size={16} />
                         </button>
                         <button
-                          onClick={() => cancelEditing(index)}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            cancelEditing(index)
+                          }}
                           className="text-red-500 hover:text-red-700">
                           <XIcon size={16} />
                         </button>
                       </>
                     ) : (
                       <button
-                        onClick={() => toggleEditing(index, row)}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          toggleEditing(index, row)
+                        }}
                         className="text-gray-500 hover:text-gray-700">
                         <Edit2Icon size={16} />
                       </button>
