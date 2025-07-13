@@ -1,230 +1,57 @@
 import { Dialog } from "@mui/material"
-import React from "react"
+import React, { useRef } from "react"
+import html2canvas from "html2canvas"
 import jsPDF from "jspdf"
-import "jspdf-autotable"
 
 const CollectSlipPDF = ({ open, onClose, dispatchData }) => {
+  const printRef = useRef()
+
   if (!dispatchData) return null
 
-  const generatePDF = () => {
-    console.log(dispatchData)
-    const doc = new jsPDF({ orientation: "p", unit: "mm", format: [80, 210] })
-    const pageWidth = doc.internal.pageSize.getWidth()
-    let yPos = 15
+  const generatePDF = async () => {
+    const element = printRef.current
+    if (!element) return
 
-    // Header
-    doc.setFont("helvetica", "bold")
-    doc.setFontSize(14)
-    doc.text("COLLECTION SLIP / संग्रह पर्ची", pageWidth / 2, yPos, { align: "center" })
-
-    yPos += 5
-    doc.setLineWidth(0.5)
-    doc.line(5, yPos, pageWidth - 5, yPos)
-
-    // Date and Time
-    yPos += 8
-    doc.setFontSize(8)
-    const currentDate = new Date().toLocaleDateString()
-    const currentTime = new Date().toLocaleTimeString()
-    doc.text(`Date / तारीख: ${currentDate}`, 5, yPos)
-    doc.text(`Time / वेळ: ${currentTime}`, pageWidth - 5, yPos, { align: "right" })
-
-    // Driver and Vehicle Info
-    yPos += 8
-    doc.setFont("helvetica", "normal")
-    doc.text("Driver / चालक:", 5, yPos)
-    doc.setFont("helvetica", "bold")
-    doc.text(dispatchData?.driverName || "", 20, yPos)
-
-    yPos += 5
-    doc.setFont("helvetica", "normal")
-    doc.text("Vehicle / वाहन:", 5, yPos)
-    doc.setFont("helvetica", "bold")
-    doc.text(dispatchData?.vehicleName || "", 20, yPos)
-
-    yPos += 5
-    doc.setLineDashPattern([1, 1], 0)
-    doc.line(5, yPos, pageWidth - 5, yPos)
-    doc.setLineDashPattern([], 0)
-
-    // Plants Details
-    dispatchData?.plants?.forEach((plant, plantIndex) => {
-      yPos += 8
-      doc.setFont("helvetica", "bold")
-      doc.setFontSize(10)
-      doc.text(plant.name.replace(" -&gt; ", " → "), 5, yPos)
-
-      // Reorganize by cavity
-      const cavityGroups = []
-
-      // Check if we have cavityGroups already formed in the new structure
-      if (plant.cavityGroups && Array.isArray(plant.cavityGroups)) {
-        // New structure - already grouped by cavity
-        cavityGroups.push(...plant.cavityGroups)
-      } else {
-        // Old structure - we need to group by cavity name
-        const cavityMap = new Map()
-
-        // Group pickup details by cavity name
-        plant.pickupDetails?.forEach((pickup) => {
-          if (!cavityMap.has(pickup.cavityName)) {
-            cavityMap.set(pickup.cavityName, {
-              cavityName: pickup.cavityName,
-              pickupDetails: [],
-              crates: []
-            })
-          }
-          cavityMap.get(pickup.cavityName).pickupDetails.push(pickup)
-        })
-
-        // Match crates with the same cavity name
-        plant.crates?.forEach((crate) => {
-          if (cavityMap.has(crate.cavityName)) {
-            cavityMap.get(crate.cavityName).crates.push(crate)
-          } else {
-            // If no pickup details for this cavity, create a new entry
-            cavityMap.set(crate.cavityName, {
-              cavityName: crate.cavityName,
-              pickupDetails: [],
-              crates: [crate]
-            })
-          }
-        })
-
-        // Convert map to array
-        cavityGroups.push(...cavityMap.values())
-      }
-
-      // Process each cavity group
-      cavityGroups.forEach((cavityGroup, cavityIndex) => {
-        yPos += 6
-        doc.setFontSize(9)
-        doc.setFont("helvetica", "bold")
-        doc.text(`Cavity / कॅव्हिटी: ${cavityGroup.cavityName || "N/A"}`, 5, yPos)
-
-        // Pickup details table for this cavity
-        const pickupTableData =
-          cavityGroup.pickupDetails?.map((pickup) => [
-            pickup.shadeName,
-            pickup.quantity.toString()
-          ]) || []
-
-        if (pickupTableData.length > 0) {
-          doc.autoTable({
-            startY: yPos + 4,
-            head: [["Shade / सावली", "Qty / प्रमाण"]],
-            body: pickupTableData,
-            theme: "grid",
-            styles: {
-              fontSize: 8,
-              cellPadding: 2,
-              lineWidth: 0.1
-            },
-            headStyles: {
-              fillColor: [240, 240, 240],
-              textColor: [0, 0, 0],
-              fontStyle: "bold",
-              lineWidth: 0.1
-            },
-            columnStyles: {
-              0: { cellWidth: 40 },
-              1: { cellWidth: 25, halign: "center" }
-            },
-            margin: { left: 5, right: 5 }
-          })
-
-          yPos = doc.lastAutoTable.finalY + 4
-        } else {
-          yPos += 4
-        }
-
-        // Crates table for this cavity
-        const cratesData =
-          cavityGroup.crates?.map((crate) => [
-            crate.numberOfCrates?.toString() || "0",
-            crate.quantity?.toString() || "0"
-          ]) || []
-
-        if (cratesData.length > 0) {
-          doc.autoTable({
-            startY: yPos + 2,
-            head: [["Crates / खोकी", "Plants / रोपे"]],
-            body: cratesData,
-            theme: "grid",
-            styles: {
-              fontSize: 8,
-              cellPadding: 2,
-              lineWidth: 0.1
-            },
-            headStyles: {
-              fillColor: [240, 240, 240],
-              textColor: [0, 0, 0],
-              fontStyle: "bold",
-              lineWidth: 0.1
-            },
-            columnStyles: {
-              0: { cellWidth: 32, halign: "center" },
-              1: { cellWidth: 33, halign: "center" }
-            },
-            margin: { left: 5, right: 5, bottom: 5 }
-          })
-
-          yPos = doc.lastAutoTable.finalY + 4
-        }
-
-        // Summary for this cavity
-        const totalCrates =
-          cavityGroup.crates?.reduce((sum, crate) => sum + (crate.numberOfCrates || 0), 0) || 0
-
-        const totalPlants =
-          cavityGroup.crates?.reduce((sum, crate) => sum + (crate.quantity || 0), 0) || 0
-
-        doc.setFont("helvetica", "bold")
-        doc.setFontSize(8)
-        doc.text(`Total Crates / एकूण खोकी: ${totalCrates}`, 5, yPos)
-        doc.text(`Total Plants / एकूण रोपे: ${totalPlants}`, pageWidth - 5, yPos, {
-          align: "right"
-        })
-
-        // Add divider between cavity groups (if not the last one)
-        if (cavityIndex < cavityGroups.length - 1) {
-          yPos += 4
-          doc.setLineDashPattern([0.5, 0.5], 0)
-          doc.line(10, yPos, pageWidth - 10, yPos)
-          doc.setLineDashPattern([], 0)
-        }
+    try {
+      // Create canvas from HTML element
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: "#ffffff"
       })
 
-      // Add divider between plants (if not the last one)
-      if (plantIndex < dispatchData.plants.length - 1) {
-        yPos += 6
-        doc.setLineDashPattern([1, 1], 0)
-        doc.line(5, yPos, pageWidth - 5, yPos)
-        doc.setLineDashPattern([], 0)
+      const imgData = canvas.toDataURL("image/png")
+
+      // Create PDF
+      const pdf = new jsPDF({
+        orientation: "portrait",
+        unit: "mm",
+        format: "a4"
+      })
+
+      const imgWidth = 210
+      const pageHeight = 295
+      const imgHeight = (canvas.height * imgWidth) / canvas.width
+      let heightLeft = imgHeight
+
+      let position = 0
+
+      pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight)
+      heightLeft -= pageHeight
+
+      while (heightLeft >= 0) {
+        position = heightLeft - imgHeight
+        pdf.addPage()
+        pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight)
+        heightLeft -= pageHeight
       }
-    })
 
-    // Signature section
-    yPos += 15
-    doc.setFontSize(8)
-    doc.setFont("helvetica", "normal")
-
-    doc.line(5, yPos, 35, yPos)
-    yPos += 4
-    doc.text("Supervisor Signature / पर्यवेक्षक स्वाक्षरी", 5, yPos)
-
-    doc.line(45, yPos - 4, 75, yPos - 4)
-    doc.text("Driver Signature / चालक स्वाक्षरी", 45, yPos)
-
-    // Footer
-    yPos += 8
-    doc.setFontSize(6)
-    doc.text("Thank you for your service / आपल्या सेवेबद्दल धन्यवाद", pageWidth / 2, yPos, {
-      align: "center"
-    })
-
-    doc.autoPrint()
-    window.open(doc.output("bloburl"), "_blank")
+      // Open PDF in new window
+      window.open(pdf.output("bloburl"), "_blank")
+    } catch (error) {
+      console.error("Error generating PDF:", error)
+    }
   }
 
   return (
@@ -314,6 +141,196 @@ const CollectSlipPDF = ({ open, onClose, dispatchData }) => {
                 Generate Collection Slip / संग्रह पर्ची तयार करा
               </button>
             </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Hidden printable content */}
+      <div style={{ position: "absolute", left: "-9999px", top: "-9999px" }}>
+        <div
+          ref={printRef}
+          className="bg-white p-8"
+          style={{ width: "210mm", minHeight: "297mm", fontFamily: "Arial, sans-serif" }}>
+          {/* Header */}
+          <div className="text-center border-b-2 border-gray-300 pb-4 mb-6">
+            <h1 className="text-2xl font-bold text-gray-900 mb-2">
+              COLLECTION SLIP / संग्रह पर्ची
+            </h1>
+            <div className="flex justify-between text-sm text-gray-600">
+              <span>Date / तारीख: {new Date().toLocaleDateString()}</span>
+              <span>Time / वेळ: {new Date().toLocaleTimeString()}</span>
+            </div>
+          </div>
+
+          {/* Driver and Vehicle Info */}
+          <div className="mb-6">
+            <div className="grid grid-cols-2 gap-4 mb-4">
+              <div>
+                <span className="text-gray-600">Driver / चालक: </span>
+                <span className="font-semibold">{dispatchData?.driverName || ""}</span>
+              </div>
+              <div>
+                <span className="text-gray-600">Vehicle / वाहन: </span>
+                <span className="font-semibold">{dispatchData?.vehicleName || ""}</span>
+              </div>
+            </div>
+            <div className="border-b border-gray-200 mb-4"></div>
+          </div>
+
+          {/* Plants Details */}
+          {dispatchData?.plants?.map((plant, plantIndex) => (
+            <div key={plantIndex} className="mb-6">
+              <h3 className="text-lg font-semibold mb-3 text-gray-800">{plant.name}</h3>
+
+              {/* Process crates by cavity */}
+              {(() => {
+                const cavityGroups = []
+
+                if (plant.cavityGroups && Array.isArray(plant.cavityGroups)) {
+                  cavityGroups.push(...plant.cavityGroups)
+                } else {
+                  const cavityMap = new Map()
+
+                  plant.pickupDetails?.forEach((pickup) => {
+                    if (!cavityMap.has(pickup.cavityName)) {
+                      cavityMap.set(pickup.cavityName, {
+                        cavityName: pickup.cavityName,
+                        pickupDetails: [],
+                        crates: []
+                      })
+                    }
+                    cavityMap.get(pickup.cavityName).pickupDetails.push(pickup)
+                  })
+
+                  plant.crates?.forEach((crate) => {
+                    if (cavityMap.has(crate.cavityName)) {
+                      cavityMap.get(crate.cavityName).crates.push(crate)
+                    } else {
+                      cavityMap.set(crate.cavityName, {
+                        cavityName: crate.cavityName,
+                        pickupDetails: [],
+                        crates: [crate]
+                      })
+                    }
+                  })
+
+                  cavityGroups.push(...cavityMap.values())
+                }
+
+                return cavityGroups.map((cavityGroup, cavityIndex) => (
+                  <div key={cavityIndex} className="mb-4">
+                    <h4 className="font-semibold mb-2">
+                      Cavity / कॅव्हिटी: {cavityGroup.cavityName || "N/A"}
+                    </h4>
+
+                    {/* Pickup Details Table */}
+                    {cavityGroup.pickupDetails && cavityGroup.pickupDetails.length > 0 && (
+                      <div className="mb-3">
+                        <table className="w-full border-collapse border border-gray-300 text-sm">
+                          <thead>
+                            <tr className="bg-gray-50">
+                              <th className="border border-gray-300 p-2 text-left">
+                                Shade / सावली
+                              </th>
+                              <th className="border border-gray-300 p-2 text-center">
+                                Qty / प्रमाण
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {cavityGroup.pickupDetails.map((pickup, idx) => (
+                              <tr key={idx}>
+                                <td className="border border-gray-300 p-2">{pickup.shadeName}</td>
+                                <td className="border border-gray-300 p-2 text-center">
+                                  {pickup.quantity}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+
+                    {/* Crates Table */}
+                    {cavityGroup.crates && cavityGroup.crates.length > 0 && (
+                      <div className="mb-3">
+                        <table className="w-full border-collapse border border-gray-300 text-sm">
+                          <thead>
+                            <tr className="bg-gray-50">
+                              <th className="border border-gray-300 p-2 text-center">
+                                Crates / खोकी
+                              </th>
+                              <th className="border border-gray-300 p-2 text-center">
+                                Plants / रोपे
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {cavityGroup.crates.map((crate, idx) => (
+                              <tr key={idx}>
+                                <td className="border border-gray-300 p-2 text-center">
+                                  {crate.numberOfCrates || 0}
+                                </td>
+                                <td className="border border-gray-300 p-2 text-center">
+                                  {crate.quantity || 0}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+
+                    {/* Summary */}
+                    <div className="flex justify-between text-sm font-semibold">
+                      <span>
+                        Total Crates / एकूण खोकी:{" "}
+                        {cavityGroup.crates?.reduce(
+                          (sum, crate) => sum + (crate.numberOfCrates || 0),
+                          0
+                        ) || 0}
+                      </span>
+                      <span>
+                        Total Plants / एकूण रोपे:{" "}
+                        {cavityGroup.crates?.reduce(
+                          (sum, crate) => sum + (crate.quantity || 0),
+                          0
+                        ) || 0}
+                      </span>
+                    </div>
+
+                    {cavityIndex < cavityGroups.length - 1 && (
+                      <div className="border-b border-gray-200 mt-3 mb-3"></div>
+                    )}
+                  </div>
+                ))
+              })()}
+
+              {plantIndex < dispatchData.plants.length - 1 && (
+                <div className="border-b-2 border-gray-300 mt-4 mb-4"></div>
+              )}
+            </div>
+          ))}
+
+          {/* Signature Section */}
+          <div className="mt-12 pt-6 border-t-2 border-gray-300">
+            <div className="flex justify-between">
+              <div className="text-center">
+                <div className="border-b-2 border-black w-40 h-16 mb-2"></div>
+                <p className="text-sm text-gray-600">Supervisor Signature / पर्यवेक्षक स्वाक्षरी</p>
+              </div>
+              <div className="text-center">
+                <div className="border-b-2 border-black w-40 h-16 mb-2"></div>
+                <p className="text-sm text-gray-600">Driver Signature / चालक स्वाक्षरी</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div className="mt-8 text-center">
+            <p className="text-sm text-gray-600">
+              Thank you for your service / आपल्या सेवेबद्दल धन्यवाद
+            </p>
           </div>
         </div>
       </div>
