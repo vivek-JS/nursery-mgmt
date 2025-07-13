@@ -14,6 +14,7 @@ import { Toast } from "helpers/toasts/toastHelper"
 import FarmReadyButton from "./FarmReadyButton"
 import { faHourglassEmpty } from "@fortawesome/free-solid-svg-icons"
 import { FaUser, FaCreditCard, FaEdit, FaFileAlt } from "react-icons/fa"
+import ConfirmDialog from "components/Modals/ConfirmDialog"
 
 const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   const today = new Date()
@@ -60,6 +61,12 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   const [isOrderModalOpen, setIsOrderModalOpen] = useState(false)
   const [selectedOrder, setSelectedOrder] = useState(null)
   const [activeTab, setActiveTab] = useState("overview")
+  const [confirmDialog, setConfirmDialog] = useState({
+    open: false,
+    title: "",
+    description: "",
+    onConfirm: null
+  })
   const handleFarmReady = (orderId) => {
     // Get current date
     const farmReadyDate = moment().format("DD-MM-YYYY")
@@ -84,11 +91,12 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
         orderRemarks: newRemark
       },
       selectedRow
-    ).then(() => {
-      // Refresh modal data after successful remark
+    ).then(async () => {
+      // Refresh both modal data and main list
+      await getOrders()
       setTimeout(() => {
         refreshModalData()
-      }, 1000)
+      }, 500)
     })
 
     setNewRemark("")
@@ -120,10 +128,11 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
           remark: "",
           receiptPhoto: []
         })
-        // Refresh modal data after successful payment
+        // Refresh both modal data and main list
+        await getOrders()
         setTimeout(() => {
           refreshModalData()
-        }, 1000)
+        }, 500)
       } else {
         Toast.error("Failed to add payment")
       }
@@ -192,6 +201,19 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
       getOrders()
     }
   }, [debouncedSearchTerm, refresh, startDate, endDate, viewMode])
+
+  // Listen for dispatch creation events to refresh the list
+  useEffect(() => {
+    const handleDispatchCreated = () => {
+      getOrders()
+    }
+
+    window.addEventListener("dispatchCreated", handleDispatchCreated)
+
+    return () => {
+      window.removeEventListener("dispatchCreated", handleDispatchCreated)
+    }
+  }, [])
 
   useEffect(() => {
     if (selectedRow?.details?.plantID && selectedRow?.details?.plantSubtypeID) {
@@ -415,7 +437,14 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
         }
         setEditingRows(new Set())
         setUpdatedObject(null)
-        getOrders()
+        // Refresh the main list immediately
+        await getOrders()
+        // Also refresh modal data if modal is open
+        if (selectedOrder) {
+          setTimeout(() => {
+            refreshModalData()
+          }, 500)
+        }
       }
     } catch (error) {
       console.error("Error updating order:", error)
@@ -492,6 +521,40 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
     setEditingRows(newEditingRows)
     setUpdatedObject(null)
     setSelectedRow(null)
+  }
+
+  // Status change handler with confirmation
+  const handleStatusChange = (row, newStatus) => {
+    setConfirmDialog({
+      open: true,
+      title: "Confirm Status Change",
+      description: `Change status of Order #${row.order} from ${row.orderStatus} to ${newStatus}?`,
+      onConfirm: () => {
+        setConfirmDialog((d) => ({ ...d, open: false }))
+        pacthOrders(
+          {
+            id: row?.details?.orderid,
+            orderStatus: newStatus
+          },
+          row
+        )
+      }
+    })
+  }
+
+  // Payment add handler with confirmation
+  const handleAddPaymentWithConfirm = (orderId) => {
+    setConfirmDialog({
+      open: true,
+      title: "Confirm Add Payment",
+      description: `Add payment of ₹${newPayment.paidAmount} (${
+        newPayment.modeOfPayment
+      }) to Order #${selectedOrder?.order || orderId}?`,
+      onConfirm: async () => {
+        setConfirmDialog((d) => ({ ...d, open: false }))
+        await handleAddPayment(orderId)
+      }
+    })
   }
 
   return (
@@ -600,7 +663,11 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                   {viewMode === "farmready" && (
                     <input
                       type="checkbox"
-                      onChange={() => toggleRowSelection(row.details.orderid, row)}
+                      onChange={(e) => {
+                        e.stopPropagation()
+                        toggleRowSelection(row.details.orderid, row)
+                      }}
+                      onClick={(e) => e.stopPropagation()}
                       checked={selectedRows.has(row.details.orderid)}
                       className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                     />
@@ -617,6 +684,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                   }
                   value={row.orderStatus}
                   onChange={(e) => {
+                    e.stopPropagation()
                     if (
                       e.target.value === "DISPATCH_PROCESS" ||
                       e.target.value === "DISPATCHED" ||
@@ -625,14 +693,9 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                       Toast.info("This status cant be change directly")
                       return
                     }
-                    pacthOrders(
-                      {
-                        id: row?.details?.orderid,
-                        orderStatus: e.target.value
-                      },
-                      row
-                    )
+                    handleStatusChange(row, e.target.value)
                   }}
+                  onClick={(e) => e.stopPropagation()}
                   className={`${getStatusColor(
                     row.orderStatus
                   )} px-2 py-1 rounded-full text-xs font-medium focus:outline-none`}>
@@ -712,19 +775,28 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                     {editingRows.has(index) ? (
                       <>
                         <button
-                          onClick={() => saveEditedRow(index, row)}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            saveEditedRow(index, row)
+                          }}
                           className="text-green-500 hover:text-green-700">
                           <CheckIcon size={16} />
                         </button>
                         <button
-                          onClick={() => cancelEditing(index)}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            cancelEditing(index)
+                          }}
                           className="text-red-500 hover:text-red-700">
                           <XIcon size={16} />
                         </button>
                       </>
                     ) : (
                       <button
-                        onClick={() => toggleEditing(index, row)}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          toggleEditing(index, row)
+                        }}
                         className="text-gray-500 hover:text-gray-700">
                         <Edit2Icon size={16} />
                       </button>
@@ -1242,7 +1314,9 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                 Cancel
                               </button>
                               <button
-                                onClick={() => handleAddPayment(selectedOrder.details.orderid)}
+                                onClick={() =>
+                                  handleAddPaymentWithConfirm(selectedOrder.details.orderid)
+                                }
                                 disabled={!newPayment.paidAmount || !newPayment.modeOfPayment}
                                 className="px-4 py-2 text-white bg-green-500 rounded-lg hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed">
                                 Add Payment
@@ -1419,6 +1493,13 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
           </div>
         </div>
       )}
+      <ConfirmDialog
+        open={confirmDialog.open}
+        title={confirmDialog.title}
+        description={confirmDialog.description}
+        onConfirm={confirmDialog.onConfirm}
+        onCancel={() => setConfirmDialog((d) => ({ ...d, open: false }))}
+      />
     </div>
   )
 }

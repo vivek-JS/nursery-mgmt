@@ -65,7 +65,10 @@ const FarmReadyButton = ({ orderId, onUpdateOrder, refreshOrders }) => {
     <>
       {/* Farm Ready Button */}
       <button
-        onClick={handleOpenModal}
+        onClick={(e) => {
+          e.stopPropagation()
+          handleOpenModal()
+        }}
         className="px-2 py-1 text-xs bg-amber-100 text-amber-700 rounded hover:bg-amber-200 focus:outline-none">
         Farm Ready
       </button>

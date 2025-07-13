@@ -151,6 +151,42 @@ export const API = {
     GET_FOLLOW_UP: new APIRouter("api/v2/followup/getFollowup", HTTP_METHODS.GET, OFFLINE.PROFILE)
   },
   INVENTORY: {
+    // Dashboard
+    GET_DASHBOARD: new APIRouter("api/v1/inventory/dashboard", HTTP_METHODS.GET),
+
+    // Products
+    GET_ALL_PRODUCTS: new APIRouter("api/v1/inventory/products", HTTP_METHODS.GET),
+    GET_PRODUCT_BY_ID: new APIRouter("api/v1/inventory/products", HTTP_METHODS.GET),
+    CREATE_PRODUCT: new APIRouter("api/v1/inventory/products", HTTP_METHODS.POST),
+    UPDATE_PRODUCT: new APIRouter("api/v1/inventory/products", HTTP_METHODS.PUT),
+    DELETE_PRODUCT: new APIRouter("api/v1/inventory/products", HTTP_METHODS.DEL),
+
+    // Batches
+    GET_ALL_BATCHES: new APIRouter("api/v1/inventory/batches", HTTP_METHODS.GET),
+    GET_BATCH_BY_ID: new APIRouter("api/v1/inventory/batches", HTTP_METHODS.GET),
+    CREATE_BATCH: new APIRouter("api/v1/inventory/batches", HTTP_METHODS.POST),
+    UPDATE_BATCH: new APIRouter("api/v1/inventory/batches", HTTP_METHODS.PUT),
+    DELETE_BATCH: new APIRouter("api/v1/inventory/batches", HTTP_METHODS.DEL),
+
+    // Inwards
+    GET_ALL_INWARDS: new APIRouter("api/v1/inventory/inwards", HTTP_METHODS.GET),
+    GET_INWARD_BY_ID: new APIRouter("api/v1/inventory/inwards", HTTP_METHODS.GET),
+    CREATE_INWARD: new APIRouter("api/v1/inventory/inwards", HTTP_METHODS.POST),
+    UPDATE_INWARD: new APIRouter("api/v1/inventory/inwards", HTTP_METHODS.PUT),
+    DELETE_INWARD: new APIRouter("api/v1/inventory/inwards", HTTP_METHODS.DEL),
+
+    // Outwards
+    GET_ALL_OUTWARDS: new APIRouter("api/v1/inventory/outwards", HTTP_METHODS.GET),
+    GET_OUTWARD_BY_ID: new APIRouter("api/v1/inventory/outwards", HTTP_METHODS.GET),
+    CREATE_OUTWARD: new APIRouter("api/v1/inventory/outwards", HTTP_METHODS.POST),
+    UPDATE_OUTWARD: new APIRouter("api/v1/inventory/outwards", HTTP_METHODS.PUT),
+    DELETE_OUTWARD: new APIRouter("api/v1/inventory/outwards", HTTP_METHODS.DEL),
+
+    // Stock Adjustments
+    GET_ALL_ADJUSTMENTS: new APIRouter("api/v1/inventory/adjustments", HTTP_METHODS.GET),
+    CREATE_ADJUSTMENT: new APIRouter("api/v1/inventory/adjustments", HTTP_METHODS.POST),
+
+    // Legacy endpoints (keeping for backward compatibility)
     ADD_INVENTORY: new APIRouter(
       "api/v2/inventory/createInventory",
       HTTP_METHODS.POST,
@@ -223,6 +259,7 @@ export const API = {
     UPDATE_PLANT: new APIRouter("/plantcms/plants", HTTP_METHODS.PUT, OFFLINE.PROFILE),
     DELETE_PLANT: new APIRouter("/plantcms/plants", HTTP_METHODS.DEL, OFFLINE.PROFILE)
   },
+
   slots: {
     GET_PLANTS: new APIRouter("/slots/get-plants", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_PLANTS_SUBTYPE: new APIRouter("/slots/subtyps", HTTP_METHODS.GET, OFFLINE.PROFILE),
