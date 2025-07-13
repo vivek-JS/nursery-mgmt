@@ -25,22 +25,17 @@ export const useLoginController = () => {
       if (response.success) {
         setLoginResponse(response)
 
-        // If password is not set and user is not superadmin, show the password change modal
-        if (!response.isPasswordSet && response.user?.role !== "superadmin") {
-          setShowPasswordChangeModal(true)
-        } else {
-          // Navigate to dashboard if password is already set or user is superadmin
-          setTimeout(() => {
-            navigate("/u/dashboard", { replace: true })
-          }, 500)
+        // Navigate directly to dashboard for all users
+        setTimeout(() => {
+          navigate("/u/dashboard", { replace: true })
+        }, 500)
 
-          // Fallback: if navigation doesn't work, force a page reload
-          setTimeout(() => {
-            if (window.location.pathname !== "/u/dashboard") {
-              window.location.href = "/u/dashboard"
-            }
-          }, 2000)
-        }
+        // Fallback: if navigation doesn't work, force a page reload
+        setTimeout(() => {
+          if (window.location.pathname !== "/u/dashboard") {
+            window.location.href = "/u/dashboard"
+          }
+        }, 2000)
       }
     } catch (error) {
       console.error("Login error:", error)
