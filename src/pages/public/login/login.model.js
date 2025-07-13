@@ -30,9 +30,18 @@ export const useLoginModel = () => {
       // Force a small delay to ensure Redux state is updated
       await new Promise((resolve) => setTimeout(resolve, 100))
 
-      return true
+      // Return the response with isPasswordSet flag
+      return {
+        success: true,
+        isPasswordSet: actualData.isPasswordSet,
+        user: actualData.user
+      }
     } else {
-      return false
+      return {
+        success: false,
+        isPasswordSet: true,
+        user: null
+      }
     }
   }
 

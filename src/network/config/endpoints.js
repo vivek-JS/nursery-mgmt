@@ -61,9 +61,10 @@ export const API = {
     )
   },
   USER: {
-    PROFILE: new APIWithOfflineRouter("/user/profile/", HTTP_METHODS.GET, OFFLINE.PROFILE),
-    UPDATE: new APIRouter("/user/profile/", HTTP_METHODS.PATCH, OFFLINE.UPDATE),
-    LOGOUT: new APIWithOfflineRouter("user/logout", HTTP_METHODS.POST, OFFLINE.LOGOUT),
+    PROFILE: new APIRouter("user/aboutMe", HTTP_METHODS.GET),
+    LOGOUT: new APIRouter("user/logout", HTTP_METHODS.POST),
+    CHANGE_PASSWORD: new APIRouter("user/change-password", HTTP_METHODS.POST),
+    RESET_PASSWORD: new APIRouter("user/reset-password", HTTP_METHODS.POST),
     GET_USERS: new APIRouter("user/allusers", HTTP_METHODS.GET),
     GET_DEALERS: new APIRouter("user/dealers", HTTP_METHODS.GET),
     GET_DEALERS_STATS: new APIRouter("user/dealerssss/stats", HTTP_METHODS.GET),
