@@ -14,6 +14,7 @@ import { Toast } from "helpers/toasts/toastHelper"
 import FarmReadyButton from "./FarmReadyButton"
 import { faHourglassEmpty } from "@fortawesome/free-solid-svg-icons"
 import { FaUser, FaCreditCard, FaEdit, FaFileAlt } from "react-icons/fa"
+import ConfirmDialog from "components/Modals/ConfirmDialog"
 
 const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   const today = new Date()
@@ -60,6 +61,12 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   const [isOrderModalOpen, setIsOrderModalOpen] = useState(false)
   const [selectedOrder, setSelectedOrder] = useState(null)
   const [activeTab, setActiveTab] = useState("overview")
+  const [confirmDialog, setConfirmDialog] = useState({
+    open: false,
+    title: "",
+    description: "",
+    onConfirm: null
+  })
   const handleFarmReady = (orderId) => {
     // Get current date
     const farmReadyDate = moment().format("DD-MM-YYYY")
@@ -516,6 +523,40 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
     setSelectedRow(null)
   }
 
+  // Status change handler with confirmation
+  const handleStatusChange = (row, newStatus) => {
+    setConfirmDialog({
+      open: true,
+      title: "Confirm Status Change",
+      description: `Change status of Order #${row.order} from ${row.orderStatus} to ${newStatus}?`,
+      onConfirm: () => {
+        setConfirmDialog((d) => ({ ...d, open: false }))
+        pacthOrders(
+          {
+            id: row?.details?.orderid,
+            orderStatus: newStatus
+          },
+          row
+        )
+      }
+    })
+  }
+
+  // Payment add handler with confirmation
+  const handleAddPaymentWithConfirm = (orderId) => {
+    setConfirmDialog({
+      open: true,
+      title: "Confirm Add Payment",
+      description: `Add payment of ₹${newPayment.paidAmount} (${
+        newPayment.modeOfPayment
+      }) to Order #${selectedOrder?.order || orderId}?`,
+      onConfirm: async () => {
+        setConfirmDialog((d) => ({ ...d, open: false }))
+        await handleAddPayment(orderId)
+      }
+    })
+  }
+
   return (
     <div className="w-full p-4 bg-gray-50">
       {(loading || patchLoading) && <PageLoader />}
@@ -652,13 +693,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                       Toast.info("This status cant be change directly")
                       return
                     }
-                    pacthOrders(
-                      {
-                        id: row?.details?.orderid,
-                        orderStatus: e.target.value
-                      },
-                      row
-                    )
+                    handleStatusChange(row, e.target.value)
                   }}
                   onClick={(e) => e.stopPropagation()}
                   className={`${getStatusColor(
@@ -1279,7 +1314,9 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                 Cancel
                               </button>
                               <button
-                                onClick={() => handleAddPayment(selectedOrder.details.orderid)}
+                                onClick={() =>
+                                  handleAddPaymentWithConfirm(selectedOrder.details.orderid)
+                                }
                                 disabled={!newPayment.paidAmount || !newPayment.modeOfPayment}
                                 className="px-4 py-2 text-white bg-green-500 rounded-lg hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed">
                                 Add Payment
@@ -1456,6 +1493,13 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
           </div>
         </div>
       )}
+      <ConfirmDialog
+        open={confirmDialog.open}
+        title={confirmDialog.title}
+        description={confirmDialog.description}
+        onConfirm={confirmDialog.onConfirm}
+        onCancel={() => setConfirmDialog((d) => ({ ...d, open: false }))}
+      />
     </div>
   )
 }
