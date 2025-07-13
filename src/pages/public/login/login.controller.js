@@ -25,11 +25,11 @@ export const useLoginController = () => {
       if (response.success) {
         setLoginResponse(response)
 
-        // If password is not set, show the password change modal
-        if (!response.isPasswordSet) {
+        // If password is not set and user is not superadmin, show the password change modal
+        if (!response.isPasswordSet && response.user?.role !== "superadmin") {
           setShowPasswordChangeModal(true)
         } else {
-          // Navigate to dashboard if password is already set
+          // Navigate to dashboard if password is already set or user is superadmin
           setTimeout(() => {
             navigate("/u/dashboard", { replace: true })
           }, 500)
