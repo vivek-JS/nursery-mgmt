@@ -25,17 +25,22 @@ export const useLoginController = () => {
       if (response.success) {
         setLoginResponse(response)
 
-        // Navigate directly to dashboard for all users
-        setTimeout(() => {
-          navigate("/u/dashboard", { replace: true })
-        }, 500)
+        // If password is not set, show the password change modal
+        if (!response.isPasswordSet) {
+          setShowPasswordChangeModal(true)
+        } else {
+          // Navigate to dashboard if password is already set
+          setTimeout(() => {
+            navigate("/u/dashboard", { replace: true })
+          }, 500)
 
-        // Fallback: if navigation doesn't work, force a page reload
-        setTimeout(() => {
-          if (window.location.pathname !== "/u/dashboard") {
-            window.location.href = "/u/dashboard"
-          }
-        }, 2000)
+          // Fallback: if navigation doesn't work, force a page reload
+          setTimeout(() => {
+            if (window.location.pathname !== "/u/dashboard") {
+              window.location.href = "/u/dashboard"
+            }
+          }, 2000)
+        }
       }
     } catch (error) {
       console.error("Login error:", error)
