@@ -3,10 +3,9 @@
  * @description This call will refresh the expired token and will generate a new one
  */
 
-import { Cookies } from "react-cookie"
 import { API } from "../config/endpoints"
 import { APIConfig } from "../config/serverConfig"
-import { CookieKeys, CookieOptions } from "constants/cookieKeys"
+import { CookieKeys } from "constants/cookieKeys"
 
 // Helper function to build URL
 function urlBuilder(router, params) {
@@ -37,11 +36,10 @@ export async function refreshAuthToken(refreshToken) {
       body: JSON.stringify({ refreshToken: refreshToken })
     }).then((res) => res.json())
 
-    const cookies = new Cookies()
     if (response.success && response.data) {
       // Store new tokens from the backend response
-      cookies.set(CookieKeys.Auth, response.data.accessToken, CookieOptions)
-      cookies.set(CookieKeys.REFRESH_TOKEN, response.data.refreshToken, CookieOptions)
+      localStorage.setItem(CookieKeys.Auth, response.data.accessToken)
+      localStorage.setItem(CookieKeys.REFRESH_TOKEN, response.data.refreshToken)
     }
     return response.success
   } catch (err) {

@@ -16,10 +16,14 @@ import {
 const PlantStatisticsCharts = () => {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear())
+
+  // Available years - current year and next year
+  const availableYears = [2025, 2026]
 
   useEffect(() => {
     fetchPlants()
-  }, [])
+  }, [selectedYear])
 
   const fetchPlants = async () => {
     setLoading(true)
@@ -27,12 +31,11 @@ const PlantStatisticsCharts = () => {
       const instance = NetworkManager(API.STATS_SLOTS.GET_HOUSES)
       const response = await instance.request(
         {},
-        { startDate: "01-01-2025", endDate: "31-12-2025" }
+        { startDate: `01-01-${selectedYear}`, endDate: `31-12-${selectedYear}` }
       )
       if (response?.data) {
         console.log(response?.data)
         setData(response?.data?.data)
-        //   setMonths(response?.data)
       }
     } catch (error) {
       console.error("Error fetching plants:", error)
@@ -40,15 +43,42 @@ const PlantStatisticsCharts = () => {
     setLoading(false)
   }
 
-  if (loading) return <div>Loading...</div>
-  if (!data) return <div>No data available</div>
-  console.log(data)
+  const handleYearChange = (e) => {
+    setSelectedYear(parseInt(e.target.value))
+  }
+
+  if (loading) return <div className="flex justify-center items-center h-64">Loading...</div>
+  if (!data) return <div className="flex justify-center items-center h-64">No data available</div>
+
   return (
     <div className="space-y-8">
+      {/* Year Selector */}
+      <div className="bg-white p-6 rounded-lg shadow-lg">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-2xl font-bold text-gray-800">Plant Statistics Dashboard</h2>
+          <div className="flex items-center space-x-3">
+            <label htmlFor="year-select" className="text-sm font-medium text-gray-700">
+              Select Year:
+            </label>
+            <select
+              id="year-select"
+              value={selectedYear}
+              onChange={handleYearChange}
+              className="border border-gray-300 rounded-md px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+              {availableYears.map((year) => (
+                <option key={year} value={year}>
+                  {year}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </div>
+
       {/* Monthly Trends Line Chart */}
       <div className="bg-white p-6 rounded-lg shadow-lg">
         <div className="mb-4">
-          <h2 className="text-xl font-bold">Monthly Plant Statistics Trends</h2>
+          <h2 className="text-xl font-bold">Monthly Plant Statistics Trends - {selectedYear}</h2>
         </div>
         <div className="h-96">
           <ResponsiveContainer width="100%" height="100%">
@@ -74,7 +104,7 @@ const PlantStatisticsCharts = () => {
       {/* Plant-wise Distribution Bar Chart */}
       <div className="bg-white p-6 rounded-lg shadow-lg">
         <div className="mb-4">
-          <h2 className="text-xl font-bold">Plant-wise Distribution</h2>
+          <h2 className="text-xl font-bold">Plant-wise Distribution - {selectedYear}</h2>
         </div>
         <div className="h-96">
           <ResponsiveContainer width="100%" height="100%">
@@ -95,7 +125,7 @@ const PlantStatisticsCharts = () => {
       {/* Summary Statistics */}
       <div className="bg-white p-6 rounded-lg shadow-lg">
         <div className="mb-4">
-          <h2 className="text-xl font-bold">Overall Statistics</h2>
+          <h2 className="text-xl font-bold">Overall Statistics - {selectedYear}</h2>
         </div>
         <div className="grid grid-cols-3 gap-4 text-center">
           <div className="p-4 bg-blue-100 rounded-lg">

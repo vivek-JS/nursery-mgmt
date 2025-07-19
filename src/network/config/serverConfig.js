@@ -1,5 +1,5 @@
 export const APIConfig = {
-  BASE_URL: process.env.REACT_APP_BASE_URL,
+  BASE_URL: process.env.REACT_APP_BASE_URL || "http://localhost:8000",
   TIMEOUT: 600000, // 10 minutes (600,000 ms) - matches backend timeout
   API_AUTH_HEADER: "Authorization",
   AUTH_TYPE: "Bearer",

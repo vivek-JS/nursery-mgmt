@@ -13,6 +13,7 @@ import moment from "moment"
 import { API, NetworkManager } from "network/core"
 import { PageLoader } from "components"
 import { Toast } from "helpers/toasts/toastHelper"
+import { useHasPaymentAccess, useHasPaymentAddAccess, useIsOfficeAdmin } from "utils/roleUtils"
 
 const RenderExpandedContent = ({
   details,
@@ -26,6 +27,11 @@ const RenderExpandedContent = ({
   const [updatedPayments, setUpdatedPayments] = useState(details.payment)
   const [loading, setLoading] = useState(false)
   const [activeTab, setActiveTab] = useState("payments")
+
+  // Role-based access control
+  const hasPaymentAccess = useHasPaymentAccess() // For changing payment status
+  const hasPaymentAddAccess = useHasPaymentAddAccess() // For adding payments
+  const isOfficeAdmin = useIsOfficeAdmin()
 
   useEffect(() => {
     setUpdatedPayments(details.payment)
@@ -71,7 +77,18 @@ const RenderExpandedContent = ({
     setLoading(true)
     const instance = NetworkManager(API.ORDER.ADD_PAYMENT)
     const payload = { ...updatedPayments[0] }
-    payload.paymentStatus = "COLLECTED"
+
+    // Set payment status based on user role
+    if (isOfficeAdmin) {
+      payload.paymentStatus = "PENDING"
+    } else if (payload.paymentStatus && payload.paymentStatus !== false) {
+      // Keep the user-selected status for Accountant and Super Admin
+      // This allows them to choose PENDING, COLLECTED, or REJECTED
+    } else {
+      // Default to COLLECTED if no status is selected
+      payload.paymentStatus = "COLLECTED"
+    }
+
     const emps = await instance.request(payload, [orderId])
     if (emps?.data) {
       Toast.success(emps?.data?.message)
@@ -88,7 +105,7 @@ const RenderExpandedContent = ({
       paymentDate: moment().format("YYYY-MM-DD"),
       bankName: "",
       modeOfPayment: "",
-      paymentStatus: false,
+      paymentStatus: isOfficeAdmin ? "PENDING" : "COLLECTED", // Default based on role
       receiptPhoto: []
     }
     setUpdatedPayments([newPayment, ...updatedPayments])
@@ -199,21 +216,40 @@ const RenderExpandedContent = ({
           {/* Status */}
           <div>
             <label className="text-xs text-gray-500 font-medium">Status</label>
-            <div className="mt-1">
-              {payment.paymentStatus === "COLLECTED" ? (
-                <span className="px-3 py-1 text-xs font-medium text-white bg-green-500 rounded-full">
-                  COLLECTED
-                </span>
-              ) : payment.paymentStatus === "REJECTED" ? (
-                <span className="px-3 py-1 text-xs font-medium text-white bg-red-500 rounded-full">
-                  REJECTED
-                </span>
+            {isEditing ? (
+              hasPaymentAccess ? (
+                <select
+                  value={payment.paymentStatus || ""}
+                  onChange={(e) => handleInputChange(payment._id, "paymentStatus", e.target.value)}
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 mt-1">
+                  <option value="PENDING">PENDING</option>
+                  <option value="COLLECTED">COLLECTED</option>
+                  <option value="REJECTED">REJECTED</option>
+                </select>
               ) : (
-                <span className="px-3 py-1 text-xs font-medium text-gray-700 bg-yellow-400 rounded-full">
-                  PENDING
-                </span>
-              )}
-            </div>
+                <div className="text-sm text-gray-400 italic mt-1">
+                  {isOfficeAdmin
+                    ? "PENDING (Contact Accountant to change)"
+                    : "Status cannot be changed"}
+                </div>
+              )
+            ) : (
+              <div className="mt-1">
+                {payment.paymentStatus === "COLLECTED" ? (
+                  <span className="px-3 py-1 text-xs font-medium text-white bg-green-500 rounded-full">
+                    COLLECTED
+                  </span>
+                ) : payment.paymentStatus === "REJECTED" ? (
+                  <span className="px-3 py-1 text-xs font-medium text-white bg-red-500 rounded-full">
+                    REJECTED
+                  </span>
+                ) : (
+                  <span className="px-3 py-1 text-xs font-medium text-gray-700 bg-yellow-400 rounded-full">
+                    PENDING
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
@@ -304,12 +340,14 @@ const RenderExpandedContent = ({
         <div className="mt-4 flex items-center justify-end space-x-2">
           {isEditing ? (
             <>
-              <button
-                onClick={() => handleAddPaymentToDb(payment._id)}
-                className="inline-flex items-center px-3 py-1.5 text-sm text-white bg-green-500 rounded-lg hover:bg-green-600">
-                <CheckIcon size={16} className="mr-1" />
-                Save
-              </button>
+              {hasPaymentAccess && (
+                <button
+                  onClick={() => handleAddPaymentToDb(payment._id)}
+                  className="inline-flex items-center px-3 py-1.5 text-sm text-white bg-green-500 rounded-lg hover:bg-green-600">
+                  <CheckIcon size={16} className="mr-1" />
+                  Save
+                </button>
+              )}
               <button
                 onClick={handleCancelEdit}
                 className="inline-flex items-center px-3 py-1.5 text-sm text-gray-600 border rounded-lg hover:bg-gray-50">
@@ -319,31 +357,42 @@ const RenderExpandedContent = ({
             </>
           ) : (
             <>
-              <button
-                onClick={() => handleEditPayment(payment._id)}
-                className="inline-flex items-center px-3 py-1.5 text-sm text-blue-600 hover:text-blue-800">
-                <FaEdit size={14} className="mr-1" />
-                Edit
-              </button>
-              {payment?.paymentStatus === "COLLECTED" ? (
+              {hasPaymentAccess && (
                 <button
-                  onClick={() => handleConfirmPayment(payment._id, "PENDING")}
-                  className="px-3 py-1.5 text-sm text-yellow-700 bg-yellow-100 rounded-lg hover:bg-yellow-200">
-                  Mark Pending
-                </button>
-              ) : (
-                <button
-                  onClick={() => handleConfirmPayment(payment._id, "COLLECTED")}
-                  className="px-3 py-1.5 text-sm text-white bg-green-500 rounded-lg hover:bg-green-600">
-                  Confirm
+                  onClick={() => handleEditPayment(payment._id)}
+                  className="inline-flex items-center px-3 py-1.5 text-sm text-blue-600 hover:text-blue-800">
+                  <FaEdit size={14} className="mr-1" />
+                  Edit
                 </button>
               )}
-              {payment.paymentStatus !== "REJECTED" && (
-                <button
-                  onClick={() => handleConfirmPayment(payment._id, "REJECTED")}
-                  className="px-3 py-1.5 text-sm text-white bg-red-500 rounded-lg hover:bg-red-600">
-                  Reject
-                </button>
+              {hasPaymentAccess && (
+                <>
+                  {payment?.paymentStatus === "COLLECTED" ? (
+                    <button
+                      onClick={() => handleConfirmPayment(payment._id, "PENDING")}
+                      className="px-3 py-1.5 text-sm text-yellow-700 bg-yellow-100 rounded-lg hover:bg-yellow-200">
+                      Mark Pending
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleConfirmPayment(payment._id, "COLLECTED")}
+                      className="px-3 py-1.5 text-sm text-white bg-green-500 rounded-lg hover:bg-green-600">
+                      Confirm
+                    </button>
+                  )}
+                  {payment.paymentStatus !== "REJECTED" && (
+                    <button
+                      onClick={() => handleConfirmPayment(payment._id, "REJECTED")}
+                      className="px-3 py-1.5 text-sm text-white bg-red-500 rounded-lg hover:bg-red-600">
+                      Reject
+                    </button>
+                  )}
+                </>
+              )}
+              {isOfficeAdmin && payment.paymentStatus === "PENDING" && (
+                <span className="px-3 py-1.5 text-sm text-gray-500 bg-gray-100 rounded-lg">
+                  Contact Accountant to change status
+                </span>
               )}
             </>
           )}
@@ -359,12 +408,15 @@ const RenderExpandedContent = ({
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-semibold text-gray-900">Payment History</h3>
-              <button
-                onClick={handleAddPayment}
-                className="inline-flex items-center px-4 py-2 text-sm text-white bg-blue-500 rounded-lg hover:bg-blue-600">
-                <PlusIcon size={16} className="mr-2" />
-                Add Payment
-              </button>
+              {hasPaymentAddAccess && (
+                <button
+                  onClick={handleAddPayment}
+                  className="inline-flex items-center px-4 py-2 text-sm text-white bg-blue-500 rounded-lg hover:bg-blue-600">
+                  <PlusIcon size={16} className="mr-2" />
+                  Add Payment
+                  {isOfficeAdmin && <span className="ml-1 text-xs">(PENDING only)</span>}
+                </button>
+              )}
             </div>
 
             <div className="bg-gray-50 rounded-lg p-4 mb-4">
@@ -483,7 +535,9 @@ const RenderExpandedContent = ({
                   <div>
                     <div className="text-sm text-gray-500">Order Date</div>
                     <div className="font-medium text-gray-900">
-                      {moment(orderDetaisl?.createdAt).format("MMM D, YYYY")}
+                      {moment(orderDetaisl?.orderBookingDate || orderDetaisl?.createdAt).format(
+                        "MMM D, YYYY"
+                      )}
                     </div>
                   </div>
                 </div>

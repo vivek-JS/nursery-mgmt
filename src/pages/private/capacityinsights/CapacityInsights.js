@@ -1,5 +1,18 @@
 import React, { useState, useEffect } from "react"
-import { Box, Container, Typography, Grid, Card, Button, Alert, TextField } from "@mui/material"
+import {
+  Box,
+  Container,
+  Typography,
+  Grid,
+  Card,
+  Button,
+  Alert,
+  TextField,
+  MenuItem,
+  Select,
+  FormControl,
+  InputLabel
+} from "@mui/material"
 import { DatePicker } from "@mui/x-date-pickers/DatePicker"
 import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider"
 import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFns"
@@ -19,7 +32,6 @@ import PlantView from "./PlantView"
 import DailyDispatchView from "./DailyDispatchView"
 
 // Import services and utilities
-
 import LoadingState from "./LoadingState"
 import capacityService from "./capacityService"
 import dateUtils from "./dateUtils"
@@ -36,11 +48,24 @@ const CapacityInsights = () => {
   const [capacityData, setCapacityData] = useState(null)
   const [viewMode, setViewMode] = useState("dashboard") // dashboard, plantView, dailyView
   const [expandedPlants, setExpandedPlants] = useState({})
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear())
+
+  // Available years
+  const availableYears = [2025, 2026]
 
   // Fetch data when dates change
   useEffect(() => {
     fetchCapacityData()
   }, [startDate, endDate])
+
+  /**
+   * Set date range for specific year
+   */
+  const setYearRange = (year) => {
+    setSelectedYear(year)
+    setStartDate(new Date(year, 0, 1)) // January 1st
+    setEndDate(new Date(year, 11, 31)) // December 31st
+  }
 
   /**
    * Fetch capacity data from API
@@ -189,6 +214,25 @@ const CapacityInsights = () => {
             </Typography>
           </Grid>
           <Grid item xs={12} sm={8}>
+            {/* Year Selection */}
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="body2" sx={{ mb: 1 }}>
+                Quick Year Selection:
+              </Typography>
+              <Box sx={{ display: "flex", gap: 1, mb: 2 }}>
+                {availableYears.map((year) => (
+                  <Button
+                    key={year}
+                    variant={selectedYear === year ? "contained" : "outlined"}
+                    size="small"
+                    onClick={() => setYearRange(year)}>
+                    {year}
+                  </Button>
+                ))}
+              </Box>
+            </Box>
+
+            {/* Custom Date Range */}
             <Box sx={{ display: "flex", gap: 2, flexDirection: { xs: "column", sm: "row" } }}>
               <LocalizationProvider dateAdapter={AdapterDateFns}>
                 <DatePicker

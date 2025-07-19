@@ -52,7 +52,7 @@ const SlotAccordionView = ({ plantId, year }) => {
     setLoading(true)
     try {
       const instance = NetworkManager(API.slots.GET_PLANTS_SUBTYPE)
-      const response = await instance.request({}, { plantId, year: 2025 })
+      const response = await instance.request({}, { plantId, year })
       if (response?.data) {
         setMonths(response?.data)
       }
@@ -408,7 +408,7 @@ const SlotAccordionView = ({ plantId, year }) => {
               <div className="bg-white rounded-lg px-4 py-2 shadow-sm border border-gray-200">
                 <div className="flex items-center space-x-2">
                   <Calendar className="w-4 h-4 text-gray-500" />
-                  <span className="text-sm font-medium text-gray-700">Year 2025</span>
+                  <span className="text-sm font-medium text-gray-700">Year {year}</span>
                 </div>
               </div>
             </div>

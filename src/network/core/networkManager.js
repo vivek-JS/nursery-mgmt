@@ -1,5 +1,4 @@
 // Higher Order Class to make all network calls
-import { Cookies } from "react-cookie"
 import axios from "axios"
 import { APIWithOfflineRouter, HTTP_METHODS } from "./httpHelper"
 import { APIConfig } from "../config/serverConfig"
@@ -39,8 +38,8 @@ export default function networkManager(router, withFile = false) {
   axios.defaults.headers.common["Content-Type"] = REQ_CONTENT_TYPE
   axios.defaults.headers.common["Accept-Language"] = "en"
 
-  const cookie = new Cookies()
-  const authToken = cookie.get(CookieKeys.Auth)
+  // Use localStorage instead of cookies for authentication
+  const authToken = localStorage.getItem(CookieKeys.Auth)
 
   if (authToken && authToken !== "undefined" && authToken !== "null") {
     axios.defaults.headers.common[API_AUTH_HEADER] = `${AUTH_TYPE} ${authToken}`
@@ -89,7 +88,7 @@ export default function networkManager(router, withFile = false) {
 
       if (err.response?.status === 401) {
         if (refreshCount < APIConfig.MAX_REFRESH_ATTEMPTS) {
-          const refreshToken = cookie.get(CookieKeys.REFRESH_TOKEN)
+          const refreshToken = localStorage.getItem(CookieKeys.REFRESH_TOKEN)
           await refreshAuthToken(refreshToken)
           refreshCount++
           return await request(body, params)
@@ -129,6 +128,7 @@ function urlBuilder(router, params) {
       uri = uri.concat("/", key)
     }
   }
+
   return uri
 }
 

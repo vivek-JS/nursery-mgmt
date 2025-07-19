@@ -15,6 +15,7 @@ import DoctorsModal from "./Modals/DoctorsModal"
 import MedicalHistory from "./Modals/MedicalHistory"
 import ToggleBtns from "./FormField/ToggleBtns"
 import FormField from "./FormField"
+import FarmerPhoneCorrectionModal from "./Modals/FarmerPhoneCorrectionModal"
 export {
   SearchInput,
   AddButton,
@@ -32,5 +33,6 @@ export {
   DoctorsModal,
   MedicalHistory,
   ToggleBtns,
-  FormField
+  FormField,
+  FarmerPhoneCorrectionModal
 }

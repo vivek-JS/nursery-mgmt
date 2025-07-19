@@ -809,7 +809,7 @@ const DealerDetails = () => {
                                         {slot.dates.startDay} to {slot.dates.endDay}
                                       </Typography>
                                       <Typography variant="caption" color="text.secondary">
-                                        {slot.dates.month} 2025
+                                        {slot.dates.month} {new Date().getFullYear()}
                                       </Typography>
                                     </Box>
                                   </Box>

@@ -1,4 +1,4 @@
-import React from "react"
+import React, { useEffect } from "react"
 import { Typography, Grid, Divider, Box } from "@mui/material"
 import { Formik } from "formik"
 import { useStyles } from "../commonStyles"
@@ -11,9 +11,12 @@ import PasswordChangeModal from "components/Modals/PasswordChangeModal"
 //import { GoogleLogin, FacebookLogin } from "library/SocialLogin"
 import peLogo from "assets/icons/ramLogo.png"
 import SideBanner from "assets/icons/ramInner.png"
+import { useDispatch } from "react-redux"
+import { loaderSlice } from "redux/slices/loaderSlice"
 
 const Login = () => {
   const styles = useStyles()
+  const dispatch = useDispatch()
 
   const {
     showLoader,
@@ -23,9 +26,15 @@ const Login = () => {
     togglePasswordVisiblity,
     handleLogin,
     handlePasswordChangeSuccess,
-    navigateToForgotPassword
+    navigateToForgotPassword,
+    loginResponse
     //navigateToSignUp
   } = useLoginController()
+
+  // Ensure global loader is hidden when login component mounts
+  useEffect(() => {
+    dispatch(loaderSlice.actions.hide())
+  }, [dispatch])
 
   return (
     <>
@@ -119,17 +128,18 @@ const Login = () => {
             style={{
               width: "80%",
               height: "100vh",
-              objectFit: "cover",
-              borderRadius: "30px"
-            }}></img>
+              objectFit: "cover"
+            }}
+            alt="Banner"
+          />
         </Grid>
       </Grid>
 
-      {/* Password Change Modal */}
       <PasswordChangeModal
         open={showPasswordChangeModal}
         onClose={() => setShowPasswordChangeModal(false)}
         onSuccess={handlePasswordChangeSuccess}
+        loginResponse={loginResponse}
       />
     </>
   )

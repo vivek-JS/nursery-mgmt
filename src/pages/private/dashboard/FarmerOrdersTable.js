@@ -15,6 +15,7 @@ import FarmReadyButton from "./FarmReadyButton"
 import { faHourglassEmpty } from "@fortawesome/free-solid-svg-icons"
 import { FaUser, FaCreditCard, FaEdit, FaFileAlt } from "react-icons/fa"
 import ConfirmDialog from "components/Modals/ConfirmDialog"
+import { useHasPaymentAddAccess, useIsOfficeAdmin } from "utils/roleUtils"
 
 const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   const today = new Date()
@@ -32,6 +33,14 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("")
   const [refresh, setRefresh] = useState(false)
   const [selectedRow, setSelectedRow] = useState(null)
+
+  // Role-based access control
+  const hasPaymentAddAccess = useHasPaymentAddAccess()
+  const isOfficeAdmin = useIsOfficeAdmin()
+
+  // Status tabs state
+  const [activeStatusTab, setActiveStatusTab] = useState("all")
+
   const orderStatusOptions = [
     { label: "Accepted", value: "ACCEPTED" },
     { label: "Pending", value: "PENDING" },
@@ -42,6 +51,18 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
     { label: "Ready For Dispatch", value: "FARM_READY" },
     { label: "Loading", value: "DISPATCH_PROCESS" }
   ]
+
+  // Status tabs configuration
+  const statusTabs = [
+    { key: "all", label: "All Orders", status: null },
+    { key: "pending", label: "Pending", status: "PENDING" },
+    { key: "accepted", label: "Accepted", status: "ACCEPTED" },
+    { key: "completed", label: "Completed", status: "COMPLETED" },
+    { key: "dispatched", label: "Dispatched", status: "DISPATCHED" },
+    { key: "farm_ready", label: "Farm Ready", status: "FARM_READY" },
+    { key: "rejected", label: "Rejected", status: "REJECTED" }
+  ]
+
   const [slots, setSlots] = useState([])
   const [updatedObject, setUpdatedObject] = useState(null)
   const [viewMode, setViewMode] = useState("booking")
@@ -56,7 +77,8 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
     modeOfPayment: "",
     bankName: "",
     remark: "",
-    receiptPhoto: []
+    receiptPhoto: [],
+    paymentStatus: isOfficeAdmin ? "PENDING" : "COLLECTED"
   })
   const [isOrderModalOpen, setIsOrderModalOpen] = useState(false)
   const [selectedOrder, setSelectedOrder] = useState(null)
@@ -111,9 +133,16 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
     setLoading(true)
     try {
       const instance = NetworkManager(API.ORDER.ADD_PAYMENT)
+
+      // Set payment status based on user role
+      let paymentStatus = newPayment.paymentStatus || "COLLECTED"
+      if (isOfficeAdmin) {
+        paymentStatus = "PENDING"
+      }
+
       const payload = {
         ...newPayment,
-        paymentStatus: "COLLECTED"
+        paymentStatus: paymentStatus
       }
       const response = await instance.request(payload, [orderId])
 
@@ -126,7 +155,8 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
           modeOfPayment: "",
           bankName: "",
           remark: "",
-          receiptPhoto: []
+          receiptPhoto: [],
+          paymentStatus: isOfficeAdmin ? "PENDING" : "COLLECTED"
         })
         // Refresh both modal data and main list
         await getOrders()
@@ -200,7 +230,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
     if (startDate && endDate) {
       getOrders()
     }
-  }, [debouncedSearchTerm, refresh, startDate, endDate, viewMode])
+  }, [debouncedSearchTerm, refresh, startDate, endDate, viewMode, activeStatusTab])
 
   // Listen for dispatch creation events to refresh the list
   useEffect(() => {
@@ -251,7 +281,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
       const instance = NetworkManager(API.ORDER.GET_SLOTS)
       const emps = await instance.request(
         {},
-        { plantId: plantId, subtypeId: subtypeId, year: "2025" }
+        { plantId: plantId, subtypeId: subtypeId, year: new Date().getFullYear().toString() }
       )
       let apiSlots = emps?.data?.slots[0].slots
       if (emps.data) {
@@ -290,14 +320,28 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
     const formattedStartDate = moment(date).format("DD-MM-YYYY")
     const edate = new Date(endDate)
     const formattedEndtDate = moment(edate).format("DD-MM-YYYY")
-    const instance = slotId
-      ? NetworkManager(API.ORDER.GET_ORDERS_SLOTS)
-      : NetworkManager(API.ORDER.GET_ORDERS)
+
+    // Use the new status-specific endpoint if a status tab is selected
+    const instance =
+      activeStatusTab !== "all"
+        ? NetworkManager(API.ORDER.GET_ORDERS_BY_STATUS)
+        : slotId
+        ? NetworkManager(API.ORDER.GET_ORDERS_SLOTS)
+        : NetworkManager(API.ORDER.GET_ORDERS)
+
     const params = {
       search: debouncedSearchTerm,
       startDate: formattedStartDate,
       endDate: formattedEndtDate,
       dispatched: viewMode === "booking" ? false : true
+    }
+
+    // Add status filter if a specific status tab is selected
+    if (activeStatusTab !== "all") {
+      const selectedTab = statusTabs.find((tab) => tab.key === activeStatusTab)
+      if (selectedTab && selectedTab.status) {
+        params.status = selectedTab.status
+      }
     }
 
     if (viewMode === "dispatched") {
@@ -350,9 +394,10 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
           statusChanges,
           orderRemarks,
           dealerOrder,
-          farmReadyDate
+          farmReadyDate,
+          orderBookingDate
         } = data || {}
-        const { startDay, endDay } = bookingSlot[0] || {}
+        const { startDay, endDay } = bookingSlot?.[0] || {}
         const start = moment(startDay, "DD-MM-YYYY").format("D")
         const end = moment(endDay, "DD-MM-YYYY").format("D")
         const monthYear = moment(startDay, "DD-MM-YYYY").format("MMMM, YYYY")
@@ -361,7 +406,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
           farmerName: dealerOrder ? `via ${salesPerson?.name}` : farmer?.name,
           plantType: `${plantType?.name} -> ${plantSubtype?.name}`,
           quantity: numberOfPlants,
-          orderDate: moment(createdAt).format("DD/MM/YYYY"),
+          orderDate: moment(orderBookingDate || createdAt).format("DD/MM/YYYY"),
           rate,
           total: `₹ ${Number(rate * numberOfPlants)}`,
           "Paid Amt": `₹ ${Number(getTotalPaidAmount(payment))}`,
@@ -557,6 +602,18 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
     })
   }
 
+  // Handle status tab change
+  const handleStatusTabChange = (tabKey) => {
+    setActiveStatusTab(tabKey)
+  }
+
+  // Get filtered orders count for each tab
+  const getOrdersCountByStatus = (status) => {
+    if (!orders || orders.length === 0) return 0
+    if (status === null) return orders.length
+    return orders.filter((order) => order.orderStatus === status).length
+  }
+
   return (
     <div className="w-full p-4 bg-gray-50">
       {(loading || patchLoading) && <PageLoader />}
@@ -590,48 +647,65 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
           </div>
         </div>
 
+        {/* Status Tabs */}
+        <div className="bg-white rounded-lg shadow-sm border p-2">
+          <div className="flex flex-wrap gap-2">
+            {statusTabs.map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => handleStatusTabChange(tab.key)}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                  activeStatusTab === tab.key
+                    ? "bg-blue-600 text-white shadow-md"
+                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                }`}>
+                {tab.label}
+                <span className="ml-2 bg-white bg-opacity-20 px-2 py-1 rounded-full text-xs">
+                  {getOrdersCountByStatus(tab.status)}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* View mode toggle buttons */}
         <div className="flex flex-wrap gap-2">
-          <div className="inline-flex items-center bg-white rounded-lg p-1 shadow-sm border">
-            <button
-              className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all duration-200 ${
-                viewMode === "booking"
-                  ? "bg-blue-500 text-white shadow-sm"
-                  : "text-gray-600 hover:text-gray-800"
-              }`}
-              onClick={() => setViewMode("booking")}>
-              All Orders
-            </button>
-            <button
-              className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all duration-200 ${
-                viewMode === "dispatched"
-                  ? "bg-blue-500 text-white shadow-sm"
-                  : "text-gray-600 hover:text-gray-800"
-              }`}
-              onClick={() => setViewMode("dispatched")}>
-              To Dispatch
-            </button>
-            <button
-              className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all duration-200 ${
-                viewMode === "farmready"
-                  ? "bg-blue-500 text-white shadow-sm"
-                  : "text-gray-600 hover:text-gray-800"
-              }`}
-              onClick={() => setViewMode("farmready")}>
-              Ready
-            </button>
-            {isDispatchtab && (
-              <button
-                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all duration-200 ${
-                  viewMode === "dispatch_process"
-                    ? "bg-blue-500 text-white shadow-sm"
-                    : "text-gray-600 hover:text-gray-800"
-                } animate-pulse`}
-                onClick={() => setViewMode("dispatch_process")}>
-                Loading
-              </button>
-            )}
-          </div>
+          <button
+            onClick={() => setViewMode("booking")}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+              viewMode === "booking"
+                ? "bg-blue-600 text-white"
+                : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+            }`}>
+            Booking Orders
+          </button>
+          <button
+            onClick={() => setViewMode("dispatched")}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+              viewMode === "dispatched"
+                ? "bg-blue-600 text-white"
+                : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+            }`}>
+            Dispatched Orders
+          </button>
+          <button
+            onClick={() => setViewMode("farmready")}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+              viewMode === "farmready"
+                ? "bg-blue-600 text-white"
+                : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+            }`}>
+            Farm Ready
+          </button>
+          <button
+            onClick={() => setViewMode("dispatch_process")}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+              viewMode === "dispatch_process"
+                ? "bg-blue-600 text-white"
+                : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+            }`}>
+            Loading
+          </button>
         </div>
       </div>
 
@@ -1221,11 +1295,16 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                       <div className="space-y-6">
                         <div className="flex items-center justify-between">
                           <h3 className="text-lg font-medium text-gray-900">Payment Management</h3>
-                          <button
-                            onClick={() => setShowPaymentForm(!showPaymentForm)}
-                            className="bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 transition-colors">
-                            {showPaymentForm ? "Cancel" : "+ Add Payment"}
-                          </button>
+                          {hasPaymentAddAccess && (
+                            <button
+                              onClick={() => setShowPaymentForm(!showPaymentForm)}
+                              className="bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 transition-colors">
+                              {showPaymentForm ? "Cancel" : "+ Add Payment"}
+                              {isOfficeAdmin && (
+                                <span className="ml-1 text-xs">(PENDING only)</span>
+                              )}
+                            </button>
+                          )}
                         </div>
 
                         {showPaymentForm && (
@@ -1279,6 +1358,29 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                               </div>
                               <div>
                                 <label className="text-sm text-gray-500 font-medium">
+                                  Payment Status
+                                </label>
+                                {hasPaymentAddAccess && !isOfficeAdmin ? (
+                                  <select
+                                    value={newPayment.paymentStatus || "COLLECTED"}
+                                    onChange={(e) =>
+                                      handlePaymentInputChange("paymentStatus", e.target.value)
+                                    }
+                                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 mt-1">
+                                    <option value="PENDING">PENDING</option>
+                                    <option value="COLLECTED">COLLECTED</option>
+                                    <option value="REJECTED">REJECTED</option>
+                                  </select>
+                                ) : (
+                                  <div className="w-full px-3 py-2 bg-gray-100 border rounded-lg mt-1 text-sm text-gray-600">
+                                    {isOfficeAdmin
+                                      ? "PENDING (Contact Accountant to change)"
+                                      : "Status cannot be changed"}
+                                  </div>
+                                )}
+                              </div>
+                              <div>
+                                <label className="text-sm text-gray-500 font-medium">
                                   Bank Name
                                 </label>
                                 <input
@@ -1313,14 +1415,19 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                 className="px-4 py-2 text-gray-600 border rounded-lg hover:bg-gray-50">
                                 Cancel
                               </button>
-                              <button
-                                onClick={() =>
-                                  handleAddPaymentWithConfirm(selectedOrder.details.orderid)
-                                }
-                                disabled={!newPayment.paidAmount || !newPayment.modeOfPayment}
-                                className="px-4 py-2 text-white bg-green-500 rounded-lg hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed">
-                                Add Payment
-                              </button>
+                              {hasPaymentAddAccess && (
+                                <button
+                                  onClick={() =>
+                                    handleAddPaymentWithConfirm(selectedOrder.details.orderid)
+                                  }
+                                  disabled={!newPayment.paidAmount || !newPayment.modeOfPayment}
+                                  className="px-4 py-2 text-white bg-green-500 rounded-lg hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed">
+                                  Add Payment
+                                  {isOfficeAdmin && (
+                                    <span className="ml-1 text-xs">(PENDING only)</span>
+                                  )}
+                                </button>
+                              )}
                             </div>
                           </div>
                         )}

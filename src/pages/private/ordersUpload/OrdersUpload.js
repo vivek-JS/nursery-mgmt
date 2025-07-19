@@ -59,7 +59,8 @@ const ExcelUpload = () => {
     name: "",
     slotSize: 5,
     dailyDispatchCapacity: 2000,
-    subtypes: [{ name: "", description: "", rates: [""] }]
+    buffer: 0,
+    subtypes: [{ name: "", description: "", rates: [""], buffer: 0 }]
   })
   const [creatingPlant, setCreatingPlant] = useState(false)
   const [plantCreated, setPlantCreated] = useState(false)
@@ -204,6 +205,12 @@ const ExcelUpload = () => {
       return
     }
 
+    // Validate buffer percentage
+    if (newPlantData.buffer < 0 || newPlantData.buffer > 100) {
+      Toast.error("Buffer must be between 0% and 100%")
+      return
+    }
+
     // Validate subtypes
     if (!newPlantData.subtypes || newPlantData.subtypes.length === 0) {
       Toast.error("At least one subtype is required")
@@ -237,7 +244,8 @@ const ExcelUpload = () => {
           name: "",
           slotSize: 5,
           dailyDispatchCapacity: 2000,
-          subtypes: [{ name: "", description: "", rates: [""] }]
+          buffer: 0,
+          subtypes: [{ name: "", description: "", rates: [""], buffer: 0 }]
         })
 
         // Optionally retry the import
@@ -262,7 +270,8 @@ const ExcelUpload = () => {
       name: plantName,
       slotSize: 5,
       dailyDispatchCapacity: 2000,
-      subtypes: [{ name: "", description: "", rates: [""] }]
+      buffer: 0,
+      subtypes: [{ name: "", description: "", rates: [""], buffer: 0 }]
     })
     setIsPlantModalOpen(true)
   }

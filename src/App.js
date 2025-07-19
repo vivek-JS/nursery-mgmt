@@ -13,6 +13,16 @@ import { SessionObserver } from "auth/Observer"
 import { persistor, store } from "redux/store"
 import { PersistGate } from "redux-persist/integration/react"
 
+// Test environment variables
+console.log("=== App.js Environment Test ===")
+console.log("REACT_APP_BASE_URL:", process.env.REACT_APP_BASE_URL)
+console.log("NODE_ENV:", process.env.NODE_ENV)
+console.log(
+  "All REACT_APP_ variables:",
+  Object.keys(process.env).filter((key) => key.startsWith("REACT_APP_"))
+)
+console.log("=== End App.js Test ===")
+
 /**
  * @description Check if browser is Safar
  * @description It'll be usefull for web notifications
