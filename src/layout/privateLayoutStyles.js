@@ -18,7 +18,6 @@ export const useStyles = () => {
       },
       "& .MuiDrawer-paper": {
         transition: "0.5s",
-
         overflowX: "hidden",
         marginBottom: "66px",
         background: theme.palette.background.secondary,
@@ -28,6 +27,20 @@ export const useStyles = () => {
         height: "98vh",
         "&:hover": {
           width: drawerWidth
+        },
+        // Custom scrollbar styling
+        "& .MuiBox-root::-webkit-scrollbar": {
+          width: "4px"
+        },
+        "& .MuiBox-root::-webkit-scrollbar-track": {
+          background: "transparent"
+        },
+        "& .MuiBox-root::-webkit-scrollbar-thumb": {
+          background: "rgba(255, 255, 255, 0.2)",
+          borderRadius: "2px"
+        },
+        "& .MuiBox-root::-webkit-scrollbar-thumb:hover": {
+          background: "rgba(255, 255, 255, 0.3)"
         }
       }
     },
@@ -52,7 +65,6 @@ export const useStyles = () => {
     },
     listItem: {
       paddingLeft: 12,
-
       color: theme.palette.text.main,
       width: "90%",
       margin: "auto",
@@ -72,13 +84,9 @@ export const useStyles = () => {
       color: theme.palette.text.white
     },
     logout: {
-      position: "absolute",
-      bottom: 0,
       color: theme.palette.secondary.main,
       fontSize: "14px",
-      fontWeight: "400",
-      left: 0,
-      right: 0
+      fontWeight: "400"
     }
   }
 }
