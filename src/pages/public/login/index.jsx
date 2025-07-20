@@ -1,5 +1,5 @@
 import React, { useEffect } from "react"
-import { Typography, Grid, Divider, Box } from "@mui/material"
+import { Typography, Grid, Divider, Box, Button } from "@mui/material"
 import { Formik } from "formik"
 import { useStyles } from "../commonStyles"
 import { LoadingButton } from "@mui/lab"
@@ -27,6 +27,7 @@ const Login = () => {
     handleLogin,
     handlePasswordChangeSuccess,
     navigateToForgotPassword,
+    openPasswordResetModal,
     loginResponse
     //navigateToSignUp
   } = useLoginController()
@@ -91,6 +92,26 @@ const Login = () => {
                         startIcon={<LockOpenIcon />}>
                         Sign In
                       </LoadingButton>
+
+                      {/* Manual Reset Password Button */}
+                      <Button
+                        variant="outlined"
+                        color="secondary"
+                        onClick={openPasswordResetModal}
+                        sx={{
+                          mt: 2,
+                          mb: 1,
+                          width: "100%",
+                          borderColor: "#1976d2",
+                          color: "#1976d2",
+                          "&:hover": {
+                            borderColor: "#1565c0",
+                            backgroundColor: "rgba(25, 118, 210, 0.04)"
+                          }
+                        }}>
+                        Reset Password
+                      </Button>
+
                       <Typography
                         onClick={navigateToForgotPassword}
                         sx={styles.forgotPassword}

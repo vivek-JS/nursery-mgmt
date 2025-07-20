@@ -21,16 +21,23 @@ export const useLoginController = () => {
 
     try {
       const response = await model.loginByEmail(values)
+      console.log("🔍 Login response:", response)
 
       if (response.success) {
         setLoginResponse(response)
+        console.log("🔍 Response details:")
+        console.log("   - isPasswordSet:", response.isPasswordSet)
+        console.log("   - forcePasswordReset:", response.forcePasswordReset)
+        console.log("   - user role:", response.user?.role)
 
         // Show password change modal if:
         // 1. Password is not set (isPasswordSet: false), OR
         // 2. Force password reset is required (forcePasswordReset: true)
         if (!response.isPasswordSet || response.forcePasswordReset) {
+          console.log("🔍 Opening password change modal automatically")
           setShowPasswordChangeModal(true)
         } else {
+          console.log("🔍 Navigating to dashboard (password already set)")
           // Navigate to dashboard if password is already set and no reset required
           setTimeout(() => {
             navigate("/u/dashboard", { replace: true })
@@ -66,6 +73,12 @@ export const useLoginController = () => {
     navigate("/auth/signup")
   }
 
+  // Manual function to open password reset modal
+  const openPasswordResetModal = () => {
+    console.log("🔍 Manually opening password reset modal")
+    setShowPasswordChangeModal(true)
+  }
+
   return {
     showPassword,
     showLoader,
@@ -75,6 +88,7 @@ export const useLoginController = () => {
     handleLogin,
     handlePasswordChangeSuccess,
     navigateToForgotPassword,
-    navigateToSignUp
+    navigateToSignUp,
+    openPasswordResetModal
   }
 }
