@@ -57,7 +57,7 @@ import { Toast } from "helpers/toasts/toastHelper"
 import FarmerOrdersTable from "../dashboard/FarmerOrdersTable"
 import moment from "moment"
 
-const Subtypes = ({ plantId, plantSubId }) => {
+const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
   const [selectedMonth, setSelectedMonth] = useState(0)
   const [slotsByMonth, setSlotsByMonth] = useState({})
   const [editValue, setEditValue] = useState("")
@@ -81,6 +81,15 @@ const Subtypes = ({ plantId, plantSubId }) => {
   const [editingSlotData, setEditingSlotData] = useState(null)
   const [editAmount, setEditAmount] = useState("0")
   const [operationType, setOperationType] = useState("add")
+  const [editBuffer, setEditBuffer] = useState("0")
+
+  // Buffer modal states
+  const [showBufferModal, setShowBufferModal] = useState(false)
+  const [bufferSlotData, setBufferSlotData] = useState(null)
+  const [bufferValue, setBufferValue] = useState("0")
+  const [showReleaseBufferModal, setShowReleaseBufferModal] = useState(false)
+  const [releaseBufferSlotData, setReleaseBufferSlotData] = useState(null)
+  const [releaseAmount, setReleaseAmount] = useState("0")
 
   const monthOrder = [
     "January",
@@ -105,7 +114,7 @@ const Subtypes = ({ plantId, plantSubId }) => {
     setLoading(true)
     try {
       const instance = NetworkManager(API.slots.GET_PLANTS_SLOTS)
-      const response = await instance.request({}, { plantId, subtypeId: plantSubId, year: 2025 })
+      const response = await instance.request({}, { plantId, subtypeId: plantSubId, year })
 
       const slots = response?.data?.slots[0]?.slots || []
       const groupedSlots = groupSlotsByMonth(slots)
@@ -198,13 +207,15 @@ const Subtypes = ({ plantId, plantSubId }) => {
     }, {})
   }
 
-  const startEditing = (e, currentValue, slotId) => {
+  const startEditing = (e, currentValue, slotId, currentBuffer = 0) => {
     e.stopPropagation()
     setEditingSlotData({
       currentValue: currentValue?.toString() || "0",
-      slotId
+      slotId,
+      currentBuffer
     })
     setEditAmount("0")
+    setEditBuffer(currentBuffer.toString())
     setOperationType("add")
     setShowEditModal(true)
   }
@@ -219,6 +230,7 @@ const Subtypes = ({ plantId, plantSubId }) => {
     setShowEditModal(false)
     setEditingSlotData(null)
     setEditAmount("0")
+    setEditBuffer("0")
   }
 
   const handleKeyPress = (e) => {
@@ -229,28 +241,75 @@ const Subtypes = ({ plantId, plantSubId }) => {
     }
   }
 
-  const handleSaveEdit = () => {
-    if (!editingSlotData || !editAmount) return
+  const updateSlotBuffer = async (slotId, buffer) => {
+    try {
+      const instance = NetworkManager(API.slots.UPDATE_SLOT_BUFFER)
+      const response = await instance.request({ buffer: parseFloat(buffer) }, [slotId, "buffer"])
+
+      if (response?.data?.success) {
+        Toast.success("Buffer updated successfully")
+        fetchPlantsSlots() // Refresh the data
+      } else {
+        Toast.error(response?.data?.message || "Failed to update buffer")
+      }
+    } catch (error) {
+      console.error("Error updating buffer:", error)
+      Toast.error("Failed to update buffer. Please try again.")
+    }
+  }
+
+  const handleSaveEdit = async () => {
+    if (!editingSlotData) return
 
     const currentVal = parseInt(editingSlotData.currentValue) || 0
     const amountToChange = parseInt(editAmount) || 0
+    const bufferValue = parseFloat(editBuffer) || 0
 
-    if (amountToChange <= 0) {
-      cancelEdit()
+    // Validate buffer
+    if (bufferValue < 0 || bufferValue > 100) {
+      Toast.error("Buffer must be between 0 and 100")
       return
     }
 
-    const newValue =
-      operationType === "add"
-        ? currentVal + amountToChange
-        : Math.max(0, currentVal - amountToChange)
+    try {
+      // Update plants if amount is provided
+      if (amountToChange > 0) {
+        if (operationType === "add") {
+          // Use the new addPlantsToCapacity endpoint
+          const instance = NetworkManager(API.slots.ADD_PLANTS_TO_CAPACITY)
+          const response = await instance.request({ plantsToAdd: amountToChange }, [
+            editingSlotData.slotId,
+            "add-capacity"
+          ])
 
-    setEditValue(newValue.toString())
+          if (response?.data?.success) {
+            Toast.success(`Added ${amountToChange} plants to capacity`)
+          } else {
+            Toast.error(response?.data?.message || "Failed to add plants")
+            return
+          }
+        } else {
+          // For subtraction, use the general update endpoint
+          const newValue = Math.max(0, currentVal - amountToChange)
+          setEditValue(newValue.toString())
+          setTimeout(() => {
+            updateSlots(null, editingSlotData.slotId, undefined, newValue.toString())
+          }, 0)
+        }
+      }
 
-    setTimeout(() => {
-      updateSlots(null, editingSlotData.slotId, undefined, newValue.toString())
+      // Update buffer if changed
+      if (bufferValue !== parseFloat(editingSlotData.currentBuffer || 0)) {
+        await updateSlotBuffer(editingSlotData.slotId, bufferValue)
+      }
+
+      // Refresh data
+      fetchPlantsSlots()
       setShowEditModal(false)
-    }, 0)
+    } catch (error) {
+      console.error("Error updating slot:", error)
+      Toast.error("Failed to update slot. Please try again.")
+    }
   }
 
   function calculateSummary(slots) {
@@ -287,6 +346,94 @@ const Subtypes = ({ plantId, plantSubId }) => {
   const openSlotDetails = (slot, monthName) => {
     setSelectedSlot({ ...slot, monthName })
     setDetailModalOpen(true)
+  }
+
+  const openBufferModal = (e, slot, currentBuffer = 0) => {
+    e.stopPropagation()
+    setBufferSlotData(slot)
+    setBufferValue(currentBuffer.toString())
+    setShowBufferModal(true)
+  }
+
+  const closeBufferModal = () => {
+    setShowBufferModal(false)
+    setBufferSlotData(null)
+    setBufferValue("0")
+  }
+
+  const openReleaseBufferModal = (slot) => {
+    setReleaseBufferSlotData(slot)
+    setReleaseAmount("0")
+    setShowReleaseBufferModal(true)
+  }
+
+  const closeReleaseBufferModal = () => {
+    setShowReleaseBufferModal(false)
+    setReleaseBufferSlotData(null)
+    setReleaseAmount("0")
+  }
+
+  const handleReleaseBuffer = async () => {
+    if (!releaseBufferSlotData) return
+
+    const amount = parseInt(releaseAmount) || 0
+
+    if (amount <= 0) {
+      Toast.error("Please enter a valid amount to release")
+      return
+    }
+
+    if (amount > (releaseBufferSlotData.bufferAmount || 0)) {
+      Toast.error("Cannot release more plants than available in buffer")
+      return
+    }
+
+    try {
+      const instance = NetworkManager(API.slots.RELEASE_BUFFER_PLANTS)
+      const response = await instance.request({ plantsToRelease: amount }, [
+        releaseBufferSlotData._id,
+        "release-buffer"
+      ])
+
+      if (response?.data?.success) {
+        Toast.success(`Released ${amount} plants from buffer`)
+        fetchPlantsSlots() // Refresh the data
+        closeReleaseBufferModal()
+      } else {
+        Toast.error(response?.data?.message || "Failed to release buffer plants")
+      }
+    } catch (error) {
+      console.error("Error releasing buffer plants:", error)
+      Toast.error("Failed to release buffer plants. Please try again.")
+    }
+  }
+
+  const handleBufferSave = async () => {
+    if (!bufferSlotData) return
+
+    const buffer = parseFloat(bufferValue) || 0
+
+    // Validate buffer
+    if (buffer < 0 || buffer > 100) {
+      Toast.error("Buffer must be between 0 and 100")
+      return
+    }
+
+    try {
+      const instance = NetworkManager(API.slots.UPDATE_SLOT_BUFFER)
+      const response = await instance.request({ buffer }, [bufferSlotData._id, "buffer"])
+
+      if (response?.data?.success) {
+        Toast.success("Buffer updated successfully")
+        fetchPlantsSlots() // Refresh the data
+        closeBufferModal()
+      } else {
+        Toast.error(response?.data?.message || "Failed to update buffer")
+      }
+    } catch (error) {
+      console.error("Error updating buffer:", error)
+      Toast.error("Failed to update buffer. Please try again.")
+    }
   }
 
   const availableMonths = monthOrder.filter((month) => slotsByMonth[month])
@@ -363,7 +510,7 @@ const Subtypes = ({ plantId, plantSubId }) => {
               </div>
             </div>
 
-            <div className="mb-8">
+            <div className="mb-6">
               <label className="block text-sm font-semibold text-gray-700 mb-2">
                 {operationType === "add" ? "Plants to Add" : "Plants to Remove"}
               </label>
@@ -382,6 +529,33 @@ const Subtypes = ({ plantId, plantSubId }) => {
                   }
                 }}
               />
+            </div>
+
+            <div className="mb-8">
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
+                Buffer Percentage
+              </label>
+              <Input
+                value={editBuffer}
+                onChange={(e) => setEditBuffer(e.target.value)}
+                fullWidth
+                size="large"
+                type="number"
+                min="0"
+                max="100"
+                step="0.1"
+                placeholder="Enter buffer percentage (0-100)"
+                sx={{
+                  "& .MuiOutlinedInput-root": {
+                    borderRadius: "0.75rem",
+                    fontSize: "1.125rem",
+                    fontWeight: "600"
+                  }
+                }}
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Additional buffer percentage for this slot (0-100%)
+              </p>
             </div>
 
             <div className="flex justify-end space-x-3">
@@ -409,13 +583,23 @@ const Subtypes = ({ plantId, plantSubId }) => {
     const start = moment(selectedSlot.startDay, "DD-MM-YYYY").format("MMM D")
     const end = moment(selectedSlot.endDay, "DD-MM-YYYY").format("MMM D")
     const year = moment(selectedSlot.startDay, "DD-MM-YYYY").format("YYYY")
-    const slotTotalCapacity = selectedSlot.totalPlants + selectedSlot.totalBookedPlants
-    const slotAvailablePlants = selectedSlot.totalPlants
+
+    // Use buffer-adjusted values if available, otherwise fall back to original calculation
+    const effectiveTotalCapacity =
+      selectedSlot.bufferAdjustedCapacity ||
+      selectedSlot.totalPlants + selectedSlot.totalBookedPlants
+    const effectiveAvailablePlants =
+      selectedSlot.availablePlants !== undefined
+        ? selectedSlot.availablePlants
+        : selectedSlot.totalPlants
+    const effectiveTotalPlants =
+      selectedSlot.totalPlants !== undefined ? selectedSlot.totalPlants : selectedSlot.totalPlants
+
     const slotBookedPercentage = calculatePercentage(
       selectedSlot.totalBookedPlants,
-      slotTotalCapacity
+      effectiveTotalCapacity
     )
-    const slotIsOverbooked = slotAvailablePlants < 0 || slotBookedPercentage > 100
+    const slotIsOverbooked = effectiveAvailablePlants < 0 || slotBookedPercentage > 100
 
     return (
       <Modal
@@ -480,16 +664,45 @@ const Subtypes = ({ plantId, plantSubId }) => {
                     />
                   )}
                 </div>
-                <IconButton onClick={() => setDetailModalOpen(false)}>
-                  <X className="w-6 h-6" />
-                </IconButton>
+                <div className="flex items-center space-x-2">
+                  <Tooltip title="Edit Plants">
+                    <IconButton
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        startEditing(
+                          e,
+                          effectiveAvailablePlants,
+                          selectedSlot._id,
+                          selectedSlot.effectiveBuffer || selectedSlot.buffer || 0
+                        )
+                        setDetailModalOpen(false)
+                      }}
+                      sx={{ color: "#3b82f6" }}>
+                      <Edit2 className="w-5 h-5" />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="Update Buffer">
+                    <IconButton
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        openBufferModal(e, selectedSlot, selectedSlot.buffer || 0)
+                        setDetailModalOpen(false)
+                      }}
+                      sx={{ color: "#8b5cf6" }}>
+                      <Shield className="w-5 h-5" />
+                    </IconButton>
+                  </Tooltip>
+                  <IconButton onClick={() => setDetailModalOpen(false)}>
+                    <X className="w-6 h-6" />
+                  </IconButton>
+                </div>
               </div>
             </div>
 
             {/* Modal Content */}
             <div className="flex-1 overflow-auto p-6">
               {/* Stats Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
                 <Card>
                   <CardContent className="p-4">
                     <div className="flex items-center justify-between">
@@ -497,14 +710,19 @@ const Subtypes = ({ plantId, plantSubId }) => {
                         <p className="text-sm text-gray-600">Available Plants</p>
                         <p
                           className={`text-2xl font-bold ${
-                            slotAvailablePlants < 0 ? "text-red-600" : "text-green-600"
+                            effectiveAvailablePlants < 0 ? "text-red-600" : "text-green-600"
                           }`}>
-                          {slotAvailablePlants.toLocaleString()}
+                          {effectiveAvailablePlants.toLocaleString()}
                         </p>
+                        {selectedSlot.bufferAmount > 0 && (
+                          <p className="text-xs text-gray-500">
+                            -{selectedSlot.bufferAmount?.toLocaleString() || 0} buffer applied
+                          </p>
+                        )}
                       </div>
                       <Target
                         className={`w-8 h-8 ${
-                          slotAvailablePlants < 0 ? "text-red-500" : "text-green-500"
+                          effectiveAvailablePlants < 0 ? "text-red-500" : "text-green-500"
                         }`}
                       />
                     </div>
@@ -542,6 +760,31 @@ const Subtypes = ({ plantId, plantSubId }) => {
                       ) : (
                         <TrendingUp className="w-8 h-8 text-gray-500" />
                       )}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-gray-600">Effective Buffer</p>
+                        <p className="text-2xl font-bold text-purple-600">
+                          {selectedSlot.effectiveBuffer || selectedSlot.buffer || 0}%
+                        </p>
+                        {selectedSlot.effectiveBuffer &&
+                          selectedSlot.effectiveBuffer !== (selectedSlot.buffer || 0) && (
+                            <p className="text-xs text-purple-600">
+                              Inherited from{" "}
+                              {selectedSlot.effectiveBuffer === selectedSlot.buffer
+                                ? "slot"
+                                : selectedSlot.effectiveBuffer === selectedSlot.subtypeBuffer
+                                ? "subtype"
+                                : "plant"}
+                            </p>
+                          )}
+                      </div>
+                      <Shield className="w-8 h-8 text-purple-500" />
                     </div>
                   </CardContent>
                 </Card>
@@ -788,6 +1031,235 @@ const Subtypes = ({ plantId, plantSubId }) => {
       <SlotDetailModal />
       <SalesmenRestrictionModal />
 
+      {/* Buffer Modal */}
+      <Modal
+        open={showBufferModal}
+        onClose={closeBufferModal}
+        closeAfterTransition
+        BackdropComponent={Backdrop}
+        BackdropProps={{
+          timeout: 500
+        }}>
+        <Fade in={showBufferModal}>
+          <Box
+            sx={{
+              position: "absolute",
+              top: "50%",
+              left: "50%",
+              transform: "translate(-50%, -50%)",
+              width: 450,
+              bgcolor: "background.paper",
+              borderRadius: "16px",
+              boxShadow: 24,
+              p: 4
+            }}>
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-2xl font-bold text-gray-900">Update Buffer</h3>
+              <div className="p-2 bg-purple-50 rounded-full">
+                <Shield className="w-6 h-6 text-purple-600" />
+              </div>
+            </div>
+
+            {bufferSlotData && (
+              <div className="mb-6">
+                <div className="bg-gray-50 rounded-lg p-4 mb-4">
+                  <h4 className="font-semibold text-gray-900 mb-2">Slot Information</h4>
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <span className="text-gray-600">Date Range:</span>
+                      <p className="font-medium">
+                        {moment(bufferSlotData.startDay, "DD-MM-YYYY").format("MMM D")} -{" "}
+                        {moment(bufferSlotData.endDay, "DD-MM-YYYY").format("MMM D")}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">Available Plants:</span>
+                      <p className="font-medium">{bufferSlotData.totalPlants?.toLocaleString()}</p>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">Current Buffer:</span>
+                      <p className="font-medium text-purple-600">{bufferSlotData.buffer || 0}%</p>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">Status:</span>
+                      <p className="font-medium">{bufferSlotData.status ? "Active" : "Inactive"}</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mb-6">
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    Buffer Percentage
+                  </label>
+                  <Input
+                    value={bufferValue}
+                    onChange={(e) => setBufferValue(e.target.value)}
+                    fullWidth
+                    size="large"
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.1"
+                    placeholder="Enter buffer percentage (0-100)"
+                    autoFocus
+                    sx={{
+                      "& .MuiOutlinedInput-root": {
+                        borderRadius: "0.75rem",
+                        fontSize: "1.125rem",
+                        fontWeight: "600"
+                      }
+                    }}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Additional buffer percentage for this slot (0-100%)
+                  </p>
+                </div>
+
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+                  <div className="flex items-start space-x-3">
+                    <div className="p-1 bg-blue-100 rounded">
+                      <Target className="w-4 h-4 text-blue-600" />
+                    </div>
+                    <div>
+                      <h5 className="font-medium text-blue-900 mb-1">What is Buffer?</h5>
+                      <p className="text-sm text-blue-700">
+                        Buffer is an additional percentage of plants kept as reserve for this slot.
+                        This helps manage unexpected demand or production variations.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={closeBufferModal}
+                className="px-6 py-3 text-sm font-medium text-gray-700 bg-gray-100 rounded-xl hover:bg-gray-200 transition-colors duration-200">
+                Cancel
+              </button>
+              <button
+                onClick={handleBufferSave}
+                className="px-6 py-3 text-sm font-medium text-white bg-purple-600 rounded-xl hover:bg-purple-700 transition-colors duration-200 shadow-lg">
+                Update Buffer
+              </button>
+            </div>
+          </Box>
+        </Fade>
+      </Modal>
+
+      {/* Release Buffer Modal */}
+      <Modal
+        open={showReleaseBufferModal}
+        onClose={closeReleaseBufferModal}
+        closeAfterTransition
+        BackdropComponent={Backdrop}
+        BackdropProps={{
+          timeout: 500
+        }}>
+        <Fade in={showReleaseBufferModal}>
+          <Box
+            sx={{
+              position: "absolute",
+              top: "50%",
+              left: "50%",
+              transform: "translate(-50%, -50%)",
+              width: 400,
+              bgcolor: "background.paper",
+              borderRadius: "16px",
+              boxShadow: 24,
+              p: 4
+            }}>
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-2xl font-bold text-gray-900">Release Buffer Plants</h3>
+              <div className="p-2 bg-purple-50 rounded-full">
+                <Shield className="w-6 h-6 text-purple-600" />
+              </div>
+            </div>
+
+            {releaseBufferSlotData && (
+              <div className="mb-6">
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Slot Information
+                </label>
+                <div className="p-3 bg-gray-50 rounded-lg">
+                  <p className="text-sm text-gray-600">
+                    <span className="font-medium">Available Buffer:</span>{" "}
+                    {releaseBufferSlotData.bufferAmount?.toLocaleString() || 0} plants
+                  </p>
+                  <p className="text-sm text-gray-600">
+                    <span className="font-medium">Current Available:</span>{" "}
+                    {releaseBufferSlotData.availablePlants?.toLocaleString() || 0} plants
+                  </p>
+                </div>
+              </div>
+            )}
+
+            <div className="mb-6">
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
+                Plants to Release from Buffer
+              </label>
+              <Input
+                value={releaseAmount}
+                onChange={(e) => setReleaseAmount(e.target.value)}
+                fullWidth
+                size="large"
+                autoFocus
+                type="number"
+                placeholder="Enter number of plants"
+                sx={{
+                  "& .MuiOutlinedInput-root": {
+                    borderRadius: "0.75rem",
+                    fontSize: "1.125rem",
+                    fontWeight: "600"
+                  }
+                }}
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Maximum: {releaseBufferSlotData?.bufferAmount?.toLocaleString() || 0} plants
+              </p>
+            </div>
+
+            <div className="flex space-x-3">
+              <Button
+                fullWidth
+                variant="outlined"
+                onClick={closeReleaseBufferModal}
+                sx={{
+                  borderRadius: "0.75rem",
+                  py: 1.5,
+                  borderColor: "#6b7280",
+                  color: "#6b7280",
+                  "&:hover": {
+                    borderColor: "#4b5563",
+                    backgroundColor: "#f9fafb"
+                  }
+                }}>
+                Cancel
+              </Button>
+              <Button
+                fullWidth
+                variant="contained"
+                onClick={handleReleaseBuffer}
+                disabled={!releaseAmount || parseInt(releaseAmount) <= 0}
+                sx={{
+                  borderRadius: "0.75rem",
+                  py: 1.5,
+                  backgroundColor: "#8b5cf6",
+                  "&:hover": {
+                    backgroundColor: "#7c3aed"
+                  },
+                  "&:disabled": {
+                    backgroundColor: "#d1d5db"
+                  }
+                }}>
+                Release Plants
+              </Button>
+            </div>
+          </Box>
+        </Fade>
+      </Modal>
+
       {/* Enhanced Delete Confirmation Dialog */}
       <Dialog
         open={deleteDialogOpen}
@@ -971,20 +1443,32 @@ const Subtypes = ({ plantId, plantSubId }) => {
                     status,
                     totalBookedPlants,
                     _id,
-                    isManual
+                    isManual,
+                    buffer = 0
                   } = slot || {}
 
                   const start = moment(startDay, "DD-MM-YYYY").format("MMM D")
                   const end = moment(endDay, "DD-MM-YYYY").format("MMM D")
                   const year = moment(startDay, "DD-MM-YYYY").format("YYYY")
-                  const slotTotalCapacity = totalPlants + totalBookedPlants
-                  const slotAvailablePlants = totalPlants
+
+                  // Use buffer-adjusted values if available, otherwise fall back to original calculation
+                  const effectiveTotalCapacity =
+                    slot.bufferAdjustedCapacity || totalPlants + totalBookedPlants
+                  const effectiveAvailablePlants =
+                    slot.availablePlants !== undefined ? slot.availablePlants : totalPlants
+                  const effectiveTotalPlants =
+                    slot.totalPlants !== undefined ? slot.totalPlants : totalPlants
+
                   const slotBookedPercentage = calculatePercentage(
                     totalBookedPlants,
-                    slotTotalCapacity
+                    effectiveTotalCapacity
                   )
-                  const slotStatusColor = getStatusColor(slotBookedPercentage, slotAvailablePlants)
-                  const slotIsOverbooked = slotAvailablePlants < 0 || slotBookedPercentage > 100
+                  const slotStatusColor = getStatusColor(
+                    slotBookedPercentage,
+                    effectiveAvailablePlants
+                  )
+                  const slotIsOverbooked =
+                    effectiveAvailablePlants < 0 || slotBookedPercentage > 100
 
                   return (
                     <Card
@@ -1017,10 +1501,26 @@ const Subtypes = ({ plantId, plantSubId }) => {
                                 size="small"
                                 onClick={(e) => {
                                   e.stopPropagation()
-                                  startEditing(e, totalPlants, _id)
+                                  startEditing(e, totalPlants, _id, buffer)
                                 }}
-                                sx={{ color: slotAvailablePlants < 0 ? "#dc2626" : "#059669" }}>
+                                sx={{
+                                  color:
+                                    (slot.availablePlants || totalPlants) < 0
+                                      ? "#dc2626"
+                                      : "#059669"
+                                }}>
                                 <Edit2 className="w-4 h-4" />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Update Buffer">
+                              <IconButton
+                                size="small"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  openBufferModal(e, slot, buffer)
+                                }}
+                                sx={{ color: "#8b5cf6" }}>
+                                <Shield className="w-4 h-4" />
                               </IconButton>
                             </Tooltip>
                             <Tooltip title="View Details">
@@ -1052,24 +1552,100 @@ const Subtypes = ({ plantId, plantSubId }) => {
                         </div>
 
                         {/* Stats */}
-                        <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                        <div className="grid grid-cols-2 gap-2 text-center text-xs mb-2">
                           <div>
                             <p className="text-gray-600">Available</p>
                             <p
                               className={`font-bold ${
-                                slotAvailablePlants < 0 ? "text-red-600" : "text-green-600"
+                                slot.availablePlants < 0 ? "text-red-600" : "text-green-600"
                               }`}>
-                              {slotAvailablePlants.toLocaleString()}
+                              {slot.availablePlants?.toLocaleString() ||
+                                totalPlants.toLocaleString()}
                             </p>
                           </div>
                           <div>
                             <p className="text-gray-600">Booked</p>
                             <p className="font-bold text-blue-600">{totalBookedPlants}</p>
                           </div>
-                          <div>
-                            <p className="text-gray-600">Total</p>
-                            <p className="font-bold text-gray-900">{slotTotalCapacity}</p>
+                        </div>
+
+                        {/* Buffer Info */}
+                        <div className="mb-2 p-2 bg-purple-50 rounded-lg border border-purple-200">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-purple-700 font-medium">Buffer</span>
+                            <div className="flex items-center space-x-2">
+                              <span className="text-purple-600 font-bold">
+                                {slot.effectiveBuffer || buffer || 0}%
+                              </span>
+                              <Tooltip title="Update Buffer">
+                                <IconButton
+                                  size="small"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    openBufferModal(e, slot, slot.effectiveBuffer || buffer)
+                                  }}
+                                  sx={{
+                                    color: "#8b5cf6",
+                                    padding: "2px",
+                                    "&:hover": { backgroundColor: "rgba(139, 92, 246, 0.1)" }
+                                  }}>
+                                  <Shield className="w-3 h-3" />
+                                </IconButton>
+                              </Tooltip>
+                            </div>
                           </div>
+                          {slot.effectiveBuffer && slot.effectiveBuffer !== (buffer || 0) && (
+                            <div className="text-xs text-purple-600 mt-1">
+                              Inherited from{" "}
+                              {slot.effectiveBuffer === slot.buffer
+                                ? "slot"
+                                : slot.effectiveBuffer === slot.subtypeBuffer
+                                ? "subtype"
+                                : "plant"}
+                            </div>
+                          )}
+                          {/* Release Buffer Button */}
+                          {slot.bufferAmount > 0 && (
+                            <div className="mt-2">
+                              <Tooltip title="Release plants from buffer to available">
+                                <Button
+                                  size="small"
+                                  variant="outlined"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    openReleaseBufferModal(slot)
+                                  }}
+                                  sx={{
+                                    width: "100%",
+                                    fontSize: "0.7rem",
+                                    padding: "2px 4px",
+                                    borderColor: "#8b5cf6",
+                                    color: "#8b5cf6",
+                                    "&:hover": {
+                                      backgroundColor: "rgba(139, 92, 246, 0.1)",
+                                      borderColor: "#7c3aed"
+                                    }
+                                  }}>
+                                  <Shield className="w-3 h-3 mr-1" />
+                                  Release Buffer ({slot.bufferAmount?.toLocaleString() || 0})
+                                </Button>
+                              </Tooltip>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="text-center text-xs">
+                          <p className="text-gray-600">Total Capacity</p>
+                          <p className="font-bold text-gray-900">
+                            {slot.originalTotalPlants
+                              ? slot.originalTotalPlants.toLocaleString()
+                              : (totalPlants + totalBookedPlants).toLocaleString()}
+                          </p>
+                          {slot.bufferAmount > 0 && (
+                            <p className="text-xs text-gray-500">
+                              -{slot.bufferAmount?.toLocaleString() || 0} buffer
+                            </p>
+                          )}
                         </div>
 
                         {/* Controls */}

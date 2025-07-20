@@ -9,7 +9,7 @@ import { HTTP_METHODS, APIRouter, APIWithOfflineRouter, APICustomRouter } from "
 export const API = {
   AUTH: {
     // if you want to return offline json if api fails
-    LOGIN: new APIWithOfflineRouter("api/v2/user/login", HTTP_METHODS.POST, OFFLINE.LOGIN),
+    LOGIN: new APIWithOfflineRouter("/user/login", HTTP_METHODS.POST, OFFLINE.LOGIN),
     LOGIN_GOOGLE: new APIWithOfflineRouter(
       "/user/google-login/",
       HTTP_METHODS.POST,
@@ -61,14 +61,20 @@ export const API = {
     )
   },
   USER: {
-    PROFILE: new APIWithOfflineRouter("/user/profile/", HTTP_METHODS.GET, OFFLINE.PROFILE),
-    UPDATE: new APIRouter("/user/profile/", HTTP_METHODS.PATCH, OFFLINE.UPDATE),
-    LOGOUT: new APIWithOfflineRouter("user/logout", HTTP_METHODS.POST, OFFLINE.LOGOUT),
-    GET_USERS: new APIRouter("user/allusers", HTTP_METHODS.GET),
-    GET_DEALERS: new APIRouter("user/dealers", HTTP_METHODS.GET),
-    GET_DEALERS_STATS: new APIRouter("user/dealerssss/stats", HTTP_METHODS.GET),
-
-    GET_DEALERS_TRANSACTIONS: new APIRouter("user/dealers/transactions", HTTP_METHODS.GET)
+    PROFILE: new APIRouter("/user/aboutMe", HTTP_METHODS.GET),
+    LOGOUT: new APIRouter("/user/logout", HTTP_METHODS.POST),
+    CHANGE_PASSWORD: new APIRouter("/user/change-password", HTTP_METHODS.POST),
+    RESET_PASSWORD: new APIRouter("/user/reset-password", HTTP_METHODS.POST),
+    GET_USERS: new APIRouter("/user/allusers", HTTP_METHODS.GET),
+    GET_DEALERS: new APIRouter("/user/dealers", HTTP_METHODS.GET),
+    GET_DEALERS_STATS: new APIRouter("/user/dealerssss/stats", HTTP_METHODS.GET),
+    GET_DEALERS_TRANSACTIONS: new APIRouter("/user/dealers/transactions", HTTP_METHODS.GET),
+    GET_DEALER_WALLET_DETAILS: new APIRouter("/user/wallet-details", HTTP_METHODS.GET),
+    GET_DEALER_WALLET_TRANSACTIONS: new APIRouter("/user/dealers/transactions", HTTP_METHODS.GET),
+    EXPORT_DEALER_WALLET_TRANSACTIONS_CSV: new APIRouter(
+      "/user/dealers/transactions",
+      HTTP_METHODS.GET
+    )
   },
   PATIENT: {
     ADD_PATIENT_LIST: new APIRouter("api/v2/users/", HTTP_METHODS.POST, OFFLINE.PROFILE),
@@ -152,39 +158,39 @@ export const API = {
   },
   INVENTORY: {
     // Dashboard
-    GET_DASHBOARD: new APIRouter("api/v1/inventory/dashboard", HTTP_METHODS.GET),
+    GET_DASHBOARD: new APIRouter("/inventory/dashboard", HTTP_METHODS.GET),
 
     // Products
-    GET_ALL_PRODUCTS: new APIRouter("api/v1/inventory/products", HTTP_METHODS.GET),
-    GET_PRODUCT_BY_ID: new APIRouter("api/v1/inventory/products", HTTP_METHODS.GET),
-    CREATE_PRODUCT: new APIRouter("api/v1/inventory/products", HTTP_METHODS.POST),
-    UPDATE_PRODUCT: new APIRouter("api/v1/inventory/products", HTTP_METHODS.PUT),
-    DELETE_PRODUCT: new APIRouter("api/v1/inventory/products", HTTP_METHODS.DEL),
+    GET_ALL_PRODUCTS: new APIRouter("/inventory/products", HTTP_METHODS.GET),
+    GET_PRODUCT_BY_ID: new APIRouter("/inventory/products", HTTP_METHODS.GET),
+    CREATE_PRODUCT: new APIRouter("/inventory/products", HTTP_METHODS.POST),
+    UPDATE_PRODUCT: new APIRouter("/inventory/products", HTTP_METHODS.PUT),
+    DELETE_PRODUCT: new APIRouter("/inventory/products", HTTP_METHODS.DEL),
 
     // Batches
-    GET_ALL_BATCHES: new APIRouter("api/v1/inventory/batches", HTTP_METHODS.GET),
-    GET_BATCH_BY_ID: new APIRouter("api/v1/inventory/batches", HTTP_METHODS.GET),
-    CREATE_BATCH: new APIRouter("api/v1/inventory/batches", HTTP_METHODS.POST),
-    UPDATE_BATCH: new APIRouter("api/v1/inventory/batches", HTTP_METHODS.PUT),
-    DELETE_BATCH: new APIRouter("api/v1/inventory/batches", HTTP_METHODS.DEL),
+    GET_ALL_BATCHES: new APIRouter("/inventory/batches", HTTP_METHODS.GET),
+    GET_BATCH_BY_ID: new APIRouter("/inventory/batches", HTTP_METHODS.GET),
+    CREATE_BATCH: new APIRouter("/inventory/batches", HTTP_METHODS.POST),
+    UPDATE_BATCH: new APIRouter("/inventory/batches", HTTP_METHODS.PUT),
+    DELETE_BATCH: new APIRouter("/inventory/batches", HTTP_METHODS.DEL),
 
     // Inwards
-    GET_ALL_INWARDS: new APIRouter("api/v1/inventory/inwards", HTTP_METHODS.GET),
-    GET_INWARD_BY_ID: new APIRouter("api/v1/inventory/inwards", HTTP_METHODS.GET),
-    CREATE_INWARD: new APIRouter("api/v1/inventory/inwards", HTTP_METHODS.POST),
-    UPDATE_INWARD: new APIRouter("api/v1/inventory/inwards", HTTP_METHODS.PUT),
-    DELETE_INWARD: new APIRouter("api/v1/inventory/inwards", HTTP_METHODS.DEL),
+    GET_ALL_INWARDS: new APIRouter("/inventory/inwards", HTTP_METHODS.GET),
+    GET_INWARD_BY_ID: new APIRouter("/inventory/inwards", HTTP_METHODS.GET),
+    CREATE_INWARD: new APIRouter("/inventory/inwards", HTTP_METHODS.POST),
+    UPDATE_INWARD: new APIRouter("/inventory/inwards", HTTP_METHODS.PUT),
+    DELETE_INWARD: new APIRouter("/inventory/inwards", HTTP_METHODS.DEL),
 
     // Outwards
-    GET_ALL_OUTWARDS: new APIRouter("api/v1/inventory/outwards", HTTP_METHODS.GET),
-    GET_OUTWARD_BY_ID: new APIRouter("api/v1/inventory/outwards", HTTP_METHODS.GET),
-    CREATE_OUTWARD: new APIRouter("api/v1/inventory/outwards", HTTP_METHODS.POST),
-    UPDATE_OUTWARD: new APIRouter("api/v1/inventory/outwards", HTTP_METHODS.PUT),
-    DELETE_OUTWARD: new APIRouter("api/v1/inventory/outwards", HTTP_METHODS.DEL),
+    GET_ALL_OUTWARDS: new APIRouter("/inventory/outwards", HTTP_METHODS.GET),
+    GET_OUTWARD_BY_ID: new APIRouter("/inventory/outwards", HTTP_METHODS.GET),
+    CREATE_OUTWARD: new APIRouter("/inventory/outwards", HTTP_METHODS.POST),
+    UPDATE_OUTWARD: new APIRouter("/inventory/outwards", HTTP_METHODS.PUT),
+    DELETE_OUTWARD: new APIRouter("/inventory/outwards", HTTP_METHODS.DEL),
 
     // Stock Adjustments
-    GET_ALL_ADJUSTMENTS: new APIRouter("api/v1/inventory/adjustments", HTTP_METHODS.GET),
-    CREATE_ADJUSTMENT: new APIRouter("api/v1/inventory/adjustments", HTTP_METHODS.POST),
+    GET_ALL_ADJUSTMENTS: new APIRouter("/inventory/adjustments", HTTP_METHODS.GET),
+    CREATE_ADJUSTMENT: new APIRouter("/inventory/adjustments", HTTP_METHODS.POST),
 
     // Legacy endpoints (keeping for backward compatibility)
     ADD_INVENTORY: new APIRouter(
@@ -220,28 +226,21 @@ export const API = {
     CHECK: new APICustomRouter("https://example.com", "/test", HTTP_METHODS.GET)
   },
   EMPLOYEE: {
-    ADD_EMPLOYEE: new APIRouter(
-      "api/v1/employee/createEmployee",
-      HTTP_METHODS.POST,
-      OFFLINE.PROFILE
-    ),
+    ADD_EMPLOYEE: new APIRouter("/employee/createEmployee", HTTP_METHODS.POST, OFFLINE.PROFILE),
     ADD_EMPLOYEE_LOGIN: new APIRouter("user/createUser", HTTP_METHODS.POST, OFFLINE.PROFILE),
 
     GET_EMPLOYEE: new APIRouter("employee/getEmployees", HTTP_METHODS.GET, OFFLINE.PROFILE),
-    DELETE_EMPLOYEE: new APIRouter(
-      "api/v1/employee/deleteEmployee",
-      HTTP_METHODS.DEL,
-      OFFLINE.PROFILE
-    ),
-    UPDATE_EMPLOYEE: new APIRouter(
-      "api/v1/employee/updateEmployee",
-      HTTP_METHODS.PATCH,
-      OFFLINE.PROFILE
-    )
+    DELETE_EMPLOYEE: new APIRouter("/employee/deleteEmployee", HTTP_METHODS.DEL, OFFLINE.PROFILE),
+    UPDATE_EMPLOYEE: new APIRouter("/employee/updateEmployee", HTTP_METHODS.PATCH, OFFLINE.PROFILE)
   },
   ORDER: {
     GET_ORDERS: new APIRouter("/order/getOrders", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_ORDERS_SLOTS: new APIRouter("/order/getOrders", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_ORDERS_BY_STATUS: new APIRouter("/order/by-status", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_PAYMENTS: new APIRouter("/order/payments", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_VILLAGES: new APIRouter("/order/villages", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_DISTRICTS: new APIRouter("/order/districts", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    CREATE_DEALER_ORDER: new APIRouter("/order/dealer-order", HTTP_METHODS.POST, OFFLINE.PROFILE),
     UPDATE_ORDER: new APIRouter("/order/updateOrder", HTTP_METHODS.PATCH, OFFLINE.PROFILE),
     UPDATE_PAYMENT_STATUS: new APIRouter(
       "/order/updatePaymentStatus",
@@ -264,6 +263,7 @@ export const API = {
     GET_PLANTS: new APIRouter("/slots/get-plants", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_PLANTS_SUBTYPE: new APIRouter("/slots/subtyps", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_PLANTS_SLOTS: new APIRouter("/slots/getslots", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_SLOT_DETAILS: new APIRouter("/slots/:slotId/details", HTTP_METHODS.GET, OFFLINE.PROFILE),
     UPDATE_SLOT: new APIRouter("/slots", HTTP_METHODS.PUT, OFFLINE.PROFILE),
     ADD_MANUAL_SLOT: new APIRouter("/slots/manual", HTTP_METHODS.POST, OFFLINE.PROFILE),
     DELETE_MANUAL_SLOT: new APIRouter("/slots/manual", HTTP_METHODS.DEL, OFFLINE.PROFILE),
@@ -273,7 +273,25 @@ export const API = {
       "/salesmen-access",
       HTTP_METHODS.PUT,
       OFFLINE.PROFILE
-    )
+    ),
+    UPDATE_SLOT_BUFFER: new APIRouter("/slots/buffer", HTTP_METHODS.PUT, OFFLINE.PROFILE),
+    RELEASE_BUFFER_PLANTS: new APIRouter(
+      "/slots/release-buffer",
+      HTTP_METHODS.POST,
+      OFFLINE.PROFILE
+    ),
+    ADD_PLANTS_TO_CAPACITY: new APIRouter("/slots", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    CREATE_SLOTS_FOR_MULTIPLE_YEARS: new APIRouter(
+      "/slots/create-multiple-years",
+      HTTP_METHODS.POST,
+      OFFLINE.PROFILE
+    ),
+    CREATE_SLOTS_FOR_SUBTYPE: new APIRouter(
+      "/slots/create-subtype",
+      HTTP_METHODS.POST,
+      OFFLINE.PROFILE
+    ),
+    DELETE_ALL_SLOTS: new APIRouter("/slots/delete-all", HTTP_METHODS.DEL, OFFLINE.PROFILE)
   },
   VEHICLE: {
     CREATE_VEHICLE: new APIRouter("vehicles/create", HTTP_METHODS.POST),
@@ -329,7 +347,35 @@ export const API = {
   },
   FARMER: {
     GET_FARMERS: new APIRouter("farmer/getFarmers", HTTP_METHODS.GET),
+    GET_FARMER_BY_MOBILE: new APIRouter("farmer/getfarmer", HTTP_METHODS.GET),
     CREATE_FARMER: new APIRouter("farmer/createFarmer", HTTP_METHODS.POST),
-    UPDATE_FARMER: new APIRouter("farmer/updateFarmer", HTTP_METHODS.PATCH)
+    UPDATE_FARMER: new APIRouter("farmer/updateFarmer", HTTP_METHODS.PATCH),
+    GET_INVALID_PHONE_FARMERS: new APIRouter("farmer/invalid-phones", HTTP_METHODS.GET),
+    UPDATE_FARMER_PHONE: new APIRouter("farmer", HTTP_METHODS.PUT)
+  },
+  LOCATION: {
+    GET_ALL_LOCATIONS: new APIRouter("/location/all", HTTP_METHODS.GET),
+    GET_STATES_ONLY: new APIRouter("/location/states-only", HTTP_METHODS.GET),
+    GET_CASCADING_LOCATION: new APIRouter("/location/cascade", HTTP_METHODS.POST),
+    GET_LOCATION_STATS: new APIRouter("/location/stats", HTTP_METHODS.GET),
+    // Legacy endpoints for backward compatibility (if needed)
+    GET_STATES: new APIRouter("/location/states", HTTP_METHODS.GET),
+    GET_DISTRICTS: new APIRouter("/location/districts", HTTP_METHODS.GET),
+    GET_SUBDISTRICTS: new APIRouter("/location/subdistricts", HTTP_METHODS.GET),
+    GET_VILLAGES: new APIRouter("/location/getVillages", HTTP_METHODS.GET)
+  },
+  STATE: {
+    GET_ALL_STATES: new APIRouter("/state/all", HTTP_METHODS.GET),
+    GET_STATES: new APIRouter("/state", HTTP_METHODS.GET),
+    CREATE_STATE: new APIRouter("/state", HTTP_METHODS.POST),
+    UPDATE_STATE: new APIRouter("/state", HTTP_METHODS.PATCH),
+    DELETE_STATE: new APIRouter("/state", HTTP_METHODS.DEL),
+    GET_DISTRICTS_BY_STATE: new APIRouter("/state", HTTP_METHODS.GET),
+    GET_TALUKAS_BY_STATE_DISTRICT: new APIRouter("/state", HTTP_METHODS.GET),
+    GET_VILLAGES_BY_STATE_DISTRICT_TALUKA: new APIRouter("/state", HTTP_METHODS.GET),
+    ADD_DISTRICT_TO_STATE: new APIRouter("/state", HTTP_METHODS.POST),
+    ADD_TALUKA_TO_DISTRICT: new APIRouter("/state", HTTP_METHODS.POST),
+    ADD_VILLAGE_TO_TALUKA: new APIRouter("/state", HTTP_METHODS.POST),
+    GET_LOCATION_HIERARCHY: new APIRouter("/state", HTTP_METHODS.GET)
   }
 }

@@ -25,7 +25,10 @@ const AddPlantModal = ({
   loading = false
 }) => {
   const handleAddSubtype = () => {
-    const newSubtypes = [...plantData.subtypes, { name: "", description: "", rates: [""] }]
+    const newSubtypes = [
+      ...plantData.subtypes,
+      { name: "", description: "", rates: [""], buffer: 0 }
+    ]
     onInputChange({ target: { name: "subtypes", value: newSubtypes } })
   }
 
@@ -93,6 +96,16 @@ const AddPlantModal = ({
               fullWidth
               helperText="Maximum number of plants that can be dispatched per day"
             />
+            <TextField
+              name="buffer"
+              label="Buffer (%)"
+              type="number"
+              inputProps={{ min: 0, max: 100, step: 0.1 }}
+              value={plantData.buffer}
+              onChange={onInputChange}
+              fullWidth
+              helperText="Additional buffer percentage at plant level (0-100%)"
+            />
 
             <Box>
               <Typography variant="subtitle1" sx={{ mb: 2 }}>
@@ -113,6 +126,14 @@ const AddPlantModal = ({
                       value={subtype.description}
                       onChange={(e) => handleSubtypeChange(index, "description", e.target.value)}
                       sx={{ flex: 1 }}
+                    />
+                    <TextField
+                      label="Buffer (%)"
+                      type="number"
+                      inputProps={{ min: 0, max: 100, step: 0.1 }}
+                      value={subtype.buffer || 0}
+                      onChange={(e) => handleSubtypeChange(index, "buffer", e.target.value)}
+                      sx={{ flex: 0.5 }}
                     />
                     {plantData.subtypes.length > 1 && (
                       <IconButton

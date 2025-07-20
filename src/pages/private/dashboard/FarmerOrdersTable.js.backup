@@ -50,22 +50,8 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   const [dealerIdForWallet, setDealerIdForWallet] = useState(null)
 
   // Dealer wallet data for when sales person is a dealer
-  const {
-    walletData: dealerWalletData,
-    loading: dealerWalletLoading,
-    refetch: refetchDealerWallet
-  } = useDealerWalletById(dealerIdForWallet)
-
-  // Debug wallet data
-  useEffect(() => {
-    console.log("Wallet Debug:", {
-      dealerIdForWallet,
-      dealerWalletData,
-      dealerWalletLoading,
-      financial: dealerWalletData?.financial,
-      availableAmount: dealerWalletData?.financial?.availableAmount
-    })
-  }, [dealerIdForWallet, dealerWalletData, dealerWalletLoading])
+  const { walletData: dealerWalletData, loading: dealerWalletLoading } =
+    useDealerWalletById(dealerIdForWallet)
 
   // Status tabs state
   const [activeStatusTab, setActiveStatusTab] = useState("all")
@@ -212,15 +198,6 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
         ...newPayment,
         paymentStatus: paymentStatus
       }
-
-      console.log("Add Payment Debug:", {
-        orderId,
-        payload,
-        isWalletPayment: newPayment.isWalletPayment,
-        salesPerson: selectedOrder?.details?.salesPerson,
-        dealerWalletData
-      })
-
       const response = await instance.request(payload, [orderId])
 
       if (response?.data) {
@@ -236,13 +213,6 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
           paymentStatus: isOfficeAdmin ? "PENDING" : "COLLECTED",
           isWalletPayment: false
         })
-
-        // Refresh wallet data if it was a wallet payment
-        if (newPayment.isWalletPayment) {
-          console.log("Refreshing wallet data after wallet payment")
-          await refetchDealerWallet()
-        }
-
         // Refresh both modal data and main list
         await getOrders()
         setTimeout(() => {
@@ -304,8 +274,6 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   }
   // Add function to handle "Select All" functionality
   const toggleSelectAll = () => {
-    if (!orders || orders.length === 0) return
-
     if (selectedRows.size === orders.length) {
       setSelectedRows(new Set())
     } else {
@@ -330,23 +298,11 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
     selectedDistrict
   ])
 
-  // Function to fetch sales person data
-
   // Update dealer ID for wallet when selectedOrder changes
   useEffect(() => {
-    console.log("SelectedOrder changed:", selectedOrder?.details)
-    const salesPerson = selectedOrder?.details?.salesPerson
-    console.log("Sales person from order:", salesPerson)
-    console.log("Sales person _id:", salesPerson?._id)
-    console.log("Sales person jobTitle:", salesPerson?.jobTitle)
-    console.log("Sales person name:", salesPerson?.name)
-
-    if (salesPerson?.jobTitle === "DEALER" && salesPerson?._id) {
-      console.log("Sales person is dealer, setting dealerIdForWallet to:", salesPerson._id)
-      setDealerIdForWallet(salesPerson._id)
+    if (selectedOrder?.details?.salesPerson?.jobTitle === "DEALER") {
+      setDealerIdForWallet(selectedOrder?.details?.salesPerson?._id)
     } else {
-      console.log("Sales person is not dealer or missing data, setting dealerIdForWallet to null")
-      console.log("Reason: jobTitle =", salesPerson?.jobTitle, "| _id =", salesPerson?._id)
       setDealerIdForWallet(null)
     }
   }, [selectedOrder])
@@ -412,20 +368,20 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
       // Sort by name
       combinedData.sort((a, b) => a.label.localeCompare(b.label))
 
-      setSalesPeople(combinedData || [])
+      setSalesPeople(combinedData)
 
       // Load villages
       const villagesInstance = NetworkManager(API.ORDER.GET_VILLAGES)
       const villagesResponse = await villagesInstance.request()
       if (villagesResponse?.data?.data) {
-        setVillages(villagesResponse.data.data || [])
+        setVillages(villagesResponse.data.data)
       }
 
       // Load districts
       const districtsInstance = NetworkManager(API.ORDER.GET_DISTRICTS)
       const districtsResponse = await districtsInstance.request()
       if (districtsResponse?.data?.data) {
-        setDistricts(districtsResponse.data.data || [])
+        setDistricts(districtsResponse.data.data)
       }
     } catch (error) {
       console.error("Error loading filter options:", error)
@@ -442,7 +398,6 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
     debouncedSearch(val)
   }
   const getTotalPaidAmount = (payments) => {
-    if (!payments || !Array.isArray(payments)) return 0
     return payments.reduce(
       (total, payment) => total + (payment?.paymentStatus == "COLLECTED" ? payment.paidAmount : 0),
       0
@@ -562,102 +517,86 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
     if (viewMode === "dispatch_process") {
       params.dispatched = false
     }
-    console.log("API Params:", params)
-    console.log("Active Status Tab:", activeStatusTab)
+    console.log(params)
 
     const emps = slotId
       ? await instance.request({}, { slotId, monthName, startDay, endDay, limit: 10000, page: 1 })
       : await instance.request({}, params)
 
-    // Handle different response structures for different endpoints
-    const ordersData =
-      activeStatusTab !== "all"
-        ? emps?.data?.data || [] // Status-specific endpoint returns data directly
-        : emps?.data?.data?.data || [] // Regular endpoint has nested data structure
-
-    console.log("API Response:", emps?.data)
-    console.log("Orders Data:", ordersData)
-    console.log("Orders Data Length:", ordersData?.length)
-
     setOrders(
-      (ordersData || [])
-        .map((data) => {
-          const {
+      emps?.data?.data?.data?.map((data) => {
+        const {
+          farmer,
+          //   typeOfPlants,
+          numberOfPlants,
+          rate,
+          salesPerson,
+          createdAt,
+          orderStatus,
+          id,
+          payment,
+          bookingSlot,
+          orderId,
+          plantType,
+          plantSubtype,
+          remainingPlants,
+          returnedPlants,
+          statusChanges,
+          orderRemarks,
+          dealerOrder,
+          farmReadyDate,
+          orderBookingDate
+        } = data || {}
+        const { startDay, endDay } = bookingSlot?.[0] || {}
+        const start = moment(startDay, "DD-MM-YYYY").format("D")
+        const end = moment(endDay, "DD-MM-YYYY").format("D")
+        const monthYear = moment(startDay, "DD-MM-YYYY").format("MMMM, YYYY")
+        return {
+          order: orderId,
+          farmerName: dealerOrder ? `via ${salesPerson?.name}` : farmer?.name,
+          plantType: `${plantType?.name} -> ${plantSubtype?.name}`,
+          quantity: numberOfPlants,
+          orderDate: moment(orderBookingDate || createdAt).format("DD/MM/YYYY"),
+          rate,
+          total: `₹ ${Number(rate * numberOfPlants)}`,
+          "Paid Amt": `₹ ${Number(getTotalPaidAmount(payment))}`,
+          "remaining Amt": `₹ ${
+            Number(rate * numberOfPlants) - Number(getTotalPaidAmount(payment))
+          }`,
+          "remaining Plants": remainingPlants || numberOfPlants,
+          "returned Plants": returnedPlants || 0,
+          orderStatus: orderStatus,
+          Delivery: `${start} - ${end} ${monthYear}`,
+          "Farm Ready":
+            farmReadyDate && farmReadyDate.length > 0
+              ? moment(farmReadyDate[0]).format("DD-MMM-YYYY")
+              : "-",
+          details: {
             farmer,
-            //   typeOfPlants,
-            numberOfPlants,
-            rate,
-            salesPerson,
-            createdAt,
-            orderStatus,
-            id,
+            contact: farmer?.mobileNumber,
+            orderNotes: "Premium quality seed potatoes",
+            soilType: "Sandy loam",
+            irrigationType: "Sprinkler system",
+            lastDelivery: "2024-11-05",
             payment,
-            bookingSlot,
-            orderId,
-            plantType,
-            plantSubtype,
-            remainingPlants,
-            returnedPlants,
-            statusChanges,
-            orderRemarks,
-            dealerOrder,
-            farmReadyDate,
-            orderBookingDate
-          } = data || {}
-          console.log("Processing order data:", data)
-          const { startDay, endDay } = bookingSlot?.[0] || {}
-          const start = startDay ? moment(startDay, "DD-MM-YYYY").format("D") : "N/A"
-          const end = endDay ? moment(endDay, "DD-MM-YYYY").format("D") : "N/A"
-          const monthYear = startDay ? moment(startDay, "DD-MM-YYYY").format("MMMM, YYYY") : "N/A"
-          return {
-            order: orderId,
-            farmerName: dealerOrder
-              ? `via ${salesPerson?.name || "Unknown"}`
-              : farmer?.name || "Unknown",
-            plantType: `${plantType?.name || "Unknown"} -> ${plantSubtype?.name || "Unknown"}`,
-            quantity: numberOfPlants,
-            orderDate: moment(orderBookingDate || createdAt).format("DD/MM/YYYY"),
-            rate,
-            total: `₹ ${Number(rate * numberOfPlants)}`,
-            "Paid Amt": `₹ ${Number(getTotalPaidAmount(payment))}`,
-            "remaining Amt": `₹ ${
-              Number(rate * numberOfPlants) - Number(getTotalPaidAmount(payment))
-            }`,
-            "remaining Plants": remainingPlants || numberOfPlants,
-            "returned Plants": returnedPlants || 0,
-            orderStatus: orderStatus,
-            Delivery: `${start} - ${end} ${monthYear}`,
-            "Farm Ready":
-              farmReadyDate && farmReadyDate.length > 0
-                ? moment(farmReadyDate[0]).format("DD-MMM-YYYY")
-                : "-",
-            details: {
-              farmer,
-              contact: farmer?.mobileNumber,
-              orderNotes: "Premium quality seed potatoes",
-              soilType: "Sandy loam",
-              irrigationType: "Sprinkler system",
-              lastDelivery: "2024-11-05",
-              payment,
-              orderid: id,
-              salesPerson,
-              plantID: plantType?.id,
-              plantSubtypeID: plantSubtype?.id,
-              bookingSlot: bookingSlot?.[0] || null,
-              rate: rate,
-              numberOfPlants,
+            orderid: id,
+            salesPerson,
+            plantID: plantType?.id,
+            plantSubtypeID: plantSubtype?.id,
+            bookingSlot: bookingSlot[0],
+            rate: rate,
+            numberOfPlants,
 
-              statusChanges: statusChanges || [],
-              orderRemarks: orderRemarks || [],
-              deliveryChanges: data.deliveryChanges || [],
-              returnHistory: data?.returnHistory || [],
-              dealerOrder: dealerOrder || faHourglassEmpty,
-              farmReadyDate: farmReadyDate
-            }
+            statusChanges: statusChanges || [],
+            orderRemarks: orderRemarks || [],
+            deliveryChanges: data.deliveryChanges || [],
+            returnHistory: data?.returnHistory || [],
+            dealerOrder: dealerOrder || faHourglassEmpty,
+            farmReadyDate: farmReadyDate
           }
-        })
-        .filter((order) => order && order.order) // Filter out any invalid orders
-    ) || []
+        }
+      })
+    )
     setLoading(false)
 
     // setEmployees(emps?.data?.data)
@@ -820,7 +759,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
 
   // Get filtered orders count for each tab
   const getOrdersCountByStatus = (status) => {
-    if (!orders || !Array.isArray(orders) || orders.length === 0) return 0
+    if (!orders || orders.length === 0) return 0
     if (status === null) return orders.length
     return orders.filter((order) => order.orderStatus === status).length
   }
@@ -876,7 +815,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                 <MenuItem value="">
                   <em>All Sales People & Dealers</em>
                 </MenuItem>
-                {(salesPeople || []).map((person) => (
+                {salesPeople.map((person) => (
                   <MenuItem key={person.value} value={person.value}>
                     {person.label}
                   </MenuItem>
@@ -896,7 +835,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                 <MenuItem value="">
                   <em>All Villages</em>
                 </MenuItem>
-                {(villages || []).map((village) => (
+                {villages.map((village) => (
                   <MenuItem key={village} value={village}>
                     {village}
                   </MenuItem>
@@ -916,7 +855,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                 <MenuItem value="">
                   <em>All Districts</em>
                 </MenuItem>
-                {(districts || []).map((district) => (
+                {districts.map((district) => (
                   <MenuItem key={district} value={district}>
                     {district}
                   </MenuItem>
@@ -942,7 +881,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
         {/* Status Tabs */}
         <div className="bg-white rounded-lg shadow-sm border p-2">
           <div className="flex flex-wrap gap-2">
-            {(statusTabs || []).map((tab) => (
+            {statusTabs.map((tab) => (
               <button
                 key={tab.key}
                 onClick={() => handleStatusTabChange(tab.key)}
@@ -1006,184 +945,172 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
 
       {/* Orders Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
-        {orders && orders.length > 0 ? (
-          orders.map((row, index) => (
-            <div
-              key={index}
-              className={`bg-white rounded-lg shadow-sm border hover:shadow-md transition-all duration-200 cursor-pointer ${
-                row?.details?.payment.some((payment) => payment.paymentStatus === "PENDING")
-                  ? "animate-pulse border-amber-200"
-                  : ""
-              } ${row?.details?.dealerOrder ? "border-sky-200 bg-sky-50" : ""}`}
-              onClick={() => {
-                setSelectedOrder(row)
-                setIsOrderModalOpen(true)
-              }}>
-              {/* Card Header */}
-              <div className="p-4 border-b border-gray-100">
-                <div className="flex items-start justify-between mb-2">
-                  <div className="flex-1">
-                    <h3 className="font-semibold text-gray-900 text-sm">Order #{row.order}</h3>
-                    <p className="text-xs text-gray-500 mt-1">{row.farmerName}</p>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    {viewMode === "farmready" && (
-                      <input
-                        type="checkbox"
-                        onChange={(e) => {
-                          e.stopPropagation()
-                          toggleRowSelection(row.details.orderid, row)
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                        checked={selectedRows.has(row.details.orderid)}
-                        className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                      />
-                    )}
-                    <DownloadPDFButton order={row} />
-                  </div>
+        {orders.map((row, index) => (
+          <div
+            key={index}
+            className={`bg-white rounded-lg shadow-sm border hover:shadow-md transition-all duration-200 cursor-pointer ${
+              row?.details?.payment.some((payment) => payment.paymentStatus === "PENDING")
+                ? "animate-pulse border-amber-200"
+                : ""
+            } ${row?.details?.dealerOrder ? "border-sky-200 bg-sky-50" : ""}`}
+            onClick={() => {
+              setSelectedOrder(row)
+              setIsOrderModalOpen(true)
+            }}>
+            {/* Card Header */}
+            <div className="p-4 border-b border-gray-100">
+              <div className="flex items-start justify-between mb-2">
+                <div className="flex-1">
+                  <h3 className="font-semibold text-gray-900 text-sm">Order #{row.order}</h3>
+                  <p className="text-xs text-gray-500 mt-1">{row.farmerName}</p>
                 </div>
-
-                {/* Status Badge */}
-                <div className="flex items-center justify-between">
-                  <select
-                    disabled={
-                      row.orderStatus === "DISPATCH_PROCESS" || row.orderStatus === "COMPLETED"
-                    }
-                    value={row.orderStatus}
-                    onChange={(e) => {
-                      e.stopPropagation()
-                      if (
-                        e.target.value === "DISPATCH_PROCESS" ||
-                        e.target.value === "DISPATCHED" ||
-                        e.target.value === "COMPLETED"
-                      ) {
-                        Toast.info("This status cant be change directly")
-                        return
-                      }
-                      handleStatusChange(row, e.target.value)
-                    }}
-                    onClick={(e) => e.stopPropagation()}
-                    className={`${getStatusColor(
-                      row.orderStatus
-                    )} px-2 py-1 rounded-full text-xs font-medium focus:outline-none`}>
-                    {(orderStatusOptions || []).map((option) => (
-                      <option key={option?.value} value={option?.value}>
-                        {option?.label}
-                      </option>
-                    ))}
-                  </select>
-
-                  {row.orderStatus === "ACCEPTED" && (
-                    <FarmReadyButton
-                      orderId={row.details.orderid}
-                      onUpdateOrder={pacthOrders}
-                      refreshOrders={refreshComponent}
+                <div className="flex items-center space-x-2">
+                  {viewMode === "farmready" && (
+                    <input
+                      type="checkbox"
+                      onChange={(e) => {
+                        e.stopPropagation()
+                        toggleRowSelection(row.details.orderid, row)
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                      checked={selectedRows.has(row.details.orderid)}
+                      className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                     />
                   )}
+                  <DownloadPDFButton order={row} />
                 </div>
               </div>
 
-              {/* Card Body */}
-              <div className="p-4 space-y-3">
-                {/* Plant Info */}
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-gray-500">Plant Type</span>
-                  <span className="text-sm font-medium text-gray-900">{row.plantType}</span>
-                </div>
+              {/* Status Badge */}
+              <div className="flex items-center justify-between">
+                <select
+                  disabled={
+                    row.orderStatus === "DISPATCH_PROCESS" || row.orderStatus === "COMPLETED"
+                  }
+                  value={row.orderStatus}
+                  onChange={(e) => {
+                    e.stopPropagation()
+                    if (
+                      e.target.value === "DISPATCH_PROCESS" ||
+                      e.target.value === "DISPATCHED" ||
+                      e.target.value === "COMPLETED"
+                    ) {
+                      Toast.info("This status cant be change directly")
+                      return
+                    }
+                    handleStatusChange(row, e.target.value)
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                  className={`${getStatusColor(
+                    row.orderStatus
+                  )} px-2 py-1 rounded-full text-xs font-medium focus:outline-none`}>
+                  {orderStatusOptions.map((option) => (
+                    <option key={option?.value} value={option?.value}>
+                      {option?.label}
+                    </option>
+                  ))}
+                </select>
 
-                {/* Quantity & Rate */}
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <span className="text-xs text-gray-500">Quantity</span>
-                    <div className="text-sm font-medium text-gray-900">{row.quantity}</div>
-                  </div>
-                  <div>
-                    <span className="text-xs text-gray-500">Rate</span>
-                    <div className="text-sm font-medium text-gray-900">₹{row.rate}</div>
-                  </div>
-                </div>
-
-                {/* Financial Info */}
-                <div className="bg-gray-50 rounded-md p-3 space-y-2">
-                  <div className="flex justify-between">
-                    <span className="text-xs text-gray-500">Total</span>
-                    <span className="text-sm font-semibold text-gray-900">{row.total}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-xs text-gray-500">Paid</span>
-                    <span className="text-sm text-green-600">{row["Paid Amt"]}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-xs text-gray-500">Remaining</span>
-                    <span className="text-sm text-amber-600">{row["remaining Amt"]}</span>
-                  </div>
-                </div>
-
-                {/* Delivery Info */}
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-gray-500">Delivery</span>
-                  <span className="text-sm font-medium text-blue-600">{row.Delivery}</span>
-                </div>
-
-                {/* Farm Ready Date */}
-                {row["Farm Ready"] !== "-" && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-gray-500">Farm Ready</span>
-                    <span className="text-sm font-medium text-amber-600">{row["Farm Ready"]}</span>
-                  </div>
+                {row.orderStatus === "ACCEPTED" && (
+                  <FarmReadyButton
+                    orderId={row.details.orderid}
+                    onUpdateOrder={pacthOrders}
+                    refreshOrders={refreshComponent}
+                  />
                 )}
+              </div>
+            </div>
 
-                {/* Action Buttons */}
-                {viewMode !== "dispatch_process" &&
-                  row?.orderStatus !== "COMPLETED" &&
-                  row?.orderStatus !== "DISPATCH_PROCESS" &&
-                  row?.orderStatus !== "DISPATCHED" && (
-                    <div className="flex items-center justify-end space-x-2 pt-2 border-t border-gray-100">
-                      {editingRows.has(index) ? (
-                        <>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              saveEditedRow(index, row)
-                            }}
-                            className="text-green-500 hover:text-green-700">
-                            <CheckIcon size={16} />
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              cancelEditing(index)
-                            }}
-                            className="text-red-500 hover:text-red-700">
-                            <XIcon size={16} />
-                          </button>
-                        </>
-                      ) : (
+            {/* Card Body */}
+            <div className="p-4 space-y-3">
+              {/* Plant Info */}
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-gray-500">Plant Type</span>
+                <span className="text-sm font-medium text-gray-900">{row.plantType}</span>
+              </div>
+
+              {/* Quantity & Rate */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <span className="text-xs text-gray-500">Quantity</span>
+                  <div className="text-sm font-medium text-gray-900">{row.quantity}</div>
+                </div>
+                <div>
+                  <span className="text-xs text-gray-500">Rate</span>
+                  <div className="text-sm font-medium text-gray-900">₹{row.rate}</div>
+                </div>
+              </div>
+
+              {/* Financial Info */}
+              <div className="bg-gray-50 rounded-md p-3 space-y-2">
+                <div className="flex justify-between">
+                  <span className="text-xs text-gray-500">Total</span>
+                  <span className="text-sm font-semibold text-gray-900">{row.total}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-xs text-gray-500">Paid</span>
+                  <span className="text-sm text-green-600">{row["Paid Amt"]}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-xs text-gray-500">Remaining</span>
+                  <span className="text-sm text-amber-600">{row["remaining Amt"]}</span>
+                </div>
+              </div>
+
+              {/* Delivery Info */}
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-gray-500">Delivery</span>
+                <span className="text-sm font-medium text-blue-600">{row.Delivery}</span>
+              </div>
+
+              {/* Farm Ready Date */}
+              {row["Farm Ready"] !== "-" && (
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-gray-500">Farm Ready</span>
+                  <span className="text-sm font-medium text-amber-600">{row["Farm Ready"]}</span>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              {viewMode !== "dispatch_process" &&
+                row?.orderStatus !== "COMPLETED" &&
+                row?.orderStatus !== "DISPATCH_PROCESS" &&
+                row?.orderStatus !== "DISPATCHED" && (
+                  <div className="flex items-center justify-end space-x-2 pt-2 border-t border-gray-100">
+                    {editingRows.has(index) ? (
+                      <>
                         <button
                           onClick={(e) => {
                             e.stopPropagation()
-                            toggleEditing(index, row)
+                            saveEditedRow(index, row)
                           }}
-                          className="text-gray-500 hover:text-gray-700">
-                          <Edit2Icon size={16} />
+                          className="text-green-500 hover:text-green-700">
+                          <CheckIcon size={16} />
                         </button>
-                      )}
-                    </div>
-                  )}
-              </div>
-            </div>
-          ))
-        ) : (
-          <div className="col-span-full flex items-center justify-center py-12">
-            <div className="text-center">
-              <div className="text-gray-400 text-6xl mb-4">📋</div>
-              <h3 className="text-lg font-medium text-gray-900 mb-2">No Orders Found</h3>
-              <p className="text-gray-500">
-                {loading ? "Loading orders..." : "No orders match your current filters."}
-              </p>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            cancelEditing(index)
+                          }}
+                          className="text-red-500 hover:text-red-700">
+                          <XIcon size={16} />
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          toggleEditing(index, row)
+                        }}
+                        className="text-gray-500 hover:text-gray-700">
+                        <Edit2Icon size={16} />
+                      </button>
+                    )}
+                  </div>
+                )}
             </div>
           </div>
-        )}
+        ))}
       </div>
 
       {/* Fixed bottom bar for batch actions */}
@@ -1418,7 +1345,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                 Farm Ready History
                               </h3>
                               <div className="space-y-2">
-                                {(selectedOrder.details.farmReadyDate || []).map((date, index) => (
+                                {selectedOrder.details.farmReadyDate.map((date, index) => (
                                   <div
                                     key={index}
                                     className={`flex items-center justify-between p-2 rounded ${
@@ -1447,25 +1374,23 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                 Status Change History
                               </h3>
                               <div className="space-y-2">
-                                {(selectedOrder.details.statusChanges || []).map(
-                                  (change, index) => (
-                                    <div key={index} className="bg-white p-3 rounded border">
-                                      <div className="flex items-center justify-between mb-1">
-                                        <span className="text-sm font-medium text-gray-900">
-                                          {change.fromStatus} → {change.toStatus}
-                                        </span>
-                                        <span className="text-xs text-gray-500">
-                                          {moment(change.changedAt).format("DD/MM/YYYY HH:mm")}
-                                        </span>
-                                      </div>
-                                      {change.changedBy && (
-                                        <div className="text-xs text-gray-600">
-                                          Changed by: {change.changedBy.name}
-                                        </div>
-                                      )}
+                                {selectedOrder.details.statusChanges.map((change, index) => (
+                                  <div key={index} className="bg-white p-3 rounded border">
+                                    <div className="flex items-center justify-between mb-1">
+                                      <span className="text-sm font-medium text-gray-900">
+                                        {change.fromStatus} → {change.toStatus}
+                                      </span>
+                                      <span className="text-xs text-gray-500">
+                                        {moment(change.changedAt).format("DD/MM/YYYY HH:mm")}
+                                      </span>
                                     </div>
-                                  )
-                                )}
+                                    {change.changedBy && (
+                                      <div className="text-xs text-gray-600">
+                                        Changed by: {change.changedBy.name}
+                                      </div>
+                                    )}
+                                  </div>
+                                ))}
                               </div>
                             </div>
                           )}
@@ -1479,53 +1404,51 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                 Delivery Change History
                               </h3>
                               <div className="space-y-3">
-                                {(selectedOrder.details.deliveryChanges || []).map(
-                                  (change, index) => {
-                                    const prevStartDay = change.previousDeliveryDate?.startDay
-                                    const prevEndDay = change.previousDeliveryDate?.endDay
-                                    const prevMonth = change.previousDeliveryDate?.month
-                                    const prevYear = change.previousDeliveryDate?.year
+                                {selectedOrder.details.deliveryChanges.map((change, index) => {
+                                  const prevStartDay = change.previousDeliveryDate?.startDay
+                                  const prevEndDay = change.previousDeliveryDate?.endDay
+                                  const prevMonth = change.previousDeliveryDate?.month
+                                  const prevYear = change.previousDeliveryDate?.year
 
-                                    const newStartDay = change.newDeliveryDate?.startDay
-                                    const newEndDay = change.newDeliveryDate?.endDay
-                                    const newMonth = change.newDeliveryDate?.month
-                                    const newYear = change.newDeliveryDate?.year
+                                  const newStartDay = change.newDeliveryDate?.startDay
+                                  const newEndDay = change.newDeliveryDate?.endDay
+                                  const newMonth = change.newDeliveryDate?.month
+                                  const newYear = change.newDeliveryDate?.year
 
-                                    return (
-                                      <div key={index} className="bg-white p-3 rounded border">
-                                        <div className="flex items-center justify-between mb-2">
-                                          <span className="text-sm font-medium text-gray-900">
-                                            Delivery Changed
-                                          </span>
-                                          <span className="text-xs text-gray-500">
-                                            {moment(change.changedAt).format("DD/MM/YYYY")}
-                                          </span>
-                                        </div>
-                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 items-center">
-                                          <div className="bg-red-50 px-3 py-2 rounded-md">
-                                            <span className="text-red-500 line-through text-sm">
-                                              {prevStartDay} - {prevEndDay} {prevMonth} {prevYear}
-                                            </span>
-                                          </div>
-                                          <div className="flex justify-center">
-                                            <span className="text-gray-400">→</span>
-                                          </div>
-                                          <div className="bg-green-50 px-3 py-2 rounded-md">
-                                            <span className="text-green-600 font-medium text-sm">
-                                              {newStartDay} - {newEndDay} {newMonth} {newYear}
-                                            </span>
-                                          </div>
-                                        </div>
-                                        {change.reasonForChange && (
-                                          <div className="mt-2 text-sm text-gray-600 bg-gray-50 p-2 rounded-md">
-                                            <span className="font-medium">Reason:</span>{" "}
-                                            {change.reasonForChange}
-                                          </div>
-                                        )}
+                                  return (
+                                    <div key={index} className="bg-white p-3 rounded border">
+                                      <div className="flex items-center justify-between mb-2">
+                                        <span className="text-sm font-medium text-gray-900">
+                                          Delivery Changed
+                                        </span>
+                                        <span className="text-xs text-gray-500">
+                                          {moment(change.changedAt).format("DD/MM/YYYY")}
+                                        </span>
                                       </div>
-                                    )
-                                  }
-                                )}
+                                      <div className="grid grid-cols-1 md:grid-cols-3 gap-2 items-center">
+                                        <div className="bg-red-50 px-3 py-2 rounded-md">
+                                          <span className="text-red-500 line-through text-sm">
+                                            {prevStartDay} - {prevEndDay} {prevMonth} {prevYear}
+                                          </span>
+                                        </div>
+                                        <div className="flex justify-center">
+                                          <span className="text-gray-400">→</span>
+                                        </div>
+                                        <div className="bg-green-50 px-3 py-2 rounded-md">
+                                          <span className="text-green-600 font-medium text-sm">
+                                            {newStartDay} - {newEndDay} {newMonth} {newYear}
+                                          </span>
+                                        </div>
+                                      </div>
+                                      {change.reasonForChange && (
+                                        <div className="mt-2 text-sm text-gray-600 bg-gray-50 p-2 rounded-md">
+                                          <span className="font-medium">Reason:</span>{" "}
+                                          {change.reasonForChange}
+                                        </div>
+                                      )}
+                                    </div>
+                                  )
+                                })}
                               </div>
                             </div>
                           )}
@@ -1559,7 +1482,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                 </div>
                               </div>
                               <div className="space-y-2">
-                                {(selectedOrder.details.returnHistory || []).map(
+                                {selectedOrder.details.returnHistory.map(
                                   (returnItem, returnIndex) => (
                                     <div key={returnIndex} className="bg-white p-3 rounded border">
                                       <div className="flex items-center justify-between mb-1">
@@ -1944,7 +1867,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                 <h4 className="font-medium text-gray-900">Payment History</h4>
                               </div>
                               <div className="divide-y">
-                                {(selectedOrder.details.payment || []).map((payment, pIndex) => (
+                                {selectedOrder.details.payment.map((payment, pIndex) => (
                                   <div key={pIndex} className="p-4 hover:bg-gray-50">
                                     <div className="flex items-center justify-between">
                                       <div className="flex items-center space-x-4">
@@ -2025,7 +1948,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                 }
                                 className="w-full mt-1">
                                 <MenuItem value="">Select Slot</MenuItem>
-                                {(slots || []).map(({ label, value }) => (
+                                {slots.map(({ label, value }) => (
                                   <MenuItem key={value} value={value}>
                                     {label}
                                   </MenuItem>
@@ -2074,13 +1997,11 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                             <div className="bg-gray-50 rounded-lg p-4">
                               <h4 className="font-medium text-gray-900 mb-3">Existing Remarks</h4>
                               <div className="space-y-2">
-                                {(selectedOrder.details.orderRemarks || []).map(
-                                  (remark, remarkIndex) => (
-                                    <div key={remarkIndex} className="bg-white p-3 rounded border">
-                                      <div className="text-sm text-gray-700">{remark}</div>
-                                    </div>
-                                  )
-                                )}
+                                {selectedOrder.details.orderRemarks.map((remark, remarkIndex) => (
+                                  <div key={remarkIndex} className="bg-white p-3 rounded border">
+                                    <div className="text-sm text-gray-700">{remark}</div>
+                                  </div>
+                                ))}
                               </div>
                             </div>
                           )}

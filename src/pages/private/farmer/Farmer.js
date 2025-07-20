@@ -28,6 +28,7 @@ import {
 } from "@mui/material"
 import { Pencil, Plus, Loader, User, MapPin, Calendar, Search, FilterX } from "lucide-react"
 import { API, NetworkManager } from "network/core"
+import LocationSelector from "components/LocationSelector"
 
 const FarmerComponent = () => {
   const theme = useTheme()
@@ -52,10 +53,16 @@ const FarmerComponent = () => {
 
   const [formData, setFormData] = useState({
     name: "",
-    village: "",
+    mobileNumber: "",
+    alternateNumber: "",
+    birthdate: ""
+  })
+
+  const [locationData, setLocationData] = useState({
+    state: "",
     district: "",
     taluka: "",
-    birthdate: ""
+    village: ""
   })
 
   const getFarmers = async () => {
@@ -149,7 +156,13 @@ const FarmerComponent = () => {
       const instance = NetworkManager(
         editingFarmer ? API.FARMER.UPDATE_FARMER : API.FARMER.CREATE_FARMER
       )
-      const payload = editingFarmer ? { ...formData, id: editingFarmer.id } : formData
+      const payload = editingFarmer
+        ? {
+            ...formData,
+            ...locationData,
+            id: editingFarmer.id
+          }
+        : { ...formData, ...locationData }
 
       await instance.request(payload)
       await getFarmers()
@@ -166,10 +179,15 @@ const FarmerComponent = () => {
     setEditingFarmer(farmer)
     setFormData({
       name: farmer.name,
-      village: farmer.village,
-      district: farmer.district,
-      taluka: farmer.taluka,
+      mobileNumber: farmer.mobileNumber || "",
+      alternateNumber: farmer.alternateNumber || "",
       birthdate: farmer.birthdate || ""
+    })
+    setLocationData({
+      state: farmer.state || "",
+      district: farmer.district || "",
+      taluka: farmer.taluka || "",
+      village: farmer.village || ""
     })
     setIsOpen(true)
   }
@@ -177,10 +195,15 @@ const FarmerComponent = () => {
   const resetForm = () => {
     setFormData({
       name: "",
-      village: "",
+      mobileNumber: "",
+      alternateNumber: "",
+      birthdate: ""
+    })
+    setLocationData({
+      state: "",
       district: "",
       taluka: "",
-      birthdate: ""
+      village: ""
     })
     setEditingFarmer(null)
   }
@@ -469,28 +492,44 @@ const FarmerComponent = () => {
               />
               <TextField
                 fullWidth
-                label="District"
-                name="district"
-                value={formData.district}
+                label="Mobile Number"
+                name="mobileNumber"
+                type="tel"
+                value={formData.mobileNumber}
                 onChange={handleInputChange}
                 required
               />
               <TextField
                 fullWidth
-                label="Taluka"
-                name="taluka"
-                value={formData.taluka}
+                label="Alternate Number (Optional)"
+                name="alternateNumber"
+                type="tel"
+                value={formData.alternateNumber}
                 onChange={handleInputChange}
-                required
               />
-              <TextField
-                fullWidth
-                label="Village"
-                name="village"
-                value={formData.village}
-                onChange={handleInputChange}
-                required
-              />
+
+              {/* Location Selector */}
+              <div className="mt-4">
+                <LocationSelector
+                  selectedState={locationData.state}
+                  selectedDistrict={locationData.district}
+                  selectedTaluka={locationData.taluka}
+                  selectedVillage={locationData.village}
+                  onStateChange={(value) => setLocationData((prev) => ({ ...prev, state: value }))}
+                  onDistrictChange={(value) =>
+                    setLocationData((prev) => ({ ...prev, district: value }))
+                  }
+                  onTalukaChange={(value) =>
+                    setLocationData((prev) => ({ ...prev, taluka: value }))
+                  }
+                  onVillageChange={(value) =>
+                    setLocationData((prev) => ({ ...prev, village: value }))
+                  }
+                  required={true}
+                  className="mt-2"
+                />
+              </div>
+
               <TextField
                 fullWidth
                 label="Birthdate"

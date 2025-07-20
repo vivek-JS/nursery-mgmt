@@ -1,20 +1,78 @@
-import React from "react"
-import { Grid } from "@mui/material"
-//import { PageLoader } from "components"
-
-//import { Quixote } from "components/Pdfs/try"
-// import { PDFDownloadLink, usePDF, pdf } from "@react-pdf/renderer"
-// import { PDFViewer } from "@react-pdf/renderer"
+import React, { useState } from "react"
+import { Grid, Button, Box, Badge, Alert } from "@mui/material"
 import { makeStyles } from "tss-react/mui"
+import { Add as AddIcon, Phone as PhoneIcon } from "@mui/icons-material"
 import FarmerOrdersTable from "./FarmerOrdersTable"
+import AddOrderForm from "../order/AddOrderForm"
+import { FarmerPhoneCorrectionModal } from "components"
+import useInvalidPhoneFarmers from "hooks/useInvalidPhoneFarmers"
 
 function Dashboard() {
   const { classes } = useStyles()
+  const [isAddOrderOpen, setIsAddOrderOpen] = useState(false)
+  const [isFarmerPhoneModalOpen, setIsFarmerPhoneModalOpen] = useState(false)
+  const { count: invalidPhoneCount, refetch: refetchInvalidPhoneCount } = useInvalidPhoneFarmers()
+
+  const handleAddOrderSuccess = () => {
+    // Refresh the orders table
+    window.location.reload()
+  }
 
   return (
-    <Grid  className={classes.padding14}>
-      <h1>Orders</h1>
-      <FarmerOrdersTable/>
+    <Grid className={classes.padding14}>
+      {invalidPhoneCount > 0 && (
+        <Alert
+          severity="warning"
+          sx={{ mb: 2 }}
+          action={
+            <Button color="inherit" size="small" onClick={() => setIsFarmerPhoneModalOpen(true)}>
+              Fix Now
+            </Button>
+          }>
+          {invalidPhoneCount} farmer(s) have invalid phone numbers that need to be corrected.
+        </Alert>
+      )}
+
+      <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+        <h1>Orders</h1>
+        <Box display="flex" gap={2}>
+          <Badge badgeContent={invalidPhoneCount} color="error" max={99}>
+            <Button
+              variant="outlined"
+              color="warning"
+              startIcon={<PhoneIcon />}
+              onClick={() => setIsFarmerPhoneModalOpen(true)}
+              className={classes.addButton}
+              disabled={invalidPhoneCount === 0}>
+              Fix Invalid Phones
+            </Button>
+          </Badge>
+          <Button
+            variant="contained"
+            color="primary"
+            startIcon={<AddIcon />}
+            onClick={() => setIsAddOrderOpen(true)}
+            className={classes.addButton}>
+            Add Order
+          </Button>
+        </Box>
+      </Box>
+
+      <FarmerOrdersTable />
+
+      <AddOrderForm
+        open={isAddOrderOpen}
+        onClose={() => setIsAddOrderOpen(false)}
+        onSuccess={handleAddOrderSuccess}
+      />
+
+      <FarmerPhoneCorrectionModal
+        open={isFarmerPhoneModalOpen}
+        onClose={() => {
+          setIsFarmerPhoneModalOpen(false)
+          refetchInvalidPhoneCount()
+        }}
+      />
     </Grid>
   )
 }
@@ -22,7 +80,13 @@ function Dashboard() {
 export default Dashboard
 const useStyles = makeStyles()(() => ({
   padding14: {
-padding:14
+    padding: 14
+  },
+  addButton: {
+    height: 40,
+    textTransform: "none",
+    fontSize: "1rem",
+    fontWeight: 500
   },
   searchContainer: {
     boxShadow: " 0px 4px 5px 0px rgba(0, 0, 0, 0.10)",

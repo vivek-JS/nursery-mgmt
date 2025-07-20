@@ -1,21 +1,17 @@
-// Export all routes that should be in the side menu
 import React from "react"
-import HomeIcon from "@mui/icons-material/Dashboard"
-// import SettingsSuggestIcon from "@mui/icons-material/SettingsSuggest"
-import GroupIcon from "@mui/icons-material/Group"
-import AodIcon from "@mui/icons-material/Aod"
+import { MenuPath } from "../core.js"
+import HomeIcon from "@mui/icons-material/Home"
 import BiotechIcon from "@mui/icons-material/Biotech"
-import ListAltIcon from "@mui/icons-material/ListAlt"
 import AlignHorizontalLeftIcon from "@mui/icons-material/AlignHorizontalLeft"
+import AodIcon from "@mui/icons-material/Aod"
+import GroupIcon from "@mui/icons-material/Group"
 import InventoryIcon from "@mui/icons-material/Inventory"
-class MenuPath {
-  constructor(title, icon, route, alias = null) {
-    this.title = title
-    this.icon = icon
-    this.route = route
-    this.alias = alias || title.replace(" ", "_").toLowerCase()
-  }
-}
+import SettingsSuggestIcon from "@mui/icons-material/SettingsSuggest"
+import AdminPanelSettingsIcon from "@mui/icons-material/AdminPanelSettings"
+import ListAltIcon from "@mui/icons-material/ListAlt"
+import DateRangeOutlinedIcon from "@mui/icons-material/DateRangeOutlined"
+import PaidIcon from "@mui/icons-material/Paid"
+import PaymentIcon from "@mui/icons-material/Payment"
 
 export const DashboardMenus = [
   new MenuPath("Orders", <HomeIcon />, "/u/dashboard"),
@@ -35,5 +31,6 @@ export const DashboardMenus = [
   new MenuPath("Labs", <BiotechIcon />, "/u/labs"),
   new MenuPath("Order", <ListAltIcon />, "/u/orders"),
   new MenuPath("Orders-upload", <ListAltIcon />, "/u/upload-orders"),
-  new MenuPath("Dealers", <ListAltIcon />, "/u/dealers")
+  new MenuPath("Dealers", <ListAltIcon />, "/u/dealers"),
+  new MenuPath("Payments", <PaymentIcon />, "/u/payments")
 ]
