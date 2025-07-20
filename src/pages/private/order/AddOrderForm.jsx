@@ -1160,6 +1160,33 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
       }
     }
 
+    // Validate slot capacity availability
+    if (formData.selectedSlot && formData.noOfPlants && available !== null) {
+      const requestedQuantity = parseInt(formData.noOfPlants) || 0
+
+      if (requestedQuantity > available) {
+        const selectedSlot = slots.find((s) => s.value === formData.selectedSlot)
+        const slotPeriod = selectedSlot ? `${selectedSlot.startDay} - ${selectedSlot.endDay}` : ""
+
+        Toast.error(
+          `⚠️ Slot Capacity Exceeded!\n\nOnly ${available} plants available in slot: ${slotPeriod}\n\nPlease select a different slot or reduce the order quantity.`,
+          {
+            duration: 8000,
+            style: {
+              background: "#fef2f2",
+              color: "#dc2626",
+              border: "2px solid #fecaca",
+              borderRadius: "8px",
+              fontSize: "14px",
+              lineHeight: "1.5",
+              whiteSpace: "pre-line"
+            }
+          }
+        )
+        return false
+      }
+    }
+
     return true
   }
 
@@ -1311,6 +1338,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
       console.error("Error status:", error.response?.status)
 
       let errorMessage = "An error occurred while creating the order"
+      let isSlotError = false
 
       if (error.response?.data?.message) {
         errorMessage = error.response.data.message
@@ -1318,17 +1346,56 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
         errorMessage = error.message
       }
 
-      // Check for specific slot-related errors
+      // Check for specific slot availability errors
       if (
+        errorMessage.includes("Not enough plants available") ||
+        errorMessage.includes("No plants available") ||
+        errorMessage.includes("Please book in other slots")
+      ) {
+        console.error("Slot availability error detected:", errorMessage)
+        isSlotError = true
+
+        // Extract slot period from error message
+        const slotPeriodMatch = errorMessage.match(/Slot period: (.+?)(?:\s*$|\.)/)
+        const slotPeriod = slotPeriodMatch ? slotPeriodMatch[1] : ""
+
+        // Create a more user-friendly error message
+        const availableMatch = errorMessage.match(/Only (\d+) plants available/)
+        const availableCount = availableMatch ? availableMatch[1] : ""
+
+        if (availableCount) {
+          errorMessage = `⚠️ Slot Capacity Exceeded!\n\nOnly ${availableCount} plants available in slot: ${slotPeriod}\n\nPlease select a different slot or reduce the order quantity.`
+        } else {
+          errorMessage = `⚠️ Slot Unavailable!\n\nNo plants available in slot: ${slotPeriod}\n\nPlease select a different slot.`
+        }
+      } else if (
         errorMessage.includes("delivery") ||
         errorMessage.includes("slot") ||
         errorMessage.includes("date")
       ) {
         console.error("Slot-related error detected:", errorMessage)
-        errorMessage = `Slot Error: ${errorMessage}. Please try selecting a different slot.`
+        isSlotError = true
+        errorMessage = `⚠️ Slot Error: ${errorMessage}\n\nPlease try selecting a different slot.`
       }
 
-      Toast.error(errorMessage)
+      // Show error with different styling based on type
+      if (isSlotError) {
+        // For slot errors, show a more prominent error
+        Toast.error(errorMessage, {
+          duration: 8000, // Show for 8 seconds
+          style: {
+            background: "#fef2f2",
+            color: "#dc2626",
+            border: "2px solid #fecaca",
+            borderRadius: "8px",
+            fontSize: "14px",
+            lineHeight: "1.5",
+            whiteSpace: "pre-line"
+          }
+        })
+      } else {
+        Toast.error(errorMessage)
+      }
     } finally {
       setLoading(false)
     }
@@ -2221,6 +2288,56 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                     </Box>
                   </Grid>
                 )}
+
+                {/* Slot Capacity Warning */}
+                {available !== null &&
+                  formData.noOfPlants &&
+                  parseInt(formData.noOfPlants) > available && (
+                    <Grid item xs={12}>
+                      <Box
+                        sx={{
+                          p: 2,
+                          borderRadius: 2,
+                          border: "2px solid #fecaca",
+                          backgroundColor: "#fef2f2",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 2
+                        }}>
+                        <Box
+                          sx={{
+                            width: 24,
+                            height: 24,
+                            borderRadius: "50%",
+                            backgroundColor: "#dc2626",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            color: "white",
+                            fontSize: "14px",
+                            fontWeight: "bold"
+                          }}>
+                          ⚠️
+                        </Box>
+                        <Box sx={{ flex: 1 }}>
+                          <Typography
+                            variant="body2"
+                            fontWeight={600}
+                            color="#dc2626"
+                            sx={{ mb: 0.5 }}>
+                            Slot Capacity Exceeded!
+                          </Typography>
+                          <Typography variant="body2" color="#7f1d1d">
+                            You&apos;re trying to book {formData.noOfPlants} plants, but only{" "}
+                            {available} are available in this slot.
+                          </Typography>
+                          <Typography variant="body2" color="#7f1d1d" sx={{ mt: 0.5 }}>
+                            Please select a different slot or reduce the order quantity.
+                          </Typography>
+                        </Box>
+                      </Box>
+                    </Grid>
+                  )}
 
                 {/* Dealer Quota Validation Display */}
                 {quotaType === "dealer" &&

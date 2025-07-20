@@ -21,8 +21,7 @@ import { makeStyles } from "tss-react/mui"
 import {
   Download as DownloadIcon,
   Search as SearchIcon,
-  FilterList as FilterIcon,
-  Edit as EditIcon
+  FilterList as FilterIcon
 } from "@mui/icons-material"
 import DatePicker from "react-datepicker"
 import "react-datepicker/dist/react-datepicker.css"
@@ -30,6 +29,12 @@ import { API, NetworkManager } from "network/core"
 import { PageLoader } from "components"
 import moment from "moment"
 import { Toast } from "helpers/toasts/toastHelper"
+import {
+  useHasPaymentAccess,
+  useIsAccountant,
+  useIsOfficeAdmin,
+  useIsSuperAdmin
+} from "utils/roleUtils"
 
 const useStyles = makeStyles()((theme) => ({
   padding14: {
@@ -85,6 +90,17 @@ const useStyles = makeStyles()((theme) => ({
         backgroundColor: "#e0e0e0"
       }
     }
+  },
+  statusSelect: {
+    minWidth: "120px",
+    "& .MuiOutlinedInput-root": {
+      borderRadius: "8px",
+      fontSize: "0.75rem"
+    }
+  },
+  disabledStatus: {
+    opacity: 0.6,
+    cursor: "not-allowed"
   }
 }))
 
@@ -99,15 +115,19 @@ const PaymentsPage = () => {
   ])
   const [activeTab, setActiveTab] = useState("collected") // "collected" or "pending"
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("")
-  const [editPaymentDialog, setEditPaymentDialog] = useState(false)
-  const [selectedPayment, setSelectedPayment] = useState(null)
-  const [editForm, setEditForm] = useState({
-    paymentStatus: "",
-    paidAmount: "",
-    paymentDate: "",
-    modeOfPayment: "",
-    bankName: "",
-    remark: ""
+
+  // Role-based access control
+  const hasPaymentAccess = useHasPaymentAccess() // Only Accountants and Super Admins
+  const isAccountant = useIsAccountant()
+  const isOfficeAdmin = useIsOfficeAdmin()
+  const isSuperAdmin = useIsSuperAdmin()
+
+  // Confirmation dialog state
+  const [confirmDialog, setConfirmDialog] = useState({
+    open: false,
+    title: "",
+    description: "",
+    onConfirm: null
   })
 
   const [startDate, endDate] = selectedDateRange
@@ -270,55 +290,49 @@ const PaymentsPage = () => {
     setActiveTab(tab)
   }
 
-  const openEditDialog = (payment) => {
-    setSelectedPayment(payment)
-    setEditForm({
-      paymentStatus: payment.payment?.paymentStatus || "",
-      paidAmount: payment.payment?.paidAmount?.toString() || "",
-      paymentDate: payment.payment?.paymentDate
-        ? moment(payment.payment.paymentDate).format("YYYY-MM-DD")
-        : "",
-      modeOfPayment: payment.payment?.modeOfPayment || "",
-      bankName: payment.payment?.bankName || "",
-      remark: payment.payment?.remark || ""
-    })
-    setEditPaymentDialog(true)
-  }
+  // Handle status change with confirmation
+  const handleStatusChange = (payment, newStatus) => {
+    const currentStatus = payment.payment?.paymentStatus
+    if (newStatus === currentStatus) return
 
-  const closeEditDialog = () => {
-    setEditPaymentDialog(false)
-    setSelectedPayment(null)
-    setEditForm({
-      paymentStatus: "",
-      paidAmount: "",
-      paymentDate: "",
-      modeOfPayment: "",
-      bankName: "",
-      remark: ""
+    setConfirmDialog({
+      open: true,
+      title: "Confirm Payment Status Change",
+      description: `Change payment status for Order #${payment.orderId} from ${currentStatus} to ${newStatus}?`,
+      onConfirm: () => {
+        setConfirmDialog((d) => ({ ...d, open: false }))
+        updatePaymentStatus(payment, newStatus)
+      }
     })
   }
 
-  const handleEditFormChange = (field, value) => {
-    setEditForm((prev) => ({
-      ...prev,
-      [field]: value
-    }))
+  // Handle order status change with confirmation
+  const handleOrderStatusChange = (payment, newStatus) => {
+    const currentStatus = payment.orderStatus
+    if (newStatus === currentStatus) return
+
+    setConfirmDialog({
+      open: true,
+      title: "Confirm Order Status Change",
+      description: `Change order status for Order #${payment.orderId} from ${currentStatus} to ${newStatus}?`,
+      onConfirm: () => {
+        setConfirmDialog((d) => ({ ...d, open: false }))
+        updateOrderStatus(payment, newStatus)
+      }
+    })
   }
 
-  const updatePaymentStatus = async () => {
-    if (!selectedPayment) return
-
+  const updatePaymentStatus = async (payment, newStatus) => {
     try {
       const instance = NetworkManager(API.ORDER.UPDATE_PAYMENT_STATUS)
       const response = await instance.request({
-        orderId: selectedPayment.orderId,
-        paymentId: selectedPayment.payment?._id,
-        ...editForm
+        orderId: payment.orderId,
+        paymentId: payment.payment?._id,
+        paymentStatus: newStatus
       })
 
       if (response?.data?.success) {
         Toast.success("Payment status updated successfully")
-        closeEditDialog()
         fetchPayments() // Refresh the list
       } else {
         Toast.error(response?.data?.message || "Failed to update payment status")
@@ -326,6 +340,26 @@ const PaymentsPage = () => {
     } catch (error) {
       console.error("Error updating payment status:", error)
       Toast.error("Failed to update payment status")
+    }
+  }
+
+  const updateOrderStatus = async (payment, newStatus) => {
+    try {
+      const instance = NetworkManager(API.ORDER.UPDATE_ORDER)
+      const response = await instance.request({
+        id: payment._id, // Use the order's MongoDB _id
+        orderStatus: newStatus
+      })
+
+      if (response?.data?.status === "Success") {
+        Toast.success("Order status updated successfully")
+        fetchPayments() // Refresh the list
+      } else {
+        Toast.error(response?.data?.message || "Failed to update order status")
+      }
+    } catch (error) {
+      console.error("Error updating order status:", error)
+      Toast.error("Failed to update order status")
     }
   }
 
@@ -467,28 +501,60 @@ const PaymentsPage = () => {
                       </Grid>
 
                       <Grid item xs={12} md={2}>
-                        <Chip
-                          label={payment.payment?.paymentStatus}
-                          className={classes.statusChip}
-                          style={{
-                            backgroundColor: statusColors.bg,
-                            color: statusColors.text
-                          }}
-                        />
+                        {hasPaymentAccess ? (
+                          <FormControl fullWidth size="small" className={classes.statusSelect}>
+                            <Select
+                              value={payment.payment?.paymentStatus || ""}
+                              onChange={(e) => handleStatusChange(payment, e.target.value)}
+                              displayEmpty
+                              style={{
+                                backgroundColor: statusColors.bg,
+                                color: statusColors.text,
+                                fontWeight: 600
+                              }}>
+                              <MenuItem value="COLLECTED">Collected</MenuItem>
+                              <MenuItem value="PENDING">Pending</MenuItem>
+                              <MenuItem value="REJECTED">Rejected</MenuItem>
+                            </Select>
+                          </FormControl>
+                        ) : (
+                          <Chip
+                            label={payment.payment?.paymentStatus}
+                            className={classes.statusChip}
+                            style={{
+                              backgroundColor: statusColors.bg,
+                              color: statusColors.text
+                            }}
+                          />
+                        )}
                         <Typography variant="body2" color="textSecondary" mt={1}>
                           {moment(payment.payment?.paymentDate).format("DD-MM-YYYY")}
                         </Typography>
+                        {isOfficeAdmin && payment.payment?.paymentStatus === "PENDING" && (
+                          <Typography variant="caption" color="textSecondary" display="block">
+                            Contact Accountant to change status
+                          </Typography>
+                        )}
                       </Grid>
 
                       <Grid item xs={12} md={2}>
-                        <Chip
-                          label={payment.orderStatus}
-                          className={classes.statusChip}
-                          style={{
-                            backgroundColor: orderStatusColors.bg,
-                            color: orderStatusColors.text
-                          }}
-                        />
+                        <FormControl fullWidth size="small" className={classes.statusSelect}>
+                          <Select
+                            value={payment.orderStatus || ""}
+                            onChange={(e) => handleOrderStatusChange(payment, e.target.value)}
+                            displayEmpty
+                            style={{
+                              backgroundColor: orderStatusColors.bg,
+                              color: orderStatusColors.text,
+                              fontWeight: 600
+                            }}>
+                            <MenuItem value="COMPLETED">Completed</MenuItem>
+                            <MenuItem value="PENDING">Pending</MenuItem>
+                            <MenuItem value="ACCEPTED">Accepted</MenuItem>
+                            <MenuItem value="DISPATCHED">Dispatched</MenuItem>
+                            <MenuItem value="FARM_READY">Farm Ready</MenuItem>
+                          </Select>
+                        </FormControl>
                         <Typography variant="body2" color="textSecondary" mt={1}>
                           Total: ₹{payment.totalOrderAmount?.toLocaleString()}
                         </Typography>
@@ -501,13 +567,6 @@ const PaymentsPage = () => {
                         <Typography variant="body2" color="textSecondary">
                           {payment.salesPerson?.phoneNumber}
                         </Typography>
-                        <Button
-                          size="small"
-                          startIcon={<EditIcon />}
-                          onClick={() => openEditDialog(payment)}
-                          sx={{ mt: 1 }}>
-                          Edit Status
-                        </Button>
                       </Grid>
                     </Grid>
                   </CardContent>
@@ -518,75 +577,18 @@ const PaymentsPage = () => {
         )}
       </Grid>
 
-      {/* Edit Payment Dialog */}
-      <Dialog open={editPaymentDialog} onClose={closeEditDialog} maxWidth="sm" fullWidth>
-        <DialogTitle>Update Payment Status</DialogTitle>
+      {/* Confirmation Dialog */}
+      <Dialog
+        open={confirmDialog.open}
+        onClose={() => setConfirmDialog((d) => ({ ...d, open: false }))}>
+        <DialogTitle>{confirmDialog.title}</DialogTitle>
         <DialogContent>
-          <Grid container spacing={2} sx={{ mt: 1 }}>
-            <Grid item xs={12}>
-              <FormControl fullWidth>
-                <InputLabel>Payment Status</InputLabel>
-                <Select
-                  value={editForm.paymentStatus}
-                  onChange={(e) => handleEditFormChange("paymentStatus", e.target.value)}
-                  label="Payment Status">
-                  <MenuItem value="COLLECTED">Collected</MenuItem>
-                  <MenuItem value="PENDING">Pending</MenuItem>
-                  <MenuItem value="REJECTED">Rejected</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                label="Paid Amount"
-                type="number"
-                value={editForm.paidAmount}
-                onChange={(e) => handleEditFormChange("paidAmount", e.target.value)}
-              />
-            </Grid>
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                label="Payment Date"
-                type="date"
-                value={editForm.paymentDate}
-                onChange={(e) => handleEditFormChange("paymentDate", e.target.value)}
-                InputLabelProps={{ shrink: true }}
-              />
-            </Grid>
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                label="Mode of Payment"
-                value={editForm.modeOfPayment}
-                onChange={(e) => handleEditFormChange("modeOfPayment", e.target.value)}
-              />
-            </Grid>
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                label="Bank Name"
-                value={editForm.bankName}
-                onChange={(e) => handleEditFormChange("bankName", e.target.value)}
-              />
-            </Grid>
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                label="Remark"
-                multiline
-                rows={3}
-                value={editForm.remark}
-                onChange={(e) => handleEditFormChange("remark", e.target.value)}
-              />
-            </Grid>
-          </Grid>
+          <Typography>{confirmDialog.description}</Typography>
         </DialogContent>
         <DialogActions>
-          <Button onClick={closeEditDialog}>Cancel</Button>
-          <Button onClick={updatePaymentStatus} variant="contained" color="primary">
-            Update Payment
+          <Button onClick={() => setConfirmDialog((d) => ({ ...d, open: false }))}>Cancel</Button>
+          <Button onClick={confirmDialog.onConfirm} variant="contained" color="primary">
+            Confirm
           </Button>
         </DialogActions>
       </Dialog>

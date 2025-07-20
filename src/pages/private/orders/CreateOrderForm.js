@@ -122,14 +122,36 @@ const CreateOrderForm = ({ open, onClose, onOrderCreated }) => {
 
       if (response.data?.slots?.[0]?.slots) {
         const availableSlots = response.data.slots[0].slots
-          .filter((slot) => slot.status && slot.totalPlants - slot.totalBookedPlants > 0)
-          .map((slot) => ({
-            id: slot._id,
-            label: `${slot.startDay} - ${slot.endDay} (${
-              slot.totalPlants - slot.totalBookedPlants
-            } available)`,
-            available: slot.totalPlants - slot.totalBookedPlants
-          }))
+          .filter((slot) => {
+            if (!slot.status) return false
+
+            // Calculate available plants considering buffer
+            const effectiveBuffer = slot.effectiveBuffer || slot.buffer || 0
+            const bufferAmount = Math.round((slot.totalPlants * effectiveBuffer) / 100)
+            const bufferAdjustedCapacity = slot.totalPlants - bufferAmount
+            const availablePlants = Math.max(
+              0,
+              bufferAdjustedCapacity - (slot.totalBookedPlants || 0)
+            )
+
+            return availablePlants > 0
+          })
+          .map((slot) => {
+            // Calculate available plants considering buffer
+            const effectiveBuffer = slot.effectiveBuffer || slot.buffer || 0
+            const bufferAmount = Math.round((slot.totalPlants * effectiveBuffer) / 100)
+            const bufferAdjustedCapacity = slot.totalPlants - bufferAmount
+            const availablePlants = Math.max(
+              0,
+              bufferAdjustedCapacity - (slot.totalBookedPlants || 0)
+            )
+
+            return {
+              id: slot._id,
+              label: `${slot.startDay} - ${slot.endDay} (${availablePlants} available)`,
+              available: availablePlants
+            }
+          })
         setSlots(availableSlots)
       }
     } catch (error) {
@@ -226,7 +248,70 @@ const CreateOrderForm = ({ open, onClose, onOrderCreated }) => {
       }
     } catch (error) {
       console.error("Error creating order:", error)
-      setError(error.message || "Failed to create order")
+      console.error("Error response:", error.response?.data)
+      console.error("Error status:", error.response?.status)
+
+      let errorMessage = "Failed to create order"
+      let isSlotError = false
+
+      if (error.response?.data?.message) {
+        errorMessage = error.response.data.message
+      } else if (error.message) {
+        errorMessage = error.message
+      }
+
+      // Check for specific slot availability errors
+      if (
+        errorMessage.includes("Not enough plants available") ||
+        errorMessage.includes("No plants available") ||
+        errorMessage.includes("Please book in other slots")
+      ) {
+        console.error("Slot availability error detected:", errorMessage)
+        isSlotError = true
+
+        // Extract slot period from error message
+        const slotPeriodMatch = errorMessage.match(/Slot period: (.+?)(?:\s*$|\.)/)
+        const slotPeriod = slotPeriodMatch ? slotPeriodMatch[1] : ""
+
+        // Create a more user-friendly error message
+        const availableMatch = errorMessage.match(/Only (\d+) plants available/)
+        const availableCount = availableMatch ? availableMatch[1] : ""
+
+        if (availableCount) {
+          errorMessage = `⚠️ Slot Capacity Exceeded!\n\nOnly ${availableCount} plants available in slot: ${slotPeriod}\n\nPlease select a different slot or reduce the order quantity.`
+        } else {
+          errorMessage = `⚠️ Slot Unavailable!\n\nNo plants available in slot: ${slotPeriod}\n\nPlease select a different slot.`
+        }
+      } else if (
+        errorMessage.includes("delivery") ||
+        errorMessage.includes("slot") ||
+        errorMessage.includes("date")
+      ) {
+        console.error("Slot-related error detected:", errorMessage)
+        isSlotError = true
+        errorMessage = `⚠️ Slot Error: ${errorMessage}\n\nPlease try selecting a different slot.`
+      }
+
+      // Show error with different styling based on type
+      if (isSlotError) {
+        // For slot errors, show a more prominent error
+        Toast.error(errorMessage, {
+          duration: 8000, // Show for 8 seconds
+          style: {
+            background: "#fef2f2",
+            color: "#dc2626",
+            border: "2px solid #fecaca",
+            borderRadius: "8px",
+            fontSize: "14px",
+            lineHeight: "1.5",
+            whiteSpace: "pre-line"
+          }
+        })
+      } else {
+        Toast.error(errorMessage)
+      }
+
+      setError(errorMessage)
     } finally {
       setLoading(false)
     }
@@ -399,6 +484,64 @@ const CreateOrderForm = ({ open, onClose, onOrderCreated }) => {
                 ))}
               </Select>
             </FormControl>
+
+            {/* Slot Capacity Warning */}
+            {orderData.bookingSlot &&
+              orderData.numberOfPlants &&
+              slots.length > 0 &&
+              (() => {
+                const selectedSlot = slots.find((s) => s.id === orderData.bookingSlot)
+                const requestedQuantity = parseInt(orderData.numberOfPlants) || 0
+                const availableQuantity = selectedSlot?.available || 0
+
+                if (requestedQuantity > availableQuantity) {
+                  return (
+                    <Box
+                      sx={{
+                        p: 2,
+                        borderRadius: 2,
+                        border: "2px solid #fecaca",
+                        backgroundColor: "#fef2f2",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 2
+                      }}>
+                      <Box
+                        sx={{
+                          width: 24,
+                          height: 24,
+                          borderRadius: "50%",
+                          backgroundColor: "#dc2626",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          color: "white",
+                          fontSize: "14px",
+                          fontWeight: "bold"
+                        }}>
+                        ⚠️
+                      </Box>
+                      <Box sx={{ flex: 1 }}>
+                        <Typography
+                          variant="body2"
+                          fontWeight={600}
+                          color="#dc2626"
+                          sx={{ mb: 0.5 }}>
+                          Slot Capacity Exceeded!
+                        </Typography>
+                        <Typography variant="body2" color="#7f1d1d">
+                          You're trying to book {orderData.numberOfPlants} plants, but only{" "}
+                          {availableQuantity} are available in this slot.
+                        </Typography>
+                        <Typography variant="body2" color="#7f1d1d" sx={{ mt: 0.5 }}>
+                          Please select a different slot or reduce the order quantity.
+                        </Typography>
+                      </Box>
+                    </Box>
+                  )
+                }
+                return null
+              })()}
 
             <FormControl fullWidth>
               <InputLabel>Sales Person</InputLabel>
