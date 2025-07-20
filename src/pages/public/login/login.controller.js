@@ -25,11 +25,13 @@ export const useLoginController = () => {
       if (response.success) {
         setLoginResponse(response)
 
-        // If password is not set, show the password change modal
-        if (!response.isPasswordSet) {
+        // Show password change modal if:
+        // 1. Password is not set (isPasswordSet: false), OR
+        // 2. Force password reset is required (forcePasswordReset: true)
+        if (!response.isPasswordSet || response.forcePasswordReset) {
           setShowPasswordChangeModal(true)
         } else {
-          // Navigate to dashboard if password is already set
+          // Navigate to dashboard if password is already set and no reset required
           setTimeout(() => {
             navigate("/u/dashboard", { replace: true })
           }, 500)
