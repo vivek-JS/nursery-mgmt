@@ -13,7 +13,14 @@ import moment from "moment"
 import { API, NetworkManager } from "network/core"
 import { PageLoader } from "components"
 import { Toast } from "helpers/toasts/toastHelper"
-import { useHasPaymentAccess, useHasPaymentAddAccess, useIsOfficeAdmin } from "utils/roleUtils"
+import {
+  useHasPaymentAccess,
+  useHasPaymentAddAccess,
+  useIsOfficeAdmin,
+  useIsDealer,
+  useDealerWallet,
+  useDealerWalletById
+} from "utils/roleUtils"
 
 const RenderExpandedContent = ({
   details,
@@ -32,6 +39,13 @@ const RenderExpandedContent = ({
   const hasPaymentAccess = useHasPaymentAccess() // For changing payment status
   const hasPaymentAddAccess = useHasPaymentAddAccess() // For adding payments
   const isOfficeAdmin = useIsOfficeAdmin()
+  const isDealer = useIsDealer()
+  const { walletData, loading: walletLoading } = useDealerWallet()
+
+  // Dealer wallet data for when sales person is a dealer
+  const { walletData: dealerWalletData, loading: dealerWalletLoading } = useDealerWalletById(
+    details?.salesPerson?.jobTitle === "DEALER" ? details?.salesPerson?._id : null
+  )
 
   useEffect(() => {
     setUpdatedPayments(details.payment)
@@ -74,9 +88,35 @@ const RenderExpandedContent = ({
   }
 
   const handleAddPaymentToDb = async () => {
+    const payment = updatedPayments[0]
+
+    // Validate wallet payment for dealers
+    if (isDealer && payment.isWalletPayment) {
+      const availableAmount = walletData?.financial?.availableAmount || 0
+      const paymentAmount = Number(payment.paidAmount)
+
+      if (paymentAmount > availableAmount) {
+        Toast.error(`Insufficient wallet balance. Available: ₹${availableAmount.toLocaleString()}`)
+        return
+      }
+    }
+
+    // Validate dealer wallet payment for accountants (when sales person is dealer)
+    if (!isDealer && details?.salesPerson?.jobTitle === "DEALER" && payment.isWalletPayment) {
+      const availableAmount = dealerWalletData?.financial?.availableAmount || 0
+      const paymentAmount = Number(payment.paidAmount)
+
+      if (paymentAmount > availableAmount) {
+        Toast.error(
+          `Insufficient dealer wallet balance. Available: ₹${availableAmount.toLocaleString()}`
+        )
+        return
+      }
+    }
+
     setLoading(true)
     const instance = NetworkManager(API.ORDER.ADD_PAYMENT)
-    const payload = { ...updatedPayments[0] }
+    const payload = { ...payment }
 
     // Set payment status based on user role
     if (isOfficeAdmin) {
@@ -106,7 +146,8 @@ const RenderExpandedContent = ({
       bankName: "",
       modeOfPayment: "",
       paymentStatus: isOfficeAdmin ? "PENDING" : "COLLECTED", // Default based on role
-      receiptPhoto: []
+      receiptPhoto: [],
+      isWalletPayment: false
     }
     setUpdatedPayments([newPayment, ...updatedPayments])
     setEditablePaymentId(newPayment._id)
@@ -234,7 +275,7 @@ const RenderExpandedContent = ({
                 </div>
               )
             ) : (
-              <div className="mt-1">
+              <div className="mt-1 flex flex-wrap gap-1">
                 {payment.paymentStatus === "COLLECTED" ? (
                   <span className="px-3 py-1 text-xs font-medium text-white bg-green-500 rounded-full">
                     COLLECTED
@@ -246,6 +287,11 @@ const RenderExpandedContent = ({
                 ) : (
                   <span className="px-3 py-1 text-xs font-medium text-gray-700 bg-yellow-400 rounded-full">
                     PENDING
+                  </span>
+                )}
+                {payment.isWalletPayment && (
+                  <span className="px-3 py-1 text-xs font-medium text-white bg-blue-500 rounded-full">
+                    WALLET
                   </span>
                 )}
               </div>
@@ -292,6 +338,167 @@ const RenderExpandedContent = ({
             )}
           </div>
         </div>
+
+        {/* Wallet Payment Option for Dealers */}
+        {isDealer && (
+          <div className="mt-4">
+            <div className="flex items-center justify-between bg-gray-50 p-4 rounded-xl">
+              <div className="flex items-center">
+                {isEditing ? (
+                  <input
+                    type="checkbox"
+                    id="walletPayment"
+                    checked={payment.isWalletPayment || false}
+                    onChange={(e) =>
+                      handleInputChange(payment._id, "isWalletPayment", e.target.checked)
+                    }
+                    className="mr-3 w-4 h-4 text-green-600 bg-gray-100 border-gray-300 rounded focus:ring-green-500"
+                  />
+                ) : (
+                  <div className="mr-3 w-4 h-4 flex items-center justify-center">
+                    {payment.isWalletPayment ? (
+                      <div className="w-3 h-3 bg-green-600 rounded-full"></div>
+                    ) : (
+                      <div className="w-3 h-3 bg-gray-300 rounded-full"></div>
+                    )}
+                  </div>
+                )}
+                <label htmlFor="walletPayment" className="text-gray-700 font-medium">
+                  Pay from Wallet
+                </label>
+              </div>
+              <div>
+                <div className="text-xs text-gray-500">Wallet Balance</div>
+                <div
+                  className={`text-base font-bold ${
+                    isEditing &&
+                    payment.isWalletPayment &&
+                    Number(payment.paidAmount) > (walletData?.financial?.availableAmount ?? 0)
+                      ? "text-red-600"
+                      : "text-gray-800"
+                  }`}>
+                  ₹{(walletData?.financial?.availableAmount ?? 0)?.toLocaleString()}
+                </div>
+              </div>
+            </div>
+
+            {/* Warning messages for wallet payment */}
+            {isEditing && payment.isWalletPayment && (
+              <div className="mt-2">
+                {Number(payment.paidAmount) > (walletData?.financial?.availableAmount ?? 0) && (
+                  <div className="bg-red-50 p-3 rounded-lg">
+                    <div className="text-sm text-red-600 font-medium">
+                      Insufficient wallet balance! Available: ₹
+                      {(walletData?.financial?.availableAmount ?? 0)?.toLocaleString()}
+                    </div>
+                  </div>
+                )}
+
+                {!payment.paidAmount && (
+                  <div className="bg-amber-50 p-3 rounded-lg">
+                    <div className="text-sm text-amber-600 font-medium">
+                      Please enter payment amount
+                    </div>
+                  </div>
+                )}
+
+                {Number(payment.paidAmount) <= (walletData?.financial?.availableAmount ?? 0) &&
+                  payment.paidAmount && (
+                    <div className="bg-green-50 p-3 rounded-lg">
+                      <div className="text-sm text-green-600 font-medium">
+                        Sufficient balance available
+                      </div>
+                    </div>
+                  )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Dealer Wallet Payment Option for Accountants (when sales person is dealer) */}
+        {!isDealer && details?.salesPerson?.jobTitle === "DEALER" && (
+          <div className="mt-4">
+            <div className="bg-blue-50 p-4 rounded-xl border border-blue-200">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center">
+                  <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center mr-3">
+                    <FaCreditCard className="text-blue-600 text-sm" />
+                  </div>
+                  <div>
+                    <div className="text-sm font-medium text-blue-900">Dealer Wallet Payment</div>
+                    <div className="text-xs text-blue-600">
+                      Sales Person: {details?.salesPerson?.name}
+                    </div>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-xs text-blue-600">Available Balance</div>
+                  <div className="text-lg font-bold text-blue-900">
+                    ₹{(dealerWalletData?.financial?.availableAmount ?? 0)?.toLocaleString()}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center">
+                {isEditing ? (
+                  <input
+                    type="checkbox"
+                    id="dealerWalletPayment"
+                    checked={payment.isWalletPayment || false}
+                    onChange={(e) =>
+                      handleInputChange(payment._id, "isWalletPayment", e.target.checked)
+                    }
+                    className="mr-3 w-4 h-4 text-blue-600 bg-blue-100 border-blue-300 rounded focus:ring-blue-500"
+                  />
+                ) : (
+                  <div className="mr-3 w-4 h-4 flex items-center justify-center">
+                    {payment.isWalletPayment ? (
+                      <div className="w-3 h-3 bg-blue-600 rounded-full"></div>
+                    ) : (
+                      <div className="w-3 h-3 bg-gray-300 rounded-full"></div>
+                    )}
+                  </div>
+                )}
+                <label htmlFor="dealerWalletPayment" className="text-blue-800 font-medium">
+                  Pay from Dealer&apos;s Wallet
+                </label>
+              </div>
+
+              {/* Warning messages for dealer wallet payment */}
+              {isEditing && payment.isWalletPayment && (
+                <div className="mt-3 space-y-2">
+                  {Number(payment.paidAmount) >
+                    (dealerWalletData?.financial?.availableAmount ?? 0) && (
+                    <div className="bg-red-50 p-3 rounded-lg border border-red-200">
+                      <div className="text-sm text-red-600 font-medium">
+                        ⚠️ Insufficient dealer wallet balance! Available: ₹
+                        {(dealerWalletData?.financial?.availableAmount ?? 0)?.toLocaleString()}
+                      </div>
+                    </div>
+                  )}
+
+                  {!payment.paidAmount && (
+                    <div className="bg-amber-50 p-3 rounded-lg border border-amber-200">
+                      <div className="text-sm text-amber-600 font-medium">
+                        ℹ️ Please enter payment amount
+                      </div>
+                    </div>
+                  )}
+
+                  {Number(payment.paidAmount) <=
+                    (dealerWalletData?.financial?.availableAmount ?? 0) &&
+                    payment.paidAmount && (
+                      <div className="bg-green-50 p-3 rounded-lg border border-green-200">
+                        <div className="text-sm text-green-600 font-medium">
+                          ✅ Sufficient dealer balance available
+                        </div>
+                      </div>
+                    )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Receipt Section */}
         <div className="mt-4">
@@ -343,7 +550,32 @@ const RenderExpandedContent = ({
               {hasPaymentAccess && (
                 <button
                   onClick={() => handleAddPaymentToDb(payment._id)}
-                  className="inline-flex items-center px-3 py-1.5 text-sm text-white bg-green-500 rounded-lg hover:bg-green-600">
+                  disabled={
+                    (isDealer &&
+                      payment.isWalletPayment &&
+                      (Number(payment.paidAmount) > (walletData?.financial?.availableAmount ?? 0) ||
+                        !payment.paidAmount)) ||
+                    (!isDealer &&
+                      details?.salesPerson?.jobTitle === "DEALER" &&
+                      payment.isWalletPayment &&
+                      (Number(payment.paidAmount) >
+                        (dealerWalletData?.financial?.availableAmount ?? 0) ||
+                        !payment.paidAmount))
+                  }
+                  className={`inline-flex items-center px-3 py-1.5 text-sm rounded-lg ${
+                    (isDealer &&
+                      payment.isWalletPayment &&
+                      (Number(payment.paidAmount) > (walletData?.financial?.availableAmount ?? 0) ||
+                        !payment.paidAmount)) ||
+                    (!isDealer &&
+                      details?.salesPerson?.jobTitle === "DEALER" &&
+                      payment.isWalletPayment &&
+                      (Number(payment.paidAmount) >
+                        (dealerWalletData?.financial?.availableAmount ?? 0) ||
+                        !payment.paidAmount))
+                      ? "bg-gray-300 text-gray-500 cursor-not-allowed"
+                      : "text-white bg-green-500 hover:bg-green-600"
+                  }`}>
                   <CheckIcon size={16} className="mr-1" />
                   Save
                 </button>

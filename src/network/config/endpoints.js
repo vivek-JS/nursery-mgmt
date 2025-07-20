@@ -68,8 +68,13 @@ export const API = {
     GET_USERS: new APIRouter("/user/allusers", HTTP_METHODS.GET),
     GET_DEALERS: new APIRouter("/user/dealers", HTTP_METHODS.GET),
     GET_DEALERS_STATS: new APIRouter("/user/dealerssss/stats", HTTP_METHODS.GET),
-
-    GET_DEALERS_TRANSACTIONS: new APIRouter("/user/dealers/transactions", HTTP_METHODS.GET)
+    GET_DEALERS_TRANSACTIONS: new APIRouter("/user/dealers/transactions", HTTP_METHODS.GET),
+    GET_DEALER_WALLET_DETAILS: new APIRouter("/user/wallet-details", HTTP_METHODS.GET),
+    GET_DEALER_WALLET_TRANSACTIONS: new APIRouter("/user/dealers/transactions", HTTP_METHODS.GET),
+    EXPORT_DEALER_WALLET_TRANSACTIONS_CSV: new APIRouter(
+      "/user/dealers/transactions",
+      HTTP_METHODS.GET
+    )
   },
   PATIENT: {
     ADD_PATIENT_LIST: new APIRouter("api/v2/users/", HTTP_METHODS.POST, OFFLINE.PROFILE),
@@ -233,11 +238,9 @@ export const API = {
     GET_ORDERS_SLOTS: new APIRouter("/order/getOrders", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_ORDERS_BY_STATUS: new APIRouter("/order/by-status", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_PAYMENTS: new APIRouter("/order/payments", HTTP_METHODS.GET, OFFLINE.PROFILE),
-    CREATE_DEALER_ORDER: new APIRouter(
-      "/order/createDealerOrder",
-      HTTP_METHODS.POST,
-      OFFLINE.PROFILE
-    ),
+    GET_VILLAGES: new APIRouter("/order/villages", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_DISTRICTS: new APIRouter("/order/districts", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    CREATE_DEALER_ORDER: new APIRouter("/order/dealer-order", HTTP_METHODS.POST, OFFLINE.PROFILE),
     UPDATE_ORDER: new APIRouter("/order/updateOrder", HTTP_METHODS.PATCH, OFFLINE.PROFILE),
     UPDATE_PAYMENT_STATUS: new APIRouter(
       "/order/updatePaymentStatus",
@@ -260,6 +263,7 @@ export const API = {
     GET_PLANTS: new APIRouter("/slots/get-plants", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_PLANTS_SUBTYPE: new APIRouter("/slots/subtyps", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_PLANTS_SLOTS: new APIRouter("/slots/getslots", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_SLOT_DETAILS: new APIRouter("/slots/:slotId/details", HTTP_METHODS.GET, OFFLINE.PROFILE),
     UPDATE_SLOT: new APIRouter("/slots", HTTP_METHODS.PUT, OFFLINE.PROFILE),
     ADD_MANUAL_SLOT: new APIRouter("/slots/manual", HTTP_METHODS.POST, OFFLINE.PROFILE),
     DELETE_MANUAL_SLOT: new APIRouter("/slots/manual", HTTP_METHODS.DEL, OFFLINE.PROFILE),

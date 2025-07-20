@@ -55,7 +55,7 @@ const ReplaceOrderDialog = ({ open, onClose }) => {
 
       // Transform the data
       const formattedOrders =
-        response?.data?.data?.map((data) => {
+        response?.data?.data?.data?.map((data) => {
           const {
             farmer,
             numberOfPlants,

@@ -1,4 +1,6 @@
 import { useSelector } from "react-redux"
+import { useState, useEffect, useCallback } from "react"
+import { NetworkManager, API } from "network/core"
 
 /**
  * Hook to get current user data from Redux store
@@ -74,4 +76,127 @@ export const useHasRole = (allowedRoles) => {
   const userRole = useUserRole()
   const roles = Array.isArray(allowedRoles) ? allowedRoles : [allowedRoles]
   return roles.includes(userRole)
+}
+
+/**
+ * Check if user is dealer
+ */
+export const useIsDealer = () => {
+  const userRole = useUserRole()
+  return userRole === "DEALER"
+}
+
+/**
+ * Hook to get dealer wallet details
+ */
+export const useDealerWallet = () => {
+  const [walletData, setWalletData] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
+  const userData = useUserData()
+  const isDealer = useIsDealer()
+
+  const fetchWalletDetails = useCallback(async () => {
+    if (!isDealer || !userData?._id) {
+      setWalletData(null)
+      return
+    }
+
+    setLoading(true)
+    setError(null)
+
+    try {
+      const instance = NetworkManager(API.USER.GET_DEALER_WALLET_DETAILS)
+      const response = await instance.request({}, [userData._id])
+
+      if (response?.data) {
+        setWalletData(response.data)
+      } else {
+        setError("Failed to fetch wallet details")
+      }
+    } catch (err) {
+      console.error("Error fetching dealer wallet:", err)
+      setError(err.message || "Failed to fetch wallet details")
+    } finally {
+      setLoading(false)
+    }
+  }, [isDealer, userData?._id])
+
+  useEffect(() => {
+    fetchWalletDetails()
+  }, [fetchWalletDetails])
+
+  return {
+    walletData,
+    loading,
+    error,
+    refetch: fetchWalletDetails
+  }
+}
+
+/**
+ * Hook to get dealer wallet details for a specific dealer
+ * Used by accountants to manage dealer payments
+ */
+export const useDealerWalletById = (dealerId) => {
+  const [walletData, setWalletData] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
+
+  const fetchWalletDetails = useCallback(async () => {
+    console.log("useDealerWalletById - fetchWalletDetails called with dealerId:", dealerId)
+
+    if (!dealerId) {
+      console.log("useDealerWalletById - No dealerId provided, setting walletData to null")
+      setWalletData(null)
+      return
+    }
+
+    setLoading(true)
+    setError(null)
+
+    try {
+      console.log("useDealerWalletById - Making API call for dealerId:", dealerId)
+      const instance = NetworkManager(API.USER.GET_DEALER_WALLET_DETAILS)
+      const response = await instance.request({}, [dealerId])
+      console.log("useDealerWalletById - API response:", response)
+
+      console.log("useDealerWalletById - Full response:", response)
+      console.log("useDealerWalletById - Response.data:", response?.data)
+      console.log("useDealerWalletById - Response.data?.data:", response?.data?.data)
+
+      // Check if the response has nested data structure
+      const walletData = response?.data?.data || response?.data
+
+      if (walletData) {
+        console.log("useDealerWalletById - Wallet data to set:", walletData)
+        console.log("useDealerWalletById - Wallet data.financial:", walletData.financial)
+        console.log(
+          "useDealerWalletById - Wallet data.financial?.availableAmount:",
+          walletData.financial?.availableAmount
+        )
+        setWalletData(walletData)
+        console.log("useDealerWalletById - Wallet data set successfully")
+      } else {
+        setError("Failed to fetch wallet details")
+        console.log("useDealerWalletById - No wallet data found in response")
+      }
+    } catch (err) {
+      console.error("Error fetching dealer wallet:", err)
+      setError(err.message || "Failed to fetch wallet details")
+    } finally {
+      setLoading(false)
+    }
+  }, [dealerId])
+
+  useEffect(() => {
+    fetchWalletDetails()
+  }, [fetchWalletDetails])
+
+  return {
+    walletData,
+    loading,
+    error,
+    refetch: fetchWalletDetails
+  }
 }

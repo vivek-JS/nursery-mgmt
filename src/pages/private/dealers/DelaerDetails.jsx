@@ -30,7 +30,8 @@ import {
   InputLabel,
   Tabs,
   Tab,
-  LinearProgress
+  LinearProgress,
+  Button
 } from "@mui/material"
 // Import icons
 import {
@@ -46,7 +47,8 @@ import {
   Info as InfoIcon,
   AddCircle as AddCircleIcon,
   RemoveCircle as RemoveCircleIcon,
-  Circle as CircleIcon
+  Circle as CircleIcon,
+  Download as DownloadIcon
 } from "@mui/icons-material"
 import DealerPDFExport from "./DealerPDFExport"
 import PlantTypeWithSubtypesCard from "./PlantTypeWithSubtypesCard"
@@ -196,6 +198,39 @@ const DealerDetails = () => {
       setTransactionsLoading(false)
     }
   }
+
+  const exportTransactionsCSV = async () => {
+    try {
+      const instance = NetworkManager(API.USER.EXPORT_DEALER_WALLET_TRANSACTIONS_CSV)
+
+      // Build query parameters
+      const queryParams = {
+        ...(transactionType && { type: transactionType }) // Only add type if it's not empty
+      }
+
+      const response = await instance.request({}, [id], { params: queryParams })
+
+      // Create blob and download
+      const blob = new Blob([response.data], { type: "text/csv" })
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement("a")
+      link.href = url
+      link.setAttribute(
+        "download",
+        `${dealer?.name || "dealer"}_wallet_transactions_${
+          new Date().toISOString().split("T")[0]
+        }.csv`
+      )
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+    } catch (error) {
+      console.error("Error exporting CSV:", error)
+      // You can add a toast notification here if you have one
+    }
+  }
+
   const getDealersStats = async (dealerId) => {
     setStatsLoading(true)
     setError(null)
@@ -560,6 +595,24 @@ const DealerDetails = () => {
               transactions={walletTransactions}
             />
 
+            {/* CSV Export Button */}
+            <Button
+              variant="outlined"
+              startIcon={<DownloadIcon />}
+              onClick={exportTransactionsCSV}
+              disabled={!dealer || walletTransactions.length === 0}
+              sx={{
+                borderColor: "success.main",
+                color: "success.main",
+                "&:hover": { borderColor: "success.dark", bgcolor: "success.50" },
+                padding: "10px 20px",
+                borderRadius: "8px",
+                textTransform: "none",
+                fontWeight: "bold"
+              }}>
+              Export CSV
+            </Button>
+
             <FormControl sx={{ minWidth: 200 }} size="small">
               <InputLabel id="transaction-type-label">Filter by Type</InputLabel>
               <Select
@@ -685,7 +738,47 @@ const DealerDetails = () => {
                               overflow: "hidden",
                               textOverflow: "ellipsis"
                             }}>
-                            {transaction.description}
+                            {(() => {
+                              // Extract just farmer name and village from description
+                              if (
+                                transaction.description.includes(
+                                  "Wallet payment collected for Order #"
+                                )
+                              ) {
+                                if (transaction.description.includes(" - Dealer Order")) {
+                                  return "Dealer Order"
+                                } else if (transaction.description.includes(" - ")) {
+                                  const farmerInfo = transaction.description.split(" - ")[1]
+                                  if (farmerInfo && !farmerInfo.includes("Unknown")) {
+                                    return farmerInfo // Just the farmer name and village
+                                  }
+                                }
+                              } else if (
+                                transaction.description.includes("Wallet payment for Order #")
+                              ) {
+                                if (transaction.description.includes(" - Dealer Order")) {
+                                  return "Dealer Order"
+                                } else if (transaction.description.includes(" - ")) {
+                                  const farmerInfo = transaction.description.split(" - ")[1]
+                                  if (farmerInfo && !farmerInfo.includes("Unknown")) {
+                                    return farmerInfo // Just the farmer name and village
+                                  }
+                                }
+                              } else if (
+                                transaction.description.includes("Payment collected for Order #")
+                              ) {
+                                if (transaction.description.includes(" - Dealer Order")) {
+                                  return "Dealer Order"
+                                } else if (transaction.description.includes(" - ")) {
+                                  const farmerInfo = transaction.description.split(" - ")[1]
+                                  if (farmerInfo && !farmerInfo.includes("Unknown")) {
+                                    return farmerInfo // Just the farmer name and village
+                                  }
+                                }
+                              }
+                              // For other descriptions, show as is
+                              return transaction.description
+                            })()}
                           </Typography>
                         </Tooltip>
                       </TableCell>
