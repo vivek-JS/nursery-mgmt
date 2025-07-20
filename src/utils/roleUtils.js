@@ -36,6 +36,14 @@ export const useHasPaymentAddAccess = () => {
 }
 
 /**
+ * Check if user can add payments - ANYONE can add payments now
+ * All new payments will be added with PENDING status
+ */
+export const useCanAddPayment = () => {
+  return true // Anyone can add payments
+}
+
+/**
  * Check if user is accountant
  */
 export const useIsAccountant = () => {

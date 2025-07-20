@@ -26,7 +26,7 @@ const initialValues = {
   confirmPassword: ""
 }
 
-const PasswordChangeModal = ({ open, onClose, onSuccess }) => {
+const PasswordChangeModal = ({ open, onClose, onSuccess, loginResponse }) => {
   const [showNewPassword, setShowNewPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -35,25 +35,57 @@ const PasswordChangeModal = ({ open, onClose, onSuccess }) => {
   const handleSubmit = async (values, { setSubmitting, resetForm }) => {
     setLoading(true)
     try {
-      const instance = NetworkManager(API.USER.CHANGE_PASSWORD)
-      const response = await instance.request({
-        newPassword: values.newPassword,
-        confirmPassword: values.confirmPassword
-      })
+      console.log("🔍 Password change attempt - loginResponse:", loginResponse)
 
-      if (response?.data?.status === "Success") {
-        Toast.success("Password changed successfully")
+      // If this is from login flow and we have login response data
+      if (loginResponse && loginResponse.user) {
+        console.log("🔍 Using login flow password change")
 
-        // Update the user state with new user data
-        if (response.data.data?.user) {
-          UserState.update(response.data.data.user)
+        // Use the access token from login response
+        const instance = NetworkManager(API.USER.CHANGE_PASSWORD)
+        const response = await instance.request({
+          newPassword: values.newPassword,
+          confirmPassword: values.confirmPassword
+        })
+
+        if (response?.data?.status === "Success") {
+          Toast.success("Password changed successfully")
+
+          // Update the user state with new user data
+          if (response.data.data?.user) {
+            UserState.update(response.data.data.user)
+          }
+
+          resetForm()
+          onSuccess && onSuccess()
+          onClose()
+        } else {
+          Toast.error(response?.data?.message || "Failed to change password")
         }
-
-        resetForm()
-        onSuccess && onSuccess()
-        onClose()
       } else {
-        Toast.error(response?.data?.message || "Failed to change password")
+        console.log("🔍 Using regular password change flow")
+
+        // Regular password change flow
+        const instance = NetworkManager(API.USER.CHANGE_PASSWORD)
+        const response = await instance.request({
+          newPassword: values.newPassword,
+          confirmPassword: values.confirmPassword
+        })
+
+        if (response?.data?.status === "Success") {
+          Toast.success("Password changed successfully")
+
+          // Update the user state with new user data
+          if (response.data.data?.user) {
+            UserState.update(response.data.data.user)
+          }
+
+          resetForm()
+          onSuccess && onSuccess()
+          onClose()
+        } else {
+          Toast.error(response?.data?.message || "Failed to change password")
+        }
       }
     } catch (error) {
       console.error("Password change error:", error)
@@ -72,6 +104,22 @@ const PasswordChangeModal = ({ open, onClose, onSuccess }) => {
     setShowConfirmPassword((prev) => !prev)
   }
 
+  // Determine modal title and description based on context
+  const getModalContent = () => {
+    if (loginResponse && (loginResponse.forcePasswordReset || !loginResponse.isPasswordSet)) {
+      return {
+        title: "Set Your Password",
+        description: "Please set a new password for your account. This is required for security."
+      }
+    }
+    return {
+      title: "Change Password",
+      description: "Please set a new password for your account"
+    }
+  }
+
+  const modalContent = getModalContent()
+
   return (
     <Dialog
       open={open}
@@ -82,9 +130,9 @@ const PasswordChangeModal = ({ open, onClose, onSuccess }) => {
       disableBackdropClick>
       <DialogTitle>
         <div style={{ textAlign: "center" }}>
-          <h2 style={{ margin: 0, color: "#1976d2" }}>Change Password</h2>
+          <h2 style={{ margin: 0, color: "#1976d2" }}>{modalContent.title}</h2>
           <p style={{ margin: "8px 0 0 0", color: "#666", fontSize: "14px" }}>
-            Please set a new password for your account
+            {modalContent.description}
           </p>
         </div>
       </DialogTitle>

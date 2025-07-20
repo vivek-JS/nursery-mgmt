@@ -77,53 +77,75 @@ export default function PrivateLayout(props) {
   return (
     <Box sx={{ display: "flex" }}>
       <Drawer open={false} sx={styles.drawer} variant="permanent" anchor="left">
-        <List>
-          <DrawerHeader>
-            <ListItemButton style={{ padding: 10 }} sx={{ paddingLeft: "10px !important" }}>
-
-            </ListItemButton>
-
-            {/* <Typography sx={styles.drawerHeader} variant="h4">
-              <img src={Logo} style={{ height: 30 }}></img>
-            </Typography>
-            &nbsp; &nbsp;
-            <Typography sx={styles.listItemText}>Practease</Typography> */}
-          </DrawerHeader>
-          <Divider sx={styles.divider} />
-
-          {DashboardMenus.filter(
-            (item) =>
-              (userType === "LABORATORY_MANAGER" ? (item.title === "Labs") : true)
-          ).map((item) => {
-            return (
+        <Box
+          sx={{
+            display: "flex",
+            flexDirection: "column",
+            height: "100%",
+            overflow: "hidden"
+          }}>
+          {/* Header Section */}
+          <Box sx={{ flexShrink: 0 }}>
+            <DrawerHeader>
               <ListItemButton
-                sx={activeMenu(item) ? styles.activeListItem : styles.listItem}
-                key={item.alias}
-                onClick={() => navigate(item.route)}>
-                <ListItemIcon sx={activeMenu(item) ? styles.iconActive : styles.icon}>
-                  {item.icon}
+                style={{ padding: 10 }}
+                sx={{ paddingLeft: "10px !important" }}></ListItemButton>
+
+              {/* <Typography sx={styles.drawerHeader} variant="h4">
+                <img src={Logo} style={{ height: 30 }}></img>
+              </Typography>
+              &nbsp; &nbsp;
+              <Typography sx={styles.listItemText}>Practease</Typography> */}
+            </DrawerHeader>
+            <Divider sx={styles.divider} />
+          </Box>
+
+          {/* Menu Items Section - Scrollable */}
+          <Box
+            sx={{
+              flexGrow: 1,
+              overflowY: "auto",
+              overflowX: "hidden"
+            }}>
+            <List>
+              {DashboardMenus.filter((item) =>
+                userType === "LABORATORY_MANAGER" ? item.title === "Labs" : true
+              ).map((item) => {
+                return (
+                  <ListItemButton
+                    sx={activeMenu(item) ? styles.activeListItem : styles.listItem}
+                    key={item.alias}
+                    onClick={() => navigate(item.route)}>
+                    <ListItemIcon sx={activeMenu(item) ? styles.iconActive : styles.icon}>
+                      {item.icon}
+                    </ListItemIcon>
+                    <ListItemText>
+                      <Typography sx={styles.listItemText}>{item.title}</Typography>
+                    </ListItemText>
+                  </ListItemButton>
+                )
+              })}
+            </List>
+          </Box>
+
+          {/* Logout Section - Fixed at Bottom */}
+          <Box sx={{ flexShrink: 0 }}>
+            <Divider sx={styles.divider} />
+            <List>
+              <ListItemButton
+                style={{ paddingLeft: 10 }}
+                sx={{ paddingLeft: "10px !important" }}
+                onClick={handleLogout}>
+                <ListItemIcon sx={{ paddingLeft: 10 }}>
+                  <LogoutIcon color="secondary" />
                 </ListItemIcon>
                 <ListItemText>
-                  <Typography sx={styles.listItemText}>{item.title}</Typography>
+                  <Typography sx={styles.listItemText}>Logout</Typography>
                 </ListItemText>
               </ListItemButton>
-            )
-          })}
-        </List>
-        <List sx={styles.logout}>
-          <Divider sx={styles.divider} />
-          <ListItemButton
-            style={{ paddingLeft: 10 }}
-            sx={{ paddingLeft: "10px !important" }}
-            onClick={handleLogout}>
-            <ListItemIcon sx={{ paddingLeft: 10 }}>
-              <LogoutIcon color="secondary" />
-            </ListItemIcon>
-            <ListItemText>
-              <Typography sx={styles.listItemText}>Logout</Typography>
-            </ListItemText>
-          </ListItemButton>
-        </List>
+            </List>
+          </Box>
+        </Box>
       </Drawer>
       <Main open={open}>
         <Outlet />

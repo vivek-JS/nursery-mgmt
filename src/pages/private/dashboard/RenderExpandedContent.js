@@ -15,7 +15,7 @@ import { PageLoader } from "components"
 import { Toast } from "helpers/toasts/toastHelper"
 import {
   useHasPaymentAccess,
-  useHasPaymentAddAccess,
+  useCanAddPayment,
   useIsOfficeAdmin,
   useIsDealer,
   useDealerWallet,
@@ -36,8 +36,8 @@ const RenderExpandedContent = ({
   const [activeTab, setActiveTab] = useState("payments")
 
   // Role-based access control
-  const hasPaymentAccess = useHasPaymentAccess() // For changing payment status
-  const hasPaymentAddAccess = useHasPaymentAddAccess() // For adding payments
+  const hasPaymentAccess = useHasPaymentAccess() // For changing payment status (Accountant/Super Admin only)
+  const canAddPayment = useCanAddPayment() // Anyone can add payments
   const isOfficeAdmin = useIsOfficeAdmin()
   const isDealer = useIsDealer()
   const { walletData, loading: walletLoading } = useDealerWallet()
@@ -51,18 +51,11 @@ const RenderExpandedContent = ({
     setUpdatedPayments(details.payment)
   }, [details.payment])
 
-  const handleInputChange = (paymentId, key, value) => {
-    if (editablePaymentId === paymentId) {
-      const updatedPayment = updatedPayments.map((payment) =>
-        payment._id === paymentId
-          ? {
-              ...payment,
-              [key]: key === "paymentDate" && !value ? moment().format("YYYY-MM-DD") : value
-            }
-          : payment
-      )
-      setUpdatedPayments(updatedPayment)
-    }
+  const handleInputChange = (paymentId, field, value) => {
+    const payments = updatedPayments.map((payment) =>
+      payment._id === paymentId ? { ...payment, [field]: value } : payment
+    )
+    setUpdatedPayments(payments)
   }
 
   const handleCancelEdit = () => {
@@ -85,6 +78,20 @@ const RenderExpandedContent = ({
       Toast.error("Something went wrong")
     }
     setLoading(false)
+  }
+
+  const handleAddPayment = () => {
+    const newPayment = {
+      paidAmount: "",
+      paymentDate: moment().format("YYYY-MM-DD"),
+      bankName: "",
+      modeOfPayment: "",
+      paymentStatus: "PENDING", // Always PENDING for new payments
+      receiptPhoto: [],
+      isWalletPayment: false
+    }
+    setUpdatedPayments([newPayment, ...updatedPayments])
+    setEditablePaymentId(newPayment._id)
   }
 
   const handleAddPaymentToDb = async () => {
@@ -118,16 +125,8 @@ const RenderExpandedContent = ({
     const instance = NetworkManager(API.ORDER.ADD_PAYMENT)
     const payload = { ...payment }
 
-    // Set payment status based on user role
-    if (isOfficeAdmin) {
-      payload.paymentStatus = "PENDING"
-    } else if (payload.paymentStatus && payload.paymentStatus !== false) {
-      // Keep the user-selected status for Accountant and Super Admin
-      // This allows them to choose PENDING, COLLECTED, or REJECTED
-    } else {
-      // Default to COLLECTED if no status is selected
-      payload.paymentStatus = "COLLECTED"
-    }
+    // Always set payment status to PENDING for new payments
+    payload.paymentStatus = "PENDING"
 
     const emps = await instance.request(payload, [orderId])
     if (emps?.data) {
@@ -137,20 +136,6 @@ const RenderExpandedContent = ({
       Toast.error("Something went wrong")
     }
     setLoading(false)
-  }
-
-  const handleAddPayment = () => {
-    const newPayment = {
-      paidAmount: "",
-      paymentDate: moment().format("YYYY-MM-DD"),
-      bankName: "",
-      modeOfPayment: "",
-      paymentStatus: isOfficeAdmin ? "PENDING" : "COLLECTED", // Default based on role
-      receiptPhoto: [],
-      isWalletPayment: false
-    }
-    setUpdatedPayments([newPayment, ...updatedPayments])
-    setEditablePaymentId(newPayment._id)
   }
 
   const handleFileUpload = (paymentId, files) => {
@@ -269,9 +254,7 @@ const RenderExpandedContent = ({
                 </select>
               ) : (
                 <div className="text-sm text-gray-400 italic mt-1">
-                  {isOfficeAdmin
-                    ? "PENDING (Contact Accountant to change)"
-                    : "Status cannot be changed"}
+                  Contact Accountant to change status
                 </div>
               )
             ) : (
@@ -589,6 +572,14 @@ const RenderExpandedContent = ({
             </>
           ) : (
             <>
+              {canAddPayment && (
+                <button
+                  onClick={handleAddPayment}
+                  className="inline-flex items-center px-3 py-1.5 text-sm text-blue-600 hover:text-blue-800">
+                  <PlusIcon size={16} className="mr-1" />
+                  Add Payment
+                </button>
+              )}
               {hasPaymentAccess && (
                 <button
                   onClick={() => handleEditPayment(payment._id)}
@@ -640,13 +631,13 @@ const RenderExpandedContent = ({
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-semibold text-gray-900">Payment History</h3>
-              {hasPaymentAddAccess && (
+              {canAddPayment && (
                 <button
                   onClick={handleAddPayment}
                   className="inline-flex items-center px-4 py-2 text-sm text-white bg-blue-500 rounded-lg hover:bg-blue-600">
                   <PlusIcon size={16} className="mr-2" />
                   Add Payment
-                  {isOfficeAdmin && <span className="ml-1 text-xs">(PENDING only)</span>}
+                  <span className="ml-1 text-xs">(PENDING only)</span>
                 </button>
               )}
             </div>
