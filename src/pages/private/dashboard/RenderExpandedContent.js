@@ -232,6 +232,7 @@ const RenderExpandedContent = ({
                 <option value="Phone Pe">Phone Pe</option>
                 <option value="Google Pay">Google Pay</option>
                 <option value="Cheque">Cheque</option>
+                <option value="NEFT">NEFT</option>
                 <option value="JPCB">JPCB</option>
               </select>
             ) : (
@@ -288,7 +289,7 @@ const RenderExpandedContent = ({
           <div>
             <label className="text-xs text-gray-500 font-medium">Bank Name</label>
             {isEditing ? (
-              payment.modeOfPayment === "Cheque" ? (
+              payment.modeOfPayment === "Cheque" || payment.modeOfPayment === "NEFT" ? (
                 <input
                   type="text"
                   value={payment.bankName || ""}
@@ -300,7 +301,9 @@ const RenderExpandedContent = ({
               )
             ) : (
               <div className="text-sm text-gray-700 mt-1">
-                {payment.modeOfPayment === "Cheque" ? payment.bankName : "N/A"}
+                {payment.modeOfPayment === "Cheque" || payment.modeOfPayment === "NEFT"
+                  ? payment.bankName
+                  : "N/A"}
               </div>
             )}
           </div>

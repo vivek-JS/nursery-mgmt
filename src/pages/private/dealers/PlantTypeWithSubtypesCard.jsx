@@ -25,6 +25,12 @@ const PlantTypeWithSubtypesCard = ({ plantType, subtypes }) => {
   // Helper function to get a color based on plant name
   const getPlantColor = (plantName) => {
     const colors = ["primary", "success", "info", "warning", "error", "secondary"]
+
+    // Handle undefined or null plantName
+    if (!plantName || typeof plantName !== "string") {
+      return colors[0] // Return primary color as default
+    }
+
     // Simple hash function to assign consistent colors
     const hash = plantName.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0)
     return colors[hash % colors.length]

@@ -247,7 +247,8 @@ export const API = {
       HTTP_METHODS.PATCH,
       OFFLINE.PROFILE
     ),
-    ADD_PAYMENT: new APIRouter("order/payment", HTTP_METHODS.PATCH, OFFLINE.PROFILE),
+    ADD_PAYMENT: new APIRouter("order/payment/:orderId", HTTP_METHODS.PATCH, OFFLINE.PROFILE),
+    GET_CSV: new APIRouter("order/getCSV", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_SLOTS: new APIRouter("slots/getslots", HTTP_METHODS.GET, OFFLINE.PROFILE)
   },
   plantCms: {
