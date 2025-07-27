@@ -221,14 +221,17 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
       currentBuffer
     })
     setEditAmount("0")
-    setEditBuffer(currentBuffer.toString())
+    setEditBuffer("") // Start with empty buffer field
     setOperationType("add")
     setShowEditModal(true)
   }
 
   const handleEditChange = (e) => {
-    const value = e.target.value.replace(/\D/g, "")
-    setEditAmount(value)
+    const value = e.target.value
+    // Allow only numbers and empty string, prevent blinking
+    if (value === "" || /^\d*$/.test(value)) {
+      setEditAmount(value)
+    }
   }
 
   const cancelEdit = (e) => {
@@ -236,7 +239,7 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
     setShowEditModal(false)
     setEditingSlotData(null)
     setEditAmount("0")
-    setEditBuffer("0")
+    setEditBuffer("")
   }
 
   const handleKeyPress = (e) => {
@@ -250,7 +253,7 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
   const updateSlotBuffer = async (slotId, buffer) => {
     try {
       const instance = NetworkManager(API.slots.UPDATE_SLOT_BUFFER)
-      const response = await instance.request({ buffer: parseFloat(buffer) }, [slotId])
+      const response = await instance.request({ buffer: parseFloat(buffer) }, [slotId, "buffer"])
 
       if (response?.data?.success) {
         Toast.success("Buffer updated successfully")
@@ -284,7 +287,8 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
           // Use the new addPlantsToCapacity endpoint
           const instance = NetworkManager(API.slots.ADD_PLANTS_TO_CAPACITY)
           const response = await instance.request({ plantsToAdd: amountToChange }, [
-            editingSlotData.slotId
+            editingSlotData.slotId,
+            "add-capacity"
           ])
 
           if (response?.data?.success) {
@@ -303,9 +307,13 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
         }
       }
 
-      // Update buffer if changed
-      if (bufferValue !== parseFloat(editingSlotData.currentBuffer || 0)) {
-        await updateSlotBuffer(editingSlotData.slotId, bufferValue)
+      // Update buffer only if user explicitly changed it
+      const currentBuffer = parseFloat(editingSlotData.currentBuffer || 0)
+      const newBufferValue = parseFloat(editBuffer) || 0
+
+      // Only update buffer if the value is different AND user entered a value
+      if (editBuffer !== "" && newBufferValue !== currentBuffer) {
+        await updateSlotBuffer(editingSlotData.slotId, newBufferValue)
       }
 
       // Refresh data
@@ -396,7 +404,8 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
     try {
       const instance = NetworkManager(API.slots.RELEASE_BUFFER_PLANTS)
       const response = await instance.request({ plantsToRelease: amount }, [
-        releaseBufferSlotData._id
+        releaseBufferSlotData._id,
+        "release-buffer"
       ])
 
       if (response?.data?.success) {
@@ -425,7 +434,7 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
 
     try {
       const instance = NetworkManager(API.slots.UPDATE_SLOT_BUFFER)
-      const response = await instance.request({ buffer }, [bufferSlotData._id])
+      const response = await instance.request({ buffer }, [bufferSlotData._id, "buffer"])
 
       if (response?.data?.success) {
         Toast.success("Buffer updated successfully")
@@ -537,8 +546,16 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
 
             <div className="mb-8">
               <label className="block text-sm font-semibold text-gray-700 mb-2">
-                Buffer Percentage
+                Buffer Percentage (Optional)
               </label>
+              <div className="mb-2 p-2 bg-gray-50 rounded-lg border border-gray-200">
+                <p className="text-xs text-gray-600">
+                  Current Buffer:{" "}
+                  <span className="font-semibold text-gray-800">
+                    {editingSlotData?.currentBuffer || 0}%
+                  </span>
+                </p>
+              </div>
               <Input
                 value={editBuffer}
                 onChange={(e) => setEditBuffer(e.target.value)}
@@ -548,7 +565,7 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                 min="0"
                 max="100"
                 step="0.1"
-                placeholder="Enter buffer percentage (0-100)"
+                placeholder="Enter new buffer percentage"
                 sx={{
                   "& .MuiOutlinedInput-root": {
                     borderRadius: "0.75rem",
@@ -558,7 +575,7 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                 }}
               />
               <p className="text-xs text-gray-500 mt-1">
-                Additional buffer percentage for this slot (0-100%)
+                Only change if you want to update the buffer. Leave empty to keep current buffer.
               </p>
             </div>
 

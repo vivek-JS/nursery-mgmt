@@ -402,16 +402,6 @@ export const API = {
       "slots/update-slot-buffer/:slotId",
       HTTP_METHODS.PUT,
       OFFLINE.PROFILE
-    ),
-    ADD_PLANTS_TO_CAPACITY: new APIRouter(
-      "slots/:slotId/add-capacity",
-      HTTP_METHODS.POST,
-      OFFLINE.PROFILE
-    ),
-    RELEASE_BUFFER_PLANTS: new APIRouter(
-      "slots/:slotId/release-buffer",
-      HTTP_METHODS.POST,
-      OFFLINE.PROFILE
     )
   }
 }
