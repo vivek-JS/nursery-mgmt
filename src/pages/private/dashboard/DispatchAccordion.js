@@ -8,8 +8,8 @@ import {
   CheckCircle,
   AlertCircle
 } from "lucide-react"
-import { NetworkManager, API } from "../../network/core"
-import { Toast } from "../../helpers/toasts/toastHelper"
+import { NetworkManager, API } from "network/core"
+import { Toast } from "helpers/toasts/toastHelper"
 import moment from "moment"
 
 const DispatchAccordion = ({ dispatch, onRefresh }) => {

@@ -20,7 +20,8 @@ import {
   MoreHorizontal,
   X,
   UserCheck,
-  Shield
+  Shield,
+  History
 } from "lucide-react"
 import {
   Switch,
@@ -55,6 +56,7 @@ import { API, NetworkManager } from "network/core"
 import { PageLoader } from "components"
 import { Toast } from "helpers/toasts/toastHelper"
 import FarmerOrdersTable from "../dashboard/FarmerOrdersTable"
+import SlotTrailModal from "components/Modals/SlotTrailModal"
 import moment from "moment"
 
 const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
