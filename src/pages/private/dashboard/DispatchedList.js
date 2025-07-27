@@ -5,6 +5,7 @@ import DispatchForm from "./DispatchedForm"
 import CollectSlipPDF from "./CollectSlipPDF"
 import DeliveryChallanPDF from "./DeliveryChallan"
 import OrderCompleteDialog from "./OrderCompleteDialog"
+import DispatchAccordion from "./DispatchAccordion"
 import { Toast } from "helpers/toasts/toastHelper"
 const DispatchList = ({ setisDispatchtab, viewMode, refresh }) => {
   const [dispatches, setDispatches] = useState([])
@@ -24,6 +25,17 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh }) => {
     setIsDispatchFormOpen(false)
     setIsOrderCompleteOpen(false)
   }, [viewMode, refresh])
+
+  // Auto-refresh when dispatch is added
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (viewMode === "dispatch_process") {
+        fetchDispatches()
+      }
+    }, 30000) // Refresh every 30 seconds
+
+    return () => clearInterval(interval)
+  }, [viewMode])
   const fetchDispatches = async () => {
     try {
       setLoading(true)
@@ -300,125 +312,20 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh }) => {
           </div>
 
           {dispatches.length === 0 ? (
-            <div className="text-gray-500 text-center py-8">No dispatches found</div>
+            <div className="text-center py-8">
+              <Truck className="text-gray-400 mx-auto mb-4" size={48} />
+              <h3 className="text-lg font-medium text-gray-900 mb-2">No Dispatches Found</h3>
+              <p className="text-gray-500">No dispatches are currently in process.</p>
+            </div>
           ) : (
-            <div className="overflow-hidden shadow ring-1 ring-black ring-opacity-5 rounded-lg">
-              <table className="min-w-full divide-y divide-gray-300">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">
-                      Transport ID
-                    </th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">
-                      Driver
-                    </th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">
-                      Order IDs
-                    </th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">
-                      Date
-                    </th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">
-                      Status
-                    </th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">
-                      Total Plants
-                    </th>
-                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">
-                      Plant Types
-                    </th>
-                    <th className="px-6 py-3 text-right text-sm font-semibold text-gray-900">
-                      Actions
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200 bg-white">
-                  {dispatches?.map((dispatch) => (
-                    <tr
-                      key={dispatch._id}
-                      className="hover:bg-gray-50 transition-colors cursor-pointer"
-                      onClick={(e) => handleRowClick(dispatch, e)}>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center">
-                          <Truck className="text-green-600 mr-2" size={20} />
-                          <span className="text-gray-900">{dispatch.transportId}</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-gray-600">
-                        {dispatch.driverName}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-gray-600">
-                        <div className="flex items-center gap-1">
-                          {dispatch.orderIds?.slice(0, 3).map((order) => (
-                            <span
-                              key={order.order}
-                              className="inline-flex items-center px-2 py-0.5 rounded bg-gray-100 text-gray-800 text-xs">
-                              #{order.order}
-                            </span>
-                          ))}
-                          {dispatch.orderIds?.length > 3 && (
-                            <span className="text-gray-500 text-xs">
-                              +{dispatch.orderIds.length - 3} more
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-gray-600">
-                        {new Date(dispatch.createdAt).toLocaleDateString("en-IN", {
-                          day: "numeric",
-                          month: "short",
-                          year: "numeric"
-                        })}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span
-                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getStatusChipStyles(
-                            dispatch.transportStatus
-                          )}`}>
-                          {dispatch.transportStatus || "PENDING"}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-gray-600">
-                        {dispatch.plantsDetails.reduce((sum, plant) => sum + plant.quantity, 0)}
-                      </td>
-                      <td className="px-6 py-4 text-gray-600">
-                        {dispatch.plantsDetails?.map((plant) => plant.name).join(", ")}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right space-x-2">
-                        <button
-                          onClick={(e) => handleDialogOpen("collectSlip", dispatch, e)}
-                          className="inline-flex items-center px-3 py-1.5 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700">
-                          Collect Slip
-                        </button>
-                        <button
-                          onClick={(e) => handleDialogOpen("dc", dispatch, e)}
-                          className="inline-flex items-center px-3 py-1.5 bg-green-600 text-white text-sm font-medium rounded hover:bg-green-700">
-                          DC
-                        </button>
-                        {dispatch.transportStatus !== "DELIVERED" && (
-                          <>
-                            <button
-                              onClick={(e) => handleOrderComplete(dispatch, e)}
-                              className="inline-flex items-center px-3 py-1.5 bg-purple-600 text-white text-sm font-medium rounded hover:bg-purple-700">
-                              <CheckCircle size={16} className="mr-1" />
-                              Complete Order
-                            </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                handleDelete(dispatch)
-                              }}
-                              className="inline-flex items-center px-3 py-1.5 bg-red-100 text-red-700 text-sm font-medium rounded hover:bg-red-200">
-                              <Trash2 size={16} className="mr-1" />
-                              Delete
-                            </button>
-                          </>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="space-y-4">
+              {dispatches.map((dispatch) => (
+                <DispatchAccordion
+                  key={dispatch._id}
+                  dispatch={dispatch}
+                  onRefresh={fetchDispatches}
+                />
+              ))}
             </div>
           )}
 

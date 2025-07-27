@@ -378,5 +378,14 @@ export const API = {
     ADD_TALUKA_TO_DISTRICT: new APIRouter("/state", HTTP_METHODS.POST),
     ADD_VILLAGE_TO_TALUKA: new APIRouter("/state", HTTP_METHODS.POST),
     GET_LOCATION_HIERARCHY: new APIRouter("/state", HTTP_METHODS.GET)
+  },
+  SLOTS: {
+    GET_SLOTS: "slots/getslots",
+    GET_PLANT_NAMES: "slots/plant-names",
+    GET_SUBTYPES_BY_PLANT: "slots/subtypes-by-plant",
+    GET_SLOTS_BY_PLANT_SUBTYPE: "slots/slots-by-plant-subtype",
+    GET_SLOT_DETAILS: "slots/slot-details/:slotId",
+    GET_SLOT_TRAIL: "slots/slot-trail/:slotId",
+    UPDATE_SLOT_BUFFER: "slots/update-slot-buffer/:slotId"
   }
 }

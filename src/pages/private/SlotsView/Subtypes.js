@@ -91,6 +91,10 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
   const [releaseBufferSlotData, setReleaseBufferSlotData] = useState(null)
   const [releaseAmount, setReleaseAmount] = useState("0")
 
+  // Slot trail modal states
+  const [showSlotTrailModal, setShowSlotTrailModal] = useState(false)
+  const [selectedSlotForTrail, setSelectedSlotForTrail] = useState(null)
+
   const monthOrder = [
     "January",
     "February",
@@ -1494,6 +1498,18 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                                 <AlertTriangle className="w-4 h-4 text-red-500" />
                               </Tooltip>
                             )}
+                            <Tooltip title="View Slot Trail">
+                              <IconButton
+                                size="small"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setSelectedSlotForTrail(slot)
+                                  setShowSlotTrailModal(true)
+                                }}
+                                className="text-blue-600 hover:text-blue-800">
+                                <History className="w-4 h-4" />
+                              </IconButton>
+                            </Tooltip>
                           </div>
                           <div className="flex items-center space-x-1">
                             <Tooltip title="Edit Plants">
@@ -1728,6 +1744,19 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
             </div>
           )}
         </div>
+      )}
+
+      {/* Slot Trail Modal */}
+      {showSlotTrailModal && selectedSlotForTrail && (
+        <SlotTrailModal
+          open={showSlotTrailModal}
+          onClose={() => {
+            setShowSlotTrailModal(false)
+            setSelectedSlotForTrail(null)
+          }}
+          slotId={selectedSlotForTrail._id}
+          slotInfo={selectedSlotForTrail}
+        />
       )}
     </div>
   )
