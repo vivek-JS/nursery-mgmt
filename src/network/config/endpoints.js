@@ -397,7 +397,7 @@ export const API = {
       HTTP_METHODS.GET,
       OFFLINE.PROFILE
     ),
-    GET_SLOT_TRAIL: new APIRouter("slots/slot-trail/:slotId", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_SLOT_TRAIL: new APIRouter("slot-trail/:slotId", HTTP_METHODS.GET, OFFLINE.PROFILE),
     UPDATE_SLOT_BUFFER: new APIRouter(
       "slots/update-slot-buffer/:slotId",
       HTTP_METHODS.PUT,
