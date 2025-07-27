@@ -380,12 +380,28 @@ export const API = {
     GET_LOCATION_HIERARCHY: new APIRouter("/state", HTTP_METHODS.GET)
   },
   SLOTS: {
-    GET_SLOTS: "slots/getslots",
-    GET_PLANT_NAMES: "slots/plant-names",
-    GET_SUBTYPES_BY_PLANT: "slots/subtypes-by-plant",
-    GET_SLOTS_BY_PLANT_SUBTYPE: "slots/slots-by-plant-subtype",
-    GET_SLOT_DETAILS: "slots/slot-details/:slotId",
-    GET_SLOT_TRAIL: "slots/slot-trail/:slotId",
-    UPDATE_SLOT_BUFFER: "slots/update-slot-buffer/:slotId"
+    GET_SLOTS: new APIRouter("slots/getslots", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_PLANT_NAMES: new APIRouter("slots/plant-names", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_SUBTYPES_BY_PLANT: new APIRouter(
+      "slots/subtypes-by-plant",
+      HTTP_METHODS.GET,
+      OFFLINE.PROFILE
+    ),
+    GET_SLOTS_BY_PLANT_SUBTYPE: new APIRouter(
+      "slots/slots-by-plant-subtype",
+      HTTP_METHODS.GET,
+      OFFLINE.PROFILE
+    ),
+    GET_SLOT_DETAILS: new APIRouter(
+      "slots/slot-details/:slotId",
+      HTTP_METHODS.GET,
+      OFFLINE.PROFILE
+    ),
+    GET_SLOT_TRAIL: new APIRouter("slots/slot-trail/:slotId", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    UPDATE_SLOT_BUFFER: new APIRouter(
+      "slots/update-slot-buffer/:slotId",
+      HTTP_METHODS.PUT,
+      OFFLINE.PROFILE
+    )
   }
 }
