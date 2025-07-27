@@ -250,7 +250,7 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
   const updateSlotBuffer = async (slotId, buffer) => {
     try {
       const instance = NetworkManager(API.slots.UPDATE_SLOT_BUFFER)
-      const response = await instance.request({ buffer: parseFloat(buffer) }, [slotId, "buffer"])
+      const response = await instance.request({ buffer: parseFloat(buffer) }, [slotId])
 
       if (response?.data?.success) {
         Toast.success("Buffer updated successfully")
@@ -284,8 +284,7 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
           // Use the new addPlantsToCapacity endpoint
           const instance = NetworkManager(API.slots.ADD_PLANTS_TO_CAPACITY)
           const response = await instance.request({ plantsToAdd: amountToChange }, [
-            editingSlotData.slotId,
-            "add-capacity"
+            editingSlotData.slotId
           ])
 
           if (response?.data?.success) {
@@ -397,8 +396,7 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
     try {
       const instance = NetworkManager(API.slots.RELEASE_BUFFER_PLANTS)
       const response = await instance.request({ plantsToRelease: amount }, [
-        releaseBufferSlotData._id,
-        "release-buffer"
+        releaseBufferSlotData._id
       ])
 
       if (response?.data?.success) {
@@ -427,7 +425,7 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
 
     try {
       const instance = NetworkManager(API.slots.UPDATE_SLOT_BUFFER)
-      const response = await instance.request({ buffer }, [bufferSlotData._id, "buffer"])
+      const response = await instance.request({ buffer }, [bufferSlotData._id])
 
       if (response?.data?.success) {
         Toast.success("Buffer updated successfully")
