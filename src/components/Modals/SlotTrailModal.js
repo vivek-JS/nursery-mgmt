@@ -18,12 +18,20 @@ const SlotTrailModal = ({ open, onClose, slotId, slotInfo }) => {
   const fetchSlotTrail = async () => {
     try {
       setLoading(true)
+      console.log("Fetching slot trail for slotId:", slotId)
+      console.log("API endpoint:", API.SLOTS.GET_SLOT_TRAIL)
+
       const instance = NetworkManager(API.SLOTS.GET_SLOT_TRAIL)
+      console.log("NetworkManager instance created")
+
       const response = await instance.request({}, [slotId])
+      console.log("API response:", response)
 
       if (response.data?.success) {
         setTrail(response.data.data)
+        console.log("Trail data set:", response.data.data)
       } else {
+        console.error("API response not successful:", response)
         Toast.error("Failed to load slot trail")
       }
     } catch (error) {

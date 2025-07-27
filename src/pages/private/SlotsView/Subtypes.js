@@ -1505,6 +1505,8 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                                 size="small"
                                 onClick={(e) => {
                                   e.stopPropagation()
+                                  console.log("History button clicked for slot:", slot)
+                                  console.log("Slot ID:", slot._id)
                                   setSelectedSlotForTrail(slot)
                                   setShowSlotTrailModal(true)
                                 }}
