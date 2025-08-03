@@ -31,6 +31,10 @@ export const useLoginModel = () => {
       await new Promise((resolve) => setTimeout(resolve, 100))
 
       // Return the response with isPasswordSet and forcePasswordReset flags
+      console.log("🔍 Login model - actualData:", actualData)
+      console.log("🔍 Login model - isPasswordSet:", actualData.isPasswordSet)
+      console.log("🔍 Login model - forcePasswordReset:", actualData.forcePasswordReset)
+
       return {
         success: true,
         isPasswordSet: actualData.isPasswordSet,

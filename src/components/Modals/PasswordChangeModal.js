@@ -127,6 +127,8 @@ const PasswordChangeModal = ({ open, onClose, onSuccess, loginResponse }) => {
 
   const modalContent = getModalContent()
 
+  console.log("🔍 PasswordChangeModal render - open:", open)
+
   return (
     <Dialog
       open={open}
