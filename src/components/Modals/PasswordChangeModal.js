@@ -32,6 +32,13 @@ const PasswordChangeModal = ({ open, onClose, onSuccess, loginResponse }) => {
   const [loading, setLoading] = useState(false)
   const userSession = useUserSession()
 
+  // Debug logging
+  console.log("🔍 PasswordChangeModal props:")
+  console.log("   - open:", open)
+  console.log("   - loginResponse:", loginResponse)
+  console.log("   - loginResponse?.isPasswordSet:", loginResponse?.isPasswordSet)
+  console.log("   - loginResponse?.forcePasswordReset:", loginResponse?.forcePasswordReset)
+
   const handleSubmit = async (values, { setSubmitting, resetForm }) => {
     setLoading(true)
     try {
