@@ -977,9 +977,17 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
       console.log("Selected subtype rate:", selectedSubtype?.rate)
       console.log("Selected subtype rate type:", typeof selectedSubtype?.rate)
 
+      // Check if user is admin (can always edit rate)
+      const isAdminUser =
+        user?.jobTitle === "SUPERADMIN" ||
+        user?.jobTitle === "OFFICE_ADMIN" ||
+        user?.jobTitle === "ACCOUNTANT"
+
       // Only auto-set rate if current rate is empty or hasn't been manually set
+      // For admin users, always allow rate editing regardless of manual setting
       const shouldAutoSetRate =
-        (!formData.rate || formData.rate === "" || formData.rate === "0") && !rateManuallySet
+        (!formData.rate || formData.rate === "" || formData.rate === "0") &&
+        (!rateManuallySet || isAdminUser)
 
       if (
         selectedSubtype &&
@@ -1024,14 +1032,20 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
 
     // Reset rate when plant changes (only if rate was auto-set from subtype)
     if (field === "plant") {
+      // Check if user is admin (can always edit rate)
+      const isAdminUser =
+        user?.jobTitle === "SUPERADMIN" ||
+        user?.jobTitle === "OFFICE_ADMIN" ||
+        user?.jobTitle === "ACCOUNTANT"
+
       setFormData((prev) => ({
         ...prev,
-        rate: "", // Reset rate when plant changes since it was auto-set
+        rate: isAdminUser ? prev.rate : "", // Keep rate for admin users, reset for others
         subtype: "", // Also reset subtype when plant changes
         selectedSlot: "" // Reset selected slot when plant changes (affects dealer quota)
       }))
-      setRate(null)
-      setRateManuallySet(false) // Reset manual rate flag when plant changes
+      setRate(isAdminUser ? parseFloat(formData.rate) || null : null)
+      setRateManuallySet(isAdminUser ? rateManuallySet : false) // Keep manual flag for admin users
       setSubTypes([]) // Clear subtypes when plant changes
     }
 
@@ -2303,18 +2317,50 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                 </Grid>
 
                 <Grid item xs={12} md={6}>
-                  <TextField
-                    fullWidth
-                    label="Rate per Plant"
-                    type="number"
-                    value={formData.rate}
-                    onChange={(e) => handleInputChange("rate", e.target.value)}
-                    helperText={
-                      formData.subtype
-                        ? "Rate auto-filled from selected subtype, but you can edit it."
-                        : "Select a subtype to auto-fill rate"
-                    }
-                  />
+                  <Box sx={{ position: "relative" }}>
+                    <TextField
+                      fullWidth
+                      label="Rate per Plant"
+                      type="number"
+                      value={formData.rate}
+                      onChange={(e) => handleInputChange("rate", e.target.value)}
+                      disabled={
+                        !(
+                          user?.jobTitle === "SUPERADMIN" ||
+                          user?.jobTitle === "OFFICE_ADMIN" ||
+                          user?.jobTitle === "ACCOUNTANT"
+                        )
+                      }
+                      helperText={
+                        user?.jobTitle === "SUPERADMIN" ||
+                        user?.jobTitle === "OFFICE_ADMIN" ||
+                        user?.jobTitle === "ACCOUNTANT"
+                          ? formData.subtype
+                            ? "Rate auto-filled from selected subtype. You can edit it as you have admin privileges."
+                            : "Select a subtype to auto-fill rate. You can edit it as you have admin privileges."
+                          : formData.subtype
+                          ? "Rate auto-filled from selected subtype, but you can edit it."
+                          : "Select a subtype to auto-fill rate"
+                      }
+                    />
+                    {(user?.jobTitle === "SUPERADMIN" ||
+                      user?.jobTitle === "OFFICE_ADMIN" ||
+                      user?.jobTitle === "ACCOUNTANT") && (
+                      <Chip
+                        label="Admin Edit"
+                        size="small"
+                        color="primary"
+                        variant="outlined"
+                        sx={{
+                          position: "absolute",
+                          top: -8,
+                          right: 8,
+                          fontSize: "0.7rem",
+                          height: 20
+                        }}
+                      />
+                    )}
+                  </Box>
                 </Grid>
 
                 {available !== null && (
