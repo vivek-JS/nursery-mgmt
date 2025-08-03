@@ -122,10 +122,21 @@ function urlBuilder(router, params) {
     uri = `/${router.version}`
   }
   uri = uri.concat(router.endpoint)
-  // all params in form of uri/id1/id2/id3
+
+  // Handle parameter replacement for named parameters like :orderId
   if (Array.isArray(params)) {
-    for (let key of params) {
-      uri = uri.concat("/", key)
+    // Replace named parameters in the URL
+    for (let i = 0; i < params.length; i++) {
+      const param = params[i]
+      // Find the next named parameter in the URL (like :orderId, :userId, etc.)
+      const paramMatch = uri.match(/:[^/]+/)
+      if (paramMatch) {
+        // Replace the named parameter with the actual value
+        uri = uri.replace(paramMatch[0], param)
+      } else {
+        // If no named parameter found, append to the end (fallback behavior)
+        uri = uri.concat("/", param)
+      }
     }
   }
 

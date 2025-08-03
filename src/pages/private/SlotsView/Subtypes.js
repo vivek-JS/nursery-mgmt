@@ -20,7 +20,8 @@ import {
   MoreHorizontal,
   X,
   UserCheck,
-  Shield
+  Shield,
+  History
 } from "lucide-react"
 import {
   Switch,
@@ -55,6 +56,7 @@ import { API, NetworkManager } from "network/core"
 import { PageLoader } from "components"
 import { Toast } from "helpers/toasts/toastHelper"
 import FarmerOrdersTable from "../dashboard/FarmerOrdersTable"
+import SlotTrailModal from "components/Modals/SlotTrailModal"
 import moment from "moment"
 
 const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
@@ -90,6 +92,10 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
   const [showReleaseBufferModal, setShowReleaseBufferModal] = useState(false)
   const [releaseBufferSlotData, setReleaseBufferSlotData] = useState(null)
   const [releaseAmount, setReleaseAmount] = useState("0")
+
+  // Slot trail modal states
+  const [showSlotTrailModal, setShowSlotTrailModal] = useState(false)
+  const [selectedSlotForTrail, setSelectedSlotForTrail] = useState(null)
 
   const monthOrder = [
     "January",
@@ -215,14 +221,17 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
       currentBuffer
     })
     setEditAmount("0")
-    setEditBuffer(currentBuffer.toString())
+    setEditBuffer("") // Start with empty buffer field
     setOperationType("add")
     setShowEditModal(true)
   }
 
   const handleEditChange = (e) => {
-    const value = e.target.value.replace(/\D/g, "")
-    setEditAmount(value)
+    const value = e.target.value
+    // Allow only numbers and empty string, prevent blinking
+    if (value === "" || /^\d*$/.test(value)) {
+      setEditAmount(value)
+    }
   }
 
   const cancelEdit = (e) => {
@@ -230,7 +239,7 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
     setShowEditModal(false)
     setEditingSlotData(null)
     setEditAmount("0")
-    setEditBuffer("0")
+    setEditBuffer("")
   }
 
   const handleKeyPress = (e) => {
@@ -298,9 +307,13 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
         }
       }
 
-      // Update buffer if changed
-      if (bufferValue !== parseFloat(editingSlotData.currentBuffer || 0)) {
-        await updateSlotBuffer(editingSlotData.slotId, bufferValue)
+      // Update buffer only if user explicitly changed it
+      const currentBuffer = parseFloat(editingSlotData.currentBuffer || 0)
+      const newBufferValue = parseFloat(editBuffer) || 0
+
+      // Only update buffer if the value is different AND user entered a value
+      if (editBuffer !== "" && newBufferValue !== currentBuffer) {
+        await updateSlotBuffer(editingSlotData.slotId, newBufferValue)
       }
 
       // Refresh data
@@ -533,8 +546,16 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
 
             <div className="mb-8">
               <label className="block text-sm font-semibold text-gray-700 mb-2">
-                Buffer Percentage
+                Buffer Percentage (Optional)
               </label>
+              <div className="mb-2 p-2 bg-gray-50 rounded-lg border border-gray-200">
+                <p className="text-xs text-gray-600">
+                  Current Buffer:{" "}
+                  <span className="font-semibold text-gray-800">
+                    {editingSlotData?.currentBuffer || 0}%
+                  </span>
+                </p>
+              </div>
               <Input
                 value={editBuffer}
                 onChange={(e) => setEditBuffer(e.target.value)}
@@ -544,7 +565,7 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                 min="0"
                 max="100"
                 step="0.1"
-                placeholder="Enter buffer percentage (0-100)"
+                placeholder="Enter new buffer percentage"
                 sx={{
                   "& .MuiOutlinedInput-root": {
                     borderRadius: "0.75rem",
@@ -554,7 +575,7 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                 }}
               />
               <p className="text-xs text-gray-500 mt-1">
-                Additional buffer percentage for this slot (0-100%)
+                Only change if you want to update the buffer. Leave empty to keep current buffer.
               </p>
             </div>
 
@@ -1494,6 +1515,20 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                                 <AlertTriangle className="w-4 h-4 text-red-500" />
                               </Tooltip>
                             )}
+                            <Tooltip title="View Slot Trail">
+                              <IconButton
+                                size="small"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  console.log("History button clicked for slot:", slot)
+                                  console.log("Slot ID:", slot._id)
+                                  setSelectedSlotForTrail(slot)
+                                  setShowSlotTrailModal(true)
+                                }}
+                                className="text-blue-600 hover:text-blue-800">
+                                <History className="w-4 h-4" />
+                              </IconButton>
+                            </Tooltip>
                           </div>
                           <div className="flex items-center space-x-1">
                             <Tooltip title="Edit Plants">
@@ -1728,6 +1763,19 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
             </div>
           )}
         </div>
+      )}
+
+      {/* Slot Trail Modal */}
+      {showSlotTrailModal && selectedSlotForTrail && (
+        <SlotTrailModal
+          open={showSlotTrailModal}
+          onClose={() => {
+            setShowSlotTrailModal(false)
+            setSelectedSlotForTrail(null)
+          }}
+          slotId={selectedSlotForTrail._id}
+          slotInfo={selectedSlotForTrail}
+        />
       )}
     </div>
   )

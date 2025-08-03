@@ -80,6 +80,12 @@ const WalletUtilization = ({ used, total }) => {
 // Helper function to get a color based on plant name
 const getPlantColor = (plantName) => {
   const colors = ["primary", "success", "info", "warning", "error", "secondary"]
+
+  // Handle undefined or null plantName
+  if (!plantName || typeof plantName !== "string") {
+    return colors[0] // Return primary color as default
+  }
+
   // Simple hash function to assign consistent colors
   const hash = plantName.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0)
   return colors[hash % colors.length]
@@ -212,9 +218,11 @@ const SubtypesTable = ({ subtypes }) => {
                       width: 30,
                       height: 30
                     }}>
-                    {subtype.plantTypeName.charAt(0)}
+                    {subtype.plantTypeName?.charAt(0) || "P"}
                   </Avatar>
-                  <Typography variant="body2">{subtype.plantTypeName}</Typography>
+                  <Typography variant="body2">
+                    {subtype.plantTypeName || "Unknown Plant"}
+                  </Typography>
                 </Box>
               </TableCell>
               <TableCell>
@@ -766,11 +774,11 @@ const Dealers = () => {
                             width: 40,
                             height: 40
                           }}>
-                          {dealer.name.charAt(0).toUpperCase()}
+                          {dealer.name?.charAt(0)?.toUpperCase() || "D"}
                         </Avatar>
                         <Box>
                           <Typography variant="body1" fontWeight={500}>
-                            {dealer.name}
+                            {dealer.name || "Unknown Dealer"}
                           </Typography>
                           <Typography variant="caption" color="text.secondary">
                             ID: {dealer._id.substring(dealer._id.length - 8)}

@@ -217,9 +217,6 @@ const useStyles = makeStyles()((theme) => ({
 }))
 
 const AddOrderForm = ({ open, onClose, onSuccess }) => {
-  console.log("=== AddOrderForm RENDER ===")
-  console.log("AddOrderForm component is rendering!")
-
   const { classes } = useStyles()
   const userData = useSelector((state) => state?.userData?.userData)
   const appUser = useSelector((state) => state?.app?.user)
@@ -227,26 +224,6 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
 
   // Try to get user data from multiple sources
   const user = userData || appUser || {}
-
-  console.log("AddOrderForm - User data (userData):", userData)
-  console.log("AddOrderForm - User data (app):", appUser)
-  console.log("AddOrderForm - Final user object:", user)
-  console.log("AddOrderForm - User jobTitle:", user?.jobTitle)
-  console.log("AddOrderForm - Token:", token)
-
-  // Debug: Check localStorage for persisted user data
-  try {
-    const persistedState = localStorage.getItem("persist:root")
-    if (persistedState) {
-      const parsedState = JSON.parse(persistedState)
-      console.log(
-        "AddOrderForm - Persisted userData:",
-        parsedState.userData ? JSON.parse(parsedState.userData) : null
-      )
-    }
-  } catch (error) {
-    console.log("AddOrderForm - Error reading persisted state:", error)
-  }
 
   // Form state
   const [formData, setFormData] = useState({
@@ -289,8 +266,6 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
   const [sales, setSales] = useState([])
   const [dealers, setDealers] = useState([])
 
-  console.log("AddOrderForm - Sales array:", sales)
-  console.log("AddOrderForm - Dealers array:", dealers)
   const [cavities] = useState([
     { label: "10 Cavity", value: 10 },
     { label: "8 Cavity", value: 8 }
@@ -298,8 +273,27 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
   const [dealerWallet, setDealerWallet] = useState({})
   const [rate, setRate] = useState(null)
   const [available, setAvailable] = useState(null)
+  const [rateManuallySet, setRateManuallySet] = useState(false)
 
-  const steps = ["Order Type", "Farmer Details", "Plant & Slot", "Review & Submit"]
+  // Payment Management State - Using same structure as FarmerOrdersTable
+  const [newPayment, setNewPayment] = useState({
+    paidAmount: "",
+    paymentDate: moment().format("YYYY-MM-DD"),
+    modeOfPayment: "",
+    bankName: "",
+    remark: "",
+    receiptPhoto: [],
+    paymentStatus: "PENDING", // Always PENDING for new payments
+    isWalletPayment: false
+  })
+
+  const steps = [
+    "Order Type",
+    "Farmer Details",
+    "Plant & Slot",
+    "Payment Management",
+    "Review & Submit"
+  ]
 
   // Initialize form with user defaults
   useEffect(() => {
@@ -337,77 +331,15 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
     }
   }, [user])
 
-  // TEMPORARY: Force load dealer wallet for testing - MOVED TO loadInitialData
-  const testWalletLoad = async () => {
-    try {
-      console.log("=== DIRECT API TEST ===")
-      console.log("API endpoint:", API.USER.GET_DEALER_WALLET_DETAILS)
-
-      const testDealerId = "6875c0da8ebf2d7e695f254e" // From your backend logs
-      console.log("Testing with dealer ID:", testDealerId)
-
-      const instance = NetworkManager(API.USER.GET_DEALER_WALLET_DETAILS)
-      const response = await instance.request(null, [testDealerId])
-
-      console.log("=== API RESPONSE ===")
-      console.log("Full response:", response)
-      console.log("Response data:", response?.data)
-      console.log("Response data.plantDetails:", response?.data?.plantDetails)
-
-      if (response?.data?.plantDetails) {
-        console.log("=== TRANSFORMING DATA ===")
-        const entries = []
-        response.data.plantDetails.forEach((plant) => {
-          plant.slotDetails.forEach((slot) => {
-            entries.push({
-              plantTypeId: plant.plantType,
-              subTypeId: plant.subType,
-              bookingSlotId: slot.slotId,
-              remainingQuantity: slot.remainingQuantity,
-              quantity: slot.quantity,
-              bookedQuantity: slot.bookedQuantity
-            })
-          })
-        })
-
-        const walletData = { entries }
-        console.log("=== SETTING WALLET DATA ===")
-        console.log("Transformed wallet data:", walletData)
-        setDealerWallet(walletData)
-        console.log("Wallet data set successfully!")
-      } else {
-        console.log("No plantDetails found in response")
-      }
-    } catch (error) {
-      console.error("=== API ERROR ===")
-      console.error("Error loading dealer wallet:", error)
-      console.error("Error details:", {
-        message: error.message,
-        response: error.response?.data,
-        status: error.response?.status
-      })
-    }
-  }
-
   // Debounced mobile number for farmer lookup
   const debouncedMobileNumber = useDebounce(formData.mobileNumber, 500)
 
   // Auto-fill farmer data when mobile number is entered (with debouncing)
   useEffect(() => {
-    console.log(
-      "Debounced mobile number changed:",
-      debouncedMobileNumber,
-      "Length:",
-      debouncedMobileNumber?.length,
-      "Original mobile:",
-      formData.mobileNumber
-    )
     if (debouncedMobileNumber?.length === 10) {
-      console.log("Mobile number is 10 digits, calling getFarmerByMobile")
       setMobileLoading(true)
       getFarmerByMobile(debouncedMobileNumber)
     } else if (farmerData && debouncedMobileNumber?.length < 10) {
-      console.log("Mobile number is less than 10 digits, resetting farmer data")
       resetFarmerData()
     }
   }, [debouncedMobileNumber])
@@ -425,17 +357,9 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
   }, [formData.subtype])
 
   const loadInitialData = async () => {
-    console.log("loadInitialData called")
     setLoading(true)
     try {
-      console.log("Starting to load initial data...")
       await Promise.all([loadPlants(), loadSales(), loadDealers()])
-      console.log("Initial data loaded successfully")
-
-      // TEMPORARY: Test dealer wallet loading
-      console.log("=== TEMPORARY TEST START ===")
-      console.log("Testing dealer wallet loading...")
-      await testWalletLoad()
     } catch (error) {
       console.error("Error loading initial data:", error)
       Toast.error("Failed to load initial data")
@@ -463,43 +387,24 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
 
   const loadSubTypes = async (plantId) => {
     try {
-      console.log("Loading subtypes for plant:", plantId)
       const instance = NetworkManager(API.slots.GET_PLANTS_SUBTYPE)
       const response = await instance.request(null, { plantId, year: 2025 })
-      console.log("Subtypes API response:", response)
       if (response?.data?.subtypes) {
         const subtypes = response.data.subtypes.map((subtype) => {
-          console.log("Processing subtype:", subtype)
-          console.log("Subtype keys:", Object.keys(subtype))
-          console.log("Subtype rates:", subtype.rates)
-          console.log("Subtype rate:", subtype.rate)
-
           // Handle rate as array - pick 0th element
           let rate = 0
-          console.log("Raw subtype.rates:", subtype.rates)
-          console.log("subtype.rates type:", typeof subtype.rates)
-          console.log("subtype.rates isArray:", Array.isArray(subtype.rates))
 
           // Check multiple possible rate properties
           if (subtype.rates) {
             if (Array.isArray(subtype.rates)) {
-              console.log("Rates is an array with length:", subtype.rates.length)
-              console.log("All rates in array:", subtype.rates)
               rate = subtype.rates.length > 0 ? subtype.rates[0] : 0
-              console.log("Selected 0th element:", rate)
             } else {
               rate = subtype.rates
-              console.log("Rates is not an array, using as is:", rate)
             }
           } else if (subtype.rate) {
             // Fallback to single rate property
             rate = subtype.rate
-            console.log("Using single rate property:", rate)
-          } else {
-            console.log("No rates property found in subtype")
           }
-
-          console.log("Final extracted rate:", rate, "Type:", typeof rate)
 
           return {
             label: subtype.subtypeName,
@@ -507,10 +412,8 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
             rate: rate
           }
         })
-        console.log("Processed subtypes:", subtypes)
         setSubTypes(subtypes)
       } else {
-        console.log("No subtypes data in response")
         setSubTypes([])
       }
     } catch (error) {
@@ -544,7 +447,6 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
             } = slot || {}
 
             if (!startDay || !endDay) {
-              console.log("Skipping slot with missing dates:", slot)
               return null
             }
 
@@ -552,21 +454,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
             const startDateValid = moment(startDay, "DD-MM-YYYY", true).isValid()
             const endDateValid = moment(endDay, "DD-MM-YYYY", true).isValid()
 
-            console.log("Validating slot dates:", {
-              slotId: _id,
-              startDay,
-              endDay,
-              startDateValid,
-              endDateValid
-            })
-
             if (!startDateValid || !endDateValid) {
-              console.log("Skipping slot with invalid date format:", {
-                startDay,
-                endDay,
-                startDateValid,
-                endDateValid
-              })
               return null
             }
 
@@ -589,10 +477,8 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
           })
           .filter((slot) => slot !== null && slot.availableQuantity > 0)
 
-        console.log("Processed slots:", processedSlots)
         setSlots(processedSlots)
       } else {
-        console.log("No slots data in response")
         setSlots([])
       }
     } catch (error) {
@@ -603,19 +489,14 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
 
   const loadSales = async () => {
     try {
-      console.log("Loading salespeople...")
       const instance = NetworkManager(API.EMPLOYEE.GET_EMPLOYEE)
       const response = await instance.request(null, { jobTitle: "SALES" })
-      console.log("Salespeople API response:", response)
       if (response?.data?.data) {
         const salespeople = response.data.data.map((salesperson) => ({
           label: salesperson.name,
           value: salesperson._id
         }))
-        console.log("Processed salespeople:", salespeople)
         setSales(salespeople)
-      } else {
-        console.log("No salespeople data in response")
       }
     } catch (error) {
       console.error("Error loading salespeople:", error)
@@ -624,23 +505,16 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
 
   const loadDealers = async () => {
     try {
-      console.log("=== loadDealers DEBUG ===")
-      console.log("Loading dealers...")
       const instance = NetworkManager(API.EMPLOYEE.GET_EMPLOYEE)
       const response = await instance.request(null, { jobTitle: "DEALER" })
-      console.log("Dealers API response:", response)
-      console.log("Response data:", response?.data)
-      console.log("Response data.data:", response?.data?.data)
 
       if (response?.data?.data) {
         const dealersList = response.data.data.map((dealer) => ({
           label: dealer.name,
           value: dealer._id
         }))
-        console.log("Processed dealers:", dealersList)
         setDealers(dealersList)
       } else {
-        console.log("No dealers data in response")
         setDealers([])
       }
     } catch (error) {
@@ -990,6 +864,63 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
       .reduce((total, entry) => total + (entry.remainingQuantity || 0), 0)
   }
 
+  // Payment Management Functions - Using same flow as FarmerOrdersTable
+  const handlePaymentInputChange = (field, value) => {
+    setNewPayment((prev) => ({
+      ...prev,
+      [field]: value
+    }))
+  }
+
+  const getTotalPaidAmount = () => {
+    return parseFloat(newPayment.paidAmount) || 0
+  }
+
+  const getTotalOrderAmount = () => {
+    const quantity = parseInt(formData.noOfPlants) || 0
+    const rate = parseFloat(formData.rate) || 0
+    return quantity * rate
+  }
+
+  const getBalanceAmount = () => {
+    return getTotalOrderAmount() - getTotalPaidAmount()
+  }
+
+  // Test function to debug payment API
+  const testPaymentAPI = async (orderId) => {
+    try {
+      console.log("=== TESTING PAYMENT API ===")
+      const testPayment = {
+        paidAmount: 100,
+        paymentDate: new Date().toISOString(),
+        modeOfPayment: "Cash",
+        bankName: "",
+        remark: "Test payment",
+        receiptPhoto: [],
+        paymentStatus: "PENDING",
+        isWalletPayment: false
+      }
+
+      const paymentInstance = NetworkManager(API.ORDER.ADD_PAYMENT)
+      console.log("Test payment payload:", testPayment)
+      console.log("Test order ID:", orderId)
+
+      const response = await paymentInstance.request(testPayment, [orderId])
+      console.log("Test payment response:", response)
+
+      if (response?.data) {
+        console.log("Test payment successful!")
+        return true
+      } else {
+        console.error("Test payment failed:", response)
+        return false
+      }
+    } catch (error) {
+      console.error("Test payment error:", error)
+      return false
+    }
+  }
+
   const handleInputChange = (field, value) => {
     console.log("=== handleInputChange DEBUG ===")
     console.log("Field:", field)
@@ -999,6 +930,12 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
       ...prev,
       [field]: value
     }))
+
+    // Track if rate is manually set by user
+    if (field === "rate") {
+      setRateManuallySet(true)
+      console.log("Rate manually set by user:", value)
+    }
 
     // Handle location name fields for backend compatibility
     if (field === "state") {
@@ -1030,17 +967,35 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
       }
     }
 
-    // Auto-set rate when subtype is selected
+    // Auto-set rate when subtype is selected (only if rate is empty or hasn't been manually set)
     if (field === "subtype") {
       console.log("Subtype selected:", value)
       console.log("Available subtypes:", subTypes)
+      console.log("Current rate in form:", formData.rate)
       const selectedSubtype = subTypes.find((st) => st.value === value)
       console.log("Selected subtype:", selectedSubtype)
       console.log("Selected subtype rate:", selectedSubtype?.rate)
       console.log("Selected subtype rate type:", typeof selectedSubtype?.rate)
 
-      if (selectedSubtype && selectedSubtype.rate !== undefined && selectedSubtype.rate !== null) {
-        console.log("Setting rate to:", selectedSubtype.rate)
+      // Check if user is admin (can always edit rate)
+      const isAdminUser =
+        user?.jobTitle === "SUPERADMIN" ||
+        user?.jobTitle === "OFFICE_ADMIN" ||
+        user?.jobTitle === "ACCOUNTANT"
+
+      // Only auto-set rate if current rate is empty or hasn't been manually set
+      // For admin users, always allow rate editing regardless of manual setting
+      const shouldAutoSetRate =
+        (!formData.rate || formData.rate === "" || formData.rate === "0") &&
+        (!rateManuallySet || isAdminUser)
+
+      if (
+        selectedSubtype &&
+        selectedSubtype.rate !== undefined &&
+        selectedSubtype.rate !== null &&
+        shouldAutoSetRate
+      ) {
+        console.log("Auto-setting rate to:", selectedSubtype.rate)
         // Ensure rate is a number and convert to string for the form
         const rateValue =
           typeof selectedSubtype.rate === "number"
@@ -1057,7 +1012,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
           return newFormData
         })
         setRate(rateValue)
-      } else {
+      } else if (!selectedSubtype || !selectedSubtype.rate) {
         console.log("No valid rate found for selected subtype")
         setFormData((prev) => ({
           ...prev,
@@ -1065,18 +1020,32 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
           selectedSlot: "" // Reset selected slot when subtype changes (affects dealer quota)
         }))
         setRate(null)
+      } else {
+        console.log("Rate already set manually, not auto-setting from subtype")
+        // Only reset selected slot, keep the current rate
+        setFormData((prev) => ({
+          ...prev,
+          selectedSlot: "" // Reset selected slot when subtype changes (affects dealer quota)
+        }))
       }
     }
 
-    // Reset rate when plant changes
+    // Reset rate when plant changes (only if rate was auto-set from subtype)
     if (field === "plant") {
+      // Check if user is admin (can always edit rate)
+      const isAdminUser =
+        user?.jobTitle === "SUPERADMIN" ||
+        user?.jobTitle === "OFFICE_ADMIN" ||
+        user?.jobTitle === "ACCOUNTANT"
+
       setFormData((prev) => ({
         ...prev,
-        rate: "",
+        rate: isAdminUser ? prev.rate : "", // Keep rate for admin users, reset for others
         subtype: "", // Also reset subtype when plant changes
         selectedSlot: "" // Reset selected slot when plant changes (affects dealer quota)
       }))
-      setRate(null)
+      setRate(isAdminUser ? parseFloat(formData.rate) || null : null)
+      setRateManuallySet(isAdminUser ? rateManuallySet : false) // Keep manual flag for admin users
       setSubTypes([]) // Clear subtypes when plant changes
     }
 
@@ -1187,6 +1156,19 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
       }
     }
 
+    // Payment validation (single payment object)
+    if (newPayment.paidAmount && !newPayment.modeOfPayment) {
+      Toast.error("Please select payment mode for the payment amount entered")
+      return false
+    }
+    if (
+      newPayment.modeOfPayment &&
+      (!newPayment.paidAmount || parseFloat(newPayment.paidAmount) <= 0)
+    ) {
+      Toast.error("Please enter amount for the selected payment mode")
+      return false
+    }
+
     return true
   }
 
@@ -1259,7 +1241,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
           numberOfPlants: parseInt(formData.noOfPlants),
           rate: parseFloat(formData.rate),
           paymentStatus: "not paid",
-          orderStatus: isInstantOrder ? "DISPATCHED" : "PENDING",
+          orderStatus: isInstantOrder ? "DISPATCHED" : "ACCEPTED",
           plantName: formData.plant,
           plantSubtype: formData.subtype,
           bookingSlot: formData.selectedSlot,
@@ -1295,7 +1277,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
           rate: parseFloat(formData.rate),
           paymentStatus: "not paid",
           salesPerson: formData.sales || user?._id,
-          orderStatus: isInstantOrder ? "DISPATCHED" : "PENDING",
+          orderStatus: isInstantOrder ? "DISPATCHED" : "ACCEPTED",
           plantName: formData.plant,
           plantSubtype: formData.subtype,
           bookingSlot: formData.selectedSlot,
@@ -1317,18 +1299,78 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
         endpoint = API.FARMER.CREATE_FARMER
       }
 
+      // Debug: Log the final payload and rate information
+      console.log("=== ORDER CREATION DEBUG ===")
+      console.log("Form data rate:", formData.rate)
+      console.log("Form data rate type:", typeof formData.rate)
+      console.log("Parsed rate:", parseFloat(formData.rate))
+      console.log("Rate manually set:", rateManuallySet)
+      console.log("Final payload rate:", payload.rate)
+      console.log("Final payload rate type:", typeof payload.rate)
+      console.log("Complete payload:", payload)
+      console.log("=== END ORDER CREATION DEBUG ===")
+
+      // Check if payment data exists (using same validation as FarmerOrdersTable)
+      const hasPaymentData = newPayment.paidAmount && newPayment.modeOfPayment
+
+      // Prepare payment data for order creation
+      if (hasPaymentData) {
+        // Ensure payment date is in ISO format
+        let paymentDate = newPayment.paymentDate
+        if (typeof paymentDate === "string") {
+          try {
+            const date = new Date(paymentDate)
+            paymentDate = date.toISOString()
+          } catch (e) {
+            console.error("Invalid payment date format:", paymentDate)
+            paymentDate = new Date().toISOString() // Fallback to current date
+          }
+        } else {
+          paymentDate = new Date().toISOString() // Fallback to current date
+        }
+
+        // Add payment data to payload
+        payload.payment = [
+          {
+            ...newPayment,
+            paymentDate: paymentDate,
+            paymentStatus: "PENDING"
+          }
+        ]
+
+        // Update order payment status based on total paid amount
+        const totalPaid = getTotalPaidAmount()
+        const totalOrder = getTotalOrderAmount()
+
+        if (totalPaid >= totalOrder) {
+          payload.paymentStatus = "paid"
+          payload.orderPaymentStatus = "COMPLETED"
+        } else if (totalPaid > 0) {
+          payload.paymentStatus = "partial"
+          payload.orderPaymentStatus = "PENDING"
+        }
+      }
+
       console.log("Final payload:", payload)
       console.log("Using endpoint:", endpoint)
       console.log("Quota type selected:", quotaType)
       console.log("Company quota flag:", quotaType ? quotaType === "company" : "No quota type")
       console.log("Dealer selected:", formData.dealer)
       console.log("Sales person selected:", formData.sales)
+      console.log("Payment data included:", hasPaymentData ? "Yes" : "No")
 
       const instance = NetworkManager(endpoint)
       const response = await instance.request(payload)
 
       if (response?.data) {
-        Toast.success("Order added successfully")
+        console.log("Order created successfully with payment:", response.data)
+
+        let successMessage = "Order added successfully"
+        if (hasPaymentData) {
+          successMessage += " with payment"
+        }
+
+        Toast.success(successMessage)
         onSuccess?.()
         handleClose()
       }
@@ -1434,6 +1476,18 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
     setActiveStep(0)
     setShowConfirmation(false)
     setConfirmationData({})
+    setRateManuallySet(false)
+    // Reset payment to initial state
+    setNewPayment({
+      paidAmount: "",
+      paymentDate: moment().format("YYYY-MM-DD"),
+      modeOfPayment: "",
+      bankName: "",
+      remark: "",
+      receiptPhoto: [],
+      paymentStatus: "PENDING",
+      isWalletPayment: false
+    })
     onClose()
   }
 
@@ -2187,7 +2241,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                       disabled={!formData.plant}>
                       {subTypes.map((subtype) => (
                         <MenuItem key={subtype.value} value={subtype.value}>
-                          {subtype.label} - ₹{subtype.rate}
+                          {subtype.label}
                         </MenuItem>
                       ))}
                     </Select>
@@ -2263,19 +2317,50 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                 </Grid>
 
                 <Grid item xs={12} md={6}>
-                  <TextField
-                    fullWidth
-                    label="Rate per Plant"
-                    type="number"
-                    value={formData.rate}
-                    onChange={(e) => handleInputChange("rate", e.target.value)}
-                    disabled={true}
-                    helperText={
-                      formData.subtype
-                        ? "Rate auto-filled from selected subtype"
-                        : "Select a subtype to auto-fill rate"
-                    }
-                  />
+                  <Box sx={{ position: "relative" }}>
+                    <TextField
+                      fullWidth
+                      label="Rate per Plant"
+                      type="number"
+                      value={formData.rate}
+                      onChange={(e) => handleInputChange("rate", e.target.value)}
+                      disabled={
+                        !(
+                          user?.jobTitle === "SUPERADMIN" ||
+                          user?.jobTitle === "OFFICE_ADMIN" ||
+                          user?.jobTitle === "ACCOUNTANT"
+                        )
+                      }
+                      helperText={
+                        user?.jobTitle === "SUPERADMIN" ||
+                        user?.jobTitle === "OFFICE_ADMIN" ||
+                        user?.jobTitle === "ACCOUNTANT"
+                          ? formData.subtype
+                            ? "Rate auto-filled from selected subtype. You can edit it as you have admin privileges."
+                            : "Select a subtype to auto-fill rate. You can edit it as you have admin privileges."
+                          : formData.subtype
+                          ? "Rate auto-filled from selected subtype, but you can edit it."
+                          : "Select a subtype to auto-fill rate"
+                      }
+                    />
+                    {(user?.jobTitle === "SUPERADMIN" ||
+                      user?.jobTitle === "OFFICE_ADMIN" ||
+                      user?.jobTitle === "ACCOUNTANT") && (
+                      <Chip
+                        label="Admin Edit"
+                        size="small"
+                        color="primary"
+                        variant="outlined"
+                        sx={{
+                          position: "absolute",
+                          top: -8,
+                          right: 8,
+                          fontSize: "0.7rem",
+                          height: 20
+                        }}
+                      />
+                    )}
+                  </Box>
                 </Grid>
 
                 {available !== null && (
@@ -2400,6 +2485,213 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
               </Grid>
             </CardContent>
           </Card>
+
+          {/* Payment Management */}
+          <Card className={classes.formCard}>
+            <div className={classes.cardHeader}>
+              <Typography variant="subtitle1" className={classes.sectionTitle}>
+                <CheckIcon fontSize="small" /> Payment Management
+              </Typography>
+            </div>
+            <CardContent className={classes.formSection}>
+              {/* Payment Summary */}
+              <Box
+                sx={{
+                  mb: 3,
+                  p: 2,
+                  bgcolor: "#f8f9fa",
+                  borderRadius: 1,
+                  border: "1px solid #e9ecef"
+                }}>
+                <Grid container spacing={2} alignItems="center">
+                  <Grid item xs={12} md={3}>
+                    <Typography variant="body2" color="text.secondary">
+                      Total Order Amount:
+                    </Typography>
+                    <Typography variant="h6" fontWeight={600} color="#2c3e50">
+                      ₹{getTotalOrderAmount().toLocaleString()}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12} md={3}>
+                    <Typography variant="body2" color="text.secondary">
+                      Total Paid:
+                    </Typography>
+                    <Typography variant="h6" fontWeight={600} color="#4caf50">
+                      ₹{getTotalPaidAmount().toLocaleString()}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12} md={3}>
+                    <Typography variant="body2" color="text.secondary">
+                      Balance:
+                    </Typography>
+                    <Typography
+                      variant="h6"
+                      fontWeight={600}
+                      color={getBalanceAmount() >= 0 ? "#2c3e50" : "#f44336"}>
+                      ₹{getBalanceAmount().toLocaleString()}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12} md={3}>
+                    <Button
+                      variant="outlined"
+                      color="primary"
+                      onClick={() => {
+                        setNewPayment({
+                          paidAmount: "",
+                          paymentDate: moment().format("YYYY-MM-DD"),
+                          modeOfPayment: "",
+                          bankName: "",
+                          remark: "",
+                          receiptPhoto: [],
+                          paymentStatus: "PENDING",
+                          isWalletPayment: false
+                        })
+                      }}
+                      startIcon={<AddIcon />}
+                      size="small">
+                      Reset Payment
+                    </Button>
+                  </Grid>
+                  <Grid item xs={12} md={3}>
+                    <Button
+                      variant="outlined"
+                      color="secondary"
+                      onClick={() => {
+                        // Payment state test - removed for cleaner console
+                      }}
+                      size="small">
+                      Test Payment Data
+                    </Button>
+                  </Grid>
+                </Grid>
+              </Box>
+
+              {/* Payment Entry */}
+              <Box
+                sx={{
+                  mb: 2,
+                  p: 2,
+                  border: "1px solid #e0e0e0",
+                  borderRadius: 1,
+                  bgcolor: "#fafafa"
+                }}>
+                <Typography variant="subtitle2" fontWeight={600} color="#2c3e50" sx={{ mb: 2 }}>
+                  Payment Details
+                </Typography>
+
+                <Grid container spacing={2}>
+                  <Grid item xs={12} md={6}>
+                    <TextField
+                      fullWidth
+                      label="Amount (₹)"
+                      type="number"
+                      value={newPayment.paidAmount}
+                      onChange={(e) => handlePaymentInputChange("paidAmount", e.target.value)}
+                      placeholder="Enter amount"
+                      size="small"
+                    />
+                  </Grid>
+                  <Grid item xs={12} md={6}>
+                    <TextField
+                      fullWidth
+                      label="Payment Date"
+                      type="date"
+                      value={newPayment.paymentDate}
+                      onChange={(e) => handlePaymentInputChange("paymentDate", e.target.value)}
+                      size="small"
+                      InputLabelProps={{
+                        shrink: true
+                      }}
+                    />
+                  </Grid>
+                  <Grid item xs={12} md={6}>
+                    <FormControl fullWidth size="small">
+                      <InputLabel>Payment Mode</InputLabel>
+                      <Select
+                        value={newPayment.modeOfPayment}
+                        onChange={(e) => handlePaymentInputChange("modeOfPayment", e.target.value)}
+                        label="Payment Mode">
+                        <MenuItem value="">Select Mode</MenuItem>
+                        <MenuItem value="Cash">Cash</MenuItem>
+                        <MenuItem value="Phone Pe">Phone Pe</MenuItem>
+                        <MenuItem value="Google Pay">Google Pay</MenuItem>
+                        <MenuItem value="Cheque">Cheque</MenuItem>
+                        <MenuItem value="NEFT">NEFT</MenuItem>
+                        <MenuItem value="JPCB">JPCB</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  <Grid item xs={12} md={6}>
+                    <TextField
+                      fullWidth
+                      label="Bank Name"
+                      value={newPayment.bankName}
+                      onChange={(e) => handlePaymentInputChange("bankName", e.target.value)}
+                      placeholder={
+                        newPayment.modeOfPayment === "Cheque" || newPayment.modeOfPayment === "NEFT"
+                          ? "Enter bank name"
+                          : "N/A"
+                      }
+                      disabled={
+                        newPayment.modeOfPayment !== "Cheque" && newPayment.modeOfPayment !== "NEFT"
+                      }
+                      size="small"
+                    />
+                  </Grid>
+                  <Grid item xs={12}>
+                    <TextField
+                      fullWidth
+                      label="Remark"
+                      value={newPayment.remark}
+                      onChange={(e) => handlePaymentInputChange("remark", e.target.value)}
+                      placeholder="Optional remark"
+                      size="small"
+                      multiline
+                      rows={2}
+                    />
+                  </Grid>
+                </Grid>
+              </Box>
+
+              {/* Payment Status Summary */}
+              <Box
+                sx={{
+                  mt: 2,
+                  p: 2,
+                  bgcolor: "#e3f2fd",
+                  borderRadius: 1,
+                  border: "1px solid #2196f3"
+                }}>
+                <Typography variant="body2" fontWeight={600} color="#1976d2" sx={{ mb: 1 }}>
+                  Payment Status Summary
+                </Typography>
+                <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
+                  <Chip
+                    label={`Total: ₹${getTotalOrderAmount().toLocaleString()}`}
+                    color="primary"
+                    variant="outlined"
+                    size="small"
+                  />
+                  <Chip
+                    label={`Paid: ₹${getTotalPaidAmount().toLocaleString()}`}
+                    color="success"
+                    variant="outlined"
+                    size="small"
+                  />
+                  <Chip
+                    label={`Balance: ₹${getBalanceAmount().toLocaleString()}`}
+                    color={getBalanceAmount() >= 0 ? "default" : "error"}
+                    variant="outlined"
+                    size="small"
+                  />
+                  {getBalanceAmount() < 0 && <Chip label="Overpaid" color="warning" size="small" />}
+                  {getBalanceAmount() === 0 && (
+                    <Chip label="Fully Paid" color="success" size="small" />
+                  )}
+                </Box>
+              </Box>
+            </CardContent>
+          </Card>
         </Box>
       </DialogContent>
 
@@ -2495,6 +2787,44 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                   </Typography>
                 )}
               </Box>
+
+              {/* Payment Details */}
+              {getTotalPaidAmount() > 0 && (
+                <Box
+                  sx={{ p: 2, bgcolor: "#f0f8ff", borderRadius: 1, border: "1px solid #2196f3" }}>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 600, color: "#1976d2", mb: 1 }}>
+                    Payment Details
+                  </Typography>
+                  <Typography variant="body2" sx={{ mb: 0.5 }}>
+                    <strong>Total Order Amount:</strong> ₹{getTotalOrderAmount().toLocaleString()}
+                  </Typography>
+                  <Typography variant="body2" sx={{ mb: 0.5 }}>
+                    <strong>Total Paid:</strong> ₹{getTotalPaidAmount().toLocaleString()}
+                  </Typography>
+                  <Typography variant="body2" sx={{ mb: 0.5 }}>
+                    <strong>Balance:</strong> ₹{getBalanceAmount().toLocaleString()}
+                  </Typography>
+                  {newPayment.paidAmount && newPayment.modeOfPayment && (
+                    <Box sx={{ mt: 1, p: 1, bgcolor: "white", borderRadius: 0.5 }}>
+                      <Typography variant="body2" sx={{ fontWeight: 600, color: "#2c3e50" }}>
+                        Payment: ₹{parseFloat(newPayment.paidAmount).toLocaleString()} (
+                        {newPayment.modeOfPayment})
+                      </Typography>
+                      {newPayment.bankName && (
+                        <Typography variant="caption" color="text.secondary">
+                          Bank: {newPayment.bankName}
+                        </Typography>
+                      )}
+                      <Typography
+                        variant="caption"
+                        color="text.secondary"
+                        sx={{ display: "block" }}>
+                        Status: PENDING
+                      </Typography>
+                    </Box>
+                  )}
+                </Box>
+              )}
             </Box>
           </Box>
         </DialogContent>

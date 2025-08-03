@@ -4,7 +4,7 @@ import { makeStyles } from "tss-react/mui"
 import { Add as AddIcon, Phone as PhoneIcon } from "@mui/icons-material"
 import FarmerOrdersTable from "./FarmerOrdersTable"
 import AddOrderForm from "../order/AddOrderForm"
-import { FarmerPhoneCorrectionModal } from "components"
+import { FarmerPhoneCorrectionModal, ExcelExport } from "components"
 import useInvalidPhoneFarmers from "hooks/useInvalidPhoneFarmers"
 
 function Dashboard() {
@@ -36,6 +36,12 @@ function Dashboard() {
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
         <h1>Orders</h1>
         <Box display="flex" gap={2}>
+          <ExcelExport
+            title="Export All Orders"
+            onExportComplete={() => {
+              console.log("Orders exported successfully!")
+            }}
+          />
           <Badge badgeContent={invalidPhoneCount} color="error" max={99}>
             <Button
               variant="outlined"

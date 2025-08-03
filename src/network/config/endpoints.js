@@ -247,7 +247,8 @@ export const API = {
       HTTP_METHODS.PATCH,
       OFFLINE.PROFILE
     ),
-    ADD_PAYMENT: new APIRouter("order/payment", HTTP_METHODS.PATCH, OFFLINE.PROFILE),
+    ADD_PAYMENT: new APIRouter("order/payment/:orderId", HTTP_METHODS.PATCH, OFFLINE.PROFILE),
+    GET_CSV: new APIRouter("order/getCSV", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_SLOTS: new APIRouter("slots/getslots", HTTP_METHODS.GET, OFFLINE.PROFILE)
   },
   plantCms: {
@@ -377,5 +378,30 @@ export const API = {
     ADD_TALUKA_TO_DISTRICT: new APIRouter("/state", HTTP_METHODS.POST),
     ADD_VILLAGE_TO_TALUKA: new APIRouter("/state", HTTP_METHODS.POST),
     GET_LOCATION_HIERARCHY: new APIRouter("/state", HTTP_METHODS.GET)
+  },
+  SLOTS: {
+    GET_SLOTS: new APIRouter("slots/getslots", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_PLANT_NAMES: new APIRouter("slots/plant-names", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_SUBTYPES_BY_PLANT: new APIRouter(
+      "slots/subtypes-by-plant",
+      HTTP_METHODS.GET,
+      OFFLINE.PROFILE
+    ),
+    GET_SLOTS_BY_PLANT_SUBTYPE: new APIRouter(
+      "slots/slots-by-plant-subtype",
+      HTTP_METHODS.GET,
+      OFFLINE.PROFILE
+    ),
+    GET_SLOT_DETAILS: new APIRouter(
+      "slots/slot-details/:slotId",
+      HTTP_METHODS.GET,
+      OFFLINE.PROFILE
+    ),
+    GET_SLOT_TRAIL: new APIRouter("slot-trail/:slotId", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    UPDATE_SLOT_BUFFER: new APIRouter(
+      "slots/update-slot-buffer/:slotId",
+      HTTP_METHODS.PUT,
+      OFFLINE.PROFILE
+    )
   }
 }

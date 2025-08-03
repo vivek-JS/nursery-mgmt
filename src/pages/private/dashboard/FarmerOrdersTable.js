@@ -3,7 +3,7 @@ import { Edit2Icon, CheckIcon, XIcon, RefreshCw } from "lucide-react"
 import DatePicker from "react-datepicker"
 import "react-datepicker/dist/react-datepicker.css"
 import { API, NetworkManager } from "network/core"
-import { PageLoader } from "components"
+import { PageLoader, ExcelExport } from "components"
 import moment from "moment"
 import debounce from "lodash.debounce"
 import { MenuItem, Select } from "@mui/material"
@@ -57,15 +57,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   } = useDealerWalletById(dealerIdForWallet)
 
   // Debug wallet data
-  useEffect(() => {
-    console.log("Wallet Debug:", {
-      dealerIdForWallet,
-      dealerWalletData,
-      dealerWalletLoading,
-      financial: dealerWalletData?.financial,
-      availableAmount: dealerWalletData?.financial?.availableAmount
-    })
-  }, [dealerIdForWallet, dealerWalletData, dealerWalletLoading])
+  useEffect(() => {}, [dealerIdForWallet, dealerWalletData, dealerWalletLoading])
 
   // Status tabs state
   const [activeStatusTab, setActiveStatusTab] = useState("all")
@@ -209,14 +201,6 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
         paymentStatus: "PENDING"
       }
 
-      console.log("Add Payment Debug:", {
-        orderId,
-        payload,
-        isWalletPayment: newPayment.isWalletPayment,
-        salesPerson: selectedOrder?.details?.salesPerson,
-        dealerWalletData
-      })
-
       const response = await instance.request(payload, [orderId])
 
       if (response?.data) {
@@ -235,7 +219,6 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
 
         // Refresh wallet data if it was a wallet payment
         if (newPayment.isWalletPayment) {
-          console.log("Refreshing wallet data after wallet payment")
           await refetchDealerWallet()
         }
 
@@ -285,15 +268,33 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
           if (viewMode === "farmready") {
             params.status = "FARM_READY"
           }
-          if (viewMode === "farmready" || viewMode === "dispatch_process") {
+          if (viewMode === "ready_for_dispatch") {
+            params.ready_for_dispatch = "true"
+            // Remove status filter for ready for dispatch view since we want specific filtering
+            delete params.status
+          }
+          if (
+            viewMode === "farmready" ||
+            viewMode === "ready_for_dispatch" ||
+            viewMode === "dispatch_process"
+          ) {
             params.startDate = null
           }
 
-          if (viewMode === "farmready" || viewMode === "dispatch_process") {
+          if (
+            viewMode === "farmready" ||
+            viewMode === "ready_for_dispatch" ||
+            viewMode === "dispatch_process"
+          ) {
             params.endDate = null
           }
           if (viewMode === "farmready") {
             params.status = "FARM_READY"
+          }
+          if (viewMode === "ready_for_dispatch") {
+            params.ready_for_dispatch = "true"
+            // Remove status filter for ready for dispatch view since we want specific filtering
+            delete params.status
           }
           if (viewMode === "dispatch_process") {
             params.status = "DISPATCH_PROCESS"
@@ -301,8 +302,6 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
           if (viewMode === "dispatch_process") {
             params.dispatched = false
           }
-
-          console.log("Refreshing orders with params:", params)
 
           const response = await instance.request({}, params)
           const ordersData = response?.data?.data?.data || []
@@ -471,9 +470,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   }
   // Load initial data
   useEffect(() => {
-    if (startDate && endDate) {
-      getOrders()
-    }
+    getOrders()
   }, [
     debouncedSearchTerm,
     refresh,
@@ -493,19 +490,11 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
 
   // Update dealer ID for wallet when selectedOrder changes
   useEffect(() => {
-    console.log("SelectedOrder changed:", selectedOrder?.details)
     const salesPerson = selectedOrder?.details?.salesPerson
-    console.log("Sales person from order:", salesPerson)
-    console.log("Sales person _id:", salesPerson?._id)
-    console.log("Sales person jobTitle:", salesPerson?.jobTitle)
-    console.log("Sales person name:", salesPerson?.name)
 
     if (salesPerson?.jobTitle === "DEALER" && salesPerson?._id) {
-      console.log("Sales person is dealer, setting dealerIdForWallet to:", salesPerson._id)
       setDealerIdForWallet(salesPerson._id)
     } else {
-      console.log("Sales person is not dealer or missing data, setting dealerIdForWallet to null")
-      console.log("Reason: jobTitle =", salesPerson?.jobTitle, "| _id =", salesPerson?._id)
       setDealerIdForWallet(null)
     }
   }, [selectedOrder])
@@ -636,8 +625,6 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   const getSlots = async (plantId, subtypeId) => {
     setSlotsLoading(true)
     try {
-      console.log("Loading slots for plant:", plantId, "subtype:", subtypeId)
-
       const instance = NetworkManager(API.ORDER.GET_SLOTS)
       const response = await instance.request(
         {},
@@ -648,11 +635,8 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
         }
       )
 
-      console.log("Slots API response:", response)
-
       if (response?.data?.slots?.[0]?.slots) {
         const apiSlots = response.data.slots[0].slots
-        console.log("Raw slots data:", apiSlots)
 
         const processedSlots = apiSlots
           .filter((slot) => {
@@ -664,7 +648,6 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
             const endDateValid = moment(slot.endDay, "DD-MM-YYYY", true).isValid()
 
             if (!startDateValid || !endDateValid) {
-              console.log("Skipping slot with invalid date format:", slot)
               return false
             }
 
@@ -708,10 +691,8 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
           })
           .filter((slot) => slot.available > 0) // Only show slots with available capacity
 
-        console.log("Processed slots:", processedSlots)
         setSlots(processedSlots)
       } else {
-        console.log("No slots data in response")
         setSlots([])
       }
     } catch (error) {
@@ -725,10 +706,6 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
 
   const getOrders = async () => {
     setLoading(true)
-    const date = new Date(startDate)
-    const formattedStartDate = moment(date).format("DD-MM-YYYY")
-    const edate = new Date(endDate)
-    const formattedEndtDate = moment(edate).format("DD-MM-YYYY")
 
     // Use the new status-specific endpoint if a status tab is selected
     const instance =
@@ -740,11 +717,20 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
 
     const params = {
       search: debouncedSearchTerm,
-      startDate: formattedStartDate,
-      endDate: formattedEndtDate,
       dispatched: viewMode === "booking" ? false : true,
       limit: 10000, // Set a very high limit to get all orders
       page: 1
+    }
+
+    // Only add date range if both dates are selected
+    if (startDate && endDate) {
+      const date = new Date(startDate)
+      const formattedStartDate = moment(date).format("DD-MM-YYYY")
+      const edate = new Date(endDate)
+      const formattedEndtDate = moment(edate).format("DD-MM-YYYY")
+
+      params.startDate = formattedStartDate
+      params.endDate = formattedEndtDate
     }
 
     // Add status filter if a specific status tab is selected
@@ -771,17 +757,24 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
     }
 
     if (viewMode === "farmready") {
-      params.status = "FARM_READY"
+      params.farmReady = "true"
+      // Remove status filter for farm ready view since we want all orders with farm ready date
+      delete params.status
+      // Keep date range filtering for farm ready view - don't set to null
     }
-    if (viewMode === "farmready" || viewMode === "dispatch_process") {
+    if (viewMode === "dispatch_process") {
       params.startDate = null
     }
 
-    if (viewMode === "farmready" || viewMode === "dispatch_process") {
+    if (viewMode === "dispatch_process") {
       params.endDate = null
     }
-    if (viewMode === "farmready") {
-      params.status = "FARM_READY"
+    if (viewMode === "ready_for_dispatch") {
+      params.ready_for_dispatch = "true"
+      // Remove status filter for ready for dispatch view since we want specific filtering
+      delete params.status
+      console.log("=== Ready for Dispatch Debug ===")
+      console.log("Params being sent:", params)
     }
     if (viewMode === "dispatch_process") {
       params.status = "DISPATCH_PROCESS"
@@ -789,12 +782,15 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
     if (viewMode === "dispatch_process") {
       params.dispatched = false
     }
-    console.log("API Params:", params)
-    console.log("Active Status Tab:", activeStatusTab)
 
     const emps = slotId
       ? await instance.request({}, { slotId, monthName, startDay, endDay, limit: 10000, page: 1 })
       : await instance.request({}, params)
+
+    if (viewMode === "ready_for_dispatch") {
+      console.log("API Response:", emps?.data)
+      console.log("Orders data:", emps?.data?.data?.data || [])
+    }
 
     // Handle different response structures for different endpoints
     const ordersData =
@@ -802,9 +798,9 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
         ? emps?.data?.data || [] // Status-specific endpoint returns data directly
         : emps?.data?.data?.data || [] // Regular endpoint has nested data structure
 
-    console.log("API Response:", emps?.data)
-    console.log("Orders Data:", ordersData)
-    console.log("Orders Data Length:", ordersData?.length)
+    if (viewMode === "ready_for_dispatch") {
+      console.log("Processing orders data:", ordersData?.length || 0, "orders")
+    }
 
     setOrders(
       (ordersData || [])
@@ -829,9 +825,10 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
             orderRemarks,
             dealerOrder,
             farmReadyDate,
+            farmReadyDateChanges,
             orderBookingDate
           } = data || {}
-          console.log("Processing order data:", data)
+
           const { startDay, endDay } = bookingSlot?.[0] || {}
           const start = startDay ? moment(startDay, "DD-MM-YYYY").format("D") : "N/A"
           const end = endDay ? moment(endDay, "DD-MM-YYYY").format("D") : "N/A"
@@ -854,10 +851,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
             "returned Plants": returnedPlants || 0,
             orderStatus: orderStatus,
             Delivery: `${start} - ${end} ${monthYear}`,
-            "Farm Ready":
-              farmReadyDate && farmReadyDate.length > 0
-                ? moment(farmReadyDate[0]).format("DD-MMM-YYYY")
-                : "-",
+            "Farm Ready": farmReadyDate ? moment(farmReadyDate).format("DD-MMM-YYYY") : "-",
             details: {
               farmer,
               contact: farmer?.mobileNumber,
@@ -879,7 +873,8 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
               deliveryChanges: data.deliveryChanges || [],
               returnHistory: data?.returnHistory || [],
               dealerOrder: dealerOrder || faHourglassEmpty,
-              farmReadyDate: farmReadyDate
+              farmReadyDate: farmReadyDate,
+              farmReadyDateChanges: farmReadyDateChanges || []
             }
           }
         })
@@ -947,15 +942,12 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
         }
       }
 
-      console.log("Updating order with data:", dataToSend)
-
       const instance = NetworkManager(API.ORDER.UPDATE_ORDER)
       const emps = await instance.request({
         ...dataToSend,
         numberOfPlants: dataToSend?.quantity
       })
 
-      console.log("Update response:", emps)
       refreshComponent()
 
       if (emps?.error) {
@@ -1030,14 +1022,14 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
       case "PARTIALLY_COMPLETED":
         return "bg-indigo-100 text-indigo-700"
       case "FARM_READY":
-        return "bg-amber-100 text-amber-700"
+        return "bg-green-100 text-green-700 border border-green-300"
       case "DISPATCH_PROCESS":
         return "bg-cyan-100 text-cyan-700"
       default:
         return "bg-gray-50 text-gray-600"
     }
   }
-  console.log(updatedObject)
+
   const toggleEditing = (index, row) => {
     // console.log(row)
     setSelectedRow(row)
@@ -1129,27 +1121,103 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
         <div className="flex flex-col lg:flex-row gap-4">
           {!slotId && (
             <div className="flex-1">
-              <DatePicker
-                selectsRange={true}
-                startDate={startDate}
-                endDate={endDate}
-                onChange={(update) => setSelectedDateRange(update)}
-                isClearable={true}
-                placeholderText="Select date range"
-                className="w-full p-3 border rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                calendarClassName="custom-datepicker"
-              />
+              <div className="flex gap-4 items-center">
+                {/* Date Range Picker */}
+                <div className="flex-1">
+                  <DatePicker
+                    selectsRange={true}
+                    startDate={startDate}
+                    endDate={endDate}
+                    onChange={(update) => setSelectedDateRange(update)}
+                    isClearable={true}
+                    placeholderText="Select date range"
+                    className="w-full p-3 border rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    calendarClassName="custom-datepicker"
+                  />
+                </div>
+
+                {/* Date Shortcut Buttons */}
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const today = new Date()
+                      setSelectedDateRange([today, today])
+                    }}
+                    className="px-3 py-1 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors whitespace-nowrap">
+                    Today
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const yesterday = new Date()
+                      yesterday.setDate(yesterday.getDate() - 1)
+                      setSelectedDateRange([yesterday, yesterday])
+                    }}
+                    className="px-3 py-1 text-sm bg-green-500 text-white rounded hover:bg-green-600 transition-colors whitespace-nowrap">
+                    Yesterday
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const today = new Date()
+                      const yesterday = new Date()
+                      yesterday.setDate(yesterday.getDate() - 1)
+                      setSelectedDateRange([yesterday, today])
+                    }}
+                    className="px-3 py-1 text-sm bg-purple-500 text-white rounded hover:bg-purple-600 transition-colors whitespace-nowrap">
+                    Last 2 Days
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const today = new Date()
+                      const weekAgo = new Date()
+                      weekAgo.setDate(weekAgo.getDate() - 7)
+                      setSelectedDateRange([weekAgo, today])
+                    }}
+                    className="px-3 py-1 text-sm bg-orange-500 text-white rounded hover:bg-orange-600 transition-colors whitespace-nowrap">
+                    Last 7 Days
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedDateRange([null, null])}
+                    className="px-3 py-1 text-sm bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors whitespace-nowrap">
+                    Clear
+                  </button>
+                </div>
+
+                {/* Search Input */}
+                <div className="w-80">
+                  <input
+                    type="text"
+                    placeholder="Search orders..."
+                    value={searchTerm}
+                    onChange={(e) => handleSearchChange(e.target.value)}
+                    className="w-full p-3 border rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+
+              {/* Status Indicators */}
+              {viewMode === "farmready" && startDate && endDate && (
+                <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded-lg">
+                  <p className="text-sm text-blue-800">
+                    📅 Filtering farm ready orders from{" "}
+                    <span className="font-semibold">{moment(startDate).format("DD-MM-YYYY")}</span>{" "}
+                    to <span className="font-semibold">{moment(endDate).format("DD-MM-YYYY")}</span>
+                  </p>
+                </div>
+              )}
+              {viewMode === "farmready" && (!startDate || !endDate) && (
+                <div className="mt-2 p-2 bg-gray-50 border border-gray-200 rounded-lg">
+                  <p className="text-sm text-gray-600">
+                    📅 Showing all farm ready orders (no date filter applied)
+                  </p>
+                </div>
+              )}
             </div>
           )}
-          <div className="flex-1">
-            <input
-              type="text"
-              placeholder="Search orders..."
-              value={searchTerm}
-              onChange={(e) => handleSearchChange(e.target.value)}
-              className="w-full p-3 border rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
         </div>
 
         {/* Filter Dropdowns */}
@@ -1219,13 +1287,28 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
             </div>
           </div>
 
-          {/* Clear Filters Button */}
-          <div className="mt-4 flex justify-end">
+          {/* Clear Filters and Export Buttons */}
+          <div className="mt-4 flex justify-between items-center">
+            <ExcelExport
+              title="Export Orders"
+              filters={{
+                orderStatus:
+                  activeStatusTab !== "all"
+                    ? statusTabs.find((tab) => tab.key === activeStatusTab)?.status
+                    : "",
+                startDate: startDate ? moment(startDate).format("YYYY-MM-DD") : "",
+                endDate: endDate ? moment(endDate).format("YYYY-MM-DD") : ""
+              }}
+              onExportComplete={() => {
+                Toast.success("Orders exported successfully!")
+              }}
+            />
             <button
               onClick={() => {
                 setSelectedSalesPerson("")
                 setSelectedVillage("")
                 setSelectedDistrict("")
+                setSelectedDateRange([null, null])
               }}
               className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 border border-gray-300 rounded-lg hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500">
               Clear Filters
@@ -1284,6 +1367,15 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
             Farm Ready
           </button>
           <button
+            onClick={() => setViewMode("ready_for_dispatch")}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+              viewMode === "ready_for_dispatch"
+                ? "bg-blue-600 text-white"
+                : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+            }`}>
+            Ready for Dispatch
+          </button>
+          <button
             onClick={() => setViewMode("dispatch_process")}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
               viewMode === "dispatch_process"
@@ -1321,7 +1413,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                     <p className="text-xs text-gray-500 mt-1">{row.farmerName}</p>
                   </div>
                   <div className="flex items-center space-x-2">
-                    {viewMode === "farmready" && (
+                    {viewMode !== "booking" && (
                       <input
                         type="checkbox"
                         onChange={(e) => {
@@ -1339,39 +1431,40 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
 
                 {/* Status Badge */}
                 <div className="flex items-center justify-between">
-                  <select
-                    disabled={
-                      row.orderStatus === "DISPATCH_PROCESS" || row.orderStatus === "COMPLETED"
-                    }
-                    value={row.orderStatus}
-                    onChange={(e) => {
-                      e.stopPropagation()
-                      if (
-                        e.target.value === "DISPATCH_PROCESS" ||
-                        e.target.value === "DISPATCHED" ||
-                        e.target.value === "COMPLETED"
-                      ) {
-                        Toast.info("This status cant be change directly")
-                        return
-                      }
-                      handleStatusChange(row, e.target.value)
-                    }}
-                    onClick={(e) => e.stopPropagation()}
-                    className={`${getStatusColor(
-                      row.orderStatus
-                    )} px-2 py-1 rounded-full text-xs font-medium focus:outline-none`}>
-                    {(orderStatusOptions || []).map((option) => (
-                      <option key={option?.value} value={option?.value}>
-                        {option?.label}
-                      </option>
-                    ))}
-                  </select>
+                  {row.orderStatus !== "COMPLETED" ? (
+                    <select
+                      value={row.orderStatus}
+                      onChange={(e) => {
+                        e.stopPropagation()
+                        handleStatusChange(row, e.target.value)
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                      className={`${getStatusColor(
+                        row.orderStatus
+                      )} px-2 py-1 rounded-full text-xs font-medium focus:outline-none flex items-center gap-1`}>
+                      {(orderStatusOptions || []).map((option) => (
+                        <option key={option?.value} value={option?.value}>
+                          {option?.label}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span
+                      className={`${getStatusColor(
+                        row.orderStatus
+                      )} px-2 py-1 rounded-full text-xs font-medium flex items-center gap-1`}>
+                      {row.orderStatus === "FARM_READY" && "🌱"}
+                      {row.orderStatus === "DISPATCH_PROCESS" ? "Loading" : row.orderStatus}
+                    </span>
+                  )}
 
-                  {row.orderStatus === "ACCEPTED" && (
+                  {/* Farm Ready Button - Shows for ACCEPTED orders or orders with existing farm ready date */}
+                  {(row.orderStatus === "ACCEPTED" || row["Farm Ready"] !== "-") && (
                     <FarmReadyButton
                       orderId={row.details.orderid}
                       onUpdateOrder={pacthOrders}
                       refreshOrders={refreshComponent}
+                      currentFarmReadyDate={row.details.farmReadyDate || null}
                     />
                   )}
                 </div>
@@ -1419,11 +1512,15 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                   <span className="text-sm font-medium text-blue-600">{row.Delivery}</span>
                 </div>
 
-                {/* Farm Ready Date */}
+                {/* Farm Ready Date Display - Shows when order has been marked as farm ready */}
                 {row["Farm Ready"] !== "-" && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-gray-500">Farm Ready</span>
-                    <span className="text-sm font-medium text-amber-600">{row["Farm Ready"]}</span>
+                  <div className="flex items-center justify-between bg-green-50 rounded-md p-2 border border-green-200">
+                    <span className="text-xs text-green-700 font-medium flex items-center">
+                      🌱 Farm Ready Date
+                    </span>
+                    <span className="text-sm font-semibold text-green-800">
+                      {row["Farm Ready"]}
+                    </span>
                   </div>
                 )}
 
@@ -1735,31 +1832,65 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                           </div>
                         </div>
 
-                        {/* Farm Ready History */}
-                        {selectedOrder?.details?.farmReadyDate &&
-                          selectedOrder?.details?.farmReadyDate.length > 0 && (
+                        {/* Farm Ready Date History */}
+                        {selectedOrder?.details?.farmReadyDateChanges &&
+                          selectedOrder?.details?.farmReadyDateChanges.length > 0 && (
                             <div className="bg-amber-50 rounded-lg p-3 border border-amber-200">
                               <h3 className="font-medium text-amber-900 mb-2 flex items-center text-sm">
                                 <span className="mr-1">🌾</span>
-                                Farm Ready History
+                                Farm Ready Date History
                               </h3>
                               <div className="space-y-1">
-                                {(selectedOrder.details.farmReadyDate || []).map((date, index) => (
-                                  <div
-                                    key={index}
-                                    className={`flex items-center justify-between p-2 rounded text-sm ${
-                                      index === 0 ? "bg-amber-100" : "bg-white"
-                                    }`}>
-                                    <span className="font-medium">
-                                      {moment(date).format("DD MMM, YYYY")}
-                                    </span>
-                                    {index === 0 && (
-                                      <span className="text-xs bg-amber-200 text-amber-800 px-2 py-1 rounded-full">
-                                        Latest
-                                      </span>
-                                    )}
-                                  </div>
-                                ))}
+                                {(selectedOrder.details.farmReadyDateChanges || []).map(
+                                  (change, index) => (
+                                    <div
+                                      key={index}
+                                      className={`flex items-center justify-between p-2 rounded text-sm ${
+                                        index === 0 ? "bg-amber-100" : "bg-white"
+                                      }`}>
+                                      <div className="flex-1">
+                                        <div className="flex items-center justify-between">
+                                          <span className="font-medium text-amber-900">
+                                            {change.newDate
+                                              ? moment(change.newDate).format("DD MMMM, YYYY")
+                                              : "Not set"}
+                                          </span>
+                                          {index === 0 && (
+                                            <span className="text-xs bg-amber-200 text-amber-800 px-2 py-1 rounded-full ml-2">
+                                              Latest
+                                            </span>
+                                          )}
+                                        </div>
+                                        {change.previousDate && (
+                                          <div className="text-xs text-amber-700 mt-1">
+                                            Changed from:{" "}
+                                            {moment(change.previousDate).format("DD MMMM, YYYY")}
+                                          </div>
+                                        )}
+                                        {change.reason && (
+                                          <div className="text-xs text-amber-600 mt-1">
+                                            Reason: {change.reason}
+                                          </div>
+                                        )}
+                                        {change.notes && (
+                                          <div className="text-xs text-amber-600 mt-1">
+                                            Notes: {change.notes}
+                                          </div>
+                                        )}
+                                        {change.changedBy && (
+                                          <div className="text-xs text-amber-600 mt-1">
+                                            Changed by: {change.changedBy?.name || "Unknown User"}
+                                          </div>
+                                        )}
+                                        <div className="text-xs text-amber-500 mt-1">
+                                          {change.createdAt
+                                            ? moment(change.createdAt).format("DD/MM/YYYY HH:mm")
+                                            : ""}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  )
+                                )}
                               </div>
                             </div>
                           )}
@@ -1993,6 +2124,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                   <option value="Phone Pe">Phone Pe</option>
                                   <option value="Google Pay">Google Pay</option>
                                   <option value="Cheque">Cheque</option>
+                                  <option value="NEFT">NEFT</option>
                                   <option value="JPCB">JPCB</option>
                                 </select>
                               </div>
@@ -2016,11 +2148,15 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                   }
                                   className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 mt-1"
                                   placeholder={
-                                    newPayment.modeOfPayment === "Cheque"
+                                    newPayment.modeOfPayment === "Cheque" ||
+                                    newPayment.modeOfPayment === "NEFT"
                                       ? "Enter bank name"
                                       : "N/A"
                                   }
-                                  disabled={newPayment.modeOfPayment !== "Cheque"}
+                                  disabled={
+                                    newPayment.modeOfPayment !== "Cheque" &&
+                                    newPayment.modeOfPayment !== "NEFT"
+                                  }
                                 />
                               </div>
                             </div>
@@ -2333,7 +2469,11 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                               <label className="text-sm text-gray-500 font-medium">Rate (₹)</label>
                               <input
                                 type="number"
-                                value={updatedObject?.rate || selectedOrder?.rate}
+                                value={
+                                  updatedObject?.rate !== undefined
+                                    ? updatedObject.rate
+                                    : selectedOrder?.rate
+                                }
                                 onChange={(e) => handleInputChange(0, "rate", e.target.value)}
                                 className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 mt-1"
                               />
@@ -2342,7 +2482,11 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                               <label className="text-sm text-gray-500 font-medium">Quantity</label>
                               <input
                                 type="number"
-                                value={updatedObject?.quantity || selectedOrder?.quantity}
+                                value={
+                                  updatedObject?.quantity !== undefined
+                                    ? updatedObject.quantity
+                                    : selectedOrder?.quantity
+                                }
                                 onChange={(e) => handleInputChange(0, "quantity", e.target.value)}
                                 className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 mt-1"
                               />

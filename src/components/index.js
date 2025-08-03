@@ -16,6 +16,8 @@ import MedicalHistory from "./Modals/MedicalHistory"
 import ToggleBtns from "./FormField/ToggleBtns"
 import FormField from "./FormField"
 import FarmerPhoneCorrectionModal from "./Modals/FarmerPhoneCorrectionModal"
+import SlotTrailModal from "./Modals/SlotTrailModal"
+import ExcelExport from "./ExcelExport"
 export {
   SearchInput,
   AddButton,
@@ -34,5 +36,7 @@ export {
   MedicalHistory,
   ToggleBtns,
   FormField,
-  FarmerPhoneCorrectionModal
+  FarmerPhoneCorrectionModal,
+  SlotTrailModal,
+  ExcelExport
 }
