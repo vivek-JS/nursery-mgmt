@@ -574,7 +574,9 @@ const generateMarathiReceiptHTMLForPrint = (order) => {
           width: 100%;
           height: 100%;
           display: flex;
-          flex-direction: column;
+          flex-direction: row;
+          justify-content: space-between;
+          align-items: center;
         }
         
         .receipt {
@@ -588,29 +590,26 @@ const generateMarathiReceiptHTMLForPrint = (order) => {
           font-size: 10px;
         }
         
-        .receipt-top {
+        .receipt-left {
           width: 148.5mm;
           height: 105mm;
-          margin: 5mm;
-          padding: 8mm;
+          margin: 3mm;
+          padding: 6mm;
           border: 1px solid #333;
           background: white;
           box-sizing: border-box;
           font-size: 10px;
         }
         
-        .receipt-bottom {
+        .receipt-right {
           width: 148.5mm;
           height: 105mm;
-          margin: 5mm;
-          padding: 8mm;
+          margin: 3mm;
+          padding: 6mm;
           border: 1px solid #333;
           background: white;
           box-sizing: border-box;
           font-size: 10px;
-          position: absolute;
-          bottom: 5mm;
-          left: 5mm;
         }
         
         .header {
@@ -680,10 +679,10 @@ const generateMarathiReceiptHTMLForPrint = (order) => {
       </style>
     </head>
     <body>
-      <div class="page">
-        <div class="receipt-container">
-          <!-- Top Receipt -->
-          <div class="receipt-top">
+              <div class="page">
+          <div class="receipt-container">
+            <!-- Left Receipt -->
+            <div class="receipt-left">
             <div class="header">
               <div class="title">रसीद</div>
               <div class="date">दिनांक: ${orderDate}</div>
@@ -736,10 +735,10 @@ const generateMarathiReceiptHTMLForPrint = (order) => {
               <div class="signature-line"></div>
               <div style="text-align: center; font-size: 8px;">ग्राहकाचे नाव</div>
             </div>
-          </div>
-          
-          <!-- Bottom Receipt -->
-          <div class="receipt-bottom">
+                      </div>
+            
+            <!-- Right Receipt -->
+            <div class="receipt-right">
             <div class="header">
               <div class="title">रसीद</div>
               <div class="date">दिनांक: ${orderDate}</div>
@@ -1038,7 +1037,7 @@ const DownloadPDFButton = ({ order }) => {
           font-weight: 500;
           transition: all 0.2s ease;
         " onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
-          🖨️ Print Marathi Receipt (2 A5 on A4)
+          🖨️ Print Marathi Receipt (2 A5 Side by Side)
         </button>
         <button id="close-modal" style="
           padding: 10px 20px; 
