@@ -13,6 +13,12 @@ const sanitizeText = (text) => {
     .trim()
 }
 
+// Marathi text helper - keeps Marathi characters
+const sanitizeMarathiText = (text) => {
+  if (text === null || text === undefined) return "N/A"
+  return String(text).trim()
+}
+
 const generateOrderPDF = (order) => {
   // Create new document
   const doc = new jsPDF({
@@ -243,10 +249,557 @@ const generateOrderPDF = (order) => {
   return doc
 }
 
+// Generate Marathi Receipt PDF
+const generateMarathiReceiptPDF = (order) => {
+  // Create new document with A5 format
+  const doc = new jsPDF({
+    orientation: "portrait",
+    unit: "mm",
+    format: "a5"
+  })
+
+  // Try to add Marathi font support
+  const addMarathiFont = () => {
+    try {
+      // Set font to helvetica for now
+      doc.setFont("helvetica")
+      return true
+    } catch (error) {
+      doc.setFont("helvetica")
+      return false
+    }
+  }
+
+  addMarathiFont()
+
+  // Helper function to handle Marathi text
+  const handleMarathiText = (text, fallbackText = null) => {
+    if (!text || text === "N/A") return fallbackText || text
+    return text // Use actual Marathi text
+  }
+
+  // Helper function to convert Marathi to English transliteration
+  const marathiToEnglish = (text) => {
+    const marathiToEnglishMap = {
+      रसीद: "Rasid",
+      दिनांक: "Dinank",
+      क्र: "Kr",
+      श्री: "Shri",
+      गाव: "Gaav",
+      तालुका: "Taluka",
+      जिल्हा: "Jilha",
+      "मो नंबर": "Mo Number",
+      "रोप संख्या": "Rop Sankhya",
+      प्रकार: "Prakar",
+      दर: "Dar",
+      एकूण: "Ekun",
+      "जमा रक्कम": "Jama Rakkam",
+      रुपये: "Rupaye",
+      पेमेंट: "Payment",
+      किसी: "Kisi",
+      मालक: "Malak",
+      "ग्राहकाचे नाव": "Grahakache Naav",
+      "पत्ता नंबर": "Patta Number",
+      बाकी: "Baki"
+    }
+
+    let result = text
+    Object.keys(marathiToEnglishMap).forEach((marathi) => {
+      result = result.replace(new RegExp(marathi, "g"), marathiToEnglishMap[marathi])
+    })
+    return result
+  }
+
+  // A5 dimensions and margins
+  const pageWidth = doc.internal.pageSize.width
+  const pageHeight = doc.internal.pageSize.height
+  const leftMargin = 15
+  const rightMargin = 15
+  const contentWidth = pageWidth - leftMargin - rightMargin
+
+  // Set colors for printer-friendly design
+  doc.setTextColor(0, 0, 0)
+  doc.setDrawColor(0, 0, 0)
+  doc.setFillColor(255, 255, 255)
+
+  // Header - Receipt title and date
+  doc.setFontSize(16)
+  doc.setFont("helvetica", "bold")
+  doc.text(handleMarathiText("रसीद", "RASID (Receipt)"), pageWidth / 2, 12, { align: "center" })
+
+  doc.setFontSize(10)
+  doc.setFont("helvetica", "normal")
+  const orderDate = order.orderDate
+    ? new Date(order.orderDate).toLocaleDateString("en-IN")
+    : new Date().toLocaleDateString("en-IN")
+  doc.text(`${handleMarathiText("दिनांक", "Dinank")}: ${orderDate}`, pageWidth / 2, 18, {
+    align: "center"
+  })
+
+  // Customer information section
+  const customerY = 28
+  doc.setFontSize(10)
+  doc.setFont("helvetica", "bold")
+
+  // Receipt number
+  doc.text(
+    `${handleMarathiText("क्र", "Kr")}. ${sanitizeMarathiText(order.order || "N/A")}`,
+    leftMargin,
+    customerY
+  )
+
+  // Customer details - using Marathi text
+  doc.setFont("helvetica", "bold")
+  doc.text(
+    `${handleMarathiText("श्री", "Shri")}: ${handleMarathiText(order.farmerName || "N/A")}`,
+    leftMargin,
+    customerY + 8
+  )
+
+  doc.setFont("helvetica", "normal")
+  doc.setFontSize(9)
+  const village = handleMarathiText(order.details?.farmer?.village || "N/A")
+  const taluka = handleMarathiText(order.details?.farmer?.taluka || "N/A")
+  doc.text(
+    `${handleMarathiText("गाव", "Gaav")}: ${village} ${handleMarathiText(
+      "तालुका",
+      "Taluka"
+    )}: ${taluka}`,
+    leftMargin,
+    customerY + 14
+  )
+
+  const district = handleMarathiText(order.details?.farmer?.district || "N/A")
+  const mobile = sanitizeMarathiText(order.details?.farmer?.mobileNumber || "N/A")
+  doc.text(
+    `${handleMarathiText("जिल्हा", "Jilha")}: ${district} ${handleMarathiText(
+      "मो नंबर",
+      "Mo Number"
+    )}: ${mobile}`,
+    leftMargin,
+    customerY + 20
+  )
+
+  // Main table with plant details
+  const tableY = customerY + 32
+  doc.setFontSize(9)
+  doc.setFont("helvetica", "bold")
+
+  // Table headers in Marathi
+  const headers = [
+    handleMarathiText("रोप संख्या", "Rop Sankhya"),
+    handleMarathiText("प्रकार", "Prakar"),
+    handleMarathiText("दर", "Dar"),
+    handleMarathiText("एकूण", "Ekun")
+  ]
+  const headerY = tableY
+  const colWidths = [25, 75, 25, 30]
+  let currentX = leftMargin
+
+  // Draw header row
+  headers.forEach((header, index) => {
+    doc.text(header, currentX, headerY)
+    currentX += colWidths[index]
+  })
+
+  // Draw header line
+  doc.line(leftMargin, headerY + 2, pageWidth - rightMargin, headerY + 2)
+
+  // Draw items
+  let itemY = headerY + 8
+  doc.setFont("helvetica", "normal")
+
+  // Create plant details
+  const plantType = sanitizeMarathiText(order.plantType || "N/A")
+  const plantVariety = sanitizeMarathiText(order.plantVariety || "")
+  const quantity = parseInt(order.quantity) || 0
+  const rate = parseInt(order.rate) || 0
+  const total = parseInt(order.total) || 0
+
+  currentX = leftMargin
+
+  // Quantity
+  doc.text(String(quantity), currentX, itemY)
+  currentX += colWidths[0]
+
+  // Plant type with variety - use Marathi text
+  const plantText = handleMarathiText(plantType)
+  doc.text(plantText, currentX, itemY)
+  if (plantVariety && plantVariety.trim() && plantVariety !== "N/A") {
+    doc.setFontSize(8)
+    const subtypeText = handleMarathiText(plantVariety)
+    doc.text(subtypeText, currentX, itemY + 4)
+    doc.setFontSize(9)
+  }
+  currentX += colWidths[1]
+
+  // Rate
+  doc.text(String(rate), currentX, itemY)
+  currentX += colWidths[2]
+
+  // Total
+  doc.text(String(total), currentX, itemY)
+
+  itemY += plantVariety && plantVariety.trim() && plantVariety !== "N/A" ? 10 : 6
+
+  // Total row
+  doc.setFont("helvetica", "bold")
+  doc.text(
+    handleMarathiText("जमा रक्कम", "Jama Rakkam"),
+    leftMargin + colWidths[0] + colWidths[1],
+    itemY + 3
+  )
+  doc.text(String(total), leftMargin + colWidths[0] + colWidths[1] + colWidths[2], itemY + 3)
+
+  // Draw table border
+  const tableHeight = itemY + 8 - headerY
+  doc.rect(leftMargin, headerY - 3, contentWidth, tableHeight)
+
+  // Draw column separators
+  currentX = leftMargin
+  for (let i = 0; i < colWidths.length - 1; i++) {
+    currentX += colWidths[i]
+    doc.line(currentX, headerY - 3, currentX, headerY + tableHeight - 3)
+  }
+
+  // Total amount section
+  const totalY = itemY + 15
+  doc.setFont("helvetica", "bold")
+  doc.setFontSize(11)
+  doc.text(`${handleMarathiText("एकूण", "Ekun")}:`, leftMargin, totalY)
+  doc.text(`${total} ${handleMarathiText("रुपये", "Rupaye")}`, leftMargin + 25, totalY)
+
+  // Payment summary
+  const paymentY = totalY + 10
+  doc.setFontSize(9)
+  doc.setFont("helvetica", "normal")
+
+  const paidAmount = parseInt(order["Paid Amt"] || "0")
+  const remainingAmount = parseInt(order["remaining Amt"] || "0")
+
+  doc.text(
+    `${handleMarathiText("पेमेंट", "Payment")}: ${paidAmount} ${handleMarathiText(
+      "रुपये",
+      "Rupaye"
+    )}`,
+    leftMargin,
+    paymentY
+  )
+  doc.text(
+    `${handleMarathiText("बाकी", "Baki")}: ${remainingAmount} ${handleMarathiText(
+      "रुपये",
+      "Rupaye"
+    )}`,
+    leftMargin + 60,
+    paymentY
+  )
+
+  // Signature section
+  const signatureY = paymentY + 15
+  doc.setFontSize(8)
+  doc.setFont("helvetica", "normal")
+
+  // Payment and owner signature lines
+  doc.text(
+    `${handleMarathiText("पेमेंट", "Payment")} ${handleMarathiText("किसी", "Kisi")}:`,
+    leftMargin,
+    signatureY
+  )
+  doc.line(leftMargin + 35, signatureY - 2, leftMargin + 75, signatureY - 2)
+
+  doc.text(
+    `${handleMarathiText("मालक", "Malak")} ${handleMarathiText("किसी", "Kisi")}:`,
+    leftMargin + 85,
+    signatureY
+  )
+  doc.line(leftMargin + 120, signatureY - 2, pageWidth - rightMargin, signatureY - 2)
+
+  // Customer details section
+  const customerDetailsY = signatureY + 8
+  doc.text(
+    `${handleMarathiText("ग्राहकाचे नाव", "Grahakache Naav")}:`,
+    leftMargin,
+    customerDetailsY
+  )
+  doc.line(leftMargin + 45, customerDetailsY - 2, pageWidth - rightMargin, customerDetailsY - 2)
+
+  doc.text(
+    `${handleMarathiText("पत्ता नंबर", "Patta Number")}: ${mobile}`,
+    leftMargin,
+    customerDetailsY + 6
+  )
+
+  return doc
+}
+
+// Generate Marathi Receipt using HTML to PDF approach
+const generateMarathiReceiptHTML = (order) => {
+  const orderDate = order.orderDate
+    ? new Date(order.orderDate).toLocaleDateString("en-IN")
+    : new Date().toLocaleDateString("en-IN")
+
+  const plantType = sanitizeMarathiText(order.plantType || "N/A")
+  const plantVariety = sanitizeMarathiText(order.plantVariety || "")
+  const quantity = parseInt(order.quantity) || 0
+  const rate = parseInt(order.rate) || 0
+  const total = parseInt(order.total) || 0
+  const paidAmount = parseInt(order["Paid Amt"] || "0")
+  const remainingAmount = parseInt(order["remaining Amt"] || "0")
+
+  const htmlContent = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Devanagari:wght@400;500;600;700&display=swap');
+        body {
+          font-family: 'Noto Sans Devanagari', Arial, sans-serif;
+          margin: 0;
+          padding: 20px;
+          background: white;
+          font-size: 14px;
+          line-height: 1.4;
+        }
+        .receipt {
+          max-width: 210mm;
+          margin: 0 auto;
+          background: white;
+          padding: 20px;
+          border: 2px solid #333;
+        }
+        .header {
+          text-align: center;
+          margin-bottom: 20px;
+          border-bottom: 2px solid #333;
+          padding-bottom: 10px;
+        }
+        .title {
+          font-size: 24px;
+          font-weight: bold;
+          margin-bottom: 5px;
+        }
+        .date {
+          font-size: 16px;
+        }
+        .customer-info {
+          margin-bottom: 20px;
+        }
+        .info-row {
+          margin-bottom: 8px;
+        }
+        .table {
+          width: 100%;
+          border-collapse: collapse;
+          margin-bottom: 20px;
+        }
+        .table th, .table td {
+          border: 1px solid #333;
+          padding: 8px;
+          text-align: left;
+        }
+        .table th {
+          background: #f0f0f0;
+          font-weight: bold;
+        }
+        .total-row {
+          font-weight: bold;
+          background: #f9f9f9;
+        }
+        .signature-section {
+          margin-top: 30px;
+        }
+        .signature-line {
+          border-bottom: 1px solid #333;
+          margin: 10px 0;
+          height: 20px;
+        }
+        .payment-info {
+          margin-top: 20px;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="receipt">
+        <div class="header">
+          <div class="title">रसीद</div>
+          <div class="date">दिनांक: ${orderDate}</div>
+        </div>
+        
+        <div class="customer-info">
+          <div class="info-row"><strong>क्र.</strong> ${order.order || "N/A"}</div>
+          <div class="info-row"><strong>श्री:</strong> ${order.farmerName || "N/A"}</div>
+          <div class="info-row">
+            <strong>गाव:</strong> ${order.details?.farmer?.village || "N/A"} 
+            <strong>तालुका:</strong> ${order.details?.farmer?.taluka || "N/A"}
+          </div>
+          <div class="info-row">
+            <strong>जिल्हा:</strong> ${order.details?.farmer?.district || "N/A"} 
+            <strong>मो नंबर:</strong> ${order.details?.farmer?.mobileNumber || "N/A"}
+          </div>
+        </div>
+        
+        <table class="table">
+          <thead>
+            <tr>
+              <th>रोप संख्या</th>
+              <th>प्रकार</th>
+              <th>दर</th>
+              <th>एकूण</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>${quantity}</td>
+              <td>${plantType}${plantVariety ? "<br>" + plantVariety : ""}</td>
+              <td>${rate}</td>
+              <td>${total}</td>
+            </tr>
+            <tr class="total-row">
+              <td colspan="3">जमा रक्कम</td>
+              <td>${total}</td>
+            </tr>
+          </tbody>
+        </table>
+        
+        <div class="payment-info">
+          <div class="info-row"><strong>एकूण:</strong> ${total} रुपये</div>
+          <div class="info-row"><strong>पेमेंट:</strong> ${paidAmount} रुपये</div>
+          <div class="info-row"><strong>बाकी:</strong> ${remainingAmount} रुपये</div>
+        </div>
+        
+        <div class="signature-section">
+          <div class="info-row">
+            <strong>पेमेंट किसी:</strong>
+            <div class="signature-line"></div>
+          </div>
+          <div class="info-row">
+            <strong>मालक किसी:</strong>
+            <div class="signature-line"></div>
+          </div>
+          <div class="info-row">
+            <strong>ग्राहकाचे नाव:</strong>
+            <div class="signature-line"></div>
+          </div>
+          <div class="info-row">
+            <strong>पत्ता नंबर:</strong> ${order.details?.farmer?.mobileNumber || "N/A"}
+          </div>
+        </div>
+      </div>
+    </body>
+    </html>
+  `
+
+  return htmlContent
+}
+
 const DownloadPDFButton = ({ order }) => {
   const handleClick = () => {
-    const doc = generateOrderPDF(order)
+    // Create a modal with options
+    const modal = document.createElement("div")
+    modal.style.position = "fixed"
+    modal.style.top = "0"
+    modal.style.left = "0"
+    modal.style.width = "100%"
+    modal.style.height = "100%"
+    modal.style.backgroundColor = "rgba(0,0,0,0.8)"
+    modal.style.zIndex = "9999"
+    modal.style.display = "flex"
+    modal.style.justifyContent = "center"
+    modal.style.alignItems = "center"
 
+    const modalContent = document.createElement("div")
+    modalContent.style.backgroundColor = "white"
+    modalContent.style.padding = "30px"
+    modalContent.style.borderRadius = "12px"
+    modalContent.style.boxShadow = "0 10px 30px rgba(0,0,0,0.3)"
+    modalContent.style.maxWidth = "400px"
+    modalContent.style.width = "90%"
+    modalContent.style.textAlign = "center"
+
+    modalContent.innerHTML = `
+      <h3 style="margin: 0 0 20px 0; font-size: 18px; font-weight: bold; color: #333;">Select Receipt Type</h3>
+      <div style="display: flex; flex-direction: column; gap: 12px;">
+        <button id="english-receipt" style="
+          padding: 12px 20px; 
+          background: linear-gradient(135deg, #3b82f6, #2563eb); 
+          color: white; 
+          border: none; 
+          border-radius: 8px; 
+          cursor: pointer; 
+          font-size: 14px; 
+          font-weight: 500;
+          transition: all 0.2s ease;
+        " onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
+          📄 English Receipt (A4)
+        </button>
+        <button id="marathi-html-receipt" style="
+          padding: 12px 20px; 
+          background: linear-gradient(135deg, #10b981, #059669); 
+          color: white; 
+          border: none; 
+          border-radius: 8px; 
+          cursor: pointer; 
+          font-size: 14px; 
+          font-weight: 500;
+          transition: all 0.2s ease;
+        " onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
+          📄 Marathi Receipt (A5) - True Marathi Text
+        </button>
+        <button id="close-modal" style="
+          padding: 10px 20px; 
+          background: #6b7280; 
+          color: white; 
+          border: none; 
+          border-radius: 8px; 
+          cursor: pointer; 
+          font-size: 14px; 
+          margin-top: 10px;
+        ">
+          Cancel
+        </button>
+      </div>
+    `
+
+    modal.appendChild(modalContent)
+    document.body.appendChild(modal)
+
+    // Event handlers
+    document.getElementById("english-receipt").onclick = () => {
+      document.body.removeChild(modal)
+      showPDFPreview(generateOrderPDF(order), "English")
+    }
+
+    document.getElementById("marathi-html-receipt").onclick = () => {
+      document.body.removeChild(modal)
+      showHTMLReceipt(generateMarathiReceiptHTML(order), "Marathi")
+    }
+
+    document.getElementById("close-modal").onclick = () => {
+      document.body.removeChild(modal)
+    }
+
+    // Close on outside click
+    modal.onclick = (e) => {
+      if (e.target === modal) {
+        document.body.removeChild(modal)
+      }
+    }
+  }
+
+  const showHTMLReceipt = (htmlContent, type) => {
+    // Create a new window for the HTML receipt
+    const newWindow = window.open("", "_blank", "width=800,height=600,scrollbars=yes,resizable=yes")
+    newWindow.document.write(htmlContent)
+    newWindow.document.close()
+
+    // Add print functionality
+    newWindow.onload = () => {
+      newWindow.focus()
+    }
+  }
+
+  const showPDFPreview = (doc, type) => {
     // Create an embedded object
     const embedElement = document.createElement("embed")
     embedElement.setAttribute("width", "100%")
@@ -321,7 +874,7 @@ const DownloadPDFButton = ({ order }) => {
       downloadButton.style.backgroundColor = "white"
     }
     downloadButton.onclick = () => {
-      const pdfName = `Plant_Order_Receipt_${new Date()
+      const pdfName = `${type}_Receipt_${order.order || "Order"}_${new Date()
         .toLocaleDateString()
         .replace(/\//g, "-")}.pdf`
       doc.save(pdfName)
@@ -358,12 +911,24 @@ const DownloadPDFButton = ({ order }) => {
   }
 
   return (
-    <button
-      onClick={handleClick}
-      className="text-gray-700 hover:text-gray-900 focus:outline-none inline-flex items-center gap-1 p-2 rounded-md hover:bg-gray-100 transition-colors">
-      <DownloadIcon size={16} />
-      <span className="text-sm font-medium">Receipt</span>
-    </button>
+    <div className="flex gap-1">
+      <button
+        onClick={handleClick}
+        className="text-gray-700 hover:text-gray-900 focus:outline-none inline-flex items-center gap-1 p-2 rounded-md hover:bg-gray-100 transition-colors">
+        <DownloadIcon size={16} />
+        <span className="text-sm font-medium">Receipt</span>
+      </button>
+      <button
+        onClick={() => {
+          const htmlContent = generateMarathiReceiptHTML(order)
+          showHTMLReceipt(htmlContent, "Marathi")
+        }}
+        className="text-green-700 hover:text-green-900 focus:outline-none inline-flex items-center gap-1 p-2 rounded-md hover:bg-green-100 transition-colors"
+        title="Download Marathi Receipt (A5) - HTML">
+        <DownloadIcon size={16} />
+        <span className="text-sm font-medium">मराठी</span>
+      </button>
+    </div>
   )
 }
 

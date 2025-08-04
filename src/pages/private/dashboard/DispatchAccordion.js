@@ -34,12 +34,17 @@ const DispatchAccordion = ({ dispatch, onRefresh }) => {
         limit: 1000
       })
 
-      if (response.data?.data) {
+      // Ensure we always set an array, even if the response is unexpected
+      if (response.data?.data && Array.isArray(response.data.data)) {
         setRelatedOrders(response.data.data)
+      } else {
+        console.warn("API returned non-array data for related orders:", response.data?.data)
+        setRelatedOrders([])
       }
     } catch (error) {
       console.error("Error fetching related orders:", error)
       Toast.error("Failed to load related orders")
+      setRelatedOrders([])
     } finally {
       setLoading(false)
     }
@@ -151,79 +156,88 @@ const DispatchAccordion = ({ dispatch, onRefresh }) => {
               <div>
                 <h4 className="font-medium text-gray-900 mb-3">Related Orders</h4>
                 <div className="grid gap-3">
-                  {relatedOrders.map((order) => (
-                    <div
-                      key={order._id}
-                      className="bg-white rounded-lg border border-gray-200 p-4 hover:shadow-sm transition-shadow">
-                      <div className="flex items-start justify-between mb-2">
-                        <div className="flex items-center gap-2">
-                          {getStatusIcon(order.orderStatus)}
-                          <span className="font-medium">Order #{order.orderId}</span>
-                          <span
-                            className={`px-2 py-1 rounded-full text-xs border ${getStatusColor(
-                              order.orderStatus
-                            )}`}>
-                            {order.orderStatus?.replace("_", " ")}
-                          </span>
-                        </div>
-                        <div className="text-right text-sm">
-                          <div className="font-semibold text-gray-900">
-                            ₹{order.total?.toLocaleString()}
+                  {Array.isArray(relatedOrders) && relatedOrders.length > 0 ? (
+                    relatedOrders.map((order) => (
+                      <div
+                        key={order._id}
+                        className="bg-white rounded-lg border border-gray-200 p-4 hover:shadow-sm transition-shadow">
+                        <div className="flex items-start justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            {getStatusIcon(order.orderStatus)}
+                            <span className="font-medium">Order #{order.orderId}</span>
+                            <span
+                              className={`px-2 py-1 rounded-full text-xs border ${getStatusColor(
+                                order.orderStatus
+                              )}`}>
+                              {order.orderStatus?.replace("_", " ")}
+                            </span>
                           </div>
-                          <div className="text-gray-500">
-                            {order.numberOfPlants?.toLocaleString()} plants
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                        <div>
-                          <span className="text-gray-500">Farmer:</span>
-                          <div className="font-medium">{order.farmer?.name}</div>
-                        </div>
-                        <div>
-                          <span className="text-gray-500">Village:</span>
-                          <div className="font-medium">{order.farmer?.village}</div>
-                        </div>
-                        <div>
-                          <span className="text-gray-500">Plant:</span>
-                          <div className="font-medium">{order.plantDetails?.name}</div>
-                        </div>
-                        <div>
-                          <span className="text-gray-500">Delivery:</span>
-                          <div className="font-medium">
-                            {order.bookingSlot?.startDay && order.bookingSlot?.endDay
-                              ? `${order.bookingSlot.startDay} - ${order.bookingSlot.endDay}`
-                              : order.bookingSlot?.month || "Not specified"}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Payment Summary */}
-                      <div className="mt-3 pt-3 border-t border-gray-100">
-                        <div className="grid grid-cols-3 gap-4 text-sm">
-                          <div>
-                            <span className="text-gray-500">Paid:</span>
-                            <div className="font-medium text-green-600">
-                              ₹{order.PaidAmt?.toLocaleString() || 0}
+                          <div className="text-right text-sm">
+                            <div className="font-semibold text-gray-900">
+                              ₹{order.total?.toLocaleString()}
+                            </div>
+                            <div className="text-gray-500">
+                              {order.numberOfPlants?.toLocaleString()} plants
                             </div>
                           </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                           <div>
-                            <span className="text-gray-500">Remaining:</span>
-                            <div className="font-medium text-red-600">
-                              ₹{order.remainingAmt?.toLocaleString() || 0}
-                            </div>
+                            <span className="text-gray-500">Farmer:</span>
+                            <div className="font-medium">{order.farmer?.name}</div>
                           </div>
                           <div>
-                            <span className="text-gray-500">Status:</span>
+                            <span className="text-gray-500">Village:</span>
+                            <div className="font-medium">{order.farmer?.village}</div>
+                          </div>
+                          <div>
+                            <span className="text-gray-500">Plant:</span>
+                            <div className="font-medium">{order.plantDetails?.name}</div>
+                          </div>
+                          <div>
+                            <span className="text-gray-500">Delivery:</span>
                             <div className="font-medium">
-                              {order.paymentCompleted ? "Completed" : "Pending"}
+                              {order.bookingSlot?.startDay && order.bookingSlot?.endDay
+                                ? `${order.bookingSlot.startDay} - ${order.bookingSlot.endDay}`
+                                : order.bookingSlot?.month || "Not specified"}
                             </div>
                           </div>
                         </div>
+
+                        {/* Payment Summary */}
+                        <div className="mt-3 pt-3 border-t border-gray-100">
+                          <div className="grid grid-cols-3 gap-4 text-sm">
+                            <div>
+                              <span className="text-gray-500">Paid:</span>
+                              <div className="font-medium text-green-600">
+                                ₹{order.PaidAmt?.toLocaleString() || 0}
+                              </div>
+                            </div>
+                            <div>
+                              <span className="text-gray-500">Remaining:</span>
+                              <div className="font-medium text-red-600">
+                                ₹{order.remainingAmt?.toLocaleString() || 0}
+                              </div>
+                            </div>
+                            <div>
+                              <span className="text-gray-500">Status:</span>
+                              <div className="font-medium">
+                                {order.paymentCompleted ? "Completed" : "Pending"}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="bg-white rounded-lg border border-gray-200 p-8 text-center">
+                      <div className="text-gray-500 mb-2">No related orders found</div>
+                      <div className="text-sm text-gray-400">
+                        This dispatch has no associated orders
                       </div>
                     </div>
-                  ))}
+                  )}
                 </div>
               </div>
 

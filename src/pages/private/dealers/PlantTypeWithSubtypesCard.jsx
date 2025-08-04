@@ -20,7 +20,9 @@ import {
 import { WalletUtilization } from "./DelaerDetails"
 const PlantTypeWithSubtypesCard = ({ plantType, subtypes }) => {
   const [expanded, setExpanded] = useState(false)
-  const filteredSubtypes = subtypes.filter((st) => st.plantTypeId === plantType.plantTypeId)
+  // Defensive: default subtypes to [] if undefined
+  // Since subtypes are now passed directly for this plant type, no filtering needed
+  const filteredSubtypes = subtypes || []
 
   // Helper function to get a color based on plant name
   const getPlantColor = (plantName) => {
@@ -59,15 +61,29 @@ const PlantTypeWithSubtypesCard = ({ plantType, subtypes }) => {
           <Typography variant="h6" noWrap sx={{ maxWidth: "70%" }}>
             {plantType.plantTypeName}
           </Typography>
-          <Tooltip title={expanded ? "Hide subtypes" : "Show subtypes"}>
-            <IconButton size="small" sx={{ ml: "auto" }} onClick={() => setExpanded(!expanded)}>
-              {expanded ? (
-                <ArrowDropUpIcon fontSize="small" />
-              ) : (
-                <ArrowDropDownIcon fontSize="small" />
-              )}
-            </IconButton>
-          </Tooltip>
+          {filteredSubtypes.length > 0 && (
+            <Tooltip title={expanded ? "Hide subtypes" : "Show subtypes"}>
+              <IconButton
+                size="small"
+                sx={{
+                  ml: "auto",
+                  color: "primary.main",
+                  border: "1px solid",
+                  borderColor: "primary.main",
+                  "&:hover": {
+                    backgroundColor: "primary.light",
+                    color: "primary.contrastText"
+                  }
+                }}
+                onClick={() => setExpanded(!expanded)}>
+                {expanded ? (
+                  <ArrowDropUpIcon fontSize="small" />
+                ) : (
+                  <ArrowDropDownIcon fontSize="small" />
+                )}
+              </IconButton>
+            </Tooltip>
+          )}
         </Box>
 
         <Typography variant="h3" component="div" sx={{ mt: 2, fontWeight: "bold" }}>
@@ -91,6 +107,14 @@ const PlantTypeWithSubtypesCard = ({ plantType, subtypes }) => {
             color="success"
             variant="outlined"
           />
+          {filteredSubtypes.length > 0 && (
+            <Chip
+              label={`${filteredSubtypes.length} Subtype${filteredSubtypes.length > 1 ? "s" : ""}`}
+              size="small"
+              color="info"
+              variant="outlined"
+            />
+          )}
         </Box>
 
         {expanded && filteredSubtypes.length > 0 && (

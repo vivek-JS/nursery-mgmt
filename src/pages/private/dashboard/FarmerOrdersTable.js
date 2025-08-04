@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from "react"
-import { Edit2Icon, CheckIcon, XIcon, RefreshCw } from "lucide-react"
+import React, { useState, useEffect, useRef } from "react"
+import { Edit2Icon, CheckIcon, XIcon, RefreshCw, Search, ChevronDown, X } from "lucide-react"
 import DatePicker from "react-datepicker"
 import "react-datepicker/dist/react-datepicker.css"
 import { API, NetworkManager } from "network/core"
@@ -20,8 +20,510 @@ import {
   useIsOfficeAdmin,
   useIsDealer,
   useDealerWallet,
-  useDealerWalletById
+  useDealerWalletById,
+  useUserData
 } from "utils/roleUtils"
+
+// Custom CSS for blinking animation and enhanced dropdowns
+const customStyles = `
+  @keyframes paymentBlink {
+    0%, 50% {
+      background-color: #fef3c7;
+      border-color: #f59e0b;
+      box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4);
+    }
+    25%, 75% {
+      background-color: #fefce8;
+      border-color: #fbbf24;
+      box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.2);
+    }
+    100% {
+      background-color: #fef3c7;
+      border-color: #f59e0b;
+      box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4);
+    }
+  }
+  
+  @keyframes paymentGlow {
+    0%, 100% {
+      box-shadow: 0 0 5px rgba(245, 158, 11, 0.3);
+    }
+    50% {
+      box-shadow: 0 0 15px rgba(245, 158, 11, 0.6), 0 0 25px rgba(245, 158, 11, 0.3);
+    }
+  }
+  
+  .payment-blink {
+    animation: paymentBlink 2s ease-in-out infinite, paymentGlow 1.5s ease-in-out infinite;
+  }
+
+  /* Enhanced Dropdown Styles */
+  .enhanced-select {
+    background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+    border: 2px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 8px 12px;
+    font-size: 14px;
+    font-weight: 500;
+    color: #374151;
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    cursor: pointer;
+    outline: none;
+  }
+
+  .enhanced-select:hover {
+    border-color: #3b82f6;
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
+    transform: translateY(-1px);
+  }
+
+  .enhanced-select:focus {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  }
+
+  .enhanced-select option {
+    padding: 8px 12px;
+    background: white;
+    color: #374151;
+    font-weight: 500;
+  }
+
+  .enhanced-select option:hover {
+    background: #f3f4f6;
+  }
+
+  /* Material-UI Select Enhancement */
+  .mui-select-enhanced .MuiOutlinedInput-root {
+    border-radius: 12px;
+    background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+    transition: all 0.3s ease;
+  }
+
+  .mui-select-enhanced .MuiOutlinedInput-root:hover {
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
+    transform: translateY(-1px);
+  }
+
+  .mui-select-enhanced .MuiOutlinedInput-root.Mui-focused {
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  }
+
+  .mui-select-enhanced .MuiSelect-select {
+    padding: 12px 16px;
+    font-weight: 500;
+    color: #374151;
+  }
+
+  .mui-select-enhanced .MuiMenuItem-root {
+    padding: 12px 16px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+  }
+
+  .mui-select-enhanced .MuiMenuItem-root:hover {
+    background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
+  }
+
+  .mui-select-enhanced .MuiMenuItem-root.Mui-selected {
+    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+    color: white;
+  }
+
+  /* Status Badge Enhancement */
+  .status-badge-enhanced {
+    background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+    border: 2px solid #e2e8f0;
+    border-radius: 20px;
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #374151;
+    transition: all 0.3s ease;
+    cursor: pointer;
+    outline: none;
+    min-width: 120px;
+    text-align: center;
+  }
+
+  .status-badge-enhanced:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  }
+
+  .status-badge-enhanced:focus {
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  }
+
+  /* Status-specific colors */
+  .status-accepted {
+    background: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%);
+    border-color: #22c55e;
+    color: #166534;
+  }
+
+  .status-pending {
+    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+    border-color: #f59e0b;
+    color: #92400e;
+  }
+
+  .status-rejected {
+    background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
+    border-color: #ef4444;
+    color: #991b1b;
+  }
+
+  .status-dispatched {
+    background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+    border-color: #3b82f6;
+    color: #1e40af;
+  }
+
+  .status-completed {
+    background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
+    border-color: #6b7280;
+    color: #374151;
+  }
+
+  .status-farm-ready {
+    background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+    border-color: #10b981;
+    color: #065f46;
+  }
+
+  .status-dispatch-process {
+    background: linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%);
+    border-color: #06b6d4;
+    color: #0e7490;
+  }
+
+  /* Searchable Dropdown Styles */
+  .searchable-dropdown {
+    position: relative;
+    width: 100%;
+  }
+
+  .searchable-dropdown-button {
+    background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+    border: 2px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 12px 16px;
+    font-size: 14px;
+    font-weight: 500;
+    color: #374151;
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    cursor: pointer;
+    outline: none;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 48px;
+  }
+
+  .searchable-dropdown-button:hover {
+    border-color: #3b82f6;
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
+    transform: translateY(-1px);
+  }
+
+  .searchable-dropdown-button:focus {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  }
+
+  .searchable-dropdown-menu {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: white;
+    border: 2px solid #e2e8f0;
+    border-radius: 12px;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+    z-index: 1000;
+    max-height: 600px;
+    overflow-y: auto;
+    margin-top: 4px;
+    opacity: 1;
+    transform: translateY(0);
+    transition: all 0.2s ease-in-out;
+  }
+
+  .searchable-dropdown-menu.closing {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+
+  .searchable-dropdown-search {
+    padding: 12px 16px;
+    border-bottom: 1px solid #e5e7eb;
+    position: sticky;
+    top: 0;
+    background: white;
+    border-radius: 12px 12px 0 0;
+  }
+
+  .searchable-dropdown-search input {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    font-size: 14px;
+    outline: none;
+    transition: all 0.2s ease;
+  }
+
+  .searchable-dropdown-search input:focus {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  }
+
+  .searchable-dropdown-options {
+    max-height: 500px;
+    overflow-y: auto;
+  }
+
+  .searchable-dropdown-option {
+    padding: 12px 16px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border-bottom: 1px solid #f3f4f6;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .searchable-dropdown-option:hover {
+    background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
+  }
+
+  .searchable-dropdown-option.selected {
+    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+    color: white;
+  }
+
+  .searchable-dropdown-option:last-child {
+    border-bottom: none;
+  }
+
+  .searchable-dropdown-empty {
+    padding: 16px;
+    text-align: center;
+    color: #6b7280;
+    font-style: italic;
+  }
+
+  .searchable-dropdown-clear {
+    position: absolute;
+    right: 40px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: #ef4444;
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 0.2s ease;
+  }
+
+  .searchable-dropdown-clear:hover {
+    background: #dc2626;
+    transform: translateY(-50%) scale(1.1);
+  }
+
+  .searchable-dropdown-count {
+    background: #3b82f6;
+    color: white;
+    border-radius: 12px;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 600;
+    margin-left: 8px;
+  }
+
+  /* Compact status dropdown */
+  .searchable-dropdown.status-dropdown {
+    min-width: 120px;
+  }
+
+  .searchable-dropdown.status-dropdown .searchable-dropdown-button {
+    padding: 6px 12px;
+    min-height: 32px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .searchable-dropdown.status-dropdown .searchable-dropdown-menu {
+    min-width: 150px;
+  }
+`
+
+// SearchableDropdown Component
+const SearchableDropdown = ({
+  label,
+  value,
+  onChange,
+  options,
+  placeholder = "Select an option",
+  showCount = false,
+  maxHeight = "500px",
+  isStatusDropdown = false
+}) => {
+  const [isOpen, setIsOpen] = useState(false)
+  const [isClosing, setIsClosing] = useState(false)
+  const [searchTerm, setSearchTerm] = useState("")
+  const dropdownRef = useRef(null)
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        handleClose()
+      }
+    }
+
+    document.addEventListener("mousedown", handleClickOutside)
+    return () => document.removeEventListener("mousedown", handleClickOutside)
+  }, [])
+
+  const handleClose = () => {
+    setIsClosing(true)
+    setTimeout(() => {
+      setIsOpen(false)
+      setIsClosing(false)
+      setSearchTerm("")
+    }, 200)
+  }
+
+  // Filter options based on search term
+  const filteredOptions = options.filter((option) =>
+    option.label.toLowerCase().includes(searchTerm.toLowerCase())
+  )
+
+  // Get selected option label
+  const selectedOption = options.find((option) => option.value === value)
+  const displayValue = selectedOption ? selectedOption.label : placeholder
+
+  const handleOptionClick = (option) => {
+    onChange(option.value)
+    handleClose()
+  }
+
+  const handleClear = (e) => {
+    e.stopPropagation()
+    onChange("")
+    handleClose()
+  }
+
+  return (
+    <div
+      className={`searchable-dropdown ${isStatusDropdown ? "status-dropdown" : ""}`}
+      ref={dropdownRef}>
+      {label && (
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          {label}
+          {showCount && <span className="searchable-dropdown-count ml-2">{options.length}</span>}
+        </label>
+      )}
+
+      <button
+        type="button"
+        className={`searchable-dropdown-button ${
+          isStatusDropdown
+            ? `status-badge-enhanced status-${value?.toLowerCase().replace("_", "-")}`
+            : ""
+        }`}
+        onClick={(e) => {
+          e.preventDefault()
+          e.stopPropagation()
+          if (!isOpen) {
+            // Small delay when opening to prevent immediate closing
+            setTimeout(() => {
+              setIsOpen(true)
+            }, 50)
+          } else {
+            handleClose()
+          }
+        }}
+        onFocus={() => {
+          if (!isOpen) {
+            setTimeout(() => {
+              setIsOpen(true)
+            }, 50)
+          }
+        }}>
+        <span className="truncate">{displayValue}</span>
+        <div className="flex items-center gap-2">
+          {value && !isStatusDropdown && (
+            <button
+              type="button"
+              className="searchable-dropdown-clear"
+              onClick={handleClear}
+              title="Clear selection">
+              <X size={12} />
+            </button>
+          )}
+          <ChevronDown
+            size={16}
+            className={`transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`}
+          />
+        </div>
+      </button>
+
+      {isOpen && (
+        <div className={`searchable-dropdown-menu ${isClosing ? "closing" : ""}`}>
+          <div className="searchable-dropdown-search">
+            <div className="relative">
+              <Search
+                size={16}
+                className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"
+              />
+              <input
+                type="text"
+                placeholder="Search..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-10 pr-4"
+                autoFocus
+                onFocus={(e) => e.target.select()}
+              />
+            </div>
+          </div>
+
+          <div className="searchable-dropdown-options" style={{ maxHeight }}>
+            {filteredOptions.length === 0 ? (
+              <div className="searchable-dropdown-empty">
+                {searchTerm ? "No results found" : "No options available"}
+              </div>
+            ) : (
+              filteredOptions.map((option) => (
+                <div
+                  key={option.value}
+                  className={`searchable-dropdown-option ${
+                    option.value === value ? "selected" : ""
+                  }`}
+                  onClick={() => handleOptionClick(option)}>
+                  <span className="truncate">{option.label}</span>
+                  {option.value === value && <CheckIcon size={16} />}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   const today = new Date()
@@ -29,7 +531,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   const [expandedRows, setExpandedRows] = useState(new Set())
   const [editingRows, setEditingRows] = useState(new Set())
   const [selectedDateRange, setSelectedDateRange] = useState([
-    new Date(today.getFullYear(), 0, 1),
+    new Date(today.getTime() - 2 * 24 * 60 * 60 * 1000), // 2 days ago
     today
   ])
   const [loading, setLoading] = useState(false)
@@ -40,11 +542,23 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   const [refresh, setRefresh] = useState(false)
   const [selectedRow, setSelectedRow] = useState(null)
 
+  // Inject custom CSS for blinking animation and enhanced dropdowns
+  useEffect(() => {
+    const styleElement = document.createElement("style")
+    styleElement.textContent = customStyles
+    document.head.appendChild(styleElement)
+
+    return () => {
+      document.head.removeChild(styleElement)
+    }
+  }, [])
+
   // Role-based access control
   const canAddPayment = useCanAddPayment() // Anyone can add payments
   const isOfficeAdmin = useIsOfficeAdmin()
   const isDealer = useIsDealer()
   const { walletData, loading: walletLoading } = useDealerWallet()
+  const user = useUserData() // Get current user data
 
   // State to track dealer ID for wallet data
   const [dealerIdForWallet, setDealerIdForWallet] = useState(null)
@@ -110,7 +624,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
     bankName: "",
     remark: "",
     receiptPhoto: [],
-    paymentStatus: "PENDING", // Always PENDING for new payments
+    paymentStatus: "PENDING", // Default to PENDING, will be updated based on payment type
     isWalletPayment: false
   })
   const [isOrderModalOpen, setIsOrderModalOpen] = useState(false)
@@ -191,35 +705,79 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
       }
     }
 
+    // Validate dealer wallet payment for any user when dealer is present in order
+    if (selectedOrder?.details?.salesPerson?.jobTitle === "DEALER" && newPayment.isWalletPayment) {
+      const availableAmount = dealerWalletData?.financial?.availableAmount || 0
+      const paymentAmount = Number(newPayment.paidAmount)
+
+      if (paymentAmount > availableAmount) {
+        Toast.error(
+          `Insufficient dealer wallet balance. Available: ₹${availableAmount.toLocaleString()}`
+        )
+        return
+      }
+    }
+
+    // Process dealer wallet payment if applicable
+    if (
+      selectedOrder?.details?.salesPerson?.jobTitle === "DEALER" &&
+      newPayment.isWalletPayment &&
+      dealerWalletData
+    ) {
+      console.log("Processing dealer wallet payment")
+      const paymentAmount = Number(newPayment.paidAmount)
+      const isValid = await processDealerWalletPayment(orderId, paymentAmount)
+
+      if (!isValid) {
+        return
+      }
+    }
+
     setLoading(true)
     try {
       const instance = NetworkManager(API.ORDER.ADD_PAYMENT)
 
-      // Always set payment status to PENDING for new payments
+      // Ensure isWalletPayment is a boolean and construct payload explicitly
+      const isWalletPayment = Boolean(newPayment.isWalletPayment)
+
+      // Set payment status - use the status from newPayment, default to PENDING
+      const paymentStatus = newPayment.paymentStatus || "PENDING"
+
       const payload = {
-        ...newPayment,
-        paymentStatus: "PENDING"
+        paidAmount: newPayment.paidAmount,
+        paymentDate: newPayment.paymentDate,
+        modeOfPayment: newPayment.modeOfPayment,
+        bankName: newPayment.bankName,
+        remark: newPayment.remark,
+        receiptPhoto: newPayment.receiptPhoto || [],
+        isWalletPayment: isWalletPayment,
+        paymentStatus: paymentStatus
       }
+
+      console.log("Payment payload:", payload)
+      console.log("isWalletPayment value:", isWalletPayment)
+      console.log("newPayment.isWalletPayment:", newPayment.isWalletPayment)
 
       const response = await instance.request(payload, [orderId])
 
       if (response?.data) {
+        // Log dealer wallet payment processing
+        if (
+          selectedOrder?.details?.salesPerson?.jobTitle === "DEALER" &&
+          newPayment.isWalletPayment
+        ) {
+          console.log("Dealer wallet payment processed successfully")
+          console.log("Payment response:", response?.data)
+        }
         Toast.success(response?.data?.message || "Payment added successfully")
         setShowPaymentForm(false)
-        setNewPayment({
-          paidAmount: "",
-          paymentDate: moment().format("YYYY-MM-DD"),
-          modeOfPayment: "",
-          bankName: "",
-          remark: "",
-          receiptPhoto: [],
-          paymentStatus: "PENDING", // Always PENDING for new payments
-          isWalletPayment: false
-        })
+        resetPaymentForm(false)
 
         // Refresh wallet data if it was a wallet payment
         if (newPayment.isWalletPayment) {
-          await refetchDealerWallet()
+          if (selectedOrder?.details?.salesPerson?.jobTitle === "DEALER") {
+            await refetchDealerWallet()
+          }
         }
 
         // Set pending update and force refresh
@@ -409,10 +967,140 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   }
 
   const handlePaymentInputChange = (field, value) => {
-    setNewPayment((prev) => ({
-      ...prev,
-      [field]: value
-    }))
+    setNewPayment((prev) => {
+      const updatedPayment = {
+        ...prev,
+        [field]: value
+      }
+
+      // Update payment status when wallet payment is toggled
+      if (field === "isWalletPayment") {
+        // Ensure value is a boolean
+        const isWalletPayment = Boolean(value)
+        updatedPayment.isWalletPayment = isWalletPayment
+        // Keep payment status as PENDING by default - only COLLECTED payments impact wallet
+        updatedPayment.paymentStatus = "PENDING"
+        console.log(
+          "Wallet payment toggled:",
+          value,
+          "Boolean value:",
+          isWalletPayment,
+          "Payment status set to:",
+          updatedPayment.paymentStatus
+        )
+      }
+
+      return updatedPayment
+    })
+  }
+
+  // Function to get dealer wallet balance for payment validation
+  const getDealerWalletBalance = () => {
+    if (selectedOrder?.details?.salesPerson?.jobTitle === "DEALER") {
+      return dealerWalletData?.financial?.availableAmount || 0
+    }
+    return walletData?.financial?.availableAmount || 0
+  }
+
+  // Function to check if dealer wallet payment is available
+  const isDealerWalletPaymentAvailable = () => {
+    return selectedOrder?.details?.salesPerson?.jobTitle === "DEALER" && dealerWalletData
+  }
+
+  // Function to process dealer wallet payment
+  const processDealerWalletPayment = async (orderId, paymentAmount) => {
+    try {
+      console.log("=== processDealerWalletPayment DEBUG ===")
+      console.log("Processing dealer wallet payment for order:", orderId)
+      console.log("Payment amount:", paymentAmount)
+      console.log("Dealer wallet data:", dealerWalletData)
+
+      if (!dealerWalletData?.financial) {
+        console.error("No dealer wallet data available")
+        return false
+      }
+
+      const availableAmount = dealerWalletData.financial.availableAmount || 0
+
+      if (paymentAmount > availableAmount) {
+        console.error("Insufficient dealer wallet balance")
+        Toast.error(
+          `Insufficient dealer wallet balance. Available: ₹${availableAmount.toLocaleString()}`
+        )
+        return false
+      }
+
+      console.log("Dealer wallet payment validation passed")
+      return true
+    } catch (error) {
+      console.error("Error processing dealer wallet payment:", error)
+      return false
+    }
+  }
+
+  // Function to get payment status display text
+  const getPaymentStatusDisplay = () => {
+    const isWalletPayment = Boolean(newPayment.isWalletPayment)
+    const paymentStatus = newPayment.paymentStatus || "PENDING"
+
+    console.log("getPaymentStatusDisplay - newPayment.isWalletPayment:", newPayment.isWalletPayment)
+    console.log("getPaymentStatusDisplay - isWalletPayment:", isWalletPayment)
+    console.log("getPaymentStatusDisplay - paymentStatus:", paymentStatus)
+
+    if (paymentStatus === "COLLECTED") {
+      return {
+        status: "COLLECTED",
+        color: "text-green-700",
+        bgColor: "bg-green-100",
+        borderColor: "border-green-200",
+        message: isWalletPayment ? "Wallet Payment (Collected)" : "Payment Collected"
+      }
+    } else {
+      return {
+        status: "PENDING",
+        color: "text-gray-600",
+        bgColor: "bg-gray-100",
+        borderColor: "border-gray-200",
+        message: isWalletPayment
+          ? "Wallet Payment (Pending)"
+          : "Contact Accountant to change status"
+      }
+    }
+  }
+
+  // Function to reset payment form with correct status
+  const resetPaymentForm = (isWalletPayment = false) => {
+    // Always default to PENDING - only COLLECTED payments impact wallet
+    const paymentStatus = "PENDING"
+
+    console.log("Resetting payment form:")
+    console.log("isWalletPayment parameter:", isWalletPayment)
+    console.log("paymentStatus:", paymentStatus)
+
+    setNewPayment({
+      paidAmount: "",
+      paymentDate: moment().format("YYYY-MM-DD"),
+      modeOfPayment: "",
+      bankName: "",
+      remark: "",
+      receiptPhoto: [],
+      paymentStatus: paymentStatus,
+      isWalletPayment: Boolean(isWalletPayment)
+    })
+  }
+
+  // Function to initialize payment form when opened
+  const initializePaymentForm = () => {
+    // Check if dealer is present and set wallet payment by default
+    const isDealerPresent = selectedOrder?.details?.salesPerson?.jobTitle === "DEALER"
+    const shouldUseWalletPayment = isDealerPresent && dealerWalletData
+
+    console.log("Initializing payment form:")
+    console.log("isDealerPresent:", isDealerPresent)
+    console.log("dealerWalletData:", dealerWalletData)
+    console.log("shouldUseWalletPayment:", shouldUseWalletPayment)
+
+    resetPaymentForm(shouldUseWalletPayment)
   }
 
   const refreshModalData = async () => {
@@ -493,11 +1181,21 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
     const salesPerson = selectedOrder?.details?.salesPerson
 
     if (salesPerson?.jobTitle === "DEALER" && salesPerson?._id) {
+      console.log("Setting dealer ID for wallet:", salesPerson._id)
       setDealerIdForWallet(salesPerson._id)
     } else {
+      console.log("Clearing dealer ID for wallet")
       setDealerIdForWallet(null)
     }
   }, [selectedOrder])
+
+  // Load dealer wallet data when dealer ID changes
+  useEffect(() => {
+    if (dealerIdForWallet) {
+      console.log("Loading dealer wallet for dealer ID:", dealerIdForWallet)
+      refetchDealerWallet()
+    }
+  }, [dealerIdForWallet, refetchDealerWallet])
 
   // Effect to update modal when orders change and we have a pending update
   useEffect(() => {
@@ -1194,7 +1892,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                     placeholder="Search orders..."
                     value={searchTerm}
                     onChange={(e) => handleSearchChange(e.target.value)}
-                    className="w-full p-3 border rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full p-3 enhanced-select"
                   />
                 </div>
               </div>
@@ -1223,68 +1921,45 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
         {/* Filter Dropdowns */}
         <div className="bg-white rounded-lg shadow-sm border p-4">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Filters</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {/* Sales Person/Dealer Filter */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Sales Person / Dealer
-              </label>
-              <Select
-                value={selectedSalesPerson}
-                onChange={(e) => setSelectedSalesPerson(e.target.value)}
-                displayEmpty
-                className="w-full"
-                size="small">
-                <MenuItem value="">
-                  <em>All Sales People & Dealers</em>
-                </MenuItem>
-                {(salesPeople || []).map((person) => (
-                  <MenuItem key={person.value} value={person.value}>
-                    {person.label}
-                  </MenuItem>
-                ))}
-              </Select>
-            </div>
+            <SearchableDropdown
+              label="Sales Person / Dealer"
+              value={selectedSalesPerson}
+              onChange={setSelectedSalesPerson}
+              options={[{ label: "All Sales People & Dealers", value: "" }, ...(salesPeople || [])]}
+              placeholder="Select Sales Person / Dealer"
+              showCount={true}
+              maxHeight="500px"
+            />
 
             {/* Village Filter */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Village</label>
-              <Select
-                value={selectedVillage}
-                onChange={(e) => setSelectedVillage(e.target.value)}
-                displayEmpty
-                className="w-full"
-                size="small">
-                <MenuItem value="">
-                  <em>All Villages</em>
-                </MenuItem>
-                {(villages || []).map((village) => (
-                  <MenuItem key={village} value={village}>
-                    {village}
-                  </MenuItem>
-                ))}
-              </Select>
-            </div>
+            <SearchableDropdown
+              label="Village"
+              value={selectedVillage}
+              onChange={setSelectedVillage}
+              options={[
+                { label: "All Villages", value: "" },
+                ...(villages || []).map((village) => ({ label: village, value: village }))
+              ]}
+              placeholder="Select Village"
+              showCount={true}
+              maxHeight="500px"
+            />
 
             {/* District Filter */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">District</label>
-              <Select
-                value={selectedDistrict}
-                onChange={(e) => setSelectedDistrict(e.target.value)}
-                displayEmpty
-                className="w-full"
-                size="small">
-                <MenuItem value="">
-                  <em>All Districts</em>
-                </MenuItem>
-                {(districts || []).map((district) => (
-                  <MenuItem key={district} value={district}>
-                    {district}
-                  </MenuItem>
-                ))}
-              </Select>
-            </div>
+            <SearchableDropdown
+              label="District"
+              value={selectedDistrict}
+              onChange={setSelectedDistrict}
+              options={[
+                { label: "All Districts", value: "" },
+                ...(districts || []).map((district) => ({ label: district, value: district }))
+              ]}
+              placeholder="Select District"
+              showCount={true}
+              maxHeight="500px"
+            />
           </div>
 
           {/* Clear Filters and Export Buttons */}
@@ -1310,79 +1985,86 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                 setSelectedDistrict("")
                 setSelectedDateRange([null, null])
               }}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 border border-gray-300 rounded-lg hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500">
+              className="px-4 py-2 text-sm font-medium text-gray-700 enhanced-select hover:bg-gray-50 focus:outline-none">
               Clear Filters
             </button>
           </div>
         </div>
 
         {/* Status Tabs */}
-        <div className="bg-white rounded-lg shadow-sm border p-2">
-          <div className="flex flex-wrap gap-2">
+        <div className="bg-white rounded-lg shadow-sm border p-4">
+          <div className="flex flex-wrap gap-3">
             {(statusTabs || []).map((tab) => (
               <button
                 key={tab.key}
                 onClick={() => handleStatusTabChange(tab.key)}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all duration-300 transform hover:scale-105 ${
                   activeStatusTab === tab.key
-                    ? "bg-blue-600 text-white shadow-md"
-                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                    ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg"
+                    : "bg-gradient-to-r from-gray-50 to-gray-100 text-gray-700 hover:from-gray-100 hover:to-gray-200 border border-gray-200"
                 }`}>
-                {tab.label}
-                <span className="ml-2 bg-white bg-opacity-20 px-2 py-1 rounded-full text-xs">
-                  {getOrdersCountByStatus(tab.status)}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span>{tab.label}</span>
+                  <span
+                    className={`px-3 py-1 rounded-full text-xs font-bold ${
+                      activeStatusTab === tab.key
+                        ? "bg-white bg-opacity-30 text-white"
+                        : "bg-blue-100 text-blue-700"
+                    }`}>
+                    {getOrdersCountByStatus(tab.status)}
+                  </span>
+                </div>
               </button>
             ))}
           </div>
         </div>
 
         {/* View mode toggle buttons */}
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-3">
           <button
             onClick={() => setViewMode("booking")}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+            className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all duration-300 transform hover:scale-105 ${
               viewMode === "booking"
-                ? "bg-blue-600 text-white"
-                : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg"
+                : "bg-gradient-to-r from-gray-50 to-gray-100 text-gray-700 hover:from-gray-100 hover:to-gray-200 border border-gray-200"
             }`}>
-            Booking Orders
+            📋 Booking Orders
           </button>
           <button
             onClick={() => setViewMode("dispatched")}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+            className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all duration-300 transform hover:scale-105 ${
               viewMode === "dispatched"
-                ? "bg-blue-600 text-white"
-                : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg"
+                : "bg-gradient-to-r from-gray-50 to-gray-100 text-gray-700 hover:from-gray-100 hover:to-gray-200 border border-gray-200"
             }`}>
-            Dispatched Orders
+            🚚 Dispatched Orders
           </button>
           <button
             onClick={() => setViewMode("farmready")}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+            className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all duration-300 transform hover:scale-105 ${
               viewMode === "farmready"
-                ? "bg-blue-600 text-white"
-                : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg"
+                : "bg-gradient-to-r from-gray-50 to-gray-100 text-gray-700 hover:from-gray-100 hover:to-gray-200 border border-gray-200"
             }`}>
-            Farm Ready
+            🌱 Farm Ready
           </button>
           <button
             onClick={() => setViewMode("ready_for_dispatch")}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+            className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all duration-300 transform hover:scale-105 ${
               viewMode === "ready_for_dispatch"
-                ? "bg-blue-600 text-white"
-                : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg"
+                : "bg-gradient-to-r from-gray-50 to-gray-100 text-gray-700 hover:from-gray-100 hover:to-gray-200 border border-gray-200"
             }`}>
-            Ready for Dispatch
+            ✅ Ready for Dispatch
           </button>
           <button
             onClick={() => setViewMode("dispatch_process")}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+            className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all duration-300 transform hover:scale-105 ${
               viewMode === "dispatch_process"
-                ? "bg-blue-600 text-white"
-                : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg"
+                : "bg-gradient-to-r from-gray-50 to-gray-100 text-gray-700 hover:from-gray-100 hover:to-gray-200 border border-gray-200"
             }`}>
-            Loading
+            ⏳ Loading
           </button>
         </div>
       </div>
@@ -1398,7 +2080,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
               key={index}
               className={`bg-white rounded-lg shadow-sm border hover:shadow-md transition-all duration-200 cursor-pointer ${
                 row?.details?.payment.some((payment) => payment.paymentStatus === "PENDING")
-                  ? "animate-pulse border-amber-200"
+                  ? "payment-blink"
                   : ""
               } ${row?.details?.dealerOrder ? "border-sky-200 bg-sky-50" : ""}`}
               onClick={() => {
@@ -1409,7 +2091,16 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
               <div className="p-4 border-b border-gray-100">
                 <div className="flex items-start justify-between mb-2">
                   <div className="flex-1">
-                    <h3 className="font-semibold text-gray-900 text-sm">Order #{row.order}</h3>
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-semibold text-gray-900 text-sm">Order #{row.order}</h3>
+                      {row?.details?.payment.some(
+                        (payment) => payment.paymentStatus === "PENDING"
+                      ) && (
+                        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800 border border-amber-300 payment-blink">
+                          💰 Pending
+                        </span>
+                      )}
+                    </div>
                     <p className="text-xs text-gray-500 mt-1">{row.farmerName}</p>
                   </div>
                   <div className="flex items-center space-x-2">
@@ -1432,27 +2123,22 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                 {/* Status Badge */}
                 <div className="flex items-center justify-between">
                   {row.orderStatus !== "COMPLETED" ? (
-                    <select
-                      value={row.orderStatus}
-                      onChange={(e) => {
-                        e.stopPropagation()
-                        handleStatusChange(row, e.target.value)
-                      }}
-                      onClick={(e) => e.stopPropagation()}
-                      className={`${getStatusColor(
-                        row.orderStatus
-                      )} px-2 py-1 rounded-full text-xs font-medium focus:outline-none flex items-center gap-1`}>
-                      {(orderStatusOptions || []).map((option) => (
-                        <option key={option?.value} value={option?.value}>
-                          {option?.label}
-                        </option>
-                      ))}
-                    </select>
+                    <div className="relative" onClick={(e) => e.stopPropagation()}>
+                      <SearchableDropdown
+                        label=""
+                        value={row.orderStatus}
+                        onChange={(newStatus) => handleStatusChange(row, newStatus)}
+                        options={orderStatusOptions || []}
+                        placeholder="Select Status"
+                        maxHeight="200px"
+                        isStatusDropdown={true}
+                      />
+                    </div>
                   ) : (
                     <span
-                      className={`${getStatusColor(
-                        row.orderStatus
-                      )} px-2 py-1 rounded-full text-xs font-medium flex items-center gap-1`}>
+                      className={`status-badge-enhanced status-${row.orderStatus
+                        .toLowerCase()
+                        .replace("_", "-")} flex items-center gap-1`}>
                       {row.orderStatus === "FARM_READY" && "🌱"}
                       {row.orderStatus === "DISPATCH_PROCESS" ? "Loading" : row.orderStatus}
                     </span>
@@ -1504,6 +2190,18 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                     <span className="text-xs text-gray-500">Remaining</span>
                     <span className="text-sm text-amber-600">{row["remaining Amt"]}</span>
                   </div>
+
+                  {/* Pending Payment Warning */}
+                  {row?.details?.payment.some((payment) => payment.paymentStatus === "PENDING") && (
+                    <div className="flex items-center justify-between bg-amber-100 border border-amber-300 rounded-md p-2 mt-2 payment-blink">
+                      <span className="text-xs text-amber-800 font-medium flex items-center">
+                        ⚠️ Pending Payment
+                      </span>
+                      <span className="text-xs text-amber-700 bg-amber-200 px-2 py-1 rounded-full">
+                        Requires Attention
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Delivery Info */}
@@ -1635,14 +2333,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                       setShowPaymentForm(false)
                       setUpdatedObject(null)
                       setSlots([])
-                      setNewPayment({
-                        paidAmount: "",
-                        paymentDate: moment().format("YYYY-MM-DD"),
-                        modeOfPayment: "",
-                        bankName: "",
-                        remark: "",
-                        receiptPhoto: []
-                      })
+                      resetPaymentForm(false)
                     }}
                     className="text-white hover:text-blue-100 transition-colors">
                     <XIcon size={24} />
@@ -2066,7 +2757,12 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                           </h3>
                           {canAddPayment && (
                             <button
-                              onClick={() => setShowPaymentForm(!showPaymentForm)}
+                              onClick={() => {
+                                if (!showPaymentForm) {
+                                  initializePaymentForm()
+                                }
+                                setShowPaymentForm(!showPaymentForm)
+                              }}
                               className="bg-green-500 text-white px-3 py-1.5 rounded-lg hover:bg-green-600 transition-colors text-sm">
                               {showPaymentForm ? "Cancel" : "+ Add Payment"}
                               {isOfficeAdmin && (
@@ -2132,8 +2828,14 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                 <label className="text-sm text-gray-500 font-medium">
                                   Payment Status
                                 </label>
-                                <div className="w-full px-3 py-2 bg-gray-100 border rounded-lg mt-1 text-sm text-gray-600">
-                                  PENDING (Contact Accountant to change status)
+                                <div
+                                  className={`w-full px-3 py-2 border rounded-lg mt-1 text-sm ${
+                                    getPaymentStatusDisplay().bgColor
+                                  } ${getPaymentStatusDisplay().color} ${
+                                    getPaymentStatusDisplay().borderColor
+                                  }`}>
+                                  {getPaymentStatusDisplay().status} (
+                                  {getPaymentStatusDisplay().message})
                                 </div>
                               </div>
                               <div>
@@ -2171,9 +2873,86 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                               />
                             </div>
 
-                            {/* Wallet Payment Option for Dealers */}
-                            {isDealer && (
+                            {/* Wallet Payment Status Indicator */}
+                            {newPayment.isWalletPayment && (
+                              <div className="mt-4 bg-green-50 p-4 rounded-lg border border-green-200">
+                                <div className="flex items-center">
+                                  <div className="text-green-600 mr-2">✓</div>
+                                  <div className="text-sm text-green-800">
+                                    <div className="font-medium">Wallet Payment Ready</div>
+                                    <div className="text-xs text-green-600 mt-1">
+                                      Payment will be processed from wallet with status:{" "}
+                                      {newPayment.paymentStatus || "PENDING"}
+                                      {newPayment.paymentStatus === "PENDING" &&
+                                        " (No wallet impact until collected)"}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Dealer Wallet Payment Processing Info */}
+                            {selectedOrder?.details?.salesPerson?.jobTitle === "DEALER" &&
+                              newPayment.isWalletPayment &&
+                              dealerWalletData && (
+                                <div className="mt-4 bg-green-50 p-4 rounded-lg border border-green-200">
+                                  <div className="flex items-center">
+                                    <div className="text-green-600 mr-2">✓</div>
+                                    <div className="text-sm text-green-800">
+                                      <div className="font-medium">Dealer Wallet Payment Ready</div>
+                                      <div className="text-xs text-green-600 mt-1">
+                                        Payment will be processed from dealer wallet:{" "}
+                                        {selectedOrder?.details?.salesPerson?.name}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+
+                            {/* Wallet Payment Option - Show for Accountant, Super Admin, or when dealer is present */}
+                            {(user?.role === "SUPER_ADMIN" ||
+                              user?.role === "ACCOUNTANT" ||
+                              selectedOrder?.details?.salesPerson?.jobTitle === "DEALER") && (
                               <div className="mt-4">
+                                {/* Dealer Wallet Information */}
+                                {selectedOrder?.details?.salesPerson?.jobTitle === "DEALER" &&
+                                  dealerWalletData && (
+                                    <div className="mb-4 bg-blue-50 p-4 rounded-lg border border-blue-200">
+                                      <div className="flex items-center justify-between mb-2">
+                                        <h5 className="text-sm font-medium text-blue-900">
+                                          Dealer Wallet: {selectedOrder?.details?.salesPerson?.name}
+                                        </h5>
+                                        {dealerWalletLoading && (
+                                          <div className="text-xs text-blue-600">Loading...</div>
+                                        )}
+                                      </div>
+                                      <div className="grid grid-cols-2 gap-4 text-sm">
+                                        <div>
+                                          <div className="text-blue-600 font-medium">
+                                            Available Balance
+                                          </div>
+                                          <div className="text-lg font-bold text-blue-900">
+                                            ₹
+                                            {(
+                                              dealerWalletData?.financial?.availableAmount ?? 0
+                                            )?.toLocaleString()}
+                                          </div>
+                                        </div>
+                                        <div>
+                                          <div className="text-blue-600 font-medium">
+                                            Total Orders
+                                          </div>
+                                          <div className="text-lg font-bold text-blue-900">
+                                            ₹
+                                            {(
+                                              dealerWalletData?.financial?.totalOrderAmount ?? 0
+                                            )?.toLocaleString()}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  )}
+
                                 <div className="flex items-center justify-between bg-gray-50 p-4 rounded-xl">
                                   <div className="flex items-center">
                                     <input
@@ -2195,18 +2974,26 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                     </label>
                                   </div>
                                   <div>
-                                    <div className="text-xs text-gray-500">Wallet Balance</div>
+                                    <div className="text-xs text-gray-500">
+                                      {selectedOrder?.details?.salesPerson?.jobTitle === "DEALER"
+                                        ? "Dealer Wallet Balance"
+                                        : "Wallet Balance"}
+                                    </div>
                                     <div
                                       className={`text-base font-bold ${
                                         newPayment.isWalletPayment &&
                                         Number(newPayment.paidAmount) >
-                                          (walletData?.financial?.availableAmount ?? 0)
+                                          (selectedOrder?.details?.salesPerson?.jobTitle ===
+                                          "DEALER"
+                                            ? dealerWalletData?.financial?.availableAmount ?? 0
+                                            : walletData?.financial?.availableAmount ?? 0)
                                           ? "text-red-600"
                                           : "text-gray-800"
                                       }`}>
                                       ₹
-                                      {(
-                                        walletData?.financial?.availableAmount ?? 0
+                                      {(selectedOrder?.details?.salesPerson?.jobTitle === "DEALER"
+                                        ? dealerWalletData?.financial?.availableAmount ?? 0
+                                        : walletData?.financial?.availableAmount ?? 0
                                       )?.toLocaleString()}
                                     </div>
                                   </div>
@@ -2216,12 +3003,16 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                 {newPayment.isWalletPayment && (
                                   <div className="mt-2">
                                     {Number(newPayment.paidAmount) >
-                                      (walletData?.financial?.availableAmount ?? 0) && (
+                                      (selectedOrder?.details?.salesPerson?.jobTitle === "DEALER"
+                                        ? dealerWalletData?.financial?.availableAmount ?? 0
+                                        : walletData?.financial?.availableAmount ?? 0) && (
                                       <div className="bg-red-50 p-3 rounded-lg">
                                         <div className="text-sm text-red-600 font-medium">
                                           Insufficient wallet balance! Available: ₹
-                                          {(
-                                            walletData?.financial?.availableAmount ?? 0
+                                          {(selectedOrder?.details?.salesPerson?.jobTitle ===
+                                          "DEALER"
+                                            ? dealerWalletData?.financial?.availableAmount ?? 0
+                                            : walletData?.financial?.availableAmount ?? 0
                                           )?.toLocaleString()}
                                         </div>
                                       </div>
@@ -2250,7 +3041,8 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                             )}
 
                             {/* Dealer Wallet Payment Option for Accountants (when sales person is dealer) */}
-                            {!isDealer &&
+                            {(user?.role === "SUPER_ADMIN" || user?.role === "ACCOUNTANT") &&
+                              !isDealer &&
                               selectedOrder?.details?.salesPerson?.jobTitle === "DEALER" && (
                                 <div className="mt-4">
                                   <div className="bg-blue-50 p-4 rounded-xl border border-blue-200">

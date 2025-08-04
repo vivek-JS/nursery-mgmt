@@ -292,7 +292,7 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
           ])
 
           if (response?.data?.success) {
-            Toast.success(`Added ${amountToChange} plants to capacity`)
+            Toast.success(`Added ${amountToChange} plants to available plants`)
           } else {
             Toast.error(response?.data?.message || "Failed to add plants")
             return
@@ -480,7 +480,7 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
               p: 4
             }}>
             <div className="flex items-center justify-between mb-6">
-              <h3 className="text-2xl font-bold text-gray-900">Edit Plant Capacity</h3>
+              <h3 className="text-2xl font-bold text-gray-900">Edit Available Plants</h3>
               <div className="p-2 bg-blue-50 rounded-full">
                 <Edit2 className="w-6 h-6 text-blue-600" />
               </div>
@@ -493,12 +493,22 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
               <div className="text-3xl font-bold text-gray-900 px-4 py-3 bg-gray-50 rounded-xl border-2 border-gray-200">
                 {editingSlotData?.currentValue || 0}
               </div>
+              <p className="text-xs text-gray-500 mt-1">
+                Plants added will go directly to available plants. Buffer amount stays the same,
+                percentage will be recalculated.
+              </p>
             </div>
 
             <div className="mb-6">
               <label className="block text-sm font-semibold text-gray-700 mb-3">
                 Operation Type
               </label>
+              <div className="mb-2 p-2 bg-blue-50 rounded-lg border border-blue-200">
+                <p className="text-xs text-blue-700">
+                  <strong>Note:</strong> Plants added will go directly to available plants. Buffer
+                  amount stays the same, percentage will be recalculated.
+                </p>
+              </div>
               <div className="flex space-x-2">
                 <button
                   className={`flex-1 py-3 px-4 rounded-xl font-medium transition-all duration-300 ${
@@ -508,7 +518,7 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                   }`}
                   onClick={() => setOperationType("add")}>
                   <Plus className="w-4 h-4 inline mr-2" />
-                  Add Plants
+                  Add to Available
                 </button>
                 <button
                   className={`flex-1 py-3 px-4 rounded-xl font-medium transition-all duration-300 ${
@@ -548,12 +558,12 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
               <label className="block text-sm font-semibold text-gray-700 mb-2">
                 Buffer Percentage (Optional)
               </label>
-              <div className="mb-2 p-2 bg-gray-50 rounded-lg border border-gray-200">
-                <p className="text-xs text-gray-600">
-                  Current Buffer:{" "}
-                  <span className="font-semibold text-gray-800">
-                    {editingSlotData?.currentBuffer || 0}%
-                  </span>
+              <div className="mb-2 p-2 bg-blue-50 rounded-lg border border-blue-200">
+                <p className="text-xs text-blue-700">
+                  <strong>Current Buffer:</strong> {editingSlotData?.currentBuffer || 0}%
+                </p>
+                <p className="text-xs text-blue-600 mt-1">
+                  Buffer amount stays the same, percentage will be recalculated
                 </p>
               </div>
               <Input
@@ -565,7 +575,7 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                 min="0"
                 max="100"
                 step="0.1"
-                placeholder="Enter new buffer percentage"
+                placeholder="Enter new buffer percentage (optional)"
                 sx={{
                   "& .MuiOutlinedInput-root": {
                     borderRadius: "0.75rem",
@@ -575,7 +585,8 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                 }}
               />
               <p className="text-xs text-gray-500 mt-1">
-                Only change if you want to update the buffer. Leave empty to keep current buffer.
+                <strong>Note:</strong> Only set this if you want to change the buffer percentage.
+                Leave empty to keep buffer amount unchanged (percentage will be recalculated).
               </p>
             </div>
 
