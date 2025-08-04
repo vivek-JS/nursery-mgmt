@@ -538,7 +538,7 @@ const generateMarathiReceiptHTMLForPrint = (order) => {
         
         @media print {
           @page {
-            size: A4 landscape;
+            size: A4;
             margin: 10mm;
           }
           body {
@@ -563,8 +563,8 @@ const generateMarathiReceiptHTMLForPrint = (order) => {
         }
         
         .page {
-          width: 297mm; /* A4 landscape width */
-          height: 210mm; /* A4 landscape height */
+          width: 210mm; /* A4 portrait width */
+          height: 297mm; /* A4 portrait height */
           margin: 0 auto;
           background: white;
           position: relative;
@@ -591,25 +591,25 @@ const generateMarathiReceiptHTMLForPrint = (order) => {
         }
         
         .receipt-left {
-          width: 140mm;
-          height: 180mm;
-          margin: 5mm;
-          padding: 8mm;
+          width: 95mm;
+          height: 140mm;
+          margin: 3mm;
+          padding: 5mm;
           border: 1px solid #333;
           background: white;
           box-sizing: border-box;
-          font-size: 11px;
+          font-size: 9px;
         }
         
         .receipt-right {
-          width: 140mm;
-          height: 180mm;
-          margin: 5mm;
-          padding: 8mm;
+          width: 95mm;
+          height: 140mm;
+          margin: 3mm;
+          padding: 5mm;
           border: 1px solid #333;
           background: white;
           box-sizing: border-box;
-          font-size: 11px;
+          font-size: 9px;
         }
         
         .header {
@@ -620,34 +620,34 @@ const generateMarathiReceiptHTMLForPrint = (order) => {
         }
         
         .title {
-          font-size: 20px;
+          font-size: 16px;
           font-weight: bold;
-          margin-bottom: 5px;
+          margin-bottom: 3px;
         }
         
         .date {
-          font-size: 14px;
+          font-size: 11px;
         }
         
         .customer-info {
-          margin-bottom: 20px;
+          margin-bottom: 15px;
         }
         
         .info-row {
-          margin-bottom: 6px;
-          font-size: 11px;
+          margin-bottom: 4px;
+          font-size: 9px;
         }
         
         .table {
           width: 100%;
           border-collapse: collapse;
-          margin-bottom: 20px;
-          font-size: 10px;
+          margin-bottom: 15px;
+          font-size: 8px;
         }
         
         .table th, .table td {
           border: 1px solid #333;
-          padding: 5px;
+          padding: 3px;
           text-align: left;
         }
         
@@ -662,19 +662,19 @@ const generateMarathiReceiptHTMLForPrint = (order) => {
         }
         
         .signature-section {
-          margin-top: 25px;
-          font-size: 10px;
+          margin-top: 15px;
+          font-size: 8px;
         }
         
         .signature-line {
           border-bottom: 1px solid #333;
-          margin: 8px 0;
-          height: 20px;
+          margin: 5px 0;
+          height: 15px;
         }
         
         .payment-info {
-          margin-top: 20px;
-          font-size: 10px;
+          margin-top: 15px;
+          font-size: 8px;
         }
       </style>
     </head>
@@ -1037,7 +1037,7 @@ const DownloadPDFButton = ({ order }) => {
           font-weight: 500;
           transition: all 0.2s ease;
         " onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
-          🖨️ Print Marathi Receipt (A4 Landscape - 2 Receipts)
+          🖨️ Print Marathi Receipt (A4 Portrait - 2 Receipts)
         </button>
         <button id="close-modal" style="
           padding: 10px 20px; 
