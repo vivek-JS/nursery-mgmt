@@ -357,6 +357,13 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
     }
   }, [formData.subtype, quotaType, dealerWallet, formData.dealer])
 
+  // Ensure wallet payment is unchecked for dealer orders
+  useEffect(() => {
+    if (bulkOrder && newPayment.isWalletPayment) {
+      setNewPayment((prev) => ({ ...prev, isWalletPayment: false }))
+    }
+  }, [bulkOrder])
+
   const loadInitialData = async () => {
     setLoading(true)
     try {
@@ -1607,11 +1614,8 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
       dealer: null
     })
     setFarmerData({})
-    setIsInstantOrder(
-      user?.jobTitle === "OFFICE_STAFF" ||
-        user?.jobTitle === "OFFICE_ADMIN" ||
-        user?.jobTitle === "SUPERADMIN"
-    )
+    // Always default to Normal Order (not Instant Order)
+    setIsInstantOrder(false)
     setBulkOrder(false)
     setQuotaType(null)
     setActiveStep(0)
@@ -1645,7 +1649,14 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
             <RadioGroup
               row
               value={bulkOrder ? "bulk" : "farmer"}
-              onChange={(e) => setBulkOrder(e.target.value === "bulk")}>
+              onChange={(e) => {
+                const isBulkOrder = e.target.value === "bulk"
+                setBulkOrder(isBulkOrder)
+                // Uncheck wallet payment for dealer orders
+                if (isBulkOrder) {
+                  setNewPayment((prev) => ({ ...prev, isWalletPayment: false }))
+                }
+              }}>
               <FormControlLabel
                 value="farmer"
                 control={<Radio color="primary" />}
@@ -1692,6 +1703,10 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                 const value = e.target.value
                 setIsInstantOrder(value === "instant")
                 setBulkOrder(value === "bulk")
+                // Uncheck wallet payment for dealer/bulk orders
+                if (value === "bulk") {
+                  setNewPayment((prev) => ({ ...prev, isWalletPayment: false }))
+                }
               }}>
               <FormControlLabel
                 value="normal"
