@@ -933,10 +933,27 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
 
   // Payment Management Functions - Using same flow as FarmerOrdersTable
   const handlePaymentInputChange = (field, value) => {
-    setNewPayment((prev) => ({
-      ...prev,
-      [field]: value
-    }))
+    setNewPayment((prev) => {
+      const updatedPayment = { ...prev, [field]: value }
+
+      // Update payment status when wallet payment is toggled
+      if (field === "isWalletPayment") {
+        const isWalletPayment = Boolean(value)
+        updatedPayment.isWalletPayment = isWalletPayment
+
+        // For OFFICE_ADMIN, always keep payment status as PENDING
+        // For other roles (SUPER_ADMIN, ACCOUNTANT), keep as PENDING by default
+        if (user?.role === "OFFICE_ADMIN") {
+          updatedPayment.paymentStatus = "PENDING"
+          console.log("OFFICE_ADMIN wallet payment - status set to PENDING")
+        } else {
+          updatedPayment.paymentStatus = "PENDING" // Default to PENDING for all roles
+          console.log("Wallet payment toggled - status set to PENDING")
+        }
+      }
+
+      return updatedPayment
+    })
   }
 
   const getTotalPaidAmount = () => {
@@ -1451,12 +1468,17 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
           }
         ]
 
-        // Update order payment status based on total paid amount
+        // Update order payment status based on total paid amount and user role
         const totalPaid = getTotalPaidAmount()
         const totalOrder = getTotalOrderAmount()
 
-        if (newPayment.paymentStatus === "COLLECTED") {
-          // For collected payments, set status to paid
+        // For OFFICE_ADMIN, always keep payment status as PENDING
+        if (user?.role === "OFFICE_ADMIN") {
+          payload.paymentStatus = "partial"
+          payload.orderPaymentStatus = "PENDING"
+          console.log("OFFICE_ADMIN payment - status set to PENDING")
+        } else if (newPayment.paymentStatus === "COLLECTED") {
+          // For collected payments from other roles, set status to paid
           payload.paymentStatus = "paid"
           payload.orderPaymentStatus = "COMPLETED"
         } else if (totalPaid >= totalOrder) {
@@ -2712,8 +2734,10 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                   Payment Details
                 </Typography>
 
-                {/* Wallet Payment Option - Only for Accountant and Super Admin */}
-                {(user?.role === "SUPER_ADMIN" || user?.role === "ACCOUNTANT") && (
+                {/* Wallet Payment Option - Only for Accountant, Super Admin, and Office Admin */}
+                {(user?.role === "SUPER_ADMIN" ||
+                  user?.role === "ACCOUNTANT" ||
+                  user?.role === "OFFICE_ADMIN") && (
                   <Box
                     sx={{
                       mb: 2,

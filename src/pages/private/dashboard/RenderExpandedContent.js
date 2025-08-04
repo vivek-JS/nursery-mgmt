@@ -325,8 +325,10 @@ const RenderExpandedContent = ({
           </div>
         </div>
 
-        {/* Wallet Payment Option - Only for Accountant and Super Admin */}
-        {(user?.role === "SUPER_ADMIN" || user?.role === "ACCOUNTANT") && (
+        {/* Wallet Payment Option - Only for Accountant, Super Admin, and Office Admin */}
+        {(user?.role === "SUPER_ADMIN" ||
+          user?.role === "ACCOUNTANT" ||
+          user?.role === "OFFICE_ADMIN") && (
           <div className="mt-4">
             <div className="flex items-center justify-between bg-gray-50 p-4 rounded-xl">
               <div className="flex items-center">
@@ -401,8 +403,10 @@ const RenderExpandedContent = ({
           </div>
         )}
 
-        {/* Dealer Wallet Payment Option for Accountants (when sales person is dealer) */}
-        {(user?.role === "SUPER_ADMIN" || user?.role === "ACCOUNTANT") &&
+        {/* Dealer Wallet Payment Option for Accountants and Office Admins (when sales person is dealer) */}
+        {(user?.role === "SUPER_ADMIN" ||
+          user?.role === "ACCOUNTANT" ||
+          user?.role === "OFFICE_ADMIN") &&
           !isDealer &&
           details?.salesPerson?.jobTitle === "DEALER" && (
             <div className="mt-4">

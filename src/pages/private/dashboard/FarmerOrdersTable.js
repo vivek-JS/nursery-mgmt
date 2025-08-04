@@ -978,16 +978,23 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
         // Ensure value is a boolean
         const isWalletPayment = Boolean(value)
         updatedPayment.isWalletPayment = isWalletPayment
-        // Keep payment status as PENDING by default - only COLLECTED payments impact wallet
-        updatedPayment.paymentStatus = "PENDING"
-        console.log(
-          "Wallet payment toggled:",
-          value,
-          "Boolean value:",
-          isWalletPayment,
-          "Payment status set to:",
-          updatedPayment.paymentStatus
-        )
+
+        // For OFFICE_ADMIN, always keep payment status as PENDING
+        // For other roles, keep as PENDING by default - only COLLECTED payments impact wallet
+        if (user?.role === "OFFICE_ADMIN") {
+          updatedPayment.paymentStatus = "PENDING"
+          console.log("OFFICE_ADMIN wallet payment - status set to PENDING")
+        } else {
+          updatedPayment.paymentStatus = "PENDING" // Default to PENDING for all roles
+          console.log(
+            "Wallet payment toggled:",
+            value,
+            "Boolean value:",
+            isWalletPayment,
+            "Payment status set to:",
+            updatedPayment.paymentStatus
+          )
+        }
       }
 
       return updatedPayment
@@ -2909,9 +2916,10 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                 </div>
                               )}
 
-                            {/* Wallet Payment Option - Show for Accountant, Super Admin, or when dealer is present */}
+                            {/* Wallet Payment Option - Show for Accountant, Super Admin, Office Admin, or when dealer is present */}
                             {(user?.role === "SUPER_ADMIN" ||
                               user?.role === "ACCOUNTANT" ||
+                              user?.role === "OFFICE_ADMIN" ||
                               selectedOrder?.details?.salesPerson?.jobTitle === "DEALER") && (
                               <div className="mt-4">
                                 {/* Dealer Wallet Information */}
@@ -3040,8 +3048,10 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                               </div>
                             )}
 
-                            {/* Dealer Wallet Payment Option for Accountants (when sales person is dealer) */}
-                            {(user?.role === "SUPER_ADMIN" || user?.role === "ACCOUNTANT") &&
+                            {/* Dealer Wallet Payment Option for Accountants and Office Admins (when sales person is dealer) */}
+                            {(user?.role === "SUPER_ADMIN" ||
+                              user?.role === "ACCOUNTANT" ||
+                              user?.role === "OFFICE_ADMIN") &&
                               !isDealer &&
                               selectedOrder?.details?.salesPerson?.jobTitle === "DEALER" && (
                                 <div className="mt-4">
