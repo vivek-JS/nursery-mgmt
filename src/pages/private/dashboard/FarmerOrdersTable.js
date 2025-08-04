@@ -672,8 +672,14 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   }
 
   const handleAddPayment = async (orderId) => {
-    if (!newPayment.paidAmount || !newPayment.modeOfPayment) {
-      Toast.error("Please fill in amount and payment mode")
+    if (!newPayment.paidAmount) {
+      Toast.error("Please fill in payment amount")
+      return
+    }
+
+    // Only require modeOfPayment if not using wallet payment
+    if (!newPayment.isWalletPayment && !newPayment.modeOfPayment) {
+      Toast.error("Please select payment mode")
       return
     }
 
@@ -1098,13 +1104,10 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
 
   // Function to initialize payment form when opened
   const initializePaymentForm = () => {
-    // Check if dealer is present and set wallet payment by default
-    const isDealerPresent = selectedOrder?.details?.salesPerson?.jobTitle === "DEALER"
-    const shouldUseWalletPayment = isDealerPresent && dealerWalletData
+    // Always default to false for wallet payment - user must explicitly choose
+    const shouldUseWalletPayment = false
 
     console.log("Initializing payment form:")
-    console.log("isDealerPresent:", isDealerPresent)
-    console.log("dealerWalletData:", dealerWalletData)
     console.log("shouldUseWalletPayment:", shouldUseWalletPayment)
 
     resetPaymentForm(shouldUseWalletPayment)
@@ -3154,7 +3157,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                   }
                                   disabled={
                                     !newPayment.paidAmount ||
-                                    !newPayment.modeOfPayment ||
+                                    (!newPayment.isWalletPayment && !newPayment.modeOfPayment) ||
                                     (isDealer &&
                                       newPayment.isWalletPayment &&
                                       (Number(newPayment.paidAmount) >

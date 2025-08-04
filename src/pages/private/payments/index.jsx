@@ -113,7 +113,7 @@ const PaymentsPage = () => {
     new Date(new Date().getFullYear(), new Date().getMonth(), 1),
     new Date()
   ])
-  const [activeTab, setActiveTab] = useState("collected") // "collected" or "pending"
+  const [activeTab, setActiveTab] = useState("collected") // "collected", "pending", or "rejected"
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("")
 
   // Role-based access control
@@ -171,7 +171,8 @@ const PaymentsPage = () => {
       const params = {
         search: debouncedSearchTerm,
         limit: 1000,
-        paymentStatus: activeTab === "collected" ? "COLLECTED" : "PENDING"
+        paymentStatus:
+          activeTab === "collected" ? "COLLECTED" : activeTab === "pending" ? "PENDING" : "REJECTED"
       }
 
       // Add date range only if both dates are valid
@@ -395,6 +396,13 @@ const PaymentsPage = () => {
               className={`${classes.tabButton} ${activeTab === "pending" ? "active" : ""}`}
               onClick={() => handleTabChange("pending")}>
               Pending Payments
+            </Button>
+          </Grid>
+          <Grid item>
+            <Button
+              className={`${classes.tabButton} ${activeTab === "rejected" ? "active" : ""}`}
+              onClick={() => handleTabChange("rejected")}>
+              Rejected Payments
             </Button>
           </Grid>
         </Grid>
