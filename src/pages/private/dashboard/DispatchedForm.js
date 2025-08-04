@@ -592,7 +592,9 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
                     </div>
                     <div>
                       <span className="text-gray-500">Village: </span>
-                      <span className="text-gray-700">{order.details.farmer.village}</span>
+                      <span className="text-gray-700">
+                        {order.details?.farmer?.village || "N/A"}
+                      </span>
                     </div>
                     <div>
                       <span className="text-gray-500">Qty: </span>

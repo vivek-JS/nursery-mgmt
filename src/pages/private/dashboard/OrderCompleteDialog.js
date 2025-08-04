@@ -247,7 +247,7 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData }) => {
                             {order.farmerName}
                           </div>
                           <div className="text-sm text-gray-500">
-                            {order.details.farmer.village}
+                            {order.details?.farmer?.village || "N/A"}
                           </div>
                           <div className="text-sm text-gray-500">Contact: {order.contact}</div>
                         </td>

@@ -68,7 +68,7 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh }) => {
         orderStatus: order.orderStatus,
         Delivery: order.Delivery,
         details: {
-          farmer: order.details.farmer,
+          farmer: order.details?.farmer || {},
           contact: order.details.contact,
           orderNotes: order.details.orderNotes || "",
           soilType: order.details.soilType || "",
