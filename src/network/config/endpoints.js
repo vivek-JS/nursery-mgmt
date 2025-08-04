@@ -67,7 +67,7 @@ export const API = {
     RESET_PASSWORD: new APIRouter("/user/reset-password", HTTP_METHODS.POST),
     GET_USERS: new APIRouter("/user/allusers", HTTP_METHODS.GET),
     GET_DEALERS: new APIRouter("/user/dealers", HTTP_METHODS.GET),
-    GET_DEALERS_STATS: new APIRouter("/user/dealerssss/stats", HTTP_METHODS.GET),
+    GET_DEALERS_STATS: new APIRouter("/user/dealers/stats", HTTP_METHODS.GET),
     GET_DEALERS_TRANSACTIONS: new APIRouter("/user/dealers/transactions", HTTP_METHODS.GET),
     GET_DEALER_WALLET_DETAILS: new APIRouter("/user/wallet-details", HTTP_METHODS.GET),
     GET_DEALER_WALLET_TRANSACTIONS: new APIRouter("/user/dealers/transactions", HTTP_METHODS.GET),
@@ -276,11 +276,7 @@ export const API = {
       OFFLINE.PROFILE
     ),
     UPDATE_SLOT_BUFFER: new APIRouter("/slots/buffer", HTTP_METHODS.PUT, OFFLINE.PROFILE),
-    RELEASE_BUFFER_PLANTS: new APIRouter(
-      "/slots/release-buffer",
-      HTTP_METHODS.POST,
-      OFFLINE.PROFILE
-    ),
+    RELEASE_BUFFER_PLANTS: new APIRouter("/slots", HTTP_METHODS.POST, OFFLINE.PROFILE),
     ADD_PLANTS_TO_CAPACITY: new APIRouter("/slots", HTTP_METHODS.POST, OFFLINE.PROFILE),
     CREATE_SLOTS_FOR_MULTIPLE_YEARS: new APIRouter(
       "/slots/create-multiple-years",

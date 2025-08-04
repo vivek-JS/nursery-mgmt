@@ -28,7 +28,8 @@ import {
   Paper,
   Avatar,
   IconButton,
-  Tooltip
+  Tooltip,
+  Checkbox
 } from "@mui/material"
 import { DatePicker } from "@mui/x-date-pickers/DatePicker"
 import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider"
@@ -283,7 +284,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
     bankName: "",
     remark: "",
     receiptPhoto: [],
-    paymentStatus: "PENDING", // Always PENDING for new payments
+    paymentStatus: "PENDING", // Default to PENDING, will be updated based on payment type
     isWalletPayment: false
   })
 
@@ -354,7 +355,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
     if (formData.subtype) {
       loadSlots(formData.plant, formData.subtype)
     }
-  }, [formData.subtype])
+  }, [formData.subtype, quotaType, dealerWallet, formData.dealer])
 
   const loadInitialData = async () => {
     setLoading(true)
@@ -425,6 +426,64 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
   const loadSlots = async (plantId, subtypeId) => {
     try {
       console.log("Loading slots for plant:", plantId, "subtype:", subtypeId)
+
+      // Check if dealer quota should be used
+      const shouldUseDealerQuota =
+        formData.dealer && quotaType === "dealer" && dealerWallet?.entries
+
+      if (shouldUseDealerQuota) {
+        console.log("Using dealer quota data for slots")
+
+        // Filter dealer wallet entries for the selected plant and subtype
+        const relevantEntries = dealerWallet.entries.filter(
+          (entry) => entry.plantTypeId === plantId && entry.subTypeId === subtypeId
+        )
+
+        console.log("Relevant dealer quota entries:", relevantEntries)
+
+        // Create slots from dealer quota data
+        const dealerQuotaSlots = relevantEntries
+          .map((entry) => {
+            if (!entry.startDay || !entry.endDay) {
+              return null
+            }
+
+            // Validate date format
+            const startDateValid = moment(entry.startDay, "DD-MM-YYYY", true).isValid()
+            const endDateValid = moment(entry.endDay, "DD-MM-YYYY", true).isValid()
+
+            if (!startDateValid || !endDateValid) {
+              return null
+            }
+
+            const start = moment(entry.startDay, "DD-MM-YYYY").format("D")
+            const end = moment(entry.endDay, "DD-MM-YYYY").format("D")
+            const monthYear = moment(entry.startDay, "DD-MM-YYYY").format("MMMM, YYYY")
+
+            // Use dealer quota remaining quantity
+            const available = entry.remainingQuantity || 0
+
+            return {
+              label: `${start} - ${end} ${monthYear} (${available} available - DEALER QUOTA)`,
+              value: entry.bookingSlotId,
+              availableQuantity: available,
+              startDay: entry.startDay,
+              endDay: entry.endDay,
+              totalPlants: entry.quantity || 0,
+              totalBookedPlants: entry.bookedQuantity || 0,
+              isDealerQuota: true,
+              dealerQuotaData: entry
+            }
+          })
+          .filter((slot) => slot !== null && slot.availableQuantity > 0)
+
+        console.log("Processed dealer quota slots:", dealerQuotaSlots)
+        setSlots(dealerQuotaSlots)
+        return
+      }
+
+      // Use regular slot loading for non-dealer quota
+      console.log("Using regular slot loading")
       const instance = NetworkManager(API.slots.GET_PLANTS_SLOTS)
       const response = await instance.request(null, { plantId, subtypeId, year: 2025 })
       console.log("Slots API response:", response)
@@ -540,6 +599,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
       // Transform the API response to match expected structure
       // Check both possible structures
       const plantDetails = response.data?.plantDetails || response.data?.data?.plantDetails
+      const financial = response.data?.financial || response.data?.data?.financial
 
       if (plantDetails) {
         console.log("Processing plantDetails from API response")
@@ -563,8 +623,15 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
           })
         })
 
-        const walletData = { entries }
-        console.log("Transformed wallet data with dates:", walletData)
+        const walletData = {
+          entries,
+          // Include financial data for wallet balance display
+          availableAmount: financial?.availableAmount || 0,
+          totalOrderAmount: financial?.totalOrderAmount || 0,
+          totalPaidAmount: financial?.totalPaidAmount || 0,
+          remainingAmount: financial?.remainingAmount || 0
+        }
+        console.log("Transformed wallet data with dates and financial:", walletData)
         setDealerWallet(walletData)
         console.log("Dealer wallet data set successfully")
         console.log("Wallet data after setDealerWallet:", walletData)
@@ -1103,6 +1170,12 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
       return false
     }
 
+    // Validate that a dealer or sales person is selected
+    if (!formData.dealer && !formData.sales) {
+      Toast.error("Please select either a dealer or sales person")
+      return false
+    }
+
     // Validate dealer quota availability
     if (quotaType === "dealer" && formData.plant && formData.subtype && formData.selectedSlot) {
       const requestedQuantity = parseInt(formData.noOfPlants) || 0
@@ -1130,15 +1203,29 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
     }
 
     // Validate slot capacity availability
-    if (formData.selectedSlot && formData.noOfPlants && available !== null) {
+    if (formData.selectedSlot && formData.noOfPlants) {
       const requestedQuantity = parseInt(formData.noOfPlants) || 0
 
-      if (requestedQuantity > available) {
-        const selectedSlot = slots.find((s) => s.value === formData.selectedSlot)
-        const slotPeriod = selectedSlot ? `${selectedSlot.startDay} - ${selectedSlot.endDay}` : ""
+      // Check if using dealer quota
+      const selectedSlot = slots.find((s) => s.value === formData.selectedSlot)
+      const isDealerQuotaSlot = selectedSlot?.isDealerQuota
 
+      let availableQuantity = available
+      let slotPeriod = ""
+
+      if (isDealerQuotaSlot) {
+        // Use dealer quota data
+        availableQuantity = selectedSlot.availableQuantity
+        slotPeriod = `${selectedSlot.startDay} - ${selectedSlot.endDay} (DEALER QUOTA)`
+      } else if (available !== null) {
+        // Use regular slot data
+        availableQuantity = available
+        slotPeriod = selectedSlot ? `${selectedSlot.startDay} - ${selectedSlot.endDay}` : ""
+      }
+
+      if (availableQuantity !== null && requestedQuantity > availableQuantity) {
         Toast.error(
-          `⚠️ Slot Capacity Exceeded!\n\nOnly ${available} plants available in slot: ${slotPeriod}\n\nPlease select a different slot or reduce the order quantity.`,
+          `⚠️ Slot Capacity Exceeded!\n\nOnly ${availableQuantity} plants available in slot: ${slotPeriod}\n\nPlease select a different slot or reduce the order quantity.`,
           {
             duration: 8000,
             style: {
@@ -1157,7 +1244,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
     }
 
     // Payment validation (single payment object)
-    if (newPayment.paidAmount && !newPayment.modeOfPayment) {
+    if (newPayment.paidAmount && !newPayment.isWalletPayment && !newPayment.modeOfPayment) {
       Toast.error("Please select payment mode for the payment amount entered")
       return false
     }
@@ -1167,6 +1254,26 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
     ) {
       Toast.error("Please enter amount for the selected payment mode")
       return false
+    }
+
+    // Wallet payment validation for dealers
+    if (
+      (user?.jobTitle === "DEALER" ||
+        user?.role === "SUPER_ADMIN" ||
+        user?.role === "OFFICE_ADMIN" ||
+        user?.role === "ACCOUNTANT") &&
+      newPayment.isWalletPayment &&
+      newPayment.paidAmount
+    ) {
+      const paymentAmount = parseFloat(newPayment.paidAmount)
+      const walletBalance = dealerWallet?.availableAmount || 0
+
+      if (paymentAmount > walletBalance) {
+        Toast.error(
+          `Payment amount (₹${paymentAmount.toLocaleString()}) exceeds wallet balance (₹${walletBalance.toLocaleString()})`
+        )
+        return false
+      }
     }
 
     return true
@@ -1180,6 +1287,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
     const selectedSubtype = subTypes.find((s) => s.value === formData.subtype)
     const selectedSlot = slots.find((s) => s.value === formData.selectedSlot)
     const selectedSales = sales.find((s) => s.value === formData.sales)
+    const selectedDealer = dealers.find((d) => d.value === formData.dealer)
 
     setConfirmationData({
       farmerName: formData.name,
@@ -1190,7 +1298,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
       numberOfPlants: formData.noOfPlants,
       rate: formData.rate,
       slotPeriod: selectedSlot ? `${selectedSlot.startDay} - ${selectedSlot.endDay}` : "",
-      salesPerson: selectedSales?.label || "",
+      salesPerson: selectedDealer?.label || selectedSales?.label || "",
       location: `${formData.village}, ${formData.taluka}, ${formData.district}`,
       orderType: isInstantOrder ? "Instant Order" : bulkOrder ? "Bulk Order" : "Normal Order"
     })
@@ -1250,8 +1358,9 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
           orderBookingDate:
             formData.date instanceof Date ? formData.date.toISOString() : formData.date,
           dealerOrder: true,
-          dealer: formData.dealer || formData.sales || user?._id,
-          salesPerson: user?._id
+          dealer: formData.dealer || formData.sales,
+          // If dealer is selected, send dealer ID as salesPerson, otherwise send sales person ID
+          salesPerson: formData.dealer || formData.sales
         }
 
         // Add company quota flag based on quota type selection
@@ -1276,7 +1385,8 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
           numberOfPlants: parseInt(formData.noOfPlants),
           rate: parseFloat(formData.rate),
           paymentStatus: "not paid",
-          salesPerson: formData.sales || user?._id,
+          // If dealer is selected, send dealer ID as salesPerson, otherwise send sales person ID
+          salesPerson: formData.dealer || formData.sales,
           orderStatus: isInstantOrder ? "DISPATCHED" : "ACCEPTED",
           plantName: formData.plant,
           plantSubtype: formData.subtype,
@@ -1307,6 +1417,9 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
       console.log("Rate manually set:", rateManuallySet)
       console.log("Final payload rate:", payload.rate)
       console.log("Final payload rate type:", typeof payload.rate)
+      console.log("Form data dealer:", formData.dealer)
+      console.log("Form data sales:", formData.sales)
+      console.log("Final payload salesPerson:", payload.salesPerson)
       console.log("Complete payload:", payload)
       console.log("=== END ORDER CREATION DEBUG ===")
 
@@ -1334,7 +1447,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
           {
             ...newPayment,
             paymentDate: paymentDate,
-            paymentStatus: "PENDING"
+            paymentStatus: newPayment.paymentStatus || "PENDING"
           }
         ]
 
@@ -1342,7 +1455,11 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
         const totalPaid = getTotalPaidAmount()
         const totalOrder = getTotalOrderAmount()
 
-        if (totalPaid >= totalOrder) {
+        if (newPayment.paymentStatus === "COLLECTED") {
+          // For collected payments, set status to paid
+          payload.paymentStatus = "paid"
+          payload.orderPaymentStatus = "COMPLETED"
+        } else if (totalPaid >= totalOrder) {
           payload.paymentStatus = "paid"
           payload.orderPaymentStatus = "COMPLETED"
         } else if (totalPaid > 0) {
@@ -1357,6 +1474,8 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
       console.log("Company quota flag:", quotaType ? quotaType === "company" : "No quota type")
       console.log("Dealer selected:", formData.dealer)
       console.log("Sales person selected:", formData.sales)
+      console.log("Final dealer field in payload:", payload.dealer)
+      console.log("Final salesPerson field in payload:", payload.salesPerson)
       console.log("Payment data included:", hasPaymentData ? "Yes" : "No")
 
       const instance = NetworkManager(endpoint)
@@ -1485,7 +1604,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
       bankName: "",
       remark: "",
       receiptPhoto: [],
-      paymentStatus: "PENDING",
+      paymentStatus: "PENDING", // Default to PENDING, will be updated based on payment type
       isWalletPayment: false
     })
     onClose()
@@ -2531,6 +2650,20 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                       ₹{getBalanceAmount().toLocaleString()}
                     </Typography>
                   </Grid>
+                  {(user?.jobTitle === "DEALER" ||
+                    user?.role === "SUPER_ADMIN" ||
+                    user?.role === "OFFICE_ADMIN" ||
+                    user?.role === "ACCOUNTANT") &&
+                    dealerWallet && (
+                      <Grid item xs={12} md={3}>
+                        <Typography variant="body2" color="text.secondary">
+                          Wallet Balance:
+                        </Typography>
+                        <Typography variant="h6" fontWeight={600} color="#ff9800">
+                          ₹{dealerWallet.availableAmount?.toLocaleString() || 0}
+                        </Typography>
+                      </Grid>
+                    )}
                   <Grid item xs={12} md={3}>
                     <Button
                       variant="outlined"
@@ -2543,7 +2676,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                           bankName: "",
                           remark: "",
                           receiptPhoto: [],
-                          paymentStatus: "PENDING",
+                          paymentStatus: "PENDING", // Default to PENDING, will be updated based on payment type
                           isWalletPayment: false
                         })
                       }}
@@ -2579,6 +2712,51 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                   Payment Details
                 </Typography>
 
+                {/* Wallet Payment Option - Only for Accountant and Super Admin */}
+                {(user?.role === "SUPER_ADMIN" || user?.role === "ACCOUNTANT") && (
+                  <Box
+                    sx={{
+                      mb: 2,
+                      p: 2,
+                      bgcolor: "#fff3e0",
+                      borderRadius: 1,
+                      border: "1px solid #ff9800"
+                    }}>
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          checked={newPayment.isWalletPayment}
+                          onChange={(e) =>
+                            handlePaymentInputChange("isWalletPayment", e.target.checked)
+                          }
+                          color="primary"
+                        />
+                      }
+                      label={
+                        <Box>
+                          <Typography variant="body2" fontWeight={600}>
+                            Pay from Wallet
+                          </Typography>
+                          {dealerWallet && (
+                            <Typography variant="caption" color="text.secondary">
+                              Available Balance: ₹
+                              {dealerWallet.availableAmount?.toLocaleString() || 0}
+                            </Typography>
+                          )}
+                        </Box>
+                      }
+                    />
+                    {newPayment.isWalletPayment && dealerWallet && (
+                      <Typography
+                        variant="caption"
+                        color="success.main"
+                        sx={{ display: "block", mt: 1 }}>
+                        ✓ Payment will be deducted from your wallet balance
+                      </Typography>
+                    )}
+                  </Box>
+                )}
+
                 <Grid container spacing={2}>
                   <Grid item xs={12} md={6}>
                     <TextField
@@ -2610,7 +2788,8 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                       <Select
                         value={newPayment.modeOfPayment}
                         onChange={(e) => handlePaymentInputChange("modeOfPayment", e.target.value)}
-                        label="Payment Mode">
+                        label="Payment Mode"
+                        disabled={newPayment.isWalletPayment}>
                         <MenuItem value="">Select Mode</MenuItem>
                         <MenuItem value="Cash">Cash</MenuItem>
                         <MenuItem value="Phone Pe">Phone Pe</MenuItem>
@@ -2619,6 +2798,14 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                         <MenuItem value="NEFT">NEFT</MenuItem>
                         <MenuItem value="JPCB">JPCB</MenuItem>
                       </Select>
+                      {newPayment.isWalletPayment && (
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          sx={{ mt: 0.5, display: "block" }}>
+                          Payment mode not required for wallet payments
+                        </Typography>
+                      )}
                     </FormControl>
                   </Grid>
                   <Grid item xs={12} md={6}>
@@ -2633,7 +2820,9 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                           : "N/A"
                       }
                       disabled={
-                        newPayment.modeOfPayment !== "Cheque" && newPayment.modeOfPayment !== "NEFT"
+                        newPayment.isWalletPayment ||
+                        (newPayment.modeOfPayment !== "Cheque" &&
+                          newPayment.modeOfPayment !== "NEFT")
                       }
                       size="small"
                     />

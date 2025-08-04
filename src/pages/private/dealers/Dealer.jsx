@@ -94,7 +94,8 @@ const getPlantColor = (plantName) => {
 // Plant Type Card Component
 const PlantTypeWithSubtypesCard = ({ plantType, subtypes }) => {
   const [expanded, setExpanded] = useState(false)
-  const filteredSubtypes = subtypes.filter((st) => st.plantTypeId === plantType.plantTypeId)
+  // Defensive: default subtypes to [] if undefined
+  const filteredSubtypes = (subtypes || []).filter((st) => st.plantTypeId === plantType.plantTypeId)
 
   return (
     <Card
@@ -203,7 +204,7 @@ const SubtypesTable = ({ subtypes }) => {
           </TableRow>
         </TableHead>
         <TableBody>
-          {subtypes.map((subtype) => (
+          {(subtypes || []).map((subtype) => (
             <TableRow
               key={`${subtype.plantTypeId}-${subtype.subTypeId}`}
               hover
@@ -423,7 +424,10 @@ const DealerWalletStatsDashboard = ({ stats }) => {
         <Grid container spacing={3}>
           {stats.byPlantType.map((plantType) => (
             <Grid item xs={12} sm={6} md={4} lg={3} key={plantType.plantTypeId}>
-              <PlantTypeWithSubtypesCard plantType={plantType} subtypes={stats.byPlantAndSubtype} />
+              <PlantTypeWithSubtypesCard
+                plantType={plantType}
+                subtypes={plantType.subtypes || []}
+              />
             </Grid>
           ))}
         </Grid>
@@ -443,7 +447,16 @@ const DealerWalletStatsDashboard = ({ stats }) => {
 
       {/* Content based on selected tab */}
       {tabValue === 0 ? (
-        <SubtypesTable subtypes={stats.byPlantAndSubtype} />
+        <SubtypesTable
+          subtypes={stats.byPlantType.flatMap((plantType) =>
+            (plantType.subtypes || []).map((subtype) => ({
+              ...subtype,
+              plantTypeId: plantType.plantTypeId,
+              plantTypeName: plantType.plantTypeName,
+              dealerCount: plantType.dealerCount
+            }))
+          )}
+        />
       ) : (
         <Box sx={{ p: 4, textAlign: "center" }}>
           <Typography variant="body1">

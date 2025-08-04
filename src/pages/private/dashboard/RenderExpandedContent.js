@@ -325,8 +325,8 @@ const RenderExpandedContent = ({
           </div>
         </div>
 
-        {/* Wallet Payment Option for Dealers */}
-        {isDealer && (
+        {/* Wallet Payment Option - Only for Accountant and Super Admin */}
+        {(user?.role === "SUPER_ADMIN" || user?.role === "ACCOUNTANT") && (
           <div className="mt-4">
             <div className="flex items-center justify-between bg-gray-50 p-4 rounded-xl">
               <div className="flex items-center">
@@ -402,89 +402,91 @@ const RenderExpandedContent = ({
         )}
 
         {/* Dealer Wallet Payment Option for Accountants (when sales person is dealer) */}
-        {!isDealer && details?.salesPerson?.jobTitle === "DEALER" && (
-          <div className="mt-4">
-            <div className="bg-blue-50 p-4 rounded-xl border border-blue-200">
-              <div className="flex items-center justify-between mb-3">
+        {(user?.role === "SUPER_ADMIN" || user?.role === "ACCOUNTANT") &&
+          !isDealer &&
+          details?.salesPerson?.jobTitle === "DEALER" && (
+            <div className="mt-4">
+              <div className="bg-blue-50 p-4 rounded-xl border border-blue-200">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center">
+                    <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center mr-3">
+                      <FaCreditCard className="text-blue-600 text-sm" />
+                    </div>
+                    <div>
+                      <div className="text-sm font-medium text-blue-900">Dealer Wallet Payment</div>
+                      <div className="text-xs text-blue-600">
+                        Sales Person: {details?.salesPerson?.name}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-xs text-blue-600">Available Balance</div>
+                    <div className="text-lg font-bold text-blue-900">
+                      ₹{(dealerWalletData?.financial?.availableAmount ?? 0)?.toLocaleString()}
+                    </div>
+                  </div>
+                </div>
+
                 <div className="flex items-center">
-                  <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center mr-3">
-                    <FaCreditCard className="text-blue-600 text-sm" />
-                  </div>
-                  <div>
-                    <div className="text-sm font-medium text-blue-900">Dealer Wallet Payment</div>
-                    <div className="text-xs text-blue-600">
-                      Sales Person: {details?.salesPerson?.name}
-                    </div>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className="text-xs text-blue-600">Available Balance</div>
-                  <div className="text-lg font-bold text-blue-900">
-                    ₹{(dealerWalletData?.financial?.availableAmount ?? 0)?.toLocaleString()}
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex items-center">
-                {isEditing ? (
-                  <input
-                    type="checkbox"
-                    id="dealerWalletPayment"
-                    checked={payment.isWalletPayment || false}
-                    onChange={(e) =>
-                      handleInputChange(payment._id, "isWalletPayment", e.target.checked)
-                    }
-                    className="mr-3 w-4 h-4 text-blue-600 bg-blue-100 border-blue-300 rounded focus:ring-blue-500"
-                  />
-                ) : (
-                  <div className="mr-3 w-4 h-4 flex items-center justify-center">
-                    {payment.isWalletPayment ? (
-                      <div className="w-3 h-3 bg-blue-600 rounded-full"></div>
-                    ) : (
-                      <div className="w-3 h-3 bg-gray-300 rounded-full"></div>
-                    )}
-                  </div>
-                )}
-                <label htmlFor="dealerWalletPayment" className="text-blue-800 font-medium">
-                  Pay from Dealer&apos;s Wallet
-                </label>
-              </div>
-
-              {/* Warning messages for dealer wallet payment */}
-              {isEditing && payment.isWalletPayment && (
-                <div className="mt-3 space-y-2">
-                  {Number(payment.paidAmount) >
-                    (dealerWalletData?.financial?.availableAmount ?? 0) && (
-                    <div className="bg-red-50 p-3 rounded-lg border border-red-200">
-                      <div className="text-sm text-red-600 font-medium">
-                        ⚠️ Insufficient dealer wallet balance! Available: ₹
-                        {(dealerWalletData?.financial?.availableAmount ?? 0)?.toLocaleString()}
-                      </div>
+                  {isEditing ? (
+                    <input
+                      type="checkbox"
+                      id="dealerWalletPayment"
+                      checked={payment.isWalletPayment || false}
+                      onChange={(e) =>
+                        handleInputChange(payment._id, "isWalletPayment", e.target.checked)
+                      }
+                      className="mr-3 w-4 h-4 text-blue-600 bg-blue-100 border-blue-300 rounded focus:ring-blue-500"
+                    />
+                  ) : (
+                    <div className="mr-3 w-4 h-4 flex items-center justify-center">
+                      {payment.isWalletPayment ? (
+                        <div className="w-3 h-3 bg-blue-600 rounded-full"></div>
+                      ) : (
+                        <div className="w-3 h-3 bg-gray-300 rounded-full"></div>
+                      )}
                     </div>
                   )}
+                  <label htmlFor="dealerWalletPayment" className="text-blue-800 font-medium">
+                    Pay from Dealer&apos;s Wallet
+                  </label>
+                </div>
 
-                  {!payment.paidAmount && (
-                    <div className="bg-amber-50 p-3 rounded-lg border border-amber-200">
-                      <div className="text-sm text-amber-600 font-medium">
-                        ℹ️ Please enter payment amount
-                      </div>
-                    </div>
-                  )}
-
-                  {Number(payment.paidAmount) <=
-                    (dealerWalletData?.financial?.availableAmount ?? 0) &&
-                    payment.paidAmount && (
-                      <div className="bg-green-50 p-3 rounded-lg border border-green-200">
-                        <div className="text-sm text-green-600 font-medium">
-                          ✅ Sufficient dealer balance available
+                {/* Warning messages for dealer wallet payment */}
+                {isEditing && payment.isWalletPayment && (
+                  <div className="mt-3 space-y-2">
+                    {Number(payment.paidAmount) >
+                      (dealerWalletData?.financial?.availableAmount ?? 0) && (
+                      <div className="bg-red-50 p-3 rounded-lg border border-red-200">
+                        <div className="text-sm text-red-600 font-medium">
+                          ⚠️ Insufficient dealer wallet balance! Available: ₹
+                          {(dealerWalletData?.financial?.availableAmount ?? 0)?.toLocaleString()}
                         </div>
                       </div>
                     )}
-                </div>
-              )}
+
+                    {!payment.paidAmount && (
+                      <div className="bg-amber-50 p-3 rounded-lg border border-amber-200">
+                        <div className="text-sm text-amber-600 font-medium">
+                          ℹ️ Please enter payment amount
+                        </div>
+                      </div>
+                    )}
+
+                    {Number(payment.paidAmount) <=
+                      (dealerWalletData?.financial?.availableAmount ?? 0) &&
+                      payment.paidAmount && (
+                        <div className="bg-green-50 p-3 rounded-lg border border-green-200">
+                          <div className="text-sm text-green-600 font-medium">
+                            ✅ Sufficient dealer balance available
+                          </div>
+                        </div>
+                      )}
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
         {/* Receipt Section */}
         <div className="mt-4">
