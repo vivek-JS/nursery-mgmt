@@ -12,6 +12,7 @@ import ListAltIcon from "@mui/icons-material/ListAlt"
 import DateRangeOutlinedIcon from "@mui/icons-material/DateRangeOutlined"
 import PaidIcon from "@mui/icons-material/Paid"
 import PaymentIcon from "@mui/icons-material/Payment"
+import WhatsAppIcon from "@mui/icons-material/WhatsApp"
 
 export const DashboardMenus = [
   new MenuPath("Orders", <HomeIcon />, "/u/dashboard"),
@@ -32,5 +33,6 @@ export const DashboardMenus = [
   new MenuPath("Order", <ListAltIcon />, "/u/orders"),
   new MenuPath("Orders-upload", <ListAltIcon />, "/u/upload-orders"),
   new MenuPath("Dealers", <ListAltIcon />, "/u/dealers"),
-  new MenuPath("Payments", <PaymentIcon />, "/u/payments")
+  new MenuPath("Payments", <PaymentIcon />, "/u/payments"),
+  new MenuPath("WhatsApp Management", <WhatsAppIcon />, "/u/whatsapp")
 ]

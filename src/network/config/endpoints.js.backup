@@ -52,12 +52,11 @@ export const API = {
     CREATE_COMPOUNDER: new APIRouter(
       "/api/v2/compounder/createCompounder",
       HTTP_METHODS.POST,
-      OFFLINE.PROFILE
-    ),
+      OFFLINE.PROFILE),
     GET_COMPOUNDER: new APIRouter(
       "/api/v2/compounder/getAllCompounder",
       HTTP_METHODS.GET,
-      OFFLINE.PROFILE
+      OFFLINE.PROFILE),
     )
   },
   USER: {
@@ -81,7 +80,7 @@ export const API = {
     PATIENT_LIST: new APIRouter(
       "api/v2/patient/getAllPatientsPagination",
       HTTP_METHODS.GET,
-      OFFLINE.PROFILE
+      OFFLINE.PROFILE),
     ),
     PATIENT_DETAILS: new APIRouter("api/v2/patient/getPatient", HTTP_METHODS.GET, OFFLINE.PROFILE),
     //v2 api
@@ -93,12 +92,12 @@ export const API = {
     GET_PATIENT_DETAILS: new APIRouter(
       "api/v2/patient/getPatient",
       HTTP_METHODS.GET,
-      OFFLINE.PROFILE
+      OFFLINE.PROFILE),
     ),
     GET_PATIENT_WITH_APPOINTMENT_DETAILS: new APIRouter(
       "api/v2/patient/getPatientWithAppointments?",
       HTTP_METHODS.GET,
-      OFFLINE.PROFILE
+      OFFLINE.PROFILE),
     )
   },
   PAYMENTS: {
@@ -112,47 +111,47 @@ export const API = {
     GET_PRESCRIPTION: new APIRouter(
       "api/v2/other/getPrescription",
       HTTP_METHODS.GET,
-      OFFLINE.PROFILE
+      OFFLINE.PROFILE),
     )
   },
   APPOINTMENT: {
     ADD_APPOINTMENT: new APIRouter(
       "api/v2/appointment/createAppointment",
       HTTP_METHODS.POST,
-      OFFLINE.PROFILE
+      OFFLINE.PROFILE),
     ),
     APPOINTMENT_STATISTICS: new APIRouter(
       "api/v2/appointment/getAppointmentStatistics",
       HTTP_METHODS.GET,
-      OFFLINE.PROFILE
+      OFFLINE.PROFILE),
     ),
     APPOINTMENT_LIST: new APIRouter(
       "api/v2/appointment/getAppointment",
       HTTP_METHODS.GET,
-      OFFLINE.PROFILE
+      OFFLINE.PROFILE),
     ),
     PATIENT_LIST: new APIRouter("api/v2/users/", HTTP_METHODS.GET, OFFLINE.PROFILE),
     CHANGE_STATUS: new APIRouter(
       "api/v2/appointment/updateAppointment",
       HTTP_METHODS.PATCH,
-      OFFLINE.PROFILE
+      OFFLINE.PROFILE),
     ),
     CHANGE_PAYMENG_STATUS: new APIRouter(
       "api/v2/appointments/change-payment-status",
       HTTP_METHODS.PATCH,
-      OFFLINE.PROFILE
+      OFFLINE.PROFILE),
     ),
     DELETE_APPOINTMENT: new APIRouter(
       "api/v2/appointment/deleteAppointment",
       HTTP_METHODS.DEL,
-      OFFLINE.PROFILE
+      OFFLINE.PROFILE),
     )
   },
   FOLLOW_UP: {
     ADD_FOLLOW_UP: new APIRouter(
       "api/v2/followup/createFollowup",
       HTTP_METHODS.POST,
-      OFFLINE.PROFILE
+      OFFLINE.PROFILE),
     ),
     GET_FOLLOW_UP: new APIRouter("api/v2/followup/getFollowup", HTTP_METHODS.GET, OFFLINE.PROFILE)
   },
@@ -196,17 +195,17 @@ export const API = {
     ADD_INVENTORY: new APIRouter(
       "api/v2/inventory/createInventory",
       HTTP_METHODS.POST,
-      OFFLINE.PROFILE
+      OFFLINE.PROFILE),
     ),
     GET_INVENTORY: new APIRouter(
       "api/v2/inventory/getAllInventories",
       HTTP_METHODS.GET,
-      OFFLINE.PROFILE
+      OFFLINE.PROFILE),
     ),
     DELETE_INVENTORY: new APIRouter(
       "api/v2/inventory/deleteInventory",
       HTTP_METHODS.DEL,
-      OFFLINE.PROFILE
+      OFFLINE.PROFILE),
     )
   },
   STATS: {
@@ -245,7 +244,7 @@ export const API = {
     UPDATE_PAYMENT_STATUS: new APIRouter(
       "/order/updatePaymentStatus",
       HTTP_METHODS.PATCH,
-      OFFLINE.PROFILE
+      OFFLINE.PROFILE),
     ),
     ADD_PAYMENT: new APIRouter("order/payment/:orderId", HTTP_METHODS.PATCH, OFFLINE.PROFILE),
     GET_CSV: new APIRouter("order/getCSV", HTTP_METHODS.GET, OFFLINE.PROFILE),
@@ -273,20 +272,23 @@ export const API = {
     UPDATE_SALESMEN_RESTRICTIONS: new APIRouter(
       "/salesmen-access",
       HTTP_METHODS.PUT,
-      OFFLINE.PROFILE
+      OFFLINE.PROFILE),
     ),
-    UPDATE_SLOT_BUFFER: new APIRouter("/slots/buffer", HTTP_METHODS.PUT, OFFLINE.PROFILE),
+    UPDATE_SLOT_BUFFER: new APIRouter(
+      "slots/update-slot-buffer/:slotId",
+      HTTP_METHODS.PUT,
+      OFFLINE.PROFILE),
     RELEASE_BUFFER_PLANTS: new APIRouter("/slots", HTTP_METHODS.POST, OFFLINE.PROFILE),
     ADD_PLANTS_TO_CAPACITY: new APIRouter("/slots", HTTP_METHODS.POST, OFFLINE.PROFILE),
     CREATE_SLOTS_FOR_MULTIPLE_YEARS: new APIRouter(
       "/slots/create-multiple-years",
       HTTP_METHODS.POST,
-      OFFLINE.PROFILE
+      OFFLINE.PROFILE),
     ),
     CREATE_SLOTS_FOR_SUBTYPE: new APIRouter(
       "/slots/create-subtype",
       HTTP_METHODS.POST,
-      OFFLINE.PROFILE
+      OFFLINE.PROFILE),
     ),
     DELETE_ALL_SLOTS: new APIRouter("/slots/delete-all", HTTP_METHODS.DEL, OFFLINE.PROFILE)
   },
@@ -381,24 +383,23 @@ export const API = {
     GET_SUBTYPES_BY_PLANT: new APIRouter(
       "slots/subtypes-by-plant",
       HTTP_METHODS.GET,
-      OFFLINE.PROFILE
+      OFFLINE.PROFILE),
     ),
     GET_SLOTS_BY_PLANT_SUBTYPE: new APIRouter(
       "slots/slots-by-plant-subtype",
       HTTP_METHODS.GET,
-      OFFLINE.PROFILE
+      OFFLINE.PROFILE),
     ),
     GET_SLOT_DETAILS: new APIRouter(
       "slots/slot-details/:slotId",
       HTTP_METHODS.GET,
-      OFFLINE.PROFILE
+      OFFLINE.PROFILE),
     ),
     GET_SLOT_TRAIL: new APIRouter("slot-trail/:slotId", HTTP_METHODS.GET, OFFLINE.PROFILE),
     UPDATE_SLOT_BUFFER: new APIRouter(
       "slots/update-slot-buffer/:slotId",
       HTTP_METHODS.PUT,
-      OFFLINE.PROFILE
-    )
+      OFFLINE.PROFILE),
   },
   WHATSAPP: {
     GET_MESSAGE_TEMPLATES: new APIRouter("/{tenantId}/api/v1/getMessageTemplates", HTTP_METHODS.GET),

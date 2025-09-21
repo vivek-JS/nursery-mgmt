@@ -1799,7 +1799,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
       <DialogTitle className={classes.dialogTitle} sx={{ pb: 1 }}>
         <Box display="flex" alignItems="center" gap={1}>
           <AddIcon fontSize="small" />
-          <Typography variant="h6">Add New Order</Typography>
+          <Typography variant="h6">Add New Ordesr</Typography>
         </Box>
         <IconButton className={classes.closeButton} onClick={handleClose} size="small">
           <CloseIcon fontSize="small" />
