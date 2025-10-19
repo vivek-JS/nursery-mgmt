@@ -5,7 +5,25 @@ const Dashboard = React.lazy(() => import("pages/private/dashboard"))
 const Settings = React.lazy(() => import("pages/private/settings"))
 const SubAdmins = React.lazy(() => import("pages/private/sub-admins"))
 const Weekly = React.lazy(() => import("pages/private/weekly"))
-const Inventory = React.lazy(() => import("pages/private/inventory"))
+
+// Inventory Management System
+const InventoryDashboard = React.lazy(() => import("pages/private/inventory/InventoryDashboard"))
+const ProductList = React.lazy(() => import("pages/private/inventory/ProductList"))
+const ProductForm = React.lazy(() => import("pages/private/inventory/ProductForm"))
+const ProductDetails = React.lazy(() => import("pages/private/inventory/ProductDetails"))
+const GRNList = React.lazy(() => import("pages/private/inventory/GRNList"))
+const GRNForm = React.lazy(() => import("pages/private/inventory/GRNForm"))
+const GRNDetails = React.lazy(() => import("pages/private/inventory/GRNDetails"))
+const PurchaseOrderList = React.lazy(() => import("pages/private/inventory/PurchaseOrderList"))
+const PurchaseOrderForm = React.lazy(() => import("pages/private/inventory/PurchaseOrderForm"))
+const PurchaseOrderDetails = React.lazy(() => import("pages/private/inventory/PurchaseOrderDetails"))
+const OutwardList = React.lazy(() => import("pages/private/inventory/OutwardList"))
+const OutwardForm = React.lazy(() => import("pages/private/inventory/OutwardForm"))
+const OutwardDetails = React.lazy(() => import("pages/private/inventory/OutwardDetails"))
+const SupplierList = React.lazy(() => import("pages/private/inventory/SupplierList"))
+const SupplierForm = React.lazy(() => import("pages/private/inventory/SupplierForm"))
+const TransactionList = React.lazy(() => import("pages/private/inventory/TransactionList"))
+
 const Transactions = React.lazy(() => import("pages/private/transaction"))
 const Patients = React.lazy(() => import("pages/private/employee"))
 const Admin = React.lazy(() => import("pages/private/admin"))
@@ -32,7 +50,26 @@ export const PrivateRoutes = [
   { path: "/u/employeese", exact: true, component: Patients },
 
   { path: "/u/sub-admins", exact: true, component: SubAdmins },
-  { path: "/u/inventory", exact: true, component: Inventory },
+  
+  // Inventory Management Routes
+  { path: "/u/inventory", exact: true, component: InventoryDashboard },
+  { path: "/u/inventory/products", exact: true, component: ProductList },
+  { path: "/u/inventory/products/new", exact: true, component: ProductForm },
+  { path: "/u/inventory/products/:id/edit", exact: true, component: ProductForm },
+  { path: "/u/inventory/products/:id", exact: true, component: ProductDetails },
+  { path: "/u/inventory/grn", exact: true, component: GRNList },
+  { path: "/u/inventory/grn/new", exact: true, component: GRNForm },
+  { path: "/u/inventory/grn/:id", exact: true, component: GRNDetails },
+  { path: "/u/inventory/purchase-orders", exact: true, component: PurchaseOrderList },
+  { path: "/u/inventory/purchase-orders/new", exact: true, component: PurchaseOrderForm },
+  { path: "/u/inventory/purchase-orders/:id", exact: true, component: PurchaseOrderDetails },
+  { path: "/u/inventory/outward", exact: true, component: OutwardList },
+  { path: "/u/inventory/outward/new", exact: true, component: OutwardForm },
+  { path: "/u/inventory/outward/:id", exact: true, component: OutwardDetails },
+  { path: "/u/inventory/suppliers", exact: true, component: SupplierList },
+  { path: "/u/inventory/suppliers/new", exact: true, component: SupplierForm },
+  { path: "/u/inventory/suppliers/:id/edit", exact: true, component: SupplierForm },
+  { path: "/u/inventory/transactions", exact: true, component: TransactionList },
 
   {
     path: "/u/settings",
