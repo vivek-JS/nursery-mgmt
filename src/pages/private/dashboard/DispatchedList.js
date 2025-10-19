@@ -324,6 +324,11 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh }) => {
                   key={dispatch._id}
                   dispatch={dispatch}
                   onRefresh={fetchDispatches}
+                  onViewDispatch={(dispatch) => handleDialogOpen("view", dispatch, { stopPropagation: () => {} })}
+                  onCollectSlip={(dispatch) => handleDialogOpen("collectSlip", dispatch, { stopPropagation: () => {} })}
+                  onDeliveryChallan={(dispatch) => handleDialogOpen("dc", dispatch, { stopPropagation: () => {} })}
+                  onCompleteOrder={(dispatch) => handleOrderComplete(dispatch, { stopPropagation: () => {} })}
+                  onDeleteDispatch={(dispatch) => handleDelete(dispatch)}
                 />
               ))}
             </div>

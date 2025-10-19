@@ -26,11 +26,15 @@ const initialValues = {
   confirmPassword: ""
 }
 
-const PasswordChangeModal = ({ open, onClose, onSuccess, loginResponse }) => {
+const PasswordChangeModal = ({ open, onClose, onSuccess, loginResponse, canClose = true }) => {
   const [showNewPassword, setShowNewPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const userSession = useUserSession()
+
+  // Determine if user can close modal - they cannot if password is not set
+  const isPasswordRequired = loginResponse && (!loginResponse.isPasswordSet || loginResponse.forcePasswordReset)
+  const allowClose = canClose && !isPasswordRequired
 
   // Debug logging
   console.log("🔍 PasswordChangeModal props:")
@@ -38,6 +42,7 @@ const PasswordChangeModal = ({ open, onClose, onSuccess, loginResponse }) => {
   console.log("   - loginResponse:", loginResponse)
   console.log("   - loginResponse?.isPasswordSet:", loginResponse?.isPasswordSet)
   console.log("   - loginResponse?.forcePasswordReset:", loginResponse?.forcePasswordReset)
+  console.log("   - allowClose:", allowClose)
 
   const handleSubmit = async (values, { setSubmitting, resetForm }) => {
     setLoading(true)
@@ -129,20 +134,42 @@ const PasswordChangeModal = ({ open, onClose, onSuccess, loginResponse }) => {
 
   console.log("🔍 PasswordChangeModal render - open:", open)
 
+  // Only allow closing if explicitly allowed
+  const handleClose = (event, reason) => {
+    if (!allowClose) {
+      // Prevent closing if password is required
+      return
+    }
+    if (onClose) {
+      onClose(event, reason)
+    }
+  }
+
   return (
     <Dialog
       open={open}
-      onClose={onClose}
+      onClose={handleClose}
       maxWidth="sm"
       fullWidth
-      disableEscapeKeyDown
-      disableBackdropClick>
+      disableEscapeKeyDown={!allowClose}
+      BackdropProps={{
+        onClick: (e) => {
+          if (!allowClose) {
+            e.stopPropagation()
+          }
+        }
+      }}>
       <DialogTitle>
         <div style={{ textAlign: "center" }}>
           <h2 style={{ margin: 0, color: "#1976d2" }}>{modalContent.title}</h2>
           <p style={{ margin: "8px 0 0 0", color: "#666", fontSize: "14px" }}>
             {modalContent.description}
           </p>
+          {isPasswordRequired && (
+            <p style={{ margin: "8px 0 0 0", color: "#d32f2f", fontSize: "13px", fontWeight: "bold" }}>
+              ⚠️ You must set a new password to continue
+            </p>
+          )}
         </div>
       </DialogTitle>
 
@@ -150,7 +177,7 @@ const PasswordChangeModal = ({ open, onClose, onSuccess, loginResponse }) => {
         initialValues={initialValues}
         validationSchema={validationSchema}
         onSubmit={handleSubmit}>
-        {({ values, errors, touched, handleChange, handleBlur, isValid, dirty }) => (
+        {(formik) => (
           <Form>
             <DialogContent>
               <div style={{ padding: "16px 0" }}>
@@ -159,6 +186,7 @@ const PasswordChangeModal = ({ open, onClose, onSuccess, loginResponse }) => {
                   name="newPassword"
                   type={showNewPassword ? "text" : "password"}
                   placeholder="Enter new password"
+                  formik={formik}
                   showPassword={showNewPassword}
                   togglePasswordVisiblity={toggleNewPasswordVisibility}
                   required
@@ -171,6 +199,7 @@ const PasswordChangeModal = ({ open, onClose, onSuccess, loginResponse }) => {
                   name="confirmPassword"
                   type={showConfirmPassword ? "text" : "password"}
                   placeholder="Confirm new password"
+                  formik={formik}
                   showPassword={showConfirmPassword}
                   togglePasswordVisiblity={toggleConfirmPasswordVisibility}
                   required
@@ -185,7 +214,7 @@ const PasswordChangeModal = ({ open, onClose, onSuccess, loginResponse }) => {
                 type="submit"
                 variant="contained"
                 color="primary"
-                disabled={!isValid || !dirty || loading}
+                disabled={!formik.isValid || !formik.dirty || loading}
                 style={{ minWidth: "120px" }}>
                 {loading ? "Changing..." : "Change Password"}
               </Button>

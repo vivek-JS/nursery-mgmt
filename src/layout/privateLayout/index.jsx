@@ -16,6 +16,7 @@ import LogoutIcon from "@mui/icons-material/Logout"
 import { usePrivateLayoutController } from "./privateLayout.controller"
 import { useStyles } from "layout/privateLayoutStyles"
 import { useSelector } from "react-redux"
+import PasswordChangeModal from "components/Modals/PasswordChangeModal"
 const drawerWidth = 65
 
 const Main = styled("main", { shouldForwardProp: (prop) => prop !== "open" })(
@@ -72,7 +73,15 @@ export default function PrivateLayout(props) {
 
   const userType = useSelector((state) => state?.userData?.userData?.jobTitle)
   console.log(userType)
-  const { navigate, handleLogout, activeMenu } = usePrivateLayoutController(props)
+  const { 
+    navigate, 
+    handleLogout, 
+    activeMenu,
+    showPasswordModal,
+    handlePasswordChangeSuccess,
+    handlePasswordModalClose,
+    userProfile
+  } = usePrivateLayoutController(props)
 
   return (
     <Box sx={{ display: "flex" }}>
@@ -150,6 +159,20 @@ export default function PrivateLayout(props) {
       <Main open={open}>
         <Outlet />
       </Main>
+      
+      {/* Password Change Modal - shown if user hasn't set password */}
+      {showPasswordModal && userProfile && (
+        <PasswordChangeModal
+          open={showPasswordModal}
+          onClose={handlePasswordModalClose}
+          onSuccess={handlePasswordChangeSuccess}
+          loginResponse={{
+            isPasswordSet: false,
+            forcePasswordReset: true,
+            user: userProfile
+          }}
+        />
+      )}
     </Box>
   )
 }

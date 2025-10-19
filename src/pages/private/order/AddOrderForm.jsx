@@ -243,10 +243,15 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
     rate: "",
     plant: "",
     subtype: "",
-    selectedSlot: "",
+    orderDate: null, // Changed from selectedSlot to orderDate
     cavity: "",
     sales: null,
-    dealer: null
+    dealer: null,
+    // Order For fields
+    orderForEnabled: false,
+    orderForName: "",
+    orderForAddress: "",
+    orderForMobileNumber: ""
   })
 
   // UI state
@@ -832,17 +837,75 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
     console.log("Farmer data reset, keeping default location data")
   }
 
+  // Helper function to get slot ID for a specific date
+  const getSlotIdForDate = (selectedDate) => {
+    if (!selectedDate || slots.length === 0) return null
+
+    const selectedMoment = moment(selectedDate)
+
+    for (const slot of slots) {
+      if (!slot.startDay || !slot.endDay) continue
+
+      const slotStart = moment(slot.startDay, "DD-MM-YYYY")
+      const slotEnd = moment(slot.endDay, "DD-MM-YYYY")
+
+      // Check if the selected date falls within this slot's range
+      if (
+        selectedMoment.isSameOrAfter(slotStart, "day") &&
+        selectedMoment.isSameOrBefore(slotEnd, "day")
+      ) {
+        return slot.value
+      }
+    }
+
+    return null
+  }
+
+  // Helper function to check if a date should be disabled (not in any slot)
+  const isDateDisabled = (date) => {
+    if (!date || slots.length === 0) return true
+
+    const dateMoment = moment(date)
+
+    for (const slot of slots) {
+      if (!slot.startDay || !slot.endDay) continue
+
+      const slotStart = moment(slot.startDay, "DD-MM-YYYY")
+      const slotEnd = moment(slot.endDay, "DD-MM-YYYY")
+
+      // If date is within any slot range, it's not disabled
+      if (dateMoment.isSameOrAfter(slotStart, "day") && dateMoment.isSameOrBefore(slotEnd, "day")) {
+        return false
+      }
+    }
+
+    return true
+  }
+
+  // Helper function to get available quantity for a specific date
+  const getAvailableQuantityForDate = (selectedDate) => {
+    const slotId = getSlotIdForDate(selectedDate)
+    if (!slotId) return null
+
+    const slot = slots.find((s) => s.value === slotId)
+    return slot?.availableQuantity || null
+  }
+
   const getRemainingQuantity = () => {
-    if (!dealerWallet?.entries || !formData.plant || !formData.subtype || !formData.selectedSlot) {
+    if (!dealerWallet?.entries || !formData.plant || !formData.subtype || !formData.orderDate) {
       return null
     }
+
+    // Get slot ID for the selected order date
+    const slotId = getSlotIdForDate(formData.orderDate)
+    if (!slotId) return null
 
     // Find the entry that matches plant, subtype, and slot
     const entry = dealerWallet.entries.find(
       (entry) =>
         entry.plantTypeId === formData.plant &&
         entry.subTypeId === formData.subtype &&
-        entry.bookingSlotId === formData.selectedSlot
+        entry.bookingSlotId === slotId
     )
 
     if (!entry) return null
@@ -1017,9 +1080,16 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
     console.log("Field:", field)
     console.log("Value:", value)
 
+    // Handle Order For mobile number validation before setting form data
+    let processedValue = value
+    if (field === "orderForMobileNumber") {
+      // Only allow numeric input and limit to 10 digits
+      processedValue = value.replace(/[^0-9]/g, '').slice(0, 10)
+    }
+
     setFormData((prev) => ({
       ...prev,
-      [field]: value
+      [field]: processedValue
     }))
 
     // Track if rate is manually set by user
@@ -1097,7 +1167,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
           const newFormData = {
             ...prev,
             rate: rateValue.toString(),
-            selectedSlot: "" // Reset selected slot when subtype changes (affects dealer quota)
+            orderDate: null // Reset order date when subtype changes (affects available slots)
           }
           console.log("Updated form data with rate:", newFormData)
           return newFormData
@@ -1108,15 +1178,15 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
         setFormData((prev) => ({
           ...prev,
           rate: "",
-          selectedSlot: "" // Reset selected slot when subtype changes (affects dealer quota)
+          orderDate: null // Reset order date when subtype changes (affects available slots)
         }))
         setRate(null)
       } else {
         console.log("Rate already set manually, not auto-setting from subtype")
-        // Only reset selected slot, keep the current rate
+        // Only reset order date, keep the current rate
         setFormData((prev) => ({
           ...prev,
-          selectedSlot: "" // Reset selected slot when subtype changes (affects dealer quota)
+          orderDate: null // Reset order date when subtype changes (affects available slots)
         }))
       }
     }
@@ -1133,19 +1203,17 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
         ...prev,
         rate: isAdminUser ? prev.rate : "", // Keep rate for admin users, reset for others
         subtype: "", // Also reset subtype when plant changes
-        selectedSlot: "" // Reset selected slot when plant changes (affects dealer quota)
+        orderDate: null // Reset order date when plant changes (affects available slots)
       }))
       setRate(isAdminUser ? parseFloat(formData.rate) || null : null)
       setRateManuallySet(isAdminUser ? rateManuallySet : false) // Keep manual flag for admin users
       setSubTypes([]) // Clear subtypes when plant changes
     }
 
-    // Set available quantity when slot is selected
-    if (field === "selectedSlot") {
-      const selectedSlot = slots.find((slot) => slot.value === value)
-      if (selectedSlot) {
-        setAvailable(selectedSlot.availableQuantity)
-      }
+    // Set available quantity when order date is selected
+    if (field === "orderDate") {
+      const availableQty = getAvailableQuantityForDate(value)
+      setAvailable(availableQty)
     }
 
     // Reset quota type when dealer changes and load dealer wallet
@@ -1165,7 +1233,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
   }
 
   const validateForm = () => {
-    const requiredFields = ["noOfPlants", "plant", "subtype", "selectedSlot", "cavity"]
+    const requiredFields = ["noOfPlants", "plant", "subtype", "orderDate", "cavity"]
 
     // For bulk orders, don't require farmer details
     if (!bulkOrder) {
@@ -1200,8 +1268,26 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
       return false
     }
 
+    // Validate Order For fields if enabled
+    if (formData.orderForEnabled) {
+      if (!formData.orderForName || formData.orderForName.trim() === '') {
+        Toast.error("Please enter name for the person the order is for")
+        return false
+      }
+      if (!formData.orderForAddress || formData.orderForAddress.trim() === '') {
+        Toast.error("Please enter address for the person the order is for")
+        return false
+      }
+      if (!formData.orderForMobileNumber || 
+          formData.orderForMobileNumber.length !== 10 || 
+          !/^\d{10}$/.test(formData.orderForMobileNumber)) {
+        Toast.error("Please enter a valid 10-digit mobile number for the person the order is for")
+        return false
+      }
+    }
+
     // Validate dealer quota availability
-    if (quotaType === "dealer" && formData.plant && formData.subtype && formData.selectedSlot) {
+    if (quotaType === "dealer" && formData.plant && formData.subtype && formData.orderDate) {
       const requestedQuantity = parseInt(formData.noOfPlants) || 0
       const availableQuantity = getRemainingQuantity()
 
@@ -1211,7 +1297,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
       console.log("Quota type:", quotaType)
       console.log("Plant:", formData.plant)
       console.log("Subtype:", formData.subtype)
-      console.log("Selected slot:", formData.selectedSlot)
+      console.log("Order date:", formData.orderDate)
 
       if (availableQuantity === null) {
         Toast.error("Unable to check dealer quota availability. Please try again.")
@@ -1227,11 +1313,18 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
     }
 
     // Validate slot capacity availability
-    if (formData.selectedSlot && formData.noOfPlants) {
+    if (formData.orderDate && formData.noOfPlants) {
       const requestedQuantity = parseInt(formData.noOfPlants) || 0
 
+      // Get slot ID for the selected order date
+      const slotId = getSlotIdForDate(formData.orderDate)
+      if (!slotId) {
+        Toast.error("Selected date does not fall within any available slot. Please select a valid date.")
+        return false
+      }
+
       // Check if using dealer quota
-      const selectedSlot = slots.find((s) => s.value === formData.selectedSlot)
+      const selectedSlot = slots.find((s) => s.value === slotId)
       const isDealerQuotaSlot = selectedSlot?.isDealerQuota
 
       let availableQuantity = available
@@ -1249,7 +1342,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
 
       if (availableQuantity !== null && requestedQuantity > availableQuantity) {
         Toast.error(
-          `⚠️ Slot Capacity Exceeded!\n\nOnly ${availableQuantity} plants available in slot: ${slotPeriod}\n\nPlease select a different slot or reduce the order quantity.`,
+          `⚠️ Slot Capacity Exceeded!\n\nOnly ${availableQuantity} plants available for ${moment(formData.orderDate).format("DD/MM/YYYY")} (slot: ${slotPeriod})\n\nPlease select a different date or reduce the order quantity.`,
           {
             duration: 8000,
             style: {
@@ -1309,7 +1402,9 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
     // Show confirmation popup with farmer name and dates in bold
     const selectedPlant = plants.find((p) => p.value === formData.plant)
     const selectedSubtype = subTypes.find((s) => s.value === formData.subtype)
-    const selectedSlot = slots.find((s) => s.value === formData.selectedSlot)
+    // Get slot ID from order date
+    const slotId = getSlotIdForDate(formData.orderDate)
+    const selectedSlot = slots.find((s) => s.value === slotId)
     const selectedSales = sales.find((s) => s.value === formData.sales)
     const selectedDealer = dealers.find((d) => d.value === formData.dealer)
 
@@ -1317,6 +1412,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
       farmerName: formData.name,
       mobileNumber: formData.mobileNumber,
       orderDate: formData.date,
+      deliveryDate: formData.orderDate, // The specific delivery date selected by user
       plantName: selectedPlant?.label || "",
       plantSubtype: selectedSubtype?.label || "",
       numberOfPlants: formData.noOfPlants,
@@ -1335,8 +1431,16 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
     setLoading(true)
 
     try {
-      console.log("Creating order payload with bookingSlot:", formData.selectedSlot)
-      const selectedSlotDetails = slots.find((s) => s.value === formData.selectedSlot)
+      // Get slot ID from the selected order date
+      const slotId = getSlotIdForDate(formData.orderDate)
+      console.log("Creating order payload with bookingSlot:", slotId)
+      console.log("Order date:", formData.orderDate)
+
+      if (!slotId) {
+        throw new Error("Could not determine slot for the selected date")
+      }
+
+      const selectedSlotDetails = slots.find((s) => s.value === slotId)
       console.log("Selected slot details:", selectedSlotDetails)
 
       if (!selectedSlotDetails) {
@@ -1350,9 +1454,16 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
 
       // Validate that the slot ID is a valid ObjectId format
       const objectIdRegex = /^[0-9a-fA-F]{24}$/
-      if (!objectIdRegex.test(formData.selectedSlot)) {
+      if (!objectIdRegex.test(slotId)) {
         throw new Error("Selected slot ID is not in valid ObjectId format")
       }
+
+      // Prepare Order For data if enabled
+      const orderForData = formData.orderForEnabled ? {
+        name: formData.orderForName.trim(),
+        address: formData.orderForAddress.trim(),
+        mobileNumber: parseInt(formData.orderForMobileNumber) || 0
+      } : undefined
 
       let payload
       let endpoint
@@ -1376,7 +1487,9 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
           orderStatus: isInstantOrder ? "DISPATCHED" : "ACCEPTED",
           plantName: formData.plant,
           plantSubtype: formData.subtype,
-          bookingSlot: formData.selectedSlot,
+          bookingSlot: slotId, // Auto-detected slot ID from order date
+          orderDate: formData.orderDate instanceof Date ? formData.orderDate.toISOString() : formData.orderDate,
+          deliveryDate: formData.orderDate instanceof Date ? formData.orderDate.toISOString() : formData.orderDate,
           orderPaymentStatus: "PENDING",
           cavity: formData.cavity,
           orderBookingDate:
@@ -1390,6 +1503,11 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
         // Add company quota flag based on quota type selection
         if (quotaType) {
           payload.componyQuota = quotaType === "company"
+        }
+
+        // Add orderFor data if provided
+        if (orderForData) {
+          payload.orderFor = orderForData
         }
 
         endpoint = API.ORDER.CREATE_DEALER_ORDER
@@ -1414,7 +1532,9 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
           orderStatus: isInstantOrder ? "DISPATCHED" : "ACCEPTED",
           plantName: formData.plant,
           plantSubtype: formData.subtype,
-          bookingSlot: formData.selectedSlot,
+          bookingSlot: slotId, // Auto-detected slot ID from order date
+          orderDate: formData.orderDate instanceof Date ? formData.orderDate.toISOString() : formData.orderDate,
+          deliveryDate: formData.orderDate instanceof Date ? formData.orderDate.toISOString() : formData.orderDate,
           orderPaymentStatus: "PENDING",
           cavity: formData.cavity,
           orderBookingDate:
@@ -1430,6 +1550,12 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
         if (quotaType) {
           payload.componyQuota = quotaType === "company"
         }
+
+        // Add orderFor data if provided
+        if (orderForData) {
+          payload.orderFor = orderForData
+        }
+        
         endpoint = API.FARMER.CREATE_FARMER
       }
 
@@ -1608,10 +1734,15 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
       rate: "",
       plant: "",
       subtype: "",
-      selectedSlot: "",
+      orderDate: null, // Reset order date instead of selectedSlot
       cavity: "",
       sales: null,
-      dealer: null
+      dealer: null,
+      // Reset Order For fields
+      orderForEnabled: false,
+      orderForName: "",
+      orderForAddress: "",
+      orderForMobileNumber: ""
     })
     setFarmerData({})
     // Always default to Normal Order (not Instant Order)
@@ -1770,11 +1901,11 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
               />
             </RadioGroup>
 
-            {quotaType === "dealer" && formData.selectedSlot && (
+            {quotaType === "dealer" && formData.orderDate && (
               <Box className={classes.quotaInfo}>
                 <InfoIcon color="primary" />
                 <Typography variant="body2">
-                  Your quota for this slot:{" "}
+                  Your quota for selected date:{" "}
                   {getRemainingQuantity() !== null ? getRemainingQuantity() : "Loading..."}
                 </Typography>
               </Box>
@@ -1799,7 +1930,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
       <DialogTitle className={classes.dialogTitle} sx={{ pb: 1 }}>
         <Box display="flex" alignItems="center" gap={1}>
           <AddIcon fontSize="small" />
-          <Typography variant="h6">Add New Ordesr</Typography>
+          <Typography variant="h6">Add New Order</Typography>
         </Box>
         <IconButton className={classes.closeButton} onClick={handleClose} size="small">
           <CloseIcon fontSize="small" />
@@ -1827,6 +1958,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
 
           {renderOrderTypeSelector()}
           {renderQuotaTypeSelector()}
+
 
           {/* Farmer Details Section */}
           {!bulkOrder && (
@@ -1904,6 +2036,81 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                       disabled={!!farmerData?.name}
                     />
                   </Grid>
+
+                  {/* Order For Toggle - Beside Farmer Name */}
+                  <Grid item xs={12} md={6}>
+                    <Box sx={{ mt: 1 }}>
+                      <FormControlLabel
+                        control={
+                          <Checkbox
+                            checked={formData.orderForEnabled}
+                            onChange={(e) => handleInputChange("orderForEnabled", e.target.checked)}
+                            color="primary"
+                          />
+                        }
+                        label={
+                          <Typography variant="body2" fontWeight={600}>
+                            Place order for someone else?
+                          </Typography>
+                        }
+                      />
+                    </Box>
+                  </Grid>
+
+                  {/* Order For Fields - Show when enabled */}
+                  {formData.orderForEnabled && (
+                    <>
+                      <Grid item xs={12}>
+                        <Divider sx={{ my: 1 }}>
+                          <Chip label="Order For Details" size="small" color="primary" />
+                        </Divider>
+                      </Grid>
+                      
+                      <Grid item xs={12} md={6}>
+                        <TextField
+                          fullWidth
+                          label="Name *"
+                          value={formData.orderForName}
+                          onChange={(e) => handleInputChange("orderForName", e.target.value)}
+                          placeholder="Enter name of person order is for"
+                          size="small"
+                        />
+                      </Grid>
+                      
+                      <Grid item xs={12} md={6}>
+                        <TextField
+                          fullWidth
+                          label="Mobile Number *"
+                          value={formData.orderForMobileNumber}
+                          onChange={(e) => handleInputChange("orderForMobileNumber", e.target.value)}
+                          placeholder="Enter 10-digit mobile number"
+                          inputProps={{ maxLength: 10 }}
+                          size="small"
+                        />
+                      </Grid>
+                      
+                      <Grid item xs={12}>
+                        <TextField
+                          fullWidth
+                          label="Address *"
+                          value={formData.orderForAddress}
+                          onChange={(e) => handleInputChange("orderForAddress", e.target.value)}
+                          placeholder="Enter complete address"
+                          multiline
+                          rows={2}
+                          size="small"
+                        />
+                      </Grid>
+                      
+                      <Grid item xs={12}>
+                        <Alert severity="info" sx={{ mt: 1 }}>
+                          <Typography variant="body2">
+                            This information will be stored with the order and can be used for delivery and communication purposes.
+                          </Typography>
+                        </Alert>
+                      </Grid>
+                    </>
+                  )}
 
                   <Grid item xs={12}>
                     {console.log("LocationSelector props:", {
@@ -2073,11 +2280,11 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                     />
                   </RadioGroup>
 
-                  {quotaType === "dealer" && formData.selectedSlot && (
+                  {quotaType === "dealer" && formData.orderDate && (
                     <Box className={classes.quotaInfo} sx={{ mt: 2 }}>
                       <InfoIcon color="primary" />
                       <Typography variant="body2">
-                        Dealer quota for this slot:{" "}
+                        Dealer quota for selected date:{" "}
                         {getRemainingQuantity() !== null ? getRemainingQuantity() : "Loading..."}
                       </Typography>
                     </Box>
@@ -2264,7 +2471,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                                   ? "1px solid #f0f0f0"
                                   : "none",
                               backgroundColor:
-                                slotInfo.slotId === formData.selectedSlot
+                                slotInfo.slotId === getSlotIdForDate(formData.orderDate)
                                   ? "#e3f2fd"
                                   : "transparent",
                               display: "flex",
@@ -2421,26 +2628,27 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                 </Grid>
 
                 <Grid item xs={12} md={6}>
-                  <FormControl fullWidth>
-                    <InputLabel>Select Slot</InputLabel>
-                    <Select
-                      value={formData.selectedSlot || ""}
-                      onChange={(e) => handleInputChange("selectedSlot", e.target.value)}
-                      label="Select Slot"
-                      disabled={!formData.subtype}>
-                      {quotaType === "dealer" && dealerWallet?.entries
-                        ? getAvailablePlantsForSlots().map((slotInfo) => (
-                            <MenuItem key={slotInfo.slotId} value={slotInfo.slotId}>
-                              {slotInfo.slotLabel}
-                            </MenuItem>
-                          ))
-                        : slots.map((slot) => (
-                            <MenuItem key={slot.value} value={slot.value}>
-                              {slot.label}
-                            </MenuItem>
-                          ))}
-                    </Select>
-                  </FormControl>
+                  <LocalizationProvider dateAdapter={AdapterDateFns}>
+                    <DatePicker
+                      label="Order Date *"
+                      value={formData.orderDate}
+                      onChange={(date) => handleInputChange("orderDate", date)}
+                      disabled={!formData.subtype}
+                      shouldDisableDate={isDateDisabled}
+                      renderInput={(params) => (
+                        <TextField 
+                          {...params} 
+                          fullWidth 
+                          helperText={
+                            formData.subtype 
+                              ? "Select delivery date (only dates within available slots are enabled)" 
+                              : "Select plant and subtype first"
+                          }
+                        />
+                      )}
+                      minDate={new Date()}
+                    />
+                  </LocalizationProvider>
                 </Grid>
 
                 <Grid item xs={12} md={6}>
@@ -2454,7 +2662,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                       quotaType === "dealer" &&
                       formData.plant &&
                       formData.subtype &&
-                      formData.selectedSlot &&
+                      formData.orderDate &&
                       formData.noOfPlants &&
                       parseInt(formData.noOfPlants) > (getRemainingQuantity() || 0)
                     }
@@ -2462,7 +2670,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                       quotaType === "dealer" &&
                       formData.plant &&
                       formData.subtype &&
-                      formData.selectedSlot &&
+                      formData.orderDate &&
                       formData.noOfPlants
                         ? parseInt(formData.noOfPlants) > (getRemainingQuantity() || 0)
                           ? `Exceeds available dealer quota (${getRemainingQuantity() || 0})`
@@ -2584,7 +2792,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                 {quotaType === "dealer" &&
                   formData.plant &&
                   formData.subtype &&
-                  formData.selectedSlot && (
+                  formData.orderDate && (
                     <Grid item xs={12}>
                       <Box
                         sx={{
@@ -3000,18 +3208,42 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                 </Typography>
               </Box>
 
+              {/* Order For Details */}
+              {formData.orderForEnabled && (
+                <Box sx={{ p: 2, bgcolor: "#e8f5e8", borderRadius: 1, border: "1px solid #4caf50" }}>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 600, color: "#2e7d32", mb: 1 }}>
+                    Order For Details
+                  </Typography>
+                  <Typography variant="body2" sx={{ mb: 0.5 }}>
+                    <strong>Name:</strong> {formData.orderForName}
+                  </Typography>
+                  <Typography variant="body2" sx={{ mb: 0.5 }}>
+                    <strong>Mobile:</strong> {formData.orderForMobileNumber}
+                  </Typography>
+                  <Typography variant="body2" sx={{ mb: 0.5 }}>
+                    <strong>Address:</strong> {formData.orderForAddress}
+                  </Typography>
+                </Box>
+              )}
+
               {/* Dates */}
               <Box sx={{ p: 2, bgcolor: "#e3f2fd", borderRadius: 1, border: "1px solid #2196f3" }}>
                 <Typography variant="subtitle1" sx={{ fontWeight: 600, color: "#1976d2", mb: 1 }}>
                   Important Dates
                 </Typography>
                 <Typography variant="body2" sx={{ mb: 0.5 }}>
-                  <strong>Order Date:</strong>{" "}
+                  <strong>Order Booking Date:</strong>{" "}
                   {moment(confirmationData.orderDate).format("DD/MM/YYYY")}
                 </Typography>
+                {confirmationData.deliveryDate && (
+                  <Typography variant="body2" sx={{ fontWeight: 700, color: "#e74c3c", mb: 0.5 }}>
+                    <strong>Delivery Date:</strong>{" "}
+                    {moment(confirmationData.deliveryDate).format("DD/MM/YYYY")}
+                  </Typography>
+                )}
                 {confirmationData.slotPeriod && (
-                  <Typography variant="body2" sx={{ fontWeight: 700, color: "#e74c3c" }}>
-                    <strong>Delivery Period:</strong> {confirmationData.slotPeriod}
+                  <Typography variant="body2" sx={{ fontSize: "0.875rem", color: "#1976d2" }}>
+                    <strong>Slot Period:</strong> {confirmationData.slotPeriod}
                   </Typography>
                 )}
               </Box>

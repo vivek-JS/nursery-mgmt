@@ -1505,56 +1505,28 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                   return (
                     <Card
                       key={_id}
-                      className={`transition-all duration-300 hover:shadow-xl cursor-pointer rounded-2xl border-2 ${
-                        slotIsOverbooked 
-                          ? "border-red-300 ring-2 ring-red-200 shadow-lg shadow-red-100" 
-                          : slotBookedPercentage > 70
-                          ? "border-orange-200 hover:border-orange-300"
-                          : "border-gray-200 hover:border-blue-300"
-                      } ${status ? "" : "opacity-60"}`}
+                      className={`transition-all duration-300 hover:shadow-lg cursor-pointer ${
+                        slotIsOverbooked ? "ring-2 ring-red-200" : ""
+                      }`}
                       onClick={() => openSlotDetails(slot, availableMonths[selectedMonth])}>
-                      <CardContent className={`p-5 ${
-                        slotIsOverbooked 
-                          ? "bg-gradient-to-br from-red-50 to-red-100" 
-                          : slotBookedPercentage > 70
-                          ? "bg-gradient-to-br from-orange-50 to-orange-100"
-                          : "bg-gradient-to-br from-white to-gray-50"
-                      }`}>
+                      <CardContent className={`p-4 ${slotIsOverbooked ? "bg-red-50" : ""}`}>
                         {/* Card Header */}
-                        <div className="flex items-center justify-between mb-4">
-                          <div className="flex items-center gap-2">
-                            <div className={`p-2 rounded-xl ${
-                              slotIsOverbooked 
-                                ? "bg-red-500" 
-                                : slotBookedPercentage > 70
-                                ? "bg-orange-500"
-                                : "bg-blue-500"
-                            }`}>
-                              <Calendar className="w-4 h-4 text-white" />
-                            </div>
-                            <div>
-                              <h4 className="font-bold text-gray-900 text-sm">
-                                {start} - {end}
-                              </h4>
-                              <p className="text-xs text-gray-500">{year}</p>
-                            </div>
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="flex items-center space-x-2">
+                            <h4 className="font-semibold text-gray-900">
+                              {start} - {end}
+                            </h4>
                             {isManual && (
-                              <Tooltip title="Manual Slot" arrow placement="top">
-                                <div className="px-2 py-0.5 bg-amber-100 rounded-full">
-                                  <Zap className="w-3 h-3 text-amber-600" />
-                                </div>
+                              <Tooltip title="Manual Slot">
+                                <Zap className="w-4 h-4 text-amber-500" />
                               </Tooltip>
                             )}
                             {slotIsOverbooked && (
-                              <Tooltip title="Capacity Exceeded!" arrow placement="top">
-                                <div className="px-2 py-0.5 bg-red-500 rounded-full animate-pulse">
-                                  <AlertTriangle className="w-3 h-3 text-white" />
-                                </div>
+                              <Tooltip title="Overbooked">
+                                <AlertTriangle className="w-4 h-4 text-red-500" />
                               </Tooltip>
                             )}
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <Tooltip title="View History" arrow>
+                            <Tooltip title="View Slot Trail">
                               <IconButton
                                 size="small"
                                 onClick={(e) => {
@@ -1564,16 +1536,13 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                                   setSelectedSlotForTrail(slot)
                                   setShowSlotTrailModal(true)
                                 }}
-                                sx={{
-                                  bgcolor: 'rgba(59, 130, 246, 0.1)',
-                                  '&:hover': { bgcolor: 'rgba(59, 130, 246, 0.2)' },
-                                  width: 28,
-                                  height: 28
-                                }}>
-                                <History className="w-3.5 h-3.5 text-blue-600" />
+                                className="text-blue-600 hover:text-blue-800">
+                                <History className="w-4 h-4" />
                               </IconButton>
                             </Tooltip>
-                            <Tooltip title="Edit Available Plants" arrow>
+                          </div>
+                          <div className="flex items-center space-x-1">
+                            <Tooltip title="Edit Plants">
                               <IconButton
                                 size="small"
                                 onClick={(e) => {
@@ -1581,112 +1550,80 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                                   startEditing(e, totalPlants, _id, buffer)
                                 }}
                                 sx={{
-                                  bgcolor: (slot.availablePlants || totalPlants) < 0
-                                    ? 'rgba(220, 38, 38, 0.1)'
-                                    : 'rgba(5, 150, 105, 0.1)',
-                                  '&:hover': {
-                                    bgcolor: (slot.availablePlants || totalPlants) < 0
-                                      ? 'rgba(220, 38, 38, 0.2)'
-                                      : 'rgba(5, 150, 105, 0.2)'
-                                  },
-                                  width: 28,
-                                  height: 28
+                                  color:
+                                    (slot.availablePlants || totalPlants) < 0
+                                      ? "#dc2626"
+                                      : "#059669"
                                 }}>
-                                <Edit2 className={`w-3.5 h-3.5 ${
-                                  (slot.availablePlants || totalPlants) < 0
-                                    ? "text-red-600"
-                                    : "text-green-600"
-                                }`} />
+                                <Edit2 className="w-4 h-4" />
                               </IconButton>
                             </Tooltip>
-                            <Tooltip title="Manage Buffer" arrow>
+                            <Tooltip title="Update Buffer">
                               <IconButton
                                 size="small"
                                 onClick={(e) => {
                                   e.stopPropagation()
                                   openBufferModal(e, slot, buffer)
                                 }}
-                                sx={{
-                                  bgcolor: 'rgba(139, 92, 246, 0.1)',
-                                  '&:hover': { bgcolor: 'rgba(139, 92, 246, 0.2)' },
-                                  width: 28,
-                                  height: 28
-                                }}>
-                                <Shield className="w-3.5 h-3.5 text-purple-600" />
+                                sx={{ color: "#8b5cf6" }}>
+                                <Shield className="w-4 h-4" />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="View Details">
+                              <IconButton size="small">
+                                <Eye className="w-4 h-4" />
                               </IconButton>
                             </Tooltip>
                           </div>
                         </div>
 
-                        {/* Enhanced Progress Bar */}
-                        <div className="mb-4">
-                          <div className="flex justify-between items-center mb-2">
-                            <span className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Utilization</span>
-                            <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${slotStatusColor.text} ${
-                              slotIsOverbooked ? "bg-red-100" : slotBookedPercentage > 70 ? "bg-orange-100" : "bg-blue-100"
-                            }`}>
+                        {/* Progress Bar */}
+                        <div className="mb-3">
+                          <div className="flex justify-between items-center mb-1">
+                            <span className="text-xs text-gray-600">Booking Progress</span>
+                            <span className={`text-xs font-medium ${slotStatusColor.text}`}>
                               {slotBookedPercentage}%
                             </span>
                           </div>
-                          <div className="relative w-full bg-gray-200 rounded-full h-3 overflow-hidden shadow-inner">
+                          <div className="w-full bg-gray-200 rounded-full h-2">
                             <div
-                              className={`h-3 ${
+                              className={`h-2 ${
                                 slotStatusColor.bg
                               } transition-all duration-500 rounded-full ${
-                                slotIsOverbooked ? "animate-pulse shadow-lg" : ""
+                                slotIsOverbooked ? "animate-pulse" : ""
                               }`}
-                              style={{ 
-                                width: `${Math.min(slotBookedPercentage, 100)}%`,
-                                background: slotIsOverbooked 
-                                  ? 'linear-gradient(90deg, #dc2626, #991b1b)' 
-                                  : slotBookedPercentage > 70
-                                  ? 'linear-gradient(90deg, #f59e0b, #d97706)'
-                                  : 'linear-gradient(90deg, #3b82f6, #2563eb)'
-                              }}
+                              style={{ width: `${Math.min(slotBookedPercentage, 100)}%` }}
                             />
                           </div>
                         </div>
 
-                        {/* Enhanced Stats Grid */}
-                        <div className="grid grid-cols-2 gap-3 mb-4">
-                          <div className={`p-3 rounded-xl border-2 ${
-                            slot.availablePlants < 0 
-                              ? "bg-red-50 border-red-200" 
-                              : "bg-green-50 border-green-200"
-                          }`}>
-                            <div className="flex items-center justify-between mb-1">
-                              <p className="text-xs font-medium text-gray-600">Available</p>
-                              <CheckCircle2 className={`w-3.5 h-3.5 ${
-                                slot.availablePlants < 0 ? "text-red-500" : "text-green-500"
-                              }`} />
-                            </div>
-                            <p className={`text-lg font-bold ${
-                              slot.availablePlants < 0 ? "text-red-700" : "text-green-700"
-                            }`}>
-                              {slot.availablePlants?.toLocaleString() || totalPlants.toLocaleString()}
+                        {/* Stats */}
+                        <div className="grid grid-cols-2 gap-2 text-center text-xs mb-2">
+                          <div>
+                            <p className="text-gray-600">Available</p>
+                            <p
+                              className={`font-bold ${
+                                slot.availablePlants < 0 ? "text-red-600" : "text-green-600"
+                              }`}>
+                              {slot.availablePlants?.toLocaleString() ||
+                                totalPlants.toLocaleString()}
                             </p>
                           </div>
-                          <div className="p-3 rounded-xl bg-blue-50 border-2 border-blue-200">
-                            <div className="flex items-center justify-between mb-1">
-                              <p className="text-xs font-medium text-gray-600">Booked</p>
-                              <Clock className="w-3.5 h-3.5 text-blue-500" />
-                            </div>
-                            <p className="text-lg font-bold text-blue-700">{totalBookedPlants.toLocaleString()}</p>
+                          <div>
+                            <p className="text-gray-600">Booked</p>
+                            <p className="font-bold text-blue-600">{totalBookedPlants}</p>
                           </div>
                         </div>
 
-                        {/* Enhanced Buffer Info Card */}
-                        <div className="mb-4 p-4 bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl border-2 border-purple-200 shadow-sm">
-                          <div className="flex items-center justify-between mb-2">
-                            <div className="flex items-center gap-2">
-                              <Shield className="w-4 h-4 text-purple-600" />
-                              <span className="text-xs font-bold text-purple-900 uppercase tracking-wide">Buffer Reserve</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm font-bold text-purple-700">
+                        {/* Buffer Info */}
+                        <div className="mb-2 p-2 bg-purple-50 rounded-lg border border-purple-200">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-purple-700 font-medium">Buffer</span>
+                            <div className="flex items-center space-x-2">
+                              <span className="text-purple-600 font-bold">
                                 {slot.effectiveBuffer || buffer || 0}%
                               </span>
-                              <Tooltip title="Update Buffer %" arrow>
+                              <Tooltip title="Update Buffer">
                                 <IconButton
                                   size="small"
                                   onClick={(e) => {
@@ -1694,30 +1631,18 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                                     openBufferModal(e, slot, slot.effectiveBuffer || buffer)
                                   }}
                                   sx={{
-                                    bgcolor: 'rgba(139, 92, 246, 0.2)',
-                                    padding: "4px",
-                                    "&:hover": { bgcolor: "rgba(139, 92, 246, 0.3)" },
-                                    width: 24,
-                                    height: 24
+                                    color: "#8b5cf6",
+                                    padding: "2px",
+                                    "&:hover": { backgroundColor: "rgba(139, 92, 246, 0.1)" }
                                   }}>
-                                  <Edit2 className="w-3 h-3 text-purple-700" />
+                                  <Shield className="w-3 h-3" />
                                 </IconButton>
                               </Tooltip>
                             </div>
                           </div>
-                          
-                          {slot.bufferAmount > 0 && (
-                            <div className="mb-2 p-2 bg-white rounded-lg">
-                              <div className="text-xs text-gray-600 mb-1">Reserved Plants</div>
-                              <div className="text-lg font-bold text-purple-700">
-                                {slot.bufferAmount?.toLocaleString() || 0}
-                              </div>
-                            </div>
-                          )}
-
                           {slot.effectiveBuffer && slot.effectiveBuffer !== (buffer || 0) && (
-                            <div className="text-xs text-purple-700 bg-purple-200 px-2 py-1 rounded-full inline-block mb-2">
-                              ℹ️ Inherited from{" "}
+                            <div className="text-xs text-purple-600 mt-1">
+                              Inherited from{" "}
                               {slot.effectiveBuffer === slot.buffer
                                 ? "slot"
                                 : slot.effectiveBuffer === slot.subtypeBuffer
@@ -1725,58 +1650,47 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                                 : "plant"}
                             </div>
                           )}
-                          
                           {/* Release Buffer Button */}
                           {slot.bufferAmount > 0 && (
-                            <Tooltip title="Release buffer plants to available capacity" arrow>
-                              <Button
-                                size="small"
-                                variant="contained"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  openReleaseBufferModal(slot)
-                                }}
-                                sx={{
-                                  width: "100%",
-                                  fontSize: "0.75rem",
-                                  padding: "6px 12px",
-                                  bgcolor: "#8b5cf6",
-                                  borderRadius: "8px",
-                                  fontWeight: 600,
-                                  textTransform: "none",
-                                  "&:hover": {
-                                    bgcolor: "#7c3aed"
-                                  }
-                                }}
-                                startIcon={<TrendingUp className="w-3.5 h-3.5" />}>
-                                Release {slot.bufferAmount?.toLocaleString() || 0} Plants
-                              </Button>
-                            </Tooltip>
+                            <div className="mt-2">
+                              <Tooltip title="Release plants from buffer to available">
+                                <Button
+                                  size="small"
+                                  variant="outlined"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    openReleaseBufferModal(slot)
+                                  }}
+                                  sx={{
+                                    width: "100%",
+                                    fontSize: "0.7rem",
+                                    padding: "2px 4px",
+                                    borderColor: "#8b5cf6",
+                                    color: "#8b5cf6",
+                                    "&:hover": {
+                                      backgroundColor: "rgba(139, 92, 246, 0.1)",
+                                      borderColor: "#7c3aed"
+                                    }
+                                  }}>
+                                  <Shield className="w-3 h-3 mr-1" />
+                                  Release Buffer ({slot.bufferAmount?.toLocaleString() || 0})
+                                </Button>
+                              </Tooltip>
+                            </div>
                           )}
                         </div>
 
-                        {/* Total Capacity Display */}
-                        <div className="p-3 bg-gradient-to-br from-indigo-50 to-indigo-100 rounded-xl border-2 border-indigo-200 mb-4">
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <p className="text-xs font-medium text-indigo-700 uppercase tracking-wide mb-1">Total Capacity</p>
-                              <p className="text-xl font-bold text-indigo-900">
-                                {slot.originalTotalPlants
-                                  ? slot.originalTotalPlants.toLocaleString()
-                                  : (totalPlants + totalBookedPlants).toLocaleString()}
-                              </p>
-                            </div>
-                            <Target className="w-8 h-8 text-indigo-400" />
-                          </div>
+                        <div className="text-center text-xs">
+                          <p className="text-gray-600">Total Capacity</p>
+                          <p className="font-bold text-gray-900">
+                            {slot.originalTotalPlants
+                              ? slot.originalTotalPlants.toLocaleString()
+                              : (totalPlants + totalBookedPlants).toLocaleString()}
+                          </p>
                           {slot.bufferAmount > 0 && (
-                            <div className="mt-2 pt-2 border-t border-indigo-200">
-                              <div className="flex justify-between text-xs">
-                                <span className="text-indigo-600">After Buffer</span>
-                                <span className="font-bold text-indigo-800">
-                                  {(slot.originalTotalPlants || totalPlants + totalBookedPlants) - slot.bufferAmount} available
-                                </span>
-                              </div>
-                            </div>
+                            <p className="text-xs text-gray-500">
+                              -{slot.bufferAmount?.toLocaleString() || 0} buffer
+                            </p>
                           )}
                         </div>
 
