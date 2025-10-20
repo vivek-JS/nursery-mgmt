@@ -36,17 +36,23 @@ const SingleSendModal = ({ open, onClose, template }) => {
 
   const formatTemplateContent = (template) => {
     if (!template) return "No template available"
-    return template?.body || template?.content || template?.message || ""
+    return template?.bodyOriginal || template?.body || template?.content || template?.message || ""
   }
 
-  const extractVariables = (content) => {
+  const extractVariables = (template) => {
+    // Use customParams if available (this has the actual parameter names)
+    if (template?.customParams && template.customParams.length > 0) {
+      return template.customParams.map(param => param.paramName)
+    }
+    // Fallback: extract from content
+    const content = formatTemplateContent(template)
     if (!content) return []
     const matches = content.match(/\{\{([^}]+)\}\}/g)
     return matches ? matches.map(match => match.replace(/\{\{|\}\}/g, "")) : []
   }
 
   const templateContent = formatTemplateContent(template)
-  const variables = extractVariables(templateContent)
+  const variables = extractVariables(template)
 
   // Initialize parameter values when template changes
   useEffect(() => {
@@ -102,7 +108,7 @@ const SingleSendModal = ({ open, onClose, template }) => {
       })
       setParameterValues(initialValues)
     }
-  }, [template, variables, phoneNumber])
+  }, [template, phoneNumber])
 
   const formatPhoneNumber = (phone) => {
     const cleaned = phone.replace(/\D/g, "")
@@ -301,22 +307,29 @@ const SingleSendModal = ({ open, onClose, template }) => {
           {variables.length > 0 && (
             <>
               <Grid item xs={12}>
-                <Divider sx={{ my: 1 }}>
-                  <Chip label="Template Parameters" color="primary" size="small" />
-                </Divider>
+                <Stack direction="row" justifyContent="space-between" alignItems="center">
+                  <Chip label={`${variables.length} Parameters`} color="primary" size="small" />
+                  <Button 
+                    size="small" 
+                    onClick={() => setParameterValues({})}
+                    disabled={loading}
+                  >
+                    Clear All
+                  </Button>
+                </Stack>
               </Grid>
               
               {variables.map((variable, index) => (
                 <Grid item xs={12} md={6} key={index}>
                   <TextField
                     fullWidth
-                    label={`${variable} (${index + 1})`}
+                    label={`${variable}`}
                     placeholder={`Enter ${variable}`}
                     value={parameterValues[index] || ""}
                     onChange={(e) => handleParameterChange(index, e.target.value)}
                     disabled={loading}
-                    required
                     size="small"
+                    helperText={`Parameter ${index + 1} of ${variables.length}`}
                     sx={{ 
                       '& .MuiOutlinedInput-root': { 
                         borderRadius: 2 

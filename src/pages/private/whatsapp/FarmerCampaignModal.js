@@ -203,17 +203,23 @@ const FarmerCampaignModal = ({ open, onClose, template }) => {
 
   const formatTemplateContent = (template) => {
     if (!template) return "No template available"
-    return template?.body || template?.content || template?.message || ""
+    return template?.bodyOriginal || template?.body || template?.content || template?.message || ""
   }
 
-  const extractVariables = (content) => {
+  const extractVariables = (template) => {
+    // Use customParams if available (this has the actual parameter names)
+    if (template?.customParams && template.customParams.length > 0) {
+      return template.customParams.map(param => param.paramName)
+    }
+    // Fallback: extract from content
+    const content = formatTemplateContent(template)
     if (!content) return []
     const matches = content.match(/\{\{([^}]+)\}\}/g)
     return matches ? matches.map(match => match.replace(/\{\{|\}\}/g, "")) : []
   }
 
   const templateContent = formatTemplateContent(template)
-  const variables = extractVariables(templateContent)
+  const variables = extractVariables(template)
 
   const getLanguageCode = (template) => {
     if (template?.language?.value) return template.language.value
@@ -364,21 +370,30 @@ const FarmerCampaignModal = ({ open, onClose, template }) => {
         {variables.length > 0 && (
           <Card sx={{ mb: 3, boxShadow: 0, border: 1, borderColor: 'grey.200' }}>
             <CardContent>
-              <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
-                Template Parameters
-              </Typography>
+              <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+                <Typography variant="subtitle2" fontWeight="bold">
+                  Template Parameters ({variables.length})
+                </Typography>
+                <Button 
+                  size="small" 
+                  onClick={() => setParameterValues({})}
+                  disabled={loading}
+                >
+                  Clear All
+                </Button>
+              </Stack>
               <Grid container spacing={2}>
                 {variables.map((variable, index) => (
                   <Grid item xs={12} md={6} key={index}>
                     <TextField
                       fullWidth
-                      label={`${variable} (${index + 1})`}
+                      label={`${variable}`}
                       placeholder={`Enter ${variable}`}
                       value={parameterValues[index] || ""}
                       onChange={(e) => handleParameterChange(index, e.target.value)}
                       disabled={loading}
-                      required
                       size="small"
+                      helperText={`Parameter ${index + 1} of ${variables.length}`}
                       sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
                     />
                   </Grid>
