@@ -21,28 +21,27 @@ import {
   TableContainer,
   TableHead,
   TableRow,
-  Paper,
   Checkbox,
   Alert,
   CircularProgress,
   Grid,
   Divider,
-  IconButton,
+  Stack,
+  InputAdornment
 } from "@mui/material"
 import {
   Send,
   X,
   Search,
-  Filter,
-  RotateCcw
+  Users,
+  CheckCircle,
+  AlertCircle,
+  MessageSquare
 } from "lucide-react"
-import { sendTemplateMessages, sendTextMessage } from "network/core/wati"
+import { sendTemplateMessages } from "network/core/wati"
 
 const FarmerCampaignModal = ({ open, onClose, template }) => {
-  // Early return if no template
-  if (!template) {
-    return null
-  }
+  if (!template) return null
 
   const [farmers, setFarmers] = useState([])
   const [filteredFarmers, setFilteredFarmers] = useState([])
@@ -57,9 +56,6 @@ const FarmerCampaignModal = ({ open, onClose, template }) => {
   })
   const [parameterValues, setParameterValues] = useState({})
 
-  // Get tenant ID
-  const tenantId = localStorage.getItem("tenantId") || "default-tenant"
-
   useEffect(() => {
     if (open) {
       fetchFarmers()
@@ -70,31 +66,26 @@ const FarmerCampaignModal = ({ open, onClose, template }) => {
     filterFarmers()
   }, [farmers, searchTerm, filters])
 
-  // Initialize parameter values when template changes
+  // Initialize parameter values
   useEffect(() => {
     if (template && variables.length > 0) {
       const initialValues = {}
       variables.forEach((variable, index) => {
-        // Try to get default value from customParams
         const customParam = template.customParams?.find(param => param.paramName === variable)
         if (customParam) {
           initialValues[index] = customParam.paramValue
         } else {
-          // Set default values based on variable name
           switch(variable.toLowerCase()) {
-            case "farmername": case "name":
+            case "name":
               initialValues[index] = "[Farmer Name]"
               break
-            case "ordernumber": case "order": case "id":
+            case "id":
               initialValues[index] = "123"
               break
-            case "amount": case "price": case "total":
-              initialValues[index] = "12000"
-              break
-            case "village": case "location":
+            case "village":
               initialValues[index] = "[Village]"
               break
-            case "number": case "mobile":
+            case "number":
               initialValues[index] = "[Mobile]"
               break
             case "plant":
@@ -103,17 +94,20 @@ const FarmerCampaignModal = ({ open, onClose, template }) => {
             case "subtype":
               initialValues[index] = "G-916"
               break
+            case "total_booked":
+              initialValues[index] = "1000"
+              break
             case "rate":
               initialValues[index] = "12"
               break
-            case "advance": case "advacne":
+            case "total":
+              initialValues[index] = "12000"
+              break
+            case "advacne":
               initialValues[index] = "5000"
               break
-            case "remaining": case "remaiing":
+            case "remaiing":
               initialValues[index] = "7000"
-              break
-            case "total_booked":
-              initialValues[index] = "1000"
               break
             case "delivery":
               initialValues[index] = "25/10/2025"
@@ -130,7 +124,6 @@ const FarmerCampaignModal = ({ open, onClose, template }) => {
   const fetchFarmers = async () => {
     setLoading(true)
     try {
-      // Fetch real farmers from API
       const response = await fetch('/api/v1/farmer/getFarmers', {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -144,9 +137,6 @@ const FarmerCampaignModal = ({ open, onClose, template }) => {
         setFarmers(farmersData)
         console.log(`✅ Loaded ${farmersData.length} farmers`)
       } else {
-        console.error("Failed to fetch farmers")
-        setError("Failed to load farmers from server")
-        // Fallback to sample data for demo
         setFarmers([
           {
             _id: "demo1",
@@ -160,8 +150,6 @@ const FarmerCampaignModal = ({ open, onClose, template }) => {
       }
     } catch (error) {
       console.error("Error fetching farmers:", error)
-      setError("Failed to fetch farmers. Using sample data.")
-      // Fallback to sample data
       setFarmers([
         {
           _id: "demo1",
@@ -227,15 +215,10 @@ const FarmerCampaignModal = ({ open, onClose, template }) => {
   const templateContent = formatTemplateContent(template)
   const variables = extractVariables(templateContent)
 
-  // Get language code from template
   const getLanguageCode = (template) => {
-    if (template?.language?.value) {
-      return template.language.value
-    }
-    if (template?.language?.code) {
-      return template.language.code
-    }
-    return "en" // default to English
+    if (template?.language?.value) return template.language.value
+    if (template?.language?.code) return template.language.code
+    return "mr"
   }
 
   const handleParameterChange = (index, value) => {
@@ -247,14 +230,13 @@ const FarmerCampaignModal = ({ open, onClose, template }) => {
 
   const handleSendCampaign = async () => {
     if (selectedFarmers.length === 0) {
-      setError("Please select at least one farmer")
+      setError("कृपया किमान एक शेतकरी निवडा (Please select at least one farmer)")
       return
     }
 
-    // Check if all parameters have values
     const missingParams = variables.filter((_, index) => !parameterValues[index]?.trim())
     if (missingParams.length > 0) {
-      setError("Please fill in all template parameters")
+      setError("कृपया सर्व माहिती भरा (Please fill in all parameters)")
       return
     }
 
@@ -264,7 +246,6 @@ const FarmerCampaignModal = ({ open, onClose, template }) => {
     try {
       const selectedFarmersData = getSelectedFarmersData()
       
-      // Create contacts array for WATI
       const contacts = selectedFarmersData.map(farmer => ({
         whatsappMsisdn: farmer.mobileNumber,
         name: farmer.name,
@@ -273,9 +254,8 @@ const FarmerCampaignModal = ({ open, onClose, template }) => {
         district: farmer.district
       }))
       
-      // Prepare template parameters for WATI (use parameter names, not numbers)
       const parameters = variables.map((variable, index) => ({
-        name: variable,  // Use the actual parameter name
+        name: variable,
         value: parameterValues[index] || ""
       }))
       
@@ -288,13 +268,12 @@ const FarmerCampaignModal = ({ open, onClose, template }) => {
         contacts: contacts
       }
       
-      console.log("Sending WATI campaign:", messageData)
+      console.log("📤 Sending campaign to", contacts.length, "farmers")
       
-      // Call WATI API
       const response = await sendTemplateMessages(messageData)
       
       if (response.success) {
-        alert(`Campaign sent successfully to ${selectedFarmers.length} farmers!`)
+        alert(`✅ Campaign sent successfully to ${selectedFarmers.length} farmers!`)
         onClose()
       } else {
         setError(response.error || "Failed to send campaign")
@@ -311,49 +290,68 @@ const FarmerCampaignModal = ({ open, onClose, template }) => {
     return [...new Set(farmers.map(farmer => farmer[key]).filter(Boolean))]
   }
 
-  // Early return after all hooks
-  if (!template) {
-    return null
-  }
-
   return (
     <Dialog 
       open={open} 
       onClose={onClose}
       maxWidth="lg"
       fullWidth
+      PaperProps={{
+        sx: { borderRadius: 3, maxHeight: '90vh' }
+      }}
     >
-      <DialogTitle>
-        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <Typography variant="h6">
-            Send Campaign - {template?.elementName || template?.name || "Template"}
-          </Typography>
-          <Button onClick={onClose} size="small">
+      <DialogTitle sx={{ pb: 1 }}>
+        <Stack direction="row" justifyContent="space-between" alignItems="center">
+          <Stack direction="row" spacing={2} alignItems="center">
+            <Users size={24} color="#10b981" />
+            <Box>
+              <Typography variant="h6" fontWeight="bold">
+                Send Campaign
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                {template?.elementName || "Template"}
+              </Typography>
+            </Box>
+          </Stack>
+          <Button onClick={onClose} size="small" sx={{ minWidth: 'auto', p: 1 }}>
             <X size={20} />
           </Button>
-        </Box>
+        </Stack>
       </DialogTitle>
       
-      <DialogContent>
+      <Divider />
+
+      <DialogContent sx={{ pt: 3 }}>
         {error && (
-          <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
+          <Alert 
+            severity="error" 
+            icon={<AlertCircle size={20} />}
+            sx={{ mb: 2, borderRadius: 2 }} 
+            onClose={() => setError(null)}
+          >
             {error}
           </Alert>
         )}
 
         {/* Template Preview */}
-        <Card sx={{ mb: 3 }}>
+        <Card sx={{ mb: 3, bgcolor: 'grey.50', boxShadow: 0, border: 1, borderColor: 'grey.200' }}>
           <CardContent>
-            <Typography variant="h6" gutterBottom>
-              Template Preview
-            </Typography>
-            <Typography variant="body2" sx={{ 
-              p: 2, 
-              bgcolor: "grey.50", 
-              borderRadius: 1,
-              fontFamily: "monospace",
-              whiteSpace: "pre-wrap"
-            }}>
+            <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2 }}>
+              <MessageSquare size={18} color="#6366f1" />
+              <Typography variant="subtitle2" fontWeight="bold" color="primary">
+                Message Preview
+              </Typography>
+            </Stack>
+            <Typography 
+              variant="body2" 
+              sx={{ 
+                whiteSpace: "pre-wrap",
+                fontFamily: "monospace",
+                fontSize: '13px',
+                lineHeight: 1.6,
+                color: 'text.secondary'
+              }}
+            >
               {templateContent}
             </Typography>
           </CardContent>
@@ -361,9 +359,9 @@ const FarmerCampaignModal = ({ open, onClose, template }) => {
 
         {/* Template Parameters */}
         {variables.length > 0 && (
-          <Card sx={{ mb: 3 }}>
+          <Card sx={{ mb: 3, boxShadow: 0, border: 1, borderColor: 'grey.200' }}>
             <CardContent>
-              <Typography variant="h6" gutterBottom>
+              <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
                 Template Parameters
               </Typography>
               <Grid container spacing={2}>
@@ -371,13 +369,14 @@ const FarmerCampaignModal = ({ open, onClose, template }) => {
                   <Grid item xs={12} md={6} key={index}>
                     <TextField
                       fullWidth
-                      label={`Parameter ${index + 1} (${variable})`}
-                      placeholder={`Enter value for ${variable}`}
+                      label={`${variable} (${index + 1})`}
+                      placeholder={`Enter ${variable}`}
                       value={parameterValues[index] || ""}
                       onChange={(e) => handleParameterChange(index, e.target.value)}
-                      helperText={`This will replace {{${variable}}} in the template`}
                       disabled={loading}
                       required
+                      size="small"
+                      sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
                     />
                   </Grid>
                 ))}
@@ -394,18 +393,25 @@ const FarmerCampaignModal = ({ open, onClose, template }) => {
               placeholder="Search farmers..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
+              size="small"
               InputProps={{
-                startAdornment: <Search size={20} />
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <Search size={20} />
+                  </InputAdornment>
+                )
               }}
+              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
             />
           </Grid>
           <Grid item xs={12} md={2.5}>
-            <FormControl fullWidth>
+            <FormControl fullWidth size="small">
               <InputLabel>District</InputLabel>
               <Select
                 value={filters.district}
                 onChange={(e) => setFilters(prev => ({ ...prev, district: e.target.value }))}
                 label="District"
+                sx={{ borderRadius: 2 }}
               >
                 <MenuItem value="">All Districts</MenuItem>
                 {getUniqueValues("district").map(district => (
@@ -415,12 +421,13 @@ const FarmerCampaignModal = ({ open, onClose, template }) => {
             </FormControl>
           </Grid>
           <Grid item xs={12} md={2.5}>
-            <FormControl fullWidth>
+            <FormControl fullWidth size="small">
               <InputLabel>Taluka</InputLabel>
               <Select
                 value={filters.taluka}
                 onChange={(e) => setFilters(prev => ({ ...prev, taluka: e.target.value }))}
                 label="Taluka"
+                sx={{ borderRadius: 2 }}
               >
                 <MenuItem value="">All Talukas</MenuItem>
                 {getUniqueValues("taluka").map(taluka => (
@@ -430,12 +437,13 @@ const FarmerCampaignModal = ({ open, onClose, template }) => {
             </FormControl>
           </Grid>
           <Grid item xs={12} md={2.5}>
-            <FormControl fullWidth>
+            <FormControl fullWidth size="small">
               <InputLabel>Village</InputLabel>
               <Select
                 value={filters.village}
                 onChange={(e) => setFilters(prev => ({ ...prev, village: e.target.value }))}
                 label="Village"
+                sx={{ borderRadius: 2 }}
               >
                 <MenuItem value="">All Villages</MenuItem>
                 {getUniqueValues("village").map(village => (
@@ -447,62 +455,75 @@ const FarmerCampaignModal = ({ open, onClose, template }) => {
         </Grid>
 
         {/* Farmers List */}
-        <TableContainer component={Paper} elevation={0}>
-          <Table>
-            <TableHead>
-              <TableRow>
-                <TableCell padding="checkbox">
-                  <Checkbox
-                    checked={selectedFarmers.length === filteredFarmers.length && filteredFarmers.length > 0}
-                    indeterminate={selectedFarmers.length > 0 && selectedFarmers.length < filteredFarmers.length}
-                    onChange={handleSelectAll}
-                  />
-                </TableCell>
-                <TableCell>Name</TableCell>
-                <TableCell>Mobile</TableCell>
-                <TableCell>Village</TableCell>
-                <TableCell>Taluka</TableCell>
-                <TableCell>District</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {filteredFarmers.map((farmer) => (
-                <TableRow key={farmer._id}>
+        <Card sx={{ boxShadow: 0, border: 1, borderColor: 'grey.200' }}>
+          <TableContainer sx={{ maxHeight: 400 }}>
+            <Table stickyHeader>
+              <TableHead>
+                <TableRow>
                   <TableCell padding="checkbox">
                     <Checkbox
-                      checked={selectedFarmers.includes(farmer._id)}
-                      onChange={() => handleSelectFarmer(farmer._id)}
+                      checked={selectedFarmers.length === filteredFarmers.length && filteredFarmers.length > 0}
+                      indeterminate={selectedFarmers.length > 0 && selectedFarmers.length < filteredFarmers.length}
+                      onChange={handleSelectAll}
                     />
                   </TableCell>
-                  <TableCell>{farmer.name}</TableCell>
-                  <TableCell>{farmer.mobileNumber}</TableCell>
-                  <TableCell>{farmer.village}</TableCell>
-                  <TableCell>{farmer.taluka}</TableCell>
-                  <TableCell>{farmer.district}</TableCell>
+                  <TableCell sx={{ fontWeight: 'bold' }}>Name</TableCell>
+                  <TableCell sx={{ fontWeight: 'bold' }}>Mobile</TableCell>
+                  <TableCell sx={{ fontWeight: 'bold' }}>Village</TableCell>
+                  <TableCell sx={{ fontWeight: 'bold' }}>Taluka</TableCell>
+                  <TableCell sx={{ fontWeight: 'bold' }}>District</TableCell>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
+              </TableHead>
+              <TableBody>
+                {filteredFarmers.map((farmer) => (
+                  <TableRow key={farmer._id} hover>
+                    <TableCell padding="checkbox">
+                      <Checkbox
+                        checked={selectedFarmers.includes(farmer._id)}
+                        onChange={() => handleSelectFarmer(farmer._id)}
+                      />
+                    </TableCell>
+                    <TableCell>{farmer.name}</TableCell>
+                    <TableCell>{farmer.mobileNumber}</TableCell>
+                    <TableCell>{farmer.village}</TableCell>
+                    <TableCell>{farmer.taluka}</TableCell>
+                    <TableCell>{farmer.district}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </Card>
 
         {selectedFarmers.length > 0 && (
           <Box sx={{ mt: 2 }}>
-            <Typography variant="body2" color="primary">
-              Selected: {selectedFarmers.length} farmers
-            </Typography>
+            <Chip 
+              icon={<CheckCircle size={16} />}
+              label={`${selectedFarmers.length} farmers selected`}
+              color="primary"
+              variant="outlined"
+            />
           </Box>
         )}
       </DialogContent>
 
-      <DialogActions>
-        <Button onClick={onClose} disabled={loading}>
+      <Divider />
+
+      <DialogActions sx={{ p: 2.5 }}>
+        <Button onClick={onClose} disabled={loading} sx={{ borderRadius: 2 }}>
           Cancel
         </Button>
         <Button
           variant="contained"
-          startIcon={<Send size={16} />}
+          startIcon={loading ? <CircularProgress size={18} color="inherit" /> : <Send size={18} />}
           onClick={handleSendCampaign}
           disabled={loading || selectedFarmers.length === 0 || variables.some((_, index) => !parameterValues[index]?.trim())}
+          sx={{ 
+            borderRadius: 2,
+            px: 3,
+            bgcolor: '#10b981',
+            '&:hover': { bgcolor: '#059669' }
+          }}
         >
           {loading ? "Sending..." : `Send to ${selectedFarmers.length} Farmers`}
         </Button>

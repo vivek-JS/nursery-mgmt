@@ -14,33 +14,24 @@ import {
   Paper,
   Chip,
   IconButton,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  TextField,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
-  Grid,
   Alert,
   CircularProgress,
-  Pagination,
-  InputAdornment
+  TextField,
+  InputAdornment,
+  Stack,
+  Tooltip,
+  Badge
 } from "@mui/material"
 import {
-  Plus,
-  Edit,
-  Delete,
   Send,
-  Users,
   MessageSquare,
-  Filter,
   Search,
-  RotateCcw
+  RotateCcw,
+  CheckCircle2,
+  Clock,
+  XCircle,
+  Phone
 } from "lucide-react"
-import { API, NetworkManager } from "network/core"
 import { getMessageTemplates, testWatiConnection } from "network/core/wati"
 import FarmerCampaignModal from "./FarmerCampaignModal"
 import SingleSendModal from "./SingleSendModal"
@@ -48,68 +39,53 @@ import SingleSendModal from "./SingleSendModal"
 const WhatsAppManagement = () => {
   const [templates, setTemplates] = useState([])
   const [selectedTemplate, setSelectedTemplate] = useState(null)
-  const [showTemplateDialog, setShowTemplateDialog] = useState(false)
   const [showFarmerCampaign, setShowFarmerCampaign] = useState(false)
   const [showSingleSend, setShowSingleSend] = useState(false)
   const [loading, setLoading] = useState(false)
   const [searchTerm, setSearchTerm] = useState("")
-  const [filterStatus, setFilterStatus] = useState("all")
-  const [pagination, setPagination] = useState({
-    page: 1,
-    pageSize: 10,
-    total: 0,
-    totalPages: 0
-  })
   const [error, setError] = useState(null)
+  const [connectionStatus, setConnectionStatus] = useState(null)
 
-  // Get tenant ID from user context or localStorage
-  const tenantId = localStorage.getItem("tenantId") || "default-tenant"
-
-  const fetchTemplates = async (page = 1, pageSize = 10, channelPhoneNumber = "") => {
+  const fetchTemplates = async () => {
     setLoading(true)
     setError(null)
     
     try {
-      // Use WATI API directly
       const response = await getMessageTemplates({
-        pageSize,
-        pageNumber: page,
-        channelPhoneNumber
+        pageSize: 100,
+        pageNumber: 1,
+        channelPhoneNumber: ""
       })
 
       if (response.success) {
-        const templatesData = response.data?.messageTemplates || response.data?.data || response.data?.templates || []
+        const templatesData = response.data?.messageTemplates || response.data?.data || []
         setTemplates(templatesData)
-        
-        // Update pagination info
-        setPagination(prev => ({
-          ...prev,
-          page,
-          pageSize,
-          total: response.data?.link?.total || response.data?.total || templatesData.length,
-          totalPages: response.data?.totalPages || Math.ceil((response.data?.total || templatesData.length) / pageSize)
-        }))
+        console.log(`✅ Loaded ${templatesData.length} WhatsApp templates`)
       } else {
         setError(response.error || "Failed to fetch templates")
       }
     } catch (error) {
       console.error("Error fetching templates:", error)
-      setError(error.message || "Failed to fetch templates")
+      setError("Failed to connect to WATI. Please check your connection.")
     } finally {
       setLoading(false)
     }
   }
 
   const testConnection = async () => {
+    setConnectionStatus('testing')
     try {
       const response = await testWatiConnection()
       if (response.success) {
-        alert("✅ WATI API connection successful!")
+        setConnectionStatus('success')
+        setTimeout(() => setConnectionStatus(null), 3000)
       } else {
-        alert(`❌ WATI API connection failed: ${response.error}`)
+        setConnectionStatus('error')
+        setTimeout(() => setConnectionStatus(null), 3000)
       }
     } catch (error) {
-      alert(`❌ WATI API connection failed: ${error.message}`)
+      setConnectionStatus('error')
+      setTimeout(() => setConnectionStatus(null), 3000)
     }
   }
 
@@ -118,89 +94,55 @@ const WhatsAppManagement = () => {
   }, [])
 
   const filteredTemplates = (templates || []).filter(template => {
-    const matchesSearch = template?.elementName?.toLowerCase().includes(searchTerm.toLowerCase()) || template?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         template?.content?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         template?.body?.toLowerCase().includes(searchTerm.toLowerCase())
-    const matchesStatus = filterStatus === "all" || template?.status === filterStatus
-    return matchesSearch && matchesStatus
+    const matchesSearch = 
+      template?.elementName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      template?.body?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      template?.category?.toLowerCase().includes(searchTerm.toLowerCase())
+    return matchesSearch
   })
 
-  const handleSelectTemplate = (template) => {
-    setSelectedTemplate(template)
-    setShowFarmerCampaign(true)
-  }
+  const approvedTemplates = filteredTemplates.filter(t => t.status === "APPROVED")
+  const pendingTemplates = filteredTemplates.filter(t => t.status === "PENDING")
+  const rejectedTemplates = filteredTemplates.filter(t => t.status === "REJECTED")
 
-  const handleCreateTemplate = () => {
-    setSelectedTemplate(null)
-    setShowTemplateDialog(true)
-  }
-
-  const handleEditTemplate = (template) => {
-    setSelectedTemplate(template)
-    setShowTemplateDialog(true)
-  }
-
-  const handleDeleteTemplate = async (templateId) => {
-    if (window.confirm("Are you sure you want to delete this template?")) {
-      // Implement delete functionality
-      console.log("Delete template:", templateId)
+  const getStatusIcon = (status) => {
+    switch (status) {
+      case "APPROVED":
+        return <CheckCircle2 size={16} style={{ color: '#10b981' }} />
+      case "PENDING":
+        return <Clock size={16} style={{ color: '#f59e0b' }} />
+      case "REJECTED":
+        return <XCircle size={16} style={{ color: '#ef4444' }} />
+      default:
+        return <Clock size={16} style={{ color: '#6b7280' }} />
     }
   }
 
   const getStatusColor = (status) => {
-    switch (status?.toLowerCase()) {
-      case "approved": case "APPROVED":
-      case "active": 
+    switch (status) {
+      case "APPROVED":
         return "success"
-      case "pending": case "PENDING":
-      case "draft": 
+      case "PENDING":
         return "warning"
-      case "rejected": case "REJECTED":
-      case "inactive": case "DELETED": 
+      case "REJECTED":
         return "error"
-      default: 
+      default:
         return "default"
     }
-  }
-
-  const getCategoryColor = (category) => {
-    switch (category?.toLowerCase()) {
-      case "order": 
-        return "primary"
-      case "payment": 
-        return "error"
-      case "information": 
-        return "info"
-      case "promotion": 
-        return "secondary"
-      case "marketing":
-        return "secondary"
-      default: 
-        return "default"
-    }
-  }
-
-  const formatTemplateContent = (template) => {
-    if (!template) return "No template available"
-    // Handle different possible content fields
-    return template?.body || template?.content || template?.message || "No content available"
-  }
-
-  const extractVariables = (content) => {
-    if (!content) return []
-    const matches = content.match(/\{\{([^}]+)\}\}/g)
-    return matches ? matches.map(match => match.replace(/\{\{|\}\}/g, "")) : []
   }
 
   return (
-    <Box sx={{ p: 3 }}>
+    <Box sx={{ p: 3, maxWidth: 1400, margin: '0 auto' }}>
       {/* Header */}
-      <Box sx={{ mb: 3 }}>
-        <Typography variant="h4" gutterBottom>
-          WhatsApp Management
-        </Typography>
+      <Box sx={{ mb: 4 }}>
+        <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 1 }}>
+          <MessageSquare size={32} color="#10b981" />
+          <Typography variant="h4" fontWeight="bold">
+            WhatsApp Management
+          </Typography>
+        </Stack>
         <Typography variant="body1" color="text.secondary">
-          Manage WhatsApp templates and send campaigns to farmers
+          Send WhatsApp messages to farmers using approved templates
         </Typography>
       </Box>
 
@@ -211,334 +153,246 @@ const WhatsAppManagement = () => {
         </Alert>
       )}
 
+      {/* Stats Cards */}
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: '1fr 1fr 1fr 1fr' }, gap: 2, mb: 3 }}>
+        <Card sx={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white' }}>
+          <CardContent>
+            <Typography variant="h3" fontWeight="bold">{templates.length}</Typography>
+            <Typography variant="body2">Total Templates</Typography>
+          </CardContent>
+        </Card>
+        <Card sx={{ background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', color: 'white' }}>
+          <CardContent>
+            <Typography variant="h3" fontWeight="bold">{approvedTemplates.length}</Typography>
+            <Typography variant="body2">Approved & Ready</Typography>
+          </CardContent>
+        </Card>
+        <Card sx={{ background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)', color: 'white' }}>
+          <CardContent>
+            <Typography variant="h3" fontWeight="bold">{pendingTemplates.length}</Typography>
+            <Typography variant="body2">Pending Approval</Typography>
+          </CardContent>
+        </Card>
+        <Card sx={{ background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)', color: 'white' }}>
+          <CardContent>
+            <Typography variant="h3" fontWeight="bold">
+              {connectionStatus === 'testing' ? '...' : connectionStatus === 'success' ? '✓' : '●'}
+            </Typography>
+            <Typography variant="body2">WATI Connection</Typography>
+          </CardContent>
+        </Card>
+      </Box>
+
       {/* Action Bar */}
-      <Card sx={{ mb: 3 }}>
+      <Card sx={{ mb: 3, boxShadow: 3 }}>
         <CardContent>
-          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 2 }}>
-            <Box sx={{ display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap" }}>
-              <TextField
-                size="small"
-                placeholder="Search templates..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <Search size={20} color="#666" />
-                    </InputAdornment>
-                  )
-                }}
-                sx={{ minWidth: 250 }}
-      />
-              <FormControl size="small" sx={{ minWidth: 120 }}>
-                <InputLabel>Status</InputLabel>
-                <Select
-                  value={filterStatus}
-                  onChange={(e) => setFilterStatus(e.target.value)}
-                  label="Status"
-                >
-                  <MenuItem value="all">All Status</MenuItem>
-                  <MenuItem value="approved">Approved</MenuItem>
-                  <MenuItem value="pending">Pending</MenuItem>
-                  <MenuItem value="rejected">Rejected</MenuItem>
-                </Select>
-              </FormControl>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center" justifyContent="space-between">
+            <TextField
+              size="small"
+              placeholder="Search templates by name or content..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <Search size={20} />
+                  </InputAdornment>
+                )
+              }}
+              sx={{ minWidth: { xs: '100%', sm: 350 } }}
+            />
+            <Stack direction="row" spacing={2}>
               <Button
                 variant="outlined"
-                startIcon={<RotateCcw size={16} />}
-                onClick={() => fetchTemplates()}
+                startIcon={<RotateCcw size={18} />}
+                onClick={fetchTemplates}
                 disabled={loading}
+                sx={{ borderRadius: 2 }}
               >
                 Refresh
               </Button>
               <Button
-                variant="outlined"
-                startIcon={<MessageSquare size={16} />}
+                variant={connectionStatus === 'success' ? 'contained' : 'outlined'}
+                color={connectionStatus === 'success' ? 'success' : connectionStatus === 'error' ? 'error' : 'primary'}
+                startIcon={connectionStatus === 'testing' ? <CircularProgress size={18} color="inherit" /> : <MessageSquare size={18} />}
                 onClick={testConnection}
-                color="success"
+                disabled={connectionStatus === 'testing'}
+                sx={{ borderRadius: 2 }}
               >
-                Test Connection
+                {connectionStatus === 'success' ? 'Connected' : connectionStatus === 'error' ? 'Failed' : 'Test API'}
               </Button>
-            </Box>
-            <Button
-              variant="contained"
-              startIcon={<Plus size={20} />}
-              onClick={handleCreateTemplate}
-            >
-              Create Template
-            </Button>
-          </Box>
+            </Stack>
+          </Stack>
         </CardContent>
       </Card>
 
       {/* Templates Table */}
-      <Card>
+      <Card sx={{ boxShadow: 3 }}>
         <CardContent>
           {loading ? (
-            <Box sx={{ display: "flex", justifyContent: "center", p: 4 }}>
-              <CircularProgress />
+            <Box sx={{ display: "flex", flexDirection: 'column', alignItems: 'center', justifyContent: 'center', p: 8 }}>
+              <CircularProgress size={60} />
+              <Typography variant="body1" color="text.secondary" sx={{ mt: 2 }}>
+                Loading WhatsApp templates...
+              </Typography>
+            </Box>
+          ) : filteredTemplates.length === 0 ? (
+            <Box sx={{ textAlign: "center", py: 8 }}>
+              <MessageSquare size={64} color="#cbd5e1" />
+              <Typography variant="h6" color="text.secondary" sx={{ mt: 2 }}>
+                {searchTerm ? 'No templates match your search' : 'No templates available'}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                {searchTerm ? 'Try a different search term' : 'Create templates in WATI dashboard'}
+              </Typography>
             </Box>
           ) : (
-            <>
-              <TableContainer component={Paper} elevation={0}>
-                <Table>
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Template Name</TableCell>
-                      <TableCell>Content Preview</TableCell>
-                      <TableCell>Category</TableCell>
-                      <TableCell>Status</TableCell>
-                      <TableCell>Language</TableCell>
-                      <TableCell>Variables</TableCell>
-                      <TableCell>Created</TableCell>
-                      <TableCell align="center">Actions</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {filteredTemplates.map((template) => {
-                      const content = formatTemplateContent(template)
-                      const variables = extractVariables(content)
-                      
-                      return (
-                        <TableRow key={template.id || template.templateId} hover>
-                          <TableCell>
-                            <Typography variant="subtitle2" fontWeight="bold">
-                              {template.elementName || template.elementName || template.name || template.templateName || "Unnamed Template"}
-                            </Typography>
-                          </TableCell>
-                          <TableCell>
-                            <Typography 
-                              variant="body2" 
-                              sx={{ 
-                                maxWidth: 300, 
-                                overflow: "hidden", 
-                                textOverflow: "ellipsis",
-                                whiteSpace: "nowrap"
-                              }}
-                            >
-                              {content}
-                            </Typography>
-                          </TableCell>
-                          <TableCell>
-                            <Chip 
-                              label={template.category || template.type || "General"} 
-                              color={getCategoryColor(template.category || template.type)}
-                              size="small"
-      />
-                          </TableCell>
-                          <TableCell>
-                            <Chip 
-                              label={template.status || "Unknown"} 
-                              color={getStatusColor(template.status)}
-                              size="small"
-      />
-                          </TableCell>
-                          <TableCell>
-                            {template.language?.text || template.language?.value || template.language || "en"}
-                          </TableCell>
-                          <TableCell>
-                            <Typography variant="body2" color="text.secondary">
-                              {variables.length > 0 ? variables.join(", ") : "None"}
-                            </Typography>
-                          </TableCell>
-                          <TableCell>
-                            {template.lastModified ?
-                              new Date(template.createdAt).toLocaleDateString() :
-                              "Unknown"
-                            }
-                          </TableCell>
-                          <TableCell align="center">
-                            <Box sx={{ display: "flex", gap: 1, justifyContent: "center" }}>
+            <TableContainer>
+              <Table>
+                <TableHead>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: 'bold' }}>Template</TableCell>
+                    <TableCell sx={{ fontWeight: 'bold' }}>Preview</TableCell>
+                    <TableCell sx={{ fontWeight: 'bold' }}>Category</TableCell>
+                    <TableCell sx={{ fontWeight: 'bold' }}>Status</TableCell>
+                    <TableCell sx={{ fontWeight: 'bold' }}>Language</TableCell>
+                    <TableCell align="center" sx={{ fontWeight: 'bold' }}>Actions</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {filteredTemplates.map((template) => (
+                    <TableRow key={template.id} hover sx={{ '&:hover': { bgcolor: 'action.hover' } }}>
+                      <TableCell>
+                        <Typography variant="subtitle2" fontWeight="bold">
+                          {template.elementName || "Unnamed"}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          ID: {template.id?.substring(0, 8)}...
+                        </Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Typography 
+                          variant="body2" 
+                          sx={{ 
+                            maxWidth: 300, 
+                            overflow: "hidden", 
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                            color: 'text.secondary'
+                          }}
+                        >
+                          {template.body || template.content || "No content"}
+                        </Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Chip 
+                          label={template.category || "UTILITY"} 
+                          size="small"
+                          variant="outlined"
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Stack direction="row" spacing={1} alignItems="center">
+                          {getStatusIcon(template.status)}
+                          <Chip 
+                            label={template.status || "Unknown"} 
+                            color={getStatusColor(template.status)}
+                            size="small"
+                          />
+                        </Stack>
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="body2">
+                          {template.language?.text || template.language?.value || "en"}
+                        </Typography>
+                      </TableCell>
+                      <TableCell align="center">
+                        {template.status === "APPROVED" ? (
+                          <Stack direction="row" spacing={1} justifyContent="center">
+                            <Tooltip title="Send to Multiple Farmers">
                               <IconButton
                                 size="small"
-                                onClick={() => handleSelectTemplate(template)}
-                                color="primary"
-                                title="Send Campaign"
+                                onClick={() => {
+                                  setSelectedTemplate(template)
+                                  setShowFarmerCampaign(true)
+                                }}
+                                sx={{ 
+                                  bgcolor: 'primary.main', 
+                                  color: 'white',
+                                  '&:hover': { bgcolor: 'primary.dark' }
+                                }}
                               >
                                 <Send size={16} />
                               </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Send to Single Number">
                               <IconButton
                                 size="small"
                                 onClick={() => {
                                   setSelectedTemplate(template)
                                   setShowSingleSend(true)
                                 }}
-                                color="success"
-                                title="Send to Single Number"
-                              >
-                                <MessageSquare size={16} />
-                              </IconButton>
-                              <IconButton
-                                size="small"
-                                onClick={() => handleEditTemplate(template)}
-                                color="secondary"
-                                title="Edit Template"
-                              >
-                                <Edit size={16} />
-                              </IconButton>
-                              <IconButton
-                                size="small"
-                                onClick={() => {
-                                  setSelectedTemplate(template)
-                                  setShowSingleSend(true)
+                                sx={{ 
+                                  bgcolor: 'success.main', 
+                                  color: 'white',
+                                  '&:hover': { bgcolor: 'success.dark' }
                                 }}
-                                color="success"
-                                title="Send to Single Number"
                               >
-                                <MessageSquare size={16} />
+                                <Phone size={16} />
                               </IconButton>
-                              <IconButton
-                                size="small"
-                                onClick={() => handleDeleteTemplate(template.id || template.templateId)}
-                                color="error"
-                                title="Delete Template"
-                              >
-                                <Delete size={16} />
-                              </IconButton>
-                              <IconButton
-                                size="small"
-                                onClick={() => {
-                                  setSelectedTemplate(template)
-                                  setShowSingleSend(true)
-                                }}
-                                color="success"
-                                title="Send to Single Number"
-                              >
-                                <MessageSquare size={16} />
-                              </IconButton>
-                            </Box>
-                          </TableCell>
-                        </TableRow>
-                      )
-                    })}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-
-              {/* Empty State */}
-              {filteredTemplates.length === 0 && !loading && (
-                <Box sx={{ textAlign: "center", py: 4 }}>
-                  <MessageSquare size={48} color="#ccc" />
-                  <Typography variant="h6" color="text.secondary" sx={{ mt: 2 }}>
-                    No templates found
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    {searchTerm || filterStatus !== "all" 
-                      ? "Try adjusting your search or filter criteria"
-                      : "Create your first WhatsApp template to get started"
-                    }
-                  </Typography>
-                </Box>
-              )}
-
-              {/* Pagination */}
-              {pagination.totalPages > 1 && (
-                <Box sx={{ display: "flex", justifyContent: "center", mt: 3 }}>
-                  <Pagination
-                    count={pagination.totalPages}
-                    page={pagination.page}
-                    onChange={(event, page) => fetchTemplates(page, pagination.pageSize)}
-                    color="primary"
-      />
-                </Box>
-              )}
-            </>
+                            </Tooltip>
+                          </Stack>
+                        ) : (
+                          <Chip 
+                            label="Not Available" 
+                            size="small" 
+                            color="default"
+                            variant="outlined"
+                          />
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
           )}
         </CardContent>
       </Card>
 
-      {/* Template Dialog */}
-      <Dialog 
-        open={showTemplateDialog} 
-        onClose={() => setShowTemplateDialog(false)}
-        maxWidth="md"
-        fullWidth
-      >
-        <DialogTitle>
-          {selectedTemplate ? "Edit Template" : "Create New Template"}
-        </DialogTitle>
-        <DialogContent>
-          <Grid container spacing={2} sx={{ mt: 1 }}>
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                label="Template Name"
-                placeholder="Enter template name"
-                defaultValue={selectedTemplate?.name || selectedTemplate?.templateName || ""}
-      />
-            </Grid>
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                label="Template Content"
-                multiline
-                rows={6}
-                placeholder="Enter your message template. Use {{variableName}} for dynamic content."
-                defaultValue={selectedTemplate ? formatTemplateContent(selectedTemplate) : ""}
-                helperText="Use {{variableName}} syntax for dynamic variables"
-      />
-            </Grid>
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                label="Variables (comma separated)"
-                placeholder="farmerName, orderNumber, amount"
-                defaultValue={selectedTemplate ? extractVariables(formatTemplateContent(selectedTemplate)).join(", ") : ""}
-                helperText="List all variables used in the template"
-      />
-            </Grid>
-            <Grid item xs={6}>
-              <FormControl fullWidth>
-                <InputLabel>Category</InputLabel>
-                <Select
-                  defaultValue={selectedTemplate?.category || selectedTemplate?.type || "general"}
-                  label="Category"
-                >
-                  <MenuItem value="general">General</MenuItem>
-                  <MenuItem value="order">Order</MenuItem>
-                  <MenuItem value="payment">Payment</MenuItem>
-                  <MenuItem value="information">Information</MenuItem>
-                  <MenuItem value="promotion">Promotion</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={6}>
-              <FormControl fullWidth>
-                <InputLabel>Status</InputLabel>
-                <Select
-                  defaultValue={selectedTemplate?.status || "draft"}
-                  label="Status"
-                >
-                  <MenuItem value="draft">Draft</MenuItem>
-                  <MenuItem value="pending">Pending</MenuItem>
-                  <MenuItem value="approved">Approved</MenuItem>
-                  <MenuItem value="rejected">Rejected</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-          </Grid>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setShowTemplateDialog(false)}>
-            Cancel
-          </Button>
-          <Button variant="contained" onClick={() => setShowTemplateDialog(false)}>
-            {selectedTemplate ? "Update" : "Create"}
-          </Button>
-        </DialogActions>
-      </Dialog>
+      {/* Help Section */}
+      <Card sx={{ mt: 3, bgcolor: 'info.50', borderLeft: 4, borderColor: 'info.main' }}>
+        <CardContent>
+          <Typography variant="subtitle2" fontWeight="bold" color="info.main" gutterBottom>
+            💡 Quick Guide
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            • <strong>Approved templates</strong> can be sent to farmers immediately<br />
+            • <strong>Send Campaign:</strong> Send to multiple farmers from your database<br />
+            • <strong>Send Single:</strong> Send to a specific phone number<br />
+            • Create new templates in <a href="https://app.wati.io" target="_blank" rel="noopener noreferrer">WATI Dashboard</a><br />
+            • WhatsApp must approve templates before they can be used
+          </Typography>
+        </CardContent>
+      </Card>
 
       {/* Farmer Campaign Modal */}
       <FarmerCampaignModal
         open={showFarmerCampaign && selectedTemplate}
-        onClose={() => setShowFarmerCampaign(false)}
+        onClose={() => {
+          setShowFarmerCampaign(false)
+          setSelectedTemplate(null)
+        }}
         template={selectedTemplate}
       />
 
       {/* Single Send Modal */}
       <SingleSendModal
         open={showSingleSend && selectedTemplate}
-        onClose={() => setShowSingleSend(false)}
+        onClose={() => {
+          setShowSingleSend(false)
+          setSelectedTemplate(null)
+        }}
         template={selectedTemplate}
       />
     </Box>
