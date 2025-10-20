@@ -2149,7 +2149,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
           {viewMode === "ready_for_dispatch" && (
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
               <p className="text-sm text-blue-800">
-                <span className="font-semibold">✅ Ready for Dispatch View:</span> Shows all orders with "Ready for Dispatch" status, irrespective of date. 
+                <span className="font-semibold">✅ Ready for Dispatch View:</span> Shows all orders with &ldquo;Ready for Dispatch&rdquo; status, irrespective of date. 
                 {isDispatchManager && <span className="ml-1 font-medium">You can change status and delivery date.</span>}
               </p>
             </div>
