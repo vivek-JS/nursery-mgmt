@@ -137,10 +137,13 @@ const SingleSendModal = ({ open, onClose, template }) => {
       return
     }
 
+    // Warning for empty params but don't block sending
     const missingParams = variables.filter((_, index) => !parameterValues[index]?.trim())
     if (missingParams.length > 0) {
-      setError("कृपया सर्व माहिती भरा (Please fill in all fields)")
-      return
+      const proceed = window.confirm(
+        `⚠️ ${missingParams.length} parameters are empty:\n${missingParams.join(', ')}\n\nDo you want to continue anyway?`
+      )
+      if (!proceed) return
     }
 
     setLoading(true)
@@ -341,7 +344,7 @@ const SingleSendModal = ({ open, onClose, template }) => {
           variant="contained"
           startIcon={loading ? <CircularProgress size={18} color="inherit" /> : <Send size={18} />}
           onClick={handleSend}
-          disabled={loading || !phoneNumber.trim() || variables.some((_, index) => !parameterValues[index]?.trim())}
+          disabled={loading || !phoneNumber.trim()}
           sx={{ 
             borderRadius: 2,
             px: 3,
