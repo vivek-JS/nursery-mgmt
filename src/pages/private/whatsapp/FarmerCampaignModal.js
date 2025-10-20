@@ -83,40 +83,43 @@ const FarmerCampaignModal = ({ open, onClose, template }) => {
           // Set default values based on variable name
           switch(variable.toLowerCase()) {
             case "farmername": case "name":
-              initialValues[index] = "राम किसान"
+              initialValues[index] = "[Farmer Name]"
               break
             case "ordernumber": case "order": case "id":
-              initialValues[index] = "ORD-2025-001"
+              initialValues[index] = "123"
               break
             case "amount": case "price": case "total":
-              initialValues[index] = "₹1,500"
+              initialValues[index] = "12000"
               break
             case "village": case "location":
-              initialValues[index] = "पुणे"
+              initialValues[index] = "[Village]"
               break
             case "number": case "mobile":
-              initialValues[index] = "1234567890"
+              initialValues[index] = "[Mobile]"
               break
             case "plant":
-              initialValues[index] = "गुलाब"
+              initialValues[index] = "केळी"
               break
             case "subtype":
-              initialValues[index] = "लाल गुलाब"
+              initialValues[index] = "G-916"
               break
             case "rate":
-              initialValues[index] = "₹50"
+              initialValues[index] = "12"
               break
             case "advance": case "advacne":
-              initialValues[index] = "₹500"
+              initialValues[index] = "5000"
               break
             case "remaining": case "remaiing":
-              initialValues[index] = "₹1,000"
+              initialValues[index] = "7000"
+              break
+            case "total_booked":
+              initialValues[index] = "1000"
               break
             case "delivery":
-              initialValues[index] = "15/02/2025"
+              initialValues[index] = "25/10/2025"
               break
             default:
-              initialValues[index] = `Value ${index + 1}`
+              initialValues[index] = ""
           }
         }
       })
@@ -127,37 +130,48 @@ const FarmerCampaignModal = ({ open, onClose, template }) => {
   const fetchFarmers = async () => {
     setLoading(true)
     try {
-      // Mock farmer data - replace with actual API call
-      const mockFarmers = [
-        {
-          _id: "1",
-          name: "Rajesh Kumar",
-          mobileNumber: "917588686452",
-          village: "Sample Village 1",
-          taluka: "Sample Taluka 1",
-          district: "Sample District 1"
-        },
-        {
-          _id: "2", 
-          name: "Priya Sharma",
-          mobileNumber: "919876543210",
-          village: "Sample Village 2",
-          taluka: "Sample Taluka 2",
-          district: "Sample District 2"
-        },
-        {
-          _id: "3",
-          name: "Amit Patel",
-          mobileNumber: "919876543211",
-          village: "Sample Village 1",
-          taluka: "Sample Taluka 1",
-          district: "Sample District 1"
+      // Fetch real farmers from API
+      const response = await fetch('/api/v1/farmer/getFarmers', {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Content-Type': 'application/json'
         }
-      ]
-      setFarmers(mockFarmers)
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        const farmersData = data.data?.farmers || data.data || []
+        setFarmers(farmersData)
+        console.log(`✅ Loaded ${farmersData.length} farmers`)
+      } else {
+        console.error("Failed to fetch farmers")
+        setError("Failed to load farmers from server")
+        // Fallback to sample data for demo
+        setFarmers([
+          {
+            _id: "demo1",
+            name: "Sample Farmer",
+            mobileNumber: "9876543210",
+            village: "Sample Village",
+            taluka: "Sample Taluka",
+            district: "Sample District"
+          }
+        ])
+      }
     } catch (error) {
       console.error("Error fetching farmers:", error)
-      setError("Failed to fetch farmers")
+      setError("Failed to fetch farmers. Using sample data.")
+      // Fallback to sample data
+      setFarmers([
+        {
+          _id: "demo1",
+          name: "Sample Farmer",
+          mobileNumber: "9876543210",
+          village: "Sample Village",
+          taluka: "Sample Taluka",
+          district: "Sample District"
+        }
+      ])
     } finally {
       setLoading(false)
     }
@@ -259,9 +273,9 @@ const FarmerCampaignModal = ({ open, onClose, template }) => {
         district: farmer.district
       }))
       
-      // Prepare template parameters for WATI (as objects with name and value)
+      // Prepare template parameters for WATI (use parameter names, not numbers)
       const parameters = variables.map((variable, index) => ({
-        name: (index + 1).toString(),
+        name: variable,  // Use the actual parameter name
         value: parameterValues[index] || ""
       }))
       

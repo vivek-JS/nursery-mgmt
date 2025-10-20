@@ -61,40 +61,43 @@ const SingleSendModal = ({ open, onClose, template }) => {
           // Set default values based on variable name
           switch(variable.toLowerCase()) {
             case "farmername": case "name":
-              initialValues[index] = "राम किसान"
+              initialValues[index] = "विवेक चौधरी"
               break
             case "ordernumber": case "order": case "id":
-              initialValues[index] = "ORD-2025-001"
+              initialValues[index] = "123"
               break
             case "amount": case "price": case "total":
-              initialValues[index] = "₹1,500"
+              initialValues[index] = "12000"
               break
             case "village": case "location":
-              initialValues[index] = "पुणे"
+              initialValues[index] = "जळगाव"
               break
             case "number": case "mobile":
-              initialValues[index] = phoneNumber
+              initialValues[index] = phoneNumber || "9876543210"
               break
             case "plant":
-              initialValues[index] = "गुलाब"
+              initialValues[index] = "केळी"
               break
             case "subtype":
-              initialValues[index] = "लाल गुलाब"
+              initialValues[index] = "G-916"
               break
             case "rate":
-              initialValues[index] = "₹50"
+              initialValues[index] = "12"
               break
             case "advance": case "advacne":
-              initialValues[index] = "₹500"
+              initialValues[index] = "5000"
               break
             case "remaining": case "remaiing":
-              initialValues[index] = "₹1,000"
+              initialValues[index] = "7000"
+              break
+            case "total_booked":
+              initialValues[index] = "1000"
               break
             case "delivery":
-              initialValues[index] = "15/02/2025"
+              initialValues[index] = "25/10/2025"
               break
             default:
-              initialValues[index] = `Value ${index + 1}`
+              initialValues[index] = ""
           }
         }
       })
@@ -174,9 +177,9 @@ const SingleSendModal = ({ open, onClose, template }) => {
       // Get language code from template
       const templateLanguageCode = getLanguageCode(template)
       
-      // Prepare template parameters for WATI (as objects with name and value)
+      // Prepare template parameters for WATI (use parameter names, not numbers)
       const parameters = variables.map((variable, index) => ({
-        name: (index + 1).toString(),
+        name: variable,  // Use the actual parameter name
         value: parameterValues[index] || ""
       }))
 
