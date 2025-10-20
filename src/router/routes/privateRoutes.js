@@ -42,6 +42,7 @@ const DealersDetails = React.lazy(() => import("pages/private/dealers/DelaerDeta
 const CapacityInsights = React.lazy(() => import("pages/private/capacityinsights/CapacityInsights"))
 const Payments = React.lazy(() => import("pages/private/payments"))
 const WhatsAppManagement = React.lazy(() => import("pages/private/whatsapp/WhatsAppManagement"))
+const SowingManagement = React.lazy(() => import("pages/private/Sowing/SowingManagement"))
 
 export const PrivateRoutes = [
   { path: "/u/dashboard", exact: true, component: Dashboard },
@@ -92,5 +93,6 @@ export const PrivateRoutes = [
   { path: "/u/dealers/:id", exact: true, component: DealersDetails },
   { path: "/u/capacity-insights", exact: true, component: CapacityInsights },
   { path: "/u/payments", exact: true, component: Payments },
-  { path: "/u/whatsapp", exact: true, component: WhatsAppManagement }
+  { path: "/u/whatsapp", exact: true, component: WhatsAppManagement },
+  { path: "/u/sowing", exact: true, component: SowingManagement }
 ]

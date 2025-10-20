@@ -220,3 +220,4 @@ const OutwardDetails = () => {
 
 export default OutwardDetails;
 
+

@@ -1,5 +1,5 @@
 import React from "react"
-import { Modal, Box, Typography, TextField, Button, Stack, IconButton } from "@mui/material"
+import { Modal, Box, Typography, TextField, Button, Stack, IconButton, FormControlLabel, Checkbox } from "@mui/material"
 import { Plus, Trash2 } from "lucide-react"
 
 const modalStyle = {
@@ -27,7 +27,7 @@ const AddPlantModal = ({
   const handleAddSubtype = () => {
     const newSubtypes = [
       ...plantData.subtypes,
-      { name: "", description: "", rates: [""], buffer: 0 }
+      { name: "", description: "", rates: [""], buffer: 0, plantReadyDays: 0 }
     ]
     onInputChange({ target: { name: "subtypes", value: newSubtypes } })
   }
@@ -107,25 +107,36 @@ const AddPlantModal = ({
               helperText="Additional buffer percentage at plant level (0-100%)"
             />
 
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={plantData.sowingAllowed || false}
+                  onChange={(e) => onInputChange({ target: { name: "sowingAllowed", value: e.target.checked } })}
+                  name="sowingAllowed"
+                />
+              }
+              label="Sowing Allowed"
+            />
+
             <Box>
               <Typography variant="subtitle1" sx={{ mb: 2 }}>
                 Subtypes
               </Typography>
               {plantData.subtypes.map((subtype, index) => (
                 <Box key={index} sx={{ mb: 3, p: 2, border: "1px solid #e0e0e0", borderRadius: 1 }}>
-                  <Box sx={{ display: "flex", gap: 2, mb: 2 }}>
+                  <Box sx={{ display: "flex", gap: 2, mb: 2, flexWrap: "wrap" }}>
                     <TextField
                       label="Subtype Name"
                       value={subtype.name}
                       onChange={(e) => handleSubtypeChange(index, "name", e.target.value)}
                       required
-                      sx={{ flex: 1 }}
+                      sx={{ flex: "1 1 200px" }}
                     />
                     <TextField
                       label="Description"
                       value={subtype.description}
                       onChange={(e) => handleSubtypeChange(index, "description", e.target.value)}
-                      sx={{ flex: 1 }}
+                      sx={{ flex: "1 1 200px" }}
                     />
                     <TextField
                       label="Buffer (%)"
@@ -133,13 +144,25 @@ const AddPlantModal = ({
                       inputProps={{ min: 0, max: 100, step: 0.1 }}
                       value={subtype.buffer || 0}
                       onChange={(e) => handleSubtypeChange(index, "buffer", e.target.value)}
-                      sx={{ flex: 0.5 }}
+                      sx={{ flex: "0 1 120px" }}
                     />
+                    {plantData.sowingAllowed && (
+                      <TextField
+                        label="Plant Ready Days"
+                        type="number"
+                        inputProps={{ min: 0, step: 1 }}
+                        value={subtype.plantReadyDays || 0}
+                        onChange={(e) => handleSubtypeChange(index, "plantReadyDays", e.target.value)}
+                        sx={{ flex: "0 1 150px" }}
+                        helperText="Days to plant maturity"
+                      />
+                    )}
                     {plantData.subtypes.length > 1 && (
                       <IconButton
                         onClick={() => handleRemoveSubtype(index)}
                         color="error"
-                        size="small">
+                        size="small"
+                        sx={{ alignSelf: "flex-start" }}>
                         <Trash2 size={16} />
                       </IconButton>
                     )}

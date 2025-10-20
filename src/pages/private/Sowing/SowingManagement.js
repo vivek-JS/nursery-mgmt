@@ -1,0 +1,1545 @@
+import React, { useState, useEffect } from "react";
+import {
+  Box,
+  Button,
+  Card,
+  CardContent,
+  Typography,
+  Grid,
+  TextField,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Paper,
+  Chip,
+  IconButton,
+  Alert,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  MenuItem,
+  Select,
+  FormControl,
+  InputLabel,
+  Tab,
+  Tabs,
+  LinearProgress,
+  Tooltip,
+  Badge,
+  ToggleButton,
+  ToggleButtonGroup,
+  InputAdornment,
+} from "@mui/material";
+import {
+  Add as AddIcon,
+  Edit as EditIcon,
+  Delete as DeleteIcon,
+  Warning as WarningIcon,
+  CheckCircle as CheckIcon,
+  Schedule as ScheduleIcon,
+  Refresh as RefreshIcon,
+  TrendingUp,
+  TrendingDown,
+  Agriculture,
+  EventNote,
+  LocalFlorist,
+  GridView,
+  List,
+  Save as SaveIcon,
+} from "@mui/icons-material";
+import { DatePicker } from "@mui/x-date-pickers/DatePicker";
+import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
+import { AdapterMoment } from "@mui/x-date-pickers/AdapterMoment";
+import moment from "moment";
+import { Toast } from "helpers/toasts/toastHelper";
+import { NetworkManager, API } from "network/core";
+import { useSelector } from "react-redux";
+
+const SowingManagement = () => {
+  const userData = useSelector((state) => state?.userData?.userData);
+  const appUser = useSelector((state) => state?.app?.user);
+  const [sowings, setSowings] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [stats, setStats] = useState(null);
+  const [reminders, setReminders] = useState([]);
+  const [plants, setPlants] = useState([]);
+  const [selectedPlant, setSelectedPlant] = useState(null);
+  const [selectedSubtype, setSelectedSubtype] = useState(null);
+  const [activeTab, setActiveTab] = useState(0);
+  const [plantSlots, setPlantSlots] = useState({});
+  const [viewMode, setViewMode] = useState("summary"); // 'summary' or 'slots'
+
+  // Modal states
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
+  const [selectedSowing, setSelectedSowing] = useState(null);
+
+  // Slot-wise sowing states
+  const [slotSowingData, setSlotSowingData] = useState({});
+  const [savingSlots, setSavingSlots] = useState(new Set());
+  const [expandedMonths, setExpandedMonths] = useState({});
+  
+  // Enhanced UI states
+  const [monthFilter, setMonthFilter] = useState("all"); // all, urgent, overdue
+  const [searchSlot, setSearchSlot] = useState("");
+  const [compactView, setCompactView] = useState(false);
+  const [highlightedSlot, setHighlightedSlot] = useState(null);
+
+  // Form states
+  const [formData, setFormData] = useState({
+    sowingDate: moment(),
+    totalQuantityRequired: "",
+    notes: "",
+    reminderBeforeDays: 5,
+  });
+
+  // Update modal states
+  const [updateData, setUpdateData] = useState({
+    quantity: "",
+    location: "OFFICE",
+    notes: "",
+  });
+
+  useEffect(() => {
+    fetchPlants();
+    fetchSowings();
+    fetchStats();
+    fetchReminders();
+  }, []);
+
+  useEffect(() => {
+    if (plants.length > 0 && activeTab < plants.length && viewMode === "slots") {
+      const currentPlant = plants[activeTab];
+      fetchPlantSlots(currentPlant._id);
+    }
+  }, [activeTab, plants, viewMode]);
+
+  // Auto-expand months with urgent/overdue slots
+  useEffect(() => {
+    if (plants.length > 0 && activeTab < plants.length && plantSlots[plants[activeTab]._id]) {
+      const autoExpand = {};
+      const currentPlant = plants[activeTab];
+      
+      currentPlant.subtypes?.forEach((subtype) => {
+        const subtypeData = plantSlots[currentPlant._id]?.find(
+          (s) => s.subtypeId === subtype._id
+        );
+        const slots = Array.isArray(subtypeData?.slots) ? subtypeData.slots : [];
+        const plantReadyDays = subtype.plantReadyDays || 0;
+        const reminderDays = 5;
+
+        // Group slots by month to check for urgent/overdue
+        const slotsByMonth = slots.reduce((acc, slot) => {
+          const month = slot.month || "Unknown";
+          if (!acc[month]) acc[month] = [];
+          
+          const deliveryDate = moment(slot?.endDay, "DD-MM-YYYY");
+          const sowByDate = deliveryDate.clone().subtract(plantReadyDays, "days");
+          const alertDate = sowByDate.clone().subtract(reminderDays, "days");
+          const today = moment().startOf('day');
+          const daysUntilSow = sowByDate.diff(today, "days");
+          const daysUntilAlert = alertDate.diff(today, "days");
+          const gap = (slot?.totalBookedPlants || 0) - ((slot?.officeSowed || 0) + (slot?.primarySowed || 0));
+          
+          let priority = "upcoming";
+          if (gap > 0 && daysUntilSow < 0) {
+            priority = "overdue";
+          } else if (gap > 0 && daysUntilAlert <= 0) {
+            priority = "urgent";
+          }
+          
+          acc[month].push({ priority });
+          return acc;
+        }, {});
+
+        // Auto-expand months with urgent/overdue slots
+        Object.keys(slotsByMonth).forEach(month => {
+          const monthKey = `${subtype._id}-${month}`;
+          const hasUrgent = slotsByMonth[month].some(s => s.priority === "overdue" || s.priority === "urgent");
+          if (hasUrgent && expandedMonths[monthKey] === undefined) {
+            autoExpand[monthKey] = true;
+          }
+        });
+      });
+
+      if (Object.keys(autoExpand).length > 0) {
+        setExpandedMonths(prev => ({ ...prev, ...autoExpand }));
+      }
+    }
+  }, [plants, activeTab, plantSlots]);
+
+  const fetchPlants = async () => {
+    try {
+      const instance = NetworkManager(API.plantCms.GET_PLANTS);
+      const response = await instance.request();
+      if (response?.data?.data) {
+        const sowingPlants = response.data.data.filter((plant) => plant.sowingAllowed);
+        setPlants(sowingPlants);
+      }
+    } catch (error) {
+      console.error("Error fetching plants:", error);
+      Toast.error("Failed to fetch plants");
+    }
+  };
+
+  const fetchPlantSlots = async (plantId) => {
+    try {
+      const year = new Date().getFullYear();
+      const plant = plants.find(p => p._id === plantId);
+      
+      if (!plant) return;
+      
+      // Fetch slots for each subtype
+      const allSlots = [];
+      
+      for (const subtype of plant.subtypes) {
+        // Use faster simple endpoint for sowing page
+        const instance = NetworkManager(API.slots.GET_SIMPLE_SLOTS);
+        const response = await instance.request({}, { plantId, subtypeId: subtype._id, year });
+        
+        // Handle the new API response structure
+        const slotsData = response?.data?.data?.slots || response?.data?.slots || [];
+        
+        if (Array.isArray(slotsData) && slotsData.length > 0) {
+          allSlots.push({
+            subtypeId: subtype._id,
+            subtypeName: subtype.name,
+            slots: slotsData
+          });
+        }
+      }
+      
+      setPlantSlots((prev) => ({
+        ...prev,
+        [plantId]: allSlots,
+      }));
+    } catch (error) {
+      console.error("Error fetching slots:", error);
+      Toast.error("Failed to fetch slots data");
+    }
+  };
+
+  // Handle slot-wise sowing input change
+  const handleSlotSowingChange = (slotId, field, value) => {
+    setSlotSowingData((prev) => ({
+      ...prev,
+      [slotId]: {
+        ...prev[slotId],
+        [field]: value,
+      },
+    }));
+  };
+
+  // Navigate to slot from reminder
+  const navigateToSlot = (reminder) => {
+    // Find the plant index
+    const plantIndex = plants.findIndex(p => p._id === reminder.plantId?._id || p._id === reminder.plantId);
+    
+    if (plantIndex === -1) {
+      Toast.error("Plant not found");
+      return;
+    }
+
+    // Switch to slots view
+    setViewMode("slots");
+    setActiveTab(plantIndex);
+
+    // Highlight the slot and auto-expand its month
+    if (reminder.slotId && reminder.subtypeId) {
+      setHighlightedSlot(reminder.slotId);
+      
+      // Find the month from the slot and auto-expand it
+      const plant = plants[plantIndex];
+      const subtypeData = plantSlots[plant._id]?.find(s => s.subtypeId === reminder.subtypeId);
+      const slot = subtypeData?.slots?.find(s => s._id === reminder.slotId);
+      
+      if (slot?.month) {
+        const monthKey = `${reminder.subtypeId}-${slot.month}`;
+        setExpandedMonths(prev => ({ ...prev, [monthKey]: true }));
+      }
+      
+      // Scroll to the highlighted slot after a delay to allow rendering
+      setTimeout(() => {
+        const slotElement = document.getElementById(`slot-${reminder.slotId}`);
+        if (slotElement) {
+          slotElement.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+        
+        // Clear highlight after 5 seconds
+        setTimeout(() => setHighlightedSlot(null), 5000);
+      }, 800);
+    }
+
+    Toast.success(`📍 Navigating to ${reminder.plantName?.name || reminder.plantName} - ${reminder.subtypeName || "subtype"}`);
+  };
+
+  // Save sowing for a specific slot
+  const handleSaveSlotSowing = async (slot, subtypeId) => {
+    const sowingData = slotSowingData[slot._id];
+    
+    if (!sowingData?.quantity || sowingData.quantity <= 0) {
+      Toast.error("Please enter a valid quantity");
+      return;
+    }
+
+    // Auto-set sowing date to today if not provided
+    const finalSowingDate = sowingData?.sowingDate || moment().format("YYYY-MM-DD");
+    
+    if (!finalSowingDate) {
+      Toast.error("Please select a sowing date");
+      return;
+    }
+
+    setSavingSlots((prev) => new Set(prev).add(slot._id));
+
+    try {
+      const instance = NetworkManager(API.sowing.CREATE_SOWING);
+      
+      // Get current user ID
+      const user = userData || appUser;
+      const userId = user?._id;
+      
+      const payload = {
+        plantId: plants[activeTab]._id,
+        subtypeId: subtypeId,
+        sowingDate: moment(finalSowingDate).format("DD-MM-YYYY"),
+        totalQuantityRequired: parseInt(sowingData.quantity),
+        slotId: slot._id,
+        sowingLocation: sowingData.location || "OFFICE", // Default to OFFICE
+        notes: sowingData.notes || "",
+      };
+
+      // Only add createdBy if we have a valid user ID
+      if (userId) {
+        payload.createdBy = userId;
+      }
+
+      const response = await instance.request(payload);
+      if (response?.data) {
+        Toast.success(`Sowing record created for slot ${slot.startDay} - ${slot.endDay}`);
+        
+        // Clear the slot data
+        setSlotSowingData((prev) => {
+          const newData = { ...prev };
+          delete newData[slot._id];
+          return newData;
+        });
+        
+        // Refresh all data to show updated counts
+        fetchSowings();
+        fetchStats();
+        fetchPlantSlots(plants[activeTab]._id);
+      }
+    } catch (error) {
+      console.error("Error creating slot sowing:", error);
+      Toast.error(error?.response?.data?.message || "Failed to create sowing record");
+    } finally {
+      setSavingSlots((prev) => {
+        const newSet = new Set(prev);
+        newSet.delete(slot._id);
+        return newSet;
+      });
+    }
+  };
+
+  const fetchSowings = async () => {
+    setLoading(true);
+    try {
+      const instance = NetworkManager(API.sowing.GET_SOWINGS);
+      const response = await instance.request({}, {});
+      if (response?.data?.data) {
+        setSowings(response.data.data);
+      }
+    } catch (error) {
+      console.error("Error fetching sowings:", error);
+      Toast.error("Failed to fetch sowing records");
+    }
+    setLoading(false);
+  };
+
+  const fetchStats = async () => {
+    try {
+      const instance = NetworkManager(API.sowing.GET_STATS);
+      const response = await instance.request();
+      if (response?.data?.stats) {
+        setStats(response.data.stats);
+      }
+    } catch (error) {
+      console.error("Error fetching stats:", error);
+    }
+  };
+
+  const fetchReminders = async () => {
+    try {
+      const instance = NetworkManager(API.sowing.GET_REMINDERS);
+      const response = await instance.request();
+      if (response?.data?.data) {
+        setReminders(response.data.data);
+      }
+    } catch (error) {
+      console.error("Error fetching reminders:", error);
+    }
+  };
+
+  const handleCreateSowing = async () => {
+    if (!selectedPlant || !selectedSubtype) {
+      Toast.error("Please select plant and subtype");
+      return;
+    }
+
+    if (!formData.totalQuantityRequired || formData.totalQuantityRequired <= 0) {
+      Toast.error("Please enter valid quantity");
+      return;
+    }
+
+    try {
+      const payload = {
+        plantId: selectedPlant._id,
+        subtypeId: selectedSubtype._id,
+        sowingDate: moment(formData.sowingDate).format("DD-MM-YYYY"),
+        totalQuantityRequired: parseInt(formData.totalQuantityRequired),
+        reminderBeforeDays: parseInt(formData.reminderBeforeDays),
+        notes: formData.notes,
+      };
+
+      const instance = NetworkManager(API.sowing.CREATE_SOWING);
+      const response = await instance.request(payload);
+      if (response?.data) {
+        Toast.success("Sowing record created successfully");
+        setIsAddModalOpen(false);
+        resetForm();
+        fetchSowings();
+        fetchStats();
+      }
+    } catch (error) {
+      console.error("Error creating sowing:", error);
+      Toast.error(error?.data?.message || "Failed to create sowing record");
+    }
+  };
+
+  const handleUpdateSowing = async (type) => {
+    if (!updateData.quantity || updateData.quantity <= 0) {
+      Toast.error("Please enter valid quantity");
+      return;
+    }
+
+    try {
+      const payload = {
+        quantity: parseInt(updateData.quantity),
+        notes: updateData.notes,
+        date: moment().format("DD-MM-YYYY"),
+        performedBy: null,
+      };
+
+      const apiEndpoint =
+        type === "OFFICE"
+          ? API.sowing.UPDATE_OFFICE_SOWED
+          : API.sowing.UPDATE_PRIMARY_SOWED;
+
+      const instance = NetworkManager(apiEndpoint);
+      const response = await instance.request(payload, [selectedSowing._id]);
+      if (response?.data) {
+        Toast.success(`${type} sowing updated successfully`);
+        setIsUpdateModalOpen(false);
+        setUpdateData({ quantity: "", location: "OFFICE", notes: "" });
+        fetchSowings();
+        fetchStats();
+      }
+    } catch (error) {
+      console.error("Error updating sowing:", error);
+      Toast.error("Failed to update sowing");
+    }
+  };
+
+  const resetForm = () => {
+    setFormData({
+      sowingDate: moment(),
+      totalQuantityRequired: "",
+      notes: "",
+      reminderBeforeDays: 5,
+    });
+    setSelectedPlant(null);
+    setSelectedSubtype(null);
+  };
+
+  const getStatusColor = (status) => {
+    switch (status) {
+      case "PENDING":
+        return "warning";
+      case "PARTIALLY_SOWED":
+        return "info";
+      case "FULLY_SOWED":
+        return "primary";
+      case "READY":
+        return "success";
+      case "OVERDUE":
+        return "error";
+      default:
+        return "default";
+    }
+  };
+
+  const calculatePlantStats = (plant) => {
+    const plantSowings = sowings.filter((s) => s.plantId === plant._id);
+    const totalRequired = plantSowings.reduce((sum, s) => sum + s.totalQuantityRequired, 0);
+    const totalSowed = plantSowings.reduce((sum, s) => sum + s.totalSowed, 0);
+    const pending = plantSowings.filter((s) => s.status === "PENDING" || s.status === "PARTIALLY_SOWED").length;
+    const overdue = plantSowings.filter((s) => s.status === "OVERDUE").length;
+    
+    return {
+      totalRequired,
+      totalSowed,
+      pending,
+      overdue,
+      completion: totalRequired > 0 ? ((totalSowed / totalRequired) * 100).toFixed(1) : 0,
+    };
+  };
+
+  const getSubtypeBookings = (plantId, subtypeId) => {
+    const slots = plantSlots[plantId];
+    if (!slots || !slots.length) return { booked: 0, capacity: 0 };
+
+    let totalBooked = 0;
+    let totalCapacity = 0;
+
+    slots.forEach((slotGroup) => {
+      const subtypeSlot = slotGroup.subtypeSlots?.find((st) => st.subtypeId === subtypeId);
+      if (subtypeSlot) {
+        subtypeSlot.slots?.forEach((slot) => {
+          totalBooked += slot.totalBookedPlants || 0;
+          totalCapacity += slot.totalPlants || 0;
+        });
+      }
+    });
+
+    return { booked: totalBooked, capacity: totalCapacity };
+  };
+
+  const getSubtypeSowing = (plantId, subtypeId) => {
+    const subtypeSowings = sowings.filter(
+      (s) => s.plantId === plantId && s.subtypeId === subtypeId
+    );
+    const totalSowed = subtypeSowings.reduce((sum, s) => sum + s.totalSowed, 0);
+    const totalRequired = subtypeSowings.reduce((sum, s) => sum + s.totalQuantityRequired, 0);
+    const officeSowed = subtypeSowings.reduce((sum, s) => sum + s.officeSowed, 0);
+    const primarySowed = subtypeSowings.reduce((sum, s) => sum + s.primarySowed, 0);
+
+    return { totalSowed, totalRequired, officeSowed, primarySowed };
+  };
+
+  return (
+    <LocalizationProvider dateAdapter={AdapterMoment}>
+      <Box sx={{ p: 3, bgcolor: "#f5f5f5", minHeight: "100vh" }}>
+        {/* Header */}
+        <Box
+          sx={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            mb: 3,
+          }}>
+          <Box>
+            <Typography variant="h4" sx={{ fontWeight: 700, color: "#2e7d32" }}>
+              🌱 Sowing Management
+            </Typography>
+            <Typography variant="body2" color="textSecondary">
+              Track and manage plant sowing operations
+            </Typography>
+          </Box>
+          <Box>
+            <Button
+              variant="outlined"
+              startIcon={<RefreshIcon />}
+              onClick={() => {
+                fetchSowings();
+                fetchStats();
+                fetchReminders();
+                fetchPlants();
+              }}
+              sx={{ mr: 2 }}>
+              Refresh
+            </Button>
+            <Button
+              variant="contained"
+              startIcon={<AddIcon />}
+              onClick={() => setIsAddModalOpen(true)}
+              sx={{
+                bgcolor: "#2e7d32",
+                "&:hover": { bgcolor: "#1b5e20" },
+              }}>
+              Add Sowing
+            </Button>
+          </Box>
+        </Box>
+
+        {/* Statistics Cards */}
+        {stats && (
+          <Grid container spacing={2} sx={{ mb: 3 }}>
+            <Grid item xs={12} sm={6} md={2.4}>
+              <Card elevation={3} sx={{ background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)" }}>
+                <CardContent>
+                  <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <Box>
+                      <Typography color="white" variant="caption" sx={{ opacity: 0.9 }}>
+                        Total Sowings
+                      </Typography>
+                      <Typography variant="h3" sx={{ color: "white", fontWeight: 700 }}>
+                        {stats.total}
+                      </Typography>
+                    </Box>
+                    <Agriculture sx={{ fontSize: 50, color: "white", opacity: 0.3 }} />
+                  </Box>
+                </CardContent>
+              </Card>
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={2.4}>
+              <Card elevation={3} sx={{ background: "linear-gradient(135deg, #f093fb 0%, #f5576c 100%)" }}>
+                <CardContent>
+                  <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <Box>
+                      <Typography color="white" variant="caption" sx={{ opacity: 0.9 }}>
+                        Pending
+                      </Typography>
+                      <Typography variant="h3" sx={{ color: "white", fontWeight: 700 }}>
+                        {stats.pending}
+                      </Typography>
+                    </Box>
+                    <ScheduleIcon sx={{ fontSize: 50, color: "white", opacity: 0.3 }} />
+                  </Box>
+                </CardContent>
+              </Card>
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={2.4}>
+              <Card elevation={3} sx={{ background: "linear-gradient(135deg, #fa709a 0%, #fee140 100%)" }}>
+                <CardContent>
+                  <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <Box>
+                      <Typography color="white" variant="caption" sx={{ opacity: 0.9 }}>
+                        Overdue
+                      </Typography>
+                      <Typography variant="h3" sx={{ color: "white", fontWeight: 700 }}>
+                        {stats.overdue}
+                      </Typography>
+                    </Box>
+                    <WarningIcon sx={{ fontSize: 50, color: "white", opacity: 0.3 }} />
+                  </Box>
+                </CardContent>
+              </Card>
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={2.4}>
+              <Card elevation={3} sx={{ background: "linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)" }}>
+                <CardContent>
+                  <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <Box>
+                      <Typography color="white" variant="caption" sx={{ opacity: 0.9 }}>
+                        Ready
+                      </Typography>
+                      <Typography variant="h3" sx={{ color: "white", fontWeight: 700 }}>
+                        {stats.ready}
+                      </Typography>
+                    </Box>
+                    <CheckIcon sx={{ fontSize: 50, color: "white", opacity: 0.3 }} />
+                  </Box>
+                </CardContent>
+              </Card>
+            </Grid>
+
+            <Grid item xs={12} sm={6} md={2.4}>
+              <Card elevation={3} sx={{ background: "linear-gradient(135deg, #a8edea 0%, #fed6e3 100%)" }}>
+                <CardContent>
+                  <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <Box>
+                      <Typography variant="caption" sx={{ opacity: 0.8, color: "#333" }}>
+                        Today&apos;s Reminders
+                      </Typography>
+                      <Typography variant="h3" sx={{ color: "#333", fontWeight: 700 }}>
+                        {stats.todayReminders}
+                      </Typography>
+                    </Box>
+                    <EventNote sx={{ fontSize: 50, color: "#333", opacity: 0.2 }} />
+                  </Box>
+                </CardContent>
+              </Card>
+            </Grid>
+          </Grid>
+        )}
+
+        {/* Reminders Alert */}
+        {reminders.length > 0 && (
+          <Alert
+            severity="warning"
+            icon={<WarningIcon />}
+            sx={{ mb: 3, borderLeft: "4px solid #ff9800" }}>
+            <Typography variant="h6" sx={{ fontWeight: 600, mb: 1 }}>
+              ⚠️ Sowing Pending - {reminders.length} Reminder(s)
+            </Typography>
+            {reminders.slice(0, 5).map((reminder) => (
+              <Box
+                key={reminder._id}
+                onClick={() => navigateToSlot(reminder)}
+                sx={{
+                  mt: 0.5,
+                  p: 1,
+                  cursor: "pointer",
+                  borderRadius: 1,
+                  backgroundColor: "rgba(255, 152, 0, 0.05)",
+                  "&:hover": {
+                    backgroundColor: "rgba(255, 152, 0, 0.15)",
+                    transform: "translateX(4px)",
+                    transition: "all 0.2s"
+                  },
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between"
+                }}>
+                <Typography variant="body2">
+                  • <strong>{reminder.plantName?.name || reminder.plantName} - {reminder.subtypeName}</strong>: {reminder.remainingToSow || reminder.totalQuantityRequired} plants
+                  remaining (Due: {reminder.sowingDate})
+                </Typography>
+                <Chip label="View →" size="small" color="warning" sx={{ ml: 1 }} />
+              </Box>
+            ))}
+            {reminders.length > 5 && (
+              <Typography variant="body2" sx={{ mt: 1, fontStyle: "italic", textAlign: "center" }}>
+                ... and {reminders.length - 5} more (switch to Slots view to see all)
+              </Typography>
+            )}
+          </Alert>
+        )}
+
+        {/* Plant Tabs */}
+        <Card elevation={3} sx={{ mb: 3 }}>
+          <Tabs
+            value={activeTab}
+            onChange={(e, newValue) => setActiveTab(newValue)}
+            variant="scrollable"
+            scrollButtons="auto"
+            sx={{
+              bgcolor: "#f9f9f9",
+              borderBottom: 1,
+              borderColor: "divider",
+              "& .MuiTab-root": {
+                fontWeight: 600,
+                fontSize: "0.95rem",
+              },
+            }}>
+            {plants.map((plant, index) => {
+              const plantStats = calculatePlantStats(plant);
+              return (
+                <Tab
+                  key={plant._id}
+                  label={
+                    <Badge badgeContent={plantStats.overdue} color="error">
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                        <LocalFlorist />
+                        {plant.name}
+                      </Box>
+                    </Badge>
+                  }
+                />
+              );
+            })}
+          </Tabs>
+
+          {/* Plant Details */}
+          {plants[activeTab] && (
+            <Box sx={{ p: 3 }}>
+              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 3 }}>
+                <Typography variant="h5" sx={{ fontWeight: 600, color: "#2e7d32" }}>
+                  {plants[activeTab].name} - Sowing Details
+                </Typography>
+                <ToggleButtonGroup
+                  value={viewMode}
+                  exclusive
+                  onChange={(e, newMode) => newMode && setViewMode(newMode)}
+                  size="small">
+                  <ToggleButton value="summary">
+                    <List sx={{ mr: 1 }} /> Summary
+                  </ToggleButton>
+                  <ToggleButton value="slots">
+                    <GridView sx={{ mr: 1 }} /> Slot-wise Entry
+                  </ToggleButton>
+                </ToggleButtonGroup>
+              </Box>
+
+              {/* Plant Level Stats */}
+              <Grid container spacing={2} sx={{ mb: 3 }}>
+                {(() => {
+                  const stats = calculatePlantStats(plants[activeTab]);
+                  return (
+                    <>
+                      <Grid item xs={12} md={3}>
+                        <Paper sx={{ p: 2, textAlign: "center", bgcolor: "#e3f2fd" }}>
+                          <Typography variant="caption" color="textSecondary">
+                            Total Required
+                          </Typography>
+                          <Typography variant="h4" sx={{ fontWeight: 700, color: "#1976d2" }}>
+                            {stats.totalRequired.toLocaleString()}
+                          </Typography>
+                        </Paper>
+                      </Grid>
+                      <Grid item xs={12} md={3}>
+                        <Paper sx={{ p: 2, textAlign: "center", bgcolor: "#e8f5e9" }}>
+                          <Typography variant="caption" color="textSecondary">
+                            Total Sowed
+                          </Typography>
+                          <Typography variant="h4" sx={{ fontWeight: 700, color: "#2e7d32" }}>
+                            {stats.totalSowed.toLocaleString()}
+                          </Typography>
+                        </Paper>
+                      </Grid>
+                      <Grid item xs={12} md={3}>
+                        <Paper sx={{ p: 2, textAlign: "center", bgcolor: "#fff3e0" }}>
+                          <Typography variant="caption" color="textSecondary">
+                            Pending Tasks
+                          </Typography>
+                          <Typography variant="h4" sx={{ fontWeight: 700, color: "#f57c00" }}>
+                            {stats.pending}
+                          </Typography>
+                        </Paper>
+                      </Grid>
+                      <Grid item xs={12} md={3}>
+                        <Paper sx={{ p: 2, textAlign: "center" }}>
+                          <Typography variant="caption" color="textSecondary">
+                            Completion
+                          </Typography>
+                          <Typography variant="h4" sx={{ fontWeight: 700, color: "#4caf50" }}>
+                            {stats.completion}%
+                          </Typography>
+                          <LinearProgress
+                            variant="determinate"
+                            value={parseFloat(stats.completion)}
+                            sx={{ mt: 1, height: 8, borderRadius: 4 }}
+                          />
+                        </Paper>
+                      </Grid>
+                    </>
+                  );
+                })()}
+              </Grid>
+
+              {/* View Mode Toggle */}
+              <Box sx={{ mb: 2, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<RefreshIcon />}
+                  onClick={() => fetchPlantSlots(plants[activeTab]._id)}
+                  sx={{ visibility: viewMode === "slots" ? "visible" : "hidden" }}>
+                  Refresh Slots
+                </Button>
+                <ToggleButtonGroup
+                  value={viewMode}
+                  exclusive
+                  onChange={(e, newMode) => {
+                    if (newMode) {
+                      setViewMode(newMode);
+                      if (newMode === "slots" && plants[activeTab]) {
+                        fetchPlantSlots(plants[activeTab]._id);
+                      }
+                    }
+                  }}
+                  size="small"
+                  sx={{ bgcolor: "white" }}>
+                  <ToggleButton value="summary">
+                    <List sx={{ mr: 1 }} />
+                    Summary View
+                  </ToggleButton>
+                  <ToggleButton value="slots">
+                    <GridView sx={{ mr: 1 }} />
+                    Slot-wise Sowing
+                  </ToggleButton>
+                </ToggleButtonGroup>
+              </Box>
+
+              {/* Summary View - Original Subtypes Table */}
+              {viewMode === "summary" && (
+                <TableContainer component={Paper} elevation={2}>
+                  <Table>
+                    <TableHead sx={{ bgcolor: "#f5f5f5" }}>
+                      <TableRow>
+                        <TableCell sx={{ fontWeight: 700 }}>Subtype</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>Plant Ready Days</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>Bookings</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>Slot Capacity</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>Office Sowed</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>Primary Sowed</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>Total Sowed</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>Required</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>Gap</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                    {plants[activeTab].subtypes.map((subtype) => {
+                      const bookings = getSubtypeBookings(plants[activeTab]._id, subtype._id);
+                      const sowing = getSubtypeSowing(plants[activeTab]._id, subtype._id);
+                      const gap = bookings.booked - sowing.totalSowed;
+                      const gapPercentage = bookings.booked > 0 ? ((sowing.totalSowed / bookings.booked) * 100).toFixed(1) : 0;
+
+                      return (
+                        <TableRow key={subtype._id} hover>
+                          <TableCell>
+                            <Typography variant="body1" sx={{ fontWeight: 600 }}>
+                              {subtype.name}
+                            </Typography>
+                            <Typography variant="caption" color="textSecondary">
+                              {subtype.description}
+                            </Typography>
+                          </TableCell>
+                          <TableCell>
+                            <Chip
+                              label={`${subtype.plantReadyDays} days`}
+                              size="small"
+                              color="primary"
+                              variant="outlined"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Typography variant="h6" sx={{ color: "#1976d2", fontWeight: 700 }}>
+                              {bookings.booked.toLocaleString()}
+                            </Typography>
+                          </TableCell>
+                          <TableCell>
+                            <Typography variant="body2" color="textSecondary">
+                              {bookings.capacity.toLocaleString()}
+                            </Typography>
+                          </TableCell>
+                          <TableCell>
+                            <Typography variant="body2">{sowing.officeSowed.toLocaleString()}</Typography>
+                          </TableCell>
+                          <TableCell>
+                            <Typography variant="body2">{sowing.primarySowed.toLocaleString()}</Typography>
+                          </TableCell>
+                          <TableCell>
+                            <Typography variant="h6" sx={{ color: "#2e7d32", fontWeight: 600 }}>
+                              {sowing.totalSowed.toLocaleString()}
+                            </Typography>
+                          </TableCell>
+                          <TableCell>
+                            <Typography variant="body2">{sowing.totalRequired.toLocaleString()}</Typography>
+                          </TableCell>
+                          <TableCell>
+                            <Tooltip title={`${gapPercentage}% of bookings covered`}>
+                              <Chip
+                                label={gap.toLocaleString()}
+                                size="small"
+                                color={gap > 0 ? "error" : "success"}
+                                sx={{ fontWeight: 600 }}
+                              />
+                            </Tooltip>
+                          </TableCell>
+                          <TableCell>
+                            <Box>
+                              <LinearProgress
+                                variant="determinate"
+                                value={Math.min(parseFloat(gapPercentage), 100)}
+                                sx={{
+                                  height: 6,
+                                  borderRadius: 3,
+                                  bgcolor: "#e0e0e0",
+                                  "& .MuiLinearProgress-bar": {
+                                    bgcolor: gapPercentage >= 100 ? "#4caf50" : "#ff9800",
+                                  },
+                                }}
+                              />
+                              <Typography variant="caption" sx={{ mt: 0.5 }}>
+                                {gapPercentage}% covered
+                              </Typography>
+                            </Box>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+              )}
+
+              {/* Slot-wise Sowing View - REDESIGNED */}
+              {viewMode === "slots" && (
+                <>
+                  {/* Enhanced Filter Controls */}
+                  <Card sx={{ mb: 3, p: 2, bgcolor: "#fafafa" }}>
+                    <Grid container spacing={2} alignItems="center">
+                      <Grid item xs={12} md={4}>
+                        <TextField
+                          fullWidth
+                          size="small"
+                          placeholder="Search by date (e.g., Jan, 01-11, Nov 1)..."
+                          value={searchSlot}
+                          onChange={(e) => setSearchSlot(e.target.value)}
+                          InputProps={{
+                            startAdornment: (
+                              <InputAdornment position="start">🔍</InputAdornment>
+                            ),
+                          }}
+                        />
+                      </Grid>
+                      <Grid item xs={12} md={3}>
+                        <FormControl fullWidth size="small">
+                          <InputLabel>Filter Slots</InputLabel>
+                          <Select
+                            value={monthFilter}
+                            onChange={(e) => setMonthFilter(e.target.value)}
+                            label="Filter Slots">
+                            <MenuItem value="all">All Slots</MenuItem>
+                            <MenuItem value="urgent">⚠️ Urgent Only (≤5 days)</MenuItem>
+                            <MenuItem value="overdue">🚨 Overdue Only</MenuItem>
+                            <MenuItem value="pending">📋 Pending Gap</MenuItem>
+                            <MenuItem value="complete">✅ Complete</MenuItem>
+                          </Select>
+                        </FormControl>
+                      </Grid>
+                      <Grid item xs={12} md={3}>
+                        <ToggleButtonGroup
+                          value={compactView ? "compact" : "normal"}
+                          exclusive
+                          onChange={(e, value) => setCompactView(value === "compact")}
+                          size="small"
+                          fullWidth>
+                          <ToggleButton value="normal">
+                            <GridView sx={{ mr: 0.5 }} /> Normal
+                          </ToggleButton>
+                          <ToggleButton value="compact">
+                            <List sx={{ mr: 0.5 }} /> Compact
+                          </ToggleButton>
+                        </ToggleButtonGroup>
+                      </Grid>
+                      <Grid item xs={12} md={2}>
+                        <Button
+                          fullWidth
+                          variant="outlined"
+                          size="small"
+                          onClick={() => {
+                            setSearchSlot("");
+                            setMonthFilter("all");
+                            setExpandedMonths({});
+                          }}
+                          startIcon={<RefreshIcon />}>
+                          Reset
+                        </Button>
+                      </Grid>
+                    </Grid>
+                  </Card>
+
+                  {!plantSlots[plants[activeTab]._id] ? (
+                    <Box sx={{ textAlign: "center", py: 8 }}>
+                      <RefreshIcon sx={{ fontSize: 48, color: "#ccc", mb: 2 }} />
+                      <Typography variant="h6" color="textSecondary">
+                        Loading slots data...
+                      </Typography>
+                    </Box>
+                  ) : (
+                    <>
+                      {plants[activeTab].subtypes.map((subtype) => {
+                        const subtypeData = plantSlots[plants[activeTab]._id]?.find(
+                          (s) => s.subtypeId === subtype._id
+                        );
+                        const slots = Array.isArray(subtypeData?.slots) ? subtypeData.slots : [];
+                        
+                        const plantReadyDays = subtype.plantReadyDays || 0;
+                        const reminderDays = 5;
+
+                        // Group slots by month
+                        const slotsByMonth = slots.reduce((acc, slot) => {
+                          const month = slot.month || "Unknown";
+                          if (!acc[month]) acc[month] = [];
+                          
+                          const deliveryDate = moment(slot?.endDay, "DD-MM-YYYY");
+                          const sowByDate = deliveryDate.clone().subtract(plantReadyDays, "days");
+                          const alertDate = sowByDate.clone().subtract(reminderDays, "days");
+                          const today = moment().startOf('day');
+                          const daysUntilSow = sowByDate.diff(today, "days");
+                          const daysUntilAlert = alertDate.diff(today, "days");
+                          const gap = (slot?.totalBookedPlants || 0) - ((slot?.officeSowed || 0) + (slot?.primarySowed || 0));
+                          
+                          // Determine priority
+                          let priority = "upcoming";
+                          let bgcolor = "#ffffff";
+                          let borderColor = "#e0e0e0";
+                          
+                          if (gap <= 0 && slot.totalBookedPlants === 0) {
+                            priority = "noBooking";
+                            bgcolor = "#fafafa";
+                          } else if (gap <= 0) {
+                            priority = "complete";
+                            bgcolor = "#e8f5e9";
+                            borderColor = "#66bb6a";
+                          } else if (daysUntilSow < 0) {
+                            priority = "overdue";
+                            bgcolor = "#ffebee";
+                            borderColor = "#ef5350";
+                          } else if (daysUntilAlert <= 0) {
+                            priority = "urgent";
+                            bgcolor = "#fff3e0";
+                            borderColor = "#ffa726";
+                          }
+                          
+                          acc[month].push({ slot, daysUntilSow, gap, priority, bgcolor, borderColor, sowByDate });
+                          return acc;
+                        }, {});
+
+                        // Get month order
+                        const monthOrder = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+                        let sortedMonths = Object.keys(slotsByMonth).sort((a, b) => monthOrder.indexOf(a) - monthOrder.indexOf(b));
+
+                        // Apply filters
+                        if (monthFilter !== "all") {
+                          sortedMonths = sortedMonths.filter(month => {
+                            const monthSlots = slotsByMonth[month];
+                            if (monthFilter === "urgent") {
+                              return monthSlots.some(s => s.priority === "urgent");
+                            } else if (monthFilter === "overdue") {
+                              return monthSlots.some(s => s.priority === "overdue");
+                            } else if (monthFilter === "pending") {
+                              return monthSlots.some(s => s.gap > 0);
+                            } else if (monthFilter === "complete") {
+                              return monthSlots.some(s => s.priority === "complete");
+                            }
+                            return true;
+                          });
+                        }
+
+                        // Apply search filter
+                        if (searchSlot.trim()) {
+                          sortedMonths = sortedMonths.filter(month => {
+                            const monthSlots = slotsByMonth[month];
+                            const searchLower = searchSlot.toLowerCase();
+                            
+                            // Check if month name matches
+                            if (month.toLowerCase().includes(searchLower)) return true;
+                            
+                            // Check if any slot date matches
+                            return monthSlots.some(s => {
+                              const startDay = s.slot.startDay || "";
+                              const endDay = s.slot.endDay || "";
+                              return startDay.includes(searchSlot) || endDay.includes(searchSlot);
+                            });
+                          });
+                        }
+
+                        return (
+                          <Box key={subtype?._id || `subtype-${Math.random()}`} sx={{ mb: 4 }}>
+                            <Typography variant="h6" sx={{ mb: 2, fontWeight: 700, color: "#2e7d32", display: "flex", alignItems: "center", gap: 1 }}>
+                              <Agriculture sx={{ fontSize: 28 }} />
+                              {subtype?.name || "Unknown"} 
+                              <Chip label={`Ready in ${plantReadyDays} days`} size="small" color="success" />
+                              <Chip label={`${slots.length} slots`} size="small" variant="outlined" />
+                            </Typography>
+
+                            {/* Month-wise Collapsible Sections */}
+                            <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                              {sortedMonths.length === 0 ? (
+                                <Card sx={{ p: 4, textAlign: "center" }}>
+                                  <Typography variant="h6" color="textSecondary" gutterBottom>
+                                    🔍 No slots found
+                                  </Typography>
+                                  <Typography variant="body2" color="textSecondary">
+                                    Try adjusting your filters or search terms
+                                  </Typography>
+                                  <Button
+                                    variant="outlined"
+                                    size="small"
+                                    onClick={() => {
+                                      setSearchSlot("");
+                                      setMonthFilter("all");
+                                    }}
+                                    sx={{ mt: 2 }}>
+                                    Clear Filters
+                                  </Button>
+                                </Card>
+                              ) : (
+                              sortedMonths.map(month => {
+                                const monthKey = `${subtype._id}-${month}`;
+                                const monthSlots = slotsByMonth[month];
+                                const overdue = monthSlots.filter(s => s.priority === "overdue").length;
+                                const urgent = monthSlots.filter(s => s.priority === "urgent").length;
+                                const hasIssues = overdue > 0 || urgent > 0;
+                                const totalBooked = monthSlots.reduce((sum, s) => sum + (s.slot.totalBookedPlants || 0), 0);
+                                const totalGap = monthSlots.reduce((sum, s) => sum + s.gap, 0);
+                                
+                                return (
+                                  <Card key={month} sx={{ border: hasIssues ? "2px solid #f57c00" : "1px solid #e0e0e0" }}>
+                                    {/* Month Header */}
+                                    <Box 
+                                      onClick={() => setExpandedMonths(prev => ({ ...prev, [monthKey]: !prev[monthKey] }))}
+                                      sx={{ 
+                                        p: 2, 
+                                        bgcolor: hasIssues ? "#fff3e0" : "#f5f5f5",
+                                        cursor: "pointer",
+                                        "&:hover": { bgcolor: hasIssues ? "#ffe0b2" : "#eeeeee" },
+                                        display: "flex",
+                                        justifyContent: "space-between",
+                                        alignItems: "center"
+                                      }}>
+                                      <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+                                        <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                                          📅 {month}
+                                        </Typography>
+                                        <Chip label={`${monthSlots.length} slots`} size="small" />
+                                        {overdue > 0 && <Chip label={`${overdue} overdue`} size="small" color="error" />}
+                                        {urgent > 0 && <Chip label={`${urgent} urgent`} size="small" color="warning" />}
+                                      </Box>
+                                      <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+                                        <Typography variant="body2" color="textSecondary">
+                                          Booked: {totalBooked} | Gap: {totalGap}
+                                        </Typography>
+                                        <IconButton size="small">
+                                          {expandedMonths[monthKey] ? <TrendingDown /> : <TrendingUp />}
+                                        </IconButton>
+                                      </Box>
+                                    </Box>
+
+                                    {/* Month Content - Collapsible */}
+                                    {expandedMonths[monthKey] && (
+                                      <CardContent sx={{ p: 2, bgcolor: "#fafafa" }}>
+                                        <Grid container spacing={compactView ? 1 : 1.5}>
+                                          {monthSlots.map(({ slot, daysUntilSow, gap, priority, bgcolor, borderColor, sowByDate }) => {
+                                            const isHighlighted = highlightedSlot === slot._id;
+                                            return (
+                                            <Grid item xs={12} sm={compactView ? 4 : 6} md={compactView ? 3 : 4} lg={compactView ? 2 : 3} key={slot._id}>
+                                              <Paper 
+                                                id={`slot-${slot._id}`}
+                                                sx={{ 
+                                                  p: compactView ? 1 : 1.5, 
+                                                  bgcolor: isHighlighted ? "#fff9c4" : bgcolor, 
+                                                  border: isHighlighted ? `3px solid #fbc02d` : `2px solid ${borderColor}`,
+                                                  transition: "all 0.2s",
+                                                  "&:hover": { transform: "translateY(-2px)", boxShadow: 3 },
+                                                  boxShadow: isHighlighted ? 6 : 1
+                                                }}>
+                                                {/* Header */}
+                                                <Box sx={{ mb: 1 }}>
+                                                  <Typography variant="body2" sx={{ fontWeight: 700, fontSize: "0.85rem" }}>
+                                                    {moment(slot.startDay, "DD-MM-YYYY").format("MMM D")} - {moment(slot.endDay, "DD-MM-YYYY").format("MMM D")}
+                                                  </Typography>
+                                                  <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
+                                                    {priority === "overdue" && <Chip label="🚨" size="small" color="error" sx={{ fontSize: "0.65rem", height: 16 }} />}
+                                                    {priority === "urgent" && <Chip label="⚠️" size="small" color="warning" sx={{ fontSize: "0.65rem", height: 16 }} />}
+                                                    {priority === "complete" && <Chip label="✓" size="small" color="success" sx={{ fontSize: "0.65rem", height: 16 }} />}
+                                                    {daysUntilSow >= 0 && gap > 0 && (
+                                                      <Chip label={`${daysUntilSow}d`} size="small" variant="outlined" sx={{ fontSize: "0.65rem", height: 16 }} />
+                                                    )}
+                                                  </Box>
+                                                </Box>
+
+                                                {/* Stats Grid */}
+                                                <Grid container spacing={0.5} sx={{ mb: 1 }}>
+                                                  <Grid item xs={3}>
+                                                    <Box sx={{ bgcolor: "rgba(25,118,210,0.1)", p: 0.5, borderRadius: 0.5, textAlign: "center" }}>
+                                                      <Typography variant="caption" sx={{ fontSize: "0.6rem", color: "#666" }}>Book</Typography>
+                                                      <Typography variant="body2" sx={{ fontWeight: 700, color: "#1976d2", fontSize: "0.75rem" }}>
+                                                        {slot.totalBookedPlants || 0}
+                                                      </Typography>
+                                                    </Box>
+                                                  </Grid>
+                                                  <Grid item xs={3}>
+                                                    <Box sx={{ bgcolor: "rgba(46,125,50,0.1)", p: 0.5, borderRadius: 0.5, textAlign: "center" }}>
+                                                      <Typography variant="caption" sx={{ fontSize: "0.6rem", color: "#666" }}>Off</Typography>
+                                                      <Typography variant="body2" sx={{ fontWeight: 700, color: "#2e7d32", fontSize: "0.75rem" }}>
+                                                        {slot.officeSowed || 0}
+                                                      </Typography>
+                                                    </Box>
+                                                  </Grid>
+                                                  <Grid item xs={3}>
+                                                    <Box sx={{ bgcolor: "rgba(46,125,50,0.1)", p: 0.5, borderRadius: 0.5, textAlign: "center" }}>
+                                                      <Typography variant="caption" sx={{ fontSize: "0.6rem", color: "#666" }}>Pri</Typography>
+                                                      <Typography variant="body2" sx={{ fontWeight: 700, color: "#2e7d32", fontSize: "0.75rem" }}>
+                                                        {slot.primarySowed || 0}
+                                                      </Typography>
+                                                    </Box>
+                                                  </Grid>
+                                                  <Grid item xs={3}>
+                                                    <Box sx={{ bgcolor: gap > 0 ? "rgba(255,152,0,0.15)" : "rgba(158,158,158,0.1)", p: 0.5, borderRadius: 0.5, textAlign: "center" }}>
+                                                      <Typography variant="caption" sx={{ fontSize: "0.6rem", color: "#666" }}>Gap</Typography>
+                                                      <Typography variant="body2" sx={{ fontWeight: 700, color: gap > 0 ? "#f57c00" : "#666", fontSize: "0.75rem" }}>
+                                                        {gap > 0 ? '+' : ''}{gap}
+                                                      </Typography>
+                                                    </Box>
+                                                  </Grid>
+                                                </Grid>
+
+                                                {gap > 0 && (
+                                                  <Box sx={{ mb: 1, p: 0.5, bgcolor: priority === "overdue" ? "#ffcdd2" : priority === "urgent" ? "#ffe0b2" : "#bbdefb", borderRadius: 1 }}>
+                                                    <Typography variant="caption" sx={{ fontSize: "0.65rem", fontWeight: 600 }}>
+                                                      Need to sow: {gap} by {sowByDate.format("MMM D")}
+                                                    </Typography>
+                                                  </Box>
+                                                )}
+
+                                                {/* Quick Entry */}
+                                                <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
+                                                  <TextField
+                                                    type="date"
+                                                    size="small"
+                                                    value={slotSowingData[slot._id]?.sowingDate || moment().format("YYYY-MM-DD")}
+                                                    onChange={(e) => handleSlotSowingChange(slot._id, "sowingDate", e.target.value)}
+                                                    sx={{ "& input": { fontSize: "0.7rem", p: 0.5 } }}
+                                                  />
+                                                  
+                                                  {/* Location Selector */}
+                                                  <ToggleButtonGroup
+                                                    value={slotSowingData[slot._id]?.location || "OFFICE"}
+                                                    exclusive
+                                                    onChange={(e, value) => value && handleSlotSowingChange(slot._id, "location", value)}
+                                                    size="small"
+                                                    fullWidth
+                                                    sx={{ 
+                                                      height: 28,
+                                                      "& .MuiToggleButton-root": { 
+                                                        fontSize: "0.65rem", 
+                                                        py: 0.3,
+                                                        "&.Mui-selected": {
+                                                          bgcolor: "#2e7d32",
+                                                          color: "white",
+                                                          "&:hover": { bgcolor: "#1b5e20" }
+                                                        }
+                                                      }
+                                                    }}>
+                                                    <ToggleButton value="OFFICE">
+                                                      🏢 Office
+                                                    </ToggleButton>
+                                                    <ToggleButton value="PRIMARY">
+                                                      🌱 Primary
+                                                    </ToggleButton>
+                                                  </ToggleButtonGroup>
+                                                  
+                                                  <Box sx={{ display: "flex", gap: 0.5 }}>
+                                                    <TextField
+                                                      type="number"
+                                                      size="small"
+                                                      placeholder={gap > 0 ? gap.toString() : "Qty"}
+                                                      value={slotSowingData[slot._id]?.quantity || ""}
+                                                      onChange={(e) => handleSlotSowingChange(slot._id, "quantity", e.target.value)}
+                                                      sx={{ flex: 1, "& input": { fontSize: "0.75rem", p: 0.5 } }}
+                                                    />
+                                                    {gap > 0 && (
+                                                      <Button
+                                                        size="small"
+                                                        variant="outlined"
+                                                        onClick={() => handleSlotSowingChange(slot._id, "quantity", gap.toString())}
+                                                        sx={{ minWidth: 40, fontSize: "0.65rem", px: 0.5 }}>
+                                                        Fill
+                                                      </Button>
+                                                    )}
+                                                    <Button
+                                                      size="small"
+                                                      variant="contained"
+                                                      disabled={!slotSowingData[slot._id]?.quantity || savingSlots.has(slot._id)}
+                                                      onClick={() => handleSaveSlotSowing(slot, subtype._id)}
+                                                      sx={{ 
+                                                        minWidth: 55,
+                                                        fontSize: "0.7rem",
+                                                        bgcolor: priority === "overdue" ? "#d32f2f" : priority === "urgent" ? "#f57c00" : "#2e7d32",
+                                                        "&:hover": { 
+                                                          bgcolor: priority === "overdue" ? "#b71c1c" : priority === "urgent" ? "#e65100" : "#1b5e20"
+                                                        }
+                                                      }}>
+                                                      {savingSlots.has(slot._id) ? "..." : "Sow"}
+                                                    </Button>
+                                                  </Box>
+                                                </Box>
+                                              </Paper>
+                                            </Grid>
+                                            );
+                                          })}
+                                        </Grid>
+                                      </CardContent>
+                                    )}
+                                  </Card>
+                                );
+                              })
+                              )}
+                            </Box>
+                          </Box>
+                        );
+                      })}
+                    </>
+                  )}
+                </>
+              )}
+            </Box>
+          )}
+        </Card>
+
+        {/* Add Sowing Modal */}
+        <Dialog open={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} maxWidth="sm" fullWidth>
+          <DialogTitle sx={{ bgcolor: "#2e7d32", color: "white" }}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <AddIcon />
+              Add New Sowing
+            </Box>
+          </DialogTitle>
+          <DialogContent sx={{ mt: 2 }}>
+            <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              <FormControl fullWidth>
+                <InputLabel>Plant</InputLabel>
+                <Select
+                  value={selectedPlant?._id || ""}
+                  label="Plant"
+                  onChange={(e) => {
+                    const plant = plants.find((p) => p._id === e.target.value);
+                    setSelectedPlant(plant);
+                    setSelectedSubtype(null);
+                  }}>
+                  {plants.map((plant) => (
+                    <MenuItem key={plant._id} value={plant._id}>
+                      {plant.name}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+
+              {selectedPlant && (
+                <FormControl fullWidth>
+                  <InputLabel>Subtype</InputLabel>
+                  <Select
+                    value={selectedSubtype?._id || ""}
+                    label="Subtype"
+                    onChange={(e) => {
+                      const subtype = selectedPlant.subtypes.find((s) => s._id === e.target.value);
+                      setSelectedSubtype(subtype);
+                    }}>
+                    {selectedPlant.subtypes.map((subtype) => (
+                      <MenuItem key={subtype._id} value={subtype._id}>
+                        {subtype.name} (Ready in {subtype.plantReadyDays} days)
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              )}
+
+              <DatePicker
+                label="Sowing Date"
+                value={formData.sowingDate}
+                onChange={(date) => setFormData({ ...formData, sowingDate: date })}
+                renderInput={(params) => <TextField {...params} fullWidth />}
+              />
+
+              <TextField
+                label="Total Quantity Required"
+                type="number"
+                value={formData.totalQuantityRequired}
+                onChange={(e) => setFormData({ ...formData, totalQuantityRequired: e.target.value })}
+                fullWidth
+              />
+
+              <TextField
+                label="Reminder Before Days"
+                type="number"
+                value={formData.reminderBeforeDays}
+                onChange={(e) => setFormData({ ...formData, reminderBeforeDays: e.target.value })}
+                fullWidth
+                helperText="Days before sowing date to show reminder"
+              />
+
+              <TextField
+                label="Notes"
+                multiline
+                rows={3}
+                value={formData.notes}
+                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                fullWidth
+              />
+
+              {selectedSubtype && (
+                <Alert severity="info" sx={{ mt: 1 }}>
+                  <Typography variant="body2">
+                    <strong>Expected Ready Date:</strong>{" "}
+                    {moment(formData.sowingDate)
+                      .add(selectedSubtype.plantReadyDays, "days")
+                      .format("DD-MM-YYYY")}
+                  </Typography>
+                </Alert>
+              )}
+            </Box>
+          </DialogContent>
+          <DialogActions sx={{ p: 2 }}>
+            <Button onClick={() => setIsAddModalOpen(false)} variant="outlined">
+              Cancel
+            </Button>
+            <Button variant="contained" onClick={handleCreateSowing} sx={{ bgcolor: "#2e7d32" }}>
+              Create Sowing
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* Update Sowing Modal */}
+        <Dialog open={isUpdateModalOpen} onClose={() => setIsUpdateModalOpen(false)} maxWidth="sm" fullWidth>
+          <DialogTitle sx={{ bgcolor: "#1976d2", color: "white" }}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <EditIcon />
+              Update Sowing Progress
+            </Box>
+          </DialogTitle>
+          <DialogContent sx={{ mt: 2 }}>
+            {selectedSowing && (
+              <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                <Alert severity="info">
+                  <Typography variant="body2">
+                    <strong>
+                      {selectedSowing.plantName} - {selectedSowing.subtypeName}
+                    </strong>
+                  </Typography>
+                  <Typography variant="caption">
+                    Required: {selectedSowing.totalQuantityRequired.toLocaleString()} | Remaining:{" "}
+                    {selectedSowing.remainingToSow.toLocaleString()}
+                  </Typography>
+                </Alert>
+
+                <FormControl fullWidth>
+                  <InputLabel>Location</InputLabel>
+                  <Select
+                    value={updateData.location}
+                    label="Location"
+                    onChange={(e) => setUpdateData({ ...updateData, location: e.target.value })}>
+                    <MenuItem value="OFFICE">Office</MenuItem>
+                    <MenuItem value="PRIMARY">Primary</MenuItem>
+                  </Select>
+                </FormControl>
+
+                <TextField
+                  label="Quantity Sowed"
+                  type="number"
+                  value={updateData.quantity}
+                  onChange={(e) => setUpdateData({ ...updateData, quantity: e.target.value })}
+                  fullWidth
+                />
+
+                <TextField
+                  label="Notes"
+                  multiline
+                  rows={2}
+                  value={updateData.notes}
+                  onChange={(e) => setUpdateData({ ...updateData, notes: e.target.value })}
+                  fullWidth
+                />
+              </Box>
+            )}
+          </DialogContent>
+          <DialogActions sx={{ p: 2 }}>
+            <Button onClick={() => setIsUpdateModalOpen(false)} variant="outlined">
+              Cancel
+            </Button>
+            <Button
+              variant="contained"
+              onClick={() => handleUpdateSowing(updateData.location)}
+              sx={{ bgcolor: "#1976d2" }}>
+              Update
+            </Button>
+          </DialogActions>
+        </Dialog>
+      </Box>
+    </LocalizationProvider>
+  );
+};
+
+export default SowingManagement;

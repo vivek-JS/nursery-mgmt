@@ -140,6 +140,7 @@ const Slots = () => {
         slotSize: values.slotSize,
         dailyDispatchCapacity: values.dailyDispatchCapacity,
         buffer: values.buffer,
+        sowingAllowed: values.sowingAllowed || false,
         subtypes: values.subtypes
       }
 
@@ -332,10 +333,12 @@ const Slots = () => {
                     slotSize: editPlant?.slotSize || "",
                     dailyDispatchCapacity: editPlant?.dailyDispatchCapacity || 2000,
                     buffer: editPlant?.buffer || 0,
+                    sowingAllowed: editPlant?.sowingAllowed || false,
                     subtypes: editPlant?.subtypes?.map((subtype) => ({
                       ...subtype,
-                      buffer: subtype.buffer !== undefined ? subtype.buffer : 0
-                    })) || [{ name: "", description: "", rates: [""], buffer: 0 }]
+                      buffer: subtype.buffer !== undefined ? subtype.buffer : 0,
+                      plantReadyDays: subtype.plantReadyDays !== undefined ? subtype.plantReadyDays : 0
+                    })) || [{ name: "", description: "", rates: [""], buffer: 0, plantReadyDays: 0 }]
                   }}
                   validationSchema={plantSchema}
                   onSubmit={handleSubmit}>
@@ -407,13 +410,31 @@ const Slots = () => {
                           </p>
                         </div>
                         <div className="space-y-2">
+                          <div className="flex items-center space-x-2">
+                            <input
+                              id="sowingAllowed"
+                              name="sowingAllowed"
+                              type="checkbox"
+                              checked={values.sowingAllowed || false}
+                              onChange={handleChange}
+                              className="h-4 w-4 rounded border-gray-300"
+                            />
+                            <Label htmlFor="sowingAllowed" className="mb-0 cursor-pointer">
+                              Sowing Allowed
+                            </Label>
+                          </div>
+                          <p className="text-xs text-gray-500">
+                            Enable if this plant is grown from seeds/sowing
+                          </p>
+                        </div>
+                        <div className="space-y-2">
                           <Label>Subtypes</Label>
                           <FieldArray name="subtypes">
                             {({ push, remove }) => (
                               <>
                                 {values.subtypes.map((subtype, index) => (
                                   <div key={index} className="mb-4 p-4 border rounded-lg">
-                                    <div className="grid grid-cols-3 gap-2 mb-2">
+                                    <div className="grid grid-cols-2 gap-2 mb-2">
                                       <Input
                                         name={`subtypes.${index}.name`}
                                         placeholder="Subtype name"
@@ -431,19 +452,35 @@ const Slots = () => {
                                         onChange={handleChange}
                                         onBlur={handleBlur}
                                       />
+                                    </div>
 
-                                      <div className="flex gap-2">
+                                    <div className="grid grid-cols-3 gap-2 mb-2">
+                                      <Input
+                                        name={`subtypes.${index}.buffer`}
+                                        placeholder="Buffer %"
+                                        type="number"
+                                        min="0"
+                                        max="100"
+                                        step="0.1"
+                                        value={subtype.buffer}
+                                        onChange={handleChange}
+                                        onBlur={handleBlur}
+                                      />
+                                      
+                                      {values.sowingAllowed && (
                                         <Input
-                                          name={`subtypes.${index}.buffer`}
-                                          placeholder="Buffer %"
+                                          name={`subtypes.${index}.plantReadyDays`}
+                                          placeholder="Plant Ready Days"
                                           type="number"
                                           min="0"
-                                          max="100"
-                                          step="0.1"
-                                          value={subtype.buffer}
+                                          step="1"
+                                          value={subtype.plantReadyDays || 0}
                                           onChange={handleChange}
                                           onBlur={handleBlur}
                                         />
+                                      )}
+
+                                      <div className="flex gap-2 justify-end">
                                         {values.subtypes.length > 1 && (
                                           <Button
                                             type="button"
@@ -508,7 +545,7 @@ const Slots = () => {
                                   variant="outline"
                                   size="sm"
                                   onClick={() =>
-                                    push({ name: "", description: "", rates: [""], buffer: 0 })
+                                    push({ name: "", description: "", rates: [""], buffer: 0, plantReadyDays: 0 })
                                   }
                                   className="mt-2 gap-2">
                                   <Plus className="h-4 w-4" />

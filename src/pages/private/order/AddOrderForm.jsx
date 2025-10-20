@@ -389,7 +389,8 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
         setPlants(
           response.data.map((plant) => ({
             label: plant.name,
-            value: plant.plantId
+            value: plant.plantId,
+            sowingAllowed: plant.sowingAllowed || false // Track if sowing is allowed
           }))
         )
       }
@@ -500,11 +501,26 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
       const response = await instance.request(null, { plantId, subtypeId, year: 2025 })
       console.log("Slots API response:", response)
 
-      if (response?.data?.slots?.[0]?.slots) {
-        const data = response.data.slots[0].slots
-        console.log("Raw slots data:", data)
+      // Handle both response structures: {slots: [{slots: [...]}]} and {slots: [...]}
+      let slotsData = null
+      if (response?.data?.slots) {
+        if (Array.isArray(response.data.slots[0]?.slots)) {
+          // Nested structure
+          slotsData = response.data.slots[0].slots
+        } else if (Array.isArray(response.data.slots)) {
+          // Direct structure
+          slotsData = response.data.slots
+        }
+      }
 
-        const processedSlots = data
+      if (slotsData) {
+        console.log("Raw slots data:", slotsData.length, "slots")
+
+        // Check if this plant has sowing allowed
+        const selectedPlant = plants.find((p) => p.value === plantId)
+        const isSowingAllowedPlant = selectedPlant?.sowingAllowed
+
+        const processedSlots = slotsData
           .map((slot) => {
             const {
               startDay,
@@ -517,24 +533,20 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
               availablePlants
             } = slot || {}
 
-            if (!startDay || !endDay) {
-              return null
-            }
+            if (!startDay || !endDay) return null
 
             // Validate date format
             const startDateValid = moment(startDay, "DD-MM-YYYY", true).isValid()
             const endDateValid = moment(endDay, "DD-MM-YYYY", true).isValid()
 
-            if (!startDateValid || !endDateValid) {
-              return null
-            }
+            if (!startDateValid || !endDateValid) return null
 
             const start = moment(startDay, "DD-MM-YYYY").format("D")
             const end = moment(endDay, "DD-MM-YYYY").format("D")
             const monthYear = moment(startDay, "DD-MM-YYYY").format("MMMM, YYYY")
 
-            // Calculate available plants
-            const available = availablePlants || totalPlants - (totalBookedPlants || 0)
+            // Calculate available plants (can be negative for sowing-allowed plants)
+            const available = availablePlants !== undefined ? availablePlants : totalPlants - (totalBookedPlants || 0)
 
             return {
               label: `${start} - ${end} ${monthYear} (${available} available)`,
@@ -546,8 +558,13 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
               totalBookedPlants
             }
           })
-          .filter((slot) => slot !== null && slot.availableQuantity > 0)
+          .filter((slot) => {
+            // For sowing-allowed plants, show all slots (even with negative availability)
+            // For regular plants, only show slots with positive availability
+            return slot !== null && (isSowingAllowedPlant || slot.availableQuantity > 0)
+          })
 
+        console.log(`Processed ${processedSlots.length} slots (sowing-allowed: ${isSowingAllowedPlant})`)
         setSlots(processedSlots)
       } else {
         setSlots([])
@@ -1313,7 +1330,11 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
     }
 
     // Validate slot capacity availability
-    if (formData.orderDate && formData.noOfPlants) {
+    // Skip validation if plant has sowingAllowed (can grow on demand)
+    const selectedPlant = plants.find((p) => p.value === formData.plant)
+    const isSowingAllowedPlant = selectedPlant?.sowingAllowed
+
+    if (formData.orderDate && formData.noOfPlants && !isSowingAllowedPlant) {
       const requestedQuantity = parseInt(formData.noOfPlants) || 0
 
       // Get slot ID for the selected order date
@@ -1358,6 +1379,8 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
         )
         return false
       }
+    } else if (isSowingAllowedPlant) {
+      console.log("🌱 Sowing-allowed plant - skipping availability validation (can grow on demand)")
     }
 
     // Payment validation (single payment object)
@@ -2627,6 +2650,72 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                   </FormControl>
                 </Grid>
 
+                {/* Dealer Quota Summary - Show for selected plant only */}
+                {formData.dealer && !bulkOrder && formData.plant && dealerWallet && dealerWallet.plantDetails && dealerWallet.plantDetails.length > 0 && (
+                  <Grid item xs={12}>
+                    <Box sx={{ p: 3, bgcolor: "#f8f9fa", borderRadius: 3, border: "2px solid #e3f2fd", boxShadow: "0 4px 8px rgba(0,0,0,0.1)" }}>
+                      <Box sx={{ p: 3, bgcolor: "white", borderRadius: 2, boxShadow: "0 2px 6px rgba(0,0,0,0.1)" }}>
+                        <Typography variant="h6" sx={{ fontWeight: 800, color: "#1976d2", mb: 2, display: "flex", alignItems: "center", gap: 1, textAlign: "center", textShadow: "0 1px 2px rgba(0,0,0,0.1)" }}>
+                          🌱 Advance Booking Quota
+                        </Typography>
+                        <Box sx={{ maxHeight: 200, overflowY: "auto", display: "flex", flexDirection: "column", gap: 2 }}>
+                          {dealerWallet.plantDetails
+                            .filter(plant => {
+                              // Get selected plant name
+                              const selectedPlantData = plants.find(p => p.value === formData.plant);
+                              return plant.plantName === selectedPlantData?.label;
+                            })
+                            .map((plant, idx) => (
+                              <Box key={idx} sx={{ p: 2.5, bgcolor: "#ffffff", borderRadius: 2, border: "2px solid #e3f2fd", boxShadow: "0 2px 4px rgba(0,0,0,0.1)" }}>
+                                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1.5 }}>
+                                  <Typography variant="body1" sx={{ fontWeight: 700, color: "#1a237e", fontSize: "1rem", textShadow: "0 1px 1px rgba(0,0,0,0.1)" }}>
+                                    {plant.plantName} - {plant.subtypeName}
+                                  </Typography>
+                                  <Chip 
+                                    label={`${plant.totalRemainingQuantity?.toLocaleString() || 0} plants`} 
+                                    size="medium" 
+                                    sx={{ 
+                                      bgcolor: plant.totalRemainingQuantity > 0 ? "#4caf50" : "#f44336", 
+                                      color: "white", 
+                                      fontWeight: 800,
+                                      fontSize: "0.85rem",
+                                      height: 28,
+                                      boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
+                                      textShadow: "0 1px 1px rgba(0,0,0,0.3)"
+                                    }} 
+                                  />
+                                </Box>
+                                {plant.slotDetails && plant.slotDetails.length > 0 && (
+                                  <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, mt: 1.5 }}>
+                                    {plant.slotDetails.map((slot, sIdx) => (
+                                      <Chip
+                                        key={sIdx}
+                                        label={`${slot.dates?.startDay || ''} to ${slot.dates?.endDay || ''} • ${slot.remainingQuantity || 0}`}
+                                        size="medium"
+                                        variant="outlined"
+                                        sx={{ 
+                                          fontSize: "0.8rem", 
+                                          height: 28,
+                                          fontWeight: 600,
+                                          borderWidth: 2,
+                                          borderColor: slot.remainingQuantity > 0 ? "#4caf50" : "#bdbdbd",
+                                          color: slot.remainingQuantity > 0 ? "#2e7d32" : "#757575",
+                                          backgroundColor: slot.remainingQuantity > 0 ? "#f1f8e9" : "#f5f5f5",
+                                          boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
+                                          textShadow: "0 1px 1px rgba(0,0,0,0.1)"
+                                        }}
+                                      />
+                                    ))}
+                                  </Box>
+                                )}
+                              </Box>
+                            ))}
+                        </Box>
+                      </Box>
+                    </Box>
+                  </Grid>
+                )}
+
                 <Grid item xs={12} md={6}>
                   <LocalizationProvider dateAdapter={AdapterDateFns}>
                     <DatePicker
@@ -2727,21 +2816,11 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                   </Box>
                 </Grid>
 
-                {available !== null && (
-                  <Grid item xs={12}>
-                    <Box className={classes.slotInfo}>
-                      <Typography variant="body2" fontWeight={500}>
-                        Available quantity in selected slot:
-                      </Typography>
-                      <Chip label={available} color="primary" variant="outlined" size="small" />
-                    </Box>
-                  </Grid>
-                )}
-
-                {/* Slot Capacity Warning */}
+                {/* Slot Capacity Warning - Only show if NOT a sowing-allowed plant */}
                 {available !== null &&
                   formData.noOfPlants &&
-                  parseInt(formData.noOfPlants) > available && (
+                  parseInt(formData.noOfPlants) > available &&
+                  !plants.find((p) => p.value === formData.plant)?.sowingAllowed && (
                     <Grid item xs={12}>
                       <Box
                         sx={{
@@ -2787,6 +2866,50 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                       </Box>
                     </Grid>
                   )}
+                
+                {/* Sowing-Allowed Plant Info */}
+                {plants.find((p) => p.value === formData.plant)?.sowingAllowed && formData.noOfPlants && (
+                  <Grid item xs={12}>
+                    <Box
+                      sx={{
+                        p: 2,
+                        borderRadius: 2,
+                        border: "2px solid #4caf50",
+                        backgroundColor: "#e8f5e9",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 2
+                      }}>
+                      <Box
+                        sx={{
+                          width: 24,
+                          height: 24,
+                          borderRadius: "50%",
+                          backgroundColor: "#4caf50",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          color: "white",
+                          fontSize: "14px",
+                          fontWeight: "bold"
+                        }}>
+                        🌱
+                      </Box>
+                      <Box sx={{ flex: 1 }}>
+                        <Typography
+                          variant="body2"
+                          fontWeight={600}
+                          color="#2e7d32"
+                          sx={{ mb: 0.5 }}>
+                          Unlimited Booking Available!
+                        </Typography>
+                        <Typography variant="body2" color="#1b5e20">
+                          This plant type supports sowing on demand. You can book any quantity regardless of current availability.
+                        </Typography>
+                      </Box>
+                    </Box>
+                  </Grid>
+                )}
 
                 {/* Dealer Quota Validation Display */}
                 {quotaType === "dealer" &&

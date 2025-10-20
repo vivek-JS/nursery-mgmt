@@ -297,12 +297,104 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
         updatedPlants[plantIndex].cavityGroups = []
       }
 
-      updatedPlants[plantIndex].cavityGroups.push({
-        cavity: "",
-        cavityName: "",
-        pickupDetails: [],
-        crates: []
+      // Get the plant's orders to check for cavity information
+      const plant = updatedPlants[plantIndex]
+      const plantOrders = plant.orders || []
+      
+      // Extract unique cavity IDs from all orders for this plant
+      const cavityIds = new Set()
+      const cavityDetails = new Map()
+      const cavityQuantities = new Map() // Track quantity per cavity
+      
+      plantOrders.forEach(order => {
+        const cavityId = order.details?.cavityId
+        const cavityName = order.details?.cavityName
+        const orderId = order.details?.orderid
+        
+        if (cavityId) {
+          cavityIds.add(cavityId)
+          if (!cavityDetails.has(cavityId)) {
+            cavityDetails.set(cavityId, { id: cavityId, name: cavityName })
+          }
+          
+          // Calculate dispatched quantity for this cavity
+          const dispatchQty = orderQuantities.get(orderId) || 0
+          const currentQty = cavityQuantities.get(cavityId) || 0
+          cavityQuantities.set(cavityId, currentQty + dispatchQty)
+        }
       })
+      
+      // Auto-select cavity if:
+      // 1. All orders have the same cavity (cavityIds size is 1)
+      // 2. This cavity is not already selected in another cavity group
+      let autoSelectedCavity = ""
+      let autoSelectedCavityName = ""
+      let autoFilledQuantity = 0
+      
+      if (cavityIds.size === 1) {
+        const [singleCavityId] = Array.from(cavityIds)
+        const isAlreadySelected = updatedPlants[plantIndex].cavityGroups?.some(
+          group => group.cavity === singleCavityId
+        )
+        
+        if (!isAlreadySelected) {
+          autoSelectedCavity = singleCavityId
+          autoSelectedCavityName = cavityDetails.get(singleCavityId)?.name || ""
+          autoFilledQuantity = cavityQuantities.get(singleCavityId) || 0
+        }
+      }
+
+      const newCavityGroup = {
+        cavity: autoSelectedCavity,
+        cavityName: autoSelectedCavityName,
+        pickupDetails: [],
+        crates: [],
+        autoSelected: !!autoSelectedCavity // Track if cavity was auto-selected
+      }
+      
+      // If cavity is auto-selected, initialize with one pickup detail
+      if (autoSelectedCavity) {
+        const selectedCavity = cavities.find(c => c.id === autoSelectedCavity || c._id === autoSelectedCavity)
+        if (selectedCavity) {
+          newCavityGroup.cavitySize = selectedCavity.cavity || 1
+          newCavityGroup.numberPerCrate = selectedCavity.numberPerCrate || 1
+          newCavityGroup.pickupDetails = [{
+            shade: "",
+            quantity: autoFilledQuantity, // Auto-fill with dispatched quantity
+            cavity: autoSelectedCavity,
+            cavityName: autoSelectedCavityName
+          }]
+          
+          // Auto-calculate crates based on the auto-filled quantity
+          if (autoFilledQuantity > 0) {
+            const cavitySize = Number(selectedCavity.cavity)
+            const numberPerCrate = Number(selectedCavity.numberPerCrate)
+            
+            const numberOfCavityTrays = Math.floor(autoFilledQuantity / cavitySize)
+            const remainder = (autoFilledQuantity / cavitySize) % numberPerCrate
+            
+            newCavityGroup.crates = []
+            
+            if (numberOfCavityTrays > 0) {
+              newCavityGroup.crates.push({
+                numberOfCavityTrays: numberOfCavityTrays,
+                numberOfCrates: Math.floor(numberOfCavityTrays / numberPerCrate),
+                quantity: Math.floor(numberOfCavityTrays / numberPerCrate) * numberPerCrate * cavitySize
+              })
+            }
+            
+            if (remainder > 0) {
+              newCavityGroup.crates.push({
+                numberOfCavityTrays: 1,
+                numberOfCrates: 1,
+                quantity: autoFilledQuantity - Math.floor(numberOfCavityTrays / numberPerCrate) * numberPerCrate * cavitySize
+              })
+            }
+          }
+        }
+      }
+
+      updatedPlants[plantIndex].cavityGroups.push(newCavityGroup)
 
       return { ...prev, plants: updatedPlants }
     })
@@ -713,10 +805,16 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
                         )}
                       </div>
                       <div>
+                        <span className="text-gray-500">Cavity: </span>
+                        <span className="text-gray-700 font-medium">
+                          {order.details?.cavityName || "Not Specified"}
+                        </span>
+                      </div>
+                      <div>
                         <span className="text-gray-500">Delivery: </span>
                         <span className="text-gray-700">{order.Delivery}</span>
                       </div>
-                      <div>
+                      <div className="col-span-2">
                         <span className="text-gray-500">Booking: </span>
                         <span className="text-gray-700">{order.orderDate}</span>
                       </div>
@@ -853,27 +951,35 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
                               )}
                             </div>
 
-                            <div className="flex gap-4">
-                              <select
-                                className="flex-1 p-2 border rounded"
-                                value={cavityGroup.cavity || ""}
-                                onChange={(e) =>
-                                  handleCavityChange(plantIndex, groupIndex, e.target.value)
-                                }
-                                disabled={(isViewMode && !isEditing) || cavityGroup.cavity}>
-                                <option value="">Select Cavity</option>
-                                {cavities?.map((cavity) => (
-                                  <option
-                                    key={cavity.id}
-                                    value={cavity.id}
-                                    disabled={plant.cavityGroups.some(
-                                      (group, idx) =>
-                                        idx !== groupIndex && group.cavity === cavity.id
-                                    )}>
-                                    {cavity.name}
-                                  </option>
-                                ))}
-                              </select>
+                            <div className="space-y-2">
+                              {cavityGroup.autoSelected && cavityGroup.cavity && (
+                                <div className="text-xs text-green-600 bg-green-50 p-2 rounded flex items-center gap-1">
+                                  <span>✓</span>
+                                  <span>Auto-selected from order cavity: <strong>{cavityGroup.cavityName}</strong></span>
+                                </div>
+                              )}
+                              <div className="flex gap-4">
+                                <select
+                                  className="flex-1 p-2 border rounded"
+                                  value={cavityGroup.cavity || ""}
+                                  onChange={(e) =>
+                                    handleCavityChange(plantIndex, groupIndex, e.target.value)
+                                  }
+                                  disabled={(isViewMode && !isEditing) || cavityGroup.cavity}>
+                                  <option value="">Select Cavity</option>
+                                  {cavities?.map((cavity) => (
+                                    <option
+                                      key={cavity.id}
+                                      value={cavity.id}
+                                      disabled={plant.cavityGroups.some(
+                                        (group, idx) =>
+                                          idx !== groupIndex && group.cavity === cavity.id
+                                      )}>
+                                      {cavity.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
                             </div>
 
                             {/* Pickup Details - only shown if cavity is selected */}

@@ -13,11 +13,13 @@ import DateRangeOutlinedIcon from "@mui/icons-material/DateRangeOutlined"
 import PaidIcon from "@mui/icons-material/Paid"
 import PaymentIcon from "@mui/icons-material/Payment"
 import WhatsAppIcon from "@mui/icons-material/WhatsApp"
+import GrassIcon from "@mui/icons-material/Grass"
 
 export const DashboardMenus = [
   new MenuPath("Orders", <HomeIcon />, "/u/dashboard"),
   new MenuPath("Stats", <BiotechIcon />, "/u/stats"),
   new MenuPath("Plants and Products", <AlignHorizontalLeftIcon />, "/u/plants"),
+  new MenuPath("Sowing Management", <GrassIcon />, "/u/sowing"),
   new MenuPath("Slots Managment", <BiotechIcon />, "/u/slots"),
   new MenuPath("Hardening", <BiotechIcon />, "/u/hardening"),
   new MenuPath("CMS", <AodIcon />, "/u/cms"),

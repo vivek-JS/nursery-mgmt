@@ -21,7 +21,8 @@ import {
   useIsDealer,
   useDealerWallet,
   useDealerWalletById,
-  useUserData
+  useUserData,
+  useIsDispatchManager
 } from "utils/roleUtils"
 
 // Custom CSS for blinking animation and enhanced dropdowns
@@ -574,6 +575,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   const canAddPayment = useCanAddPayment() // Anyone can add payments
   const isOfficeAdmin = useIsOfficeAdmin()
   const isDealer = useIsDealer()
+  const isDispatchManager = useIsDispatchManager()
   const { walletData, loading: walletLoading } = useDealerWallet()
   const user = useUserData() // Get current user data
 
@@ -590,8 +592,6 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   // Debug wallet data
   useEffect(() => {}, [dealerIdForWallet, dealerWalletData, dealerWalletLoading])
 
-  // Status tabs state
-  const [activeStatusTab, setActiveStatusTab] = useState("all")
 
   // Filter states
   const [selectedSalesPerson, setSelectedSalesPerson] = useState("")
@@ -614,16 +614,6 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
     { label: "Loading", value: "DISPATCH_PROCESS" }
   ]
 
-  // Status tabs configuration
-  const statusTabs = [
-    { key: "all", label: "All Orders", status: null },
-    { key: "pending", label: "Pending", status: "PENDING" },
-    { key: "accepted", label: "Accepted", status: "ACCEPTED" },
-    { key: "completed", label: "Completed", status: "COMPLETED" },
-    { key: "dispatched", label: "Dispatched", status: "DISPATCHED" },
-    { key: "farm_ready", label: "Farm Ready", status: "FARM_READY" },
-    { key: "rejected", label: "Rejected", status: "REJECTED" }
-  ]
 
   const [slots, setSlots] = useState([])
   const [slotsLoading, setSlotsLoading] = useState(false)
@@ -634,6 +624,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   const [isDispatchtab, setisDispatchtab] = useState(false)
   const [newRemark, setNewRemark] = useState("")
   const [showPaymentForm, setShowPaymentForm] = useState(false)
+  const [showDeliveryDateModal, setShowDeliveryDateModal] = useState(false)
   const [newPayment, setNewPayment] = useState({
     paidAmount: "",
     paymentDate: moment().format("YYYY-MM-DD"),
@@ -823,13 +814,6 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
             page: 1
           }
 
-          // Add status filter if a specific status tab is selected
-          if (activeStatusTab !== "all") {
-            const selectedTab = statusTabs.find((tab) => tab.key === activeStatusTab)
-            if (selectedTab && selectedTab.status) {
-              params.status = selectedTab.status
-            }
-          }
 
           // Add new filter parameters
           if (selectedSalesPerson) {
@@ -1202,7 +1186,6 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
     startDate,
     endDate,
     viewMode,
-    activeStatusTab,
     selectedSalesPerson,
     selectedVillage,
     selectedDistrict
@@ -1518,13 +1501,10 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   const getOrders = async () => {
     setLoading(true)
 
-    // Use the new status-specific endpoint if a status tab is selected
-    const instance =
-      activeStatusTab !== "all"
-        ? NetworkManager(API.ORDER.GET_ORDERS_BY_STATUS)
-        : slotId
-        ? NetworkManager(API.ORDER.GET_ORDERS_SLOTS)
-        : NetworkManager(API.ORDER.GET_ORDERS)
+    // Use appropriate endpoint based on slotId
+    const instance = slotId
+      ? NetworkManager(API.ORDER.GET_ORDERS_SLOTS)
+      : NetworkManager(API.ORDER.GET_ORDERS)
 
     const params = {
       search: debouncedSearchTerm,
@@ -1544,13 +1524,6 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
       params.endDate = formattedEndtDate
     }
 
-    // Add status filter if a specific status tab is selected
-    if (activeStatusTab !== "all") {
-      const selectedTab = statusTabs.find((tab) => tab.key === activeStatusTab)
-      if (selectedTab && selectedTab.status) {
-        params.status = selectedTab.status
-      }
-    }
 
     // Add new filter parameters
     if (selectedSalesPerson) {
@@ -1582,6 +1555,8 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
     }
     if (viewMode === "ready_for_dispatch") {
       params.ready_for_dispatch = "true"
+      params.startDate = null
+      params.endDate = null
       // Remove status filter for ready for dispatch view since we want specific filtering
       delete params.status
       console.log("=== Ready for Dispatch Debug ===")
@@ -1603,11 +1578,8 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
       console.log("Orders data:", emps?.data?.data?.data || [])
     }
 
-    // Handle different response structures for different endpoints
-    const ordersData =
-      activeStatusTab !== "all"
-        ? emps?.data?.data || [] // Status-specific endpoint returns data directly
-        : emps?.data?.data?.data || [] // Regular endpoint has nested data structure
+    // Handle response structure
+    const ordersData = emps?.data?.data?.data || []
 
     if (viewMode === "ready_for_dispatch") {
       console.log("Processing orders data:", ordersData?.length || 0, "orders")
@@ -1639,7 +1611,8 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                 farmReadyDateChanges,
                 orderBookingDate,
                 deliveryDate,
-                orderFor
+                orderFor,
+                cavity
               } = data || {}
 
               const { startDay, endDay } = bookingSlot?.[0] || {}
@@ -1694,7 +1667,10 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
               dealerOrder: dealerOrder || faHourglassEmpty,
               farmReadyDate: farmReadyDate,
               farmReadyDateChanges: farmReadyDateChanges || [],
-              deliveryDate: deliveryDate || null // Include deliveryDate in details
+              deliveryDate: deliveryDate || null, // Include deliveryDate in details
+              cavity: cavity || null, // Include cavity information
+              cavityName: cavity?.name || null,
+              cavityId: cavity?.id || cavity?._id || null
             }
           }
         })
@@ -1931,17 +1907,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
     })
   }
 
-  // Handle status tab change
-  const handleStatusTabChange = (tabKey) => {
-    setActiveStatusTab(tabKey)
-  }
 
-  // Get filtered orders count for each tab
-  const getOrdersCountByStatus = (status) => {
-    if (!orders || !Array.isArray(orders) || orders.length === 0) return 0
-    if (status === null) return orders.length
-    return orders.filter((order) => order.orderStatus === status).length
-  }
 
   return (
     <div className="w-full p-4 bg-gray-50">
@@ -2101,10 +2067,6 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
             <ExcelExport
               title="Export Orders"
               filters={{
-                orderStatus:
-                  activeStatusTab !== "all"
-                    ? statusTabs.find((tab) => tab.key === activeStatusTab)?.status
-                    : "",
                 startDate: startDate ? moment(startDate).format("YYYY-MM-DD") : "",
                 endDate: endDate ? moment(endDate).format("YYYY-MM-DD") : ""
               }}
@@ -2125,81 +2087,73 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
           </div>
         </div>
 
-        {/* Status Tabs */}
-        <div className="bg-white rounded-lg shadow-sm border p-4">
-          <div className="flex flex-wrap gap-3">
-            {(statusTabs || []).map((tab) => (
-              <button
-                key={tab.key}
-                onClick={() => handleStatusTabChange(tab.key)}
-                className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all duration-300 transform hover:scale-105 ${
-                  activeStatusTab === tab.key
-                    ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg"
-                    : "bg-gradient-to-r from-gray-50 to-gray-100 text-gray-700 hover:from-gray-100 hover:to-gray-200 border border-gray-200"
-                }`}>
-                <div className="flex items-center gap-2">
-                  <span>{tab.label}</span>
-                  <span
-                    className={`px-3 py-1 rounded-full text-xs font-bold ${
-                      activeStatusTab === tab.key
-                        ? "bg-white bg-opacity-30 text-white"
-                        : "bg-blue-100 text-blue-700"
-                    }`}>
-                    {getOrdersCountByStatus(tab.status)}
-                  </span>
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
 
         {/* View mode toggle buttons */}
-        <div className="flex flex-wrap gap-3">
-          <button
-            onClick={() => setViewMode("booking")}
-            className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all duration-300 transform hover:scale-105 ${
-              viewMode === "booking"
-                ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg"
-                : "bg-gradient-to-r from-gray-50 to-gray-100 text-gray-700 hover:from-gray-100 hover:to-gray-200 border border-gray-200"
-            }`}>
-            📋 Booking Orders
-          </button>
-          <button
-            onClick={() => setViewMode("dispatched")}
-            className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all duration-300 transform hover:scale-105 ${
-              viewMode === "dispatched"
-                ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg"
-                : "bg-gradient-to-r from-gray-50 to-gray-100 text-gray-700 hover:from-gray-100 hover:to-gray-200 border border-gray-200"
-            }`}>
-            🚚 Dispatched Orders
-          </button>
-          <button
-            onClick={() => setViewMode("farmready")}
-            className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all duration-300 transform hover:scale-105 ${
-              viewMode === "farmready"
-                ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg"
-                : "bg-gradient-to-r from-gray-50 to-gray-100 text-gray-700 hover:from-gray-100 hover:to-gray-200 border border-gray-200"
-            }`}>
-            🌱 Farm Ready
-          </button>
-          <button
-            onClick={() => setViewMode("ready_for_dispatch")}
-            className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all duration-300 transform hover:scale-105 ${
-              viewMode === "ready_for_dispatch"
-                ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg"
-                : "bg-gradient-to-r from-gray-50 to-gray-100 text-gray-700 hover:from-gray-100 hover:to-gray-200 border border-gray-200"
-            }`}>
-            ✅ Ready for Dispatch
-          </button>
-          <button
-            onClick={() => setViewMode("dispatch_process")}
-            className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all duration-300 transform hover:scale-105 ${
-              viewMode === "dispatch_process"
-                ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg"
-                : "bg-gradient-to-r from-gray-50 to-gray-100 text-gray-700 hover:from-gray-100 hover:to-gray-200 border border-gray-200"
-            }`}>
-            ⏳ Loading
-          </button>
+        <div className="space-y-3">
+          <div className="flex flex-wrap gap-3">
+            <button
+              onClick={() => setViewMode("booking")}
+              className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all duration-300 transform hover:scale-105 ${
+                viewMode === "booking"
+                  ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg"
+                  : "bg-gradient-to-r from-gray-50 to-gray-100 text-gray-700 hover:from-gray-100 hover:to-gray-200 border border-gray-200"
+              }`}>
+              📋 Booking Orders
+            </button>
+            <button
+              onClick={() => setViewMode("dispatched")}
+              className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all duration-300 transform hover:scale-105 ${
+                viewMode === "dispatched"
+                  ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg"
+                  : "bg-gradient-to-r from-gray-50 to-gray-100 text-gray-700 hover:from-gray-100 hover:to-gray-200 border border-gray-200"
+              }`}>
+              🚚 Dispatched Orders
+            </button>
+            <button
+              onClick={() => setViewMode("farmready")}
+              className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all duration-300 transform hover:scale-105 ${
+                viewMode === "farmready"
+                  ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg"
+                  : "bg-gradient-to-r from-gray-50 to-gray-100 text-gray-700 hover:from-gray-100 hover:to-gray-200 border border-gray-200"
+              }`}>
+              🌱 Farm Ready
+            </button>
+            <button
+              onClick={() => setViewMode("ready_for_dispatch")}
+              className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all duration-300 transform hover:scale-105 ${
+                viewMode === "ready_for_dispatch"
+                  ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg"
+                  : "bg-gradient-to-r from-gray-50 to-gray-100 text-gray-700 hover:from-gray-100 hover:to-gray-200 border border-gray-200"
+              }`}>
+              ✅ Ready for Dispatch
+            </button>
+            <button
+              onClick={() => setViewMode("dispatch_process")}
+              className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all duration-300 transform hover:scale-105 ${
+                viewMode === "dispatch_process"
+                  ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg"
+                  : "bg-gradient-to-r from-gray-50 to-gray-100 text-gray-700 hover:from-gray-100 hover:to-gray-200 border border-gray-200"
+              }`}>
+              ⏳ Loading
+            </button>
+          </div>
+          
+          {/* View mode descriptions */}
+          {viewMode === "farmready" && (
+            <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+              <p className="text-sm text-green-800">
+                <span className="font-semibold">🌱 Farm Ready View:</span> Shows orders marked as farm ready with date filtering applied.
+              </p>
+            </div>
+          )}
+          {viewMode === "ready_for_dispatch" && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+              <p className="text-sm text-blue-800">
+                <span className="font-semibold">✅ Ready for Dispatch View:</span> Shows all orders with "Ready for Dispatch" status, irrespective of date. 
+                {isDispatchManager && <span className="ml-1 font-medium">You can change status and delivery date.</span>}
+              </p>
+            </div>
+          )}
         </div>
       </div>
 
@@ -2331,13 +2285,33 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                     <span className="text-sm font-medium text-blue-600">{row.Delivery}</span>
                   </div>
                   {row.deliveryDate && row.deliveryDate !== "-" && (
-                    <div className="flex items-center justify-between bg-blue-50 rounded-md p-2 border border-blue-200">
-                      <span className="text-xs text-blue-700 font-medium flex items-center">
-                        📅 Delivery Date
-                      </span>
-                      <span className="text-sm font-semibold text-blue-800">
-                        {row.deliveryDate}
-                      </span>
+                    <div className="bg-blue-50 rounded-md p-2 border border-blue-200">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-blue-700 font-medium flex items-center">
+                          📅 Delivery Date
+                        </span>
+                        <span className="text-sm font-semibold text-blue-800">
+                          {row.deliveryDate}
+                        </span>
+                      </div>
+                      {/* Delivery Date Changes Indicator */}
+                      {row.details?.deliveryChanges && row.details.deliveryChanges.length > 0 && (
+                        <div className="mt-2 pt-2 border-t border-blue-200">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setSelectedOrder(row)
+                              setIsOrderModalOpen(true)
+                              setActiveTab("overview")
+                            }}
+                            className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 transition-colors">
+                            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                            </svg>
+                            <span>{row.details.deliveryChanges.length} date change{row.details.deliveryChanges.length > 1 ? 's' : ''}</span>
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -2354,41 +2328,80 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                   </div>
                 )}
 
+                {/* Dispatch Details - Shows driver and vehicle for dispatched orders */}
+                {(row.orderStatus === "DISPATCHED" || row.orderStatus === "DISPATCH_PROCESS") && row.details?.dispatchHistory && row.details.dispatchHistory.length > 0 && row.details.dispatchHistory[0].dispatch && (
+                  <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-3 border-l-4 border-blue-500 shadow-sm">
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className="text-base">🚚</span>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-bold text-blue-900">
+                          {row.details.dispatchHistory[0].dispatch.driverName || 'N/A'}
+                        </span>
+                        {row.details.dispatchHistory[0].dispatch.driverPhone && (
+                          <span className="text-gray-600">
+                            ({row.details.dispatchHistory[0].dispatch.driverPhone})
+                          </span>
+                        )}
+                        <span className="text-blue-600 font-bold">→</span>
+                        <span className="font-semibold text-gray-800">
+                          🚗 {row.details.dispatchHistory[0].dispatch.vehicleName || 'N/A'}
+                        </span>
+                        {row.details.dispatchHistory[0].dispatch.transportId && (
+                          <>
+                            <span className="text-blue-600 font-bold">→</span>
+                            <span className="text-xs font-mono font-bold text-white bg-blue-600 px-2 py-1 rounded">
+                              #{row.details.dispatchHistory[0].dispatch.transportId}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Action Buttons */}
                 {viewMode !== "dispatch_process" &&
                   row?.orderStatus !== "COMPLETED" &&
                   row?.orderStatus !== "DISPATCH_PROCESS" &&
                   row?.orderStatus !== "DISPATCHED" && (
-                    <div className="flex items-center justify-end space-x-2 pt-2 border-t border-gray-100">
-                      {editingRows.has(index) ? (
-                        <>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              saveEditedRow(index, row)
-                            }}
-                            className="text-green-500 hover:text-green-700">
-                            <CheckIcon size={16} />
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              cancelEditing(index)
-                            }}
-                            className="text-red-500 hover:text-red-700">
-                            <XIcon size={16} />
-                          </button>
-                        </>
-                      ) : (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            toggleEditing(index, row)
-                          }}
-                          className="text-gray-500 hover:text-gray-700">
-                          <Edit2Icon size={16} />
-                        </button>
+                    <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+                      {/* Dispatch Manager indicator */}
+                      {isDispatchManager && (
+                        <span className="text-xs text-blue-600 font-medium">
+                          🚚 DM Access
+                        </span>
                       )}
+                      <div className="flex items-center space-x-2 ml-auto">
+                        {editingRows.has(index) ? (
+                          <>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                saveEditedRow(index, row)
+                              }}
+                              className="text-green-500 hover:text-green-700">
+                              <CheckIcon size={16} />
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                cancelEditing(index)
+                              }}
+                              className="text-red-500 hover:text-red-700">
+                              <XIcon size={16} />
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              toggleEditing(index, row)
+                            }}
+                            className="text-gray-500 hover:text-gray-700">
+                            <Edit2Icon size={16} />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   )}
               </div>
@@ -2741,7 +2754,24 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                             </div>
                             {selectedOrder.deliveryDate && selectedOrder.deliveryDate !== "-" && (
                               <div className="flex flex-col space-y-1 bg-blue-50 p-2 rounded border border-blue-200">
-                                <span className="text-xs text-blue-700 font-medium">📅 Delivery Date</span>
+                                <div className="flex items-center justify-between">
+                                  <span className="text-xs text-blue-700 font-medium">📅 Delivery Date</span>
+                                  <button
+                                    onClick={() => {
+                                      setActiveTab("edit")
+                                      setUpdatedObject({
+                                        rate: selectedOrder.rate,
+                                        quantity: selectedOrder.quantity,
+                                        bookingSlot: selectedOrder?.details?.bookingSlot?.slotId,
+                                        deliveryDate: selectedOrder?.details?.deliveryDate 
+                                          ? new Date(selectedOrder.details.deliveryDate) 
+                                          : null
+                                      })
+                                    }}
+                                    className="text-xs text-blue-600 hover:text-blue-800 underline">
+                                    Change
+                                  </button>
+                                </div>
                                 <span className="font-bold text-sm text-blue-900">
                                   {selectedOrder.deliveryDate}
                                 </span>
@@ -3535,7 +3565,21 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
 
                     {activeTab === "edit" && (
                       <div className="space-y-6">
-                        <h3 className="text-lg font-medium text-gray-900">Edit Order Details</h3>
+                        <div className="flex items-center justify-between">
+                          <h3 className="text-lg font-medium text-gray-900">Edit Order Details</h3>
+                          {isDispatchManager && (
+                            <span className="text-sm bg-blue-100 text-blue-800 px-3 py-1 rounded-full font-medium">
+                              🚚 Dispatch Manager Access
+                            </span>
+                          )}
+                        </div>
+                        {isDispatchManager && (
+                          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                            <p className="text-sm text-blue-800">
+                              <span className="font-semibold">🔑 Dispatch Manager Permissions:</span> You can change order status, delivery date, rate, and quantity for dispatch management.
+                            </p>
+                          </div>
+                        )}
                         <div className="bg-gray-50 rounded-lg p-6">
                           {/* Current Order Information */}
                           {selectedOrder?.details?.bookingSlot && (
@@ -3613,23 +3657,23 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                   Loading available slots...
                                 </div>
                               ) : (
-                                <DatePicker
-                                  selected={updatedObject?.deliveryDate || null}
-                                  onChange={(date) => {
-                                    // Automatically determine slot from selected date
-                                    const slotId = getSlotIdForDate(date)
-                                    setUpdatedObject({
-                                      ...updatedObject,
-                                      deliveryDate: date,
-                                      bookingSlot: slotId
-                                    })
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (slots.length > 0) {
+                                      setShowDeliveryDateModal(true)
+                                    } else {
+                                      Toast.info('No available slots found. Please select a different plant/subtype.')
+                                    }
                                   }}
-                                  filterDate={(date) => !isDateDisabled(date)}
-                                  minDate={new Date()}
-                                  placeholderText="Select delivery date"
-                                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 mt-1"
-                                  dateFormat="dd/MM/yyyy"
-                                />
+                                  className="w-full px-3 py-2 border rounded-lg mt-1 text-left hover:border-blue-500 focus:ring-2 focus:ring-blue-500 transition-colors bg-white"
+                                  disabled={slots.length === 0}>
+                                  <span className={updatedObject?.deliveryDate ? "text-gray-900" : "text-gray-400"}>
+                                    {updatedObject?.deliveryDate 
+                                      ? moment(updatedObject.deliveryDate).format("DD/MM/YYYY")
+                                      : "Click to select delivery date"}
+                                  </span>
+                                </button>
                               )}
                               {slots.length === 0 && !slotsLoading && (
                                 <div className="text-xs text-red-500 mt-1">
@@ -3638,7 +3682,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                               )}
                               {!slotsLoading && slots.length > 0 && (
                                 <div className="text-xs text-gray-500 mt-1">
-                                  Select a delivery date (only dates within available slots are enabled)
+                                  Click to select a delivery date from available slots
                                 </div>
                               )}
 
@@ -4146,6 +4190,138 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
         onConfirm={confirmDialog.onConfirm}
         onCancel={() => setConfirmDialog((d) => ({ ...d, open: false }))}
       />
+
+      {/* Delivery Date Picker Modal */}
+      {showDeliveryDateModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-2xl w-full max-w-4xl max-h-[85vh] overflow-hidden shadow-2xl">
+            {/* Modal Header */}
+            <div className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white p-4 flex items-center justify-between">
+              <div className="flex items-center">
+                <span className="text-2xl mr-3">📅</span>
+                <h2 className="text-xl font-bold">Select Delivery Date</h2>
+              </div>
+              <button
+                onClick={() => setShowDeliveryDateModal(false)}
+                className="text-white hover:text-blue-100 transition-colors p-2 rounded-full hover:bg-white hover:bg-opacity-20">
+                <XIcon size={24} />
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="overflow-y-auto max-h-[calc(85vh-80px)] p-6">
+              {slots.length === 0 ? (
+                <div className="text-center py-12">
+                  <div className="text-6xl mb-4">📭</div>
+                  <h3 className="text-lg font-medium text-gray-700 mb-2">No Available Slots</h3>
+                  <p className="text-gray-500">Please select a different plant/subtype combination</p>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {slots.map((slot) => {
+                    if (!slot.startDay || !slot.endDay) return null
+
+                    const slotStart = moment(slot.startDay, "DD-MM-YYYY")
+                    const slotEnd = moment(slot.endDay, "DD-MM-YYYY")
+                    const dates = []
+                    let currentDate = slotStart.clone()
+                    const today = moment().startOf('day')
+
+                    // Generate all dates in the slot
+                    while (currentDate.isSameOrBefore(slotEnd, 'day')) {
+                      if (currentDate.isSameOrAfter(today, 'day')) {
+                        dates.push(currentDate.clone())
+                      }
+                      currentDate.add(1, 'day')
+                    }
+
+                    if (dates.length === 0) return null
+
+                    return (
+                      <div key={slot.value} className="border-b border-gray-200 pb-6 last:border-b-0">
+                        {/* Slot Header */}
+                        <div className="flex items-center mb-4 pb-3 border-b-2 border-blue-100">
+                          <div className="w-2 h-2 rounded-full bg-blue-600 mr-3"></div>
+                          <div className="flex-1">
+                            <h3 className="text-base font-bold text-blue-600">
+                              {slot.label}
+                            </h3>
+                            <p className="text-sm text-gray-600 mt-1">
+                              Available: {slot.available} plants
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Dates Grid */}
+                        <div className="grid grid-cols-5 md:grid-cols-7 lg:grid-cols-9 gap-3">
+                          {dates.map((date) => {
+                            const isSelected = updatedObject?.deliveryDate && 
+                              moment(updatedObject.deliveryDate).format('YYYY-MM-DD') === date.format('YYYY-MM-DD')
+                            const isToday = date.isSame(today, 'day')
+
+                            return (
+                              <button
+                                key={date.format('YYYY-MM-DD')}
+                                type="button"
+                                onClick={() => {
+                                  setUpdatedObject({
+                                    ...updatedObject,
+                                    deliveryDate: date.toDate(),
+                                    bookingSlot: slot.value
+                                  })
+                                  setShowDeliveryDateModal(false)
+                                  Toast.success(`Delivery date set to ${date.format('DD MMM YYYY')}`)
+                                }}
+                                className={`
+                                  relative p-3 rounded-2xl border-2 transition-all duration-200
+                                  ${isSelected 
+                                    ? 'bg-blue-600 border-blue-600 text-white shadow-lg scale-105' 
+                                    : isToday
+                                      ? 'border-amber-400 bg-amber-50 text-gray-900 hover:bg-amber-100'
+                                      : 'border-gray-200 bg-white text-gray-900 hover:border-blue-400 hover:bg-blue-50'
+                                  }
+                                `}>
+                                <div className="flex flex-col items-center">
+                                  <span className={`text-xs font-semibold uppercase ${isSelected ? 'text-blue-100' : 'text-gray-500'}`}>
+                                    {date.format('ddd')}
+                                  </span>
+                                  <span className={`text-xl font-bold my-1 ${isSelected ? 'text-white' : 'text-gray-900'}`}>
+                                    {date.format('DD')}
+                                  </span>
+                                  <span className={`text-xs font-semibold uppercase ${isSelected ? 'text-blue-100' : 'text-gray-600'}`}>
+                                    {date.format('MMM')}
+                                  </span>
+                                </div>
+                                {isToday && !isSelected && (
+                                  <div className="absolute top-1 right-1 bg-amber-400 text-white text-[8px] font-bold px-1.5 py-0.5 rounded-full">
+                                    TODAY
+                                  </div>
+                                )}
+                                {isSelected && (
+                                  <div className="absolute top-1 right-1 bg-white text-blue-600 rounded-full w-5 h-5 flex items-center justify-center">
+                                    <CheckIcon size={12} />
+                                  </div>
+                                )}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )
+                  })}
+
+                  {/* Helper Text */}
+                  <div className="bg-blue-50 border-l-4 border-blue-600 p-4 rounded-r-lg">
+                    <p className="text-sm text-blue-800">
+                      💡 <span className="font-semibold">Tip:</span> Click on any date to select it as the delivery date. Only dates within available slots are shown.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -95,6 +95,14 @@ export const useIsDealer = () => {
 }
 
 /**
+ * Check if user is dispatch manager
+ */
+export const useIsDispatchManager = () => {
+  const userRole = useUserRole()
+  return userRole === "DISPATCH_MANAGER"
+}
+
+/**
  * Hook to get dealer wallet details
  */
 export const useDealerWallet = () => {
