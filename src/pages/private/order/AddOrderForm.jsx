@@ -29,7 +29,10 @@ import {
   Avatar,
   IconButton,
   Tooltip,
-  Checkbox
+  Checkbox,
+  ImageList,
+  ImageListItem,
+  ImageListItemBar
 } from "@mui/material"
 import { DatePicker } from "@mui/x-date-pickers/DatePicker"
 import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider"
@@ -48,7 +51,10 @@ import {
   Assignment,
   CheckCircle as CheckIcon,
   Info as InfoIcon,
-  FlashOn as FlashIcon
+  FlashOn as FlashIcon,
+  PhotoCamera as CameraIcon,
+  Delete as DeleteIcon,
+  CloudUpload as UploadIcon
 } from "@mui/icons-material"
 import moment from "moment"
 import LocationSelector from "components/LocationSelector"
@@ -226,15 +232,15 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
   // Try to get user data from multiple sources
   const user = userData || appUser || {}
 
-  // Form state
-  const [formData, setFormData] = useState({
+  // Form state - Initialize with default values
+  const [formData, setFormData] = useState(() => ({
     date: new Date(),
     name: "",
     village: "",
     taluka: "",
     district: "",
-    state: "",
-    stateName: "",
+    state: "Maharashtra", // Default state
+    stateName: "Maharashtra",
     districtName: "",
     talukaName: "",
     mobileNumber: "",
@@ -251,8 +257,10 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
     orderForEnabled: false,
     orderForName: "",
     orderForAddress: "",
-    orderForMobileNumber: ""
-  })
+    orderForMobileNumber: "",
+    // Screenshot fields
+    screenshots: []
+  }))
 
   // UI state
   const [loading, setLoading] = useState(false)
@@ -290,7 +298,8 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
     remark: "",
     receiptPhoto: [],
     paymentStatus: "PENDING", // Default to PENDING, will be updated based on payment type
-    isWalletPayment: false
+    isWalletPayment: false,
+    paymentScreenshot: null // For payment image upload
   })
 
   const steps = [
@@ -303,7 +312,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
 
   // Initialize form with user defaults
   useEffect(() => {
-    if (user) {
+    if (user && Object.keys(user).length > 0) {
       const { defaultState, defaultDistrict, defaultTaluka, defaultVillage } = user
       setFormData((prev) => ({
         ...prev,
@@ -315,14 +324,8 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
         districtName: defaultDistrict || "",
         talukaName: defaultTaluka || ""
       }))
-    } else {
-      // Set default state to Maharashtra even if no user
-      setFormData((prev) => ({
-        ...prev,
-        state: "Maharashtra",
-        stateName: "Maharashtra"
-      }))
     }
+    // Note: Default state is already set in initial state, so no need to set it again
   }, [user])
 
   // Load initial data
@@ -338,7 +341,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
   }, [user])
 
   // Debounced mobile number for farmer lookup
-  const debouncedMobileNumber = useDebounce(formData.mobileNumber, 500)
+  const debouncedMobileNumber = useDebounce(formData?.mobileNumber || "", 500)
 
   // Auto-fill farmer data when mobile number is entered (with debouncing)
   useEffect(() => {
@@ -351,16 +354,16 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
   }, [debouncedMobileNumber])
 
   useEffect(() => {
-    if (formData.plant) {
-      loadSubTypes(formData.plant)
+    if (formData?.plant) {
+      loadSubTypes(formData?.plant)
     }
-  }, [formData.plant])
+  }, [formData?.plant])
 
   useEffect(() => {
-    if (formData.subtype) {
-      loadSlots(formData.plant, formData.subtype)
+    if (formData?.subtype) {
+      loadSlots(formData?.plant, formData?.subtype)
     }
-  }, [formData.subtype, quotaType, dealerWallet, formData.dealer])
+  }, [formData?.subtype, quotaType, dealerWallet, formData?.dealer])
 
   // Ensure wallet payment is unchecked for dealer orders
   useEffect(() => {
@@ -438,21 +441,15 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
 
   const loadSlots = async (plantId, subtypeId) => {
     try {
-      console.log("Loading slots for plant:", plantId, "subtype:", subtypeId)
-
       // Check if dealer quota should be used
       const shouldUseDealerQuota =
-        formData.dealer && quotaType === "dealer" && dealerWallet?.entries
+        formData?.dealer && quotaType === "dealer" && dealerWallet?.entries
 
       if (shouldUseDealerQuota) {
-        console.log("Using dealer quota data for slots")
-
         // Filter dealer wallet entries for the selected plant and subtype
         const relevantEntries = dealerWallet.entries.filter(
           (entry) => entry.plantTypeId === plantId && entry.subTypeId === subtypeId
         )
-
-        console.log("Relevant dealer quota entries:", relevantEntries)
 
         // Create slots from dealer quota data
         const dealerQuotaSlots = relevantEntries
@@ -490,16 +487,13 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
           })
           .filter((slot) => slot !== null && slot.availableQuantity > 0)
 
-        console.log("Processed dealer quota slots:", dealerQuotaSlots)
         setSlots(dealerQuotaSlots)
         return
       }
 
       // Use regular slot loading for non-dealer quota
-      console.log("Using regular slot loading")
       const instance = NetworkManager(API.slots.GET_PLANTS_SLOTS)
       const response = await instance.request(null, { plantId, subtypeId, year: 2025 })
-      console.log("Slots API response:", response)
 
       // Handle both response structures: {slots: [{slots: [...]}]} and {slots: [...]}
       let slotsData = null
@@ -514,8 +508,6 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
       }
 
       if (slotsData) {
-        console.log("Raw slots data:", slotsData.length, "slots")
-
         // Check if this plant has sowing allowed
         const selectedPlant = plants.find((p) => p.value === plantId)
         const isSowingAllowedPlant = selectedPlant?.sowingAllowed
@@ -564,7 +556,6 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
             return slot !== null && (isSowingAllowedPlant || slot.availableQuantity > 0)
           })
 
-        console.log(`Processed ${processedSlots.length} slots (sowing-allowed: ${isSowingAllowedPlant})`)
         setSlots(processedSlots)
       } else {
         setSlots([])
@@ -613,17 +604,8 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
 
   const loadDealerWallet = async (dealerId) => {
     try {
-      console.log("=== loadDealerWallet DEBUG ===")
-      console.log("Loading dealer wallet for dealer:", dealerId)
-      console.log("API endpoint:", API.USER.GET_DEALER_WALLET_DETAILS)
-      console.log("Current dealerWallet before API call:", dealerWallet)
-
       const instance = NetworkManager(API.USER.GET_DEALER_WALLET_DETAILS)
       const response = await instance.request(null, [dealerId])
-
-      console.log("Full dealer wallet response:", response)
-      console.log("Response data:", response?.data)
-      console.log("Response data.plantDetails:", response?.data?.plantDetails)
 
       // Transform the API response to match expected structure
       // Check both possible structures
@@ -631,8 +613,6 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
       const financial = response.data?.financial || response.data?.data?.financial
 
       if (plantDetails) {
-        console.log("Processing plantDetails from API response")
-
         // Transform plantDetails to wallet entries format with slot dates
         const entries = []
         plantDetails.forEach((plant) => {
@@ -660,24 +640,15 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
           totalPaidAmount: financial?.totalPaidAmount || 0,
           remainingAmount: financial?.remainingAmount || 0
         }
-        console.log("Transformed wallet data with dates and financial:", walletData)
         setDealerWallet(walletData)
-        console.log("Dealer wallet data set successfully")
-        console.log("Wallet data after setDealerWallet:", walletData)
 
         // Create slot details from wallet data instead of calling separate API
         await createSlotDetailsFromWallet(entries)
       } else {
-        console.log("No plantDetails found in response")
         setDealerWallet({})
       }
     } catch (error) {
       console.error("Error loading dealer wallet:", error)
-      console.error("Error details:", {
-        message: error.message,
-        response: error.response?.data,
-        status: error.response?.status
-      })
       setDealerWallet({})
     }
   }
@@ -685,33 +656,24 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
   // Create slot details from dealer wallet entries (using dates from wallet data)
   const createSlotDetailsFromWallet = async (entries) => {
     try {
-      console.log("=== createSlotDetailsFromWallet DEBUG ===")
-      console.log("Creating slot details from wallet entries:", entries)
-
       // Get unique slot IDs from entries
       const slotIds = [...new Set(entries.map((entry) => entry.bookingSlotId))]
-      console.log("Unique slot IDs to process:", slotIds)
 
       // Check which slots are already loaded
       const existingSlotIds = slots.map((slot) => slot.value)
       const missingSlotIds = slotIds.filter((id) => !existingSlotIds.includes(id))
-      console.log("Missing slot IDs:", missingSlotIds)
 
       if (missingSlotIds.length === 0) {
-        console.log("All slot details already loaded")
         return
       }
 
       // Create slot details from wallet data
       for (const slotId of missingSlotIds) {
         try {
-          console.log("Processing slot details for slot ID:", slotId)
-
           // Find the entry with this slot ID
           const entry = entries.find((entry) => entry.bookingSlotId === slotId)
 
           if (entry && entry.startDay && entry.endDay && entry.month) {
-            console.log("Found entry with dates:", entry)
 
             // Format the slot label with dates
             const startDate = moment(entry.startDay, "DD-MM-YYYY").format("D")
@@ -733,10 +695,8 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
             // Add to slots array if not already present
             if (!slots.find((slot) => slot.value === slotId)) {
               setSlots((prev) => [...prev, slotDetail])
-              console.log("Added slot detail from wallet:", slotDetail)
             }
           } else {
-            console.log("No date information found for slot ID:", slotId)
             // Fallback to placeholder
             const slotDetail = {
               value: slotId,
@@ -746,7 +706,6 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
 
             if (!slots.find((slot) => slot.value === slotId)) {
               setSlots((prev) => [...prev, slotDetail])
-              console.log("Added fallback slot detail:", slotDetail)
             }
           }
         } catch (error) {
@@ -760,7 +719,6 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
 
           if (!slots.find((slot) => slot.value === slotId)) {
             setSlots((prev) => [...prev, slotDetail])
-            console.log("Added error fallback slot detail:", slotDetail)
           }
         }
       }
@@ -771,16 +729,11 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
 
   const getFarmerByMobile = async (mobileNumber) => {
     try {
-      console.log("Fetching farmer by mobile:", mobileNumber)
-      console.log("API endpoint:", API.FARMER.GET_FARMER_BY_MOBILE)
       const instance = NetworkManager(API.FARMER.GET_FARMER_BY_MOBILE)
-      console.log("NetworkManager instance created")
       const response = await instance.request(null, [mobileNumber])
-      console.log("Farmer API response:", response)
 
       if (response?.data?.data) {
         const farmer = response.data.data
-        console.log("Farmer found:", farmer)
         setFarmerData(farmer)
 
         // Auto-fill taluka and village regardless of selection values
@@ -803,31 +756,14 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
             talukaName: farmerTaluka
           }
 
-          console.log("Farmer data prefilled successfully")
-          console.log("New form data:", newFormData)
-          console.log("Prefilled location data:", {
-            name: farmer.name,
-            village: farmerVillage,
-            state: farmerState,
-            district: farmerDistrict,
-            taluka: farmerTaluka
-          })
-
           return newFormData
         })
       } else {
-        console.log("No farmer found for mobile:", mobileNumber)
         // No farmer found - reset farmer data but keep Maharashtra as default state
         resetFarmerData()
       }
     } catch (error) {
       console.error("Error fetching farmer:", error)
-      console.error("Error details:", {
-        message: error.message,
-        response: error.response?.data,
-        status: error.response?.status,
-        url: error.config?.url
-      })
       // On error, reset farmer data but keep Maharashtra as default state
       resetFarmerData()
     } finally {
@@ -838,20 +774,31 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
   const resetFarmerData = () => {
     setFarmerData({})
     setMobileLoading(false)
-    const { defaultState, defaultDistrict, defaultTaluka, defaultVillage } = user || {}
-    setFormData((prev) => ({
-      ...prev,
-      name: "",
-      village: defaultVillage || "",
-      state: defaultState || "Maharashtra",
-      district: defaultDistrict || "",
-      taluka: defaultTaluka || "",
-      stateName: defaultState || "Maharashtra",
-      districtName: defaultDistrict || "",
-      talukaName: defaultTaluka || ""
-    }))
-
-    console.log("Farmer data reset, keeping default location data")
+    
+    // Only reset farmer-specific fields, keep user defaults for location
+    if (user && Object.keys(user).length > 0) {
+      const { defaultState, defaultDistrict, defaultTaluka, defaultVillage } = user
+      setFormData((prev) => ({
+        ...prev,
+        name: "",
+        village: defaultVillage || "",
+        state: defaultState || "Maharashtra",
+        district: defaultDistrict || "",
+        taluka: defaultTaluka || "",
+        stateName: defaultState || "Maharashtra",
+        districtName: defaultDistrict || "",
+        talukaName: defaultTaluka || ""
+      }))
+    } else {
+      // If no user data, just reset farmer name and keep default state
+      setFormData((prev) => ({
+        ...prev,
+        name: "",
+        // Keep existing location values or defaults
+        state: prev.state || "Maharashtra",
+        stateName: prev.stateName || "Maharashtra"
+      }))
+    }
   }
 
   // Helper function to get slot ID for a specific date
@@ -909,19 +856,19 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
   }
 
   const getRemainingQuantity = () => {
-    if (!dealerWallet?.entries || !formData.plant || !formData.subtype || !formData.orderDate) {
+    if (!dealerWallet?.entries || !formData?.plant || !formData?.subtype || !formData?.orderDate) {
       return null
     }
 
     // Get slot ID for the selected order date
-    const slotId = getSlotIdForDate(formData.orderDate)
+    const slotId = getSlotIdForDate(formData?.orderDate)
     if (!slotId) return null
 
     // Find the entry that matches plant, subtype, and slot
     const entry = dealerWallet.entries.find(
       (entry) =>
-        entry.plantTypeId === formData.plant &&
-        entry.subTypeId === formData.subtype &&
+        entry.plantTypeId === formData?.plant &&
+        entry.subTypeId === formData?.subtype &&
         entry.bookingSlotId === slotId
     )
 
@@ -932,40 +879,26 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
 
   // Get available plants for all slots when dealer quota is selected
   const getAvailablePlantsForSlots = () => {
-    console.log("=== getAvailablePlantsForSlots DEBUG ===")
-    console.log("quotaType:", quotaType)
-    console.log("dealerWallet:", dealerWallet)
-    console.log("dealerWallet?.entries:", dealerWallet?.entries)
-    console.log("slots:", slots)
-    console.log("formData.plant:", formData.plant)
-    console.log("formData.subtype:", formData.subtype)
-
     if (!dealerWallet?.entries || quotaType !== "dealer") {
-      console.log("Early return - no entries or wrong quota type")
       return []
     }
 
     const result = slots.map((slot) => {
-      console.log(`Processing slot: ${slot.value} - ${slot.label}`)
       let entry = null
 
       // If plant and subtype are selected, find specific entry
-      if (formData.plant && formData.subtype) {
-        console.log("Looking for specific plant/subtype entry")
+      if (formData?.plant && formData?.subtype) {
         entry = dealerWallet.entries.find(
           (entry) =>
-            entry.plantTypeId === formData.plant &&
-            entry.subTypeId === formData.subtype &&
+            entry.plantTypeId === formData?.plant &&
+            entry.subTypeId === formData?.subtype &&
             entry.bookingSlotId === slot.value
         )
-        console.log("Specific entry found:", entry)
       } else {
         // If no plant/subtype selected, show all entries for this slot
-        console.log("Looking for all entries in this slot")
         const slotEntries = dealerWallet.entries.filter(
           (entry) => entry.bookingSlotId === slot.value
         )
-        console.log("Slot entries found:", slotEntries)
         if (slotEntries.length > 0) {
           // Sum up all available quantities for this slot
           const totalAvailable = slotEntries.reduce(
@@ -973,7 +906,6 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
             0
           )
           entry = { remainingQuantity: totalAvailable }
-          console.log("Total available for slot:", totalAvailable)
         }
       }
 
@@ -983,37 +915,30 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
         availableInWallet: entry ? entry.remainingQuantity : 0,
         totalInSlot: slot.availableQuantity,
         hasQuota: !!entry,
-        showAllPlants: !formData.plant || !formData.subtype
+        showAllPlants: !formData?.plant || !formData?.subtype
       }
 
-      console.log("Slot info result:", slotInfo)
       return slotInfo
     })
 
     // Filter out slots with no available plants
     const filteredResult = result.filter((slotInfo) => {
       const hasAvailablePlants = slotInfo.availableInWallet > 0
-      console.log(
-        `Slot ${slotInfo.slotId}: ${slotInfo.availableInWallet} available - ${
-          hasAvailablePlants ? "SHOWING" : "HIDING"
-        }`
-      )
       return hasAvailablePlants
     })
 
-    console.log("Final filtered result:", filteredResult)
     return filteredResult
   }
 
   // Get total available plants in dealer quota for selected plant/subtype
   const getTotalAvailableInDealerQuota = () => {
-    if (!dealerWallet?.entries || !formData.plant || !formData.subtype || quotaType !== "dealer") {
+    if (!dealerWallet?.entries || !formData?.plant || !formData?.subtype || quotaType !== "dealer") {
       return 0
     }
 
     return dealerWallet.entries
       .filter(
-        (entry) => entry.plantTypeId === formData.plant && entry.subTypeId === formData.subtype
+        (entry) => entry.plantTypeId === formData?.plant && entry.subTypeId === formData?.subtype
       )
       .reduce((total, entry) => total + (entry.remainingQuantity || 0), 0)
   }
@@ -1048,8 +973,8 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
   }
 
   const getTotalOrderAmount = () => {
-    const quantity = parseInt(formData.noOfPlants) || 0
-    const rate = parseFloat(formData.rate) || 0
+    const quantity = parseInt(formData?.noOfPlants) || 0
+    const rate = parseFloat(formData?.rate) || 0
     return quantity * rate
   }
 
@@ -1057,45 +982,95 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
     return getTotalOrderAmount() - getTotalPaidAmount()
   }
 
-  // Test function to debug payment API
-  const testPaymentAPI = async (orderId) => {
-    try {
-      console.log("=== TESTING PAYMENT API ===")
-      const testPayment = {
-        paidAmount: 100,
-        paymentDate: new Date().toISOString(),
-        modeOfPayment: "Cash",
-        bankName: "",
-        remark: "Test payment",
-        receiptPhoto: [],
-        paymentStatus: "PENDING",
-        isWalletPayment: false
-      }
-
-      const paymentInstance = NetworkManager(API.ORDER.ADD_PAYMENT)
-      console.log("Test payment payload:", testPayment)
-      console.log("Test order ID:", orderId)
-
-      const response = await paymentInstance.request(testPayment, [orderId])
-      console.log("Test payment response:", response)
-
-      if (response?.data) {
-        console.log("Test payment successful!")
-        return true
-      } else {
-        console.error("Test payment failed:", response)
-        return false
-      }
-    } catch (error) {
-      console.error("Test payment error:", error)
-      return false
+  // Screenshot handling functions
+  const handleScreenshotUpload = (event) => {
+    const files = Array.from(event.target.files)
+    const imageFiles = files.filter(file => file.type.startsWith('image/'))
+    
+    if (imageFiles.length === 0) {
+      Toast.error('Please select valid image files')
+      return
     }
+
+    if (imageFiles.length > 5) {
+      Toast.error('Maximum 5 images allowed')
+      return
+    }
+
+    imageFiles.forEach(file => {
+      if (file.size > 8 * 1024 * 1024) { // 8MB limit
+        Toast.error(`File ${file.name} is too large. Maximum size is 8MB`)
+        return
+      }
+
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        const newScreenshot = {
+          id: Date.now() + Math.random(),
+          file: file,
+          preview: e.target.result,
+          name: file.name,
+          size: file.size
+        }
+        
+        setFormData(prev => ({
+          ...prev,
+          screenshots: [...prev.screenshots, newScreenshot]
+        }))
+      }
+      reader.readAsDataURL(file)
+    })
   }
 
+  const removeScreenshot = (screenshotId) => {
+    setFormData(prev => ({
+      ...prev,
+      screenshots: prev.screenshots.filter(s => s.id !== screenshotId)
+    }))
+  }
+
+  // Payment image upload functions
+  const handlePaymentImageUpload = (event) => {
+    const file = event.target.files[0]
+    
+    if (!file) return
+
+    if (!file.type.startsWith('image/')) {
+      Toast.error('Please select a valid image file')
+      return
+    }
+
+    if (file.size > 8 * 1024 * 1024) { // 8MB limit
+      Toast.error('File is too large. Maximum size is 8MB')
+      return
+    }
+
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      const paymentImage = {
+        file: file,
+        preview: e.target.result,
+        name: file.name,
+        size: file.size
+      }
+      
+      setNewPayment(prev => ({
+        ...prev,
+        paymentScreenshot: paymentImage
+      }))
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const removePaymentImage = () => {
+    setNewPayment(prev => ({
+      ...prev,
+      paymentScreenshot: null
+    }))
+  }
+
+
   const handleInputChange = (field, value) => {
-    console.log("=== handleInputChange DEBUG ===")
-    console.log("Field:", field)
-    console.log("Value:", value)
 
     // Handle Order For mobile number validation before setting form data
     let processedValue = value
@@ -1112,7 +1087,6 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
     // Track if rate is manually set by user
     if (field === "rate") {
       setRateManuallySet(true)
-      console.log("Rate manually set by user:", value)
     }
 
     // Handle location name fields for backend compatibility
@@ -1147,13 +1121,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
 
     // Auto-set rate when subtype is selected (only if rate is empty or hasn't been manually set)
     if (field === "subtype") {
-      console.log("Subtype selected:", value)
-      console.log("Available subtypes:", subTypes)
-      console.log("Current rate in form:", formData.rate)
       const selectedSubtype = subTypes.find((st) => st.value === value)
-      console.log("Selected subtype:", selectedSubtype)
-      console.log("Selected subtype rate:", selectedSubtype?.rate)
-      console.log("Selected subtype rate type:", typeof selectedSubtype?.rate)
 
       // Check if user is admin (can always edit rate)
       const isAdminUser =
@@ -1164,7 +1132,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
       // Only auto-set rate if current rate is empty or hasn't been manually set
       // For admin users, always allow rate editing regardless of manual setting
       const shouldAutoSetRate =
-        (!formData.rate || formData.rate === "" || formData.rate === "0") &&
+        (!formData?.rate || formData?.rate === "" || formData?.rate === "0") &&
         (!rateManuallySet || isAdminUser)
 
       if (
@@ -1173,25 +1141,18 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
         selectedSubtype.rate !== null &&
         shouldAutoSetRate
       ) {
-        console.log("Auto-setting rate to:", selectedSubtype.rate)
         // Ensure rate is a number and convert to string for the form
         const rateValue =
           typeof selectedSubtype.rate === "number"
             ? selectedSubtype.rate
             : parseFloat(selectedSubtype.rate) || 0
-        console.log("Processed rate value:", rateValue)
-        setFormData((prev) => {
-          const newFormData = {
-            ...prev,
-            rate: rateValue.toString(),
-            orderDate: null // Reset order date when subtype changes (affects available slots)
-          }
-          console.log("Updated form data with rate:", newFormData)
-          return newFormData
-        })
+        setFormData((prev) => ({
+          ...prev,
+          rate: rateValue.toString(),
+          orderDate: null // Reset order date when subtype changes (affects available slots)
+        }))
         setRate(rateValue)
       } else if (!selectedSubtype || !selectedSubtype.rate) {
-        console.log("No valid rate found for selected subtype")
         setFormData((prev) => ({
           ...prev,
           rate: "",
@@ -1199,7 +1160,6 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
         }))
         setRate(null)
       } else {
-        console.log("Rate already set manually, not auto-setting from subtype")
         // Only reset order date, keep the current rate
         setFormData((prev) => ({
           ...prev,
@@ -1222,7 +1182,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
         subtype: "", // Also reset subtype when plant changes
         orderDate: null // Reset order date when plant changes (affects available slots)
       }))
-      setRate(isAdminUser ? parseFloat(formData.rate) || null : null)
+      setRate(isAdminUser ? parseFloat(formData?.rate) || null : null)
       setRateManuallySet(isAdminUser ? rateManuallySet : false) // Keep manual flag for admin users
       setSubTypes([]) // Clear subtypes when plant changes
     }
@@ -1235,15 +1195,10 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
 
     // Reset quota type when dealer changes and load dealer wallet
     if (field === "dealer") {
-      console.log("=== Dealer Selection DEBUG ===")
-      console.log("Dealer field changed, value:", value)
-      console.log("Previous dealerWallet:", dealerWallet)
       setQuotaType(null)
       if (value) {
-        console.log("Calling loadDealerWallet with dealer ID:", value)
         loadDealerWallet(value)
       } else {
-        console.log("Clearing dealer wallet")
         setDealerWallet({})
       }
     }
@@ -1258,14 +1213,14 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
     }
 
     for (const field of requiredFields) {
-      if (!formData[field]) {
+      if (!formData?.[field]) {
         Toast.error(`Please fill in ${field.replace(/([A-Z])/g, " $1").toLowerCase()}`)
         return false
       }
     }
 
     // Only validate mobile number if it's provided and not a bulk order
-    if (!bulkOrder && formData.mobileNumber && formData.mobileNumber.length !== 10) {
+    if (!bulkOrder && formData?.mobileNumber && formData?.mobileNumber.length !== 10) {
       Toast.error("Mobile number must be 10 digits")
       return false
     }
@@ -1273,48 +1228,46 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
     // Only validate quota type for dealer non-bulk orders or when dealer is selected
     if (
       (user?.jobTitle === "DEALER" && !bulkOrder && !quotaType) ||
-      (formData.dealer && !bulkOrder && !quotaType)
+      (formData?.dealer && !bulkOrder && !quotaType)
     ) {
       Toast.error("Please select quota type")
       return false
     }
 
-    // Validate that a dealer or sales person is selected
-    if (!formData.dealer && !formData.sales) {
+    // Validate that exactly one of dealer or sales person is selected
+    if (!formData?.dealer && !formData?.sales) {
       Toast.error("Please select either a dealer or sales person")
+      return false
+    }
+    
+    // Ensure only one is selected (this should not happen due to UI constraints, but double-check)
+    if (formData?.dealer && formData?.sales) {
+      Toast.error("Please select either a dealer OR a sales person, not both")
       return false
     }
 
     // Validate Order For fields if enabled
-    if (formData.orderForEnabled) {
-      if (!formData.orderForName || formData.orderForName.trim() === '') {
+    if (formData?.orderForEnabled) {
+      if (!formData?.orderForName || formData?.orderForName.trim() === '') {
         Toast.error("Please enter name for the person the order is for")
         return false
       }
-      if (!formData.orderForAddress || formData.orderForAddress.trim() === '') {
+      if (!formData?.orderForAddress || formData?.orderForAddress.trim() === '') {
         Toast.error("Please enter address for the person the order is for")
         return false
       }
-      if (!formData.orderForMobileNumber || 
-          formData.orderForMobileNumber.length !== 10 || 
-          !/^\d{10}$/.test(formData.orderForMobileNumber)) {
+      if (!formData?.orderForMobileNumber || 
+          formData?.orderForMobileNumber.length !== 10 || 
+          !/^\d{10}$/.test(formData?.orderForMobileNumber)) {
         Toast.error("Please enter a valid 10-digit mobile number for the person the order is for")
         return false
       }
     }
 
     // Validate dealer quota availability
-    if (quotaType === "dealer" && formData.plant && formData.subtype && formData.orderDate) {
-      const requestedQuantity = parseInt(formData.noOfPlants) || 0
+    if (quotaType === "dealer" && formData?.plant && formData?.subtype && formData?.orderDate) {
+      const requestedQuantity = parseInt(formData?.noOfPlants) || 0
       const availableQuantity = getRemainingQuantity()
-
-      console.log("=== DEALER QUOTA VALIDATION ===")
-      console.log("Requested quantity:", requestedQuantity)
-      console.log("Available quantity:", availableQuantity)
-      console.log("Quota type:", quotaType)
-      console.log("Plant:", formData.plant)
-      console.log("Subtype:", formData.subtype)
-      console.log("Order date:", formData.orderDate)
 
       if (availableQuantity === null) {
         Toast.error("Unable to check dealer quota availability. Please try again.")
@@ -1331,14 +1284,14 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
 
     // Validate slot capacity availability
     // Skip validation if plant has sowingAllowed (can grow on demand)
-    const selectedPlant = plants.find((p) => p.value === formData.plant)
+    const selectedPlant = plants.find((p) => p.value === formData?.plant)
     const isSowingAllowedPlant = selectedPlant?.sowingAllowed
 
-    if (formData.orderDate && formData.noOfPlants && !isSowingAllowedPlant) {
-      const requestedQuantity = parseInt(formData.noOfPlants) || 0
+    if (formData?.orderDate && formData?.noOfPlants && !isSowingAllowedPlant) {
+      const requestedQuantity = parseInt(formData?.noOfPlants) || 0
 
       // Get slot ID for the selected order date
-      const slotId = getSlotIdForDate(formData.orderDate)
+      const slotId = getSlotIdForDate(formData?.orderDate)
       if (!slotId) {
         Toast.error("Selected date does not fall within any available slot. Please select a valid date.")
         return false
@@ -1363,7 +1316,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
 
       if (availableQuantity !== null && requestedQuantity > availableQuantity) {
         Toast.error(
-          `⚠️ Slot Capacity Exceeded!\n\nOnly ${availableQuantity} plants available for ${moment(formData.orderDate).format("DD/MM/YYYY")} (slot: ${slotPeriod})\n\nPlease select a different date or reduce the order quantity.`,
+          `⚠️ Slot Capacity Exceeded!\n\nOnly ${availableQuantity} plants available for ${moment(formData?.orderDate).format("DD/MM/YYYY")} (slot: ${slotPeriod})\n\nPlease select a different date or reduce the order quantity.`,
           {
             duration: 8000,
             style: {
@@ -1379,8 +1332,6 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
         )
         return false
       }
-    } else if (isSowingAllowedPlant) {
-      console.log("🌱 Sowing-allowed plant - skipping availability validation (can grow on demand)")
     }
 
     // Payment validation (single payment object)
@@ -1396,12 +1347,17 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
       return false
     }
 
-    // Wallet payment validation for dealers
+    // Validate image requirement for non-Cash payments (except NEFT/RTGS)
+    if (newPayment.paidAmount && newPayment.modeOfPayment && newPayment.modeOfPayment !== "Cash" && newPayment.modeOfPayment !== "NEFT/RTGS") {
+      if (!newPayment.paymentScreenshot) {
+        Toast.error(`Payment image is mandatory for ${newPayment.modeOfPayment} payments`)
+        return false
+      }
+    }
+
+    // Wallet payment validation - only when dealer is selected in order
     if (
-      (user?.jobTitle === "DEALER" ||
-        user?.role === "SUPER_ADMIN" ||
-        user?.role === "OFFICE_ADMIN" ||
-        user?.role === "ACCOUNTANT") &&
+      formData?.dealer &&
       newPayment.isWalletPayment &&
       newPayment.paidAmount
     ) {
@@ -1423,26 +1379,26 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
     if (!validateForm()) return
 
     // Show confirmation popup with farmer name and dates in bold
-    const selectedPlant = plants.find((p) => p.value === formData.plant)
-    const selectedSubtype = subTypes.find((s) => s.value === formData.subtype)
+    const selectedPlant = plants.find((p) => p.value === formData?.plant)
+    const selectedSubtype = subTypes.find((s) => s.value === formData?.subtype)
     // Get slot ID from order date
-    const slotId = getSlotIdForDate(formData.orderDate)
+    const slotId = getSlotIdForDate(formData?.orderDate)
     const selectedSlot = slots.find((s) => s.value === slotId)
-    const selectedSales = sales.find((s) => s.value === formData.sales)
-    const selectedDealer = dealers.find((d) => d.value === formData.dealer)
+    const selectedSales = sales.find((s) => s.value === formData?.sales)
+    const selectedDealer = dealers.find((d) => d.value === formData?.dealer)
 
     setConfirmationData({
-      farmerName: formData.name,
-      mobileNumber: formData.mobileNumber,
-      orderDate: formData.date,
-      deliveryDate: formData.orderDate, // The specific delivery date selected by user
+      farmerName: formData?.name || "",
+      mobileNumber: formData?.mobileNumber || "",
+      orderDate: formData?.date || new Date(),
+      deliveryDate: formData?.orderDate, // The specific delivery date selected by user
       plantName: selectedPlant?.label || "",
       plantSubtype: selectedSubtype?.label || "",
-      numberOfPlants: formData.noOfPlants,
-      rate: formData.rate,
+      numberOfPlants: formData?.noOfPlants || "",
+      rate: formData?.rate || "",
       slotPeriod: selectedSlot ? `${selectedSlot.startDay} - ${selectedSlot.endDay}` : "",
       salesPerson: selectedDealer?.label || selectedSales?.label || "",
-      location: `${formData.village}, ${formData.taluka}, ${formData.district}`,
+      location: `${formData?.village || ""}, ${formData?.taluka || ""}, ${formData?.district || ""}`,
       orderType: isInstantOrder ? "Instant Order" : bulkOrder ? "Bulk Order" : "Normal Order"
     })
 
@@ -1452,19 +1408,17 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
   const handleConfirmSubmit = async () => {
     setShowConfirmation(false)
     setLoading(true)
+    const formDataForUpload = new FormData()
 
     try {
       // Get slot ID from the selected order date
-      const slotId = getSlotIdForDate(formData.orderDate)
-      console.log("Creating order payload with bookingSlot:", slotId)
-      console.log("Order date:", formData.orderDate)
+      const slotId = getSlotIdForDate(formData?.orderDate)
 
       if (!slotId) {
         throw new Error("Could not determine slot for the selected date")
       }
 
       const selectedSlotDetails = slots.find((s) => s.value === slotId)
-      console.log("Selected slot details:", selectedSlotDetails)
 
       if (!selectedSlotDetails) {
         throw new Error("Selected slot not found in available slots")
@@ -1482,10 +1436,10 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
       }
 
       // Prepare Order For data if enabled
-      const orderForData = formData.orderForEnabled ? {
-        name: formData.orderForName.trim(),
-        address: formData.orderForAddress.trim(),
-        mobileNumber: parseInt(formData.orderForMobileNumber) || 0
+      const orderForData = formData?.orderForEnabled ? {
+        name: formData?.orderForName?.trim() || "",
+        address: formData?.orderForAddress?.trim() || "",
+        mobileNumber: parseInt(formData?.orderForMobileNumber) || 0
       } : undefined
 
       let payload
@@ -1494,33 +1448,35 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
       if (bulkOrder) {
         // Bulk order payload - includes all fields but with dealer-specific logic
         payload = {
-          name: formData.name,
-          village: formData.village,
-          taluka: formData.taluka,
-          state: formData.state,
-          district: formData.district,
-          stateName: formData.stateName,
-          districtName: formData.districtName,
-          talukaName: formData.talukaName,
-          mobileNumber: formData.mobileNumber,
-          typeOfPlants: formData.typeOfPlant,
-          numberOfPlants: parseInt(formData.noOfPlants),
-          rate: parseFloat(formData.rate),
+          name: formData?.name || "",
+          village: formData?.village || "",
+          taluka: formData?.taluka || "",
+          state: formData?.state || "",
+          district: formData?.district || "",
+          stateName: formData?.stateName || "",
+          districtName: formData?.districtName || "",
+          talukaName: formData?.talukaName || "",
+          mobileNumber: formData?.mobileNumber || "",
+          typeOfPlants: formData?.typeOfPlant || "",
+          numberOfPlants: parseInt(formData?.noOfPlants) || 0,
+          rate: parseFloat(formData?.rate) || 0,
           paymentStatus: "not paid",
           orderStatus: isInstantOrder ? "DISPATCHED" : "ACCEPTED",
-          plantName: formData.plant,
-          plantSubtype: formData.subtype,
+          plantName: formData?.plant || "",
+          plantSubtype: formData?.subtype || "",
           bookingSlot: slotId, // Auto-detected slot ID from order date
-          orderDate: formData.orderDate instanceof Date ? formData.orderDate.toISOString() : formData.orderDate,
-          deliveryDate: formData.orderDate instanceof Date ? formData.orderDate.toISOString() : formData.orderDate,
+          orderDate: formData?.orderDate instanceof Date ? formData?.orderDate.toISOString() : formData?.orderDate,
+          deliveryDate: formData?.orderDate instanceof Date ? formData?.orderDate.toISOString() : formData?.orderDate,
           orderPaymentStatus: "PENDING",
-          cavity: formData.cavity,
+          cavity: formData?.cavity || "",
           orderBookingDate:
-            formData.date instanceof Date ? formData.date.toISOString() : formData.date,
+            formData?.date instanceof Date ? formData?.date.toISOString() : formData?.date,
           dealerOrder: true,
-          dealer: formData.dealer || formData.sales,
+          dealer: formData?.dealer || formData?.sales,
           // If dealer is selected, send dealer ID as salesPerson, otherwise send sales person ID
-          salesPerson: formData.dealer || formData.sales
+          salesPerson: formData?.dealer || formData?.sales,
+          // Screenshots will be handled separately in FormData
+          screenshots: formData?.screenshots?.map(s => s.file) || []
         }
 
         // Add company quota flag based on quota type selection
@@ -1537,36 +1493,38 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
       } else {
         // Regular order payload
         payload = {
-          name: formData.name,
-          village: formData.village,
-          taluka: formData.taluka,
-          state: formData.state,
-          district: formData.district,
-          stateName: formData.stateName,
-          districtName: formData.districtName,
-          talukaName: formData.talukaName,
-          mobileNumber: formData.mobileNumber,
-          typeOfPlants: formData.typeOfPlant,
-          numberOfPlants: parseInt(formData.noOfPlants),
-          rate: parseFloat(formData.rate),
+          name: formData?.name || "",
+          village: formData?.village || "",
+          taluka: formData?.taluka || "",
+          state: formData?.state || "",
+          district: formData?.district || "",
+          stateName: formData?.stateName || "",
+          districtName: formData?.districtName || "",
+          talukaName: formData?.talukaName || "",
+          mobileNumber: formData?.mobileNumber || "",
+          typeOfPlants: formData?.typeOfPlant || "",
+          numberOfPlants: parseInt(formData?.noOfPlants) || 0,
+          rate: parseFloat(formData?.rate) || 0,
           paymentStatus: "not paid",
           // If dealer is selected, send dealer ID as salesPerson, otherwise send sales person ID
-          salesPerson: formData.dealer || formData.sales,
+          salesPerson: formData?.dealer || formData?.sales,
           orderStatus: isInstantOrder ? "DISPATCHED" : "ACCEPTED",
-          plantName: formData.plant,
-          plantSubtype: formData.subtype,
+          plantName: formData?.plant || "",
+          plantSubtype: formData?.subtype || "",
           bookingSlot: slotId, // Auto-detected slot ID from order date
-          orderDate: formData.orderDate instanceof Date ? formData.orderDate.toISOString() : formData.orderDate,
-          deliveryDate: formData.orderDate instanceof Date ? formData.orderDate.toISOString() : formData.orderDate,
+          orderDate: formData?.orderDate instanceof Date ? formData?.orderDate.toISOString() : formData?.orderDate,
+          deliveryDate: formData?.orderDate instanceof Date ? formData?.orderDate.toISOString() : formData?.orderDate,
           orderPaymentStatus: "PENDING",
-          cavity: formData.cavity,
+          cavity: formData?.cavity || "",
           orderBookingDate:
-            formData.date instanceof Date ? formData.date.toISOString() : formData.date
+            formData?.date instanceof Date ? formData?.date.toISOString() : formData?.date,
+          // Screenshots will be handled separately in FormData
+          screenshots: formData?.screenshots?.map(s => s.file) || []
         }
 
         // Add dealer field if dealer is selected for normal orders
-        if (formData.dealer) {
-          payload.dealer = formData.dealer
+        if (formData?.dealer) {
+          payload.dealer = formData?.dealer
         }
 
         // Add company quota flag for dealer regular orders
@@ -1582,19 +1540,6 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
         endpoint = API.FARMER.CREATE_FARMER
       }
 
-      // Debug: Log the final payload and rate information
-      console.log("=== ORDER CREATION DEBUG ===")
-      console.log("Form data rate:", formData.rate)
-      console.log("Form data rate type:", typeof formData.rate)
-      console.log("Parsed rate:", parseFloat(formData.rate))
-      console.log("Rate manually set:", rateManuallySet)
-      console.log("Final payload rate:", payload.rate)
-      console.log("Final payload rate type:", typeof payload.rate)
-      console.log("Form data dealer:", formData.dealer)
-      console.log("Form data sales:", formData.sales)
-      console.log("Final payload salesPerson:", payload.salesPerson)
-      console.log("Complete payload:", payload)
-      console.log("=== END ORDER CREATION DEBUG ===")
 
       // Check if payment data exists (using same validation as FarmerOrdersTable)
       const hasPaymentData = newPayment.paidAmount && newPayment.modeOfPayment
@@ -1632,7 +1577,6 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
         if (user?.role === "OFFICE_ADMIN") {
           payload.paymentStatus = "partial"
           payload.orderPaymentStatus = "PENDING"
-          console.log("OFFICE_ADMIN payment - status set to PENDING")
         } else if (newPayment.paymentStatus === "COLLECTED") {
           // For collected payments from other roles, set status to paid
           payload.paymentStatus = "paid"
@@ -1646,22 +1590,31 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
         }
       }
 
-      console.log("Final payload:", payload)
-      console.log("Using endpoint:", endpoint)
-      console.log("Quota type selected:", quotaType)
-      console.log("Company quota flag:", quotaType ? quotaType === "company" : "No quota type")
-      console.log("Dealer selected:", formData.dealer)
-      console.log("Sales person selected:", formData.sales)
-      console.log("Final dealer field in payload:", payload.dealer)
-      console.log("Final salesPerson field in payload:", payload.salesPerson)
-      console.log("Payment data included:", hasPaymentData ? "Yes" : "No")
+
+      // Create FormData for file uploads
+      
+      // Add all payload data to FormData as individual fields
+      Object.keys(payload).forEach(key => {
+        if (key === 'screenshots') {
+          // Handle screenshots separately
+          payload[key].forEach((file, index) => {
+            formDataForUpload.append('screenshots', file)
+          })
+        } else if (payload[key] !== null && payload[key] !== undefined) {
+          // Convert all values to strings for FormData
+          formDataForUpload.append(key, String(payload[key]))
+        }
+      })
+
+      // Add payment image if available
+      if (newPayment.paymentScreenshot) {
+        formDataForUpload.append('paymentScreenshot', newPayment.paymentScreenshot.file)
+      }
 
       const instance = NetworkManager(endpoint)
-      const response = await instance.request(payload)
+      const response = await instance.request(formDataForUpload)
 
       if (response?.data) {
-        console.log("Order created successfully with payment:", response.data)
-
         let successMessage = "Order added successfully"
         if (hasPaymentData) {
           successMessage += " with payment"
@@ -1691,7 +1644,6 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
         errorMessage.includes("No plants available") ||
         errorMessage.includes("Please book in other slots")
       ) {
-        console.error("Slot availability error detected:", errorMessage)
         isSlotError = true
 
         // Extract slot period from error message
@@ -1712,7 +1664,6 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
         errorMessage.includes("slot") ||
         errorMessage.includes("date")
       ) {
-        console.error("Slot-related error detected:", errorMessage)
         isSlotError = true
         errorMessage = `⚠️ Slot Error: ${errorMessage}\n\nPlease try selecting a different slot.`
       }
@@ -1765,7 +1716,9 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
       orderForEnabled: false,
       orderForName: "",
       orderForAddress: "",
-      orderForMobileNumber: ""
+      orderForMobileNumber: "",
+      // Reset screenshots
+      screenshots: []
     })
     setFarmerData({})
     // Always default to Normal Order (not Instant Order)
@@ -1785,7 +1738,8 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
       remark: "",
       receiptPhoto: [],
       paymentStatus: "PENDING", // Default to PENDING, will be updated based on payment type
-      isWalletPayment: false
+      isWalletPayment: false,
+      paymentScreenshot: null
     })
     onClose()
   }
@@ -1809,6 +1763,8 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                 // Uncheck wallet payment for dealer orders
                 if (isBulkOrder) {
                   setNewPayment((prev) => ({ ...prev, isWalletPayment: false }))
+                  // Clear sales person selection for bulk orders
+                  handleInputChange("sales", "")
                 }
               }}>
               <FormControlLabel
@@ -1860,6 +1816,8 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                 // Uncheck wallet payment for dealer/bulk orders
                 if (value === "bulk") {
                   setNewPayment((prev) => ({ ...prev, isWalletPayment: false }))
+                  // Clear sales person selection for bulk orders
+                  handleInputChange("sales", "")
                 }
               }}>
               <FormControlLabel
@@ -1924,7 +1882,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
               />
             </RadioGroup>
 
-            {quotaType === "dealer" && formData.orderDate && (
+            {quotaType === "dealer" && formData?.orderDate && (
               <Box className={classes.quotaInfo}>
                 <InfoIcon color="primary" />
                 <Typography variant="body2">
@@ -2021,7 +1979,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                     <LocalizationProvider dateAdapter={AdapterDateFns}>
                       <DatePicker
                         label="Order Date"
-                        value={formData.date}
+                        value={formData?.date}
                         onChange={(date) => handleInputChange("date", date)}
                         renderInput={(params) => <TextField {...params} fullWidth />}
                       />
@@ -2032,7 +1990,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                     <TextField
                       fullWidth
                       label="Mobile Number"
-                      value={formData.mobileNumber}
+                      value={formData?.mobileNumber}
                       onChange={(e) => handleInputChange("mobileNumber", e.target.value)}
                       inputProps={{ maxLength: 10 }}
                       InputProps={{
@@ -2054,7 +2012,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                     <TextField
                       fullWidth
                       label="Farmer Name"
-                      value={formData.name}
+                      value={formData?.name}
                       onChange={(e) => handleInputChange("name", e.target.value)}
                       disabled={!!farmerData?.name}
                     />
@@ -2066,7 +2024,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                       <FormControlLabel
                         control={
                           <Checkbox
-                            checked={formData.orderForEnabled}
+                            checked={formData?.orderForEnabled}
                             onChange={(e) => handleInputChange("orderForEnabled", e.target.checked)}
                             color="primary"
                           />
@@ -2081,7 +2039,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                   </Grid>
 
                   {/* Order For Fields - Show when enabled */}
-                  {formData.orderForEnabled && (
+                  {formData?.orderForEnabled && (
                     <>
                       <Grid item xs={12}>
                         <Divider sx={{ my: 1 }}>
@@ -2093,7 +2051,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                         <TextField
                           fullWidth
                           label="Name *"
-                          value={formData.orderForName}
+                          value={formData?.orderForName}
                           onChange={(e) => handleInputChange("orderForName", e.target.value)}
                           placeholder="Enter name of person order is for"
                           size="small"
@@ -2104,7 +2062,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                         <TextField
                           fullWidth
                           label="Mobile Number *"
-                          value={formData.orderForMobileNumber}
+                          value={formData?.orderForMobileNumber}
                           onChange={(e) => handleInputChange("orderForMobileNumber", e.target.value)}
                           placeholder="Enter 10-digit mobile number"
                           inputProps={{ maxLength: 10 }}
@@ -2116,7 +2074,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                         <TextField
                           fullWidth
                           label="Address *"
-                          value={formData.orderForAddress}
+                          value={formData?.orderForAddress}
                           onChange={(e) => handleInputChange("orderForAddress", e.target.value)}
                           placeholder="Enter complete address"
                           multiline
@@ -2136,14 +2094,6 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                   )}
 
                   <Grid item xs={12}>
-                    {console.log("LocationSelector props:", {
-                      selectedState: formData.state,
-                      selectedDistrict: formData.district,
-                      selectedTaluka: formData.taluka,
-                      selectedVillage: formData.village,
-                      disabled: !!farmerData?.name,
-                      farmerData: farmerData
-                    })}
 
                     {farmerData?.name ? (
                       // Show location as read-only when farmer is found
@@ -2158,7 +2108,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                             <TextField
                               fullWidth
                               label="State"
-                              value={formData.state || ""}
+                              value={formData?.state || ""}
                               disabled
                               variant="outlined"
                               size="small"
@@ -2168,7 +2118,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                             <TextField
                               fullWidth
                               label="District"
-                              value={formData.district || ""}
+                              value={formData?.district || ""}
                               disabled
                               variant="outlined"
                               size="small"
@@ -2178,7 +2128,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                             <TextField
                               fullWidth
                               label="Taluka"
-                              value={formData.taluka || ""}
+                              value={formData?.taluka || ""}
                               disabled
                               variant="outlined"
                               size="small"
@@ -2188,7 +2138,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                             <TextField
                               fullWidth
                               label="Village"
-                              value={formData.village || ""}
+                              value={formData?.village || ""}
                               disabled
                               variant="outlined"
                               size="small"
@@ -2199,10 +2149,10 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                     ) : (
                       // Show normal LocationSelector when no farmer is found
                       <LocationSelector
-                        selectedState={formData.state}
-                        selectedDistrict={formData.district}
-                        selectedTaluka={formData.taluka}
-                        selectedVillage={formData.village}
+                        selectedState={formData?.state}
+                        selectedDistrict={formData?.district}
+                        selectedTaluka={formData?.taluka}
+                        selectedVillage={formData?.village}
                         onStateChange={(value) => handleInputChange("state", value)}
                         onDistrictChange={(value) => handleInputChange("district", value)}
                         onTalukaChange={(value) => handleInputChange("taluka", value)}
@@ -2255,34 +2205,104 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
             <CardContent className={classes.formSection}>
               <Grid container spacing={2}>
                 <Grid item xs={12} md={6}>
-                  <SearchableSelect
-                    label="Select Sales Person"
-                    items={[{ label: "Select a sales person", value: "" }, ...sales]}
-                    value={formData.sales || ""}
-                    onChange={(e) => handleInputChange("sales", e.target.value)}
-                    placeholder="Search sales person..."
-                  />
+                  <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 1 }}>
+                    <Box sx={{ flex: 1 }}>
+                      <SearchableSelect
+                        label="Select Sales Person"
+                        items={[{ label: "Select a sales person", value: "" }, ...sales]}
+                        value={formData?.sales || ""}
+                        onChange={(e) => {
+                          const selectedSales = e.target.value
+                          handleInputChange("sales", selectedSales)
+                          // Clear dealer selection when sales person is selected
+                          if (selectedSales) {
+                            handleInputChange("dealer", "")
+                            setQuotaType(null)
+                            setDealerWallet({})
+                          }
+                        }}
+                        placeholder="Search sales person..."
+                        disabled={!!formData?.dealer || bulkOrder}
+                      />
+                    </Box>
+                    {formData?.sales && !bulkOrder && (
+                      <Button
+                        variant="outlined"
+                        color="secondary"
+                        size="small"
+                        onClick={() => {
+                          handleInputChange("sales", "")
+                        }}
+                        sx={{ 
+                          minWidth: 'auto',
+                          px: 1,
+                          height: '40px',
+                          borderColor: '#f44336',
+                          color: '#f44336',
+                          '&:hover': {
+                            borderColor: '#d32f2f',
+                            backgroundColor: '#ffebee'
+                          }
+                        }}
+                        title="Clear Sales Person Selection"
+                      >
+                        <CloseIcon fontSize="small" />
+                      </Button>
+                    )}
+                  </Box>
                 </Grid>
 
                 <Grid item xs={12} md={6}>
-                  <SearchableSelect
-                    label="Select Dealer"
-                    items={[{ label: "Select a dealer", value: "" }, ...dealers]}
-                    value={formData.dealer || ""}
-                    onChange={(e) => {
-                      console.log("=== SearchableSelect onChange DEBUG ===")
-                      console.log("Event:", e)
-                      console.log("Target value:", e.target.value)
-                      console.log("Current formData.dealer:", formData.dealer)
-                      handleInputChange("dealer", e.target.value)
-                    }}
-                    placeholder="Search dealer..."
-                  />
+                  <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 1 }}>
+                    <Box sx={{ flex: 1 }}>
+                      <SearchableSelect
+                        label="Select Dealer"
+                        items={[{ label: "Select a dealer", value: "" }, ...dealers]}
+                        value={formData?.dealer || ""}
+                        onChange={(e) => {
+                          const selectedDealer = e.target.value
+                          handleInputChange("dealer", selectedDealer)
+                          // Clear sales person selection when dealer is selected
+                          if (selectedDealer) {
+                            handleInputChange("sales", "")
+                          }
+                        }}
+                        placeholder="Search dealer..."
+                        disabled={!!formData?.sales}
+                      />
+                    </Box>
+                    {formData?.dealer && (
+                      <Button
+                        variant="outlined"
+                        color="secondary"
+                        size="small"
+                        onClick={() => {
+                          handleInputChange("dealer", "")
+                          setQuotaType(null)
+                          setDealerWallet({})
+                        }}
+                        sx={{ 
+                          minWidth: 'auto',
+                          px: 1,
+                          height: '40px',
+                          borderColor: '#f44336',
+                          color: '#f44336',
+                          '&:hover': {
+                            borderColor: '#d32f2f',
+                            backgroundColor: '#ffebee'
+                          }
+                        }}
+                        title="Clear Dealer Selection"
+                      >
+                        <CloseIcon fontSize="small" />
+                      </Button>
+                    )}
+                  </Box>
                 </Grid>
               </Grid>
 
               {/* Show quota type selection when dealer is selected for normal orders only */}
-              {formData.dealer && !bulkOrder && (
+              {formData?.dealer && !bulkOrder && (
                 <Box sx={{ mt: 3 }}>
                   <Typography variant="subtitle2" sx={{ mb: 2, fontWeight: 600, color: "#2c3e50" }}>
                     Quota Type for Selected Dealer
@@ -2303,7 +2323,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                     />
                   </RadioGroup>
 
-                  {quotaType === "dealer" && formData.orderDate && (
+                  {quotaType === "dealer" && formData?.orderDate && (
                     <Box className={classes.quotaInfo} sx={{ mt: 2 }}>
                       <InfoIcon color="primary" />
                       <Typography variant="body2">
@@ -2316,20 +2336,10 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                   {/* Show available plants for all slots when dealer quota is selected */}
                   {quotaType === "dealer" && (
                     <Box sx={{ mt: 3 }}>
-                      {(() => {
-                        console.log("=== Quota Display Condition DEBUG ===")
-                        console.log("quotaType:", quotaType)
-                        console.log("quotaType === 'dealer':", quotaType === "dealer")
-                        console.log("dealerWallet:", dealerWallet)
-                        console.log("dealerWallet?.entries:", dealerWallet?.entries)
-                        console.log("slots:", slots)
-                        console.log("slots.length:", slots?.length)
-                        return null
-                      })()}
                       <Typography
                         variant="subtitle2"
                         sx={{ mb: 2, fontWeight: 600, color: "#2c3e50" }}>
-                        {formData.plant && formData.subtype
+                        {formData?.plant && formData?.subtype
                           ? "Available Plants in Dealer Quota by Slot"
                           : "Total Available Plants in Dealer Quota by Slot (Select plant/subtype for specific details)"}
                       </Typography>
@@ -2341,19 +2351,12 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                           borderRadius: 1
                         }}>
                         {(() => {
-                          console.log("=== Slot Display DEBUG ===")
                           const availableSlots = getAvailablePlantsForSlots()
-                          console.log(
-                            "Available slots from getAvailablePlantsForSlots:",
-                            availableSlots
-                          )
-                          console.log("Available slots length:", availableSlots.length)
 
                           // Show dealer wallet data when available, otherwise show dummy data
                           if (availableSlots.length === 0 && quotaType === "dealer") {
                             // If we have dealer wallet data, show it directly
                             if (dealerWallet?.entries && dealerWallet.entries.length > 0) {
-                              console.log("Showing dealer wallet data directly")
                               return dealerWallet.entries
                                 .filter((entry) => (entry.remainingQuantity || 0) > 0) // Only show entries with available plants
                                 .map((entry, index) => {
@@ -2431,7 +2434,6 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                                   </Box>
                                 ))
                             } else {
-                              console.log("Showing dummy data for testing")
                               return [
                                 {
                                   slotId: "test-slot-1",
@@ -2494,7 +2496,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                                   ? "1px solid #f0f0f0"
                                   : "none",
                               backgroundColor:
-                                slotInfo.slotId === getSlotIdForDate(formData.orderDate)
+                                slotInfo.slotId === getSlotIdForDate(formData?.orderDate)
                                   ? "#e3f2fd"
                                   : "transparent",
                               display: "flex",
@@ -2539,7 +2541,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                         variant="caption"
                         color="text.secondary"
                         sx={{ mt: 1, display: "block" }}>
-                        {formData.plant && formData.subtype
+                        {formData?.plant && formData?.subtype
                           ? "Green chips show available plants in dealer quota, red shows no availability"
                           : "Green chips show total available plants across all plant types in dealer quota, red shows no availability"}
                       </Typography>
@@ -2547,7 +2549,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                   )}
 
                   {/* Summary of total available in dealer quota */}
-                  {quotaType === "dealer" && formData.plant && formData.subtype && (
+                  {quotaType === "dealer" && formData?.plant && formData?.subtype && (
                     <Box
                       sx={{
                         mt: 2,
@@ -2569,10 +2571,10 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                         }}>
                         <Typography variant="body2" color="text.secondary">
                           Total available in dealer quota for{" "}
-                          {formData.plant && plants.find((p) => p.value === formData.plant)?.label}{" "}
+                          {formData?.plant && plants.find((p) => p.value === formData?.plant)?.label}{" "}
                           -{" "}
-                          {formData.subtype &&
-                            subTypes.find((s) => s.value === formData.subtype)?.label}
+                          {formData?.subtype &&
+                            subTypes.find((s) => s.value === formData?.subtype)?.label}
                           :
                         </Typography>
                         <Chip
@@ -2587,7 +2589,12 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
               )}
 
               <Alert severity="info" sx={{ mt: 2 }}>
-                The selected sales person or dealer will be assigned to this order.
+                <Typography variant="body2">
+                  <strong>Note:</strong> {bulkOrder 
+                    ? "For bulk orders, only dealer selection is available. Sales person selection is disabled."
+                    : "You can select either a sales person OR a dealer, not both. Selecting one will automatically clear the other selection."
+                  }
+                </Typography>
               </Alert>
             </CardContent>
           </Card>
@@ -2605,7 +2612,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                   <FormControl fullWidth>
                     <InputLabel>Select Plant</InputLabel>
                     <Select
-                      value={formData.plant || ""}
+                      value={formData?.plant || ""}
                       onChange={(e) => handleInputChange("plant", e.target.value)}
                       label="Select Plant">
                       {plants.map((plant) => (
@@ -2621,10 +2628,10 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                   <FormControl fullWidth>
                     <InputLabel>Select Subtype</InputLabel>
                     <Select
-                      value={formData.subtype || ""}
+                      value={formData?.subtype || ""}
                       onChange={(e) => handleInputChange("subtype", e.target.value)}
                       label="Select Subtype"
-                      disabled={!formData.plant}>
+                      disabled={!formData?.plant}>
                       {subTypes.map((subtype) => (
                         <MenuItem key={subtype.value} value={subtype.value}>
                           {subtype.label}
@@ -2638,7 +2645,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                   <FormControl fullWidth>
                     <InputLabel>Select Cavity</InputLabel>
                     <Select
-                      value={formData.cavity || ""}
+                      value={formData?.cavity || ""}
                       onChange={(e) => handleInputChange("cavity", e.target.value)}
                       label="Select Cavity">
                       {cavities.map((cavity) => (
@@ -2651,7 +2658,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                 </Grid>
 
                 {/* Dealer Quota Summary - Show for selected plant only */}
-                {formData.dealer && !bulkOrder && formData.plant && dealerWallet && dealerWallet.plantDetails && dealerWallet.plantDetails.length > 0 && (
+                {formData?.dealer && !bulkOrder && formData?.plant && dealerWallet && dealerWallet.plantDetails && dealerWallet.plantDetails.length > 0 && (
                   <Grid item xs={12}>
                     <Box sx={{ p: 3, bgcolor: "#f8f9fa", borderRadius: 3, border: "2px solid #e3f2fd", boxShadow: "0 4px 8px rgba(0,0,0,0.1)" }}>
                       <Box sx={{ p: 3, bgcolor: "white", borderRadius: 2, boxShadow: "0 2px 6px rgba(0,0,0,0.1)" }}>
@@ -2662,7 +2669,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                           {dealerWallet.plantDetails
                             .filter(plant => {
                               // Get selected plant name
-                              const selectedPlantData = plants.find(p => p.value === formData.plant);
+                              const selectedPlantData = plants.find(p => p.value === formData?.plant);
                               return plant.plantName === selectedPlantData?.label;
                             })
                             .map((plant, idx) => (
@@ -2720,16 +2727,16 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                   <LocalizationProvider dateAdapter={AdapterDateFns}>
                     <DatePicker
                       label="Order Date *"
-                      value={formData.orderDate}
+                      value={formData?.orderDate}
                       onChange={(date) => handleInputChange("orderDate", date)}
-                      disabled={!formData.subtype}
+                      disabled={!formData?.subtype}
                       shouldDisableDate={isDateDisabled}
                       renderInput={(params) => (
                         <TextField 
                           {...params} 
                           fullWidth 
                           helperText={
-                            formData.subtype 
+                            formData?.subtype 
                               ? "Select delivery date (only dates within available slots are enabled)" 
                               : "Select plant and subtype first"
                           }
@@ -2745,23 +2752,23 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                     fullWidth
                     label="Number of Plants"
                     type="number"
-                    value={formData.noOfPlants}
+                    value={formData?.noOfPlants}
                     onChange={(e) => handleInputChange("noOfPlants", e.target.value)}
                     error={
                       quotaType === "dealer" &&
-                      formData.plant &&
-                      formData.subtype &&
-                      formData.orderDate &&
-                      formData.noOfPlants &&
-                      parseInt(formData.noOfPlants) > (getRemainingQuantity() || 0)
+                      formData?.plant &&
+                      formData?.subtype &&
+                      formData?.orderDate &&
+                      formData?.noOfPlants &&
+                      parseInt(formData?.noOfPlants) > (getRemainingQuantity() || 0)
                     }
                     helperText={
                       quotaType === "dealer" &&
-                      formData.plant &&
-                      formData.subtype &&
-                      formData.orderDate &&
-                      formData.noOfPlants
-                        ? parseInt(formData.noOfPlants) > (getRemainingQuantity() || 0)
+                      formData?.plant &&
+                      formData?.subtype &&
+                      formData?.orderDate &&
+                      formData?.noOfPlants
+                        ? parseInt(formData?.noOfPlants) > (getRemainingQuantity() || 0)
                           ? `Exceeds available dealer quota (${getRemainingQuantity() || 0})`
                           : `Available dealer quota: ${getRemainingQuantity() || 0}`
                         : ""
@@ -2775,7 +2782,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                       fullWidth
                       label="Rate per Plant"
                       type="number"
-                      value={formData.rate}
+                      value={formData?.rate}
                       onChange={(e) => handleInputChange("rate", e.target.value)}
                       disabled={
                         !(
@@ -2788,10 +2795,10 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                         user?.jobTitle === "SUPERADMIN" ||
                         user?.jobTitle === "OFFICE_ADMIN" ||
                         user?.jobTitle === "ACCOUNTANT"
-                          ? formData.subtype
+                          ? formData?.subtype
                             ? "Rate auto-filled from selected subtype. You can edit it as you have admin privileges."
                             : "Select a subtype to auto-fill rate. You can edit it as you have admin privileges."
-                          : formData.subtype
+                          : formData?.subtype
                           ? "Rate auto-filled from selected subtype, but you can edit it."
                           : "Select a subtype to auto-fill rate"
                       }
@@ -2818,9 +2825,9 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
 
                 {/* Slot Capacity Warning - Only show if NOT a sowing-allowed plant */}
                 {available !== null &&
-                  formData.noOfPlants &&
-                  parseInt(formData.noOfPlants) > available &&
-                  !plants.find((p) => p.value === formData.plant)?.sowingAllowed && (
+                  formData?.noOfPlants &&
+                  parseInt(formData?.noOfPlants) > available &&
+                  !plants.find((p) => p.value === formData?.plant)?.sowingAllowed && (
                     <Grid item xs={12}>
                       <Box
                         sx={{
@@ -2856,7 +2863,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                             Slot Capacity Exceeded!
                           </Typography>
                           <Typography variant="body2" color="#7f1d1d">
-                            You&apos;re trying to book {formData.noOfPlants} plants, but only{" "}
+                            You&apos;re trying to book {formData?.noOfPlants} plants, but only{" "}
                             {available} are available in this slot.
                           </Typography>
                           <Typography variant="body2" color="#7f1d1d" sx={{ mt: 0.5 }}>
@@ -2868,7 +2875,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                   )}
                 
                 {/* Sowing-Allowed Plant Info */}
-                {plants.find((p) => p.value === formData.plant)?.sowingAllowed && formData.noOfPlants && (
+                {plants.find((p) => p.value === formData?.plant)?.sowingAllowed && formData?.noOfPlants && (
                   <Grid item xs={12}>
                     <Box
                       sx={{
@@ -2913,9 +2920,9 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
 
                 {/* Dealer Quota Validation Display */}
                 {quotaType === "dealer" &&
-                  formData.plant &&
-                  formData.subtype &&
-                  formData.orderDate && (
+                  formData?.plant &&
+                  formData?.subtype &&
+                  formData?.orderDate && (
                     <Grid item xs={12}>
                       <Box
                         sx={{
@@ -2924,7 +2931,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                           border: "1px solid",
                           backgroundColor: "#f8f9fa",
                           borderColor:
-                            parseInt(formData.noOfPlants || 0) > (getRemainingQuantity() || 0)
+                            parseInt(formData?.noOfPlants || 0) > (getRemainingQuantity() || 0)
                               ? "#f44336"
                               : "#4caf50",
                           display: "flex",
@@ -2936,9 +2943,9 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                             Dealer Quota Status
                           </Typography>
                           <Typography variant="caption" color="text.secondary">
-                            {formData.plant && formData.subtype
-                              ? `${plants.find((p) => p.value === formData.plant)?.label} - ${
-                                  subTypes.find((s) => s.value === formData.subtype)?.label
+                            {formData?.plant && formData?.subtype
+                              ? `${plants.find((p) => p.value === formData?.plant)?.label} - ${
+                                  subTypes.find((s) => s.value === formData?.subtype)?.label
                                 }`
                               : "Select plant and subtype"}
                           </Typography>
@@ -2947,21 +2954,21 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                           <Typography variant="body2" fontWeight={600} color="#2c3e50">
                             Available: {getRemainingQuantity() || 0}
                           </Typography>
-                          {formData.noOfPlants && (
+                          {formData?.noOfPlants && (
                             <Typography
                               variant="caption"
                               color={
-                                parseInt(formData.noOfPlants) > (getRemainingQuantity() || 0)
+                                parseInt(formData?.noOfPlants) > (getRemainingQuantity() || 0)
                                   ? "#f44336"
                                   : "#4caf50"
                               }
                               fontWeight={500}>
-                              {parseInt(formData.noOfPlants) > (getRemainingQuantity() || 0)
+                              {parseInt(formData?.noOfPlants) > (getRemainingQuantity() || 0)
                                 ? `Exceeds by ${
-                                    parseInt(formData.noOfPlants) - (getRemainingQuantity() || 0)
+                                    parseInt(formData?.noOfPlants) - (getRemainingQuantity() || 0)
                                   }`
                                 : `${
-                                    (getRemainingQuantity() || 0) - parseInt(formData.noOfPlants)
+                                    (getRemainingQuantity() || 0) - parseInt(formData?.noOfPlants)
                                   } remaining`}
                             </Typography>
                           )}
@@ -2970,6 +2977,71 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                     </Grid>
                   )}
               </Grid>
+            </CardContent>
+          </Card>
+
+          {/* Screenshots Section */}
+          <Card className={classes.formCard}>
+            <div className={classes.cardHeader}>
+              <Typography variant="subtitle1" className={classes.sectionTitle}>
+                <CameraIcon fontSize="small" /> Order Screenshots (Required for Non-Cash Payments)
+              </Typography>
+            </div>
+            <CardContent className={classes.formSection}>
+              <Box sx={{ mb: 2 }}>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  Add screenshots or photos related to this order. <strong>Payment images are mandatory for UPI, Cheque, 1341, and 434 payments.</strong>
+                </Typography>
+                
+                <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
+                  <Button
+                    variant="outlined"
+                    component="label"
+                    startIcon={<UploadIcon />}
+                    size="small"
+                  >
+                    Take Picture
+                    <input
+                      type="file"
+                      hidden
+                      multiple
+                      accept="image/*"
+                      onChange={handleScreenshotUpload}
+                    />
+                  </Button>
+                  
+                  <Typography variant="caption" color="text.secondary" sx={{ alignSelf: 'center' }}>
+                    Max 5 images, 8MB each
+                  </Typography>
+                </Box>
+
+                {formData?.screenshots?.length > 0 && (
+                  <ImageList sx={{ width: '100%', height: 200 }} cols={3} rowHeight={164}>
+                    {formData?.screenshots?.map((screenshot) => (
+                      <ImageListItem key={screenshot.id}>
+                        <img
+                          src={screenshot.preview}
+                          alt={screenshot.name}
+                          loading="lazy"
+                          style={{ objectFit: 'cover' }}
+                        />
+                        <ImageListItemBar
+                          title={screenshot.name}
+                          subtitle={`${(screenshot.size / 1024 / 1024).toFixed(2)} MB`}
+                          actionIcon={
+                            <IconButton
+                              sx={{ color: 'rgba(255, 255, 255, 0.54)' }}
+                              onClick={() => removeScreenshot(screenshot.id)}
+                            >
+                              <DeleteIcon />
+                            </IconButton>
+                          }
+                        />
+                      </ImageListItem>
+                    ))}
+                  </ImageList>
+                )}
+              </Box>
             </CardContent>
           </Card>
 
@@ -3018,52 +3090,16 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                       ₹{getBalanceAmount().toLocaleString()}
                     </Typography>
                   </Grid>
-                  {(user?.jobTitle === "DEALER" ||
-                    user?.role === "SUPER_ADMIN" ||
-                    user?.role === "OFFICE_ADMIN" ||
-                    user?.role === "ACCOUNTANT") &&
-                    dealerWallet && (
-                      <Grid item xs={12} md={3}>
-                        <Typography variant="body2" color="text.secondary">
-                          Wallet Balance:
-                        </Typography>
-                        <Typography variant="h6" fontWeight={600} color="#ff9800">
-                          ₹{dealerWallet.availableAmount?.toLocaleString() || 0}
-                        </Typography>
-                      </Grid>
-                    )}
-                  <Grid item xs={12} md={3}>
-                    <Button
-                      variant="outlined"
-                      color="primary"
-                      onClick={() => {
-                        setNewPayment({
-                          paidAmount: "",
-                          paymentDate: moment().format("YYYY-MM-DD"),
-                          modeOfPayment: "",
-                          bankName: "",
-                          remark: "",
-                          receiptPhoto: [],
-                          paymentStatus: "PENDING", // Default to PENDING, will be updated based on payment type
-                          isWalletPayment: false
-                        })
-                      }}
-                      startIcon={<AddIcon />}
-                      size="small">
-                      Reset Payment
-                    </Button>
-                  </Grid>
-                  <Grid item xs={12} md={3}>
-                    <Button
-                      variant="outlined"
-                      color="secondary"
-                      onClick={() => {
-                        // Payment state test - removed for cleaner console
-                      }}
-                      size="small">
-                      Test Payment Data
-                    </Button>
-                  </Grid>
+                  {formData?.dealer && dealerWallet && (
+                    <Grid item xs={12} md={3}>
+                      <Typography variant="body2" color="text.secondary">
+                        Wallet Balance:
+                      </Typography>
+                      <Typography variant="h6" fontWeight={600} color="#ff9800">
+                        ₹{dealerWallet.availableAmount?.toLocaleString() || 0}
+                      </Typography>
+                    </Grid>
+                  )}
                 </Grid>
               </Box>
 
@@ -3080,10 +3116,8 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                   Payment Details
                 </Typography>
 
-                {/* Wallet Payment Option - Only for Accountant, Super Admin, and Office Admin */}
-                {(user?.role === "SUPER_ADMIN" ||
-                  user?.role === "ACCOUNTANT" ||
-                  user?.role === "OFFICE_ADMIN") && (
+                {/* Wallet Payment Option - Only when dealer is selected in order */}
+                {formData?.dealer && (
                   <Box
                     sx={{
                       mb: 2,
@@ -3162,11 +3196,11 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                         disabled={newPayment.isWalletPayment}>
                         <MenuItem value="">Select Mode</MenuItem>
                         <MenuItem value="Cash">Cash</MenuItem>
-                        <MenuItem value="Phone Pe">Phone Pe</MenuItem>
-                        <MenuItem value="Google Pay">Google Pay</MenuItem>
+                        <MenuItem value="UPI">UPI</MenuItem>
                         <MenuItem value="Cheque">Cheque</MenuItem>
-                        <MenuItem value="NEFT">NEFT</MenuItem>
-                        <MenuItem value="JPCB">JPCB</MenuItem>
+                        <MenuItem value="NEFT/RTGS">NEFT/RTGS</MenuItem>
+                        <MenuItem value="1341">1341</MenuItem>
+                        <MenuItem value="434">434</MenuItem>
                       </Select>
                       {newPayment.isWalletPayment && (
                         <Typography
@@ -3185,14 +3219,14 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                       value={newPayment.bankName}
                       onChange={(e) => handlePaymentInputChange("bankName", e.target.value)}
                       placeholder={
-                        newPayment.modeOfPayment === "Cheque" || newPayment.modeOfPayment === "NEFT"
+                        newPayment.modeOfPayment === "Cheque" || newPayment.modeOfPayment === "NEFT/RTGS"
                           ? "Enter bank name"
                           : "N/A"
                       }
                       disabled={
                         newPayment.isWalletPayment ||
                         (newPayment.modeOfPayment !== "Cheque" &&
-                          newPayment.modeOfPayment !== "NEFT")
+                          newPayment.modeOfPayment !== "NEFT/RTGS")
                       }
                       size="small"
                     />
@@ -3208,6 +3242,108 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                       multiline
                       rows={2}
                     />
+                  </Grid>
+
+                  {/* Payment Image Upload */}
+                  <Grid item xs={12}>
+                    <Box sx={{ mt: 2 }}>
+                      <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600, color: "#2c3e50" }}>
+                        Payment Screenshot {newPayment.modeOfPayment && newPayment.modeOfPayment !== "Cash" && newPayment.modeOfPayment !== "NEFT/RTGS" ? "(Required)" : "(Optional)"}
+                      </Typography>
+                      
+                      {newPayment.paymentScreenshot ? (
+                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                          <Box sx={{ position: 'relative', display: 'inline-block' }}>
+                            <img
+                              src={newPayment.paymentScreenshot.preview}
+                              alt="Payment screenshot"
+                              style={{
+                                width: '100%',
+                                maxWidth: 300,
+                                height: 200,
+                                objectFit: 'cover',
+                                borderRadius: 8,
+                                border: '2px solid #e0e0e0'
+                              }}
+                            />
+                            <IconButton
+                              onClick={removePaymentImage}
+                              sx={{
+                                position: 'absolute',
+                                top: 8,
+                                right: 8,
+                                backgroundColor: 'rgba(244, 67, 54, 0.8)',
+                                color: 'white',
+                                '&:hover': {
+                                  backgroundColor: 'rgba(244, 67, 54, 1)'
+                                }
+                              }}
+                              size="small"
+                            >
+                              <DeleteIcon fontSize="small" />
+                            </IconButton>
+                          </Box>
+                          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                            <Button
+                              variant="outlined"
+                              component="label"
+                              startIcon={<CameraIcon />}
+                              size="small"
+                            >
+                              Change Image
+                              <input
+                                type="file"
+                                hidden
+                                accept="image/*"
+                                onChange={handlePaymentImageUpload}
+                              />
+                            </Button>
+                            <Typography variant="caption" color="text.secondary" sx={{ alignSelf: 'center' }}>
+                              {newPayment.paymentScreenshot.name} ({(newPayment.paymentScreenshot.size / 1024 / 1024).toFixed(2)} MB)
+                            </Typography>
+                          </Box>
+                        </Box>
+                      ) : (
+                        <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+                          <Button
+                            variant="outlined"
+                            component="label"
+                            startIcon={<CameraIcon />}
+                            size="small"
+                          >
+                            Take Picture
+                            <input
+                              type="file"
+                              hidden
+                              accept="image/*"
+                              capture="camera"
+                              onChange={handlePaymentImageUpload}
+                            />
+                          </Button>
+                          <Button
+                            variant="outlined"
+                            component="label"
+                            startIcon={<UploadIcon />}
+                            size="small"
+                          >
+                            Select Image
+                            <input
+                              type="file"
+                              hidden
+                              accept="image/*"
+                              onChange={handlePaymentImageUpload}
+                            />
+                          </Button>
+                        </Box>
+                      )}
+                      
+                      <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                        {newPayment.modeOfPayment && newPayment.modeOfPayment !== "Cash" && newPayment.modeOfPayment !== "NEFT/RTGS"
+                          ? `Payment image is mandatory for ${newPayment.modeOfPayment} payments`
+                          : 'Upload a screenshot of the payment confirmation for record keeping'
+                        }
+                      </Typography>
+                    </Box>
                   </Grid>
                 </Grid>
               </Box>
@@ -3332,19 +3468,19 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
               </Box>
 
               {/* Order For Details */}
-              {formData.orderForEnabled && (
+              {formData?.orderForEnabled && (
                 <Box sx={{ p: 2, bgcolor: "#e8f5e8", borderRadius: 1, border: "1px solid #4caf50" }}>
                   <Typography variant="subtitle1" sx={{ fontWeight: 600, color: "#2e7d32", mb: 1 }}>
                     Order For Details
                   </Typography>
                   <Typography variant="body2" sx={{ mb: 0.5 }}>
-                    <strong>Name:</strong> {formData.orderForName}
+                    <strong>Name:</strong> {formData?.orderForName}
                   </Typography>
                   <Typography variant="body2" sx={{ mb: 0.5 }}>
-                    <strong>Mobile:</strong> {formData.orderForMobileNumber}
+                    <strong>Mobile:</strong> {formData?.orderForMobileNumber}
                   </Typography>
                   <Typography variant="body2" sx={{ mb: 0.5 }}>
-                    <strong>Address:</strong> {formData.orderForAddress}
+                    <strong>Address:</strong> {formData?.orderForAddress}
                   </Typography>
                 </Box>
               )}

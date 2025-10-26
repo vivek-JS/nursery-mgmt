@@ -1,570 +1,595 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Save, ArrowLeft, Plus, X, FileText } from 'lucide-react';
+import { useNavigate, useParams } from 'react-router-dom';
+import {
+  Package,
+  Plus,
+  Trash2,
+  Save,
+  ArrowLeft,
+  Search,
+  CheckCircle,
+  AlertCircle,
+  FileText,
+} from 'lucide-react';
 import axiosInstance from '../../../services/axiosConfig';
 
 const GRNForm = () => {
   const navigate = useNavigate();
+  const { purchaseOrderId } = useParams();
   const [loading, setLoading] = useState(false);
-  const [suppliers, setSuppliers] = useState([]);
+  const [purchaseOrder, setPurchaseOrder] = useState(null);
   const [products, setProducts] = useState([]);
-  const [units, setUnits] = useState([]);
-  const [purchaseOrders, setPurchaseOrders] = useState([]);
-
+  const [searchTerm, setSearchTerm] = useState('');
+  const [grnItems, setGrnItems] = useState([]);
+  const [additionalItems, setAdditionalItems] = useState([]);
   const [formData, setFormData] = useState({
-    supplier: '',
-    purchaseOrder: '',
     invoiceNumber: '',
-    invoiceDate: '',
-    challanNumber: '',
-    challanDate: '',
     vehicleNumber: '',
     driverName: '',
-    items: [],
-    freightCharges: 0,
-    otherCharges: 0,
-    notes: '',
-  });
-
-  const [currentItem, setCurrentItem] = useState({
-    product: '',
-    batchNumber: '',
-    quantity: '',
-    unit: '',
-    rate: '',
-    manufactureDate: '',
-    expiryDate: '',
-    acceptedQuantity: '',
-    rejectedQuantity: 0,
-    damageQuantity: 0,
+    driverContact: '',
     notes: '',
   });
 
   useEffect(() => {
-    fetchInitialData();
-  }, []);
-
-  const fetchInitialData = async () => {
-    try {
-      const [suppliersRes, productsRes, unitsRes, posRes] = await Promise.all([
-        axiosInstance.get('/inventory/suppliers?isActive=true'),
-        axiosInstance.get('/inventory/products?isActive=true&limit=1000'),
-        axiosInstance.get('/inventory/units'),
-        axiosInstance.get('/inventory/purchase-orders?status=approved'),
-      ]);
-
-      if (suppliersRes.data.success) setSuppliers(suppliersRes.data.data);
-      if (productsRes.data.success) setProducts(productsRes.data.data);
-      if (unitsRes.data.success) setUnits(unitsRes.data.data);
-      if (posRes.data.success) setPurchaseOrders(posRes.data.data);
-    } catch (error) {
-      console.error('Error fetching initial data:', error);
+    if (purchaseOrderId) {
+      loadPurchaseOrder();
     }
-  };
+    loadProducts();
+  }, [purchaseOrderId]);
 
-  const handlePOSelect = async (poId) => {
-    if (!poId) {
-      setFormData({ ...formData, purchaseOrder: '', items: [] });
-      return;
-    }
-
+  const loadPurchaseOrder = async () => {
     try {
-      const response = await axiosInstance.get(`/inventory/purchase-orders/${poId}`);
+      const response = await axiosInstance.get(`/purchase/purchase-orders/${purchaseOrderId}`);
       if (response.data.success) {
-        const po = response.data.data.purchaseOrder;
-        
-        // Pre-fill GRN items from PO
-        const items = po.items.map((item) => ({
-          product: item.product._id,
-          productName: item.product.name,
-          batchNumber: `BATCH${Date.now()}${Math.floor(Math.random() * 1000)}`,
-          quantity: item.quantity - item.receivedQuantity,
-          unit: item.unit._id,
-          unitName: item.unit.abbreviation,
+        setPurchaseOrder(response.data.data);
+        // Initialize GRN items from purchase order
+        const initialItems = response.data.data.items.map(item => ({
+          productId: item.productId._id,
+          productName: item.productId.name,
+          orderedQuantity: item.quantity,
+          receivedQuantity: 0,
           rate: item.rate,
-          manufactureDate: '',
+          amount: 0,
+          batchNumber: '',
+          manufacturingDate: '',
           expiryDate: '',
-          acceptedQuantity: item.quantity - item.receivedQuantity,
-          rejectedQuantity: 0,
-          damageQuantity: 0,
-          amount: (item.quantity - item.receivedQuantity) * item.rate,
+          quality: 'good',
           notes: '',
         }));
-
-        setFormData({
-          ...formData,
-          purchaseOrder: poId,
-          supplier: po.supplier._id,
-          items,
-        });
+        setGrnItems(initialItems);
       }
     } catch (error) {
-      console.error('Error fetching PO:', error);
+      console.error('Error loading purchase order:', error);
     }
   };
 
-  const handleAddItem = () => {
-    if (!currentItem.product || !currentItem.quantity || !currentItem.unit || !currentItem.rate) {
-      alert('Please fill all required fields');
-      return;
+  const loadProducts = async () => {
+    try {
+      const response = await axiosInstance.get('/inventory/products/all?limit=1000');
+      if (response.data.success) {
+        setProducts(response.data.data.data);
+      }
+    } catch (error) {
+      console.error('Error loading products:', error);
     }
+  };
 
-    const product = products.find((p) => p._id === currentItem.product);
-    const unit = units.find((u) => u._id === currentItem.unit);
-    const amount = currentItem.acceptedQuantity * currentItem.rate;
-
-    const newItem = {
-      ...currentItem,
-      productName: product.name,
-      unitName: unit.abbreviation,
-      amount,
-      batchNumber: currentItem.batchNumber || `BATCH${Date.now()}${Math.floor(Math.random() * 1000)}`,
-      acceptedQuantity: currentItem.acceptedQuantity || currentItem.quantity,
+  const updateGrnItem = (index, field, value) => {
+    const updatedItems = [...grnItems];
+    updatedItems[index] = {
+      ...updatedItems[index],
+      [field]: value,
     };
 
-    setFormData({
-      ...formData,
-      items: [...formData.items, newItem],
-    });
+    if (field === 'receivedQuantity' || field === 'rate') {
+      updatedItems[index].amount = updatedItems[index].receivedQuantity * updatedItems[index].rate;
+    }
 
-    // Reset current item
-    setCurrentItem({
-      product: '',
+    setGrnItems(updatedItems);
+  };
+
+  const addAdditionalItem = () => {
+    setAdditionalItems([...additionalItems, {
+      productId: '',
+      quantity: 1,
+      rate: 0,
+      amount: 0,
       batchNumber: '',
-      quantity: '',
-      unit: '',
-      rate: '',
-      manufactureDate: '',
+      manufacturingDate: '',
       expiryDate: '',
-      acceptedQuantity: '',
-      rejectedQuantity: 0,
-      damageQuantity: 0,
+      quality: 'good',
       notes: '',
-    });
+    }]);
   };
 
-  const handleRemoveItem = (index) => {
-    const newItems = formData.items.filter((_, i) => i !== index);
-    setFormData({ ...formData, items: newItems });
+  const updateAdditionalItem = (index, field, value) => {
+    const updatedItems = [...additionalItems];
+    updatedItems[index] = {
+      ...updatedItems[index],
+      [field]: value,
+    };
+
+    if (field === 'quantity' || field === 'rate') {
+      updatedItems[index].amount = updatedItems[index].quantity * updatedItems[index].rate;
+    }
+
+    setAdditionalItems(updatedItems);
   };
 
-  const calculateTotals = () => {
-    const subtotal = formData.items.reduce((sum, item) => sum + item.amount, 0);
-    const totalAmount = subtotal + Number(formData.freightCharges) + Number(formData.otherCharges);
-    return { subtotal, totalAmount };
+  const removeAdditionalItem = (index) => {
+    setAdditionalItems(additionalItems.filter((_, i) => i !== index));
+  };
+
+  const getTotalAmount = () => {
+    const grnTotal = grnItems.reduce((total, item) => total + item.amount, 0);
+    const additionalTotal = additionalItems.reduce((total, item) => total + item.amount, 0);
+    return grnTotal + additionalTotal;
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-
-    if (!formData.supplier) {
-      alert('Please select a supplier');
+    
+    if (!purchaseOrderId) {
+      alert('Purchase order ID is required');
       return;
     }
 
-    if (formData.items.length === 0) {
+    if (grnItems.length === 0) {
       alert('Please add at least one item');
       return;
     }
 
-    setLoading(true);
+    if (grnItems.some(item => item.receivedQuantity <= 0 || item.rate <= 0)) {
+      alert('Please fill all item details correctly');
+      return;
+    }
 
     try {
-      const { subtotal, totalAmount } = calculateTotals();
-      
-      const payload = {
-        ...formData,
-        freightCharges: Number(formData.freightCharges),
-        otherCharges: Number(formData.otherCharges),
-      };
+      setLoading(true);
+      const response = await axiosInstance.post('/purchase/grn/create', {
+        purchaseOrderId,
+        items: grnItems.map(item => ({
+          productId: item.productId,
+          receivedQuantity: item.receivedQuantity,
+          rate: item.rate,
+          batchNumber: item.batchNumber,
+          manufacturingDate: item.manufacturingDate,
+          expiryDate: item.expiryDate,
+          quality: item.quality,
+          notes: item.notes,
+        })),
+        additionalItems: additionalItems.map(item => ({
+          productId: item.productId,
+          quantity: item.quantity,
+          rate: item.rate,
+          batchNumber: item.batchNumber,
+          manufacturingDate: item.manufacturingDate,
+          expiryDate: item.expiryDate,
+          quality: item.quality,
+          notes: item.notes,
+        })),
+        invoiceNumber: formData.invoiceNumber,
+        vehicleNumber: formData.vehicleNumber,
+        driverName: formData.driverName,
+        driverContact: formData.driverContact,
+        notes: formData.notes,
+      });
 
-      await axiosInstance.post('/inventory/grn', payload);
-      alert('GRN created successfully');
-      navigate('/u/inventory/grn');
+      if (response.data.success) {
+        alert('GRN created successfully!');
+        navigate('/u/inventory/grn');
+      } else {
+        alert('Error creating GRN: ' + response.data.message);
+      }
     } catch (error) {
       console.error('Error creating GRN:', error);
-      alert(error.response?.data?.message || 'Error creating GRN');
+      alert('Error creating GRN: ' + (error.response?.data?.message || error.message));
     } finally {
       setLoading(false);
     }
   };
 
-  const { subtotal, totalAmount } = calculateTotals();
+  const filteredProducts = products.filter(product =>
+    product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    product.category.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  if (!purchaseOrder) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading purchase order...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-6">
-      <div className="max-w-7xl mx-auto">
+    <div className="min-h-screen bg-gray-50 p-6">
+      <div className="max-w-6xl mx-auto">
         {/* Header */}
-        <div className="mb-6">
-          <button
-            onClick={() => navigate('/u/inventory/grn')}
-            className="flex items-center space-x-2 text-gray-600 hover:text-gray-800 mb-4 transition-colors"
-          >
-            <ArrowLeft className="w-5 h-5" />
-            <span>Back to GRN List</span>
-          </button>
-
-          <div className="flex items-center space-x-3">
-            <div className="p-3 bg-purple-100 rounded-xl">
-              <FileText className="w-8 h-8 text-purple-600" />
-            </div>
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center space-x-4">
+            <button
+              onClick={() => navigate('/u/inventory/grn')}
+              className="p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
             <div>
-              <h1 className="text-4xl font-bold text-gray-800">Create GRN</h1>
-              <p className="text-gray-600">Goods Receipt Note</p>
+              <h1 className="text-3xl font-bold text-gray-800">Create GRN</h1>
+              <p className="text-gray-600">Goods Receipt Note for {purchaseOrder.orderNumber}</p>
             </div>
           </div>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Basic Details */}
-          <div className="bg-white rounded-2xl shadow-lg p-6">
-            <h2 className="text-xl font-bold text-gray-800 mb-4">Basic Details</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {/* Purchase Order Info */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <h2 className="text-xl font-semibold text-gray-800 mb-4">Purchase Order Information</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Purchase Order
-                </label>
-                <select
-                  value={formData.purchaseOrder}
-                  onChange={(e) => handlePOSelect(e.target.value)}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500"
-                >
-                  <option value="">Select PO (optional)</option>
-                  {purchaseOrders.map((po) => (
-                    <option key={po._id} value={po._id}>
-                      {po.poNumber} - {po.supplier?.name}
-                    </option>
-                  ))}
-                </select>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Order Number</label>
+                <p className="text-sm text-gray-900">{purchaseOrder.orderNumber}</p>
               </div>
-
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Supplier <span className="text-red-500">*</span>
-                </label>
-                <select
-                  value={formData.supplier}
-                  onChange={(e) => setFormData({ ...formData, supplier: e.target.value })}
-                  disabled={!!formData.purchaseOrder}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500"
-                >
-                  <option value="">Select Supplier</option>
-                  {suppliers.map((s) => (
-                    <option key={s._id} value={s._id}>
-                      {s.name}
-                    </option>
-                  ))}
-                </select>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Supplier</label>
+                <p className="text-sm text-gray-900">{purchaseOrder.supplier.name}</p>
               </div>
-
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Order Date</label>
+                <p className="text-sm text-gray-900">
+                  {new Date(purchaseOrder.orderDate).toLocaleDateString('en-IN')}
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Expected Delivery</label>
+                <p className="text-sm text-gray-900">
+                  {purchaseOrder.expectedDeliveryDate 
+                    ? new Date(purchaseOrder.expectedDeliveryDate).toLocaleDateString('en-IN')
+                    : 'Not set'
+                  }
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* GRN Items */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <h2 className="text-xl font-semibold text-gray-800 mb-4">GRN Items</h2>
+            
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Product
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Ordered Qty
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Received Qty
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Rate
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Amount
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Batch No.
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Quality
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {grnItems.map((item, index) => (
+                    <tr key={index}>
+                      <td className="px-4 py-4">
+                        <div>
+                          <div className="text-sm font-medium text-gray-900">{item.productName}</div>
+                          <div className="text-sm text-gray-500">
+                            Max: {item.orderedQuantity}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-4">
+                        <div className="text-sm text-gray-900">{item.orderedQuantity}</div>
+                      </td>
+                      <td className="px-4 py-4">
+                        <input
+                          type="number"
+                          min="0"
+                          max={item.orderedQuantity}
+                          value={item.receivedQuantity}
+                          onChange={(e) => updateGrnItem(index, 'receivedQuantity', parseFloat(e.target.value) || 0)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </td>
+                      <td className="px-4 py-4">
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={item.rate}
+                          onChange={(e) => updateGrnItem(index, 'rate', parseFloat(e.target.value) || 0)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </td>
+                      <td className="px-4 py-4">
+                        <div className="text-sm font-medium text-gray-900">
+                          ₹{item.amount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                        </div>
+                      </td>
+                      <td className="px-4 py-4">
+                        <input
+                          type="text"
+                          value={item.batchNumber}
+                          onChange={(e) => updateGrnItem(index, 'batchNumber', e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="Batch number"
+                        />
+                      </td>
+                      <td className="px-4 py-4">
+                        <select
+                          value={item.quality}
+                          onChange={(e) => updateGrnItem(index, 'quality', e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="excellent">Excellent</option>
+                          <option value="good">Good</option>
+                          <option value="average">Average</option>
+                          <option value="poor">Poor</option>
+                        </select>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Additional Items */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-semibold text-gray-800">Additional Items</h2>
+              <button
+                type="button"
+                onClick={addAdditionalItem}
+                className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Add Item</span>
+              </button>
+            </div>
+
+            {/* Product Search */}
+            <div className="mb-4">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Search products..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+
+            {additionalItems.length > 0 && (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Product
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Quantity
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Rate
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Amount
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Batch No.
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Action
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {additionalItems.map((item, index) => (
+                      <tr key={index}>
+                        <td className="px-4 py-4">
+                          <select
+                            value={item.productId}
+                            onChange={(e) => updateAdditionalItem(index, 'productId', e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          >
+                            <option value="">Select Product</option>
+                            {filteredProducts.map(product => (
+                              <option key={product._id} value={product._id}>
+                                {product.name} ({product.category})
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="px-4 py-4">
+                          <input
+                            type="number"
+                            min="1"
+                            value={item.quantity}
+                            onChange={(e) => updateAdditionalItem(index, 'quantity', parseFloat(e.target.value) || 0)}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                        </td>
+                        <td className="px-4 py-4">
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={item.rate}
+                            onChange={(e) => updateAdditionalItem(index, 'rate', parseFloat(e.target.value) || 0)}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                        </td>
+                        <td className="px-4 py-4">
+                          <div className="text-sm font-medium text-gray-900">
+                            ₹{item.amount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                          </div>
+                        </td>
+                        <td className="px-4 py-4">
+                          <input
+                            type="text"
+                            value={item.batchNumber}
+                            onChange={(e) => updateAdditionalItem(index, 'batchNumber', e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            placeholder="Batch number"
+                          />
+                        </td>
+                        <td className="px-4 py-4">
+                          <button
+                            type="button"
+                            onClick={() => removeAdditionalItem(index)}
+                            className="text-red-600 hover:text-red-800 p-1"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Delivery Information */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <h2 className="text-xl font-semibold text-gray-800 mb-4">Delivery Information</h2>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
                   Invoice Number
                 </label>
                 <input
                   type="text"
                   value={formData.invoiceNumber}
-                  onChange={(e) => setFormData({ ...formData, invoiceNumber: e.target.value })}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500"
-                  placeholder="Invoice #"
+                  onChange={(e) => setFormData(prev => ({
+                    ...prev,
+                    invoiceNumber: e.target.value
+                  }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Enter invoice number"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Invoice Date
-                </label>
-                <input
-                  type="date"
-                  value={formData.invoiceDate}
-                  onChange={(e) => setFormData({ ...formData, invoiceDate: e.target.value })}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Challan Number
-                </label>
-                <input
-                  type="text"
-                  value={formData.challanNumber}
-                  onChange={(e) => setFormData({ ...formData, challanNumber: e.target.value })}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500"
-                  placeholder="Challan #"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Challan Date
-                </label>
-                <input
-                  type="date"
-                  value={formData.challanDate}
-                  onChange={(e) => setFormData({ ...formData, challanDate: e.target.value })}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
                   Vehicle Number
                 </label>
                 <input
                   type="text"
                   value={formData.vehicleNumber}
-                  onChange={(e) => setFormData({ ...formData, vehicleNumber: e.target.value.toUpperCase() })}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500"
-                  placeholder="e.g., DL01AB1234"
+                  onChange={(e) => setFormData(prev => ({
+                    ...prev,
+                    vehicleNumber: e.target.value
+                  }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Enter vehicle number"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
                   Driver Name
                 </label>
                 <input
                   type="text"
                   value={formData.driverName}
-                  onChange={(e) => setFormData({ ...formData, driverName: e.target.value })}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500"
-                  placeholder="Driver name"
+                  onChange={(e) => setFormData(prev => ({
+                    ...prev,
+                    driverName: e.target.value
+                  }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Enter driver name"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Driver Contact
+                </label>
+                <input
+                  type="text"
+                  value={formData.driverContact}
+                  onChange={(e) => setFormData(prev => ({
+                    ...prev,
+                    driverContact: e.target.value
+                  }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Enter driver contact"
                 />
               </div>
             </div>
+
+            <div className="mt-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Notes
+              </label>
+              <textarea
+                value={formData.notes}
+                onChange={(e) => setFormData(prev => ({
+                  ...prev,
+                  notes: e.target.value
+                }))}
+                rows={3}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Enter any additional notes..."
+              />
+            </div>
           </div>
 
-          {/* Add Item Section */}
-          {!formData.purchaseOrder && (
-            <div className="bg-white rounded-2xl shadow-lg p-6">
-              <h2 className="text-xl font-bold text-gray-800 mb-4">Add Item</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Product *</label>
-                  <select
-                    value={currentItem.product}
-                    onChange={(e) => {
-                      const product = products.find((p) => p._id === e.target.value);
-                      setCurrentItem({
-                        ...currentItem,
-                        product: e.target.value,
-                        unit: product?.primaryUnit?._id || '',
-                      });
-                    }}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500"
-                  >
-                    <option value="">Select Product</option>
-                    {products.map((p) => (
-                      <option key={p._id} value={p._id}>
-                        {p.name} ({p.code})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Batch # *</label>
-                  <input
-                    type="text"
-                    value={currentItem.batchNumber}
-                    onChange={(e) => setCurrentItem({ ...currentItem, batchNumber: e.target.value })}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500"
-                    placeholder="Auto-generated"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Quantity *</label>
-                  <input
-                    type="number"
-                    value={currentItem.quantity}
-                    onChange={(e) => setCurrentItem({ ...currentItem, quantity: e.target.value, acceptedQuantity: e.target.value })}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500"
-                    placeholder="0"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Unit *</label>
-                  <select
-                    value={currentItem.unit}
-                    onChange={(e) => setCurrentItem({ ...currentItem, unit: e.target.value })}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500"
-                  >
-                    <option value="">Select Unit</option>
-                    {units.map((u) => (
-                      <option key={u._id} value={u._id}>
-                        {u.name} ({u.abbreviation})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Rate *</label>
-                  <input
-                    type="number"
-                    value={currentItem.rate}
-                    onChange={(e) => setCurrentItem({ ...currentItem, rate: e.target.value })}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500"
-                    placeholder="0.00"
-                    step="0.01"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Mfg Date</label>
-                  <input
-                    type="date"
-                    value={currentItem.manufactureDate}
-                    onChange={(e) => setCurrentItem({ ...currentItem, manufactureDate: e.target.value })}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Expiry Date</label>
-                  <input
-                    type="date"
-                    value={currentItem.expiryDate}
-                    onChange={(e) => setCurrentItem({ ...currentItem, expiryDate: e.target.value })}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500"
-                  />
-                </div>
-
-                <div className="flex items-end">
-                  <button
-                    type="button"
-                    onClick={handleAddItem}
-                    className="w-full bg-purple-500 text-white px-4 py-3 rounded-xl hover:bg-purple-600 transition-colors flex items-center justify-center space-x-2"
-                  >
-                    <Plus className="w-5 h-5" />
-                    <span>Add Item</span>
-                  </button>
+          {/* Total Amount */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <div className="flex justify-end">
+              <div className="bg-gray-50 px-6 py-4 rounded-lg">
+                <div className="text-lg font-semibold text-gray-800">
+                  Total Amount: ₹{getTotalAmount().toLocaleString('en-IN', { maximumFractionDigits: 2 })}
                 </div>
               </div>
             </div>
-          )}
-
-          {/* Items List */}
-          {formData.items.length > 0 && (
-            <div className="bg-white rounded-2xl shadow-lg p-6">
-              <h2 className="text-xl font-bold text-gray-800 mb-4">Items ({formData.items.length})</h2>
-              <div className="space-y-3">
-                {formData.items.map((item, index) => (
-                  <div key={index} className="border border-gray-200 rounded-xl p-4 hover:border-purple-400 transition-colors">
-                    <div className="flex justify-between items-start">
-                      <div className="flex-1 grid grid-cols-2 md:grid-cols-4 gap-4">
-                        <div>
-                          <p className="text-xs text-gray-500">Product</p>
-                          <p className="font-semibold">{item.productName}</p>
-                          <p className="text-xs text-gray-500">Batch: {item.batchNumber}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-gray-500">Quantity</p>
-                          <p className="font-semibold">{item.acceptedQuantity} {item.unitName}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-gray-500">Rate</p>
-                          <p className="font-semibold">₹{item.rate}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-gray-500">Amount</p>
-                          <p className="font-semibold">₹{item.amount.toLocaleString('en-IN')}</p>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveItem(index)}
-                        className="ml-4 p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                      >
-                        <X className="w-5 h-5" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Totals */}
-              <div className="mt-6 border-t border-gray-200 pt-4">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">
-                      Freight Charges
-                    </label>
-                    <input
-                      type="number"
-                      value={formData.freightCharges}
-                      onChange={(e) => setFormData({ ...formData, freightCharges: e.target.value })}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500"
-                      placeholder="0.00"
-                      step="0.01"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">
-                      Other Charges
-                    </label>
-                    <input
-                      type="number"
-                      value={formData.otherCharges}
-                      onChange={(e) => setFormData({ ...formData, otherCharges: e.target.value })}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500"
-                      placeholder="0.00"
-                      step="0.01"
-                    />
-                  </div>
-                </div>
-
-                <div className="mt-4 flex justify-end">
-                  <div className="w-full md:w-1/3 space-y-2">
-                    <div className="flex justify-between text-gray-700">
-                      <span>Subtotal:</span>
-                      <span className="font-semibold">₹{subtotal.toLocaleString('en-IN')}</span>
-                    </div>
-                    <div className="flex justify-between text-gray-700">
-                      <span>Charges:</span>
-                      <span className="font-semibold">₹{(Number(formData.freightCharges) + Number(formData.otherCharges)).toLocaleString('en-IN')}</span>
-                    </div>
-                    <div className="flex justify-between text-xl font-bold text-gray-900 pt-2 border-t border-gray-300">
-                      <span>Total:</span>
-                      <span>₹{totalAmount.toLocaleString('en-IN')}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Notes */}
-          <div className="bg-white rounded-2xl shadow-lg p-6">
-            <label className="block text-sm font-semibold text-gray-700 mb-2">Notes</label>
-            <textarea
-              value={formData.notes}
-              onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-              rows={3}
-              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500"
-              placeholder="Any additional notes..."
-            />
           </div>
 
-          {/* Submit Buttons */}
+          {/* Submit Button */}
           <div className="flex justify-end space-x-4">
             <button
               type="button"
               onClick={() => navigate('/u/inventory/grn')}
-              className="px-6 py-3 border border-gray-300 rounded-xl hover:bg-gray-50 transition-colors font-semibold"
+              className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
             >
               Cancel
             </button>
             <button
               type="submit"
-              disabled={loading || formData.items.length === 0}
-              className="bg-gradient-to-r from-purple-500 to-purple-600 text-white px-8 py-3 rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 flex items-center space-x-2 transform hover:-translate-y-1 disabled:opacity-50 disabled:cursor-not-allowed font-semibold"
+              disabled={loading || grnItems.length === 0}
+              className="flex items-center space-x-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              <Save className="w-5 h-5" />
+              {loading ? (
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+              ) : (
+                <Save className="w-4 h-4" />
+              )}
               <span>{loading ? 'Creating...' : 'Create GRN'}</span>
             </button>
           </div>
@@ -575,4 +600,3 @@ const GRNForm = () => {
 };
 
 export default GRNForm;
-

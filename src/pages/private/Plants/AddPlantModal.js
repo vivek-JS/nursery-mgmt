@@ -118,6 +118,19 @@ const AddPlantModal = ({
               label="Sowing Allowed"
             />
 
+            {plantData.sowingAllowed && (
+              <TextField
+                name="bufferSowing"
+                label="Buffer Sowing (%)"
+                type="number"
+                inputProps={{ min: 0, max: 100, step: 0.1 }}
+                value={plantData.bufferSowing}
+                onChange={onInputChange}
+                fullWidth
+                helperText="Buffer percentage for sowing process (0-100%)"
+              />
+            )}
+
             <Box>
               <Typography variant="subtitle1" sx={{ mb: 2 }}>
                 Subtypes

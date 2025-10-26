@@ -11,7 +11,6 @@ import DownloadPDFButton from "./OrdereRecipt"
 import DispatchForm from "./DispatchedForm"
 import DispatchList from "./DispatchedList"
 import { Toast } from "helpers/toasts/toastHelper"
-import FarmReadyButton from "./FarmReadyButton"
 import { faHourglassEmpty } from "@fortawesome/free-solid-svg-icons"
 import { FaUser, FaCreditCard, FaEdit, FaFileAlt } from "react-icons/fa"
 import ConfirmDialog from "components/Modals/ConfirmDialog"
@@ -206,9 +205,28 @@ const customStyles = `
     border: 2px solid #f59e0b;
     box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4);
     animation: orderForGlow 2s ease-in-out infinite;
+    padding: 2px 8px;
   }
 
   @keyframes orderForGlow {
+    0%, 100% {
+      box-shadow: 0 0 5px rgba(245, 158, 11, 0.3);
+    }
+    50% {
+      box-shadow: 0 0 15px rgba(245, 158, 11, 0.6), 0 0 25px rgba(245, 158, 11, 0.3);
+    }
+  }
+
+  /* Farmer Name highlighting */
+  .farmer-name-highlight {
+    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+    border: 2px solid #f59e0b;
+    box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4);
+    animation: farmerNameGlow 2s ease-in-out infinite;
+    padding: 2px 8px;
+  }
+
+  @keyframes farmerNameGlow {
     0%, 100% {
       box-shadow: 0 0 5px rgba(245, 158, 11, 0.3);
     }
@@ -644,20 +662,6 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
     description: "",
     onConfirm: null
   })
-  const handleFarmReady = (orderId) => {
-    // Get current date
-    const farmReadyDate = moment().format("DD-MM-YYYY")
-
-    // Call pacthOrders with FARM_READY status
-    pacthOrders(
-      {
-        id: orderId,
-        orderStatus: "FARM_READY",
-        farmReadyDate: farmReadyDate
-      },
-      null // No row data needed for this simple update
-    )
-  }
   // Add these handler functions
   const handleAddRemark = (orderId) => {
     if (!newRemark.trim()) return
@@ -689,6 +693,14 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
     if (!newPayment.isWalletPayment && !newPayment.modeOfPayment) {
       Toast.error("Please select payment mode")
       return
+    }
+
+    // Validate image requirement for non-Cash payments (except NEFT/RTGS)
+    if (newPayment.paidAmount && newPayment.modeOfPayment && newPayment.modeOfPayment !== "Cash" && newPayment.modeOfPayment !== "NEFT/RTGS") {
+      if (!newPayment.receiptPhoto || newPayment.receiptPhoto.length === 0) {
+        Toast.error(`Payment image is mandatory for ${newPayment.modeOfPayment} payments`)
+        return
+      }
     }
 
     // Validate wallet payment for dealers
@@ -2182,7 +2194,31 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                     <div className="flex items-center gap-2">
                       <h3 className="font-semibold text-gray-900 text-sm">Order #{row.order}</h3>
                     </div>
-                    <p className="text-xs text-gray-500 mt-1">{row.farmerName}</p>
+                    <div className="flex items-center gap-1 mt-1">
+                      {row.details?.orderFor ? (
+                        <>
+                          <span className="text-xs text-gray-500">Farmer:</span>
+                          <span className={`text-xs font-medium farmer-name-highlight`}>
+                            {row.details.farmer?.name || "Unknown"}
+                          </span>
+                          <span className="text-xs text-gray-500">| Order For:</span>
+                          <span className={`text-xs font-medium order-for-highlight`}>
+                            {row.details.orderFor.name}
+                          </span>
+                        </>
+                      ) : (
+                        <span className={`text-xs font-medium farmer-name-highlight`}>
+                          {row.farmerName}
+                        </span>
+                      )}
+                    </div>
+                    {/* Show who booked the order */}
+                    {row.details?.salesPerson && (
+                      <p className="text-xs text-blue-600 mt-1 font-medium">
+                        Booked by: {row.details.salesPerson.name}
+                        {row.details.salesPerson.jobTitle === "DEALER" && " (Dealer)"}
+                      </p>
+                    )}
                   </div>
                   <div className="flex items-center space-x-2">
                     {viewMode !== "booking" && (
@@ -2203,7 +2239,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
 
                 {/* Status Badge */}
                 <div className="flex items-center justify-between">
-                  {row.orderStatus !== "COMPLETED" ? (
+                  {row.orderStatus !== "COMPLETED" && row.orderStatus !== "DISPATCHED" ? (
                     <div className="relative" onClick={(e) => e.stopPropagation()}>
                       <SearchableDropdown
                         label=""
@@ -2223,16 +2259,6 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                       {row.orderStatus === "FARM_READY" && "🌱"}
                       {row.orderStatus === "DISPATCH_PROCESS" ? "Loading" : row.orderStatus}
                     </span>
-                  )}
-
-                  {/* Farm Ready Button - Shows for ACCEPTED orders or orders with existing farm ready date */}
-                  {(row.orderStatus === "ACCEPTED" || row["Farm Ready"] !== "-") && (
-                    <FarmReadyButton
-                      orderId={row.details.orderid}
-                      onUpdateOrder={pacthOrders}
-                      refreshOrders={refreshComponent}
-                      currentFarmReadyDate={row.details.farmReadyDate || null}
-                    />
                   )}
                 </div>
               </div>
@@ -3145,11 +3171,11 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                   className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 mt-1">
                                   <option value="">Select Mode</option>
                                   <option value="Cash">Cash</option>
-                                  <option value="Phone Pe">Phone Pe</option>
-                                  <option value="Google Pay">Google Pay</option>
+                                  <option value="UPI">UPI</option>
                                   <option value="Cheque">Cheque</option>
-                                  <option value="NEFT">NEFT</option>
-                                  <option value="JPCB">JPCB</option>
+                                  <option value="NEFT/RTGS">NEFT/RTGS</option>
+                                  <option value="1341">1341</option>
+                                  <option value="434">434</option>
                                 </select>
                               </div>
                               <div>
@@ -3179,13 +3205,13 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                   className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 mt-1"
                                   placeholder={
                                     newPayment.modeOfPayment === "Cheque" ||
-                                    newPayment.modeOfPayment === "NEFT"
+                                    newPayment.modeOfPayment === "NEFT/RTGS"
                                       ? "Enter bank name"
                                       : "N/A"
                                   }
                                   disabled={
                                     newPayment.modeOfPayment !== "Cheque" &&
-                                    newPayment.modeOfPayment !== "NEFT"
+                                    newPayment.modeOfPayment !== "NEFT/RTGS"
                                   }
                                 />
                               </div>
@@ -3199,6 +3225,33 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                 className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 mt-1"
                                 placeholder="Optional remark"
                               />
+                            </div>
+
+                            {/* Payment Receipt Photo Upload */}
+                            <div className="mt-4">
+                              <label className="text-sm text-gray-500 font-medium">
+                                Payment Receipt Photo {newPayment.modeOfPayment && newPayment.modeOfPayment !== "Cash" && newPayment.modeOfPayment !== "NEFT/RTGS" ? "*" : "(Optional)"}
+                              </label>
+                              <div className="mt-2">
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  multiple
+                                  onChange={(e) => {
+                                    const files = Array.from(e.target.files)
+                                    handlePaymentInputChange("receiptPhoto", files)
+                                  }}
+                                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                                />
+                                {newPayment.modeOfPayment && newPayment.modeOfPayment !== "Cash" && newPayment.modeOfPayment !== "NEFT/RTGS" && (
+                                  <p className="text-xs text-red-600 mt-1">
+                                    Payment image is mandatory for {newPayment.modeOfPayment} payments
+                                  </p>
+                                )}
+                                <p className="text-xs text-gray-500 mt-1">
+                                  Upload payment confirmation screenshots or photos
+                                </p>
+                              </div>
                             </div>
 
                             {/* Wallet Payment Status Indicator */}

@@ -119,17 +119,30 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData }) => {
     // Process each order
     dispatchData.orderIds.forEach((order) => {
       const orderId = order.details.orderid
-      const returnedQuantity = returnedPlants[orderId] || 0
+      const returnedQuantity = Number(returnedPlants[orderId] || 0)
+      const totalQuantity = Number(order.quantity || 0)
       const actions = orderActions[orderId] || { addToInventory: false, completeOrder: true }
+
+      // Calculate remaining plants after return
+      const remainingPlants = totalQuantity - returnedQuantity
+
+      // Determine the appropriate status based on remaining plants
+      let finalStatus = "COMPLETED" // Default to completed
+      
+      if (remainingPlants > 0) {
+        // If there are remaining plants, set status to READY_FOR_DISPATCH instead of COMPLETED
+        finalStatus = "READY_FOR_DISPATCH"
+      }
 
       // Add order to updates
       orderUpdates.push({
         orderId: orderId,
-        returnedPlants: Number(returnedQuantity),
+        returnedPlants: returnedQuantity,
         returnReason: returnReasons[orderId] || "",
         actions: {
           addToInventory: actions.addToInventory,
-          completeOrder: actions.completeOrder
+          completeOrder: actions.completeOrder,
+          finalStatus: finalStatus // Include the calculated final status
         }
       })
     })
@@ -359,6 +372,39 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData }) => {
                                   <h4 className="font-medium text-gray-900 mb-2">Sales Person</h4>
                                   <p>Name: {order.details.salesPerson.name}</p>
                                   <p>Contact: {order.details.salesPerson.phoneNumber}</p>
+                                </div>
+                              </div>
+                              
+                              {/* Status Preview */}
+                              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                                <h4 className="font-medium text-blue-900 mb-2 flex items-center">
+                                  <span className="mr-2">📊</span>
+                                  Status Preview
+                                </h4>
+                                <div className="text-sm">
+                                  <p className="text-gray-700">
+                                    <span className="font-medium">Total Plants:</span> {order.quantity}
+                                  </p>
+                                  <p className="text-gray-700">
+                                    <span className="font-medium">Returned Plants:</span> {returnedPlants[order.details.orderid] || 0}
+                                  </p>
+                                  <p className="text-gray-700">
+                                    <span className="font-medium">Remaining Plants:</span> {order.quantity - (returnedPlants[order.details.orderid] || 0)}
+                                  </p>
+                                  <div className="mt-2 p-2 bg-white rounded border">
+                                    <p className="text-sm">
+                                      <span className="font-medium">Final Status:</span>{" "}
+                                      <span className={`font-bold ${
+                                        (order.quantity - (returnedPlants[order.details.orderid] || 0)) > 0 
+                                          ? "text-orange-600" 
+                                          : "text-green-600"
+                                      }`}>
+                                        {(order.quantity - (returnedPlants[order.details.orderid] || 0)) > 0 
+                                          ? "READY_FOR_DISPATCH (Plants remaining)" 
+                                          : "COMPLETED (All plants returned)"}
+                                      </span>
+                                    </p>
+                                  </div>
                                 </div>
                               </div>
                             </div>
