@@ -11,7 +11,6 @@ import DownloadPDFButton from "./OrdereRecipt"
 import DispatchForm from "./DispatchedForm"
 import DispatchList from "./DispatchedList"
 import { Toast } from "helpers/toasts/toastHelper"
-import FarmReadyButton from "./FarmReadyButton"
 import { faHourglassEmpty } from "@fortawesome/free-solid-svg-icons"
 import { FaUser, FaCreditCard, FaEdit, FaFileAlt } from "react-icons/fa"
 import ConfirmDialog from "components/Modals/ConfirmDialog"
@@ -21,7 +20,8 @@ import {
   useIsDealer,
   useDealerWallet,
   useDealerWalletById,
-  useUserData
+  useUserData,
+  useIsDispatchManager
 } from "utils/roleUtils"
 
 // Custom CSS for blinking animation and enhanced dropdowns
@@ -197,6 +197,42 @@ const customStyles = `
     background: linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%);
     border-color: #06b6d4;
     color: #0e7490;
+  }
+
+  /* Order For highlighting */
+  .order-for-highlight {
+    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+    border: 2px solid #f59e0b;
+    box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4);
+    animation: orderForGlow 2s ease-in-out infinite;
+    padding: 2px 8px;
+  }
+
+  @keyframes orderForGlow {
+    0%, 100% {
+      box-shadow: 0 0 5px rgba(245, 158, 11, 0.3);
+    }
+    50% {
+      box-shadow: 0 0 15px rgba(245, 158, 11, 0.6), 0 0 25px rgba(245, 158, 11, 0.3);
+    }
+  }
+
+  /* Farmer Name highlighting */
+  .farmer-name-highlight {
+    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+    border: 2px solid #f59e0b;
+    box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4);
+    animation: farmerNameGlow 2s ease-in-out infinite;
+    padding: 2px 8px;
+  }
+
+  @keyframes farmerNameGlow {
+    0%, 100% {
+      box-shadow: 0 0 5px rgba(245, 158, 11, 0.3);
+    }
+    50% {
+      box-shadow: 0 0 15px rgba(245, 158, 11, 0.6), 0 0 25px rgba(245, 158, 11, 0.3);
+    }
   }
 
   /* Searchable Dropdown Styles */
@@ -557,6 +593,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   const canAddPayment = useCanAddPayment() // Anyone can add payments
   const isOfficeAdmin = useIsOfficeAdmin()
   const isDealer = useIsDealer()
+  const isDispatchManager = useIsDispatchManager()
   const { walletData, loading: walletLoading } = useDealerWallet()
   const user = useUserData() // Get current user data
 
@@ -573,8 +610,6 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   // Debug wallet data
   useEffect(() => {}, [dealerIdForWallet, dealerWalletData, dealerWalletLoading])
 
-  // Status tabs state
-  const [activeStatusTab, setActiveStatusTab] = useState("all")
 
   // Filter states
   const [selectedSalesPerson, setSelectedSalesPerson] = useState("")
@@ -597,16 +632,6 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
     { label: "Loading", value: "DISPATCH_PROCESS" }
   ]
 
-  // Status tabs configuration
-  const statusTabs = [
-    { key: "all", label: "All Orders", status: null },
-    { key: "pending", label: "Pending", status: "PENDING" },
-    { key: "accepted", label: "Accepted", status: "ACCEPTED" },
-    { key: "completed", label: "Completed", status: "COMPLETED" },
-    { key: "dispatched", label: "Dispatched", status: "DISPATCHED" },
-    { key: "farm_ready", label: "Farm Ready", status: "FARM_READY" },
-    { key: "rejected", label: "Rejected", status: "REJECTED" }
-  ]
 
   const [slots, setSlots] = useState([])
   const [slotsLoading, setSlotsLoading] = useState(false)
@@ -617,6 +642,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   const [isDispatchtab, setisDispatchtab] = useState(false)
   const [newRemark, setNewRemark] = useState("")
   const [showPaymentForm, setShowPaymentForm] = useState(false)
+  const [showDeliveryDateModal, setShowDeliveryDateModal] = useState(false)
   const [newPayment, setNewPayment] = useState({
     paidAmount: "",
     paymentDate: moment().format("YYYY-MM-DD"),
@@ -636,20 +662,6 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
     description: "",
     onConfirm: null
   })
-  const handleFarmReady = (orderId) => {
-    // Get current date
-    const farmReadyDate = moment().format("DD-MM-YYYY")
-
-    // Call pacthOrders with FARM_READY status
-    pacthOrders(
-      {
-        id: orderId,
-        orderStatus: "FARM_READY",
-        farmReadyDate: farmReadyDate
-      },
-      null // No row data needed for this simple update
-    )
-  }
   // Add these handler functions
   const handleAddRemark = (orderId) => {
     if (!newRemark.trim()) return
@@ -681,6 +693,14 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
     if (!newPayment.isWalletPayment && !newPayment.modeOfPayment) {
       Toast.error("Please select payment mode")
       return
+    }
+
+    // Validate image requirement for non-Cash payments (except NEFT/RTGS)
+    if (newPayment.paidAmount && newPayment.modeOfPayment && newPayment.modeOfPayment !== "Cash" && newPayment.modeOfPayment !== "NEFT/RTGS") {
+      if (!newPayment.receiptPhoto || newPayment.receiptPhoto.length === 0) {
+        Toast.error(`Payment image is mandatory for ${newPayment.modeOfPayment} payments`)
+        return
+      }
     }
 
     // Validate wallet payment for dealers
@@ -806,13 +826,6 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
             page: 1
           }
 
-          // Add status filter if a specific status tab is selected
-          if (activeStatusTab !== "all") {
-            const selectedTab = statusTabs.find((tab) => tab.key === activeStatusTab)
-            if (selectedTab && selectedTab.status) {
-              params.status = selectedTab.status
-            }
-          }
 
           // Add new filter parameters
           if (selectedSalesPerson) {
@@ -892,7 +905,9 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                 orderRemarks,
                 dealerOrder,
                 farmReadyDate,
-                orderBookingDate
+                orderBookingDate,
+                deliveryDate,
+                orderFor
               } = data || {}
               const { startDay, endDay } = bookingSlot?.[0] || {}
               const start = startDay ? moment(startDay, "DD-MM-YYYY").format("D") : "N/A"
@@ -902,12 +917,15 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                 : "N/A"
               return {
                 order: orderId,
-                farmerName: dealerOrder
+                farmerName: orderFor
+                  ? `Order for: ${orderFor.name}`
+                  : dealerOrder
                   ? `via ${salesPerson?.name || "Unknown"}`
                   : farmer?.name || "Unknown",
                 plantType: `${plantType?.name || "Unknown"} -> ${plantSubtype?.name || "Unknown"}`,
                 quantity: numberOfPlants,
                 orderDate: moment(orderBookingDate || createdAt).format("DD/MM/YYYY"),
+                deliveryDate: deliveryDate ? moment(deliveryDate).format("DD/MM/YYYY") : "-", // Specific delivery date
                 rate,
                 total: `₹ ${Number(rate * numberOfPlants)}`,
                 "Paid Amt": `₹ ${Number(getTotalPaidAmount(payment))}`,
@@ -922,28 +940,33 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                   farmReadyDate && farmReadyDate.length > 0
                     ? moment(farmReadyDate[0]).format("DD-MMM-YYYY")
                     : "-",
-                details: {
-                  farmer,
-                  contact: farmer?.mobileNumber,
-                  orderNotes: "Premium quality seed potatoes",
-                  soilType: "Sandy loam",
-                  irrigationType: "Sprinkler system",
-                  lastDelivery: "2024-11-05",
-                  payment,
-                  orderid: id,
-                  salesPerson,
-                  plantID: plantType?.id,
-                  plantSubtypeID: plantSubtype?.id,
-                  bookingSlot: bookingSlot?.[0] || null,
-                  rate: rate,
-                  numberOfPlants,
-                  statusChanges: statusChanges || [],
-                  orderRemarks: orderRemarks || [],
-                  deliveryChanges: data.deliveryChanges || [],
-                  returnHistory: data?.returnHistory || [],
-                  dealerOrder: dealerOrder || false,
-                  farmReadyDate: farmReadyDate
-                }
+              details: {
+                farmer,
+                contact: farmer?.mobileNumber,
+                orderNotes: "Premium quality seed potatoes",
+                soilType: "Sandy loam",
+                irrigationType: "Sprinkler system",
+                lastDelivery: "2024-11-05",
+                payment,
+                orderid: id,
+                salesPerson,
+                plantID: plantType?.id,
+                plantSubtypeID: plantSubtype?.id,
+                bookingSlot: bookingSlot?.[0] || null,
+                rate: rate,
+                numberOfPlants,
+                remainingPlants: remainingPlants || numberOfPlants,
+                orderFor: orderFor || null,
+                statusChanges: statusChanges || [],
+                orderRemarks: orderRemarks || [],
+                deliveryChanges: data.deliveryChanges || [],
+                returnHistory: data?.returnHistory || [],
+                dispatchHistory: data?.dispatchHistory || [],
+              orderEditHistory: data?.orderEditHistory || [], // Include order edit history
+              dealerOrder: dealerOrder || false,
+              farmReadyDate: farmReadyDate,
+              deliveryDate: deliveryDate || null // Include deliveryDate in details
+              }
               }
             })
             .filter((order) => order && order.order)
@@ -1175,7 +1198,6 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
     startDate,
     endDate,
     viewMode,
-    activeStatusTab,
     selectedSalesPerson,
     selectedVillage,
     selectedDistrict
@@ -1250,6 +1272,20 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
     }
   }, [selectedRow])
 
+  // Initialize updatedObject when edit tab is active and selectedOrder changes
+  useEffect(() => {
+    if (activeTab === "edit" && selectedOrder) {
+      setUpdatedObject({
+        rate: selectedOrder.rate,
+        quantity: selectedOrder.quantity,
+        bookingSlot: selectedOrder?.details?.bookingSlot?.slotId,
+        deliveryDate: selectedOrder?.details?.deliveryDate 
+          ? new Date(selectedOrder.details.deliveryDate) 
+          : null
+      })
+    }
+  }, [activeTab, selectedOrder])
+
   const loadFilterOptions = async () => {
     try {
       // Load all salespeople and dealers in a single list
@@ -1322,6 +1358,68 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
       (total, payment) => total + (payment?.paymentStatus == "COLLECTED" ? payment.paidAmount : 0),
       0
     )
+  }
+
+  // Helper function to get slot ID for a specific date
+  const getSlotIdForDate = (selectedDate) => {
+    if (!selectedDate || slots.length === 0) return null
+
+    const selectedMoment = moment(selectedDate)
+
+    for (const slot of slots) {
+      if (!slot.startDay || !slot.endDay) continue
+
+      const slotStart = moment(slot.startDay, "DD-MM-YYYY")
+      const slotEnd = moment(slot.endDay, "DD-MM-YYYY")
+
+      // Check if the selected date falls within this slot's range
+      if (
+        selectedMoment.isSameOrAfter(slotStart, "day") &&
+        selectedMoment.isSameOrBefore(slotEnd, "day")
+      ) {
+        return slot.value
+      }
+    }
+
+    return null
+  }
+
+  // Helper function to check if a date should be disabled (not in any slot)
+  const isDateDisabled = (date) => {
+    if (!date || slots.length === 0) return true
+
+    const dateMoment = moment(date)
+
+    for (const slot of slots) {
+      if (!slot.startDay || !slot.endDay) continue
+
+      const slotStart = moment(slot.startDay, "DD-MM-YYYY")
+      const slotEnd = moment(slot.endDay, "DD-MM-YYYY")
+
+      // If date is within any slot range, it's not disabled
+      if (dateMoment.isSameOrAfter(slotStart, "day") && dateMoment.isSameOrBefore(slotEnd, "day")) {
+        return false
+      }
+    }
+
+    return true
+  }
+
+  // Helper function to get available quantity for a specific date
+  const getAvailableQuantityForDate = (selectedDate) => {
+    const slotId = getSlotIdForDate(selectedDate)
+    if (!slotId) return null
+
+    const slot = slots.find((s) => s.value === slotId)
+    return slot?.available || null
+  }
+
+  // Helper function to get slot details for a specific date
+  const getSlotDetailsForDate = (selectedDate) => {
+    const slotId = getSlotIdForDate(selectedDate)
+    if (!slotId) return null
+
+    return slots.find((s) => s.value === slotId)
   }
   React.useEffect(() => {
     // Cleanup the debounced function when component unmounts
@@ -1415,13 +1513,10 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   const getOrders = async () => {
     setLoading(true)
 
-    // Use the new status-specific endpoint if a status tab is selected
-    const instance =
-      activeStatusTab !== "all"
-        ? NetworkManager(API.ORDER.GET_ORDERS_BY_STATUS)
-        : slotId
-        ? NetworkManager(API.ORDER.GET_ORDERS_SLOTS)
-        : NetworkManager(API.ORDER.GET_ORDERS)
+    // Use appropriate endpoint based on slotId
+    const instance = slotId
+      ? NetworkManager(API.ORDER.GET_ORDERS_SLOTS)
+      : NetworkManager(API.ORDER.GET_ORDERS)
 
     const params = {
       search: debouncedSearchTerm,
@@ -1441,13 +1536,6 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
       params.endDate = formattedEndtDate
     }
 
-    // Add status filter if a specific status tab is selected
-    if (activeStatusTab !== "all") {
-      const selectedTab = statusTabs.find((tab) => tab.key === activeStatusTab)
-      if (selectedTab && selectedTab.status) {
-        params.status = selectedTab.status
-      }
-    }
 
     // Add new filter parameters
     if (selectedSalesPerson) {
@@ -1479,6 +1567,8 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
     }
     if (viewMode === "ready_for_dispatch") {
       params.ready_for_dispatch = "true"
+      params.startDate = null
+      params.endDate = null
       // Remove status filter for ready for dispatch view since we want specific filtering
       delete params.status
       console.log("=== Ready for Dispatch Debug ===")
@@ -1500,11 +1590,8 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
       console.log("Orders data:", emps?.data?.data?.data || [])
     }
 
-    // Handle different response structures for different endpoints
-    const ordersData =
-      activeStatusTab !== "all"
-        ? emps?.data?.data || [] // Status-specific endpoint returns data directly
-        : emps?.data?.data?.data || [] // Regular endpoint has nested data structure
+    // Handle response structure
+    const ordersData = emps?.data?.data?.data || []
 
     if (viewMode === "ready_for_dispatch") {
       console.log("Processing orders data:", ordersData?.length || 0, "orders")
@@ -1533,22 +1620,28 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
             orderRemarks,
             dealerOrder,
             farmReadyDate,
-            farmReadyDateChanges,
-            orderBookingDate
-          } = data || {}
+                farmReadyDateChanges,
+                orderBookingDate,
+                deliveryDate,
+                orderFor,
+                cavity
+              } = data || {}
 
-          const { startDay, endDay } = bookingSlot?.[0] || {}
-          const start = startDay ? moment(startDay, "DD-MM-YYYY").format("D") : "N/A"
-          const end = endDay ? moment(endDay, "DD-MM-YYYY").format("D") : "N/A"
-          const monthYear = startDay ? moment(startDay, "DD-MM-YYYY").format("MMMM, YYYY") : "N/A"
-          return {
-            order: orderId,
-            farmerName: dealerOrder
-              ? `via ${salesPerson?.name || "Unknown"}`
-              : farmer?.name || "Unknown",
-            plantType: `${plantType?.name || "Unknown"} -> ${plantSubtype?.name || "Unknown"}`,
-            quantity: numberOfPlants,
-            orderDate: moment(orderBookingDate || createdAt).format("DD/MM/YYYY"),
+              const { startDay, endDay } = bookingSlot?.[0] || {}
+              const start = startDay ? moment(startDay, "DD-MM-YYYY").format("D") : "N/A"
+              const end = endDay ? moment(endDay, "DD-MM-YYYY").format("D") : "N/A"
+              const monthYear = startDay ? moment(startDay, "DD-MM-YYYY").format("MMMM, YYYY") : "N/A"
+              return {
+                order: orderId,
+                farmerName: orderFor
+                  ? `${farmer?.name || "Unknown"} (Order for: ${orderFor.name})`
+                  : dealerOrder
+                  ? `via ${salesPerson?.name || "Unknown"}`
+                  : farmer?.name || "Unknown",
+                plantType: `${plantType?.name || "Unknown"} -> ${plantSubtype?.name || "Unknown"}`,
+                quantity: numberOfPlants,
+                orderDate: moment(orderBookingDate || createdAt).format("DD/MM/YYYY"),
+                deliveryDate: deliveryDate ? moment(deliveryDate).format("DD/MM/YYYY") : "-", // Specific delivery date
             rate,
             total: `₹ ${Number(rate * numberOfPlants)}`,
             "Paid Amt": `₹ ${Number(getTotalPaidAmount(payment))}`,
@@ -1575,14 +1668,21 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
               bookingSlot: bookingSlot?.[0] || null,
               rate: rate,
               numberOfPlants,
-
+              remainingPlants: remainingPlants || numberOfPlants,
+              orderFor: orderFor || null,
               statusChanges: statusChanges || [],
               orderRemarks: orderRemarks || [],
               deliveryChanges: data.deliveryChanges || [],
               returnHistory: data?.returnHistory || [],
+              dispatchHistory: data?.dispatchHistory || [],
+              orderEditHistory: data?.orderEditHistory || [], // Include order edit history
               dealerOrder: dealerOrder || faHourglassEmpty,
               farmReadyDate: farmReadyDate,
-              farmReadyDateChanges: farmReadyDateChanges || []
+              farmReadyDateChanges: farmReadyDateChanges || [],
+              deliveryDate: deliveryDate || null, // Include deliveryDate in details
+              cavity: cavity || null, // Include cavity information
+              cavityName: cavity?.name || null,
+              cavityId: cavity?.id || cavity?._id || null
             }
           }
         })
@@ -1596,8 +1696,19 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
     setpatchLoading(true)
 
     try {
-      // Handle Date objects for farmReadyDate
+      // Handle Date objects for farmReadyDate and deliveryDate
       const dataToSend = { ...patchObj }
+
+      // Convert deliveryDate to ISO format if it's a Date object
+      if (dataToSend.deliveryDate && dataToSend.deliveryDate instanceof Date) {
+        dataToSend.deliveryDate = dataToSend.deliveryDate.toISOString()
+        console.log("Converted deliveryDate to ISO:", dataToSend.deliveryDate)
+      }
+
+      console.log("=== PATCH ORDER PAYLOAD DEBUG ===")
+      console.log("Full dataToSend:", dataToSend)
+      console.log("deliveryDate in payload:", dataToSend.deliveryDate)
+      console.log("bookingSlot in payload:", dataToSend.bookingSlot)
 
       // Validate slot capacity if booking slot is being changed
       if (dataToSend.bookingSlot && dataToSend.quantity) {
@@ -1744,7 +1855,8 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
     setUpdatedObject({
       rate: row?.rate,
       quantity: row?.quantity,
-      bookingSlot: row?.details?.bookingSlot?.slotId
+      bookingSlot: row?.details?.bookingSlot?.slotId,
+      deliveryDate: row?.details?.deliveryDate ? new Date(row?.details?.deliveryDate) : null
     })
     // setSelectedRow(row)
     const newEditingRows = new Set(editingRows)
@@ -1807,17 +1919,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
     })
   }
 
-  // Handle status tab change
-  const handleStatusTabChange = (tabKey) => {
-    setActiveStatusTab(tabKey)
-  }
 
-  // Get filtered orders count for each tab
-  const getOrdersCountByStatus = (status) => {
-    if (!orders || !Array.isArray(orders) || orders.length === 0) return 0
-    if (status === null) return orders.length
-    return orders.filter((order) => order.orderStatus === status).length
-  }
 
   return (
     <div className="w-full p-4 bg-gray-50">
@@ -1977,10 +2079,6 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
             <ExcelExport
               title="Export Orders"
               filters={{
-                orderStatus:
-                  activeStatusTab !== "all"
-                    ? statusTabs.find((tab) => tab.key === activeStatusTab)?.status
-                    : "",
                 startDate: startDate ? moment(startDate).format("YYYY-MM-DD") : "",
                 endDate: endDate ? moment(endDate).format("YYYY-MM-DD") : ""
               }}
@@ -2001,81 +2099,73 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
           </div>
         </div>
 
-        {/* Status Tabs */}
-        <div className="bg-white rounded-lg shadow-sm border p-4">
-          <div className="flex flex-wrap gap-3">
-            {(statusTabs || []).map((tab) => (
-              <button
-                key={tab.key}
-                onClick={() => handleStatusTabChange(tab.key)}
-                className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all duration-300 transform hover:scale-105 ${
-                  activeStatusTab === tab.key
-                    ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg"
-                    : "bg-gradient-to-r from-gray-50 to-gray-100 text-gray-700 hover:from-gray-100 hover:to-gray-200 border border-gray-200"
-                }`}>
-                <div className="flex items-center gap-2">
-                  <span>{tab.label}</span>
-                  <span
-                    className={`px-3 py-1 rounded-full text-xs font-bold ${
-                      activeStatusTab === tab.key
-                        ? "bg-white bg-opacity-30 text-white"
-                        : "bg-blue-100 text-blue-700"
-                    }`}>
-                    {getOrdersCountByStatus(tab.status)}
-                  </span>
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
 
         {/* View mode toggle buttons */}
-        <div className="flex flex-wrap gap-3">
-          <button
-            onClick={() => setViewMode("booking")}
-            className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all duration-300 transform hover:scale-105 ${
-              viewMode === "booking"
-                ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg"
-                : "bg-gradient-to-r from-gray-50 to-gray-100 text-gray-700 hover:from-gray-100 hover:to-gray-200 border border-gray-200"
-            }`}>
-            📋 Booking Orders
-          </button>
-          <button
-            onClick={() => setViewMode("dispatched")}
-            className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all duration-300 transform hover:scale-105 ${
-              viewMode === "dispatched"
-                ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg"
-                : "bg-gradient-to-r from-gray-50 to-gray-100 text-gray-700 hover:from-gray-100 hover:to-gray-200 border border-gray-200"
-            }`}>
-            🚚 Dispatched Orders
-          </button>
-          <button
-            onClick={() => setViewMode("farmready")}
-            className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all duration-300 transform hover:scale-105 ${
-              viewMode === "farmready"
-                ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg"
-                : "bg-gradient-to-r from-gray-50 to-gray-100 text-gray-700 hover:from-gray-100 hover:to-gray-200 border border-gray-200"
-            }`}>
-            🌱 Farm Ready
-          </button>
-          <button
-            onClick={() => setViewMode("ready_for_dispatch")}
-            className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all duration-300 transform hover:scale-105 ${
-              viewMode === "ready_for_dispatch"
-                ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg"
-                : "bg-gradient-to-r from-gray-50 to-gray-100 text-gray-700 hover:from-gray-100 hover:to-gray-200 border border-gray-200"
-            }`}>
-            ✅ Ready for Dispatch
-          </button>
-          <button
-            onClick={() => setViewMode("dispatch_process")}
-            className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all duration-300 transform hover:scale-105 ${
-              viewMode === "dispatch_process"
-                ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg"
-                : "bg-gradient-to-r from-gray-50 to-gray-100 text-gray-700 hover:from-gray-100 hover:to-gray-200 border border-gray-200"
-            }`}>
-            ⏳ Loading
-          </button>
+        <div className="space-y-3">
+          <div className="flex flex-wrap gap-3">
+            <button
+              onClick={() => setViewMode("booking")}
+              className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all duration-300 transform hover:scale-105 ${
+                viewMode === "booking"
+                  ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg"
+                  : "bg-gradient-to-r from-gray-50 to-gray-100 text-gray-700 hover:from-gray-100 hover:to-gray-200 border border-gray-200"
+              }`}>
+              📋 Booking Orders
+            </button>
+            <button
+              onClick={() => setViewMode("dispatched")}
+              className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all duration-300 transform hover:scale-105 ${
+                viewMode === "dispatched"
+                  ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg"
+                  : "bg-gradient-to-r from-gray-50 to-gray-100 text-gray-700 hover:from-gray-100 hover:to-gray-200 border border-gray-200"
+              }`}>
+              🚚 Dispatched Orders
+            </button>
+            <button
+              onClick={() => setViewMode("farmready")}
+              className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all duration-300 transform hover:scale-105 ${
+                viewMode === "farmready"
+                  ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg"
+                  : "bg-gradient-to-r from-gray-50 to-gray-100 text-gray-700 hover:from-gray-100 hover:to-gray-200 border border-gray-200"
+              }`}>
+              🌱 Farm Ready
+            </button>
+            <button
+              onClick={() => setViewMode("ready_for_dispatch")}
+              className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all duration-300 transform hover:scale-105 ${
+                viewMode === "ready_for_dispatch"
+                  ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg"
+                  : "bg-gradient-to-r from-gray-50 to-gray-100 text-gray-700 hover:from-gray-100 hover:to-gray-200 border border-gray-200"
+              }`}>
+              ✅ Ready for Dispatch
+            </button>
+            <button
+              onClick={() => setViewMode("dispatch_process")}
+              className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all duration-300 transform hover:scale-105 ${
+                viewMode === "dispatch_process"
+                  ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg"
+                  : "bg-gradient-to-r from-gray-50 to-gray-100 text-gray-700 hover:from-gray-100 hover:to-gray-200 border border-gray-200"
+              }`}>
+              ⏳ Loading
+            </button>
+          </div>
+          
+          {/* View mode descriptions */}
+          {viewMode === "farmready" && (
+            <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+              <p className="text-sm text-green-800">
+                <span className="font-semibold">🌱 Farm Ready View:</span> Shows orders marked as farm ready with date filtering applied.
+              </p>
+            </div>
+          )}
+          {viewMode === "ready_for_dispatch" && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+              <p className="text-sm text-blue-800">
+                <span className="font-semibold">✅ Ready for Dispatch View:</span> Shows all orders with &ldquo;Ready for Dispatch&rdquo; status, irrespective of date. 
+                {isDispatchManager && <span className="ml-1 font-medium">You can change status and delivery date.</span>}
+              </p>
+            </div>
+          )}
         </div>
       </div>
 
@@ -2103,15 +2193,32 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
                       <h3 className="font-semibold text-gray-900 text-sm">Order #{row.order}</h3>
-                      {row?.details?.payment.some(
-                        (payment) => payment.paymentStatus === "PENDING"
-                      ) && (
-                        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800 border border-amber-300 payment-blink">
-                          💰 Pending
+                    </div>
+                    <div className="flex items-center gap-1 mt-1">
+                      {row.details?.orderFor ? (
+                        <>
+                          <span className="text-xs text-gray-500">Farmer:</span>
+                          <span className={`text-xs font-medium farmer-name-highlight`}>
+                            {row.details.farmer?.name || "Unknown"}
+                          </span>
+                          <span className="text-xs text-gray-500">| Order For:</span>
+                          <span className={`text-xs font-medium order-for-highlight`}>
+                            {row.details.orderFor.name}
+                          </span>
+                        </>
+                      ) : (
+                        <span className={`text-xs font-medium farmer-name-highlight`}>
+                          {row.farmerName}
                         </span>
                       )}
                     </div>
-                    <p className="text-xs text-gray-500 mt-1">{row.farmerName}</p>
+                    {/* Show who booked the order */}
+                    {row.details?.salesPerson && (
+                      <p className="text-xs text-blue-600 mt-1 font-medium">
+                        Booked by: {row.details.salesPerson.name}
+                        {row.details.salesPerson.jobTitle === "DEALER" && " (Dealer)"}
+                      </p>
+                    )}
                   </div>
                   <div className="flex items-center space-x-2">
                     {viewMode !== "booking" && (
@@ -2132,7 +2239,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
 
                 {/* Status Badge */}
                 <div className="flex items-center justify-between">
-                  {row.orderStatus !== "COMPLETED" ? (
+                  {row.orderStatus !== "COMPLETED" && row.orderStatus !== "DISPATCHED" ? (
                     <div className="relative" onClick={(e) => e.stopPropagation()}>
                       <SearchableDropdown
                         label=""
@@ -2153,16 +2260,6 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                       {row.orderStatus === "DISPATCH_PROCESS" ? "Loading" : row.orderStatus}
                     </span>
                   )}
-
-                  {/* Farm Ready Button - Shows for ACCEPTED orders or orders with existing farm ready date */}
-                  {(row.orderStatus === "ACCEPTED" || row["Farm Ready"] !== "-") && (
-                    <FarmReadyButton
-                      orderId={row.details.orderid}
-                      onUpdateOrder={pacthOrders}
-                      refreshOrders={refreshComponent}
-                      currentFarmReadyDate={row.details.farmReadyDate || null}
-                    />
-                  )}
                 </div>
               </div>
 
@@ -2179,6 +2276,11 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                   <div>
                     <span className="text-xs text-gray-500">Quantity</span>
                     <div className="text-sm font-medium text-gray-900">{row.quantity}</div>
+                    {row["remaining Plants"] < row.quantity && (
+                      <div className="text-xs text-orange-600 mt-1">
+                        Remaining: {row["remaining Plants"]}
+                      </div>
+                    )}
                   </div>
                   <div>
                     <span className="text-xs text-gray-500">Rate</span>
@@ -2200,24 +2302,44 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                     <span className="text-xs text-gray-500">Remaining</span>
                     <span className="text-sm text-amber-600">{row["remaining Amt"]}</span>
                   </div>
-
-                  {/* Pending Payment Warning */}
-                  {row?.details?.payment.some((payment) => payment.paymentStatus === "PENDING") && (
-                    <div className="flex items-center justify-between bg-amber-100 border border-amber-300 rounded-md p-2 mt-2 payment-blink">
-                      <span className="text-xs text-amber-800 font-medium flex items-center">
-                        ⚠️ Pending Payment
-                      </span>
-                      <span className="text-xs text-amber-700 bg-amber-200 px-2 py-1 rounded-full">
-                        Requires Attention
-                      </span>
-                    </div>
-                  )}
                 </div>
 
                 {/* Delivery Info */}
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-gray-500">Delivery</span>
-                  <span className="text-sm font-medium text-blue-600">{row.Delivery}</span>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-gray-500">Delivery Period</span>
+                    <span className="text-sm font-medium text-blue-600">{row.Delivery}</span>
+                  </div>
+                  {row.deliveryDate && row.deliveryDate !== "-" && (
+                    <div className="bg-blue-50 rounded-md p-2 border border-blue-200">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-blue-700 font-medium flex items-center">
+                          📅 Delivery Date
+                        </span>
+                        <span className="text-sm font-semibold text-blue-800">
+                          {row.deliveryDate}
+                        </span>
+                      </div>
+                      {/* Delivery Date Changes Indicator */}
+                      {row.details?.deliveryChanges && row.details.deliveryChanges.length > 0 && (
+                        <div className="mt-2 pt-2 border-t border-blue-200">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setSelectedOrder(row)
+                              setIsOrderModalOpen(true)
+                              setActiveTab("overview")
+                            }}
+                            className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 transition-colors">
+                            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                            </svg>
+                            <span>{row.details.deliveryChanges.length} date change{row.details.deliveryChanges.length > 1 ? 's' : ''}</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* Farm Ready Date Display - Shows when order has been marked as farm ready */}
@@ -2232,41 +2354,80 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                   </div>
                 )}
 
+                {/* Dispatch Details - Shows driver and vehicle for dispatched orders */}
+                {(row.orderStatus === "DISPATCHED" || row.orderStatus === "DISPATCH_PROCESS") && row.details?.dispatchHistory && row.details.dispatchHistory.length > 0 && row.details.dispatchHistory[0].dispatch && (
+                  <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-3 border-l-4 border-blue-500 shadow-sm">
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className="text-base">🚚</span>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-bold text-blue-900">
+                          {row.details.dispatchHistory[0].dispatch.driverName || 'N/A'}
+                        </span>
+                        {row.details.dispatchHistory[0].dispatch.driverPhone && (
+                          <span className="text-gray-600">
+                            ({row.details.dispatchHistory[0].dispatch.driverPhone})
+                          </span>
+                        )}
+                        <span className="text-blue-600 font-bold">→</span>
+                        <span className="font-semibold text-gray-800">
+                          🚗 {row.details.dispatchHistory[0].dispatch.vehicleName || 'N/A'}
+                        </span>
+                        {row.details.dispatchHistory[0].dispatch.transportId && (
+                          <>
+                            <span className="text-blue-600 font-bold">→</span>
+                            <span className="text-xs font-mono font-bold text-white bg-blue-600 px-2 py-1 rounded">
+                              #{row.details.dispatchHistory[0].dispatch.transportId}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Action Buttons */}
                 {viewMode !== "dispatch_process" &&
                   row?.orderStatus !== "COMPLETED" &&
                   row?.orderStatus !== "DISPATCH_PROCESS" &&
                   row?.orderStatus !== "DISPATCHED" && (
-                    <div className="flex items-center justify-end space-x-2 pt-2 border-t border-gray-100">
-                      {editingRows.has(index) ? (
-                        <>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              saveEditedRow(index, row)
-                            }}
-                            className="text-green-500 hover:text-green-700">
-                            <CheckIcon size={16} />
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              cancelEditing(index)
-                            }}
-                            className="text-red-500 hover:text-red-700">
-                            <XIcon size={16} />
-                          </button>
-                        </>
-                      ) : (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            toggleEditing(index, row)
-                          }}
-                          className="text-gray-500 hover:text-gray-700">
-                          <Edit2Icon size={16} />
-                        </button>
+                    <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+                      {/* Dispatch Manager indicator */}
+                      {isDispatchManager && (
+                        <span className="text-xs text-blue-600 font-medium">
+                          🚚 DM Access
+                        </span>
                       )}
+                      <div className="flex items-center space-x-2 ml-auto">
+                        {editingRows.has(index) ? (
+                          <>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                saveEditedRow(index, row)
+                              }}
+                              className="text-green-500 hover:text-green-700">
+                              <CheckIcon size={16} />
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                cancelEditing(index)
+                              }}
+                              className="text-red-500 hover:text-red-700">
+                              <XIcon size={16} />
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              toggleEditing(index, row)
+                            }}
+                            className="text-gray-500 hover:text-gray-700">
+                            <Edit2Icon size={16} />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   )}
               </div>
@@ -2415,12 +2576,15 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                       <button
                         onClick={() => {
                           setActiveTab("edit")
-                          // Initialize updatedObject with current values when edit tab is opened
-                          if (selectedOrder && !updatedObject) {
+                          // Always initialize updatedObject with current values when edit tab is opened
+                          if (selectedOrder) {
                             setUpdatedObject({
                               rate: selectedOrder.rate,
                               quantity: selectedOrder.quantity,
-                              bookingSlot: selectedOrder?.details?.bookingSlot?.slotId
+                              bookingSlot: selectedOrder?.details?.bookingSlot?.slotId,
+                              deliveryDate: selectedOrder?.details?.deliveryDate 
+                                ? new Date(selectedOrder.details.deliveryDate) 
+                                : null
                             })
                           }
                         }}
@@ -2442,6 +2606,26 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                         <FaFileAlt size={14} className="mr-1" />
                         Remarks
                       </button>
+                      <button
+                        onClick={() => setActiveTab("dispatchTrail")}
+                        className={`inline-flex items-center py-3 px-1 border-b-2 font-medium text-sm transition-colors ${
+                          activeTab === "dispatchTrail"
+                            ? "border-blue-500 text-blue-600"
+                            : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                        }`}>
+                        <span className="mr-1">🚚</span>
+                        Dispatch Trail
+                      </button>
+                      <button
+                        onClick={() => setActiveTab("editHistory")}
+                        className={`inline-flex items-center py-3 px-1 border-b-2 font-medium text-sm transition-colors ${
+                          activeTab === "editHistory"
+                            ? "border-blue-500 text-blue-600"
+                            : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                        }`}>
+                        <span className="mr-1">📝</span>
+                        Edit History
+                      </button>
                     </nav>
                   </div>
 
@@ -2452,21 +2636,46 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <div className="bg-gray-50 rounded-lg p-3">
                             <h3 className="font-medium text-gray-900 mb-3 text-sm">
-                              Farmer Information
+                              {selectedOrder?.details?.orderFor ? "Order For Information" : "Farmer Information"}
                             </h3>
                             <div className="space-y-3">
-                              <div className="flex flex-col space-y-1">
-                                <span className="text-xs text-gray-500 font-medium">Name</span>
-                                <span className="font-medium text-sm text-gray-900">
-                                  {selectedOrder?.details?.farmer?.name}
-                                </span>
-                              </div>
-                              <div className="flex flex-col space-y-1">
-                                <span className="text-xs text-gray-500 font-medium">Village</span>
-                                <span className="font-medium text-sm text-gray-900">
-                                  {selectedOrder?.details?.farmer?.village}
-                                </span>
-                              </div>
+                              {selectedOrder?.details?.orderFor ? (
+                                <>
+                                  <div className="flex flex-col space-y-1">
+                                    <span className="text-xs text-gray-500 font-medium">Customer Name</span>
+                                    <span className="font-medium text-sm text-orange-700 bg-orange-100 px-2 py-1 rounded">
+                                      👤 {selectedOrder?.details?.orderFor?.name}
+                                    </span>
+                                  </div>
+                                  <div className="flex flex-col space-y-1">
+                                    <span className="text-xs text-gray-500 font-medium">Mobile Number</span>
+                                    <span className="font-medium text-sm text-gray-900">
+                                      {selectedOrder?.details?.orderFor?.mobileNumber}
+                                    </span>
+                                  </div>
+                                  <div className="flex flex-col space-y-1">
+                                    <span className="text-xs text-gray-500 font-medium">Address</span>
+                                    <span className="font-medium text-sm text-gray-900">
+                                      {selectedOrder?.details?.orderFor?.address}
+                                    </span>
+                                  </div>
+                                </>
+                              ) : (
+                                <>
+                                  <div className="flex flex-col space-y-1">
+                                    <span className="text-xs text-gray-500 font-medium">Name</span>
+                                    <span className="font-medium text-sm text-gray-900">
+                                      {selectedOrder?.details?.farmer?.name}
+                                    </span>
+                                  </div>
+                                  <div className="flex flex-col space-y-1">
+                                    <span className="text-xs text-gray-500 font-medium">Village</span>
+                                    <span className="font-medium text-sm text-gray-900">
+                                      {selectedOrder?.details?.farmer?.village}
+                                    </span>
+                                  </div>
+                                </>
+                              )}
                             </div>
                           </div>
                           <div className="bg-gray-50 rounded-lg p-3">
@@ -2487,6 +2696,43 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                             </div>
                           </div>
                         </div>
+                        
+                        {/* Show farmer information if orderFor is present but farmer also exists */}
+                        {selectedOrder?.details?.orderFor && selectedOrder?.details?.farmer && (
+                          <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
+                            <h3 className="font-medium text-gray-900 mb-3 text-sm flex items-center">
+                              <span className="mr-2">🌾</span>
+                              Farmer Information
+                            </h3>
+                            <div className="space-y-3">
+                              <div className="flex flex-col space-y-1">
+                                <span className="text-xs text-gray-500 font-medium">Farmer Name</span>
+                                <span className="font-medium text-sm text-gray-900">
+                                  {selectedOrder?.details?.farmer?.name}
+                                </span>
+                              </div>
+                              <div className="flex flex-col space-y-1">
+                                <span className="text-xs text-gray-500 font-medium">Mobile Number</span>
+                                <span className="font-medium text-sm text-gray-900">
+                                  {selectedOrder?.details?.farmer?.mobileNumber}
+                                </span>
+                              </div>
+                              <div className="flex flex-col space-y-1">
+                                <span className="text-xs text-gray-500 font-medium">Village</span>
+                                <span className="font-medium text-sm text-gray-900">
+                                  {selectedOrder?.details?.farmer?.village}
+                                </span>
+                              </div>
+                              <div className="flex flex-col space-y-1">
+                                <span className="text-xs text-gray-500 font-medium">District</span>
+                                <span className="font-medium text-sm text-gray-900">
+                                  {selectedOrder?.details?.farmer?.district}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                        
                         <div className="bg-gray-50 rounded-lg p-3">
                           <h3 className="font-medium text-gray-900 mb-3 text-sm">Order Details</h3>
                           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -2497,11 +2743,19 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                               </span>
                             </div>
                             <div className="flex flex-col space-y-1">
-                              <span className="text-xs text-gray-500 font-medium">Quantity</span>
+                              <span className="text-xs text-gray-500 font-medium">Total Quantity</span>
                               <span className="font-medium text-sm text-gray-900">
                                 {selectedOrder.quantity}
                               </span>
                             </div>
+                            {selectedOrder["remaining Plants"] < selectedOrder.quantity && (
+                              <div className="flex flex-col space-y-1 bg-orange-50 p-2 rounded border border-orange-200">
+                                <span className="text-xs text-orange-700 font-medium">📦 Remaining to Dispatch</span>
+                                <span className="font-bold text-sm text-orange-900">
+                                  {selectedOrder["remaining Plants"]} plants
+                                </span>
+                              </div>
+                            )}
                             <div className="flex flex-col space-y-1">
                               <span className="text-xs text-gray-500 font-medium">
                                 Rate per Plant
@@ -2519,11 +2773,36 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                               </span>
                             </div>
                             <div className="flex flex-col space-y-1">
-                              <span className="text-xs text-gray-500 font-medium">Order Date</span>
+                              <span className="text-xs text-gray-500 font-medium">Order Booking Date</span>
                               <span className="font-medium text-sm text-gray-900">
                                 {selectedOrder.orderDate}
                               </span>
                             </div>
+                            {selectedOrder.deliveryDate && selectedOrder.deliveryDate !== "-" && (
+                              <div className="flex flex-col space-y-1 bg-blue-50 p-2 rounded border border-blue-200">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-xs text-blue-700 font-medium">📅 Delivery Date</span>
+                                  <button
+                                    onClick={() => {
+                                      setActiveTab("edit")
+                                      setUpdatedObject({
+                                        rate: selectedOrder.rate,
+                                        quantity: selectedOrder.quantity,
+                                        bookingSlot: selectedOrder?.details?.bookingSlot?.slotId,
+                                        deliveryDate: selectedOrder?.details?.deliveryDate 
+                                          ? new Date(selectedOrder.details.deliveryDate) 
+                                          : null
+                                      })
+                                    }}
+                                    className="text-xs text-blue-600 hover:text-blue-800 underline">
+                                    Change
+                                  </button>
+                                </div>
+                                <span className="font-bold text-sm text-blue-900">
+                                  {selectedOrder.deliveryDate}
+                                </span>
+                              </div>
+                            )}
                             <div className="flex flex-col space-y-1">
                               <span className="text-xs text-gray-500 font-medium">Farm Ready</span>
                               <span className="font-medium text-sm text-gray-900">
@@ -2690,6 +2969,71 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                             </div>
                           )}
 
+                        {/* Dispatch History */}
+                        {selectedOrder?.details?.dispatchHistory &&
+                          selectedOrder?.details?.dispatchHistory.length > 0 && (
+                            <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+                              <h3 className="font-medium text-blue-900 mb-3 flex items-center">
+                                <span className="mr-2">🚚</span>
+                                Dispatch History
+                              </h3>
+                              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                                <div className="text-center">
+                                  <div className="text-sm text-gray-500">Total Plants</div>
+                                  <div className="text-xl font-bold text-gray-900">
+                                    {selectedOrder.quantity}
+                                  </div>
+                                </div>
+                                <div className="text-center">
+                                  <div className="text-sm text-gray-500">Dispatched Plants</div>
+                                  <div className="text-xl font-bold text-blue-600">
+                                    {selectedOrder.quantity - selectedOrder["remaining Plants"]}
+                                  </div>
+                                </div>
+                                <div className="text-center">
+                                  <div className="text-sm text-gray-500">Remaining to Dispatch</div>
+                                  <div className="text-xl font-bold text-orange-600">
+                                    {selectedOrder["remaining Plants"]}
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="space-y-2">
+                                {(selectedOrder.details.dispatchHistory || []).map(
+                                  (dispatchItem, dispatchIndex) => (
+                                    <div key={dispatchIndex} className="bg-white p-3 rounded border">
+                                      <div className="flex items-center justify-between mb-1">
+                                        <span className="text-sm font-medium text-blue-600">
+                                          {dispatchItem.quantity} plants dispatched
+                                        </span>
+                                        <span className="text-xs text-gray-500">
+                                          {dispatchItem.date
+                                            ? moment(dispatchItem.date).format("DD/MM/YYYY HH:mm")
+                                            : "N/A"}
+                                        </span>
+                                      </div>
+                                      <div className="text-sm text-gray-600">
+                                        <span className="font-medium">Remaining after dispatch:</span>{" "}
+                                        {dispatchItem.remainingAfterDispatch} plants
+                                      </div>
+                                      <div className="flex flex-wrap gap-2 mt-2">
+                                        {dispatchItem.dispatchId && (
+                                          <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">
+                                            Dispatch ID: {dispatchItem.dispatchId}
+                                          </span>
+                                        )}
+                                        {dispatchItem.processedBy && (
+                                          <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">
+                                            Processed by: {dispatchItem.processedBy.name}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  )
+                                )}
+                              </div>
+                            </div>
+                          )}
+
                         {/* Return History */}
                         {selectedOrder?.details?.returnHistory &&
                           selectedOrder?.details?.returnHistory.length > 0 && (
@@ -2827,11 +3171,11 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                   className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 mt-1">
                                   <option value="">Select Mode</option>
                                   <option value="Cash">Cash</option>
-                                  <option value="Phone Pe">Phone Pe</option>
-                                  <option value="Google Pay">Google Pay</option>
+                                  <option value="UPI">UPI</option>
                                   <option value="Cheque">Cheque</option>
-                                  <option value="NEFT">NEFT</option>
-                                  <option value="JPCB">JPCB</option>
+                                  <option value="NEFT/RTGS">NEFT/RTGS</option>
+                                  <option value="1341">1341</option>
+                                  <option value="434">434</option>
                                 </select>
                               </div>
                               <div>
@@ -2861,13 +3205,13 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                   className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 mt-1"
                                   placeholder={
                                     newPayment.modeOfPayment === "Cheque" ||
-                                    newPayment.modeOfPayment === "NEFT"
+                                    newPayment.modeOfPayment === "NEFT/RTGS"
                                       ? "Enter bank name"
                                       : "N/A"
                                   }
                                   disabled={
                                     newPayment.modeOfPayment !== "Cheque" &&
-                                    newPayment.modeOfPayment !== "NEFT"
+                                    newPayment.modeOfPayment !== "NEFT/RTGS"
                                   }
                                 />
                               </div>
@@ -2881,6 +3225,33 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                 className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 mt-1"
                                 placeholder="Optional remark"
                               />
+                            </div>
+
+                            {/* Payment Receipt Photo Upload */}
+                            <div className="mt-4">
+                              <label className="text-sm text-gray-500 font-medium">
+                                Payment Receipt Photo {newPayment.modeOfPayment && newPayment.modeOfPayment !== "Cash" && newPayment.modeOfPayment !== "NEFT/RTGS" ? "*" : "(Optional)"}
+                              </label>
+                              <div className="mt-2">
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  multiple
+                                  onChange={(e) => {
+                                    const files = Array.from(e.target.files)
+                                    handlePaymentInputChange("receiptPhoto", files)
+                                  }}
+                                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                                />
+                                {newPayment.modeOfPayment && newPayment.modeOfPayment !== "Cash" && newPayment.modeOfPayment !== "NEFT/RTGS" && (
+                                  <p className="text-xs text-red-600 mt-1">
+                                    Payment image is mandatory for {newPayment.modeOfPayment} payments
+                                  </p>
+                                )}
+                                <p className="text-xs text-gray-500 mt-1">
+                                  Upload payment confirmation screenshots or photos
+                                </p>
+                              </div>
                             </div>
 
                             {/* Wallet Payment Status Indicator */}
@@ -3247,19 +3618,37 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
 
                     {activeTab === "edit" && (
                       <div className="space-y-6">
-                        <h3 className="text-lg font-medium text-gray-900">Edit Order Details</h3>
+                        <div className="flex items-center justify-between">
+                          <h3 className="text-lg font-medium text-gray-900">Edit Order Details</h3>
+                          {isDispatchManager && (
+                            <span className="text-sm bg-blue-100 text-blue-800 px-3 py-1 rounded-full font-medium">
+                              🚚 Dispatch Manager Access
+                            </span>
+                          )}
+                        </div>
+                        {isDispatchManager && (
+                          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                            <p className="text-sm text-blue-800">
+                              <span className="font-semibold">🔑 Dispatch Manager Permissions:</span> You can change order status, delivery date, rate, and quantity for dispatch management.
+                            </p>
+                          </div>
+                        )}
                         <div className="bg-gray-50 rounded-lg p-6">
-                          {/* Current Slot Information */}
+                          {/* Current Order Information */}
                           {selectedOrder?.details?.bookingSlot && (
                             <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
                               <h4 className="text-sm font-medium text-blue-900 mb-2">
-                                Current Slot Information
+                                Current Order Information
                               </h4>
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+                              <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-sm">
                                 <div>
-                                  <span className="text-blue-700">Current Slot:</span>{" "}
+                                  <span className="text-blue-700">Current Delivery Period:</span>{" "}
                                   {selectedOrder.details.bookingSlot.startDay} -{" "}
                                   {selectedOrder.details.bookingSlot.endDay}
+                                </div>
+                                <div>
+                                  <span className="text-blue-700">Current Delivery Date:</span>{" "}
+                                  {selectedOrder.deliveryDate || "Not set"}
                                 </div>
                                 <div>
                                   <span className="text-blue-700">Current Quantity:</span>{" "}
@@ -3314,94 +3703,102 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                             </div>
                             <div>
                               <label className="text-sm text-gray-500 font-medium">
-                                Delivery Slot
+                                Delivery Date *
                               </label>
                               {slotsLoading ? (
                                 <div className="w-full px-3 py-2 border rounded-lg mt-1 bg-gray-50 text-gray-500 text-sm">
                                   Loading available slots...
                                 </div>
                               ) : (
-                                <Select
-                                  value={
-                                    updatedObject?.bookingSlot ||
-                                    selectedOrder?.details?.bookingSlot?.slotId
-                                  }
-                                  onChange={(e) =>
-                                    setUpdatedObject({
-                                      ...updatedObject,
-                                      bookingSlot: e.target.value
-                                    })
-                                  }
-                                  className="w-full mt-1">
-                                  <MenuItem value="">Select Slot</MenuItem>
-                                  {(slots || []).map(
-                                    ({
-                                      label,
-                                      value,
-                                      available,
-                                      totalPlants,
-                                      totalBookedPlants
-                                    }) => (
-                                      <MenuItem key={value} value={value}>
-                                        <div className="flex flex-col">
-                                          <span>{label}</span>
-                                          <span className="text-xs text-gray-500">
-                                            Capacity: {totalPlants} | Booked: {totalBookedPlants} |
-                                            Available: {available}
-                                          </span>
-                                        </div>
-                                      </MenuItem>
-                                    )
-                                  )}
-                                </Select>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (slots.length > 0) {
+                                      setShowDeliveryDateModal(true)
+                                    } else {
+                                      Toast.info('No available slots found. Please select a different plant/subtype.')
+                                    }
+                                  }}
+                                  className="w-full px-3 py-2 border rounded-lg mt-1 text-left hover:border-blue-500 focus:ring-2 focus:ring-blue-500 transition-colors bg-white"
+                                  disabled={slots.length === 0}>
+                                  <span className={updatedObject?.deliveryDate ? "text-gray-900" : "text-gray-400"}>
+                                    {updatedObject?.deliveryDate 
+                                      ? moment(updatedObject.deliveryDate).format("DD/MM/YYYY")
+                                      : "Click to select delivery date"}
+                                  </span>
+                                </button>
                               )}
                               {slots.length === 0 && !slotsLoading && (
                                 <div className="text-xs text-red-500 mt-1">
                                   No available slots found for this plant/subtype combination
                                 </div>
                               )}
+                              {!slotsLoading && slots.length > 0 && (
+                                <div className="text-xs text-gray-500 mt-1">
+                                  Click to select a delivery date from available slots
+                                </div>
+                              )}
 
-                              {/* Show selected slot capacity information */}
-                              {updatedObject?.bookingSlot &&
+                              {/* Show selected date slot information */}
+                              {updatedObject?.deliveryDate &&
                                 (() => {
-                                  const selectedSlot = slots.find(
-                                    (slot) => slot.value === updatedObject.bookingSlot
-                                  )
-                                  if (selectedSlot) {
+                                  const slotDetails = getSlotDetailsForDate(updatedObject.deliveryDate)
+                                  if (slotDetails) {
                                     const requestedQuantity = Number(
                                       updatedObject.quantity || selectedOrder?.quantity || 0
                                     )
                                     const currentQuantity = Number(selectedOrder?.quantity || 0)
                                     const quantityChange = requestedQuantity - currentQuantity
                                     const adjustedAvailable =
-                                      selectedSlot.available + currentQuantity
+                                      slotDetails.available + currentQuantity
 
                                     return (
-                                      <div className="mt-2 p-2 bg-gray-50 rounded border">
-                                        <div className="text-xs text-gray-600 space-y-1">
-                                          <div>Selected Slot: {selectedSlot.label}</div>
-                                          <div>Available Capacity: {adjustedAvailable}</div>
-                                          <div>Requested Quantity: {requestedQuantity}</div>
-                                          {quantityChange > 0 && (
-                                            <div className="text-amber-600">
-                                              ⚠️ Quantity increase: +{quantityChange}
+                                      <div className="mt-2 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                                        <div className="text-xs text-gray-700 space-y-2">
+                                          <div className="font-medium text-blue-900">
+                                            📅 Delivery Period: {slotDetails.startDay} - {slotDetails.endDay}
+                                          </div>
+                                          <div className="grid grid-cols-2 gap-2">
+                                            <div>
+                                              <span className="text-gray-600">Available Capacity:</span>
+                                              <div className="font-semibold text-green-700">
+                                                {adjustedAvailable}
+                                              </div>
                                             </div>
-                                          )}
-                                          {quantityChange < 0 && (
-                                            <div className="text-green-600">
-                                              ✅ Quantity decrease: {quantityChange}
+                                            <div>
+                                              <span className="text-gray-600">Requested Quantity:</span>
+                                              <div className="font-semibold text-gray-900">
+                                                {requestedQuantity}
+                                              </div>
+                                            </div>
+                                          </div>
+                                          {quantityChange !== 0 && (
+                                            <div className={quantityChange > 0 ? "text-amber-700" : "text-green-700"}>
+                                              {quantityChange > 0 ? "⚠️" : "✅"} Quantity change: {quantityChange > 0 ? "+" : ""}{quantityChange}
                                             </div>
                                           )}
                                           {requestedQuantity > adjustedAvailable && (
-                                            <div className="text-red-600 font-medium">
-                                              ❌ Insufficient capacity!
+                                            <div className="text-red-700 font-medium bg-red-50 p-2 rounded">
+                                              ❌ Insufficient capacity! Only {adjustedAvailable} available.
+                                            </div>
+                                          )}
+                                          {requestedQuantity <= adjustedAvailable && requestedQuantity > 0 && (
+                                            <div className="text-green-700 font-medium">
+                                              ✅ Sufficient capacity available
                                             </div>
                                           )}
                                         </div>
                                       </div>
                                     )
+                                  } else {
+                                    return (
+                                      <div className="mt-2 p-2 bg-red-50 rounded border border-red-200">
+                                        <div className="text-xs text-red-600">
+                                          ⚠️ Selected date does not fall within any available slot
+                                        </div>
+                                      </div>
+                                    )
                                   }
-                                  return null
                                 })()}
                             </div>
                           </div>
@@ -3447,18 +3844,22 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                     `Quantity: ${selectedOrder.quantity} → ${updatedObject.quantity}`
                                   )
                                 }
-                                if (
-                                  updatedObject.bookingSlot !==
-                                  selectedOrder?.details?.bookingSlot?.slotId
-                                ) {
-                                  const newSlot = slots.find(
-                                    (slot) => slot.value === updatedObject.bookingSlot
-                                  )
-                                  changes.push(
-                                    `Slot: ${selectedOrder.Delivery} → ${
-                                      newSlot?.label || "New Slot"
-                                    }`
-                                  )
+                                // Check if delivery date has changed
+                                if (updatedObject.deliveryDate) {
+                                  const currentDate = selectedOrder?.details?.deliveryDate 
+                                    ? moment(selectedOrder.details.deliveryDate).format("DD/MM/YYYY")
+                                    : "Not set"
+                                  const newDate = moment(updatedObject.deliveryDate).format("DD/MM/YYYY")
+                                  
+                                  if (currentDate !== newDate) {
+                                    const slotDetails = getSlotDetailsForDate(updatedObject.deliveryDate)
+                                    const deliveryPeriod = slotDetails 
+                                      ? `${slotDetails.startDay} - ${slotDetails.endDay}`
+                                      : "Unknown"
+                                    changes.push(
+                                      `Delivery Date: ${currentDate} → ${newDate} (Period: ${deliveryPeriod})`
+                                    )
+                                  }
                                 }
 
                                 if (changes.length > 0) {
@@ -3470,6 +3871,8 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                     )}`,
                                     onConfirm: () => {
                                       setConfirmDialog((d) => ({ ...d, open: false }))
+                                      
+                                      // pacthOrders will handle deliveryDate conversion
                                       pacthOrders(
                                         {
                                           id: selectedOrder?.details?.orderid,
@@ -3485,6 +3888,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                     }
                                   })
                                 } else {
+                                  // pacthOrders will handle deliveryDate conversion
                                   pacthOrders(
                                     {
                                       id: selectedOrder?.details?.orderid,
@@ -3548,6 +3952,283 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                         </div>
                       </div>
                     )}
+
+                    {activeTab === "dispatchTrail" && (
+                      <div className="space-y-6">
+                        <h3 className="text-lg font-medium text-gray-900 flex items-center">
+                          <span className="mr-2">🚚</span>
+                          Dispatch Trail
+                        </h3>
+
+                        {selectedOrder?.details?.dispatchHistory &&
+                        selectedOrder?.details?.dispatchHistory.length > 0 ? (
+                          <>
+                            {/* Summary Cards */}
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                              <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                                <div className="text-sm text-gray-500 mb-1">Total Order Plants</div>
+                                <div className="text-2xl font-bold text-gray-900">
+                                  {selectedOrder.quantity?.toLocaleString()}
+                                </div>
+                              </div>
+                              <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+                                <div className="text-sm text-blue-600 mb-1">Total Dispatched</div>
+                                <div className="text-2xl font-bold text-blue-900">
+                                  {(selectedOrder.quantity - selectedOrder["remaining Plants"])?.toLocaleString()}
+                                </div>
+                                <div className="text-xs text-blue-600 mt-1">
+                                  in {selectedOrder.details.dispatchHistory.length} dispatch{selectedOrder.details.dispatchHistory.length > 1 ? 'es' : ''}
+                                </div>
+                              </div>
+                              <div className="bg-orange-50 rounded-lg p-4 border border-orange-200">
+                                <div className="text-sm text-orange-600 mb-1">Remaining to Dispatch</div>
+                                <div className="text-2xl font-bold text-orange-900">
+                                  {selectedOrder["remaining Plants"]?.toLocaleString()}
+                                </div>
+                                <div className="text-xs text-orange-600 mt-1">
+                                  {selectedOrder["remaining Plants"] > 0 ? "Pending dispatch" : "Fully dispatched"}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Dispatch Timeline */}
+                            <div className="bg-white rounded-lg border">
+                              <div className="p-3 border-b bg-blue-50">
+                                <h4 className="font-medium text-blue-900 text-sm">Dispatch Timeline</h4>
+                              </div>
+                              <div className="p-4 space-y-4">
+                                {(selectedOrder.details.dispatchHistory || []).map(
+                                  (dispatchItem, dispatchIndex) => (
+                                    <div 
+                                      key={dispatchIndex} 
+                                      className="relative pl-8 pb-6 border-l-2 border-blue-300 last:border-l-0 last:pb-0">
+                                      {/* Timeline dot */}
+                                      <div className="absolute left-0 top-0 -ml-2 w-4 h-4 bg-blue-600 rounded-full border-2 border-white"></div>
+                                      
+                                      <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                                        <div className="flex items-center justify-between mb-3">
+                                          <div className="flex items-center gap-2">
+                                            <span className="text-sm font-semibold text-blue-900">
+                                              Dispatch #{dispatchIndex + 1}
+                                            </span>
+                                            <span className="px-2 py-1 bg-blue-200 text-blue-800 rounded text-xs font-medium">
+                                              {dispatchItem.quantity?.toLocaleString()} plants
+                                            </span>
+                                          </div>
+                                          <span className="text-xs text-gray-600">
+                                            {dispatchItem.date
+                                              ? moment(dispatchItem.date).format("DD MMM YYYY, HH:mm")
+                                              : "N/A"}
+                                          </span>
+                                        </div>
+
+                                        {/* Dispatch Details */}
+                                        {dispatchItem.dispatch && (
+                                          <div className="bg-white p-3 rounded border border-blue-100 mb-3">
+                                            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
+                                              <div>
+                                                <span className="text-gray-500">Transport ID:</span>
+                                                <div className="font-medium text-gray-900">
+                                                  #{dispatchItem.dispatch.transportId}
+                                                </div>
+                                              </div>
+                                              <div>
+                                                <span className="text-gray-500">Driver:</span>
+                                                <div className="font-medium text-gray-900">
+                                                  {dispatchItem.dispatch.driverName}
+                                                </div>
+                                              </div>
+                                              <div>
+                                                <span className="text-gray-500">Vehicle:</span>
+                                                <div className="font-medium text-gray-900">
+                                                  {dispatchItem.dispatch.vehicleName}
+                                                </div>
+                                              </div>
+                                            </div>
+                                          </div>
+                                        )}
+
+                                        {/* Quantity Details */}
+                                        <div className="grid grid-cols-2 gap-3 text-sm">
+                                          <div className="bg-white p-2 rounded border border-gray-200">
+                                            <span className="text-gray-500">Dispatched Quantity:</span>
+                                            <div className="font-bold text-blue-600">
+                                              {dispatchItem.quantity?.toLocaleString()} plants
+                                            </div>
+                                          </div>
+                                          <div className="bg-white p-2 rounded border border-gray-200">
+                                            <span className="text-gray-500">Remaining After:</span>
+                                            <div className="font-bold text-orange-600">
+                                              {dispatchItem.remainingAfterDispatch?.toLocaleString()} plants
+                                            </div>
+                                          </div>
+                                        </div>
+
+                                        {/* Processed By */}
+                                        {dispatchItem.processedBy && (
+                                          <div className="mt-3 pt-3 border-t border-blue-100">
+                                            <div className="text-xs text-gray-600">
+                                              <span className="font-medium">Processed by:</span>{" "}
+                                              {dispatchItem.processedBy.name}
+                                              {dispatchItem.processedBy.phoneNumber && 
+                                                ` • ${dispatchItem.processedBy.phoneNumber}`}
+                                            </div>
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  )
+                                )}
+                              </div>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="bg-gray-50 rounded-lg p-8 text-center border border-gray-200">
+                            <div className="text-gray-400 text-4xl mb-3">📦</div>
+                            <h4 className="text-lg font-medium text-gray-700 mb-2">No Dispatch History</h4>
+                            <p className="text-gray-500 text-sm">
+                              This order has not been dispatched yet.
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {activeTab === "editHistory" && (
+                      <div className="space-y-6">
+                        <h3 className="text-lg font-medium text-gray-900 flex items-center">
+                          <span className="mr-2">📝</span>
+                          Order Edit History
+                        </h3>
+
+                        {selectedOrder?.details?.orderEditHistory &&
+                        selectedOrder?.details?.orderEditHistory.length > 0 ? (
+                          <>
+                            {/* Summary Card */}
+                            <div className="bg-purple-50 rounded-lg p-4 border border-purple-200">
+                              <div className="text-sm text-purple-600 mb-1">Total Edits Made</div>
+                              <div className="text-2xl font-bold text-purple-900">
+                                {selectedOrder.details.orderEditHistory.length}
+                              </div>
+                              <div className="text-xs text-purple-600 mt-1">
+                                Changes to rate, quantity, and delivery date
+                              </div>
+                            </div>
+
+                            {/* Edit Timeline */}
+                            <div className="bg-white rounded-lg border">
+                              <div className="p-3 border-b bg-purple-50">
+                                <h4 className="font-medium text-purple-900 text-sm">Edit Timeline</h4>
+                              </div>
+                              <div className="p-4 space-y-4">
+                                {(selectedOrder.details.orderEditHistory || []).map(
+                                  (edit, editIndex) => {
+                                    // Format the field name for display
+                                    const fieldDisplayName = {
+                                      rate: "Rate per Plant",
+                                      numberOfPlants: "Quantity",
+                                      deliveryDate: "Delivery Date"
+                                    }[edit.field] || edit.field;
+
+                                    // Format values based on field type
+                                    let previousValueDisplay = edit.previousValue;
+                                    let newValueDisplay = edit.newValue;
+
+                                    if (edit.field === "rate") {
+                                      previousValueDisplay = `₹${edit.previousValue}`;
+                                      newValueDisplay = `₹${edit.newValue}`;
+                                    } else if (edit.field === "numberOfPlants") {
+                                      previousValueDisplay = `${edit.previousValue} plants`;
+                                      newValueDisplay = `${edit.newValue} plants`;
+                                    } else if (edit.field === "deliveryDate") {
+                                      previousValueDisplay = edit.previousValue 
+                                        ? moment(edit.previousValue).format("DD MMM YYYY")
+                                        : "Not set";
+                                      newValueDisplay = moment(edit.newValue).format("DD MMM YYYY");
+                                    }
+
+                                    return (
+                                      <div 
+                                        key={editIndex} 
+                                        className="relative pl-8 pb-6 border-l-2 border-purple-300 last:border-l-0 last:pb-0">
+                                        {/* Timeline dot */}
+                                        <div className="absolute left-0 top-0 -ml-2 w-4 h-4 bg-purple-600 rounded-full border-2 border-white"></div>
+                                        
+                                        <div className="bg-purple-50 p-4 rounded-lg border border-purple-200">
+                                          <div className="flex items-center justify-between mb-3">
+                                            <div className="flex items-center gap-2">
+                                              <span className="text-sm font-semibold text-purple-900">
+                                                {fieldDisplayName} Changed
+                                              </span>
+                                              <span className="px-2 py-1 bg-purple-200 text-purple-800 rounded text-xs font-medium">
+                                                Edit #{editIndex + 1}
+                                              </span>
+                                            </div>
+                                            <span className="text-xs text-gray-600">
+                                              {edit.createdAt
+                                                ? moment(edit.createdAt).format("DD MMM YYYY, HH:mm")
+                                                : "N/A"}
+                                            </span>
+                                          </div>
+
+                                          {/* Change Details */}
+                                          <div className="bg-white p-3 rounded border border-purple-100 mb-3">
+                                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-center">
+                                              <div className="bg-red-50 px-3 py-2 rounded-md">
+                                                <div className="text-xs text-red-600 mb-1">Previous Value</div>
+                                                <span className="text-red-700 line-through text-sm font-medium">
+                                                  {previousValueDisplay}
+                                                </span>
+                                              </div>
+                                              <div className="flex justify-center">
+                                                <span className="text-gray-400 text-xl">→</span>
+                                              </div>
+                                              <div className="bg-green-50 px-3 py-2 rounded-md">
+                                                <div className="text-xs text-green-600 mb-1">New Value</div>
+                                                <span className="text-green-700 font-bold text-sm">
+                                                  {newValueDisplay}
+                                                </span>
+                                              </div>
+                                            </div>
+                                          </div>
+
+                                          {/* Notes */}
+                                          {edit.notes && (
+                                            <div className="bg-gray-50 p-2 rounded text-sm text-gray-700 mb-3">
+                                              <span className="font-medium">Notes:</span> {edit.notes}
+                                            </div>
+                                          )}
+
+                                          {/* Changed By */}
+                                          {edit.changedBy && (
+                                            <div className="pt-3 border-t border-purple-100">
+                                              <div className="text-xs text-gray-600">
+                                                <span className="font-medium">Changed by:</span>{" "}
+                                                {edit.changedBy.name || "Unknown User"}
+                                                {edit.changedBy.phoneNumber && 
+                                                  ` • ${edit.changedBy.phoneNumber}`}
+                                              </div>
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    );
+                                  }
+                                )}
+                              </div>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="bg-gray-50 rounded-lg p-8 text-center border border-gray-200">
+                            <div className="text-gray-400 text-4xl mb-3">📝</div>
+                            <h4 className="text-lg font-medium text-gray-700 mb-2">No Edit History</h4>
+                            <p className="text-gray-500 text-sm">
+                              This order has not been edited yet.
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -3562,6 +4243,138 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
         onConfirm={confirmDialog.onConfirm}
         onCancel={() => setConfirmDialog((d) => ({ ...d, open: false }))}
       />
+
+      {/* Delivery Date Picker Modal */}
+      {showDeliveryDateModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-2xl w-full max-w-4xl max-h-[85vh] overflow-hidden shadow-2xl">
+            {/* Modal Header */}
+            <div className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white p-4 flex items-center justify-between">
+              <div className="flex items-center">
+                <span className="text-2xl mr-3">📅</span>
+                <h2 className="text-xl font-bold">Select Delivery Date</h2>
+              </div>
+              <button
+                onClick={() => setShowDeliveryDateModal(false)}
+                className="text-white hover:text-blue-100 transition-colors p-2 rounded-full hover:bg-white hover:bg-opacity-20">
+                <XIcon size={24} />
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="overflow-y-auto max-h-[calc(85vh-80px)] p-6">
+              {slots.length === 0 ? (
+                <div className="text-center py-12">
+                  <div className="text-6xl mb-4">📭</div>
+                  <h3 className="text-lg font-medium text-gray-700 mb-2">No Available Slots</h3>
+                  <p className="text-gray-500">Please select a different plant/subtype combination</p>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {slots.map((slot) => {
+                    if (!slot.startDay || !slot.endDay) return null
+
+                    const slotStart = moment(slot.startDay, "DD-MM-YYYY")
+                    const slotEnd = moment(slot.endDay, "DD-MM-YYYY")
+                    const dates = []
+                    let currentDate = slotStart.clone()
+                    const today = moment().startOf('day')
+
+                    // Generate all dates in the slot
+                    while (currentDate.isSameOrBefore(slotEnd, 'day')) {
+                      if (currentDate.isSameOrAfter(today, 'day')) {
+                        dates.push(currentDate.clone())
+                      }
+                      currentDate.add(1, 'day')
+                    }
+
+                    if (dates.length === 0) return null
+
+                    return (
+                      <div key={slot.value} className="border-b border-gray-200 pb-6 last:border-b-0">
+                        {/* Slot Header */}
+                        <div className="flex items-center mb-4 pb-3 border-b-2 border-blue-100">
+                          <div className="w-2 h-2 rounded-full bg-blue-600 mr-3"></div>
+                          <div className="flex-1">
+                            <h3 className="text-base font-bold text-blue-600">
+                              {slot.label}
+                            </h3>
+                            <p className="text-sm text-gray-600 mt-1">
+                              Available: {slot.available} plants
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Dates Grid */}
+                        <div className="grid grid-cols-5 md:grid-cols-7 lg:grid-cols-9 gap-3">
+                          {dates.map((date) => {
+                            const isSelected = updatedObject?.deliveryDate && 
+                              moment(updatedObject.deliveryDate).format('YYYY-MM-DD') === date.format('YYYY-MM-DD')
+                            const isToday = date.isSame(today, 'day')
+
+                            return (
+                              <button
+                                key={date.format('YYYY-MM-DD')}
+                                type="button"
+                                onClick={() => {
+                                  setUpdatedObject({
+                                    ...updatedObject,
+                                    deliveryDate: date.toDate(),
+                                    bookingSlot: slot.value
+                                  })
+                                  setShowDeliveryDateModal(false)
+                                  Toast.success(`Delivery date set to ${date.format('DD MMM YYYY')}`)
+                                }}
+                                className={`
+                                  relative p-3 rounded-2xl border-2 transition-all duration-200
+                                  ${isSelected 
+                                    ? 'bg-blue-600 border-blue-600 text-white shadow-lg scale-105' 
+                                    : isToday
+                                      ? 'border-amber-400 bg-amber-50 text-gray-900 hover:bg-amber-100'
+                                      : 'border-gray-200 bg-white text-gray-900 hover:border-blue-400 hover:bg-blue-50'
+                                  }
+                                `}>
+                                <div className="flex flex-col items-center">
+                                  <span className={`text-xs font-semibold uppercase ${isSelected ? 'text-blue-100' : 'text-gray-500'}`}>
+                                    {date.format('ddd')}
+                                  </span>
+                                  <span className={`text-xl font-bold my-1 ${isSelected ? 'text-white' : 'text-gray-900'}`}>
+                                    {date.format('DD')}
+                                  </span>
+                                  <span className={`text-xs font-semibold uppercase ${isSelected ? 'text-blue-100' : 'text-gray-600'}`}>
+                                    {date.format('MMM')}
+                                  </span>
+                                </div>
+                                {isToday && !isSelected && (
+                                  <div className="absolute top-1 right-1 bg-amber-400 text-white text-[8px] font-bold px-1.5 py-0.5 rounded-full">
+                                    TODAY
+                                  </div>
+                                )}
+                                {isSelected && (
+                                  <div className="absolute top-1 right-1 bg-white text-blue-600 rounded-full w-5 h-5 flex items-center justify-center">
+                                    <CheckIcon size={12} />
+                                  </div>
+                                )}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )
+                  })}
+
+                  {/* Helper Text */}
+                  <div className="bg-blue-50 border-l-4 border-blue-600 p-4 rounded-r-lg">
+                    <p className="text-sm text-blue-800">
+                      💡 <span className="font-semibold">Tip:</span> Click on any date to select it as the delivery date. Only dates within available slots are shown.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

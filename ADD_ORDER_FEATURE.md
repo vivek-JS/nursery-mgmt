@@ -81,7 +81,7 @@ The feature uses the following API endpoints:
 - `GET /slots/subtyps` - Get plant subtypes
 - `GET /slots/getslots` - Get available slots
 - `GET /user/salespeople` - Get salespeople
-- `GET /user/dealers` - Get dealers
+- `GET /usera/dealers` - Get dealers
 - `GET /farmer/getFarmers` - Get farmer by mobile number
 - `POST /farmer/createFarmer` - Create farmer order
 - `POST /order/dealer-order` - Create dealer order

@@ -21,7 +21,10 @@ import {
   X,
   UserCheck,
   Shield,
-  History
+  History,
+  Sprout,
+  Send,
+  Package
 } from "lucide-react"
 import {
   Switch,
@@ -58,8 +61,11 @@ import { Toast } from "helpers/toasts/toastHelper"
 import FarmerOrdersTable from "../dashboard/FarmerOrdersTable"
 import SlotTrailModal from "components/Modals/SlotTrailModal"
 import moment from "moment"
+import { useSelector } from "react-redux"
 
 const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
+  const userData = useSelector((state) => state?.userData?.userData)
+  const appUser = useSelector((state) => state?.app?.user)
   const [selectedMonth, setSelectedMonth] = useState(0)
   const [slotsByMonth, setSlotsByMonth] = useState({})
   const [editValue, setEditValue] = useState("")
@@ -96,6 +102,13 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
   // Slot trail modal states
   const [showSlotTrailModal, setShowSlotTrailModal] = useState(false)
   const [selectedSlotForTrail, setSelectedSlotForTrail] = useState(null)
+
+  // Sowing modal states
+  const [showSowingModal, setShowSowingModal] = useState(false)
+  const [sowingSlotData, setSowingSlotData] = useState(null)
+  const [sowingQuantity, setSowingQuantity] = useState("")
+  const [sowingDate, setSowingDate] = useState(moment().format("YYYY-MM-DD"))
+  const [sowingNotes, setSowingNotes] = useState("")
 
   const monthOrder = [
     "January",
@@ -384,6 +397,75 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
     setShowReleaseBufferModal(false)
     setReleaseBufferSlotData(null)
     setReleaseAmount("0")
+  }
+
+  // Sowing modal functions
+  const openSowingModal = (e, slot) => {
+    if (e) e.stopPropagation()
+    setSowingSlotData(slot)
+    setSowingQuantity("")
+    setSowingDate(moment().format("YYYY-MM-DD"))
+    setSowingNotes("")
+    setShowSowingModal(true)
+  }
+
+  const closeSowingModal = () => {
+    setShowSowingModal(false)
+    setSowingSlotData(null)
+    setSowingQuantity("")
+    setSowingNotes("")
+  }
+
+  const handleSowingSubmit = async () => {
+    if (!sowingSlotData) return
+
+    const quantity = parseInt(sowingQuantity) || 0
+
+    if (quantity <= 0) {
+      Toast.error("Please enter a valid quantity")
+      return
+    }
+
+    if (!sowingDate) {
+      Toast.error("Please select a sowing date")
+      return
+    }
+
+    try {
+      setLoading(true)
+      const instance = NetworkManager(API.sowing.CREATE_SOWING)
+      
+      // Get current user ID
+      const user = userData || appUser
+      const userId = user?._id
+      
+      const payload = {
+        plantId: plantId,
+        subtypeId: plantSubId,
+        sowingDate: moment(sowingDate).format("DD-MM-YYYY"),
+        totalQuantityRequired: quantity,
+        slotId: sowingSlotData._id,
+        notes: sowingNotes
+      }
+
+      // Only add createdBy if we have a valid user ID
+      if (userId) {
+        payload.createdBy = userId
+      }
+
+      const response = await instance.request(payload)
+
+      if (response?.data?.message) {
+        Toast.success("Sowing record created successfully")
+        closeSowingModal()
+        fetchPlantsSlots() // Refresh the data
+      }
+    } catch (error) {
+      console.error("Error creating sowing record:", error)
+      Toast.error(error?.response?.data?.message || "Failed to create sowing record")
+    } finally {
+      setLoading(false)
+    }
   }
 
   const handleReleaseBuffer = async () => {
@@ -771,6 +853,29 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                         </p>
                       </div>
                       <Users className="w-8 h-8 text-blue-500" />
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-gray-600">Gap (Need to Sow)</p>
+                        <p className={`text-2xl font-bold ${
+                          (selectedSlot.totalBookedPlants - effectiveAvailablePlants) > 0 
+                            ? "text-orange-600" 
+                            : "text-gray-900"
+                        }`}>
+                          {(selectedSlot.totalBookedPlants - effectiveAvailablePlants) > 0 ? '+' : ''}
+                          {(selectedSlot.totalBookedPlants - effectiveAvailablePlants).toLocaleString()}
+                        </p>
+                      </div>
+                      <TrendingUp className={`w-8 h-8 ${
+                        (selectedSlot.totalBookedPlants - effectiveAvailablePlants) > 0
+                          ? "text-orange-500"
+                          : "text-gray-400"
+                      }`} />
                     </div>
                   </CardContent>
                 </Card>
@@ -1292,6 +1397,228 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
         </Fade>
       </Modal>
 
+      {/* Sowing Modal */}
+      <Modal
+        open={showSowingModal}
+        onClose={closeSowingModal}
+        closeAfterTransition
+        BackdropComponent={Backdrop}
+        BackdropProps={{
+          timeout: 500
+        }}>
+        <Fade in={showSowingModal}>
+          <Box
+            sx={{
+              position: "absolute",
+              top: "50%",
+              left: "50%",
+              transform: "translate(-50%, -50%)",
+              width: 500,
+              bgcolor: "background.paper",
+              borderRadius: "20px",
+              boxShadow: 24,
+              p: 0,
+              overflow: "hidden"
+            }}>
+            {/* Header */}
+            <div className="bg-gradient-to-r from-green-500 to-emerald-600 px-6 py-5 text-white">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-white/20 backdrop-blur-sm rounded-xl">
+                    <Sprout className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-2xl font-bold">Create Sowing Record</h3>
+                    <p className="text-sm text-green-100 mt-1">Plan your plant production</p>
+                  </div>
+                </div>
+                <IconButton
+                  onClick={closeSowingModal}
+                  sx={{
+                    color: "white",
+                    "&:hover": { bgcolor: "rgba(255,255,255,0.1)" }
+                  }}>
+                  <X className="w-5 h-5" />
+                </IconButton>
+              </div>
+            </div>
+
+            {/* Content */}
+            <div className="p-6">
+              {sowingSlotData && (
+                <>
+                  {/* Slot Information Card */}
+                  <div className="mb-6 p-4 bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl border-2 border-green-200">
+                    <h4 className="font-semibold text-green-900 mb-3 flex items-center gap-2">
+                      <Calendar className="w-4 h-4" />
+                      Slot Information
+                    </h4>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                      <div className="p-2 bg-white rounded-lg">
+                        <span className="text-gray-600 text-xs">Delivery Period</span>
+                        <p className="font-bold text-green-700">
+                          {moment(sowingSlotData.startDay, "DD-MM-YYYY").format("MMM D")} -{" "}
+                          {moment(sowingSlotData.endDay, "DD-MM-YYYY").format("MMM D, YYYY")}
+                        </p>
+                      </div>
+                      <div className="p-2 bg-white rounded-lg">
+                        <span className="text-gray-600 text-xs">Available Capacity</span>
+                        <p className="font-bold text-green-700">
+                          {sowingSlotData.availablePlants?.toLocaleString() || 0} plants
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Sowing Quantity */}
+                  <div className="mb-5">
+                    <label className="block text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
+                      <Package className="w-4 h-4 text-green-600" />
+                      Quantity to Sow
+                    </label>
+                    <Input
+                      value={sowingQuantity}
+                      onChange={(e) => setSowingQuantity(e.target.value)}
+                      fullWidth
+                      size="large"
+                      type="number"
+                      placeholder="Enter quantity"
+                      autoFocus
+                      sx={{
+                        "& .MuiOutlinedInput-root": {
+                          borderRadius: "12px",
+                          fontSize: "1.25rem",
+                          fontWeight: "600",
+                          borderWidth: "2px",
+                          "&:hover fieldset": {
+                            borderColor: "#10b981"
+                          },
+                          "&.Mui-focused fieldset": {
+                            borderColor: "#059669"
+                          }
+                        }
+                      }}
+                    />
+                    <p className="text-xs text-gray-500 mt-1 ml-1">
+                      Enter the total number of plants you plan to sow
+                    </p>
+                  </div>
+
+                  {/* Sowing Date */}
+                  <div className="mb-5">
+                    <label className="block text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
+                      <Calendar className="w-4 h-4 text-green-600" />
+                      Sowing Date
+                    </label>
+                    <input
+                      type="date"
+                      value={sowingDate}
+                      onChange={(e) => setSowingDate(e.target.value)}
+                      className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl text-lg font-semibold focus:outline-none focus:border-green-500 focus:ring-2 focus:ring-green-200 transition-all"
+                    />
+                    <p className="text-xs text-gray-500 mt-1 ml-1">
+                      When will you start sowing these plants?
+                    </p>
+                  </div>
+
+                  {/* Notes */}
+                  <div className="mb-6">
+                    <label className="block text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
+                      <Activity className="w-4 h-4 text-green-600" />
+                      Notes (Optional)
+                    </label>
+                    <textarea
+                      value={sowingNotes}
+                      onChange={(e) => setSowingNotes(e.target.value)}
+                      placeholder="Add any additional notes or instructions..."
+                      rows="3"
+                      className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl text-sm focus:outline-none focus:border-green-500 focus:ring-2 focus:ring-green-200 transition-all resize-none"
+                    />
+                  </div>
+
+                  {/* Info Box */}
+                  <div className="mb-6 p-4 bg-blue-50 border-2 border-blue-200 rounded-xl">
+                    <div className="flex items-start gap-3">
+                      <div className="p-1.5 bg-blue-100 rounded-lg">
+                        <Activity className="w-4 h-4 text-blue-600" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-sm font-semibold text-blue-900 mb-1">
+                          Expected Ready Date
+                        </p>
+                        <p className="text-xs text-blue-700">
+                          {sowingDate ? (
+                            <>
+                              Plants will be ready around{" "}
+                              <span className="font-bold">
+                                {moment(sowingDate).add(12, "days").format("MMM D, YYYY")}
+                              </span>
+                            </>
+                          ) : (
+                            "Select a sowing date to see expected ready date"
+                          )}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Action Buttons */}
+                  <div className="flex gap-3">
+                    <Button
+                      fullWidth
+                      variant="outlined"
+                      onClick={closeSowingModal}
+                      disabled={loading}
+                      sx={{
+                        borderRadius: "12px",
+                        py: 1.8,
+                        borderWidth: "2px",
+                        borderColor: "#d1d5db",
+                        color: "#6b7280",
+                        fontWeight: 600,
+                        fontSize: "1rem",
+                        textTransform: "none",
+                        "&:hover": {
+                          borderWidth: "2px",
+                          borderColor: "#9ca3af",
+                          backgroundColor: "#f9fafb"
+                        }
+                      }}>
+                      Cancel
+                    </Button>
+                    <Button
+                      fullWidth
+                      variant="contained"
+                      onClick={handleSowingSubmit}
+                      disabled={loading || !sowingQuantity || !sowingDate}
+                      startIcon={loading ? null : <Send className="w-4 h-4" />}
+                      sx={{
+                        borderRadius: "12px",
+                        py: 1.8,
+                        fontSize: "1rem",
+                        fontWeight: 700,
+                        textTransform: "none",
+                        background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+                        boxShadow: "0 4px 12px rgba(16, 185, 129, 0.3)",
+                        "&:hover": {
+                          background: "linear-gradient(135deg, #059669 0%, #047857 100%)",
+                          boxShadow: "0 6px 16px rgba(16, 185, 129, 0.4)"
+                        },
+                        "&:disabled": {
+                          background: "#d1d5db",
+                          boxShadow: "none"
+                        }
+                      }}>
+                      {loading ? "Creating..." : "Create Sowing Record"}
+                    </Button>
+                  </div>
+                </>
+              )}
+            </div>
+          </Box>
+        </Fade>
+      </Modal>
+
       {/* Enhanced Delete Confirmation Dialog */}
       <Dialog
         open={deleteDialogOpen}
@@ -1427,8 +1754,11 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                   const isOverbooked = totalPlants < 0 || bookedPercentage > 100
                   const statusColor = getStatusColor(bookedPercentage, totalPlants)
 
+                  const gap = totalBookedPlants - totalPlants
+                  const gapColor = gap > 0 ? "bg-orange-50 text-orange-600" : "bg-gray-50 text-gray-600"
+                  
                   return (
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
                       <div
                         className={`p-4 rounded-lg ${isOverbooked ? "bg-red-50" : "bg-green-50"}`}>
                         <p className="text-sm text-gray-600">Available Plants</p>
@@ -1443,6 +1773,12 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                         <p className="text-sm text-gray-600">Booked Plants</p>
                         <p className="text-2xl font-bold text-blue-600">
                           {totalBookedPlants.toLocaleString()}
+                        </p>
+                      </div>
+                      <div className={`p-4 rounded-lg ${gapColor}`}>
+                        <p className="text-sm text-gray-600">Gap (Need to Sow)</p>
+                        <p className={`text-2xl font-bold ${gap > 0 ? 'text-orange-600' : 'text-gray-900'}`}>
+                          {gap > 0 ? '+' : ''}{gap.toLocaleString()}
                         </p>
                       </div>
                       <div className="p-4 rounded-lg bg-gray-50">
@@ -1505,28 +1841,56 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                   return (
                     <Card
                       key={_id}
-                      className={`transition-all duration-300 hover:shadow-lg cursor-pointer ${
-                        slotIsOverbooked ? "ring-2 ring-red-200" : ""
-                      }`}
+                      className={`transition-all duration-300 hover:shadow-xl cursor-pointer rounded-2xl border-2 ${
+                        slotIsOverbooked 
+                          ? "border-red-300 ring-2 ring-red-200 shadow-lg shadow-red-100" 
+                          : slotBookedPercentage > 70
+                          ? "border-orange-200 hover:border-orange-300"
+                          : "border-gray-200 hover:border-blue-300"
+                      } ${status ? "" : "opacity-60"}`}
                       onClick={() => openSlotDetails(slot, availableMonths[selectedMonth])}>
-                      <CardContent className={`p-4 ${slotIsOverbooked ? "bg-red-50" : ""}`}>
+                      <CardContent className={`p-5 ${
+                        slotIsOverbooked 
+                          ? "bg-gradient-to-br from-red-50 to-red-100" 
+                          : slotBookedPercentage > 70
+                          ? "bg-gradient-to-br from-orange-50 to-orange-100"
+                          : "bg-gradient-to-br from-white to-gray-50"
+                      }`}>
                         {/* Card Header */}
-                        <div className="flex items-center justify-between mb-3">
-                          <div className="flex items-center space-x-2">
-                            <h4 className="font-semibold text-gray-900">
-                              {start} - {end}
-                            </h4>
+                        <div className="flex items-center justify-between mb-4">
+                          <div className="flex items-center gap-2">
+                            <div className={`p-2 rounded-xl ${
+                              slotIsOverbooked 
+                                ? "bg-red-500" 
+                                : slotBookedPercentage > 70
+                                ? "bg-orange-500"
+                                : "bg-blue-500"
+                            }`}>
+                              <Calendar className="w-4 h-4 text-white" />
+                            </div>
+                            <div>
+                              <h4 className="font-bold text-gray-900 text-sm">
+                                {start} - {end}
+                              </h4>
+                              <p className="text-xs text-gray-500">{year}</p>
+                            </div>
                             {isManual && (
-                              <Tooltip title="Manual Slot">
-                                <Zap className="w-4 h-4 text-amber-500" />
+                              <Tooltip title="Manual Slot" arrow placement="top">
+                                <div className="px-2 py-0.5 bg-amber-100 rounded-full">
+                                  <Zap className="w-3 h-3 text-amber-600" />
+                                </div>
                               </Tooltip>
                             )}
                             {slotIsOverbooked && (
-                              <Tooltip title="Overbooked">
-                                <AlertTriangle className="w-4 h-4 text-red-500" />
+                              <Tooltip title="Capacity Exceeded!" arrow placement="top">
+                                <div className="px-2 py-0.5 bg-red-500 rounded-full animate-pulse">
+                                  <AlertTriangle className="w-3 h-3 text-white" />
+                                </div>
                               </Tooltip>
                             )}
-                            <Tooltip title="View Slot Trail">
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <Tooltip title="View History" arrow>
                               <IconButton
                                 size="small"
                                 onClick={(e) => {
@@ -1536,13 +1900,16 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                                   setSelectedSlotForTrail(slot)
                                   setShowSlotTrailModal(true)
                                 }}
-                                className="text-blue-600 hover:text-blue-800">
-                                <History className="w-4 h-4" />
+                                sx={{
+                                  bgcolor: 'rgba(59, 130, 246, 0.1)',
+                                  '&:hover': { bgcolor: 'rgba(59, 130, 246, 0.2)' },
+                                  width: 28,
+                                  height: 28
+                                }}>
+                                <History className="w-3.5 h-3.5 text-blue-600" />
                               </IconButton>
                             </Tooltip>
-                          </div>
-                          <div className="flex items-center space-x-1">
-                            <Tooltip title="Edit Plants">
+                            <Tooltip title="Edit Available Plants" arrow>
                               <IconButton
                                 size="small"
                                 onClick={(e) => {
@@ -1550,147 +1917,213 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                                   startEditing(e, totalPlants, _id, buffer)
                                 }}
                                 sx={{
-                                  color:
-                                    (slot.availablePlants || totalPlants) < 0
-                                      ? "#dc2626"
-                                      : "#059669"
+                                  bgcolor: (slot.availablePlants || totalPlants) < 0
+                                    ? 'rgba(220, 38, 38, 0.1)'
+                                    : 'rgba(5, 150, 105, 0.1)',
+                                  '&:hover': {
+                                    bgcolor: (slot.availablePlants || totalPlants) < 0
+                                      ? 'rgba(220, 38, 38, 0.2)'
+                                      : 'rgba(5, 150, 105, 0.2)'
+                                  },
+                                  width: 28,
+                                  height: 28
                                 }}>
-                                <Edit2 className="w-4 h-4" />
+                                <Edit2 className={`w-3.5 h-3.5 ${
+                                  (slot.availablePlants || totalPlants) < 0
+                                    ? "text-red-600"
+                                    : "text-green-600"
+                                }`} />
                               </IconButton>
                             </Tooltip>
-                            <Tooltip title="Update Buffer">
+                            <Tooltip title="Manage Buffer" arrow>
                               <IconButton
                                 size="small"
                                 onClick={(e) => {
                                   e.stopPropagation()
                                   openBufferModal(e, slot, buffer)
                                 }}
-                                sx={{ color: "#8b5cf6" }}>
-                                <Shield className="w-4 h-4" />
+                                sx={{
+                                  bgcolor: 'rgba(139, 92, 246, 0.1)',
+                                  '&:hover': { bgcolor: 'rgba(139, 92, 246, 0.2)' },
+                                  width: 28,
+                                  height: 28
+                                }}>
+                                <Shield className="w-3.5 h-3.5 text-purple-600" />
                               </IconButton>
                             </Tooltip>
-                            <Tooltip title="View Details">
-                              <IconButton size="small">
-                                <Eye className="w-4 h-4" />
+                            <Tooltip title="Add Sowing Record" arrow>
+                              <IconButton
+                                size="small"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  openSowingModal(e, slot)
+                                }}
+                                sx={{
+                                  bgcolor: 'rgba(16, 185, 129, 0.1)',
+                                  '&:hover': { bgcolor: 'rgba(16, 185, 129, 0.2)' },
+                                  width: 28,
+                                  height: 28
+                                }}>
+                                <Sprout className="w-3.5 h-3.5 text-green-600" />
                               </IconButton>
                             </Tooltip>
                           </div>
                         </div>
 
-                        {/* Progress Bar */}
-                        <div className="mb-3">
-                          <div className="flex justify-between items-center mb-1">
-                            <span className="text-xs text-gray-600">Booking Progress</span>
-                            <span className={`text-xs font-medium ${slotStatusColor.text}`}>
+                        {/* Enhanced Progress Bar */}
+                        <div className="mb-4">
+                          <div className="flex justify-between items-center mb-2">
+                            <span className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Utilization</span>
+                            <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${slotStatusColor.text} ${
+                              slotIsOverbooked ? "bg-red-100" : slotBookedPercentage > 70 ? "bg-orange-100" : "bg-blue-100"
+                            }`}>
                               {slotBookedPercentage}%
                             </span>
                           </div>
-                          <div className="w-full bg-gray-200 rounded-full h-2">
+                          <div className="relative w-full bg-gray-200 rounded-full h-3 overflow-hidden shadow-inner">
                             <div
-                              className={`h-2 ${
+                              className={`h-3 ${
                                 slotStatusColor.bg
                               } transition-all duration-500 rounded-full ${
-                                slotIsOverbooked ? "animate-pulse" : ""
+                                slotIsOverbooked ? "animate-pulse shadow-lg" : ""
                               }`}
-                              style={{ width: `${Math.min(slotBookedPercentage, 100)}%` }}
+                              style={{ 
+                                width: `${Math.min(slotBookedPercentage, 100)}%`,
+                                background: slotIsOverbooked 
+                                  ? 'linear-gradient(90deg, #dc2626, #991b1b)' 
+                                  : slotBookedPercentage > 70
+                                  ? 'linear-gradient(90deg, #f59e0b, #d97706)'
+                                  : 'linear-gradient(90deg, #3b82f6, #2563eb)'
+                              }}
                             />
                           </div>
                         </div>
 
-                        {/* Stats */}
-                        <div className="grid grid-cols-2 gap-2 text-center text-xs mb-2">
-                          <div>
-                            <p className="text-gray-600">Available</p>
-                            <p
-                              className={`font-bold ${
-                                slot.availablePlants < 0 ? "text-red-600" : "text-green-600"
-                              }`}>
-                              {slot.availablePlants?.toLocaleString() ||
-                                totalPlants.toLocaleString()}
+                        {/* Enhanced Stats Grid */}
+                        <div className="grid grid-cols-3 gap-2 mb-4">
+                          <div className={`p-2 rounded-xl border-2 ${
+                            slot.availablePlants < 0 
+                              ? "bg-red-50 border-red-200" 
+                              : "bg-green-50 border-green-200"
+                          }`}>
+                            <div className="flex items-center justify-between mb-1">
+                              <p className="text-xs font-medium text-gray-600">Available</p>
+                              <CheckCircle2 className={`w-3.5 h-3.5 ${
+                                slot.availablePlants < 0 ? "text-red-500" : "text-green-500"
+                              }`} />
+                            </div>
+                            <p className={`text-base font-bold ${
+                              slot.availablePlants < 0 ? "text-red-700" : "text-green-700"
+                            }`}>
+                              {slot.availablePlants?.toLocaleString() || totalPlants.toLocaleString()}
                             </p>
                           </div>
-                          <div>
-                            <p className="text-gray-600">Booked</p>
-                            <p className="font-bold text-blue-600">{totalBookedPlants}</p>
+                          <div className="p-2 rounded-xl bg-blue-50 border-2 border-blue-200">
+                            <div className="flex items-center justify-between mb-1">
+                              <p className="text-xs font-medium text-gray-600">Booked</p>
+                              <Clock className="w-3.5 h-3.5 text-blue-500" />
+                            </div>
+                            <p className="text-base font-bold text-blue-700">{totalBookedPlants.toLocaleString()}</p>
+                          </div>
+                          <div className={`p-2 rounded-xl border-2 ${
+                            (totalBookedPlants - (slot.availablePlants || totalPlants)) > 0
+                              ? "bg-orange-50 border-orange-200"
+                              : "bg-gray-50 border-gray-200"
+                          }`}>
+                            <div className="flex items-center justify-between mb-1">
+                              <p className="text-xs font-medium text-gray-600">Gap</p>
+                              <TrendingUp className={`w-3.5 h-3.5 ${
+                                (totalBookedPlants - (slot.availablePlants || totalPlants)) > 0 ? "text-orange-500" : "text-gray-400"
+                              }`} />
+                            </div>
+                            <p className={`text-base font-bold ${
+                              (totalBookedPlants - (slot.availablePlants || totalPlants)) > 0 ? "text-orange-700" : "text-gray-700"
+                            }`}>
+                              {(totalBookedPlants - (slot.availablePlants || totalPlants)) > 0 ? '+' : ''}
+                              {(totalBookedPlants - (slot.availablePlants || totalPlants)).toLocaleString()}
+                            </p>
                           </div>
                         </div>
 
-                        {/* Buffer Info */}
-                        <div className="mb-2 p-2 bg-purple-50 rounded-lg border border-purple-200">
-                          <div className="flex items-center justify-between text-xs">
-                            <span className="text-purple-700 font-medium">Buffer</span>
-                            <div className="flex items-center space-x-2">
-                              <span className="text-purple-600 font-bold">
-                                {slot.effectiveBuffer || buffer || 0}%
-                              </span>
-                              <Tooltip title="Update Buffer">
-                                <IconButton
-                                  size="small"
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    openBufferModal(e, slot, slot.effectiveBuffer || buffer)
-                                  }}
-                                  sx={{
-                                    color: "#8b5cf6",
-                                    padding: "2px",
-                                    "&:hover": { backgroundColor: "rgba(139, 92, 246, 0.1)" }
-                                  }}>
-                                  <Shield className="w-3 h-3" />
-                                </IconButton>
-                              </Tooltip>
+                        {/* Compact Buffer Info Card */}
+                        <div className="p-3 bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl border-2 border-purple-200 mb-4">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <div className="flex items-center gap-1 mb-1">
+                                <p className="text-xs font-medium text-purple-700 uppercase tracking-wide">Buffer Reserved</p>
+                                <span className="text-xs font-bold text-purple-600">({slot.effectiveBuffer || buffer || 0}%)</span>
+                                <Tooltip title="Update Buffer %" arrow>
+                                  <IconButton
+                                    size="small"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      openBufferModal(e, slot, slot.effectiveBuffer || buffer)
+                                    }}
+                                    sx={{
+                                      padding: "2px",
+                                      width: 18,
+                                      height: 18
+                                    }}>
+                                    <Edit2 className="w-3 h-3 text-purple-700" />
+                                  </IconButton>
+                                </Tooltip>
+                              </div>
+                              <p className="text-xl font-bold text-purple-900">
+                                {slot.bufferAmount?.toLocaleString() || 0}
+                              </p>
                             </div>
+                            <Shield className="w-8 h-8 text-purple-400" />
                           </div>
-                          {slot.effectiveBuffer && slot.effectiveBuffer !== (buffer || 0) && (
-                            <div className="text-xs text-purple-600 mt-1">
-                              Inherited from{" "}
-                              {slot.effectiveBuffer === slot.buffer
-                                ? "slot"
-                                : slot.effectiveBuffer === slot.subtypeBuffer
-                                ? "subtype"
-                                : "plant"}
-                            </div>
-                          )}
-                          {/* Release Buffer Button */}
                           {slot.bufferAmount > 0 && (
-                            <div className="mt-2">
-                              <Tooltip title="Release plants from buffer to available">
+                            <div className="mt-2 pt-2 border-t border-purple-200">
+                              <Tooltip title="Release buffer plants to available capacity" arrow>
                                 <Button
                                   size="small"
-                                  variant="outlined"
+                                  variant="text"
                                   onClick={(e) => {
                                     e.stopPropagation()
                                     openReleaseBufferModal(slot)
                                   }}
                                   sx={{
-                                    width: "100%",
                                     fontSize: "0.7rem",
-                                    padding: "2px 4px",
-                                    borderColor: "#8b5cf6",
+                                    padding: "2px 8px",
                                     color: "#8b5cf6",
+                                    fontWeight: 600,
+                                    textTransform: "none",
                                     "&:hover": {
-                                      backgroundColor: "rgba(139, 92, 246, 0.1)",
-                                      borderColor: "#7c3aed"
+                                      bgcolor: "rgba(139, 92, 246, 0.1)"
                                     }
-                                  }}>
-                                  <Shield className="w-3 h-3 mr-1" />
-                                  Release Buffer ({slot.bufferAmount?.toLocaleString() || 0})
+                                  }}
+                                  startIcon={<TrendingUp className="w-3 h-3" />}>
+                                  Release
                                 </Button>
                               </Tooltip>
                             </div>
                           )}
                         </div>
 
-                        <div className="text-center text-xs">
-                          <p className="text-gray-600">Total Capacity</p>
-                          <p className="font-bold text-gray-900">
-                            {slot.originalTotalPlants
-                              ? slot.originalTotalPlants.toLocaleString()
-                              : (totalPlants + totalBookedPlants).toLocaleString()}
-                          </p>
+                        {/* Total Capacity Display */}
+                        <div className="p-3 bg-gradient-to-br from-indigo-50 to-indigo-100 rounded-xl border-2 border-indigo-200 mb-4">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-xs font-medium text-indigo-700 uppercase tracking-wide mb-1">Total Capacity</p>
+                              <p className="text-xl font-bold text-indigo-900">
+                                {slot.originalTotalPlants
+                                  ? slot.originalTotalPlants.toLocaleString()
+                                  : (totalPlants + totalBookedPlants).toLocaleString()}
+                              </p>
+                            </div>
+                            <Target className="w-8 h-8 text-indigo-400" />
+                          </div>
                           {slot.bufferAmount > 0 && (
-                            <p className="text-xs text-gray-500">
-                              -{slot.bufferAmount?.toLocaleString() || 0} buffer
-                            </p>
+                            <div className="mt-2 pt-2 border-t border-indigo-200">
+                              <div className="flex justify-between text-xs">
+                                <span className="text-indigo-600">After Buffer</span>
+                                <span className="font-bold text-indigo-800">
+                                  {(slot.originalTotalPlants || totalPlants + totalBookedPlants) - slot.bufferAmount} available
+                                </span>
+                              </div>
+                            </div>
                           )}
                         </div>
 

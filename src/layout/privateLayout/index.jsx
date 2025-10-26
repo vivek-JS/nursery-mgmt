@@ -16,6 +16,8 @@ import LogoutIcon from "@mui/icons-material/Logout"
 import { usePrivateLayoutController } from "./privateLayout.controller"
 import { useStyles } from "layout/privateLayoutStyles"
 import { useSelector } from "react-redux"
+import PasswordChangeModal from "components/Modals/PasswordChangeModal"
+import { useUserRole } from "utils/roleUtils"
 const drawerWidth = 65
 
 const Main = styled("main", { shouldForwardProp: (prop) => prop !== "open" })(
@@ -71,8 +73,34 @@ export default function PrivateLayout(props) {
   const styles = useStyles()
 
   const userType = useSelector((state) => state?.userData?.userData?.jobTitle)
-  console.log(userType)
-  const { navigate, handleLogout, activeMenu } = usePrivateLayoutController(props)
+  const userRole = useUserRole()
+  console.log("User Type:", userType, "User Role:", userRole)
+  
+  const { 
+    navigate, 
+    handleLogout, 
+    activeMenu,
+    showPasswordModal,
+    handlePasswordChangeSuccess,
+    handlePasswordModalClose,
+    userProfile
+  } = usePrivateLayoutController(props)
+
+  // Function to check if user has access to a menu item
+  const hasMenuAccess = (menuItem) => {
+    // If no allowedRoles specified, allow access (backward compatibility)
+    if (!menuItem.allowedRoles) {
+      return true
+    }
+    
+    // SUPER_ADMIN has access to everything
+    if (userRole === "SUPER_ADMIN") {
+      return true
+    }
+    
+    // Check if user's role is in the allowed roles
+    return menuItem.allowedRoles.includes(userRole)
+  }
 
   return (
     <Box sx={{ display: "flex" }}>
@@ -108,9 +136,15 @@ export default function PrivateLayout(props) {
               overflowX: "hidden"
             }}>
             <List>
-              {DashboardMenus.filter((item) =>
-                userType === "LABORATORY_MANAGER" ? item.title === "Labs" : true
-              ).map((item) => {
+              {DashboardMenus.filter((item) => {
+                // Legacy filter for LABORATORY_MANAGER (keeping for backward compatibility)
+                if (userType === "LABORATORY_MANAGER" && item.title !== "Labs") {
+                  return false
+                }
+                
+                // Apply role-based access control
+                return hasMenuAccess(item)
+              }).map((item) => {
                 return (
                   <ListItemButton
                     sx={activeMenu(item) ? styles.activeListItem : styles.listItem}
@@ -150,6 +184,20 @@ export default function PrivateLayout(props) {
       <Main open={open}>
         <Outlet />
       </Main>
+      
+      {/* Password Change Modal - shown if user hasn't set password */}
+      {showPasswordModal && userProfile && (
+        <PasswordChangeModal
+          open={showPasswordModal}
+          onClose={handlePasswordModalClose}
+          onSuccess={handlePasswordChangeSuccess}
+          loginResponse={{
+            isPasswordSet: false,
+            forcePasswordReset: true,
+            user: userProfile
+          }}
+        />
+      )}
     </Box>
   )
 }

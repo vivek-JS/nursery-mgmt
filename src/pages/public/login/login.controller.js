@@ -68,10 +68,22 @@ export const useLoginController = () => {
   }
 
   const handlePasswordChangeSuccess = () => {
-    // Navigate to dashboard after successful password change
+    // Close the modal and navigate to dashboard after successful password change
+    setShowPasswordChangeModal(false)
     setTimeout(() => {
       navigate("/u/dashboard", { replace: true })
     }, 500)
+  }
+
+  // Prevent closing modal if password is not set
+  const handleModalClose = () => {
+    // Only allow closing if password is already set (manual password change, not forced)
+    if (loginResponse && (!loginResponse.isPasswordSet || loginResponse.forcePasswordReset)) {
+      // Password not set - don't allow closing
+      console.log("🚫 Cannot close modal - password must be set")
+      return
+    }
+    setShowPasswordChangeModal(false)
   }
 
   const navigateToForgotPassword = () => {
@@ -96,8 +108,10 @@ export const useLoginController = () => {
     togglePasswordVisiblity,
     handleLogin,
     handlePasswordChangeSuccess,
+    handleModalClose,
     navigateToForgotPassword,
     navigateToSignUp,
-    openPasswordResetModal
+    openPasswordResetModal,
+    loginResponse
   }
 }

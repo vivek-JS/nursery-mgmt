@@ -68,7 +68,7 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh }) => {
         orderStatus: order.orderStatus,
         Delivery: order.Delivery,
         details: {
-          farmer: order.details.farmer,
+          farmer: order.details?.farmer || {},
           contact: order.details.contact,
           orderNotes: order.details.orderNotes || "",
           soilType: order.details.soilType || "",
@@ -324,6 +324,11 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh }) => {
                   key={dispatch._id}
                   dispatch={dispatch}
                   onRefresh={fetchDispatches}
+                  onViewDispatch={(dispatch) => handleDialogOpen("view", dispatch, { stopPropagation: () => {} })}
+                  onCollectSlip={(dispatch) => handleDialogOpen("collectSlip", dispatch, { stopPropagation: () => {} })}
+                  onDeliveryChallan={(dispatch) => handleDialogOpen("dc", dispatch, { stopPropagation: () => {} })}
+                  onCompleteOrder={(dispatch) => handleOrderComplete(dispatch, { stopPropagation: () => {} })}
+                  onDeleteDispatch={(dispatch) => handleDelete(dispatch)}
                 />
               ))}
             </div>

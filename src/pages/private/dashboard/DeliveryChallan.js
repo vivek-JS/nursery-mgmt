@@ -69,14 +69,16 @@ const DeliveryChallanPDF = ({ open, onClose, dispatchData }) => {
             <h3 className="text-lg font-semibold mb-2">Farmer Details / शेतकरी तपशील</h3>
             <div className="space-y-1">
               <p>
-                <span className="text-gray-600">Name / नाव:</span> {order.details.farmer.name}
+                <span className="text-gray-600">Name / नाव:</span>{" "}
+                {order.details?.farmer?.name || "N/A"}
               </p>
               <p>
                 <span className="text-gray-600">Mobile / मोबाईल:</span>{" "}
-                {order.details.farmer.mobileNumber}
+                {order.details?.farmer?.mobileNumber || "N/A"}
               </p>
               <p>
-                <span className="text-gray-600">Village / गाव:</span> {order.details.farmer.village}
+                <span className="text-gray-600">Village / गाव:</span>{" "}
+                {order.details?.farmer?.village || "N/A"}
               </p>
               <p>
                 <span className="text-gray-600">Delivery Location / वितरण स्थान:</span>{" "}

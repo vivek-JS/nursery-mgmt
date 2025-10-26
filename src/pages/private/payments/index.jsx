@@ -15,16 +15,28 @@ import {
   Select,
   MenuItem,
   FormControl,
-  InputLabel
+  InputLabel,
+  IconButton,
+  ImageList,
+  ImageListItem,
+  ImageListItemBar,
+  Modal,
+  Backdrop,
+  Fade,
+  Box as MuiBox
 } from "@mui/material"
 import { makeStyles } from "tss-react/mui"
 import {
   Download as DownloadIcon,
   Search as SearchIcon,
-  FilterList as FilterIcon
+  FilterList as FilterIcon,
+  Visibility as ViewIcon,
+  Close as CloseIcon,
+  ArrowBackIos as PrevIcon,
+  ArrowForwardIos as NextIcon,
+  Shield
 } from "@mui/icons-material"
-import DatePicker from "react-datepicker"
-import "react-datepicker/dist/react-datepicker.css"
+
 import { API, NetworkManager } from "network/core"
 import { PageLoader } from "components"
 import moment from "moment"
@@ -33,7 +45,8 @@ import {
   useHasPaymentAccess,
   useIsAccountant,
   useIsOfficeAdmin,
-  useIsSuperAdmin
+  useIsSuperAdmin,
+  useHasPaymentsAccess
 } from "utils/roleUtils"
 
 const useStyles = makeStyles()((theme) => ({
@@ -101,6 +114,98 @@ const useStyles = makeStyles()((theme) => ({
   disabledStatus: {
     opacity: 0.6,
     cursor: "not-allowed"
+  },
+  dateInput: {
+    width: "100%",
+    padding: "12px 16px",
+    border: "1px solid #d1d5db",
+    borderRadius: "8px",
+    fontSize: "14px",
+    fontFamily: "inherit",
+    transition: "all 0.2s ease",
+    "&:focus": {
+      outline: "none",
+      borderColor: "#3b82f6",
+      boxShadow: "0 0 0 3px rgba(59, 130, 246, 0.1)"
+    },
+    "&:hover": {
+      borderColor: "#9ca3af"
+    }
+  },
+  imageViewButton: {
+    padding: "8px",
+    borderRadius: "8px",
+    backgroundColor: "#f5f5f5",
+    color: "#666",
+    "&:hover": {
+      backgroundColor: "#e0e0e0",
+      color: "#333"
+    }
+  },
+  imageModal: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    outline: "none"
+  },
+  imageModalContent: {
+    backgroundColor: "white",
+    borderRadius: "12px",
+    padding: "20px",
+    maxWidth: "90vw",
+    maxHeight: "90vh",
+    overflow: "auto",
+    position: "relative"
+  },
+  imageModalHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: "20px",
+    paddingBottom: "10px",
+    borderBottom: "1px solid #e0e0e0"
+  },
+  imageContainer: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: "20px"
+  },
+  mainImage: {
+    maxWidth: "100%",
+    maxHeight: "60vh",
+    objectFit: "contain",
+    borderRadius: "8px",
+    boxShadow: "0 4px 16px rgba(0,0,0,0.1)"
+  },
+  imageNavigation: {
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: "10px"
+  },
+  imageThumbnails: {
+    display: "flex",
+    gap: "10px",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    marginTop: "20px"
+  },
+  thumbnail: {
+    width: "80px",
+    height: "80px",
+    objectFit: "cover",
+    borderRadius: "8px",
+    cursor: "pointer",
+    border: "2px solid transparent",
+    "&.active": {
+      border: "2px solid #1976d2"
+    }
+  },
+  imageInfo: {
+    textAlign: "center",
+    color: "#666",
+    fontSize: "14px"
   }
 }))
 
@@ -109,18 +214,44 @@ const PaymentsPage = () => {
   const [payments, setPayments] = useState([])
   const [loading, setLoading] = useState(false)
   const [searchTerm, setSearchTerm] = useState("")
-  const [selectedDateRange, setSelectedDateRange] = useState([
-    new Date(new Date().getFullYear(), new Date().getMonth(), 1),
-    new Date()
-  ])
-  const [activeTab, setActiveTab] = useState("collected") // "collected", "pending", or "rejected"
+  // Auto-select last 15 days on mount
+  const [selectedDateRange, setSelectedDateRange] = useState(() => {
+    const endDate = new Date()
+    const startDate = new Date()
+    startDate.setDate(endDate.getDate() - 15)
+    return [startDate, endDate]
+  })
+  const [activeTab, setActiveTab] = useState("pending") // "collected", "pending", or "rejected"
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("")
 
   // Role-based access control
+  const hasPaymentsAccess = useHasPaymentsAccess() // Only Accountants and Super Admins
   const hasPaymentAccess = useHasPaymentAccess() // Only Accountants and Super Admins
   const isAccountant = useIsAccountant()
   const isOfficeAdmin = useIsOfficeAdmin()
   const isSuperAdmin = useIsSuperAdmin()
+
+  // Access control check
+  if (!hasPaymentsAccess) {
+    return (
+      <Box sx={{ p: 3 }}>
+        <Card sx={{ maxWidth: 600, mx: 'auto', mt: 4 }}>
+          <CardContent sx={{ textAlign: 'center', p: 4 }}>
+            <Shield sx={{ fontSize: 64, color: '#f44336', mb: 2 }} />
+            <Typography variant="h5" gutterBottom color="error">
+              Access Denied
+            </Typography>
+            <Typography variant="body1" color="text.secondary" sx={{ mb: 2 }}>
+              You don&apos;t have permission to access Payments Management.
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              This feature is only available to Accountant and Super Admin users.
+            </Typography>
+          </CardContent>
+        </Card>
+      </Box>
+    )
+  }
 
   // Confirmation dialog state
   const [confirmDialog, setConfirmDialog] = useState({
@@ -130,22 +261,37 @@ const PaymentsPage = () => {
     onConfirm: null
   })
 
-  const [startDate, endDate] = selectedDateRange
+  // Image viewing modal state
+  const [imageModal, setImageModal] = useState({
+    open: false,
+    images: [],
+    currentIndex: 0,
+    title: ""
+  })
 
-  // Handle date range changes with validation
-  const handleDateRangeChange = (update) => {
-    // Only update if we have valid dates
-    if (
-      update &&
-      update[0] &&
-      update[1] &&
-      update[0] instanceof Date &&
-      update[1] instanceof Date &&
-      !isNaN(update[0].getTime()) &&
-      !isNaN(update[1].getTime())
-    ) {
-      setSelectedDateRange(update)
+  const [startDate, endDate] = selectedDateRange
+  
+  // Track date string for comparison
+  const startDateStr = startDate ? moment(startDate).format("DD-MM-YYYY") : null
+  const endDateStr = endDate ? moment(endDate).format("DD-MM-YYYY") : null
+
+  // Handle date range changes
+  const handleStartDateChange = (e) => {
+    const date = e.target.value ? new Date(e.target.value) : null
+    if (date && date instanceof Date && !isNaN(date.getTime())) {
+      setSelectedDateRange([date, endDate])
     }
+  }
+
+  const handleEndDateChange = (e) => {
+    const date = e.target.value ? new Date(e.target.value) : null
+    if (date && date instanceof Date && !isNaN(date.getTime())) {
+      setSelectedDateRange([startDate, date])
+    }
+  }
+  
+  const clearDates = () => {
+    setSelectedDateRange([null, null])
   }
 
   // Debounce search term
@@ -159,23 +305,18 @@ const PaymentsPage = () => {
     }
   }, [searchTerm])
 
-  // Fetch payments when filters change
-  useEffect(() => {
-    fetchPayments()
-  }, [debouncedSearchTerm, startDate, endDate, activeTab])
-
+  // Fetch payments function
   const fetchPayments = async () => {
     setLoading(true)
     try {
       // Only format dates if they are valid Date objects
       const params = {
         search: debouncedSearchTerm,
-        limit: 1000,
         paymentStatus:
           activeTab === "collected" ? "COLLECTED" : activeTab === "pending" ? "PENDING" : "REJECTED"
       }
 
-      // Add date range only if both dates are valid
+      // Add date range only if BOTH dates are valid (complete range selected)
       if (
         startDate &&
         endDate &&
@@ -204,6 +345,11 @@ const PaymentsPage = () => {
       setLoading(false)
     }
   }
+
+  // Fetch payments when filters change
+  useEffect(() => {
+    fetchPayments()
+  }, [debouncedSearchTerm, activeTab, startDateStr, endDateStr])
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -281,10 +427,8 @@ const PaymentsPage = () => {
 
   const clearFilters = () => {
     setSearchTerm("")
-    // Set valid default dates (first day of current month to today)
-    const firstDayOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1)
-    const today = new Date()
-    setSelectedDateRange([firstDayOfMonth, today])
+    // Clear date range completely
+    setSelectedDateRange([null, null])
   }
 
   const handleTabChange = (tab) => {
@@ -364,6 +508,77 @@ const PaymentsPage = () => {
     }
   }
 
+  // Image viewing functions
+  const openImageModal = (images, title, startIndex = 0) => {
+    if (images && images.length > 0) {
+      setImageModal({
+        open: true,
+        images: images,
+        currentIndex: startIndex,
+        title: title
+      })
+    }
+  }
+
+  const closeImageModal = () => {
+    setImageModal({
+      open: false,
+      images: [],
+      currentIndex: 0,
+      title: ""
+    })
+  }
+
+  const nextImage = () => {
+    setImageModal(prev => ({
+      ...prev,
+      currentIndex: (prev.currentIndex + 1) % prev.images.length
+    }))
+  }
+
+  const prevImage = () => {
+    setImageModal(prev => ({
+      ...prev,
+      currentIndex: prev.currentIndex === 0 ? prev.images.length - 1 : prev.currentIndex - 1
+    }))
+  }
+
+  const goToImage = (index) => {
+    setImageModal(prev => ({
+      ...prev,
+      currentIndex: index
+    }))
+  }
+
+  // Get all images for a payment (order screenshots + payment receipt photos)
+  const getAllImagesForPayment = (payment) => {
+    const images = []
+    
+    // Add order screenshots
+    if (payment.screenshots && payment.screenshots.length > 0) {
+      payment.screenshots.forEach((screenshot, index) => {
+        images.push({
+          url: screenshot,
+          type: 'Order Screenshot',
+          index: index + 1
+        })
+      })
+    }
+    
+    // Add payment receipt photos
+    if (payment.payment?.receiptPhoto && payment.payment.receiptPhoto.length > 0) {
+      payment.payment.receiptPhoto.forEach((photo, index) => {
+        images.push({
+          url: photo,
+          type: 'Payment Receipt',
+          index: index + 1
+        })
+      })
+    }
+    
+    return images
+  }
+
   if (loading) return <PageLoader />
 
   return (
@@ -386,16 +601,16 @@ const PaymentsPage = () => {
         <Grid container spacing={2}>
           <Grid item>
             <Button
-              className={`${classes.tabButton} ${activeTab === "collected" ? "active" : ""}`}
-              onClick={() => handleTabChange("collected")}>
-              Collected Payments
+              className={`${classes.tabButton} ${activeTab === "pending" ? "active" : ""}`}
+              onClick={() => handleTabChange("pending")}>
+              Pending Payments
             </Button>
           </Grid>
           <Grid item>
             <Button
-              className={`${classes.tabButton} ${activeTab === "pending" ? "active" : ""}`}
-              onClick={() => handleTabChange("pending")}>
-              Pending Payments
+              className={`${classes.tabButton} ${activeTab === "collected" ? "active" : ""}`}
+              onClick={() => handleTabChange("collected")}>
+              Collected Payments
             </Button>
           </Grid>
           <Grid item>
@@ -415,16 +630,26 @@ const PaymentsPage = () => {
           Filters
         </Typography>
         <Grid container spacing={3} alignItems="center">
-          <Grid item xs={12} md={4}>
-            <DatePicker
-              selectsRange={true}
-              startDate={startDate}
-              endDate={endDate}
-              onChange={handleDateRangeChange}
-              isClearable={true}
-              placeholderText="Select date range"
-              className="w-full p-3 border rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              calendarClassName="custom-datepicker"
+          <Grid item xs={12} md={3}>
+            <Typography variant="body2" color="textSecondary" mb={1}>
+              Start Date
+            </Typography>
+            <input
+              type="date"
+              value={startDate ? moment(startDate).format("YYYY-MM-DD") : ""}
+              onChange={handleStartDateChange}
+              className={classes.dateInput}
+            />
+          </Grid>
+          <Grid item xs={12} md={3}>
+            <Typography variant="body2" color="textSecondary" mb={1}>
+              End Date
+            </Typography>
+            <input
+              type="date"
+              value={endDate ? moment(endDate).format("YYYY-MM-DD") : ""}
+              onChange={handleEndDateChange}
+              className={classes.dateInput}
             />
           </Grid>
           <Grid item xs={12} md={4}>
@@ -576,6 +801,37 @@ const PaymentsPage = () => {
                           {payment.salesPerson?.phoneNumber}
                         </Typography>
                       </Grid>
+
+                      <Grid item xs={12} md={1}>
+                        {(() => {
+                          const allImages = getAllImagesForPayment(payment)
+                          const hasImages = allImages.length > 0
+                          
+                          return (
+                            <Box display="flex" flexDirection="column" alignItems="center" gap={1}>
+                              {hasImages ? (
+                                <IconButton
+                                  onClick={() => openImageModal(allImages, `Order #${payment.orderId} - Images`, 0)}
+                                  className={classes.imageViewButton}
+                                  title="View Images"
+                                  size="small"
+                                >
+                                  <ViewIcon />
+                                </IconButton>
+                              ) : (
+                                <Typography variant="caption" color="textSecondary">
+                                  No Images
+                                </Typography>
+                              )}
+                              {hasImages && (
+                                <Typography variant="caption" color="textSecondary">
+                                  {allImages.length} image{allImages.length > 1 ? 's' : ''}
+                                </Typography>
+                              )}
+                            </Box>
+                          )
+                        })()}
+                      </Grid>
                     </Grid>
                   </CardContent>
                 </Card>
@@ -600,6 +856,81 @@ const PaymentsPage = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Image Viewing Modal */}
+      <Modal
+        open={imageModal.open}
+        onClose={closeImageModal}
+        className={classes.imageModal}
+        closeAfterTransition
+        BackdropComponent={Backdrop}
+        BackdropProps={{
+          timeout: 500,
+        }}
+      >
+        <Fade in={imageModal.open}>
+          <div className={classes.imageModalContent}>
+            <div className={classes.imageModalHeader}>
+              <Typography variant="h6" component="h2">
+                {imageModal.title}
+              </Typography>
+              <IconButton onClick={closeImageModal} size="small">
+                <CloseIcon />
+              </IconButton>
+            </div>
+            
+            {imageModal.images.length > 0 && (
+              <div className={classes.imageContainer}>
+                <img
+                  src={imageModal.images[imageModal.currentIndex]?.url}
+                  alt={`Image ${imageModal.currentIndex + 1}`}
+                  className={classes.mainImage}
+                  onError={(e) => {
+                    e.target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgdmlld0JveD0iMCAwIDIwMCAyMDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIyMDAiIGhlaWdodD0iMjAwIiBmaWxsPSIjRjVGNUY1Ii8+CjxwYXRoIGQ9Ik0xMDAgNTBMMTUwIDEwMEgxMjVWMTUwSDc1VjEwMEg1MEwxMDAgNTBaIiBmaWxsPSIjQ0NDQ0NDIi8+Cjx0ZXh0IHg9IjEwMCIgeT0iMTgwIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmaWxsPSIjOTk5OTk5IiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iMTIiPkltYWdlIG5vdCBmb3VuZDwvdGV4dD4KPC9zdmc+'
+                  }}
+                />
+                
+                <div className={classes.imageInfo}>
+                  <Typography variant="body2" color="textSecondary">
+                    {imageModal.images[imageModal.currentIndex]?.type} - Image {imageModal.currentIndex + 1} of {imageModal.images.length}
+                  </Typography>
+                </div>
+                
+                {imageModal.images.length > 1 && (
+                  <>
+                    <div className={classes.imageNavigation}>
+                      <IconButton onClick={prevImage} size="small">
+                        <PrevIcon />
+                      </IconButton>
+                      <Typography variant="body2" color="textSecondary">
+                        {imageModal.currentIndex + 1} / {imageModal.images.length}
+                      </Typography>
+                      <IconButton onClick={nextImage} size="small">
+                        <NextIcon />
+                      </IconButton>
+                    </div>
+                    
+                    <div className={classes.imageThumbnails}>
+                      {imageModal.images.map((image, index) => (
+                        <img
+                          key={index}
+                          src={image.url}
+                          alt={`Thumbnail ${index + 1}`}
+                          className={`${classes.thumbnail} ${index === imageModal.currentIndex ? 'active' : ''}`}
+                          onClick={() => goToImage(index)}
+                          onError={(e) => {
+                            e.target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iODAiIGhlaWdodD0iODAiIHZpZXdCb3g9IjAgMCA4MCA4MCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjgwIiBoZWlnaHQ9IjgwIiBmaWxsPSIjRjVGNUY1Ii8+CjxwYXRoIGQ9Ik00MCAyMEw2MCA0MEg1MFY2MEgzMFY0MEgyMEw0MCAyMFoiIGZpbGw9IiNDQ0NDQ0MiLz4KPC9zdmc+'
+                          }}
+                        />
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        </Fade>
+      </Modal>
     </Grid>
   )
 }

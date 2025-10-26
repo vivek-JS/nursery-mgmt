@@ -26,6 +26,7 @@ const Login = () => {
     togglePasswordVisiblity,
     handleLogin,
     handlePasswordChangeSuccess,
+    handleModalClose,
     navigateToForgotPassword,
     openPasswordResetModal,
     loginResponse
@@ -158,7 +159,7 @@ const Login = () => {
 
       <PasswordChangeModal
         open={showPasswordChangeModal}
-        onClose={() => setShowPasswordChangeModal(false)}
+        onClose={handleModalClose}
         onSuccess={handlePasswordChangeSuccess}
         loginResponse={loginResponse}
       />

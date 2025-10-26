@@ -1,3 +1,189 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* React DatePicker Styles */
+.react-datepicker {
+  font-family: inherit;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  background-color: white;
+}
+
+.react-datepicker__header {
+  background-color: #f8f9fa;
+  border-bottom: 1px solid #e5e7eb;
+  border-radius: 8px 8px 0 0;
+  padding: 8px 0;
+}
+
+.react-datepicker__current-month {
+  font-weight: 600;
+  font-size: 16px;
+  color: #374151;
+}
+
+.react-datepicker__day-name {
+  color: #6b7280;
+  font-weight: 500;
+  font-size: 12px;
+}
+
+.react-datepicker__day {
+  color: #374151;
+  font-size: 14px;
+  width: 32px;
+  height: 32px;
+  line-height: 32px;
+  margin: 2px;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+}
+
+.react-datepicker__day:hover {
+  background-color: #e5e7eb;
+  color: #111827;
+}
+
+.react-datepicker__day--selected {
+  background-color: #3b82f6;
+  color: white;
+  font-weight: 600;
+}
+
+.react-datepicker__day--selected:hover {
+  background-color: #2563eb;
+}
+
+.react-datepicker__day--in-selecting-range {
+  background-color: #dbeafe;
+  color: #1e40af;
+}
+
+.react-datepicker__day--in-range {
+  background-color: #dbeafe;
+  color: #1e40af;
+}
+
+.react-datepicker__day--range-start,
+.react-datepicker__day--range-end {
+  background-color: #3b82f6;
+  color: white;
+  font-weight: 600;
+}
+
+.react-datepicker__day--keyboard-selected {
+  background-color: #3b82f6;
+  color: white;
+}
+
+.react-datepicker__day--outside-month {
+  color: #9ca3af;
+}
+
+.react-datepicker__day--disabled {
+  color: #d1d5db;
+  cursor: not-allowed;
+}
+
+.react-datepicker__navigation {
+  top: 8px;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+}
+
+.react-datepicker__navigation:hover {
+  background-color: #e5e7eb;
+}
+
+.react-datepicker__navigation--previous {
+  left: 8px;
+}
+
+.react-datepicker__navigation--next {
+  right: 8px;
+}
+
+.react-datepicker__month-dropdown,
+.react-datepicker__year-dropdown {
+  background-color: white;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+.react-datepicker__month-option,
+.react-datepicker__year-option {
+  padding: 8px 12px;
+  transition: background-color 0.2s ease;
+}
+
+.react-datepicker__month-option:hover,
+.react-datepicker__year-option:hover {
+  background-color: #f3f4f6;
+}
+
+.react-datepicker__month-option--selected,
+.react-datepicker__year-option--selected {
+  background-color: #3b82f6;
+  color: white;
+  font-weight: 600;
+}
+
+/* Custom datepicker popper - Higher z-index for visibility */
+.date-picker-popper {
+  z-index: 99999 !important;
+}
+
+/* Custom datepicker calendar */
+.custom-datepicker {
+  border: none !important;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1) !important;
+}
+
+/* Ensure date picker is always visible - MAXIMUM Z-INDEX */
+.react-datepicker-popper {
+  z-index: 999999 !important;
+  position: fixed !important;
+}
+
+.react-datepicker__portal {
+  z-index: 999999 !important;
+}
+
+/* Fix for popover positioning */
+.react-datepicker-popper[data-placement] {
+  z-index: 999999 !important;
+  position: fixed !important;
+}
+
+/* Additional popper selectors with maximum z-index */
+div[class*="react-datepicker-popper"] {
+  z-index: 999999 !important;
+  position: fixed !important;
+}
+
+div[id*="react-datepicker-popper"] {
+  z-index: 999999 !important;
+  position: fixed !important;
+}
+
+/* Ensure input field is visible and clickable */
+.react-datepicker__input-container input {
+  cursor: pointer !important;
+  background-color: white !important;
+}
+
+/* Make sure the wrapper is properly displayed */
+.react-datepicker-wrapper {
+  display: block !important;
+  width: 100% !important;
+}
+
+.react-datepicker__input-container {
+  display: block !important;
+  width: 100% !important;
+}

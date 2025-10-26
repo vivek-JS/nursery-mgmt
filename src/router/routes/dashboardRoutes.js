@@ -12,11 +12,14 @@ import ListAltIcon from "@mui/icons-material/ListAlt"
 import DateRangeOutlinedIcon from "@mui/icons-material/DateRangeOutlined"
 import PaidIcon from "@mui/icons-material/Paid"
 import PaymentIcon from "@mui/icons-material/Payment"
+import WhatsAppIcon from "@mui/icons-material/WhatsApp"
+import GrassIcon from "@mui/icons-material/Grass"
 
 export const DashboardMenus = [
   new MenuPath("Orders", <HomeIcon />, "/u/dashboard"),
   new MenuPath("Stats", <BiotechIcon />, "/u/stats"),
   new MenuPath("Plants and Products", <AlignHorizontalLeftIcon />, "/u/plants"),
+  new MenuPath("Sowing Management", <GrassIcon />, "/u/sowing"),
   new MenuPath("Slots Managment", <BiotechIcon />, "/u/slots"),
   new MenuPath("Hardening", <BiotechIcon />, "/u/hardening"),
   new MenuPath("CMS", <AodIcon />, "/u/cms"),
@@ -28,9 +31,10 @@ export const DashboardMenus = [
   new MenuPath("Inventory", <InventoryIcon />, "/u/inventory"),
   // new MenuPath("Settings", <SettingsSuggestIcon />, "/u/settings"),
   // new MenuPath("Admin", <AdminPanelSettingsIcon />, "/u/admin"),
-  new MenuPath("Labs", <BiotechIcon />, "/u/labs"),
+  new MenuPath("Labs", <BiotechIcon />, "/u/labs", ["LABORATORY_MANAGER", "SUPER_ADMIN"]),
   new MenuPath("Order", <ListAltIcon />, "/u/orders"),
   new MenuPath("Orders-upload", <ListAltIcon />, "/u/upload-orders"),
   new MenuPath("Dealers", <ListAltIcon />, "/u/dealers"),
-  new MenuPath("Payments", <PaymentIcon />, "/u/payments")
+  new MenuPath("Payments", <PaymentIcon />, "/u/payments", ["ACCOUNTANT", "SUPER_ADMIN"]),
+  new MenuPath("WhatsApp Management", <WhatsAppIcon />, "/u/whatsapp", ["SUPER_ADMIN"])
 ]

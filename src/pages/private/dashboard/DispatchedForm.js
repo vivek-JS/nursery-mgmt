@@ -25,6 +25,8 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
   const [shades, setShades] = useState([])
   const [cavities, setCavities] = useState([])
   const [isEditing, setIsEditing] = useState(false)
+  // Track dispatch quantities per order (orderId -> quantity to dispatch)
+  const [orderQuantities, setOrderQuantities] = useState(new Map())
 
   // Fetch functions for each dropdown
   const getDrivers = async () => {
@@ -84,6 +86,24 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
     }
     if (!formData.vehicleName) {
       throw new Error("Please select a vehicle")
+    }
+
+    // Validate order quantities
+    const selectedOrdersArray = Array.from(selectedOrders.values())
+    for (const order of selectedOrdersArray) {
+      const orderId = order.details.orderid
+      const dispatchQty = orderQuantities.get(orderId) || 0
+      const remainingQty = order.details?.remainingPlants || order.quantity || 0
+      
+      if (dispatchQty <= 0) {
+        throw new Error(`Dispatch quantity for order #${order.order} must be greater than 0`)
+      }
+      
+      if (dispatchQty > remainingQty) {
+        throw new Error(
+          `Dispatch quantity (${dispatchQty}) exceeds remaining quantity (${remainingQty}) for order #${order.order}`
+        )
+      }
     }
 
     formData.plants.forEach((plant) => {
@@ -156,6 +176,21 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
   // Data transformation
   const transformDispatchData = (formData, selectedOrders) => {
     const orderIds = Array.from(selectedOrders.keys())
+    
+    // Prepare order dispatch details with quantities
+    const orderDispatchDetails = Array.from(selectedOrders.values()).map(order => {
+      const orderId = order.details.orderid
+      const dispatchQty = orderQuantities.get(orderId) || 0
+      const remainingQty = order.details?.remainingPlants || order.quantity || 0
+      
+      return {
+        orderId: orderId,
+        dispatchQuantity: dispatchQty,
+        remainingAfterDispatch: remainingQty - dispatchQty,
+        isPartialDispatch: dispatchQty < remainingQty
+      }
+    })
+    
     const plantsDetails = formData.plants?.map((plant) => {
       const firstOrder = plant.orders[0]?.details
 
@@ -226,6 +261,7 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
       driverName: formData.driverName,
       vehicleName: formData.vehicleName,
       orderIds: orderIds,
+      orderDispatchDetails: orderDispatchDetails,
       plantsDetails: plantsDetails
     }
   }
@@ -261,12 +297,104 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
         updatedPlants[plantIndex].cavityGroups = []
       }
 
-      updatedPlants[plantIndex].cavityGroups.push({
-        cavity: "",
-        cavityName: "",
-        pickupDetails: [],
-        crates: []
+      // Get the plant's orders to check for cavity information
+      const plant = updatedPlants[plantIndex]
+      const plantOrders = plant.orders || []
+      
+      // Extract unique cavity IDs from all orders for this plant
+      const cavityIds = new Set()
+      const cavityDetails = new Map()
+      const cavityQuantities = new Map() // Track quantity per cavity
+      
+      plantOrders.forEach(order => {
+        const cavityId = order.details?.cavityId
+        const cavityName = order.details?.cavityName
+        const orderId = order.details?.orderid
+        
+        if (cavityId) {
+          cavityIds.add(cavityId)
+          if (!cavityDetails.has(cavityId)) {
+            cavityDetails.set(cavityId, { id: cavityId, name: cavityName })
+          }
+          
+          // Calculate dispatched quantity for this cavity
+          const dispatchQty = orderQuantities.get(orderId) || 0
+          const currentQty = cavityQuantities.get(cavityId) || 0
+          cavityQuantities.set(cavityId, currentQty + dispatchQty)
+        }
       })
+      
+      // Auto-select cavity if:
+      // 1. All orders have the same cavity (cavityIds size is 1)
+      // 2. This cavity is not already selected in another cavity group
+      let autoSelectedCavity = ""
+      let autoSelectedCavityName = ""
+      let autoFilledQuantity = 0
+      
+      if (cavityIds.size === 1) {
+        const [singleCavityId] = Array.from(cavityIds)
+        const isAlreadySelected = updatedPlants[plantIndex].cavityGroups?.some(
+          group => group.cavity === singleCavityId
+        )
+        
+        if (!isAlreadySelected) {
+          autoSelectedCavity = singleCavityId
+          autoSelectedCavityName = cavityDetails.get(singleCavityId)?.name || ""
+          autoFilledQuantity = cavityQuantities.get(singleCavityId) || 0
+        }
+      }
+
+      const newCavityGroup = {
+        cavity: autoSelectedCavity,
+        cavityName: autoSelectedCavityName,
+        pickupDetails: [],
+        crates: [],
+        autoSelected: !!autoSelectedCavity // Track if cavity was auto-selected
+      }
+      
+      // If cavity is auto-selected, initialize with one pickup detail
+      if (autoSelectedCavity) {
+        const selectedCavity = cavities.find(c => c.id === autoSelectedCavity || c._id === autoSelectedCavity)
+        if (selectedCavity) {
+          newCavityGroup.cavitySize = selectedCavity.cavity || 1
+          newCavityGroup.numberPerCrate = selectedCavity.numberPerCrate || 1
+          newCavityGroup.pickupDetails = [{
+            shade: "",
+            quantity: autoFilledQuantity, // Auto-fill with dispatched quantity
+            cavity: autoSelectedCavity,
+            cavityName: autoSelectedCavityName
+          }]
+          
+          // Auto-calculate crates based on the auto-filled quantity
+          if (autoFilledQuantity > 0) {
+            const cavitySize = Number(selectedCavity.cavity)
+            const numberPerCrate = Number(selectedCavity.numberPerCrate)
+            
+            const numberOfCavityTrays = Math.floor(autoFilledQuantity / cavitySize)
+            const remainder = (autoFilledQuantity / cavitySize) % numberPerCrate
+            
+            newCavityGroup.crates = []
+            
+            if (numberOfCavityTrays > 0) {
+              newCavityGroup.crates.push({
+                numberOfCavityTrays: numberOfCavityTrays,
+                numberOfCrates: Math.floor(numberOfCavityTrays / numberPerCrate),
+                quantity: Math.floor(numberOfCavityTrays / numberPerCrate) * numberPerCrate * cavitySize
+              })
+            }
+            
+            if (remainder > 0) {
+              newCavityGroup.crates.push({
+                numberOfCavityTrays: 1,
+                numberOfCrates: 1,
+                quantity: autoFilledQuantity - Math.floor(numberOfCavityTrays / numberPerCrate) * numberPerCrate * cavitySize
+              })
+            }
+          }
+        }
+      }
+
+      updatedPlants[plantIndex].cavityGroups.push(newCavityGroup)
 
       return { ...prev, plants: updatedPlants }
     })
@@ -423,6 +551,54 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
     }))
   }
 
+  // Handle order quantity change
+  const handleOrderQuantityChange = (changedOrderId, newQuantity, maxQuantity) => {
+    const qty = Math.max(0, Math.min(Number(newQuantity), maxQuantity))
+    
+    // Update the orderQuantities map
+    setOrderQuantities((prev) => {
+      const updated = new Map(prev)
+      updated.set(changedOrderId, qty)
+      
+      // Recalculate plant quantities with the updated map
+      const selectedOrdersArray = Array.from(selectedOrders.values())
+      const plantGroups = selectedOrdersArray?.reduce((acc, order) => {
+        const plantId = order.details?.plantID
+        const plantSubtypeId = order.details?.plantSubtypeID
+        const key = `${plantId}_${plantSubtypeId}`
+        const orderId = order.details?.orderid
+        
+        // Get the dispatch quantity for this order (use updated qty if this is the changed order)
+        const dispatchQty = orderId === changedOrderId 
+          ? qty 
+          : updated.get(orderId) || order.quantity || 0
+
+        if (!acc[key]) {
+          acc[key] = {
+            id: plantId,
+            name: order.plantType,
+            quantity: dispatchQty,
+            cavityGroups: formData.plants.find(p => p.id === plantId)?.cavityGroups || [],
+            orders: []
+          }
+        } else {
+          acc[key].quantity += dispatchQty
+        }
+
+        acc[key].orders.push(order)
+        return acc
+      }, {})
+
+      // Update formData with new plant quantities
+      setFormData((prev) => ({
+        ...prev,
+        plants: Object.values(plantGroups)
+      }))
+      
+      return updated
+    })
+  }
+
   useEffect(() => {
     getDrivers()
     getVehicles()
@@ -507,22 +683,36 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
       setExpandedPlants(initialExpandedState)
     } else if (selectedOrders?.size > 0) {
       const selectedOrdersArray = Array.from(selectedOrders.values())
+      
+      // Initialize order quantities with full order quantity or remaining quantity
+      const initialQuantities = new Map()
+      selectedOrdersArray.forEach(order => {
+        const orderId = order.details?.orderid
+        const availableQty = order.details?.remainingPlants || order.quantity || 0
+        initialQuantities.set(orderId, availableQty)
+      })
+      setOrderQuantities(initialQuantities)
+      
       const plantGroups = selectedOrdersArray?.reduce((acc, order) => {
         const plantId = order.details?.plantID
         const plantSubtypeId = order.details?.plantSubtypeID
         const key = `${plantId}_${plantSubtypeId}`
+        const orderId = order.details?.orderid
+        
+        // Get the dispatch quantity for this order (from state or default to full quantity)
+        const dispatchQty = initialQuantities.get(orderId) || order.quantity || 0
 
         if (!acc[key]) {
           acc[key] = {
             id: plantId,
             name: order.plantType,
-            quantity: order.quantity || 0,
+            quantity: dispatchQty,
             // Initialize with empty cavity groups - user must add cavities manually
             cavityGroups: [],
             orders: []
           }
         } else {
-          acc[key].quantity += order.quantity || 0
+          acc[key].quantity += dispatchQty
         }
 
         acc[key].orders.push(order)
@@ -573,44 +763,98 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
       </DialogTitle>
 
       <DialogContent className="space-y-6 mt-6 bg-gray-50">
-        {/* Order Summary Cards */}
+        {/* Order Summary Cards with Quantity Input */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {Array.from(selectedOrders.values()).map((order) => (
-            <div
-              key={order.details.orderid}
-              className="bg-white rounded-lg border border-green-100 hover:border-green-200 transition-colors shadow-sm">
-              <div className="p-3">
-                <div className="space-y-1.5 text-sm">
-                  <div className="flex justify-between items-start">
-                    <span className="font-medium text-gray-900">{order.farmerName}</span>
-                    <span className="text-xs text-gray-500 font-mono">#{order.order}</span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-sm">
-                    <div>
-                      <span className="text-gray-500">Plant: </span>
-                      <span className="text-gray-700">{order.plantType}</span>
+          {Array.from(selectedOrders.values()).map((order) => {
+            const orderId = order.details.orderid
+            const totalQty = order.quantity || 0
+            const remainingQty = order.details?.remainingPlants || totalQty
+            const dispatchQty = orderQuantities.get(orderId) || remainingQty
+            const isPartialDispatch = dispatchQty < remainingQty
+            
+            return (
+              <div
+                key={orderId}
+                className={`bg-white rounded-lg border ${
+                  isPartialDispatch ? "border-orange-200" : "border-green-100"
+                } hover:border-green-200 transition-colors shadow-sm`}>
+                <div className="p-3">
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between items-start">
+                      <span className="font-medium text-gray-900">{order.farmerName}</span>
+                      <span className="text-xs text-gray-500 font-mono">#{order.order}</span>
                     </div>
-                    <div>
-                      <span className="text-gray-500">Village: </span>
-                      <span className="text-gray-700">{order.details.farmer.village}</span>
+                    <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-sm">
+                      <div>
+                        <span className="text-gray-500">Plant: </span>
+                        <span className="text-gray-700">{order.plantType}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">Village: </span>
+                        <span className="text-gray-700">
+                          {order.details?.farmer?.village || "N/A"}
+                        </span>
+                      </div>
+                      <div className="col-span-2">
+                        <span className="text-gray-500">Total Qty: </span>
+                        <span className="text-gray-700">{totalQty.toLocaleString()}</span>
+                        {remainingQty < totalQty && (
+                          <span className="text-orange-600 ml-2">
+                            (Remaining: {remainingQty.toLocaleString()})
+                          </span>
+                        )}
+                      </div>
+                      <div>
+                        <span className="text-gray-500">Cavity: </span>
+                        <span className="text-gray-700 font-medium">
+                          {order.details?.cavityName || "Not Specified"}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">Delivery: </span>
+                        <span className="text-gray-700">{order.Delivery}</span>
+                      </div>
+                      <div className="col-span-2">
+                        <span className="text-gray-500">Booking: </span>
+                        <span className="text-gray-700">{order.orderDate}</span>
+                      </div>
                     </div>
-                    <div>
-                      <span className="text-gray-500">Qty: </span>
-                      <span className="text-gray-700">{order.quantity.toLocaleString()}</span>
-                    </div>
-                    <div>
-                      <span className="text-gray-500">Delivery: </span>
-                      <span className="text-gray-700">{order.Delivery}</span>
-                    </div>
-                    <div>
-                      <span className="text-gray-500">Booking: </span>
-                      <span className="text-gray-700">{order.orderDate}</span>
-                    </div>
+                    
+                    {/* Dispatch Quantity Input */}
+                    {!isViewMode && (
+                      <div className="mt-2 pt-2 border-t border-gray-100">
+                        <label className="block text-xs text-gray-600 mb-1">
+                          Dispatch Quantity {isPartialDispatch && <span className="text-orange-600">(Split Order)</span>}
+                        </label>
+                        <div className="flex gap-2 items-center">
+                          <input
+                            type="number"
+                            min="0"
+                            max={remainingQty}
+                            value={dispatchQty}
+                            onChange={(e) => handleOrderQuantityChange(orderId, e.target.value, remainingQty)}
+                            className="flex-1 px-2 py-1 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                            placeholder="Enter quantity"
+                          />
+                          <button
+                            onClick={() => handleOrderQuantityChange(orderId, remainingQty, remainingQty)}
+                            className="text-xs px-2 py-1 bg-green-50 text-green-600 rounded hover:bg-green-100"
+                            title="Use full quantity">
+                            Full
+                          </button>
+                        </div>
+                        {isPartialDispatch && (
+                          <p className="text-xs text-orange-600 mt-1">
+                            {remainingQty - dispatchQty} plants will remain for later dispatch
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
 
         {error && (
@@ -707,27 +951,35 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
                               )}
                             </div>
 
-                            <div className="flex gap-4">
-                              <select
-                                className="flex-1 p-2 border rounded"
-                                value={cavityGroup.cavity || ""}
-                                onChange={(e) =>
-                                  handleCavityChange(plantIndex, groupIndex, e.target.value)
-                                }
-                                disabled={(isViewMode && !isEditing) || cavityGroup.cavity}>
-                                <option value="">Select Cavity</option>
-                                {cavities?.map((cavity) => (
-                                  <option
-                                    key={cavity.id}
-                                    value={cavity.id}
-                                    disabled={plant.cavityGroups.some(
-                                      (group, idx) =>
-                                        idx !== groupIndex && group.cavity === cavity.id
-                                    )}>
-                                    {cavity.name}
-                                  </option>
-                                ))}
-                              </select>
+                            <div className="space-y-2">
+                              {cavityGroup.autoSelected && cavityGroup.cavity && (
+                                <div className="text-xs text-green-600 bg-green-50 p-2 rounded flex items-center gap-1">
+                                  <span>✓</span>
+                                  <span>Auto-selected from order cavity: <strong>{cavityGroup.cavityName}</strong></span>
+                                </div>
+                              )}
+                              <div className="flex gap-4">
+                                <select
+                                  className="flex-1 p-2 border rounded"
+                                  value={cavityGroup.cavity || ""}
+                                  onChange={(e) =>
+                                    handleCavityChange(plantIndex, groupIndex, e.target.value)
+                                  }
+                                  disabled={(isViewMode && !isEditing) || cavityGroup.cavity}>
+                                  <option value="">Select Cavity</option>
+                                  {cavities?.map((cavity) => (
+                                    <option
+                                      key={cavity.id}
+                                      value={cavity.id}
+                                      disabled={plant.cavityGroups.some(
+                                        (group, idx) =>
+                                          idx !== groupIndex && group.cavity === cavity.id
+                                      )}>
+                                      {cavity.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
                             </div>
 
                             {/* Pickup Details - only shown if cavity is selected */}

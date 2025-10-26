@@ -2,6 +2,7 @@ import React from "react"
 import { DownloadIcon } from "lucide-react"
 import jsPDF from "jspdf"
 import "jspdf-autotable"
+import moment from "moment"
 
 // Helper function to sanitize text and remove unwanted characters
 const sanitizeText = (text) => {
@@ -19,7 +20,45 @@ const sanitizeMarathiText = (text) => {
   return String(text).trim()
 }
 
+// Helper function to get booking date from various fields
+const getBookingDate = (order) => {
+  console.log("=== BOOKING DATE DEBUG ===");
+  console.log("Full order object:", order);
+  console.log("order.orderBookingDate:", order.orderBookingDate);
+  console.log("order.orderDate:", order.orderDate);
+  console.log("order.createdAt:", order.createdAt);
+  console.log("order.details:", order.details);
+  
+  // Try orderDate first (it's already formatted as DD/MM/YYYY)
+  if (order.orderDate && typeof order.orderDate === 'string') {
+    console.log("Using order.orderDate (already formatted):", order.orderDate);
+    return order.orderDate;
+  }
+  
+  // Try other date fields
+  const dateFields = [order.orderBookingDate, order.createdAt];
+  for (const dateField of dateFields) {
+    if (dateField) {
+      console.log("Trying dateField:", dateField);
+      const formatted = moment(dateField).format("DD/MM/YYYY");
+      console.log("Formatted result:", formatted);
+      if (formatted !== "Invalid date") {
+        return formatted;
+      }
+    }
+  }
+  
+  console.log("No valid date found, returning N/A");
+  return "N/A";
+}
+
 const generateOrderPDF = (order) => {
+  // Debug logging
+  console.log("Order object:", order)
+  console.log("orderBookingDate:", order.orderBookingDate)
+  console.log("orderDate:", order.orderDate)
+  console.log("createdAt:", order.createdAt)
+  
   // Create new document
   const doc = new jsPDF({
     orientation: "portrait",
@@ -56,7 +95,7 @@ const generateOrderPDF = (order) => {
   doc.setFont("helvetica", "bold")
   doc.text("DATE:", leftMargin + 5, boxY + 6)
   doc.setFont("helvetica", "normal")
-  doc.text(sanitizeText(order.orderDate || "N/A"), leftMargin + 25, boxY + 6)
+  doc.text(sanitizeText(getBookingDate(order)), leftMargin + 25, boxY + 6)
 
   // Add a section divider
   const dividerY = boxY + 16 // Reduced space since we removed order ID
@@ -114,6 +153,7 @@ const generateOrderPDF = (order) => {
       ["Quantity", sanitizeText(order.quantity || "0") + " units"],
       ["Rate", "Rs. " + sanitizeText(order.rate || "0") + " per unit"],
       ["Total Amount", "Rs. " + sanitizeText(order.total || "0")],
+      ["Booking Date", sanitizeText(getBookingDate(order))],
       ["Delivery Date", sanitizeText(order.Delivery || "N/A")]
     ],
     styles: {
@@ -251,11 +291,17 @@ const generateOrderPDF = (order) => {
 
 // Generate Marathi Receipt PDF
 const generateMarathiReceiptPDF = (order) => {
-  // Create new document with A5 format
+  // Debug logging
+  console.log("A8 Order object:", order)
+  console.log("A8 orderBookingDate:", order.orderBookingDate)
+  console.log("A8 orderDate:", order.orderDate)
+  console.log("A8 createdAt:", order.createdAt)
+  
+  // Create new document with A8 format
   const doc = new jsPDF({
     orientation: "portrait",
     unit: "mm",
-    format: "a5"
+    format: [52, 74] // A8 dimensions
   })
 
   // Try to add Marathi font support
@@ -278,43 +324,22 @@ const generateMarathiReceiptPDF = (order) => {
     return text // Use actual Marathi text
   }
 
-  // Helper function to convert Marathi to English transliteration
-  const marathiToEnglish = (text) => {
-    const marathiToEnglishMap = {
-      रसीद: "Rasid",
-      दिनांक: "Dinank",
-      क्र: "Kr",
-      श्री: "Shri",
-      गाव: "Gaav",
-      तालुका: "Taluka",
-      जिल्हा: "Jilha",
-      "मो नंबर": "Mo Number",
-      "रोप संख्या": "Rop Sankhya",
-      प्रकार: "Prakar",
-      दर: "Dar",
-      एकूण: "Ekun",
-      "जमा रक्कम": "Jama Rakkam",
-      रुपये: "Rupaye",
-      पेमेंट: "Payment",
-      किसी: "Kisi",
-      मालक: "Malak",
-      "ग्राहकाचे नाव": "Grahakache Naav",
-      "पत्ता नंबर": "Patta Number",
-      बाकी: "Baki"
+  // Helper function to extract numeric value from string like "₹ 1000"
+  const extractNumericValue = (value) => {
+    if (typeof value === "number") return value
+    if (typeof value === "string") {
+      // Remove currency symbols, spaces, and extract number
+      const numericValue = value.replace(/[₹\s,]/g, "")
+      return parseInt(numericValue) || 0
     }
-
-    let result = text
-    Object.keys(marathiToEnglishMap).forEach((marathi) => {
-      result = result.replace(new RegExp(marathi, "g"), marathiToEnglishMap[marathi])
-    })
-    return result
+    return 0
   }
 
-  // A5 dimensions and margins
+  // A8 dimensions and margins
   const pageWidth = doc.internal.pageSize.width
   const pageHeight = doc.internal.pageSize.height
-  const leftMargin = 15
-  const rightMargin = 15
+  const leftMargin = 3
+  const rightMargin = 3
   const contentWidth = pageWidth - leftMargin - rightMargin
 
   // Set colors for printer-friendly design
@@ -322,78 +347,53 @@ const generateMarathiReceiptPDF = (order) => {
   doc.setDrawColor(0, 0, 0)
   doc.setFillColor(255, 255, 255)
 
-  // Header - Receipt title and date
-  doc.setFontSize(16)
-  doc.setFont("helvetica", "bold")
-  doc.text(handleMarathiText("रसीद", "RASID (Receipt)"), pageWidth / 2, 12, { align: "center" })
-
+  // Header - Receipt title only
   doc.setFontSize(10)
-  doc.setFont("helvetica", "normal")
-  const orderDate = order.orderDate
-    ? new Date(order.orderDate).toLocaleDateString("en-IN")
-    : new Date().toLocaleDateString("en-IN")
-  doc.text(`${handleMarathiText("दिनांक", "Dinank")}: ${orderDate}`, pageWidth / 2, 18, {
-    align: "center"
-  })
+  doc.setFont("helvetica", "bold")
+  doc.text("Receipt", pageWidth / 2, 8, { align: "center" })
 
   // Customer information section
-  const customerY = 28
-  doc.setFontSize(10)
-  doc.setFont("helvetica", "bold")
+  const customerY = 12
+  doc.setFontSize(5)
+  doc.setFont("helvetica", "normal")
 
-  // Receipt number
+  // Name and Mobile on one row
+  const name = handleMarathiText(order.farmerName || "N/A")
+  const mobile = sanitizeMarathiText(order.details?.farmer?.mobileNumber || "N/A")
   doc.text(
-    `${handleMarathiText("क्र", "Kr")}. ${sanitizeMarathiText(order.order || "N/A")}`,
+    `Name: ${name} | Mobile: ${mobile}`,
     leftMargin,
     customerY
   )
 
-  // Customer details - using Marathi text
-  doc.setFont("helvetica", "bold")
-  doc.text(
-    `${handleMarathiText("श्री", "Shri")}: ${handleMarathiText(order.farmerName || "N/A")}`,
-    leftMargin,
-    customerY + 8
-  )
-
-  doc.setFont("helvetica", "normal")
-  doc.setFontSize(9)
+  // Village, Taluka, District on one row
   const village = handleMarathiText(order.details?.farmer?.village || "N/A")
   const taluka = handleMarathiText(order.details?.farmer?.taluka || "N/A")
+  const district = handleMarathiText(order.details?.farmer?.district || "N/A")
   doc.text(
-    `${handleMarathiText("गाव", "Gaav")}: ${village} ${handleMarathiText(
-      "तालुका",
-      "Taluka"
-    )}: ${taluka}`,
+    `Village: ${village} | Taluka: ${taluka} | District: ${district}`,
     leftMargin,
-    customerY + 14
+    customerY + 3
   )
 
-  const district = handleMarathiText(order.details?.farmer?.district || "N/A")
-  const mobile = sanitizeMarathiText(order.details?.farmer?.mobileNumber || "N/A")
+  // Booking and Delivery dates
+  const bookingDate = getBookingDate(order)
+  const deliveryDate = order.Delivery || "N/A"
   doc.text(
-    `${handleMarathiText("जिल्हा", "Jilha")}: ${district} ${handleMarathiText(
-      "मो नंबर",
-      "Mo Number"
-    )}: ${mobile}`,
+    `Booking: ${bookingDate} | Delivery: ${deliveryDate}`,
     leftMargin,
-    customerY + 20
+    customerY + 6
   )
 
   // Main table with plant details
-  const tableY = customerY + 32
-  doc.setFontSize(9)
+  const tableY = customerY + 12
+  doc.setFontSize(5)
   doc.setFont("helvetica", "bold")
 
-  // Table headers in Marathi
-  const headers = [
-    handleMarathiText("रोप संख्या", "Rop Sankhya"),
-    handleMarathiText("प्रकार", "Prakar"),
-    handleMarathiText("दर", "Dar"),
-    handleMarathiText("एकूण", "Ekun")
-  ]
+  // Table headers
+  const headers = ["Qty", "Type", "Rate", "Total"]
   const headerY = tableY
-  const colWidths = [25, 75, 25, 30]
+  const colWidths = [8, 20, 10, 10]
   let currentX = leftMargin
 
   // Draw header row
@@ -403,18 +403,19 @@ const generateMarathiReceiptPDF = (order) => {
   })
 
   // Draw header line
-  doc.line(leftMargin, headerY + 2, pageWidth - rightMargin, headerY + 2)
+  doc.line(leftMargin, headerY + 1, pageWidth - rightMargin, headerY + 1)
 
   // Draw items
-  let itemY = headerY + 8
+  let itemY = headerY + 4
   doc.setFont("helvetica", "normal")
+  doc.setFontSize(4)
 
-  // Create plant details
+  // Create plant details - Fix numeric calculations
   const plantType = sanitizeMarathiText(order.plantType || "N/A")
   const plantVariety = sanitizeMarathiText(order.plantVariety || "")
   const quantity = parseInt(order.quantity) || 0
   const rate = parseInt(order.rate) || 0
-  const total = parseInt(order.total) || 0
+  const total = extractNumericValue(order.total) || quantity * rate
 
   currentX = leftMargin
 
@@ -422,15 +423,11 @@ const generateMarathiReceiptPDF = (order) => {
   doc.text(String(quantity), currentX, itemY)
   currentX += colWidths[0]
 
-  // Plant type with variety - use Marathi text
+  // Plant type with variety
   const plantText = handleMarathiText(plantType)
-  doc.text(plantText, currentX, itemY)
-  if (plantVariety && plantVariety.trim() && plantVariety !== "N/A") {
-    doc.setFontSize(8)
-    const subtypeText = handleMarathiText(plantVariety)
-    doc.text(subtypeText, currentX, itemY + 4)
-    doc.setFontSize(9)
-  }
+  const maxChars = 15
+  const shortPlantText = plantText.length > maxChars ? plantText.substring(0, maxChars) + "..." : plantText
+  doc.text(shortPlantText, currentX, itemY)
   currentX += colWidths[1]
 
   // Rate
@@ -440,111 +437,380 @@ const generateMarathiReceiptPDF = (order) => {
   // Total
   doc.text(String(total), currentX, itemY)
 
-  itemY += plantVariety && plantVariety.trim() && plantVariety !== "N/A" ? 10 : 6
-
-  // Total row
-  doc.setFont("helvetica", "bold")
-  doc.text(
-    handleMarathiText("जमा रक्कम", "Jama Rakkam"),
-    leftMargin + colWidths[0] + colWidths[1],
-    itemY + 3
-  )
-  doc.text(String(total), leftMargin + colWidths[0] + colWidths[1] + colWidths[2], itemY + 3)
+  itemY += 3
 
   // Draw table border
-  const tableHeight = itemY + 8 - headerY
-  doc.rect(leftMargin, headerY - 3, contentWidth, tableHeight)
+  const tableHeight = itemY + 1 - headerY
+  doc.rect(leftMargin, headerY - 2, contentWidth, tableHeight)
 
   // Draw column separators
   currentX = leftMargin
   for (let i = 0; i < colWidths.length - 1; i++) {
     currentX += colWidths[i]
-    doc.line(currentX, headerY - 3, currentX, headerY + tableHeight - 3)
+    doc.line(currentX, headerY - 2, currentX, headerY + tableHeight - 2)
   }
 
   // Total amount section
-  const totalY = itemY + 15
+  const totalY = itemY + 5
   doc.setFont("helvetica", "bold")
-  doc.setFontSize(11)
-  doc.text(`${handleMarathiText("एकूण", "Ekun")}:`, leftMargin, totalY)
-  doc.text(`${total} ${handleMarathiText("रुपये", "Rupaye")}`, leftMargin + 25, totalY)
+  doc.setFontSize(6)
+  doc.text(`Total:`, leftMargin, totalY)
+  doc.text(`Rs.${total}`, leftMargin + 12, totalY)
 
-  // Payment summary
-  const paymentY = totalY + 10
-  doc.setFontSize(9)
+  // Payment summary - All on one row
+  const paymentY = totalY + 4
+  doc.setFontSize(5)
   doc.setFont("helvetica", "normal")
 
-  const paidAmount = parseInt(order["Paid Amt"] || "0")
-  const remainingAmount = parseInt(order["remaining Amt"] || "0")
+  const paidAmount = extractNumericValue(order["Paid Amt"])
+  const remainingAmount = extractNumericValue(order["remaining Amt"])
 
   doc.text(
-    `${handleMarathiText("पेमेंट", "Payment")}: ${paidAmount} ${handleMarathiText(
-      "रुपये",
-      "Rupaye"
-    )}`,
+    `Paid: Rs.${paidAmount} | Balance: Rs.${remainingAmount}`,
     leftMargin,
-    paymentY
-  )
-  doc.text(
-    `${handleMarathiText("बाकी", "Baki")}: ${remainingAmount} ${handleMarathiText(
-      "रुपये",
-      "Rupaye"
-    )}`,
-    leftMargin + 60,
     paymentY
   )
 
   // Signature section
-  const signatureY = paymentY + 15
-  doc.setFontSize(8)
+  const signatureY = paymentY + 6
+  doc.setFontSize(4)
   doc.setFont("helvetica", "normal")
 
-  // Payment and owner signature lines
-  doc.text(
-    `${handleMarathiText("पेमेंट", "Payment")} ${handleMarathiText("किसी", "Kisi")}:`,
-    leftMargin,
-    signatureY
-  )
-  doc.line(leftMargin + 35, signatureY - 2, leftMargin + 75, signatureY - 2)
-
-  doc.text(
-    `${handleMarathiText("मालक", "Malak")} ${handleMarathiText("किसी", "Kisi")}:`,
-    leftMargin + 85,
-    signatureY
-  )
-  doc.line(leftMargin + 120, signatureY - 2, pageWidth - rightMargin, signatureY - 2)
-
-  // Customer details section
-  const customerDetailsY = signatureY + 8
-  doc.text(
-    `${handleMarathiText("ग्राहकाचे नाव", "Grahakache Naav")}:`,
-    leftMargin,
-    customerDetailsY
-  )
-  doc.line(leftMargin + 45, customerDetailsY - 2, pageWidth - rightMargin, customerDetailsY - 2)
-
-  doc.text(
-    `${handleMarathiText("पत्ता नंबर", "Patta Number")}: ${mobile}`,
-    leftMargin,
-    customerDetailsY + 6
-  )
+  // Signature line
+  doc.text(`Sign:`, leftMargin, signatureY)
+  doc.line(leftMargin + 6, signatureY - 1, pageWidth - rightMargin, signatureY - 1)
 
   return doc
 }
 
-// Generate Marathi Receipt using HTML to PDF approach
-const generateMarathiReceiptHTML = (order) => {
+// Generate Marathi Receipt for Print - 2 A5 receipts on A4 page
+const generateMarathiReceiptHTMLForPrint = (order) => {
   const orderDate = order.orderDate
-    ? new Date(order.orderDate).toLocaleDateString("en-IN")
-    : new Date().toLocaleDateString("en-IN")
+    ? new Date(order.orderDate).toLocaleDateString("en-IN", { 
+        day: '2-digit', 
+        month: '2-digit', 
+        year: 'numeric' 
+      })
+    : new Date().toLocaleDateString("en-IN", { 
+        day: '2-digit', 
+        month: '2-digit', 
+        year: 'numeric' 
+      })
+
+  // Helper function to extract numeric value from string like "₹ 1000"
+  const extractNumericValue = (value) => {
+    if (typeof value === "number") return value
+    if (typeof value === "string") {
+      // Remove currency symbols, spaces, and extract number
+      const numericValue = value.replace(/[₹\s,]/g, "")
+      return parseInt(numericValue) || 0
+    }
+    return 0
+  }
 
   const plantType = sanitizeMarathiText(order.plantType || "N/A")
   const plantVariety = sanitizeMarathiText(order.plantVariety || "")
   const quantity = parseInt(order.quantity) || 0
   const rate = parseInt(order.rate) || 0
-  const total = parseInt(order.total) || 0
-  const paidAmount = parseInt(order["Paid Amt"] || "0")
-  const remainingAmount = parseInt(order["remaining Amt"] || "0")
+  const total = extractNumericValue(order.total) || quantity * rate
+  const paidAmount = extractNumericValue(order["Paid Amt"])
+  const remainingAmount = extractNumericValue(order["remaining Amt"])
+
+  const htmlContent = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Devanagari:wght@400;500;600;700&display=swap');
+        
+        @media print {
+          @page {
+            size: A4;
+            margin: 10mm;
+          }
+          body {
+            margin: 0;
+            padding: 0;
+          }
+          .page-break {
+            page-break-after: always;
+          }
+          .receipt-container {
+            page-break-inside: avoid;
+          }
+        }
+        
+        body {
+          font-family: 'Noto Sans Devanagari', Arial, sans-serif;
+          margin: 0;
+          padding: 0;
+          background: white;
+          font-size: 12px;
+          line-height: 1.3;
+        }
+        
+        .page {
+          width: 210mm; /* A4 portrait width */
+          height: 297mm; /* A4 portrait height */
+          margin: 0 auto;
+          background: white;
+          position: relative;
+        }
+        
+        .receipt-container {
+          width: 100%;
+          height: 100%;
+          display: flex;
+          flex-direction: row;
+          justify-content: space-between;
+          align-items: center;
+        }
+        
+        .receipt {
+          width: 148.5mm; /* A5 width */
+          height: 105mm; /* A5 height */
+          margin: 5mm;
+          padding: 8mm;
+          border: 1px solid #333;
+          background: white;
+          box-sizing: border-box;
+          font-size: 10px;
+        }
+        
+        .receipt-left {
+          width: 95mm;
+          height: 140mm;
+          margin: 3mm;
+          padding: 5mm;
+          border: 1px solid #333;
+          background: white;
+          box-sizing: border-box;
+          font-size: 9px;
+        }
+        
+        .receipt-right {
+          width: 95mm;
+          height: 140mm;
+          margin: 3mm;
+          padding: 5mm;
+          border: 1px solid #333;
+          background: white;
+          box-sizing: border-box;
+          font-size: 9px;
+        }
+        
+        .header {
+          text-align: center;
+          margin-bottom: 15px;
+          border-bottom: 1px solid #333;
+          padding-bottom: 5px;
+        }
+        
+        .title {
+          font-size: 16px;
+          font-weight: bold;
+          margin-bottom: 3px;
+        }
+        
+        .date {
+          font-size: 11px;
+        }
+        
+        .customer-info {
+          margin-bottom: 15px;
+        }
+        
+        .info-row {
+          margin-bottom: 4px;
+          font-size: 9px;
+        }
+        
+        .table {
+          width: 100%;
+          border-collapse: collapse;
+          margin-bottom: 15px;
+          font-size: 8px;
+        }
+        
+        .table th, .table td {
+          border: 1px solid #333;
+          padding: 3px;
+          text-align: left;
+        }
+        
+        .table th {
+          background: #f0f0f0;
+          font-weight: bold;
+        }
+        
+        .total-row {
+          font-weight: bold;
+          background: #f9f9f9;
+        }
+        
+        .signature-section {
+          margin-top: 15px;
+          font-size: 8px;
+        }
+        
+        .signature-line {
+          border-bottom: 1px solid #333;
+          margin: 5px 0;
+          height: 15px;
+        }
+        
+        .payment-info {
+          margin-top: 15px;
+          font-size: 8px;
+        }
+      </style>
+    </head>
+    <body>
+              <div class="page">
+          <div class="receipt-container">
+            <!-- Left Receipt -->
+            <div class="receipt-left">
+            <div class="header">
+              <div class="title">Receipt</div>
+            </div>
+            
+            <div class="customer-info">
+              <div class="info-row"><strong>श्री:</strong> ${sanitizeMarathiText(
+                order.farmerName || "N/A"
+              )} | <strong>मोबाईल:</strong> ${sanitizeMarathiText(
+                order.details?.farmer?.mobileNumber || "N/A"
+              )}</div>
+              <div class="info-row"><strong>गाव:</strong> ${sanitizeMarathiText(
+                order.details?.farmer?.village || "N/A"
+              )} | <strong>तालुका:</strong> ${sanitizeMarathiText(
+                order.details?.farmer?.taluka || "N/A"
+              )} | <strong>जिल्हा:</strong> ${sanitizeMarathiText(
+                order.details?.farmer?.district || "N/A"
+              )}</div>
+              <div class="info-row"><strong>बुकिंग:</strong> ${getBookingDate(order)} | <strong>डिलिव्हरी:</strong> ${order.Delivery || "N/A"}</div>
+            </div>
+            
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>रोप संख्या</th>
+                  <th>प्रकार</th>
+                  <th>दर</th>
+                  <th>एकूण</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>${quantity}</td>
+                  <td>${plantType} ${plantVariety}</td>
+                  <td>₹${rate}</td>
+                  <td>₹${total}</td>
+                </tr>
+              </tbody>
+            </table>
+            
+            <div class="payment-info">
+              <div class="info-row"><strong>जमा रक्कम:</strong> ₹${paidAmount} | <strong>एकूण:</strong> ₹${total} रुपये | <strong>बाकी:</strong> ₹${remainingAmount} रुपये</div>
+            </div>
+            
+            <div class="signature-section">
+              <div class="signature-line"></div>
+              <div style="text-align: center; font-size: 8px;">ग्राहकाचे नाव</div>
+            </div>
+                      </div>
+            
+            <!-- Right Receipt -->
+            <div class="receipt-right">
+            <div class="header">
+              <div class="title">Receipt</div>
+            </div>
+            
+            <div class="customer-info">
+              <div class="info-row"><strong>श्री:</strong> ${sanitizeMarathiText(
+                order.farmerName || "N/A"
+              )} | <strong>मोबाईल:</strong> ${sanitizeMarathiText(
+                order.details?.farmer?.mobileNumber || "N/A"
+              )}</div>
+              <div class="info-row"><strong>गाव:</strong> ${sanitizeMarathiText(
+                order.details?.farmer?.village || "N/A"
+              )} | <strong>तालुका:</strong> ${sanitizeMarathiText(
+                order.details?.farmer?.taluka || "N/A"
+              )} | <strong>जिल्हा:</strong> ${sanitizeMarathiText(
+                order.details?.farmer?.district || "N/A"
+              )}</div>
+              <div class="info-row"><strong>बुकिंग:</strong> ${getBookingDate(order)} | <strong>डिलिव्हरी:</strong> ${order.Delivery || "N/A"}</div>
+            </div>
+            
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>रोप संख्या</th>
+                  <th>प्रकार</th>
+                  <th>दर</th>
+                  <th>एकूण</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>${quantity}</td>
+                  <td>${plantType} ${plantVariety}</td>
+                  <td>₹${rate}</td>
+                  <td>₹${total}</td>
+                </tr>
+              </tbody>
+            </table>
+            
+            <div class="payment-info">
+              <div class="info-row"><strong>जमा रक्कम:</strong> ₹${paidAmount} | <strong>एकूण:</strong> ₹${total} रुपये | <strong>बाकी:</strong> ₹${remainingAmount} रुपये</div>
+            </div>
+            
+            <div class="signature-section">
+              <div class="signature-line"></div>
+              <div style="text-align: center; font-size: 8px;">ग्राहकाचे नाव</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </body>
+    </html>
+  `
+
+  return htmlContent
+}
+
+// Generate Marathi Receipt using HTML to PDF approach
+const generateMarathiReceiptHTML = (order) => {
+  const orderDate = order.orderDate
+    ? new Date(order.orderDate).toLocaleDateString("en-IN", { 
+        day: '2-digit', 
+        month: '2-digit', 
+        year: 'numeric' 
+      })
+    : new Date().toLocaleDateString("en-IN", { 
+        day: '2-digit', 
+        month: '2-digit', 
+        year: 'numeric' 
+      })
+
+  // Helper function to extract numeric value from string like "₹ 1000"
+  const extractNumericValue = (value) => {
+    if (typeof value === "number") return value
+    if (typeof value === "string") {
+      // Remove currency symbols, spaces, and extract number
+      const numericValue = value.replace(/[₹\s,]/g, "")
+      return parseInt(numericValue) || 0
+    }
+    return 0
+  }
+
+  const plantType = sanitizeMarathiText(order.plantType || "N/A")
+  const plantVariety = sanitizeMarathiText(order.plantVariety || "")
+  const quantity = parseInt(order.quantity) || 0
+  const rate = parseInt(order.rate) || 0
+  const total = extractNumericValue(order.total) || quantity * rate
+  const paidAmount = extractNumericValue(order["Paid Amt"])
+  const remainingAmount = extractNumericValue(order["remaining Amt"])
 
   const htmlContent = `
     <!DOCTYPE html>
@@ -622,20 +888,19 @@ const generateMarathiReceiptHTML = (order) => {
     <body>
       <div class="receipt">
         <div class="header">
-          <div class="title">रसीद</div>
-          <div class="date">दिनांक: ${orderDate}</div>
+          <div class="title">Receipt</div>
         </div>
         
         <div class="customer-info">
-          <div class="info-row"><strong>क्र.</strong> ${order.order || "N/A"}</div>
-          <div class="info-row"><strong>श्री:</strong> ${order.farmerName || "N/A"}</div>
+          <div class="info-row"><strong>श्री:</strong> ${order.farmerName || "N/A"} | <strong>मोबाईल:</strong> ${order.details?.farmer?.mobileNumber || "N/A"}</div>
           <div class="info-row">
-            <strong>गाव:</strong> ${order.details?.farmer?.village || "N/A"} 
-            <strong>तालुका:</strong> ${order.details?.farmer?.taluka || "N/A"}
+            <strong>गाव:</strong> ${order.details?.farmer?.village || "N/A"} | 
+            <strong>तालुका:</strong> ${order.details?.farmer?.taluka || "N/A"} | 
+            <strong>जिल्हा:</strong> ${order.details?.farmer?.district || "N/A"}
           </div>
           <div class="info-row">
-            <strong>जिल्हा:</strong> ${order.details?.farmer?.district || "N/A"} 
-            <strong>मो नंबर:</strong> ${order.details?.farmer?.mobileNumber || "N/A"}
+            <strong>बुकिंग:</strong> ${getBookingDate(order)} | 
+            <strong>डिलिव्हरी:</strong> ${order.Delivery || "N/A"}
           </div>
         </div>
         
@@ -655,36 +920,14 @@ const generateMarathiReceiptHTML = (order) => {
               <td>${rate}</td>
               <td>${total}</td>
             </tr>
-            <tr class="total-row">
-              <td colspan="3">जमा रक्कम</td>
-              <td>${total}</td>
-            </tr>
           </tbody>
         </table>
         
         <div class="payment-info">
-          <div class="info-row"><strong>एकूण:</strong> ${total} रुपये</div>
-          <div class="info-row"><strong>पेमेंट:</strong> ${paidAmount} रुपये</div>
-          <div class="info-row"><strong>बाकी:</strong> ${remainingAmount} रुपये</div>
+          <div class="info-row"><strong>एकूण:</strong> ${total} रुपये | <strong>जमा रक्कम:</strong> ${paidAmount} रुपये | <strong>बाकी:</strong> ${remainingAmount} रुपये</div>
         </div>
         
-        <div class="signature-section">
-          <div class="info-row">
-            <strong>पेमेंट किसी:</strong>
-            <div class="signature-line"></div>
-          </div>
-          <div class="info-row">
-            <strong>मालक किसी:</strong>
-            <div class="signature-line"></div>
-          </div>
-          <div class="info-row">
-            <strong>ग्राहकाचे नाव:</strong>
-            <div class="signature-line"></div>
-          </div>
-          <div class="info-row">
-            <strong>पत्ता नंबर:</strong> ${order.details?.farmer?.mobileNumber || "N/A"}
-          </div>
-        </div>
+
       </div>
     </body>
     </html>
@@ -744,7 +987,20 @@ const DownloadPDFButton = ({ order }) => {
           font-weight: 500;
           transition: all 0.2s ease;
         " onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
-          📄 Marathi Receipt (A5) - True Marathi Text
+          📄 Receipt (A8) - Compact Format
+        </button>
+        <button id="marathi-print-direct" style="
+          padding: 12px 20px; 
+          background: linear-gradient(135deg, #f59e0b, #d97706); 
+          color: white; 
+          border: none; 
+          border-radius: 8px; 
+          cursor: pointer; 
+          font-size: 14px; 
+          font-weight: 500;
+          transition: all 0.2s ease;
+        " onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
+          🖨️ Print Receipt (A4 Portrait - 2 Receipts)
         </button>
         <button id="close-modal" style="
           padding: 10px 20px; 
@@ -775,6 +1031,11 @@ const DownloadPDFButton = ({ order }) => {
       showHTMLReceipt(generateMarathiReceiptHTML(order), "Marathi")
     }
 
+    document.getElementById("marathi-print-direct").onclick = () => {
+      document.body.removeChild(modal)
+      printMarathiReceiptDirectly(order)
+    }
+
     document.getElementById("close-modal").onclick = () => {
       document.body.removeChild(modal)
     }
@@ -784,6 +1045,27 @@ const DownloadPDFButton = ({ order }) => {
       if (e.target === modal) {
         document.body.removeChild(modal)
       }
+    }
+  }
+
+  // Function to print Marathi receipt directly with 2 A5 receipts on A4 page
+  const printMarathiReceiptDirectly = (order) => {
+    const htmlContent = generateMarathiReceiptHTMLForPrint(order)
+
+    // Create a new window for printing
+    const printWindow = window.open("", "_blank", "width=800,height=600")
+    printWindow.document.write(htmlContent)
+    printWindow.document.close()
+
+    // Wait for content to load then print
+    printWindow.onload = () => {
+      printWindow.focus()
+      // Small delay to ensure content is fully loaded
+      setTimeout(() => {
+        printWindow.print()
+        // Close window after printing (optional)
+        // printWindow.close()
+      }, 500)
     }
   }
 
@@ -921,12 +1203,19 @@ const DownloadPDFButton = ({ order }) => {
       <button
         onClick={() => {
           const htmlContent = generateMarathiReceiptHTML(order)
-          showHTMLReceipt(htmlContent, "Marathi")
+          showHTMLReceipt(htmlContent, "Receipt")
         }}
         className="text-green-700 hover:text-green-900 focus:outline-none inline-flex items-center gap-1 p-2 rounded-md hover:bg-green-100 transition-colors"
-        title="Download Marathi Receipt (A5) - HTML">
+        title="Download Receipt (A8) - Compact Format">
         <DownloadIcon size={16} />
-        <span className="text-sm font-medium">मराठी</span>
+        <span className="text-sm font-medium">A8</span>
+      </button>
+      <button
+        onClick={() => printMarathiReceiptDirectly(order)}
+        className="text-orange-700 hover:text-orange-900 focus:outline-none inline-flex items-center gap-1 p-2 rounded-md hover:bg-orange-100 transition-colors"
+        title="Print Receipt Directly (A4 - 2 Receipts)">
+        <DownloadIcon size={16} />
+        <span className="text-sm font-medium">🖨️</span>
       </button>
     </div>
   )

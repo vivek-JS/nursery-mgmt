@@ -60,7 +60,8 @@ const ExcelUpload = () => {
     slotSize: 5,
     dailyDispatchCapacity: 2000,
     buffer: 0,
-    subtypes: [{ name: "", description: "", rates: [""], buffer: 0 }]
+    sowingAllowed: false,
+    subtypes: [{ name: "", description: "", rates: [""], buffer: 0, plantReadyDays: 0 }]
   })
   const [creatingPlant, setCreatingPlant] = useState(false)
   const [plantCreated, setPlantCreated] = useState(false)
@@ -245,7 +246,8 @@ const ExcelUpload = () => {
           slotSize: 5,
           dailyDispatchCapacity: 2000,
           buffer: 0,
-          subtypes: [{ name: "", description: "", rates: [""], buffer: 0 }]
+          sowingAllowed: false,
+          subtypes: [{ name: "", description: "", rates: [""], buffer: 0, plantReadyDays: 0 }]
         })
 
         // Optionally retry the import
@@ -271,7 +273,8 @@ const ExcelUpload = () => {
       slotSize: 5,
       dailyDispatchCapacity: 2000,
       buffer: 0,
-      subtypes: [{ name: "", description: "", rates: [""], buffer: 0 }]
+      sowingAllowed: false,
+      subtypes: [{ name: "", description: "", rates: [""], buffer: 0, plantReadyDays: 0 }]
     })
     setIsPlantModalOpen(true)
   }
