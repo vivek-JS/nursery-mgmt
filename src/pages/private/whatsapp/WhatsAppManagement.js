@@ -30,13 +30,16 @@ import {
   CheckCircle2,
   Clock,
   XCircle,
-  Phone
+  Phone,
+  Shield
 } from "lucide-react"
 import { getMessageTemplates, testWatiConnection } from "network/core/wati"
 import FarmerCampaignModal from "./FarmerCampaignModal"
 import SingleSendModal from "./SingleSendModal"
+import { useHasWhatsAppAccess } from "utils/roleUtils"
 
 const WhatsAppManagement = () => {
+  const hasWhatsAppAccess = useHasWhatsAppAccess()
   const [templates, setTemplates] = useState([])
   const [selectedTemplate, setSelectedTemplate] = useState(null)
   const [showFarmerCampaign, setShowFarmerCampaign] = useState(false)
@@ -45,6 +48,28 @@ const WhatsAppManagement = () => {
   const [searchTerm, setSearchTerm] = useState("")
   const [error, setError] = useState(null)
   const [connectionStatus, setConnectionStatus] = useState(null)
+
+  // Access control check
+  if (!hasWhatsAppAccess) {
+    return (
+      <Box sx={{ p: 3 }}>
+        <Card sx={{ maxWidth: 600, mx: 'auto', mt: 4 }}>
+          <CardContent sx={{ textAlign: 'center', p: 4 }}>
+            <Shield size={64} color="#f44336" style={{ marginBottom: 16 }} />
+            <Typography variant="h5" gutterBottom color="error">
+              Access Denied
+            </Typography>
+            <Typography variant="body1" color="text.secondary" sx={{ mb: 2 }}>
+              You don&apos;t have permission to access WhatsApp Management.
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              This feature is only available to Super Admin users.
+            </Typography>
+          </CardContent>
+        </Card>
+      </Box>
+    )
+  }
 
   const fetchTemplates = async () => {
     setLoading(true)

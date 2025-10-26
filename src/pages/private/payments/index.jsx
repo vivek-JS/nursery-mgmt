@@ -33,7 +33,8 @@ import {
   Visibility as ViewIcon,
   Close as CloseIcon,
   ArrowBackIos as PrevIcon,
-  ArrowForwardIos as NextIcon
+  ArrowForwardIos as NextIcon,
+  Shield
 } from "@mui/icons-material"
 
 import { API, NetworkManager } from "network/core"
@@ -44,7 +45,8 @@ import {
   useHasPaymentAccess,
   useIsAccountant,
   useIsOfficeAdmin,
-  useIsSuperAdmin
+  useIsSuperAdmin,
+  useHasPaymentsAccess
 } from "utils/roleUtils"
 
 const useStyles = makeStyles()((theme) => ({
@@ -223,10 +225,33 @@ const PaymentsPage = () => {
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("")
 
   // Role-based access control
+  const hasPaymentsAccess = useHasPaymentsAccess() // Only Accountants and Super Admins
   const hasPaymentAccess = useHasPaymentAccess() // Only Accountants and Super Admins
   const isAccountant = useIsAccountant()
   const isOfficeAdmin = useIsOfficeAdmin()
   const isSuperAdmin = useIsSuperAdmin()
+
+  // Access control check
+  if (!hasPaymentsAccess) {
+    return (
+      <Box sx={{ p: 3 }}>
+        <Card sx={{ maxWidth: 600, mx: 'auto', mt: 4 }}>
+          <CardContent sx={{ textAlign: 'center', p: 4 }}>
+            <Shield sx={{ fontSize: 64, color: '#f44336', mb: 2 }} />
+            <Typography variant="h5" gutterBottom color="error">
+              Access Denied
+            </Typography>
+            <Typography variant="body1" color="text.secondary" sx={{ mb: 2 }}>
+              You don&apos;t have permission to access Payments Management.
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              This feature is only available to Accountant and Super Admin users.
+            </Typography>
+          </CardContent>
+        </Card>
+      </Box>
+    )
+  }
 
   // Confirmation dialog state
   const [confirmDialog, setConfirmDialog] = useState({

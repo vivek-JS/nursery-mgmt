@@ -31,10 +31,10 @@ export const DashboardMenus = [
   new MenuPath("Inventory", <InventoryIcon />, "/u/inventory"),
   // new MenuPath("Settings", <SettingsSuggestIcon />, "/u/settings"),
   // new MenuPath("Admin", <AdminPanelSettingsIcon />, "/u/admin"),
-  new MenuPath("Labs", <BiotechIcon />, "/u/labs"),
+  new MenuPath("Labs", <BiotechIcon />, "/u/labs", ["LABORATORY_MANAGER", "SUPER_ADMIN"]),
   new MenuPath("Order", <ListAltIcon />, "/u/orders"),
   new MenuPath("Orders-upload", <ListAltIcon />, "/u/upload-orders"),
   new MenuPath("Dealers", <ListAltIcon />, "/u/dealers"),
-  new MenuPath("Payments", <PaymentIcon />, "/u/payments"),
-  new MenuPath("WhatsApp Management", <WhatsAppIcon />, "/u/whatsapp")
+  new MenuPath("Payments", <PaymentIcon />, "/u/payments", ["ACCOUNTANT", "SUPER_ADMIN"]),
+  new MenuPath("WhatsApp Management", <WhatsAppIcon />, "/u/whatsapp", ["SUPER_ADMIN"])
 ]

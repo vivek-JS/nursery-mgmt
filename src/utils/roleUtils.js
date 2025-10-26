@@ -103,6 +103,52 @@ export const useIsDispatchManager = () => {
 }
 
 /**
+ * Check if user has WhatsApp access (SUPER_ADMIN only)
+ */
+export const useHasWhatsAppAccess = () => {
+  const userRole = useUserRole()
+  return userRole === "SUPER_ADMIN"
+}
+
+/**
+ * Check if user has Payments access (ACCOUNTANT only, but SUPER_ADMIN has all access)
+ */
+export const useHasPaymentsAccess = () => {
+  const userRole = useUserRole()
+  return userRole === "ACCOUNTANT" || userRole === "SUPER_ADMIN"
+}
+
+/**
+ * Check if user has access to a specific menu item based on role
+ * @param {string} menuTitle - The title of the menu item
+ * @returns {boolean} - True if user has access to the menu item
+ */
+export const useHasMenuAccess = (menuTitle) => {
+  const userRole = useUserRole()
+  
+  // SUPER_ADMIN has access to everything
+  if (userRole === "SUPER_ADMIN") {
+    return true
+  }
+  
+  // Role-specific access controls
+  switch (menuTitle) {
+    case "WhatsApp Management":
+      return userRole === "SUPER_ADMIN"
+    
+    case "Payments":
+      return userRole === "ACCOUNTANT" || userRole === "SUPER_ADMIN"
+    
+    case "Labs":
+      return userRole === "LABORATORY_MANAGER" || userRole === "SUPER_ADMIN"
+    
+    default:
+      // For all other menu items, allow access (existing logic)
+      return true
+  }
+}
+
+/**
  * Hook to get dealer wallet details
  */
 export const useDealerWallet = () => {
