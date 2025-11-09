@@ -6,166 +6,138 @@ const DeliveryChallanPDF = ({ open, onClose, dispatchData }) => {
   const today = new Date().toLocaleDateString()
 
   const DeliveryChallanPage = ({ order }) => {
+    const plantDetailsList = Array.isArray(dispatchData?.plantsDetails)
+      ? dispatchData.plantsDetails
+      : []
+    const orderPlantName = order?.plantDetails?.name?.toLowerCase()
+
     const findPlantDetails = () => {
-      return dispatchData.plantsDetails.find((p) =>
-        p.name.toLowerCase().includes(order.plantDetails.name.toLowerCase())
+      if (!plantDetailsList.length) return null
+      if (!orderPlantName) return plantDetailsList[0]
+
+      return (
+        plantDetailsList.find((p) => p?.name?.toLowerCase().includes(orderPlantName)) ||
+        plantDetailsList[0]
       )
     }
 
-    const plant = findPlantDetails(order.plantDetails.name)
-    const totalPaid = order.details.payment.reduce((sum, p) => sum + p.paidAmount, 0)
+    const plant = findPlantDetails()
+    const paymentEntries = Array.isArray(order?.details?.payment) ? order.details.payment : []
+    const totalPaid = paymentEntries.reduce((sum, p) => sum + (p?.paidAmount || 0), 0)
 
     return (
       <div className="challan-page relative bg-white p-8 break-after-page">
-        {/* Header */}
-        <div className="text-center border-b pb-6">
-          <h1 className="text-3xl font-bold text-gray-900">DELIVERY CHALLAN / डिलिव्हरी चलन</h1>
-          <p className="text-gray-600 mt-2">Date / तारीख: {today}</p>
-          <p className="text-gray-600">
-            Challan No / चलन क्रमांक: {dispatchData.transportId}-{order.order}
-          </p>
+        {/* Header with decorative underline */}
+        <div className="text-center border-b-2 border-gray-400 pb-3 mb-5">
+          <h1 className="text-3xl font-bold text-gray-900 tracking-wide">डिलिव्हरी चलन</h1>
+          <div className="flex justify-center gap-8 mt-2 text-sm text-gray-700">
+            <p className="font-semibold">तारीख: <span className="font-normal">{today}</span></p>
+            <p className="font-semibold">चलन क्रमांक: <span className="font-normal">{dispatchData.transportId}-{order.order}</span></p>
+          </div>
         </div>
 
-        {/* Transport & Farmer Details */}
-        <div className="grid grid-cols-2 gap-8 mt-6">
-          <div className="space-y-4">
-            <div>
-              <h3 className="text-lg font-semibold mb-2">Transport Details / वाहतूक तपशील</h3>
-              <div className="space-y-1">
-                <p>
-                  <span className="text-gray-600">Driver / चालक:</span> {dispatchData.driverName}
-                </p>
-                <p>
-                  <span className="text-gray-600">Vehicle / वाहन:</span> {dispatchData.vehicleName}
-                </p>
-              </div>
-            </div>
-            <div>
-              <h3 className="text-lg font-semibold mb-2">Plant Details / रोपांचे तपशील</h3>
-              <div className="space-y-1">
-                <p>
-                  <span className="text-gray-600">Plant Name / रोपांचे नाव:</span> {plant?.name}
-                </p>
-                <p>
-                  <span className="text-gray-600">Quantity / प्रमाण:</span> {order.quantity}
-                </p>
-                {plant?.crates[0] && (
-                  <>
-                    <p>
-                      <span className="text-gray-600">Cavity Type / कॅव्हिटी प्रकार:</span>{" "}
-                      {plant.crates[0].cavityName}
-                    </p>
-                    <p>
-                      <span className="text-gray-600">Total Crates / एकूण खोकी:</span>{" "}
-                      {plant.crates[0].crateCount}
-                    </p>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-
-          <div>
-            <h3 className="text-lg font-semibold mb-2">Farmer Details / शेतकरी तपशील</h3>
-            <div className="space-y-1">
-              <p>
-                <span className="text-gray-600">Name / नाव:</span>{" "}
-                {order.details?.farmer?.name || "N/A"}
-              </p>
-              <p>
-                <span className="text-gray-600">Mobile / मोबाईल:</span>{" "}
-                {order.details?.farmer?.mobileNumber || "N/A"}
-              </p>
-              <p>
-                <span className="text-gray-600">Village / गाव:</span>{" "}
-                {order.details?.farmer?.village || "N/A"}
-              </p>
-              <p>
-                <span className="text-gray-600">Delivery Location / वितरण स्थान:</span>{" "}
-                {order.Delivery || "Not specified / निर्दिष्ट नाही"}
-              </p>
-            </div>
-          </div>
+        {/* Compact Details Table with alternating rows */}
+        <div className="mb-6">
+          <table className="w-full border-collapse border border-gray-400">
+            <tbody>
+              <tr className="bg-gray-100">
+                <td className="border border-gray-400 p-2 font-semibold" style={{width: '20%'}}>चालक</td>
+                <td className="border border-gray-400 p-2" style={{width: '30%'}}>{dispatchData.driverName}</td>
+                <td className="border border-gray-400 p-2 font-semibold" style={{width: '20%'}}>वाहन</td>
+                <td className="border border-gray-400 p-2" style={{width: '30%'}}>{dispatchData.vehicleName}</td>
+              </tr>
+              <tr className="bg-white">
+                <td className="border border-gray-400 p-2 font-semibold">शेतकरीचे नाव</td>
+                <td className="border border-gray-400 p-2">{order.details?.farmer?.name || "N/A"}</td>
+                <td className="border border-gray-400 p-2 font-semibold">मोबाईल</td>
+                <td className="border border-gray-400 p-2">{order.details?.farmer?.mobileNumber || "N/A"}</td>
+              </tr>
+              <tr className="bg-gray-100">
+                <td className="border border-gray-400 p-2 font-semibold">गाव</td>
+                <td className="border border-gray-400 p-2">{order.details?.farmer?.village || "N/A"}</td>
+                <td className="border border-gray-400 p-2 font-semibold">वितरण स्थान</td>
+                <td className="border border-gray-400 p-2">{order.Delivery || "निर्दिष्ट नाही"}</td>
+              </tr>
+              <tr className="bg-white">
+                <td className="border border-gray-400 p-2 font-semibold">रोपांचे नाव</td>
+                <td className="border border-gray-400 p-2">{plant?.name?.replace(/\s*-\s*>\s*/g, "-")}</td>
+                <td className="border border-gray-400 p-2 font-semibold">प्रमाण</td>
+                <td className="border border-gray-400 p-2">{order.quantity}</td>
+              </tr>
+              {plant?.crates[0] && (
+                <tr className="bg-gray-100">
+                  <td className="border border-gray-400 p-2 font-semibold">कॅव्हिटी</td>
+                  <td className="border border-gray-400 p-2">{plant.crates[0].cavityName}</td>
+                  <td className="border border-gray-400 p-2 font-semibold">एकूण खोकी</td>
+                  <td className="border border-gray-400 p-2">{plant.crates[0].crateCount}</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
 
         {/* Order Details */}
-        <div className="mt-8">
-          <h3 className="text-lg font-semibold mb-4">Order Summary / ऑर्डर सारांश</h3>
-          <table className="w-full border-collapse">
+        <div className="mb-6">
+          <h3 className="text-xl font-bold mb-3 text-gray-800 border-b border-gray-300 pb-2">ऑर्डर सारांश</h3>
+          <table className="w-full border-collapse border border-gray-400">
             <thead>
-              <tr className="bg-gray-50">
-                <th className="border p-2 text-left">Description / वर्णन</th>
-                <th className="border p-2 text-right">Quantity / प्रमाण</th>
-                <th className="border p-2 text-right">Rate / दर</th>
-                <th className="border p-2 text-right">Amount / रक्कम</th>
+              <tr className="bg-gray-100">
+                <th className="border border-gray-400 p-2 text-left font-semibold">वर्णन</th>
+                <th className="border border-gray-400 p-2 text-right font-semibold">प्रमाण</th>
+                <th className="border border-gray-400 p-2 text-right font-semibold">दर</th>
+                <th className="border border-gray-400 p-2 text-right font-semibold">रक्कम</th>
               </tr>
             </thead>
             <tbody>
-              <tr>
-                <td className="border p-2">{plant?.name}</td>
-                <td className="border p-2 text-right">{order.quantity}</td>
-                <td className="border p-2 text-right">₹{order.rate}</td>
-                <td className="border p-2 text-right">{order.total}</td>
+              <tr className="bg-white">
+                <td className="border border-gray-400 p-2">{plant?.name?.replace(/\s*-\s*>\s*/g, "-")}</td>
+                <td className="border border-gray-400 p-2 text-right">{order.quantity}</td>
+                <td className="border border-gray-400 p-2 text-right">₹{order.rate}</td>
+                <td className="border border-gray-400 p-2 text-right">{order.total}</td>
               </tr>
             </tbody>
           </table>
         </div>
 
-        {/* Payment Details */}
-        <div className="mt-6">
-          <h3 className="text-lg font-semibold mb-4">Payment Details / पेमेंट तपशील</h3>
-          <div className="space-y-2">
-            <p>
-              <span className="text-gray-600">Total Amount / एकूण रक्कम:</span> {order.total}
-            </p>
-            <p>
-              <span className="text-gray-600">Paid Amount / भरलेली रक्कम:</span> ₹{totalPaid}
-            </p>
-            <p>
-              <span className="text-gray-600">Remaining Amount / उर्वरित रक्कम:</span>{" "}
-              {order["remaining Amt"]}
-            </p>
-          </div>
-
-          {order.details.payment.length > 0 && (
-            <div className="mt-4">
-              <h4 className="font-medium mb-2">Payment History / पेमेंट इतिहास</h4>
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-gray-50">
-                    <th className="border p-2 text-left">Date / तारीख</th>
-                    <th className="border p-2 text-left">Mode / पद्धत</th>
-                    <th className="border p-2 text-right">Amount / रक्कम</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {order.details.payment?.map((payment, idx) => (
-                    <tr key={idx}>
-                      <td className="border p-2">
-                        {new Date(payment.paymentDate).toLocaleDateString()}
-                      </td>
-                      <td className="border p-2">{payment.modeOfPayment}</td>
-                      <td className="border p-2 text-right">₹{payment.paidAmount}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="mt-12 pt-6 border-t">
-          <div className="flex justify-between">
-            <div className="text-center">
-              <div className="border-b border-black w-40 h-16"></div>
-              <p className="text-sm text-gray-600 mt-2">Customer Signature / ग्राहक स्वाक्षरी</p>
-            </div>
-            <div className="text-center">
-              <div className="border-b border-black w-40 h-16"></div>
-              <p className="text-sm text-gray-600 mt-2">Authorized Signature / अधिकृत स्वाक्षरी</p>
-            </div>
-          </div>
+        {/* Payment Details Table */}
+        <div>
+          <h3 className="text-xl font-bold mb-3 text-gray-800 border-b border-gray-300 pb-2">पेमेंट तपशील</h3>
+          <table className="w-full border-collapse border border-gray-400">
+            <thead>
+              <tr className="bg-gray-100">
+                <th className="border border-gray-400 p-2 text-left font-semibold">तारीख</th>
+                <th className="border border-gray-400 p-2 text-left font-semibold">पद्धत</th>
+                <th className="border border-gray-400 p-2 text-right font-semibold">रक्कम</th>
+              </tr>
+            </thead>
+            <tbody>
+              {paymentEntries.map((payment, idx) => (
+                <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                  <td className="border border-gray-400 p-2">
+                    {payment?.paymentDate
+                      ? new Date(payment.paymentDate).toLocaleDateString()
+                      : "N/A"}
+                  </td>
+                  <td className="border border-gray-400 p-2">{payment?.modeOfPayment || "N/A"}</td>
+                  <td className="border border-gray-400 p-2 text-right">₹{payment?.paidAmount || 0}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="bg-gray-100 font-semibold">
+                <td colSpan="2" className="border border-gray-400 p-2">एकूण भरलेली रक्कम</td>
+                <td className="border border-gray-400 p-2 text-right">₹{totalPaid}</td>
+              </tr>
+              <tr className="bg-white font-semibold">
+                <td colSpan="2" className="border border-gray-400 p-2">एकूण रक्कम</td>
+                <td className="border border-gray-400 p-2 text-right">{order.total}</td>
+              </tr>
+              <tr className="bg-gray-100 font-bold">
+                <td colSpan="2" className="border border-gray-400 p-2">उर्वरित रक्कम</td>
+                <td className="border border-gray-400 p-2 text-right">{order["remaining Amt"]}</td>
+              </tr>
+            </tfoot>
+          </table>
         </div>
       </div>
     )
@@ -174,21 +146,43 @@ const DeliveryChallanPDF = ({ open, onClose, dispatchData }) => {
   const handlePrint = () => {
     const printWindow = window.open("", "_blank")
 
+    if (!printWindow) {
+      console.error("Unable to open print window for delivery challan")
+      return
+    }
+
     // Get all challans HTML
+    const challanElements = Array.from(
+      document?.querySelectorAll?.(".challan-page") ?? []
+    )
+
     const challans = dispatchData.orderIds
-      ?.map(
-        (order, index) => `
+      ?.map((order, index) => {
+        const challanContent = challanElements[index]?.innerHTML
+        if (!challanContent) {
+          console.warn("Missing challan content for order index:", index)
+          return ""
+        }
+
+        return `
       <div class="challan-page" style="
         page-break-after: always;
         padding: 2rem;
         max-width: 800px;
         margin: 0 auto;
       ">
-        ${document.querySelectorAll(".challan-page")[index].innerHTML}
+        ${challanContent}
       </div>
     `
-      )
+      })
+      .filter(Boolean)
       .join("")
+
+    if (!challans) {
+      printWindow.close()
+      console.warn("No delivery challan content available to print.")
+      return
+    }
 
     // Create print document with necessary styles
     printWindow.document.write(`
@@ -202,69 +196,75 @@ const DeliveryChallanPDF = ({ open, onClose, dispatchData }) => {
                 margin: 0;
                 padding: 0;
                 font-family: system-ui, -apple-system, sans-serif;
+                font-size: 11px;
+                color: #333 !important;
+                background: white !important;
               }
               .challan-page {
                 page-break-after: always;
-                height: 100vh;
                 box-sizing: border-box;
-                padding: 2rem;
+                padding: 1.5rem;
               }
               .challan-page:last-child {
                 page-break-after: auto;
               }
               @page {
-                size: A4;
-                margin: 0;
+                margin: 1cm;
               }
               table {
                 width: 100%;
                 border-collapse: collapse;
+                font-size: 10px;
+              }
+              table, th, td {
+                border: 1px solid #ccc !important;
               }
               th, td {
-                padding: 8px;
-                border: 1px solid #ddd;
+                padding: 5px 7px;
               }
-              th {
-                background-color: #f8f9fa;
-                text-align: left;
+              .bg-gray-100 {
+                background-color: #f5f5f5 !important;
+              }
+              .bg-gray-50 {
+                background-color: #fafafa !important;
+              }
+              .bg-white {
+                background-color: white !important;
               }
               h1 {
-                font-size: 24px;
+                font-size: 20px;
                 font-weight: bold;
-                margin-bottom: 16px;
+                margin-bottom: 10px;
+                color: #333 !important;
+                border-bottom: 2px solid #ccc !important;
               }
               h3 {
-                font-size: 18px;
-                font-weight: 600;
-                margin: 16px 0 8px;
+                font-size: 13px;
+                font-weight: bold;
+                margin: 10px 0 6px;
+                color: #333 !important;
+                border-bottom: 1px solid #ddd !important;
               }
-              .border-b {
-                border-bottom: 1px solid #e5e7eb;
+              .border-b-2 {
+                border-bottom: 2px solid #ccc !important;
               }
-              .grid {
-                display: grid;
-                grid-template-columns: 1fr 1fr;
-                gap: 2rem;
+              .border {
+                border: 1px solid #ccc !important;
               }
-              .space-y-1 > * + * {
-                margin-top: 0.25rem;
+              .mb-3 { margin-bottom: 12px; }
+              .mb-5 { margin-bottom: 20px; }
+              .mb-6 { margin-bottom: 24px; }
+              .mt-2 { margin-top: 8px; }
+              .pb-2 { padding-bottom: 8px; }
+              .pb-3 { padding-bottom: 12px; }
+              p, span, div, td, th {
+                color: #333 !important;
               }
-              .space-y-2 > * + * {
-                margin-top: 0.5rem;
+              * {
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+                color-adjust: exact !important;
               }
-              .space-y-4 > * + * {
-                margin-top: 1rem;
-              }
-              .text-gray-600 {
-                color: #4b5563;
-              }
-              .mt-2 { margin-top: 0.5rem; }
-              .mt-4 { margin-top: 1rem; }
-              .mt-6 { margin-top: 1.5rem; }
-              .mt-8 { margin-top: 2rem; }
-              .mt-12 { margin-top: 3rem; }
-              .pb-6 { padding-bottom: 1.5rem; }
-              .pt-6 { padding-top: 1.5rem; }
             }
           </style>
         </head>
@@ -292,7 +292,7 @@ const DeliveryChallanPDF = ({ open, onClose, dispatchData }) => {
       <div className="fixed inset-0 flex items-center justify-center z-50">
         <div className="bg-white rounded-lg w-full max-w-5xl max-h-[90vh] overflow-y-auto">
           <div className="flex justify-between items-center p-4 border-b sticky top-0 bg-white z-10">
-            <h2 className="text-xl font-semibold">Delivery Challans / डिलिव्हरी चलन</h2>
+            <h2 className="text-xl font-semibold">डिलिव्हरी चलन</h2>
             <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
               <span className="sr-only">Close</span>
               <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -327,7 +327,7 @@ const DeliveryChallanPDF = ({ open, onClose, dispatchData }) => {
                     d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"
                   />
                 </svg>
-                Print All Challans / सर्व चलन प्रिंट करा
+सर्व चलन प्रिंट करा
               </button>
             </div>
           </div>

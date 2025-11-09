@@ -280,10 +280,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
   const [sales, setSales] = useState([])
   const [dealers, setDealers] = useState([])
 
-  const [cavities] = useState([
-    { label: "10 Cavity", value: 10 },
-    { label: "8 Cavity", value: 8 }
-  ])
+  const [cavities, setCavities] = useState([])
   const [dealerWallet, setDealerWallet] = useState({})
   const [rate, setRate] = useState(null)
   const [available, setAvailable] = useState(null)
@@ -375,7 +372,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
   const loadInitialData = async () => {
     setLoading(true)
     try {
-      await Promise.all([loadPlants(), loadSales(), loadDealers()])
+      await Promise.all([loadPlants(), loadSales(), loadDealers(), loadCavities()])
     } catch (error) {
       console.error("Error loading initial data:", error)
       Toast.error("Failed to load initial data")
@@ -399,6 +396,29 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
       }
     } catch (error) {
       console.error("Error loading plants:", error)
+    }
+  }
+
+  const loadCavities = async () => {
+    try {
+      const instance = NetworkManager(API.TRAY.GET_TRAYS)
+      const response = await instance.request({}, { page: 1, limit: 100, status: "true" })
+      const trayData = response?.data?.data?.data || []
+
+      const formattedCavities = trayData
+        .filter((tray) => tray?.isActive !== false)
+        .map((tray) => ({
+          value: tray._id,
+          label: tray.name ? `${tray.name} (${tray.cavity} cavity)` : `${tray.cavity} cavity`,
+          cavity: tray.cavity,
+          numberPerCrate: tray.numberPerCrate,
+          name: tray.name
+        }))
+
+      setCavities(formattedCavities)
+    } catch (error) {
+      console.error("Error loading cavities:", error)
+      setCavities([])
     }
   }
 
@@ -491,23 +511,23 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
         return
       }
 
-      // Use regular slot loading for non-dealer quota
-      const instance = NetworkManager(API.slots.GET_PLANTS_SLOTS)
-      const response = await instance.request(null, { plantId, subtypeId, year: 2025 })
+      // Use fast simple slots endpoint for non-dealer quota
+      const instance = NetworkManager(API.slots.GET_SIMPLE_SLOTS)
+      const response = await instance.request({}, { plantId, subtypeId, year: 2025 })
 
-      // Handle both response structures: {slots: [{slots: [...]}]} and {slots: [...]}
-      let slotsData = null
-      if (response?.data?.slots) {
-        if (Array.isArray(response.data.slots[0]?.slots)) {
-          // Nested structure
-          slotsData = response.data.slots[0].slots
-        } else if (Array.isArray(response.data.slots)) {
-          // Direct structure
-          slotsData = response.data.slots
-        }
-      }
+      const rawSlots =
+        response?.data?.data?.slots ||
+        response?.data?.slots ||
+        response?.data?.data ||
+        []
 
-      if (slotsData) {
+      const slotsData = Array.isArray(rawSlots)
+        ? rawSlots
+        : Array.isArray(rawSlots?.slots)
+        ? rawSlots.slots
+        : []
+
+      if (slotsData.length > 0) {
         // Check if this plant has sowing allowed
         const selectedPlant = plants.find((p) => p.value === plantId)
         const isSowingAllowedPlant = selectedPlant?.sowingAllowed
@@ -1592,18 +1612,51 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
 
 
       // Create FormData for file uploads
-      
-      // Add all payload data to FormData as individual fields
-      Object.keys(payload).forEach(key => {
-        if (key === 'screenshots') {
-          // Handle screenshots separately
-          payload[key].forEach((file, index) => {
-            formDataForUpload.append('screenshots', file)
-          })
-        } else if (payload[key] !== null && payload[key] !== undefined) {
-          // Convert all values to strings for FormData
-          formDataForUpload.append(key, String(payload[key]))
+
+      const { screenshots: screenshotFiles = [] } = payload
+      const payloadWithoutScreenshots = { ...payload }
+      delete payloadWithoutScreenshots.screenshots
+
+      // Append screenshot files individually
+      screenshotFiles.forEach((file) => {
+        if (file) {
+          formDataForUpload.append("screenshots", file)
         }
+      })
+
+      const isFileLike = (value) => {
+        if (typeof File !== "undefined" && value instanceof File) return true
+        if (typeof Blob !== "undefined" && value instanceof Blob) return true
+        return false
+      }
+
+      // Add all payload data to FormData with proper serialization
+      Object.entries(payloadWithoutScreenshots).forEach(([key, value]) => {
+        if (value === null || value === undefined) {
+          return
+        }
+
+        if (value instanceof Date) {
+          formDataForUpload.append(key, value.toISOString())
+          return
+        }
+
+        if (isFileLike(value)) {
+          formDataForUpload.append(key, value)
+          return
+        }
+
+        if (Array.isArray(value) || (typeof value === "object" && value !== null)) {
+          formDataForUpload.append(key, JSON.stringify(value))
+          return
+        }
+
+        if (typeof value === "boolean") {
+          formDataForUpload.append(key, value ? "true" : "false")
+          return
+        }
+
+        formDataForUpload.append(key, value)
       })
 
       // Add payment image if available
@@ -2647,7 +2700,13 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                     <Select
                       value={formData?.cavity || ""}
                       onChange={(e) => handleInputChange("cavity", e.target.value)}
-                      label="Select Cavity">
+                      label="Select Cavity"
+                      disabled={cavities.length === 0}>
+                      {cavities.length === 0 && (
+                        <MenuItem value="" disabled>
+                          {loading ? "Loading cavities..." : "No cavities available"}
+                        </MenuItem>
+                      )}
                       {cavities.map((cavity) => (
                         <MenuItem key={cavity.value} value={cavity.value}>
                           {cavity.label}

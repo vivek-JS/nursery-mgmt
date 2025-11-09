@@ -265,8 +265,14 @@ export const API = {
     GET_PLANTS_SUBTYPE: new APIRouter("/slots/subtyps", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_PLANTS_SLOTS: new APIRouter("/slots/getslots", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_SIMPLE_SLOTS: new APIRouter("/slots/simple", HTTP_METHODS.GET, OFFLINE.PROFILE), // Fast endpoint for sowing
+    GET_TRANSFER_OPTIONS: new APIRouter(
+      "/slots/transfer-options",
+      HTTP_METHODS.GET,
+      OFFLINE.PROFILE
+    ),
     GET_SLOT_DETAILS: new APIRouter("/slots/:slotId/details", HTTP_METHODS.GET, OFFLINE.PROFILE),
     UPDATE_SLOT: new APIRouter("/slots", HTTP_METHODS.PUT, OFFLINE.PROFILE),
+    TRANSFER_PLANTS: new APIRouter("/slots/transfer", HTTP_METHODS.POST, OFFLINE.PROFILE),
     ADD_MANUAL_SLOT: new APIRouter("/slots/manual", HTTP_METHODS.POST, OFFLINE.PROFILE),
     DELETE_MANUAL_SLOT: new APIRouter("/slots/manual", HTTP_METHODS.DEL, OFFLINE.PROFILE),
     GET_STATS_SLOSTS: new APIRouter("/slots/farmreadyStats", HTTP_METHODS.GET, OFFLINE.PROFILE),
@@ -409,6 +415,13 @@ export const API = {
     UPDATE_PRIMARY_SOWED: new APIRouter("/sowing/:id/primary-sowed", HTTP_METHODS.POST, OFFLINE.PROFILE),
     UPDATE_HARVEST: new APIRouter("/sowing/:id/harvest", HTTP_METHODS.POST, OFFLINE.PROFILE),
     GET_REMINDERS: new APIRouter("/sowing/reminders", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_ALERTS: new APIRouter("/sowing/alerts", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_SOWING_ALERTS_BY_START: new APIRouter("/sowing/sowing-alerts", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_TODAY_SOWING_SUMMARY: new APIRouter(
+      "/sowing/sowing-alerts/today",
+      HTTP_METHODS.GET,
+      OFFLINE.PROFILE
+    ),
     GET_STATS: new APIRouter("/sowing/stats", HTTP_METHODS.GET, OFFLINE.PROFILE),
     UPDATE_SOWING: new APIRouter("/sowing/:id", HTTP_METHODS.PUT, OFFLINE.PROFILE),
     DELETE_SOWING: new APIRouter("/sowing/:id", HTTP_METHODS.DEL, OFFLINE.PROFILE)

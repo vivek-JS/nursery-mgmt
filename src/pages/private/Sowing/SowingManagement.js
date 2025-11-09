@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   Box,
   Button,
@@ -28,9 +28,11 @@ import {
   Tab,
   Tabs,
   LinearProgress,
+  CircularProgress,
   Tooltip,
   Badge,
   InputAdornment,
+  Stack,
 } from "@mui/material";
 import {
   Add as AddIcon,
@@ -55,6 +57,21 @@ import moment from "moment";
 import { Toast } from "helpers/toasts/toastHelper";
 import { NetworkManager, API } from "network/core";
 import { useSelector } from "react-redux";
+import SowingAlerts from "./components/SowingAlerts";
+
+const createTransferDialogState = () => ({
+  open: false,
+  sourceSlot: null,
+  sourceSubtype: null,
+  maxQuantity: 0,
+  quantity: "",
+  options: [],
+  targetSlotId: "",
+  reason: "",
+  loading: false,
+  submitting: false,
+  error: "",
+});
 
 const SowingManagement = () => {
   const userData = useSelector((state) => state?.userData?.userData);
@@ -63,6 +80,13 @@ const SowingManagement = () => {
   const [loading, setLoading] = useState(false);
   const [stats, setStats] = useState(null);
   const [reminders, setReminders] = useState([]);
+  const [alerts, setAlerts] = useState({
+    summary: null,
+    dayAlerts: [],
+    slotAlerts: [],
+    plantAlerts: [],
+  });
+  const [todaySummary, setTodaySummary] = useState(null);
   const [plants, setPlants] = useState([]);
   const [selectedPlant, setSelectedPlant] = useState(null);
   const [selectedSubtype, setSelectedSubtype] = useState(null);
@@ -80,6 +104,26 @@ const SowingManagement = () => {
   const [slotSowingData, setSlotSowingData] = useState({});
   const [savingSlots, setSavingSlots] = useState(new Set());
   const [expandedMonths, setExpandedMonths] = useState({});
+  const [monthReadyDaysInputs, setMonthReadyDaysInputs] = useState({});
+  const [savingMonthReadyDays, setSavingMonthReadyDays] = useState(() => new Set());
+  const [transferDialog, setTransferDialog] = useState(() => createTransferDialogState());
+
+  const selectedTransferOption = useMemo(() => {
+    if (!transferDialog.targetSlotId) {
+      return null;
+    }
+    return (
+      transferDialog.options.find((opt) => opt.slotId === transferDialog.targetSlotId) || null
+    );
+  }, [transferDialog.options, transferDialog.targetSlotId]);
+
+  const maxTransferableForSelection = useMemo(() => {
+    const base = transferDialog.maxQuantity || 0;
+    if (!selectedTransferOption) {
+      return base;
+    }
+    return Math.min(base, selectedTransferOption.gap || base);
+  }, [transferDialog.maxQuantity, selectedTransferOption]);
   
   // Enhanced UI states
   const [monthFilter, setMonthFilter] = useState("all"); // all, urgent, overdue
@@ -109,6 +153,7 @@ const SowingManagement = () => {
     fetchSowings();
     fetchStats();
     fetchReminders();
+    fetchAlerts();
   }, []);
 
   useEffect(() => {
@@ -131,7 +176,7 @@ const SowingManagement = () => {
           (s) => s.subtypeId === subtype._id
         );
         const slots = Array.isArray(subtypeData?.slots) ? subtypeData.slots : [];
-        const plantReadyDays = subtype.plantReadyDays || 0;
+        const defaultReadyDays = subtype.plantReadyDays || 0;
         const reminderDays = 5;
 
         // Group slots by month to check for urgent/overdue
@@ -140,18 +185,22 @@ const SowingManagement = () => {
           if (!acc[month]) acc[month] = [];
           
           const deliveryDate = moment(slot?.endDay, "DD-MM-YYYY");
-          const sowByDate = deliveryDate.clone().subtract(plantReadyDays, "days");
-          const alertDate = sowByDate.clone().subtract(reminderDays, "days");
+          const slotReadyDays = Number(slot?.plantReadyDays ?? defaultReadyDays) || 0;
+          const hasReadyDays = slotReadyDays > 0;
+          const sowByDate = hasReadyDays ? deliveryDate.clone().subtract(slotReadyDays, "days") : null;
+          const alertDate = hasReadyDays ? sowByDate.clone().subtract(reminderDays, "days") : null;
           const today = moment().startOf('day');
-          const daysUntilSow = sowByDate.diff(today, "days");
-          const daysUntilAlert = alertDate.diff(today, "days");
+          const daysUntilSow = hasReadyDays ? sowByDate.diff(today, "days") : null;
+          const daysUntilAlert = hasReadyDays ? alertDate.diff(today, "days") : null;
           // Gap is now calculated in BE as bookedPlants - primarySowed
           const gap = slot?.gap ?? ((slot?.totalBookedPlants || 0) - (slot?.primarySowed || 0));
           
           let priority = "upcoming";
-          if (gap > 0 && daysUntilSow < 0) {
+          if (!hasReadyDays && gap > 0) {
+            priority = "missingReadyDays";
+          } else if (gap > 0 && daysUntilSow !== null && daysUntilSow < 0) {
             priority = "overdue";
-          } else if (gap > 0 && daysUntilAlert <= 0) {
+          } else if (gap > 0 && daysUntilAlert !== null && daysUntilAlert <= 0) {
             priority = "urgent";
           }
           
@@ -162,7 +211,9 @@ const SowingManagement = () => {
         // Auto-expand months with urgent/overdue slots
         Object.keys(slotsByMonth).forEach(month => {
           const monthKey = `${subtype._id}-${month}`;
-          const hasUrgent = slotsByMonth[month].some(s => s.priority === "overdue" || s.priority === "urgent");
+          const hasUrgent = slotsByMonth[month].some(
+            s => s.priority === "overdue" || s.priority === "urgent" || s.priority === "missingReadyDays"
+          );
           if (hasUrgent && expandedMonths[monthKey] === undefined) {
             autoExpand[monthKey] = true;
           }
@@ -235,6 +286,259 @@ const SowingManagement = () => {
         [field]: value,
       },
     }));
+  };
+
+  const handleMonthReadyDaysInputChange = (monthKey, value) => {
+    setMonthReadyDaysInputs((prev) => ({
+      ...prev,
+      [monthKey]: value,
+    }));
+  };
+
+  const updateSlotPlantReadyDays = async (slotId, plantReadyDaysValue) => {
+    const instance = NetworkManager(API.slots.UPDATE_SLOT);
+    return instance.request({ plantReadyDays: plantReadyDaysValue }, [slotId]);
+  };
+
+  const applyPlantReadyDaysToMonth = async (monthKey, monthSlots) => {
+    const rawValue = monthReadyDaysInputs[monthKey];
+    const parsedValue = parseInt(rawValue, 10);
+
+    if (Number.isNaN(parsedValue) || parsedValue < 0) {
+      Toast.error("Please enter a valid plant ready days value");
+      return;
+    }
+
+    const uniqueSlotIds = Array.from(
+      new Set(
+        monthSlots
+          .map((item) => item.slot?._id)
+          .filter(Boolean)
+      )
+    );
+
+    if (uniqueSlotIds.length === 0) {
+      Toast.error("No slots available in this month to update");
+      return;
+    }
+
+    setSavingMonthReadyDays((prev) => {
+      const next = new Set(prev);
+      next.add(monthKey);
+      return next;
+    });
+
+    try {
+      for (const slotId of uniqueSlotIds) {
+        await updateSlotPlantReadyDays(slotId, parsedValue);
+      }
+
+      Toast.success(
+        `Plant ready days updated to ${parsedValue} for ${uniqueSlotIds.length} slot${uniqueSlotIds.length > 1 ? "s" : ""}`
+      );
+      setMonthReadyDaysInputs((prev) => ({ ...prev, [monthKey]: "" }));
+
+      if (plants[activeTab]) {
+        fetchPlantSlots(plants[activeTab]._id);
+      }
+    } catch (error) {
+      console.error("Error updating plant ready days:", error);
+      Toast.error(error?.response?.data?.message || "Failed to update plant ready days");
+    } finally {
+      setSavingMonthReadyDays((prev) => {
+        const next = new Set(prev);
+        next.delete(monthKey);
+        return next;
+      });
+    }
+  };
+
+  const resetTransferDialog = () => {
+    setTransferDialog(createTransferDialogState());
+  };
+
+  const openTransferDialog = async (slot, subtype, surplusValue) => {
+    const safeSurplus = Math.max(0, Number(surplusValue) || 0);
+    setTransferDialog({
+      ...createTransferDialogState(),
+      open: true,
+      sourceSlot: slot,
+      sourceSubtype: subtype,
+      maxQuantity: safeSurplus,
+      quantity: safeSurplus > 0 ? safeSurplus.toString() : "",
+      loading: true,
+    });
+
+    try {
+      const instance = NetworkManager(API.slots.GET_TRANSFER_OPTIONS);
+      const response = await instance.request({}, {
+        slotId: slot._id,
+        backDays: 5,
+        forwardDays: 10,
+      });
+
+      console.debug("Transfer options response", response);
+
+      if (response?.data?.success) {
+        const payload = response.data.data || {};
+        const options = Array.isArray(payload.options) ? payload.options : [];
+        const updatedMax = Math.max(0, payload.source?.surplus ?? safeSurplus);
+        const firstOption = options[0] || null;
+        const defaultQuantity =
+          firstOption && updatedMax > 0
+            ? Math.min(updatedMax, firstOption.gap || updatedMax)
+            : updatedMax;
+
+        setTransferDialog((prev) => ({
+          ...prev,
+          loading: false,
+          maxQuantity: updatedMax,
+          options,
+          targetSlotId: firstOption ? firstOption.slotId : "",
+          quantity: defaultQuantity > 0 ? defaultQuantity.toString() : "",
+          error:
+            options.length === 0
+              ? "No eligible target slots found within the allowed window."
+              : "",
+        }));
+      } else {
+        setTransferDialog((prev) => ({
+          ...prev,
+          loading: false,
+          error: response?.error || response?.data?.message || "Failed to load transfer options",
+        }));
+        console.warn("Transfer options error", response);
+      }
+    } catch (error) {
+      console.error("Transfer options request failed", error);
+      setTransferDialog((prev) => ({
+        ...prev,
+        loading: false,
+        error: error?.message || "Failed to load transfer options",
+      }));
+    }
+  };
+
+  const handleTransferTargetChange = (event) => {
+    const targetSlotId = event.target.value;
+    const option = transferDialog.options.find((opt) => opt.slotId === targetSlotId);
+    setTransferDialog((prev) => {
+      const maxAllowed = option
+        ? Math.min(prev.maxQuantity, option.gap || prev.maxQuantity)
+        : prev.maxQuantity;
+      const currentQty = Number(prev.quantity);
+      const adjustedQuantity =
+        currentQty > 0 ? Math.min(currentQty, maxAllowed) : maxAllowed;
+
+      return {
+        ...prev,
+        targetSlotId,
+        quantity: adjustedQuantity > 0 ? adjustedQuantity.toString() : "",
+        error: "",
+      };
+    });
+  };
+
+  const handleTransferQuantityChange = (event) => {
+    const value = event.target.value;
+    setTransferDialog((prev) => ({
+      ...prev,
+      quantity: value,
+      error: "",
+    }));
+  };
+
+  const closeTransferDialog = () => {
+    if (transferDialog.submitting) {
+      return;
+    }
+    resetTransferDialog();
+  };
+
+  const handleConfirmTransfer = async () => {
+    if (!transferDialog.sourceSlot) {
+      setTransferDialog((prev) => ({
+        ...prev,
+        error: "Source slot information is missing.",
+      }));
+      return;
+    }
+
+    if (!transferDialog.targetSlotId) {
+      setTransferDialog((prev) => ({
+        ...prev,
+        error: "Select a target slot to transfer plants.",
+      }));
+      return;
+    }
+
+    const qty = Number(transferDialog.quantity);
+    if (!Number.isFinite(qty) || qty <= 0) {
+      setTransferDialog((prev) => ({
+        ...prev,
+        error: "Enter a valid positive quantity to transfer.",
+      }));
+      return;
+    }
+
+    if (qty > transferDialog.maxQuantity) {
+      setTransferDialog((prev) => ({
+        ...prev,
+        error: `Quantity exceeds available surplus (${transferDialog.maxQuantity}).`,
+      }));
+      return;
+    }
+
+    if (selectedTransferOption && qty > (selectedTransferOption.gap || 0)) {
+      setTransferDialog((prev) => ({
+        ...prev,
+        error: `Target slot can accept up to ${selectedTransferOption.gap} plants.`,
+      }));
+      return;
+    }
+
+    setTransferDialog((prev) => ({
+      ...prev,
+      submitting: true,
+      error: "",
+    }));
+
+    try {
+      const instance = NetworkManager(API.slots.TRANSFER_PLANTS);
+      const payload = {
+        sourceSlotId: transferDialog.sourceSlot._id,
+        targetSlotId: transferDialog.targetSlotId,
+        quantity: qty,
+        reason: transferDialog.reason,
+      };
+
+      const response = await instance.request(payload);
+      console.debug("Transfer plants response", response);
+      if (response?.data?.success) {
+        Toast.success(response?.data?.message || "Plants transferred successfully");
+        resetTransferDialog();
+        if (plants[activeTab]) {
+          fetchPlantSlots(plants[activeTab]._id);
+        }
+        fetchAlerts();
+      } else {
+        setTransferDialog((prev) => ({
+          ...prev,
+          submitting: false,
+          error: response?.error || response?.data?.message || "Transfer failed",
+        }));
+        Toast.error(response?.error || response?.data?.message || "Transfer failed");
+        console.warn("Transfer failed response", response);
+      }
+    } catch (error) {
+      setTransferDialog((prev) => ({
+        ...prev,
+        submitting: false,
+        error: error?.message || "Transfer failed",
+      }));
+      Toast.error(error?.message || "Transfer failed");
+      console.error("Transfer plants request failed", error);
+    }
   };
 
   // Navigate to slot from reminder
@@ -339,6 +643,7 @@ const SowingManagement = () => {
         fetchSowings();
         fetchStats();
         fetchPlantSlots(plants[activeTab]._id);
+        fetchAlerts();
       }
     } catch (error) {
       console.error("Error creating slot sowing:", error);
@@ -406,6 +711,36 @@ const SowingManagement = () => {
     }
   };
 
+  const fetchAlerts = async () => {
+    try {
+      const alertsInstance = NetworkManager(API.sowing.GET_SOWING_ALERTS_BY_START);
+      const todayInstance = NetworkManager(API.sowing.GET_TODAY_SOWING_SUMMARY);
+
+      const [alertsResponse, todayResponse] = await Promise.all([
+        alertsInstance.request(),
+        todayInstance.request(),
+      ]);
+
+      if (alertsResponse?.data?.data) {
+        const { summary = null, dayAlerts = [], slotAlerts = [], plantAlerts = [] } =
+          alertsResponse.data.data;
+        setAlerts({ summary, dayAlerts, slotAlerts, plantAlerts });
+      } else {
+        setAlerts({ summary: null, dayAlerts: [], slotAlerts: [], plantAlerts: [] });
+      }
+
+      if (todayResponse?.data?.data) {
+        setTodaySummary(todayResponse.data.data);
+      } else {
+        setTodaySummary(null);
+      }
+    } catch (error) {
+      console.error("Error fetching sowing alerts:", error);
+      Toast.error("Failed to fetch sowing alerts");
+      setTodaySummary(null);
+    }
+  };
+
   const handleCreateSowing = async () => {
     if (!selectedPlant || !selectedSubtype) {
       Toast.error("Please select plant and subtype");
@@ -436,6 +771,7 @@ const SowingManagement = () => {
         resetForm();
         fetchSowings();
         fetchStats();
+        fetchAlerts();
       }
     } catch (error) {
       console.error("Error creating sowing:", error);
@@ -471,6 +807,7 @@ const SowingManagement = () => {
         setUpdateData({ quantity: "", location: "OFFICE", notes: "", batchNumber: "" });
         fetchSowings();
         fetchStats();
+        fetchAlerts();
       }
     } catch (error) {
       console.error("Error updating sowing:", error);
@@ -583,6 +920,7 @@ const SowingManagement = () => {
                 fetchStats();
                 fetchReminders();
                 fetchPlants();
+                fetchAlerts();
               }}
               sx={{ mr: 2 }}>
               Refresh
@@ -599,6 +937,12 @@ const SowingManagement = () => {
             </Button>
           </Box>
         </Box>
+
+        <SowingAlerts
+          alerts={alerts}
+          todaySummary={todaySummary}
+          onNavigateToSlot={navigateToSlot}
+        />
 
         {/* Hybrid Statistics Summary */}
         <Card elevation={2} sx={{ mb: 3, p: 2 }}>
@@ -939,6 +1283,7 @@ const SowingManagement = () => {
                             <MenuItem value="urgent">⚠️ Urgent Only (≤5 days)</MenuItem>
                             <MenuItem value="overdue">🚨 Overdue Only</MenuItem>
                             <MenuItem value="pending">📋 Pending Gap</MenuItem>
+                            <MenuItem value="missingReady">❗ Missing Ready Days</MenuItem>
                             <MenuItem value="complete">✅ Complete</MenuItem>
                           </Select>
                         </FormControl>
@@ -962,6 +1307,7 @@ const SowingManagement = () => {
                             setSearchSlot("");
                             setMonthFilter("all");
                             setExpandedMonths({});
+                            setMonthReadyDaysInputs({});
                           }}
                           startIcon={<RefreshIcon />}>
                           Reset
@@ -989,7 +1335,7 @@ const SowingManagement = () => {
                         );
                         const slots = Array.isArray(subtypeData?.slots) ? subtypeData.slots : [];
                         
-                        const plantReadyDays = currentSubtype.plantReadyDays || 0;
+                        const defaultReadyDays = currentSubtype.plantReadyDays || 0;
                         const reminderDays = 5;
 
                         // Group slots by month
@@ -998,13 +1344,16 @@ const SowingManagement = () => {
                           if (!acc[month]) acc[month] = [];
                           
                           const deliveryDate = moment(slot?.endDay, "DD-MM-YYYY");
-                          const sowByDate = deliveryDate.clone().subtract(plantReadyDays, "days");
-                          const alertDate = sowByDate.clone().subtract(reminderDays, "days");
+                          const slotReadyDays = Number(slot?.plantReadyDays ?? defaultReadyDays) || 0;
+                          const hasReadyDays = slotReadyDays > 0;
+                          const sowByDate = hasReadyDays ? deliveryDate.clone().subtract(slotReadyDays, "days") : null;
+                          const alertDate = hasReadyDays ? sowByDate.clone().subtract(reminderDays, "days") : null;
                           const today = moment().startOf('day');
-                          const daysUntilSow = sowByDate.diff(today, "days");
-                          const daysUntilAlert = alertDate.diff(today, "days");
+                          const daysUntilSow = hasReadyDays ? sowByDate.diff(today, "days") : null;
+                          const daysUntilAlert = hasReadyDays ? alertDate.diff(today, "days") : null;
                           // Gap is now calculated in BE as bookedPlants - primarySowed
                           const gap = slot?.gap ?? ((slot?.totalBookedPlants || 0) - (slot?.primarySowed || 0));
+                          const surplus = gap < 0 ? Math.abs(gap) : 0;
                           
                           // Determine priority
                           let priority = "upcoming";
@@ -1018,17 +1367,33 @@ const SowingManagement = () => {
                             priority = "complete";
                             bgcolor = "#e8f5e9";
                             borderColor = "#66bb6a";
-                          } else if (daysUntilSow < 0) {
+                          } else if (!hasReadyDays) {
+                            priority = "missingReadyDays";
+                            bgcolor = "#fff9c4";
+                            borderColor = "#fbc02d";
+                          } else if (daysUntilSow !== null && daysUntilSow < 0) {
                             priority = "overdue";
                             bgcolor = "#ffebee";
                             borderColor = "#ef5350";
-                          } else if (daysUntilAlert <= 0) {
+                          } else if (daysUntilAlert !== null && daysUntilAlert <= 0) {
                             priority = "urgent";
                             bgcolor = "#fff3e0";
                             borderColor = "#ffa726";
                           }
                           
-                          acc[month].push({ slot, daysUntilSow, gap, priority, bgcolor, borderColor, sowByDate });
+                          acc[month].push({
+                            slot,
+                            daysUntilSow,
+                            gap,
+                            surplus,
+                            priority,
+                            bgcolor,
+                            borderColor,
+                            sowByDate,
+                            readyDays: slotReadyDays,
+                            hasReadyDays,
+                            alertDate,
+                          });
                           return acc;
                         }, {});
 
@@ -1046,6 +1411,8 @@ const SowingManagement = () => {
                               return monthSlots.some(s => s.priority === "overdue");
                             } else if (monthFilter === "pending") {
                               return monthSlots.some(s => s.gap > 0);
+                            } else if (monthFilter === "missingReady") {
+                              return monthSlots.some(s => s.priority === "missingReadyDays");
                             } else if (monthFilter === "complete") {
                               return monthSlots.some(s => s.priority === "complete");
                             }
@@ -1076,7 +1443,7 @@ const SowingManagement = () => {
                             <Typography variant="h6" sx={{ mb: 2, fontWeight: 700, color: "#2e7d32", display: "flex", alignItems: "center", gap: 1 }}>
                               <Agriculture sx={{ fontSize: 28 }} />
                               {currentSubtype?.name || "Unknown"} 
-                              <Chip label={`Ready in ${plantReadyDays} days`} size="small" color="success" />
+                              <Chip label={`Default ${defaultReadyDays} days`} size="small" color="success" />
                               <Chip label={`${slots.length} slots`} size="small" variant="outlined" />
                             </Typography>
 
@@ -1107,9 +1474,20 @@ const SowingManagement = () => {
                                 const monthSlots = slotsByMonth[month];
                                 const overdue = monthSlots.filter(s => s.priority === "overdue").length;
                                 const urgent = monthSlots.filter(s => s.priority === "urgent").length;
+                                const missingReady = monthSlots.filter(s => s.priority === "missingReadyDays").length;
                                 const hasIssues = overdue > 0 || urgent > 0;
                                 const totalBooked = monthSlots.reduce((sum, s) => sum + (s.slot.totalBookedPlants || 0), 0);
                                 const totalGap = monthSlots.reduce((sum, s) => sum + s.gap, 0);
+                                const avgReadyDays = monthSlots.length
+                                  ? Math.round(
+                                      monthSlots.reduce(
+                                        (sum, s) => sum + (Number(s.readyDays) || 0),
+                                        0
+                                      ) / monthSlots.length
+                                    )
+                                  : 0;
+                                const monthInputValue = monthReadyDaysInputs[monthKey] ?? "";
+                                const isSavingMonth = savingMonthReadyDays.has(monthKey);
                                 
                                 return (
                                   <Card key={month} sx={{ border: hasIssues ? "2px solid #f57c00" : "1px solid #e0e0e0" }}>
@@ -1132,11 +1510,39 @@ const SowingManagement = () => {
                                         <Chip label={`${monthSlots.length} slots`} size="small" />
                                         {overdue > 0 && <Chip label={`${overdue} overdue`} size="small" color="error" />}
                                         {urgent > 0 && <Chip label={`${urgent} urgent`} size="small" color="warning" />}
+                                        {avgReadyDays > 0 && (
+                                          <Chip label={`Avg ${avgReadyDays}d`} size="small" color="primary" variant="outlined" />
+                                        )}
+                                        {missingReady > 0 && (
+                                          <Chip label={`${missingReady} need ready days`} size="small" color="warning" variant="outlined" />
+                                        )}
                                       </Box>
                                       <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
                                         <Typography variant="body2" color="textSecondary">
                                           Booked: {totalBooked} | Gap: {totalGap}
                                         </Typography>
+                                        <TextField
+                                          size="small"
+                                          type="number"
+                                          placeholder={avgReadyDays ? `Avg ${avgReadyDays}` : "Ready days"}
+                                          value={monthInputValue}
+                                          onClick={(e) => e.stopPropagation()}
+                                          onChange={(e) => handleMonthReadyDaysInputChange(monthKey, e.target.value)}
+                                          sx={{ width: 110 }}
+                                        />
+                                        <Button
+                                          size="small"
+                                          variant="contained"
+                                          startIcon={!isSavingMonth ? <SaveIcon fontSize="small" /> : null}
+                                          disabled={isSavingMonth}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            applyPlantReadyDaysToMonth(monthKey, monthSlots);
+                                          }}
+                                          sx={{ minWidth: 90 }}
+                                        >
+                                          {isSavingMonth ? "Saving..." : "Apply"}
+                                        </Button>
                                         <IconButton size="small">
                                           {expandedMonths[monthKey] ? <TrendingDown /> : <TrendingUp />}
                                         </IconButton>
@@ -1147,12 +1553,13 @@ const SowingManagement = () => {
                                     {expandedMonths[monthKey] && (
                                       <CardContent sx={{ p: 2, bgcolor: "#fafafa" }}>
                                         <Grid container spacing={compactView ? 1 : 1.5}>
-                                          {monthSlots.map(({ slot, daysUntilSow, gap, priority, bgcolor, borderColor, sowByDate }) => {
+                                          {monthSlots.map(({ slot, daysUntilSow, gap, surplus, priority, bgcolor, borderColor, sowByDate, readyDays, hasReadyDays }) => {
                                             const isHighlighted = highlightedSlot === slot._id;
                                             return (
                                             <Grid item xs={12} sm={compactView ? 4 : 6} md={compactView ? 3 : 4} lg={compactView ? 2 : 3} key={slot._id}>
                                               <Paper 
                                                 id={`slot-${slot._id}`}
+                                                title={slot._id}
                                                 sx={{ 
                                                   p: compactView ? 1 : 1.5, 
                                                   bgcolor: isHighlighted ? "#fff9c4" : bgcolor, 
@@ -1170,7 +1577,14 @@ const SowingManagement = () => {
                                                     {priority === "overdue" && <Chip label="🚨" size="small" color="error" sx={{ fontSize: "0.65rem", height: 16 }} />}
                                                     {priority === "urgent" && <Chip label="⚠️" size="small" color="warning" sx={{ fontSize: "0.65rem", height: 16 }} />}
                                                     {priority === "complete" && <Chip label="✓" size="small" color="success" sx={{ fontSize: "0.65rem", height: 16 }} />}
-                                                    {daysUntilSow >= 0 && gap > 0 && (
+                                                    <Chip
+                                                      label={hasReadyDays ? `${readyDays}d` : "Set days"}
+                                                      size="small"
+                                                      color={hasReadyDays ? "primary" : "warning"}
+                                                      variant={hasReadyDays ? "outlined" : "filled"}
+                                                      sx={{ fontSize: "0.65rem", height: 16 }}
+                                                    />
+                                                    {hasReadyDays && daysUntilSow !== null && daysUntilSow >= 0 && gap > 0 && (
                                                       <Chip label={`${daysUntilSow}d`} size="small" variant="outlined" sx={{ fontSize: "0.65rem", height: 16 }} />
                                                     )}
                                                   </Box>
@@ -1212,12 +1626,39 @@ const SowingManagement = () => {
                                                   </Grid>
                                                 </Grid>
 
-                                                {gap > 0 && (
+                                                {gap > 0 && hasReadyDays && sowByDate && (
                                                   <Box sx={{ mb: 1, p: 0.5, bgcolor: priority === "overdue" ? "#ffcdd2" : priority === "urgent" ? "#ffe0b2" : "#bbdefb", borderRadius: 1 }}>
                                                     <Typography variant="caption" sx={{ fontSize: "0.65rem", fontWeight: 600 }}>
                                                       Need to sow: {gap} by {sowByDate.format("MMM D")}
                                                     </Typography>
                                                   </Box>
+                                                )}
+                                                {(!hasReadyDays || priority === "missingReadyDays") && (
+                                                  <Box sx={{ mb: 1, p: 0.5, bgcolor: "#fff9c4", borderRadius: 1, border: "1px dashed #fbc02d" }}>
+                                                    <Typography variant="caption" sx={{ fontSize: "0.65rem", fontWeight: 600, color: "#f57c00" }}>
+                                                      Set plant ready days to compute sowing schedule
+                                                    </Typography>
+                                                  </Box>
+                                                )}
+
+                                                {surplus > 0 && (
+                                                  <Button
+                                                    size="small"
+                                                    variant="outlined"
+                                                    onClick={(e) => {
+                                                      e.stopPropagation();
+                                                      console.debug("Transfer surplus clicked", {
+                                                        slotId: slot._id,
+                                                        surplus,
+                                                      });
+                                                      setTimeout(() => {
+                                                        openTransferDialog(slot, currentSubtype, surplus);
+                                                      }, 30);
+                                                    }}
+                                                    sx={{ alignSelf: "flex-start", mb: 1 }}
+                                                  >
+                                                    Transfer Surplus ({surplus})
+                                                  </Button>
                                                 )}
 
                                                 {/* Quick Entry */}
@@ -1507,6 +1948,126 @@ const SowingManagement = () => {
               onClick={() => handleUpdateSowing(updateData.location)}
               sx={{ bgcolor: "#1976d2" }}>
               Update
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        <Dialog
+          open={transferDialog.open}
+          onClose={transferDialog.submitting ? undefined : closeTransferDialog}
+          maxWidth="sm"
+          fullWidth
+        >
+          <DialogTitle>Transfer Surplus Plants</DialogTitle>
+          <DialogContent sx={{ mt: 1 }}>
+            {transferDialog.loading ? (
+              <Box sx={{ display: "flex", justifyContent: "center", py: 3 }}>
+                <CircularProgress size={28} />
+              </Box>
+            ) : (
+              <Stack spacing={2}>
+                <Box>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                    Source Slot
+                  </Typography>
+                  <Typography variant="body2" color="textSecondary">
+                    {transferDialog.sourceSubtype?.name ||
+                      transferDialog.sourceSubtype?.subtypeName ||
+                      ""}
+                  </Typography>
+                  <Typography variant="body2">
+                    {transferDialog.sourceSlot?.startDay} → {transferDialog.sourceSlot?.endDay} (
+                    {transferDialog.sourceSlot?.month})
+                  </Typography>
+                  <Typography variant="caption" color="textSecondary">
+                    Surplus available: {transferDialog.maxQuantity.toLocaleString()} plants
+                  </Typography>
+                </Box>
+
+                {transferDialog.options.length > 0 ? (
+                  <Stack spacing={2}>
+                    <TextField
+                      select
+                      label="Target Slot"
+                      size="small"
+                      value={transferDialog.targetSlotId}
+                      onChange={handleTransferTargetChange}
+                      fullWidth
+                    >
+                      {transferDialog.options.map((option) => (
+                        <MenuItem key={option.slotId} value={option.slotId}>
+                          {option.startDay} → {option.endDay} ({option.month}) •{" "}
+                          {option.subtypeName} • Need {option.gap.toLocaleString()}
+                        </MenuItem>
+                      ))}
+                    </TextField>
+                    {selectedTransferOption && (
+                      <Typography variant="caption" color="textSecondary">
+                        Starts in{" "}
+                        {selectedTransferOption.daysDifference >= 0 ? "+" : ""}
+                        {selectedTransferOption.daysDifference} day
+                        {Math.abs(selectedTransferOption.daysDifference) === 1 ? "" : "s"} •
+                        Remaining gap {selectedTransferOption.gap.toLocaleString()}
+                      </Typography>
+                    )}
+                    <TextField
+                      label="Quantity to transfer"
+                      type="number"
+                      size="small"
+                      value={transferDialog.quantity}
+                      onChange={handleTransferQuantityChange}
+                      fullWidth
+                      inputProps={{ min: 1 }}
+                      helperText={`Max ${maxTransferableForSelection.toLocaleString()} plants`}
+                    />
+                    <TextField
+                      label="Reason (optional)"
+                      size="small"
+                      fullWidth
+                      multiline
+                      rows={2}
+                      value={transferDialog.reason}
+                      onChange={(e) =>
+                        setTransferDialog((prev) => ({ ...prev, reason: e.target.value }))
+                      }
+                    />
+                  </Stack>
+                ) : (
+                  <Box sx={{ p: 2, bgcolor: "#fff8e1", borderRadius: 2 }}>
+                    <Typography variant="body2" color="textSecondary">
+                      No eligible target slots found within -5 to +10 days of the source slot.
+                    </Typography>
+                  </Box>
+                )}
+
+                {transferDialog.error && (
+                  <Typography variant="body2" color="error">
+                    {transferDialog.error}
+                  </Typography>
+                )}
+              </Stack>
+            )}
+          </DialogContent>
+          <DialogActions>
+            <Button
+              onClick={closeTransferDialog}
+              variant="outlined"
+              disabled={transferDialog.submitting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="contained"
+              onClick={handleConfirmTransfer}
+              disabled={
+                transferDialog.submitting ||
+                transferDialog.loading ||
+                transferDialog.options.length === 0 ||
+                !transferDialog.quantity ||
+                !transferDialog.targetSlotId
+              }
+            >
+              {transferDialog.submitting ? <CircularProgress size={20} /> : "Confirm Transfer"}
             </Button>
           </DialogActions>
         </Dialog>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react"
+import React, { useState, useEffect, useCallback } from "react"
 import { NetworkManager, API } from "network/core"
 import { Truck, Trash2, CheckCircle } from "lucide-react"
 import DispatchForm from "./DispatchedForm"
@@ -17,26 +17,7 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh }) => {
   const [isDCOpen, setIsDCOpen] = useState(false)
   const [isOrderCompleteOpen, setIsOrderCompleteOpen] = useState(false)
 
-  useEffect(() => {
-    fetchDispatches()
-    // Reset all dialog states when component re-renders due to viewMode or refresh changes
-    setIsCollectSlipOpen(false)
-    setIsDCOpen(false)
-    setIsDispatchFormOpen(false)
-    setIsOrderCompleteOpen(false)
-  }, [viewMode, refresh])
-
-  // Auto-refresh when dispatch is added
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (viewMode === "dispatch_process") {
-        fetchDispatches()
-      }
-    }, 30000) // Refresh every 30 seconds
-
-    return () => clearInterval(interval)
-  }, [viewMode])
-  const fetchDispatches = async () => {
+  const fetchDispatches = useCallback(async () => {
     try {
       setLoading(true)
       const instance = NetworkManager(API.DISPATCHED.GET_TRAYS)
@@ -51,7 +32,28 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh }) => {
     } finally {
       setLoading(false)
     }
-  }
+  }, [setisDispatchtab])
+
+  useEffect(() => {
+    fetchDispatches()
+    // Reset all dialog states when component re-renders due to viewMode or refresh changes
+    setIsCollectSlipOpen(false)
+    setIsDCOpen(false)
+    setIsDispatchFormOpen(false)
+    setIsOrderCompleteOpen(false)
+  }, [viewMode, refresh, fetchDispatches])
+
+  // Auto-refresh when dispatch is added - only when viewMode changes and no dialogs are open
+  useEffect(() => {
+    // Only auto-refresh if no dialogs are open to prevent interruptions
+    if (!isDispatchFormOpen && !isCollectSlipOpen && !isDCOpen && !isOrderCompleteOpen && viewMode === "dispatch_process") {
+      const interval = setInterval(() => {
+        fetchDispatches()
+      }, 30000) // Refresh every 30 seconds
+
+      return () => clearInterval(interval)
+    }
+  }, [viewMode, isDispatchFormOpen, isCollectSlipOpen, isDCOpen, isOrderCompleteOpen, fetchDispatches])
 
   const transformDispatchForForm = (dispatchData) => {
     const plants = dispatchData.plantsDetails?.map((plant) => {
@@ -82,7 +84,7 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh }) => {
           bookingSlot: order.details.bookingSlot
         }
       }))
-      console.log(plant?.pickupDetails)
+      
       return {
         id: plant.id,
         name: plant.name,
@@ -93,25 +95,21 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh }) => {
           shadeName: pickup.shadeName,
           cavityName: pickup.cavityName
         })),
-        crates: plant.crates?.map((crate) => {
-          return {
-            numberOfCavityTrays: Math.ceil(crate?.crateDetails[0]?.plantCount / crate?.cavitySize),
-            numberOfCrates: crate?.crateDetails[0]?.crateCount,
-            quantity: crate?.crateDetails[0]?.plantCount,
-            cavityName: crate?.cavityName
-          }
-        }),
-        selectedCavity: plant.crates[0].cavity,
-        cavityDetails: {
-          cavityName: plant.crates[0].cavityName,
-          cavitySize: plant.crates[0].cavitySize || 8
-        },
+        crates: plant.crates?.map((crate) => ({
+          cavityName: crate.cavityName,
+          cavitySize: crate.cavitySize,
+          numberPerCrate: crate.numberPerCrate,
+          crateCount: crate.crateCount,
+          plantCount: crate.plantCount,
+          crateDetails: crate.crateDetails || []
+        })),
         orders: plantOrders
       }
     })
 
     return {
       driverName: dispatchData.driverName,
+      driverMobile: dispatchData.driverMobile,
       vehicleName: dispatchData.vehicleName,
       transportId: dispatchData.transportId,
       plants: plants
@@ -119,18 +117,44 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh }) => {
   }
   const handleOrderComplete = (dispatch, e) => {
     e.stopPropagation()
-    const incompletePayments = dispatch.orderIds.filter((order) => !order.paymentCompleted)
+    
+    // Calculate payment check based on dispatched quantities, not total order
+    const incompletePayments = dispatch.orderIds.filter((order) => {
+      // Find the dispatched quantity for this order from orderDispatchDetails
+      const dispatchDetail = dispatch.orderDispatchDetails?.find(
+        (detail) => detail.orderId?.toString() === order._id?.toString()
+      )
+      
+      // If no dispatch detail found, use dispatched plants (fallback)
+      const dispatchedQty = dispatchDetail?.dispatchQuantity || 
+        (dispatch.plantsDetails?.reduce((sum, plant) => sum + (plant.quantity || 0), 0) / dispatch.orderIds.length) || 0
+      
+      // Calculate required payment based on dispatched quantity
+      const dispatchedAmount = dispatchedQty * (order.rate || 0)
+      
+      // Get total paid amount
+      const totalPaid = order["Paid Amt"] || 0
+      
+      // Check if payment is sufficient for dispatched plants
+      return totalPaid < dispatchedAmount
+    })
 
     if (incompletePayments.length > 0) {
       // Create error message with order details
       const errorMessage = incompletePayments
-        .map(
-          (order) =>
-            `Order #${order.order} - ${order.farmerName}: Payment not completed\n` +
-            `Total Amount: ${order.total}\n` +
-            `Paid Amount: ${order["Paid Amt"]}\n` +
-            `Remaining: ${order["remaining Amt"]}`
-        )
+        .map((order) => {
+          const dispatchDetail = dispatch.orderDispatchDetails?.find(
+            (detail) => detail.orderId?.toString() === order._id?.toString()
+          )
+          const dispatchedQty = dispatchDetail?.dispatchQuantity || 
+            (dispatch.plantsDetails?.reduce((sum, plant) => sum + (plant.quantity || 0), 0) / dispatch.orderIds.length) || 0
+          const dispatchedAmount = dispatchedQty * (order.rate || 0)
+          
+          return `Order #${order.order} - ${order.farmerName}: Payment incomplete for dispatched plants\n` +
+            `Dispatched: ${dispatchedQty} plants × ₹${order.rate} = ₹${dispatchedAmount}\n` +
+            `Paid Amount: ₹${order["Paid Amt"] || 0}\n` +
+            `Required for dispatch: ₹${dispatchedAmount}`
+        })
         .join("\n\n")
 
       Toast.error("Cannot complete order due to pending payments:\n" + errorMessage)

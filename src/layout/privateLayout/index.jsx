@@ -88,6 +88,16 @@ export default function PrivateLayout(props) {
 
   // Function to check if user has access to a menu item
   const hasMenuAccess = (menuItem) => {
+    // Debug logging
+    if (menuItem.title === "WhatsApp Management") {
+      console.log("🔍 WhatsApp Management Access Check:", {
+        title: menuItem.title,
+        allowedRoles: menuItem.allowedRoles,
+        userRole: userRole,
+        userType: userType
+      })
+    }
+    
     // If no allowedRoles specified, allow access (backward compatibility)
     if (!menuItem.allowedRoles) {
       return true
@@ -99,7 +109,13 @@ export default function PrivateLayout(props) {
     }
     
     // Check if user's role is in the allowed roles
-    return menuItem.allowedRoles.includes(userRole)
+    const hasAccess = menuItem.allowedRoles.includes(userRole)
+    
+    if (menuItem.title === "WhatsApp Management") {
+      console.log("🔍 WhatsApp Management Access Result:", hasAccess)
+    }
+    
+    return hasAccess
   }
 
   return (
@@ -137,6 +153,17 @@ export default function PrivateLayout(props) {
             }}>
             <List>
               {DashboardMenus.filter((item) => {
+                // Debug logging for WhatsApp Management
+                if (item.title === "WhatsApp Management") {
+                  console.log("🔍 Filtering WhatsApp Management:", {
+                    title: item.title,
+                    allowedRoles: item.allowedRoles,
+                    userRole: userRole,
+                    userType: userType,
+                    hasMenuAccessResult: hasMenuAccess(item)
+                  })
+                }
+                
                 // Legacy filter for LABORATORY_MANAGER (keeping for backward compatibility)
                 if (userType === "LABORATORY_MANAGER" && item.title !== "Labs") {
                   return false

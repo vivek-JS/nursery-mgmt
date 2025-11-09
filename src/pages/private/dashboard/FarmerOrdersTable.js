@@ -597,6 +597,29 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   const { walletData, loading: walletLoading } = useDealerWallet()
   const user = useUserData() // Get current user data
 
+  const resolvePlantCounts = React.useCallback((order) => {
+    if (!order) {
+      return { base: 0, additional: 0, total: 0 }
+    }
+
+    const base =
+      order.basePlants ??
+      order?.details?.numberOfPlants ??
+      order.quantity ??
+      order?.details?.totalPlants ??
+      0
+
+    const additional =
+      order.additionalPlants ?? order?.details?.additionalPlants ?? 0
+
+    const total =
+      order.totalPlants ??
+      order?.details?.totalPlants ??
+      base + additional
+
+    return { base, additional, total }
+  }, [])
+
   // State to track dealer ID for wallet data
   const [dealerIdForWallet, setDealerIdForWallet] = useState(null)
 
@@ -655,6 +678,11 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   })
   const [isOrderModalOpen, setIsOrderModalOpen] = useState(false)
   const [selectedOrder, setSelectedOrder] = useState(null)
+
+  const selectedOrderCounts = React.useMemo(
+    () => resolvePlantCounts(selectedOrder),
+    [resolvePlantCounts, selectedOrder]
+  )
   const [activeTab, setActiveTab] = useState("overview")
   const [confirmDialog, setConfirmDialog] = useState({
     open: false,
@@ -889,6 +917,8 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
               const {
                 farmer,
                 numberOfPlants,
+                additionalPlants = 0,
+                totalPlants,
                 rate,
                 salesPerson,
                 createdAt,
@@ -909,6 +939,13 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                 deliveryDate,
                 orderFor
               } = data || {}
+              const basePlants = numberOfPlants || 0
+              const extraPlants = additionalPlants || 0
+              const totalPlantCount =
+                typeof totalPlants === "number" ? totalPlants : basePlants + extraPlants
+              const remainingPlantCount =
+                typeof remainingPlants === "number" ? remainingPlants : totalPlantCount
+              const totalOrderAmount = Number(rate * totalPlantCount)
               const { startDay, endDay } = bookingSlot?.[0] || {}
               const start = startDay ? moment(startDay, "DD-MM-YYYY").format("D") : "N/A"
               const end = endDay ? moment(endDay, "DD-MM-YYYY").format("D") : "N/A"
@@ -923,16 +960,19 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                   ? `via ${salesPerson?.name || "Unknown"}`
                   : farmer?.name || "Unknown",
                 plantType: `${plantType?.name || "Unknown"} -> ${plantSubtype?.name || "Unknown"}`,
-                quantity: numberOfPlants,
-                orderDate: moment(orderBookingDate || createdAt).format("DD/MM/YYYY"),
-                deliveryDate: deliveryDate ? moment(deliveryDate).format("DD/MM/YYYY") : "-", // Specific delivery date
+                quantity: basePlants,
+                totalPlants: totalPlantCount,
+                additionalPlants: extraPlants,
+                basePlants,
+                orderDate: moment(orderBookingDate || createdAt).format("DD MMM YYYY"),
+                deliveryDate: deliveryDate ? moment(deliveryDate).format("DD MMM YYYY") : "-", // Specific delivery date
                 rate,
-                total: `₹ ${Number(rate * numberOfPlants)}`,
+                total: `₹ ${totalOrderAmount}`,
                 "Paid Amt": `₹ ${Number(getTotalPaidAmount(payment))}`,
                 "remaining Amt": `₹ ${
-                  Number(rate * numberOfPlants) - Number(getTotalPaidAmount(payment))
+                  totalOrderAmount - Number(getTotalPaidAmount(payment))
                 }`,
-                "remaining Plants": remainingPlants || numberOfPlants,
+                "remaining Plants": remainingPlantCount,
                 "returned Plants": returnedPlants || 0,
                 orderStatus: orderStatus,
                 Delivery: `${start} - ${end} ${monthYear}`,
@@ -954,8 +994,10 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                 plantSubtypeID: plantSubtype?.id,
                 bookingSlot: bookingSlot?.[0] || null,
                 rate: rate,
-                numberOfPlants,
-                remainingPlants: remainingPlants || numberOfPlants,
+                numberOfPlants: basePlants,
+                additionalPlants: extraPlants,
+                totalPlants: totalPlantCount,
+                remainingPlants: remainingPlantCount,
                 orderFor: orderFor || null,
                 statusChanges: statusChanges || [],
                 orderRemarks: orderRemarks || [],
@@ -1275,16 +1317,17 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   // Initialize updatedObject when edit tab is active and selectedOrder changes
   useEffect(() => {
     if (activeTab === "edit" && selectedOrder) {
+      const { base } = resolvePlantCounts(selectedOrder)
       setUpdatedObject({
         rate: selectedOrder.rate,
-        quantity: selectedOrder.quantity,
+        quantity: base,
         bookingSlot: selectedOrder?.details?.bookingSlot?.slotId,
         deliveryDate: selectedOrder?.details?.deliveryDate 
           ? new Date(selectedOrder.details.deliveryDate) 
           : null
       })
     }
-  }, [activeTab, selectedOrder])
+  }, [activeTab, selectedOrder, resolvePlantCounts])
 
   const loadFilterOptions = async () => {
     try {
@@ -1604,6 +1647,8 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
             farmer,
             //   typeOfPlants,
             numberOfPlants,
+            additionalPlants = 0,
+            totalPlants,
             rate,
             salesPerson,
             createdAt,
@@ -1626,6 +1671,13 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                 orderFor,
                 cavity
               } = data || {}
+          const basePlants = numberOfPlants || 0
+          const extraPlants = additionalPlants || 0
+          const totalPlantCount =
+            typeof totalPlants === "number" ? totalPlants : basePlants + extraPlants
+          const remainingPlantCount =
+            typeof remainingPlants === "number" ? remainingPlants : totalPlantCount
+          const totalOrderAmount = Number(rate * totalPlantCount)
 
               const { startDay, endDay } = bookingSlot?.[0] || {}
               const start = startDay ? moment(startDay, "DD-MM-YYYY").format("D") : "N/A"
@@ -1639,16 +1691,19 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                   ? `via ${salesPerson?.name || "Unknown"}`
                   : farmer?.name || "Unknown",
                 plantType: `${plantType?.name || "Unknown"} -> ${plantSubtype?.name || "Unknown"}`,
-                quantity: numberOfPlants,
-                orderDate: moment(orderBookingDate || createdAt).format("DD/MM/YYYY"),
-                deliveryDate: deliveryDate ? moment(deliveryDate).format("DD/MM/YYYY") : "-", // Specific delivery date
+            quantity: basePlants,
+            totalPlants: totalPlantCount,
+            additionalPlants: extraPlants,
+            basePlants,
+            orderDate: moment(orderBookingDate || createdAt).format("DD MMM YYYY"),
+            deliveryDate: deliveryDate ? moment(deliveryDate).format("DD MMM YYYY") : "-", // Specific delivery date
             rate,
-            total: `₹ ${Number(rate * numberOfPlants)}`,
+            total: `₹ ${totalOrderAmount}`,
             "Paid Amt": `₹ ${Number(getTotalPaidAmount(payment))}`,
             "remaining Amt": `₹ ${
-              Number(rate * numberOfPlants) - Number(getTotalPaidAmount(payment))
+              totalOrderAmount - Number(getTotalPaidAmount(payment))
             }`,
-            "remaining Plants": remainingPlants || numberOfPlants,
+            "remaining Plants": remainingPlantCount,
             "returned Plants": returnedPlants || 0,
             orderStatus: orderStatus,
             Delivery: `${start} - ${end} ${monthYear}`,
@@ -1667,8 +1722,10 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
               plantSubtypeID: plantSubtype?.id,
               bookingSlot: bookingSlot?.[0] || null,
               rate: rate,
-              numberOfPlants,
-              remainingPlants: remainingPlants || numberOfPlants,
+              numberOfPlants: basePlants,
+              additionalPlants: extraPlants,
+              totalPlants: totalPlantCount,
+              remainingPlants: remainingPlantCount,
               orderFor: orderFor || null,
               statusChanges: statusChanges || [],
               orderRemarks: orderRemarks || [],
@@ -2014,8 +2071,8 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                 <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded-lg">
                   <p className="text-sm text-blue-800">
                     📅 Filtering farm ready orders from{" "}
-                    <span className="font-semibold">{moment(startDate).format("DD-MM-YYYY")}</span>{" "}
-                    to <span className="font-semibold">{moment(endDate).format("DD-MM-YYYY")}</span>
+                    <span className="font-semibold">{moment(startDate).format("DD MMM YYYY")}</span>{" "}
+                    to <span className="font-semibold">{moment(endDate).format("DD MMM YYYY")}</span>
                   </p>
                 </div>
               )}
@@ -2274,11 +2331,19 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                 {/* Quantity & Rate */}
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <span className="text-xs text-gray-500">Quantity</span>
-                    <div className="text-sm font-medium text-gray-900">{row.quantity}</div>
-                    {row["remaining Plants"] < row.quantity && (
+                    <span className="text-xs text-gray-500">Total Plants</span>
+                    <div className="text-sm font-medium text-gray-900">
+                      {(row.totalPlants ?? row.quantity)?.toLocaleString()}
+                    </div>
+                    {row.additionalPlants > 0 && (
+                      <div className="text-xs text-blue-600 mt-1">
+                        Base: {row.basePlants?.toLocaleString()} &middot; Extra: +
+                        {row.additionalPlants?.toLocaleString()}
+                      </div>
+                    )}
+                    {row["remaining Plants"] < (row.totalPlants ?? row.quantity) && (
                       <div className="text-xs text-orange-600 mt-1">
-                        Remaining: {row["remaining Plants"]}
+                        Remaining: {row["remaining Plants"]?.toLocaleString()}
                       </div>
                     )}
                   </div>
@@ -2355,35 +2420,46 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                 )}
 
                 {/* Dispatch Details - Shows driver and vehicle for dispatched orders */}
-                {(row.orderStatus === "DISPATCHED" || row.orderStatus === "DISPATCH_PROCESS") && row.details?.dispatchHistory && row.details.dispatchHistory.length > 0 && row.details.dispatchHistory[0].dispatch && (
-                  <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-3 border-l-4 border-blue-500 shadow-sm">
-                    <div className="flex items-center gap-2 text-sm">
-                      <span className="text-base">🚚</span>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-bold text-blue-900">
-                          {row.details.dispatchHistory[0].dispatch.driverName || 'N/A'}
-                        </span>
-                        {row.details.dispatchHistory[0].dispatch.driverPhone && (
-                          <span className="text-gray-600">
-                            ({row.details.dispatchHistory[0].dispatch.driverPhone})
+                {(row.orderStatus === "DISPATCHED" || row.orderStatus === "DISPATCH_PROCESS") && row.details?.dispatchHistory && row.details.dispatchHistory.length > 0 && (() => {
+                  const latestDispatch = row.details.dispatchHistory[row.details.dispatchHistory.length - 1];
+                  const driverName = latestDispatch?.dispatch?.driverName || latestDispatch?.driverName || 'N/A';
+                  const vehicleName = latestDispatch?.dispatch?.vehicleName || latestDispatch?.vehicleName || 'N/A';
+                  const transportId = latestDispatch?.dispatch?.transportId || latestDispatch?.transportId;
+                  const driverPhone = latestDispatch?.dispatch?.driverPhone || latestDispatch?.driverPhone;
+                  
+                  // Only show if we have at least driver or vehicle info
+                  if (driverName === 'N/A' && vehicleName === 'N/A') return null;
+                  
+                  return (
+                    <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-3 border-l-4 border-blue-500 shadow-sm">
+                      <div className="flex items-center gap-2 text-sm">
+                        <span className="text-base">🚚</span>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-bold text-blue-900">
+                            {driverName}
                           </span>
-                        )}
-                        <span className="text-blue-600 font-bold">→</span>
-                        <span className="font-semibold text-gray-800">
-                          🚗 {row.details.dispatchHistory[0].dispatch.vehicleName || 'N/A'}
-                        </span>
-                        {row.details.dispatchHistory[0].dispatch.transportId && (
-                          <>
-                            <span className="text-blue-600 font-bold">→</span>
-                            <span className="text-xs font-mono font-bold text-white bg-blue-600 px-2 py-1 rounded">
-                              #{row.details.dispatchHistory[0].dispatch.transportId}
+                          {driverPhone && (
+                            <span className="text-gray-600">
+                              ({driverPhone})
                             </span>
-                          </>
-                        )}
+                          )}
+                          <span className="text-blue-600 font-bold">→</span>
+                          <span className="font-semibold text-gray-800">
+                            🚗 {vehicleName}
+                          </span>
+                          {transportId && (
+                            <>
+                              <span className="text-blue-600 font-bold">→</span>
+                              <span className="text-xs font-mono font-bold text-white bg-blue-600 px-2 py-1 rounded">
+                                #{transportId}
+                              </span>
+                            </>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
 
                 {/* Action Buttons */}
                 {viewMode !== "dispatch_process" &&
@@ -2521,7 +2597,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                   <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
                     <div className="text-blue-600 text-xs font-medium">Total Value</div>
                     <div className="text-lg font-bold text-blue-900">
-                      ₹{(selectedOrder.rate * selectedOrder.quantity).toLocaleString()}
+                      ₹{(selectedOrder.rate * selectedOrderCounts.total).toLocaleString()}
                     </div>
                   </div>
                   <div className="bg-green-50 rounded-lg p-3 border border-green-200">
@@ -2535,7 +2611,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                     <div className="text-lg font-bold text-amber-900">
                       ₹
                       {(
-                        selectedOrder.rate * selectedOrder.quantity -
+                        selectedOrder.rate * selectedOrderCounts.total -
                         getTotalPaidAmount(selectedOrder?.details?.payment)
                       ).toLocaleString()}
                     </div>
@@ -2580,7 +2656,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                           if (selectedOrder) {
                             setUpdatedObject({
                               rate: selectedOrder.rate,
-                              quantity: selectedOrder.quantity,
+                                quantity: selectedOrderCounts.base,
                               bookingSlot: selectedOrder?.details?.bookingSlot?.slotId,
                               deliveryDate: selectedOrder?.details?.deliveryDate 
                                 ? new Date(selectedOrder.details.deliveryDate) 
@@ -2745,14 +2821,14 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                             <div className="flex flex-col space-y-1">
                               <span className="text-xs text-gray-500 font-medium">Total Quantity</span>
                               <span className="font-medium text-sm text-gray-900">
-                                {selectedOrder.quantity}
+                                {selectedOrderCounts.total?.toLocaleString()}
                               </span>
                             </div>
-                            {selectedOrder["remaining Plants"] < selectedOrder.quantity && (
+                            {selectedOrder["remaining Plants"] < selectedOrderCounts.total && (
                               <div className="flex flex-col space-y-1 bg-orange-50 p-2 rounded border border-orange-200">
                                 <span className="text-xs text-orange-700 font-medium">📦 Remaining to Dispatch</span>
                                 <span className="font-bold text-sm text-orange-900">
-                                  {selectedOrder["remaining Plants"]} plants
+                                  {selectedOrder["remaining Plants"]?.toLocaleString()} plants
                                 </span>
                               </div>
                             )}
@@ -2785,9 +2861,10 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                   <button
                                     onClick={() => {
                                       setActiveTab("edit")
+                                      const { base } = resolvePlantCounts(selectedOrder)
                                       setUpdatedObject({
                                         rate: selectedOrder.rate,
-                                        quantity: selectedOrder.quantity,
+                                        quantity: base,
                                         bookingSlot: selectedOrder?.details?.bookingSlot?.slotId,
                                         deliveryDate: selectedOrder?.details?.deliveryDate 
                                           ? new Date(selectedOrder.details.deliveryDate) 
@@ -2864,7 +2941,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                         )}
                                         <div className="text-xs text-amber-500 mt-1">
                                           {change.createdAt
-                                            ? moment(change.createdAt).format("DD/MM/YYYY HH:mm")
+                                            ? moment(change.createdAt).format("DD MMM YYYY HH:mm")
                                             : ""}
                                         </div>
                                       </div>
@@ -2894,7 +2971,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                           {change.previousStatus} → {change.newStatus}
                                         </span>
                                         <span className="text-xs text-gray-500">
-                                          {moment(change.changedAt).format("DD/MM/YYYY HH:mm")}
+                                          {moment(change.changedAt).format("DD MMM YYYY HH:mm")}
                                         </span>
                                       </div>
                                       {change.changedBy && (
@@ -2937,7 +3014,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                             Delivery Changed
                                           </span>
                                           <span className="text-xs text-gray-500">
-                                            {moment(change.changedAt).format("DD/MM/YYYY")}
+                                            {moment(change.changedAt).format("DD MMM YYYY")}
                                           </span>
                                         </div>
                                         <div className="grid grid-cols-1 md:grid-cols-3 gap-2 items-center">
@@ -2981,19 +3058,19 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                 <div className="text-center">
                                   <div className="text-sm text-gray-500">Total Plants</div>
                                   <div className="text-xl font-bold text-gray-900">
-                                    {selectedOrder.quantity}
+                                    {selectedOrderCounts.total?.toLocaleString()}
                                   </div>
                                 </div>
                                 <div className="text-center">
                                   <div className="text-sm text-gray-500">Dispatched Plants</div>
                                   <div className="text-xl font-bold text-blue-600">
-                                    {selectedOrder.quantity - selectedOrder["remaining Plants"]}
+                                    {(selectedOrderCounts.total - (selectedOrder["remaining Plants"] || 0))?.toLocaleString()}
                                   </div>
                                 </div>
                                 <div className="text-center">
                                   <div className="text-sm text-gray-500">Remaining to Dispatch</div>
                                   <div className="text-xl font-bold text-orange-600">
-                                    {selectedOrder["remaining Plants"]}
+                                    {selectedOrder["remaining Plants"]?.toLocaleString()}
                                   </div>
                                 </div>
                               </div>
@@ -3007,7 +3084,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                         </span>
                                         <span className="text-xs text-gray-500">
                                           {dispatchItem.date
-                                            ? moment(dispatchItem.date).format("DD/MM/YYYY HH:mm")
+                                            ? moment(dispatchItem.date).format("DD MMM YYYY HH:mm")
                                             : "N/A"}
                                         </span>
                                       </div>
@@ -3046,19 +3123,19 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                 <div className="text-center">
                                   <div className="text-sm text-gray-500">Total Plants</div>
                                   <div className="text-xl font-bold text-gray-900">
-                                    {selectedOrder.quantity}
+                                    {selectedOrderCounts.total?.toLocaleString()}
                                   </div>
                                 </div>
                                 <div className="text-center">
                                   <div className="text-sm text-gray-500">Returned Plants</div>
                                   <div className="text-xl font-bold text-red-600">
-                                    {selectedOrder["returned Plants"]}
+                                    {selectedOrder["returned Plants"]?.toLocaleString()}
                                   </div>
                                 </div>
                                 <div className="text-center">
                                   <div className="text-sm text-gray-500">Remaining Plants</div>
                                   <div className="text-xl font-bold text-green-600">
-                                    {selectedOrder["remaining Plants"]}
+                                    {selectedOrder["remaining Plants"]?.toLocaleString()}
                                   </div>
                                 </div>
                               </div>
@@ -3072,7 +3149,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                         </span>
                                         <span className="text-xs text-gray-500">
                                           {returnItem.date
-                                            ? moment(returnItem.date).format("DD/MM/YYYY")
+                                            ? moment(returnItem.date).format("DD MMM YYYY")
                                             : "N/A"}
                                         </span>
                                       </div>
@@ -3237,9 +3314,33 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                   type="file"
                                   accept="image/*"
                                   multiple
-                                  onChange={(e) => {
+                                  onChange={async (e) => {
                                     const files = Array.from(e.target.files)
-                                    handlePaymentInputChange("receiptPhoto", files)
+                                    if (files.length > 0) {
+                                      try {
+                                        setLoading(true)
+                                        // Upload each file to the media endpoint and get URLs
+                                        const uploadedUrls = await Promise.all(
+                                          files.map(async (file) => {
+                                            const formData = new FormData()
+                                            formData.append("media_key", file)
+                                            formData.append("media_type", "IMAGE")
+                                            formData.append("content_type", "multipart/form-data")
+                                            
+                                            const instance = NetworkManager(API.MEDIA.UPLOAD)
+                                            const response = await instance.request(formData)
+                                            return response.data.media_url
+                                          })
+                                        )
+                                        handlePaymentInputChange("receiptPhoto", uploadedUrls)
+                                        Toast.success("Images uploaded successfully")
+                                      } catch (error) {
+                                        console.error("Error uploading images:", error)
+                                        Toast.error("Failed to upload images")
+                                      } finally {
+                                        setLoading(false)
+                                      }
+                                    }
                                   }}
                                   className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
                                 />
@@ -3251,6 +3352,28 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                 <p className="text-xs text-gray-500 mt-1">
                                   Upload payment confirmation screenshots or photos
                                 </p>
+                                {/* Show preview of uploaded images */}
+                                {newPayment.receiptPhoto && newPayment.receiptPhoto.length > 0 && (
+                                  <div className="mt-2 flex flex-wrap gap-2">
+                                    {newPayment.receiptPhoto.map((photo, index) => (
+                                      <div key={index} className="relative">
+                                        <img
+                                          src={photo}
+                                          alt={`Receipt ${index + 1}`}
+                                          className="w-16 h-16 object-cover rounded border"
+                                        />
+                                        <button
+                                          onClick={() => {
+                                            const updatedPhotos = newPayment.receiptPhoto.filter((_, i) => i !== index)
+                                            handlePaymentInputChange("receiptPhoto", updatedPhotos)
+                                          }}
+                                          className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-xs">
+                                          ×
+                                        </button>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
                               </div>
                             </div>
 
@@ -3599,8 +3722,8 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                           </span>
                                         )}
                                       </div>
-                                      <div className="text-xs text-gray-500">
-                                        {moment(payment.paymentDate).format("DD/MM/YYYY")}
+                  <div className="text-xs text-gray-500">
+                    {moment(payment.paymentDate).format("DD MMM YYYY")}
                                       </div>
                                     </div>
                                     {payment.remark && (
@@ -3652,7 +3775,13 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                 </div>
                                 <div>
                                   <span className="text-blue-700">Current Quantity:</span>{" "}
-                                  {selectedOrder.quantity}
+                                  {selectedOrderCounts.base?.toLocaleString()}
+                                  {selectedOrderCounts.additional > 0 && (
+                                    <span className="ml-2 text-sm text-blue-600">
+                                      (+{selectedOrderCounts.additional?.toLocaleString()} extra, total{" "}
+                                      {selectedOrderCounts.total?.toLocaleString()})
+                                    </span>
+                                  )}
                                 </div>
                               </div>
                             </div>
@@ -3679,7 +3808,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                 value={
                                   updatedObject?.quantity !== undefined
                                     ? updatedObject.quantity
-                                    : selectedOrder?.quantity
+                                    : selectedOrderCounts.base
                                 }
                                 onChange={(e) => handleInputChange(0, "quantity", e.target.value)}
                                 className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 mt-1"
@@ -3687,13 +3816,13 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                               {updatedObject?.quantity && (
                                 <div className="mt-1">
                                   {Number(updatedObject.quantity) >
-                                    Number(selectedOrder?.quantity) && (
+                                    Number(selectedOrderCounts.base) && (
                                     <div className="text-xs text-amber-600">
                                       ⚠️ Increasing quantity may affect slot capacity
                                     </div>
                                   )}
                                   {Number(updatedObject.quantity) <
-                                    Number(selectedOrder?.quantity) && (
+                                    Number(selectedOrderCounts.base) && (
                                     <div className="text-xs text-green-600">
                                       ✅ Reducing quantity will free up slot capacity
                                     </div>
@@ -3723,7 +3852,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                   disabled={slots.length === 0}>
                                   <span className={updatedObject?.deliveryDate ? "text-gray-900" : "text-gray-400"}>
                                     {updatedObject?.deliveryDate 
-                                      ? moment(updatedObject.deliveryDate).format("DD/MM/YYYY")
+                                      ? moment(updatedObject.deliveryDate).format("DD MMM YYYY")
                                       : "Click to select delivery date"}
                                   </span>
                                 </button>
@@ -3839,17 +3968,17 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                     `Rate: ₹${selectedOrder.rate} → ₹${updatedObject.rate}`
                                   )
                                 }
-                                if (updatedObject.quantity !== selectedOrder.quantity) {
+                                if (updatedObject.quantity !== selectedOrderCounts.base) {
                                   changes.push(
-                                    `Quantity: ${selectedOrder.quantity} → ${updatedObject.quantity}`
+                                    `Quantity: ${selectedOrderCounts.base} → ${updatedObject.quantity}`
                                   )
                                 }
                                 // Check if delivery date has changed
                                 if (updatedObject.deliveryDate) {
                                   const currentDate = selectedOrder?.details?.deliveryDate 
-                                    ? moment(selectedOrder.details.deliveryDate).format("DD/MM/YYYY")
+                                    ? moment(selectedOrder.details.deliveryDate).format("DD MMM YYYY")
                                     : "Not set"
-                                  const newDate = moment(updatedObject.deliveryDate).format("DD/MM/YYYY")
+                                  const newDate = moment(updatedObject.deliveryDate).format("DD MMM YYYY")
                                   
                                   if (currentDate !== newDate) {
                                     const slotDetails = getSlotDetailsForDate(updatedObject.deliveryDate)
@@ -3968,13 +4097,13 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                               <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
                                 <div className="text-sm text-gray-500 mb-1">Total Order Plants</div>
                                 <div className="text-2xl font-bold text-gray-900">
-                                  {selectedOrder.quantity?.toLocaleString()}
+                                  {selectedOrderCounts.total?.toLocaleString()}
                                 </div>
                               </div>
                               <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
                                 <div className="text-sm text-blue-600 mb-1">Total Dispatched</div>
                                 <div className="text-2xl font-bold text-blue-900">
-                                  {(selectedOrder.quantity - selectedOrder["remaining Plants"])?.toLocaleString()}
+                                  {(selectedOrderCounts.total - (selectedOrder["remaining Plants"] || 0))?.toLocaleString()}
                                 </div>
                                 <div className="text-xs text-blue-600 mt-1">
                                   in {selectedOrder.details.dispatchHistory.length} dispatch{selectedOrder.details.dispatchHistory.length > 1 ? 'es' : ''}

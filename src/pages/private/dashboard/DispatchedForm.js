@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react"
+import React, { useState, useEffect, useRef } from "react"
 import {
   Dialog,
   DialogTitle,
@@ -27,12 +27,13 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
   const [isEditing, setIsEditing] = useState(false)
   // Track dispatch quantities per order (orderId -> quantity to dispatch)
   const [orderQuantities, setOrderQuantities] = useState(new Map())
+  const orderQuantitiesRef = useRef(new Map())
 
   // Fetch functions for each dropdown
   const getDrivers = async () => {
     try {
       const instance = NetworkManager(API.USER.GET_USERS)
-      const response = await instance.request({}, {})
+      const response = await instance.request({}, { jobTitle: "DRIVER" })
       if (response.data?.data) {
         setDrivers(response.data.data)
       }
@@ -177,17 +178,93 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
   const transformDispatchData = (formData, selectedOrders) => {
     const orderIds = Array.from(selectedOrders.keys())
     
-    // Prepare order dispatch details with quantities
+    // Get selected driver info - extract name from combined format or just name
+    const driverDisplayName = formData.driverName.includes('(') 
+      ? formData.driverName.split(' (')[0] 
+      : formData.driverName
+    const selectedDriver = drivers.find(d => d.name === driverDisplayName)
+    
+    // Format driver name with mobile number
+    const formattedDriverName = selectedDriver 
+      ? `${selectedDriver.name} (${selectedDriver.phoneNumber})`
+      : formData.driverName
+    
+    // Map plants to their orders to group crate information
+    const plantsByOrder = new Map()
+    formData.plants?.forEach(plant => {
+      plant.orders?.forEach(order => {
+        const orderId = order.details?.orderid
+        if (orderId && !plantsByOrder.has(orderId)) {
+          plantsByOrder.set(orderId, plant)
+        }
+      })
+    })
+    
+    // Prepare order dispatch details with quantities, driver info, vehicle info, and crates
     const orderDispatchDetails = Array.from(selectedOrders.values()).map(order => {
       const orderId = order.details.orderid
       const dispatchQty = orderQuantities.get(orderId) || 0
       const remainingQty = order.details?.remainingPlants || order.quantity || 0
+      const plantForOrder = plantsByOrder.get(orderId)
+      
+      // Calculate crate details for this specific order based on its dispatch quantity
+      const cratesForOrder = []
+      if (plantForOrder?.cavityGroups && dispatchQty > 0) {
+        // Find the cavity group that matches this order's cavity
+        const orderCavityId = order.details?.cavityId
+        const matchingCavityGroup = plantForOrder.cavityGroups.find(
+          group => group.cavity === orderCavityId || group.cavity === order.details?.cavityId
+        )
+        
+        // If we found a matching cavity group, calculate crates for this order's dispatch quantity
+        if (matchingCavityGroup && matchingCavityGroup.cavitySize && matchingCavityGroup.numberPerCrate) {
+          const cavitySize = Number(matchingCavityGroup.cavitySize)
+          const numberPerCrate = Number(matchingCavityGroup.numberPerCrate)
+          
+          // Calculate crates for this order's dispatch quantity
+          const numberOfCavityTrays = Math.floor(dispatchQty / cavitySize)
+          const remainder = (dispatchQty / cavitySize) % numberPerCrate
+          
+          const crateDetails = []
+          
+          if (numberOfCavityTrays > 0) {
+            crateDetails.push({
+              crateCount: Math.floor(numberOfCavityTrays / numberPerCrate),
+              plantCount: Math.floor(numberOfCavityTrays / numberPerCrate) * numberPerCrate * cavitySize
+            })
+          }
+          
+          if (remainder > 0) {
+            crateDetails.push({
+              crateCount: 1,
+              plantCount: dispatchQty - Math.floor(numberOfCavityTrays / numberPerCrate) * numberPerCrate * cavitySize
+            })
+          }
+          
+          if (crateDetails.length > 0) {
+            const totalCrateCount = crateDetails.reduce((sum, detail) => sum + detail.crateCount, 0)
+            const totalPlantCount = crateDetails.reduce((sum, detail) => sum + detail.plantCount, 0)
+            
+            cratesForOrder.push({
+              cavity: matchingCavityGroup.cavity,
+              cavityName: matchingCavityGroup.cavityName,
+              crateCount: totalCrateCount,
+              plantCount: totalPlantCount,
+              crateDetails: crateDetails
+            })
+          }
+        }
+      }
       
       return {
         orderId: orderId,
         dispatchQuantity: dispatchQty,
         remainingAfterDispatch: remainingQty - dispatchQty,
-        isPartialDispatch: dispatchQty < remainingQty
+        isPartialDispatch: dispatchQty < remainingQty,
+        driverName: formattedDriverName,
+        driverMobile: selectedDriver?.phoneNumber?.toString() || "",
+        vehicleName: formData.vehicleName,
+        crates: cratesForOrder
       }
     })
     
@@ -258,7 +335,8 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
     })
 
     return {
-      driverName: formData.driverName,
+      driverName: formattedDriverName,
+      driverMobile: selectedDriver?.phoneNumber?.toString() || "",
       vehicleName: formData.vehicleName,
       orderIds: orderIds,
       orderDispatchDetails: orderDispatchDetails,
@@ -553,13 +631,29 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
 
   // Handle order quantity change
   const handleOrderQuantityChange = (changedOrderId, newQuantity, maxQuantity) => {
-    const qty = Math.max(0, Math.min(Number(newQuantity), maxQuantity))
+    // Allow empty string for better UX when user is typing
+    if (newQuantity === "" || newQuantity === undefined || newQuantity === null) {
+      setOrderQuantities((prev) => {
+        const updated = new Map(prev)
+        updated.set(changedOrderId, 0)
+        orderQuantitiesRef.current = updated
+        return updated
+      })
+      return
+    }
     
-    // Update the orderQuantities map
+    const qty = Math.max(0, Math.min(Number(newQuantity) || 0, maxQuantity))
+    
+    // Update the orderQuantities map and ref
     setOrderQuantities((prev) => {
       const updated = new Map(prev)
       updated.set(changedOrderId, qty)
-      
+      orderQuantitiesRef.current = updated
+      return updated
+    })
+    
+    // Update formData separately to avoid stale state
+    setFormData((prev) => {
       // Recalculate plant quantities with the updated map
       const selectedOrdersArray = Array.from(selectedOrders.values())
       const plantGroups = selectedOrdersArray?.reduce((acc, order) => {
@@ -571,14 +665,14 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
         // Get the dispatch quantity for this order (use updated qty if this is the changed order)
         const dispatchQty = orderId === changedOrderId 
           ? qty 
-          : updated.get(orderId) || order.quantity || 0
+          : (orderQuantitiesRef.current.get(orderId) || order.quantity || 0)
 
         if (!acc[key]) {
           acc[key] = {
             id: plantId,
             name: order.plantType,
             quantity: dispatchQty,
-            cavityGroups: formData.plants.find(p => p.id === plantId)?.cavityGroups || [],
+            cavityGroups: prev.plants.find(p => p.id === plantId)?.cavityGroups || [],
             orders: []
           }
         } else {
@@ -589,13 +683,10 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
         return acc
       }, {})
 
-      // Update formData with new plant quantities
-      setFormData((prev) => ({
+      return {
         ...prev,
         plants: Object.values(plantGroups)
-      }))
-      
-      return updated
+      }
     })
   }
 
@@ -612,6 +703,11 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
       setError("")
     }
   }, [open])
+
+  // Keep ref in sync with state
+  useEffect(() => {
+    orderQuantitiesRef.current = orderQuantities
+  }, [orderQuantities])
 
   useEffect(() => {
     if (mode === "view" && dispatchData) {
@@ -670,8 +766,18 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
         }
       })
 
+      // Format driverName with phone number if not already formatted
+      let formattedDriverName = dispatchData.driverName
+      if (dispatchData.driverName && !dispatchData.driverName.includes('(')) {
+        // If driverName doesn't have phone number, try to format it
+        const driver = drivers.find(d => d.name === dispatchData.driverName)
+        if (driver) {
+          formattedDriverName = `${driver.name} (${driver.phoneNumber})`
+        }
+      }
+
       setFormData({
-        driverName: dispatchData.driverName,
+        driverName: formattedDriverName,
         vehicleName: dispatchData.vehicleName,
         plants: transformedPlants
       })
@@ -692,6 +798,7 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
         initialQuantities.set(orderId, availableQty)
       })
       setOrderQuantities(initialQuantities)
+      orderQuantitiesRef.current = initialQuantities
       
       const plantGroups = selectedOrdersArray?.reduce((acc, order) => {
         const plantId = order.details?.plantID
@@ -730,7 +837,7 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
       }, {})
       setExpandedPlants(initialExpandedState)
     }
-  }, [mode, dispatchData, selectedOrders?.size])
+  }, [mode, dispatchData, selectedOrders?.size, drivers])
 
   const handleCancelEdit = () => {
     if (dispatchData) {
@@ -831,8 +938,10 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
                             type="number"
                             min="0"
                             max={remainingQty}
-                            value={dispatchQty}
-                            onChange={(e) => handleOrderQuantityChange(orderId, e.target.value, remainingQty)}
+                            value={dispatchQty === 0 ? "" : dispatchQty}
+                            onChange={(e) => {
+                              handleOrderQuantityChange(orderId, e.target.value, remainingQty)
+                            }}
                             className="flex-1 px-2 py-1 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500"
                             placeholder="Enter quantity"
                           />
@@ -876,8 +985,8 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
               disabled={isViewMode && !isEditing}>
               <option value="">Select Driver</option>
               {drivers?.map((driver) => (
-                <option key={driver.id} value={driver.name}>
-                  {driver.name}
+                <option key={driver._id || driver.id} value={`${driver.name} (${driver.phoneNumber})`}>
+                  {driver.name} ({driver.phoneNumber})
                 </option>
               ))}
             </select>

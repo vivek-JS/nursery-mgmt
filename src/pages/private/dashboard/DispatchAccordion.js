@@ -247,6 +247,93 @@ const DispatchAccordion = ({
             </div>
           ) : (
             <div className="space-y-4">
+              {/* Action Buttons */}
+              <div className="bg-white rounded-lg border border-gray-200 p-4">
+                <h4 className="font-medium text-gray-900 mb-3">Actions</h4>
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onViewDispatch(dispatch)
+                    }}
+                    className="inline-flex items-center justify-center px-4 py-2 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition-colors">
+                    <Eye size={16} className="mr-2" />
+                    View
+                  </button>
+                  
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onCollectSlip(dispatch)
+                    }}
+                    className="inline-flex items-center justify-center px-4 py-2 bg-green-50 text-green-700 rounded-lg hover:bg-green-100 transition-colors">
+                    <Download size={16} className="mr-2" />
+                    Collect Slip
+                  </button>
+                  
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onDeliveryChallan(dispatch)
+                    }}
+                    className="inline-flex items-center justify-center px-4 py-2 bg-purple-50 text-purple-700 rounded-lg hover:bg-purple-100 transition-colors">
+                    <FileText size={16} className="mr-2" />
+                    Delivery Challan
+                  </button>
+                  
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onCompleteOrder(dispatch)
+                    }}
+                    className="inline-flex items-center justify-center px-4 py-2 bg-orange-50 text-orange-700 rounded-lg hover:bg-orange-100 transition-colors">
+                    <CheckCircle size={16} className="mr-2" />
+                    Complete Order
+                  </button>
+                  
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onDeleteDispatch(dispatch)
+                    }}
+                    className="inline-flex items-center justify-center px-4 py-2 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 transition-colors">
+                    <Trash2 size={16} className="mr-2" />
+                    Delete
+                  </button>
+                </div>
+              </div>
+
+              {/* Summary Stats */}
+              <div className="bg-white rounded-lg border border-gray-200 p-4">
+                <h4 className="font-medium text-gray-900 mb-3">Dispatch Summary</h4>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-blue-600">
+                      {getTotalPlants().toLocaleString()}
+                    </div>
+                    <div className="text-sm text-gray-500">Dispatched Plants</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-gray-900">
+                      ₹{getTotalAmount().toLocaleString()}
+                    </div>
+                    <div className="text-sm text-gray-500">Dispatch Amount</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-green-600">
+                      ₹{getTotalPaid().toLocaleString()}
+                    </div>
+                    <div className="text-sm text-gray-500">Paid Amount</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-red-600">
+                      ₹{getTotalRemaining().toLocaleString()}
+                    </div>
+                    <div className="text-sm text-gray-500">Remaining</div>
+                  </div>
+                </div>
+              </div>
+
               {/* Orders List */}
               <div>
                 <h4 className="font-medium text-gray-900 mb-3">Related Orders</h4>
@@ -442,93 +529,6 @@ const DispatchAccordion = ({
                       </div>
                     </div>
                   )}
-                </div>
-              </div>
-
-              {/* Summary Stats */}
-              <div className="bg-white rounded-lg border border-gray-200 p-4">
-                <h4 className="font-medium text-gray-900 mb-3">Dispatch Summary</h4>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-blue-600">
-                      {getTotalPlants().toLocaleString()}
-                    </div>
-                    <div className="text-sm text-gray-500">Dispatched Plants</div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-gray-900">
-                      ₹{getTotalAmount().toLocaleString()}
-                    </div>
-                    <div className="text-sm text-gray-500">Dispatch Amount</div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-green-600">
-                      ₹{getTotalPaid().toLocaleString()}
-                    </div>
-                    <div className="text-sm text-gray-500">Paid Amount</div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-red-600">
-                      ₹{getTotalRemaining().toLocaleString()}
-                    </div>
-                    <div className="text-sm text-gray-500">Remaining</div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Action Buttons */}
-              <div className="bg-white rounded-lg border border-gray-200 p-4">
-                <h4 className="font-medium text-gray-900 mb-3">Actions</h4>
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onViewDispatch(dispatch)
-                    }}
-                    className="inline-flex items-center justify-center px-4 py-2 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition-colors">
-                    <Eye size={16} className="mr-2" />
-                    View
-                  </button>
-                  
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onCollectSlip(dispatch)
-                    }}
-                    className="inline-flex items-center justify-center px-4 py-2 bg-green-50 text-green-700 rounded-lg hover:bg-green-100 transition-colors">
-                    <Download size={16} className="mr-2" />
-                    Collect Slip
-                  </button>
-                  
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onDeliveryChallan(dispatch)
-                    }}
-                    className="inline-flex items-center justify-center px-4 py-2 bg-purple-50 text-purple-700 rounded-lg hover:bg-purple-100 transition-colors">
-                    <FileText size={16} className="mr-2" />
-                    Delivery Challan
-                  </button>
-                  
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onCompleteOrder(dispatch)
-                    }}
-                    className="inline-flex items-center justify-center px-4 py-2 bg-orange-50 text-orange-700 rounded-lg hover:bg-orange-100 transition-colors">
-                    <CheckCircle size={16} className="mr-2" />
-                    Complete Order
-                  </button>
-                  
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onDeleteDispatch(dispatch)
-                    }}
-                    className="inline-flex items-center justify-center px-4 py-2 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 transition-colors">
-                    <Trash2 size={16} className="mr-2" />
-                    Delete
-                  </button>
                 </div>
               </div>
             </div>
