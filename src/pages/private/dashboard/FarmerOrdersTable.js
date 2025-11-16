@@ -409,11 +409,12 @@ const SearchableDropdown = ({
   label,
   value,
   onChange,
-  options,
+  options = [],
   placeholder = "Select an option",
   showCount = false,
   maxHeight = "500px",
-  isStatusDropdown = false
+  isStatusDropdown = false,
+  disabled = false
 }) => {
   const [isOpen, setIsOpen] = useState(false)
   const [isClosing, setIsClosing] = useState(false)
@@ -478,8 +479,10 @@ const SearchableDropdown = ({
           isStatusDropdown
             ? `status-badge-enhanced status-${value?.toLowerCase().replace("_", "-")}`
             : ""
-        }`}
+        } ${disabled ? "opacity-60 cursor-not-allowed" : ""}`}
+        disabled={disabled}
         onClick={(e) => {
+          if (disabled) return
           e.preventDefault()
           e.stopPropagation()
           if (!isOpen) {
@@ -492,6 +495,7 @@ const SearchableDropdown = ({
           }
         }}
         onFocus={() => {
+          if (disabled) return
           if (!isOpen) {
             setTimeout(() => {
               setIsOpen(true)
@@ -638,6 +642,11 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   const [selectedSalesPerson, setSelectedSalesPerson] = useState("")
   const [selectedVillage, setSelectedVillage] = useState("")
   const [selectedDistrict, setSelectedDistrict] = useState("")
+const [selectedPlant, setSelectedPlant] = useState("")
+const [selectedSubtype, setSelectedSubtype] = useState("")
+const [plants, setPlants] = useState([])
+const [subtypes, setSubtypes] = useState([])
+const [subtypesLoading, setSubtypesLoading] = useState(false)
 
   // Filter options
   const [salesPeople, setSalesPeople] = useState([])
@@ -865,6 +874,18 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
           if (selectedDistrict) {
             params.district = selectedDistrict
           }
+  if (selectedPlant) {
+    params.plantId = selectedPlant
+  }
+  if (selectedSubtype) {
+    params.subtypeId = selectedSubtype
+  }
+          if (selectedPlant) {
+            params.plantId = selectedPlant
+          }
+          if (selectedSubtype) {
+            params.subtypeId = selectedSubtype
+          }
 
           if (viewMode === "dispatched") {
             params.status = "ACCEPTED,FARM_READY"
@@ -946,7 +967,8 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
               const remainingPlantCount =
                 typeof remainingPlants === "number" ? remainingPlants : totalPlantCount
               const totalOrderAmount = Number(rate * totalPlantCount)
-              const { startDay, endDay } = bookingSlot?.[0] || {}
+              const latestSlot = mapSlotForUi(bookingSlot)
+              const { startDay, endDay } = latestSlot || {}
               const start = startDay ? moment(startDay, "DD-MM-YYYY").format("D") : "N/A"
               const end = endDay ? moment(endDay, "DD-MM-YYYY").format("D") : "N/A"
               const monthYear = startDay
@@ -992,7 +1014,12 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                 salesPerson,
                 plantID: plantType?.id,
                 plantSubtypeID: plantSubtype?.id,
-                bookingSlot: bookingSlot?.[0] || null,
+                bookingSlot: latestSlot,
+                slotHistory: Array.isArray(bookingSlot)
+                  ? bookingSlot.filter(Boolean)
+                  : bookingSlot
+                  ? [bookingSlot]
+                  : [],
                 rate: rate,
                 numberOfPlants: basePlants,
                 additionalPlants: extraPlants,
@@ -1242,7 +1269,9 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
     viewMode,
     selectedSalesPerson,
     selectedVillage,
-    selectedDistrict
+  selectedDistrict,
+  selectedPlant,
+  selectedSubtype
   ])
 
   // Function to fetch sales person data
@@ -1287,6 +1316,15 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
     loadFilterOptions()
   }, [])
 
+useEffect(() => {
+  if (!selectedPlant) {
+    setSubtypes([])
+    setSelectedSubtype("")
+    return
+  }
+  loadSubtypeOptions(selectedPlant)
+}, [selectedPlant])
+
   // Listen for dispatch creation events to refresh the list
   useEffect(() => {
     const handleDispatchCreated = () => {
@@ -1329,8 +1367,66 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
     }
   }, [activeTab, selectedOrder, resolvePlantCounts])
 
-  const loadFilterOptions = async () => {
+const loadPlantOptions = async () => {
+  try {
+    const instance = NetworkManager(API.slots.GET_PLANTS)
+    const response = await instance.request()
+    const rawPlants = response?.data || response?.data?.data || []
+
+    const formattedPlants = (rawPlants || [])
+      .map((plant) => {
+        const id = plant.plantId || plant._id || plant.id || ""
+        return {
+          label: plant.name,
+          value: id ? String(id) : ""
+        }
+      })
+      .filter((plant) => plant.value)
+
+    setPlants(formattedPlants)
+  } catch (error) {
+    console.error("Error loading plants:", error)
+    setPlants([])
+  }
+}
+
+const loadSubtypeOptions = async (plantId) => {
+  if (!plantId) {
+    setSubtypes([])
+    return
+  }
+
+  setSubtypesLoading(true)
+  try {
+    const instance = NetworkManager(API.slots.GET_PLANTS_SUBTYPE)
+    const response = await instance.request(null, {
+      plantId,
+      year: currentYear
+    })
+
+    const rawSubtypes = response?.data?.subtypes || []
+    const formattedSubtypes = rawSubtypes
+      .map((subtype) => {
+        const id = subtype.subtypeId || subtype._id || ""
+        return {
+          label: subtype.subtypeName || subtype.name,
+          value: id ? String(id) : ""
+        }
+      })
+      .filter((subtype) => subtype.value)
+
+    setSubtypes(formattedSubtypes)
+  } catch (error) {
+    console.error("Error loading subtypes:", error)
+    setSubtypes([])
+  } finally {
+    setSubtypesLoading(false)
+  }
+}
+
+const loadFilterOptions = async () => {
     try {
+    await loadPlantOptions()
       // Load all salespeople and dealers in a single list
       const salesInstance = NetworkManager(API.USER.GET_USERS)
       const salesResponse = await salesInstance.request(null, { jobTitle: "SALES" })
@@ -1402,6 +1498,31 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
       0
     )
   }
+
+const currentYear = new Date().getFullYear()
+
+const getLatestSlot = (slotData) => {
+  if (!slotData) return null
+  if (Array.isArray(slotData)) {
+    const filtered = slotData.filter(Boolean)
+    if (!filtered.length) return null
+    return filtered[filtered.length - 1]
+  }
+  return slotData
+}
+
+const mapSlotForUi = (slotData) => {
+  const latestSlot = getLatestSlot(slotData)
+  if (!latestSlot) return null
+  const slotId =
+    latestSlot.slotId ||
+    latestSlot.id ||
+    latestSlot._id ||
+    latestSlot.value ||
+    latestSlot.slot_id ||
+    latestSlot.slotID
+  return { ...latestSlot, slotId }
+}
 
   // Helper function to get slot ID for a specific date
   const getSlotIdForDate = (selectedDate) => {
@@ -1679,11 +1800,12 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
             typeof remainingPlants === "number" ? remainingPlants : totalPlantCount
           const totalOrderAmount = Number(rate * totalPlantCount)
 
-              const { startDay, endDay } = bookingSlot?.[0] || {}
-              const start = startDay ? moment(startDay, "DD-MM-YYYY").format("D") : "N/A"
-              const end = endDay ? moment(endDay, "DD-MM-YYYY").format("D") : "N/A"
-              const monthYear = startDay ? moment(startDay, "DD-MM-YYYY").format("MMMM, YYYY") : "N/A"
-              return {
+          const latestSlot = mapSlotForUi(bookingSlot)
+          const { startDay, endDay } = latestSlot || {}
+          const start = startDay ? moment(startDay, "DD-MM-YYYY").format("D") : "N/A"
+          const end = endDay ? moment(endDay, "DD-MM-YYYY").format("D") : "N/A"
+          const monthYear = startDay ? moment(startDay, "DD-MM-YYYY").format("MMMM, YYYY") : "N/A"
+          return {
                 order: orderId,
                 farmerName: orderFor
                   ? `${farmer?.name || "Unknown"} (Order for: ${orderFor.name})`
@@ -1720,7 +1842,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
               salesPerson,
               plantID: plantType?.id,
               plantSubtypeID: plantSubtype?.id,
-              bookingSlot: bookingSlot?.[0] || null,
+              bookingSlot: latestSlot,
               rate: rate,
               numberOfPlants: basePlants,
               additionalPlants: extraPlants,
@@ -1739,7 +1861,12 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
               deliveryDate: deliveryDate || null, // Include deliveryDate in details
               cavity: cavity || null, // Include cavity information
               cavityName: cavity?.name || null,
-              cavityId: cavity?.id || cavity?._id || null
+              cavityId: cavity?.id || cavity?._id || null,
+              slotHistory: Array.isArray(bookingSlot)
+                ? bookingSlot.filter(Boolean)
+                : bookingSlot
+                ? [bookingSlot]
+                : []
             }
           }
         })
@@ -2090,7 +2217,45 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
         {/* Filter Dropdowns */}
         <div className="bg-white rounded-lg shadow-sm border p-4">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Filters</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+            {/* Plant Filter */}
+            <SearchableDropdown
+              label="Plant"
+              value={selectedPlant}
+              onChange={(val) => {
+                setSelectedPlant(val)
+                if (val === "") {
+                  setSelectedSubtype("")
+                }
+              }}
+              options={[{ label: "All Plants", value: "" }, ...(plants || [])]}
+              placeholder="Select Plant"
+              showCount={true}
+              maxHeight="500px"
+            />
+
+            {/* Plant Subtype Filter */}
+            <SearchableDropdown
+              label="Subtype"
+              value={selectedSubtype}
+              onChange={setSelectedSubtype}
+              options={
+                !selectedPlant
+                  ? []
+                  : [{ label: "All Subtypes", value: "" }, ...(subtypes || [])]
+              }
+              placeholder={
+                !selectedPlant
+                  ? "Select a plant first"
+                  : subtypesLoading
+                  ? "Loading subtypes..."
+                  : "Select Subtype"
+              }
+              showCount={Boolean(selectedPlant && !subtypesLoading)}
+              maxHeight="500px"
+              disabled={!selectedPlant || subtypesLoading}
+            />
+
             {/* Sales Person/Dealer Filter */}
             <SearchableDropdown
               label="Sales Person / Dealer"
@@ -2137,7 +2302,12 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
               title="Export Orders"
               filters={{
                 startDate: startDate ? moment(startDate).format("YYYY-MM-DD") : "",
-                endDate: endDate ? moment(endDate).format("YYYY-MM-DD") : ""
+                endDate: endDate ? moment(endDate).format("YYYY-MM-DD") : "",
+                plantId: selectedPlant || "",
+                subtypeId: selectedSubtype || "",
+                salesPerson: selectedSalesPerson || "",
+                village: selectedVillage || "",
+                district: selectedDistrict || ""
               }}
               onExportComplete={() => {
                 Toast.success("Orders exported successfully!")
@@ -2148,6 +2318,9 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                 setSelectedSalesPerson("")
                 setSelectedVillage("")
                 setSelectedDistrict("")
+                setSelectedPlant("")
+                setSelectedSubtype("")
+                setSubtypes([])
                 setSelectedDateRange([null, null])
               }}
               className="px-4 py-2 text-sm font-medium text-gray-700 enhanced-select hover:bg-gray-50 focus:outline-none">
@@ -2232,7 +2405,13 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
       {/* Orders Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
         {orders && orders.length > 0 ? (
-          orders.map((row, index) => (
+          orders.map((row, index) => {
+            const farmerDetails = row?.details?.farmer
+            const farmerLocation = farmerDetails
+              ? [farmerDetails.district, farmerDetails.village].filter(Boolean).join(" → ")
+              : null
+
+            return (
             <div
               key={index}
               className={`bg-white rounded-lg shadow-sm border hover:shadow-md transition-all duration-200 cursor-pointer ${
@@ -2275,6 +2454,9 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                         Booked by: {row.details.salesPerson.name}
                         {row.details.salesPerson.jobTitle === "DEALER" && " (Dealer)"}
                       </p>
+                    )}
+                    {farmerLocation && (
+                      <p className="text-xs text-gray-500 mt-1 font-medium">{farmerLocation}</p>
                     )}
                   </div>
                   <div className="flex items-center space-x-2">
@@ -2508,7 +2690,8 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                   )}
               </div>
             </div>
-          ))
+            )
+          })
         ) : (
           <div className="col-span-full flex items-center justify-center py-12">
             <div className="text-center">

@@ -18,12 +18,12 @@ const Router = () => {
           <Routes>
             <Route path="/" element={<Navigate to="/u/dashboard" replace />} />
             {/* All the public routes */}
-            {PublicRoutes.map(({ component: Component, ...route }) => (
+            {PublicRoutes.map(({ component: Component, allowWhenLoggedIn, ...route }) => (
               <Route key={`Route-${route.path}`}>
                 <Route
                   path={route.path}
                   element={
-                    isLoggedIn === true ? (
+                    isLoggedIn === true && !allowWhenLoggedIn ? (
                       <Navigate to="/u/dashboard" replace={true} />
                     ) : (
                       <Component />

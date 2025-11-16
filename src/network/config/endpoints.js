@@ -432,5 +432,14 @@ export const API = {
     CREATE_TEMPLATE: new APIRouter("/{tenantId}/api/v1/createTemplate", HTTP_METHODS.POST),
     UPDATE_TEMPLATE: new APIRouter("/{tenantId}/api/v1/updateTemplate", HTTP_METHODS.PUT),
     DELETE_TEMPLATE: new APIRouter("/{tenantId}/api/v1/deleteTemplate", HTTP_METHODS.DELETE)
+  },
+  PUBLIC_LINKS: {
+    CREATE_LINK: new APIRouter("/public-links/links", HTTP_METHODS.POST),
+    GET_LINKS: new APIRouter("/public-links/links", HTTP_METHODS.GET),
+    GET_LINK_BY_ID: new APIRouter("/public-links/links", HTTP_METHODS.GET),
+    UPDATE_LINK: new APIRouter("/public-links/links", HTTP_METHODS.PATCH),
+    GET_PUBLIC_CONFIG: new APIRouter("/public-links/config", HTTP_METHODS.GET),
+    CREATE_LEAD: new APIRouter("/public-links/leads", HTTP_METHODS.POST),
+    GET_LEADS: new APIRouter("/public-links/links/leads", HTTP_METHODS.GET)
   }
 }

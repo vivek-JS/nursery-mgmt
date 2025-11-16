@@ -37,6 +37,13 @@ const ExcelExport = ({
     ...filters
   })
 
+  React.useEffect(() => {
+    setExportFilters((prev) => ({
+      ...prev,
+      ...filters
+    }))
+  }, [filters])
+
   const orderStatusOptions = [
     { value: "", label: "All Statuses" },
     { value: "PENDING", label: "Pending" },
@@ -79,18 +86,17 @@ const ExcelExport = ({
       // Build query parameters
       const params = new URLSearchParams()
 
-      if (exportFilters.startDate) {
-        params.append("startDate", exportFilters.startDate)
-      }
-      if (exportFilters.endDate) {
-        params.append("endDate", exportFilters.endDate)
-      }
-      if (exportFilters.orderStatus) {
-        params.append("orderStatus", exportFilters.orderStatus)
-      }
-      if (exportFilters.paymentStatus) {
-        params.append("paymentStatus", exportFilters.paymentStatus)
-      }
+      Object.entries(exportFilters).forEach(([key, value]) => {
+        const isValuePresent =
+          value !== undefined &&
+          value !== null &&
+          value !== "" &&
+          !(typeof value === "object" && Object.keys(value).length === 0)
+
+        if (isValuePresent) {
+          params.append(key, value)
+        }
+      })
 
       // Make direct axios call for CSV endpoint to handle raw CSV response
       const baseURL = process.env.REACT_APP_BASE_URL || "http://localhost:8000/api/v1"
@@ -150,7 +156,9 @@ const ExcelExport = ({
   }
 
   const getActiveFiltersCount = () => {
-    return Object.values(exportFilters).filter((value) => value !== "").length
+    return Object.values(exportFilters).filter(
+      (value) => value !== undefined && value !== null && value !== ""
+    ).length
   }
 
   return (

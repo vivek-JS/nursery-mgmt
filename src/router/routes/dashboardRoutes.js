@@ -13,6 +13,7 @@ import DateRangeOutlinedIcon from "@mui/icons-material/DateRangeOutlined"
 import PaidIcon from "@mui/icons-material/Paid"
 import PaymentIcon from "@mui/icons-material/Payment"
 import WhatsAppIcon from "@mui/icons-material/WhatsApp"
+import LinkIcon from "@mui/icons-material/Link"
 import GrassIcon from "@mui/icons-material/Grass"
 
 export const DashboardMenus = [
@@ -36,5 +37,6 @@ export const DashboardMenus = [
   new MenuPath("Orders-upload", <ListAltIcon />, "/u/upload-orders"),
   new MenuPath("Dealers", <ListAltIcon />, "/u/dealers"),
   new MenuPath("Payments", <PaymentIcon />, "/u/payments", ["ACCOUNTANT", "SUPER_ADMIN"]),
-  new MenuPath("WhatsApp Management", <WhatsAppIcon />, "/u/whatsapp", ["SUPER_ADMIN"])
+  new MenuPath("WhatsApp Management", <WhatsAppIcon />, "/u/whatsapp", ["SUPER_ADMIN"]),
+  new MenuPath("Public Farmer Links", <LinkIcon />, "/u/public-links", ["SUPER_ADMIN"])
 ]
