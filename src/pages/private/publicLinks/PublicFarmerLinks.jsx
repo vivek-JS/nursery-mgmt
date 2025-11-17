@@ -212,8 +212,8 @@ const PublicFarmerLinks = () => {
   const publicUrlBase = useMemo(() => {
     if (typeof window === "undefined") return ""
     const origin = window.location.origin
-    // For HashRouter, public routes need the hash prefix so deep links work in dev & production
-    return `${origin}/#/public/add-farmer`
+    // BrowserRouter: clean URL without hash, works from anywhere
+    return `${origin}/public/add-farmer`
   }, [])
 
   return (

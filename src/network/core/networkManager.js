@@ -51,6 +51,13 @@ export default function networkManager(router, withFile = false) {
   const AppEnvIsDev = process.env.REACT_APP_APP_ENV === "dev"
   let refreshCount = 0
 
+  // Public endpoints (must NEVER trigger auth refresh / require tokens)
+  const isCompletelyPublicEndpoint =
+    typeof router?.endpoint === "string" &&
+    (router.endpoint.startsWith("/public-links") ||
+      router.endpoint.startsWith("/location") ||
+      router.endpoint.startsWith("/state"))
+
   async function request(body = {}, params = {} || []) {
     const url = urlBuilder(router, params)
     const getHttpMethod = router.method !== HTTP_METHODS.GET
@@ -86,7 +93,8 @@ export default function networkManager(router, withFile = false) {
         return offlineManager(router.offlineJson)
       }
 
-      if (err.response?.status === 401) {
+      // ⛔ For completely public endpoints, NEVER attempt auth refresh
+      if (err.response?.status === 401 && !isCompletelyPublicEndpoint) {
         if (refreshCount < APIConfig.MAX_REFRESH_ATTEMPTS) {
           const refreshToken = localStorage.getItem(CookieKeys.REFRESH_TOKEN)
           await refreshAuthToken(refreshToken)

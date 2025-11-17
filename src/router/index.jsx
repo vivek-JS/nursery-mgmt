@@ -1,5 +1,5 @@
 import React, { Suspense } from "react"
-import { HashRouter, Route, Navigate, Routes } from "react-router-dom"
+import { BrowserRouter, Route, Navigate, Routes } from "react-router-dom"
 import { AuthContext } from "../auth/AuthContext"
 import { PrivateRoutes, PublicRoutes } from "./routes"
 import Error404 from "pages/Error404"
@@ -14,7 +14,7 @@ const Router = () => {
   return (
     <AuthContext.Provider value={isLoggedIn}>
       <Suspense fallback={<AppLoader visible={true} />}>
-        <HashRouter>
+        <BrowserRouter>
           <Routes>
             <Route path="/" element={<Navigate to="/u/dashboard" replace />} />
             {/* All the public routes */}
@@ -54,7 +54,7 @@ const Router = () => {
             {/* 404 page route */}
             <Route exact path="*" element={<Error404 />} />
           </Routes>
-        </HashRouter>
+        </BrowserRouter>
       </Suspense>
     </AuthContext.Provider>
   )
