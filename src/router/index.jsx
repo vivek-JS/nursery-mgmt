@@ -1,5 +1,5 @@
 import React, { Suspense } from "react"
-import { BrowserRouter, Route, Navigate, Routes } from "react-router-dom"
+import { HashRouter, Route, Navigate, Routes } from "react-router-dom"
 import { AuthContext } from "../auth/AuthContext"
 import { PrivateRoutes, PublicRoutes } from "./routes"
 import Error404 from "pages/Error404"
@@ -14,24 +14,32 @@ const Router = () => {
   return (
     <AuthContext.Provider value={isLoggedIn}>
       <Suspense fallback={<AppLoader visible={true} />}>
-        <BrowserRouter>
+        <HashRouter>
           <Routes>
-            <Route path="/" element={<Navigate to="/u/dashboard" replace />} />
-            {/* All the public routes */}
-            {PublicRoutes.map(({ component: Component, allowWhenLoggedIn, ...route }) => (
-              <Route key={`Route-${route.path}`}>
+            {/* All the public routes - MUST be before other routes */}
+            {/* Public routes are accessible WITHOUT authentication - always render, no auth check */}
+            {PublicRoutes.map(({ component: Component, allowWhenLoggedIn, ...route }) => {
+              // For public farmer form routes, always allow access (no redirect)
+              const isPublicFarmerRoute = route.path?.startsWith("/public/add-farmer")
+              
+              return (
                 <Route
+                  key={`Route-${route.path}`}
                   path={route.path}
                   element={
-                    isLoggedIn === true && !allowWhenLoggedIn ? (
-                      <Navigate to="/u/dashboard" replace={true} />
-                    ) : (
+                    // Public farmer routes: always accessible (mobile users, incognito, etc.)
+                    // Other public routes: redirect to dashboard if logged in AND route doesn't allow logged in users
+                    isPublicFarmerRoute || allowWhenLoggedIn || !isLoggedIn ? (
                       <Component />
+                    ) : (
+                      <Navigate to="/u/dashboard" replace={true} />
                     )
                   }
                 />
-              </Route>
-            ))}
+              )
+            })}
+            
+            <Route path="/" element={<Navigate to="/u/dashboard" replace />} />
 
             {/* All the private routes */}
             {PrivateRoutes.map(({ component: Component, ...route }) => (
@@ -54,7 +62,7 @@ const Router = () => {
             {/* 404 page route */}
             <Route exact path="*" element={<Error404 />} />
           </Routes>
-        </BrowserRouter>
+        </HashRouter>
       </Suspense>
     </AuthContext.Provider>
   )
