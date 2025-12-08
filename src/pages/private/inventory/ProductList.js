@@ -11,7 +11,8 @@ import {
   TrendingDown,
   X,
 } from 'lucide-react';
-import axiosInstance from '../../../services/axiosConfig';
+import { API, NetworkManager } from 'network/core';
+import { formatDecimal, formatCurrency } from '../../../utils/numberUtils';
 
 const ProductList = () => {
   const navigate = useNavigate();
@@ -19,7 +20,7 @@ const ProductList = () => {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterCategory, setFilterCategory] = useState('');
-  const [filterActive, setFilterActive] = useState('true');
+  const [filterActive, setFilterActive] = useState(''); // Show all products by default
   const [showFilters, setShowFilters] = useState(false);
   const [pagination, setPagination] = useState({
     page: 1,
@@ -27,15 +28,6 @@ const ProductList = () => {
     total: 0,
     pages: 0,
   });
-
-  const categories = [
-    { value: '', label: 'All Categories' },
-    { value: 'raw_material', label: 'Raw Material' },
-    { value: 'packaging', label: 'Packaging' },
-    { value: 'finished_good', label: 'Finished Good' },
-    { value: 'consumable', label: 'Consumable' },
-    { value: 'other', label: 'Other' },
-  ];
 
   useEffect(() => {
     fetchProducts();
@@ -53,11 +45,33 @@ const ProductList = () => {
       if (filterCategory) params.category = filterCategory;
       if (filterActive !== '') params.isActive = filterActive;
 
-      const response = await axiosInstance.get('/inventory/products', { params });
+      // Following FarmerOrdersTable.js pattern - use NetworkManager with params
+      const instance = NetworkManager(API.INVENTORY.GET_ALL_PRODUCTS);
+      const response = await instance.request({}, params);
       
-      if (response.data.success) {
-        setProducts(response.data.data);
-        setPagination(response.data.pagination);
+      // Backend returns: {status: "Success", data: {data: [...products], pagination: {...}}}
+      // Or: {success: true, data: [...products], pagination: {...}}
+      if (response?.data) {
+        const apiResponse = response.data;
+        
+        // Handle nested structure: {status: "Success", data: {data: [...], pagination: {...}}}
+        if (apiResponse.status === 'Success' && apiResponse.data) {
+          if (Array.isArray(apiResponse.data.data)) {
+            setProducts(apiResponse.data.data);
+            setPagination(apiResponse.data.pagination || {});
+          } else if (Array.isArray(apiResponse.data)) {
+            // Fallback: data is directly an array
+            setProducts(apiResponse.data);
+            setPagination(apiResponse.pagination || {});
+          }
+        } 
+        // Handle direct structure: {success: true, data: [...], pagination: {...}}
+        else if (apiResponse.success && apiResponse.data) {
+          if (Array.isArray(apiResponse.data)) {
+            setProducts(apiResponse.data);
+            setPagination(apiResponse.pagination || {});
+          }
+        }
       }
     } catch (error) {
       console.error('Error fetching products:', error);
@@ -125,17 +139,13 @@ const ProductList = () => {
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Category
                 </label>
-                <select
+                <input
+                  type="text"
                   value={filterCategory}
                   onChange={(e) => setFilterCategory(e.target.value)}
                   className="w-full px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500"
-                >
-                  {categories.map((cat) => (
-                    <option key={cat.value} value={cat.value}>
-                      {cat.label}
-                    </option>
-                  ))}
-                </select>
+                  placeholder="Filter by category"
+                />
               </div>
 
               <div>
@@ -157,7 +167,7 @@ const ProductList = () => {
         </div>
       </div>
 
-      {/* Products Grid */}
+      {/* Products Table */}
       {loading ? (
         <div className="flex items-center justify-center py-20">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
@@ -176,83 +186,117 @@ const ProductList = () => {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-1 gap-4">
-            {products.map((product) => {
-              const stockStatus = getStockStatus(product);
-              const StatusIcon = stockStatus.icon;
+          <div className="bg-white rounded-2xl shadow-lg overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Code
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Name
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Category
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Current Stock
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Unit
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Avg Price
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Stock Value
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Status
+                    </th>
+                    <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {products.map((product) => {
+                    const stockStatus = getStockStatus(product);
+                    const StatusIcon = stockStatus.icon;
 
-              return (
-                <div
-                  key={product._id}
-                  className="bg-white rounded-2xl shadow-lg hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1"
-                >
-                  <div className="p-6">
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center space-x-3 mb-2">
-                          <h3 className="text-xl font-bold text-gray-800">{product.name}</h3>
-                          <span className="px-3 py-1 bg-blue-100 text-blue-800 text-xs font-semibold rounded-full">
+                    return (
+                      <tr key={product._id} className="hover:bg-gray-50 transition-colors">
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs font-semibold rounded">
                             {product.code}
                           </span>
-                          <span className={`px-3 py-1 text-xs font-semibold rounded-full ${stockStatus.color} flex items-center space-x-1`}>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div>
+                            <div className="text-sm font-medium text-gray-900">{product.name}</div>
+                            {product.description && (
+                              <div className="text-sm text-gray-500 truncate max-w-xs">
+                                {product.description}
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className="px-2 py-1 bg-purple-100 text-purple-800 text-xs font-semibold rounded capitalize">
+                            {product.category?.replace(/_/g, ' ') || 'N/A'}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm font-medium text-gray-900">
+                            {product.currentStock || 0}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm text-gray-500">
+                            {product.primaryUnit?.abbreviation || 'N/A'}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm font-medium text-gray-900">
+                            {formatCurrency(formatDecimal(product.averagePrice) || 0)}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm font-medium text-gray-900">
+                            {formatCurrency(formatDecimal(product.stockValue) || 0)}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={`px-2 py-1 text-xs font-semibold rounded-full ${stockStatus.color} flex items-center space-x-1 w-fit`}>
                             <StatusIcon className="w-3 h-3" />
                             <span>{stockStatus.label}</span>
                           </span>
-                        </div>
-
-                        {product.description && (
-                          <p className="text-gray-600 text-sm mb-3">{product.description}</p>
-                        )}
-
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
-                          <div>
-                            <p className="text-xs text-gray-500 uppercase">Category</p>
-                            <p className="font-semibold text-gray-800 capitalize">
-                              {product.category.replace('_', ' ')}
-                            </p>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-center">
+                          <div className="flex items-center justify-center space-x-2">
+                            <button
+                              onClick={() => navigate(`/u/inventory/products/${product._id}`)}
+                              className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                              title="View Details"
+                            >
+                              <Eye className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => navigate(`/u/inventory/products/${product._id}/edit`)}
+                              className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+                              title="Edit Product"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
                           </div>
-                          <div>
-                            <p className="text-xs text-gray-500 uppercase">Current Stock</p>
-                            <p className="font-semibold text-gray-800">
-                              {product.currentStock} {product.primaryUnit?.abbreviation}
-                            </p>
-                          </div>
-                          <div>
-                            <p className="text-xs text-gray-500 uppercase">Avg Price</p>
-                            <p className="font-semibold text-gray-800">
-                              ₹{product.averagePrice?.toFixed(2) || '0.00'}
-                            </p>
-                          </div>
-                          <div>
-                            <p className="text-xs text-gray-500 uppercase">Stock Value</p>
-                            <p className="font-semibold text-gray-800">
-                              ₹{product.stockValue?.toLocaleString('en-IN') || '0'}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="flex space-x-2 ml-4">
-                        <button
-                          onClick={() => navigate(`/u/inventory/products/${product._id}`)}
-                          className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                          title="View Details"
-                        >
-                          <Eye className="w-5 h-5" />
-                        </button>
-                        <button
-                          onClick={() => navigate(`/u/inventory/products/${product._id}/edit`)}
-                          className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
-                          title="Edit Product"
-                        >
-                          <Edit2 className="w-5 h-5" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
 
           {/* Pagination */}
@@ -286,4 +330,3 @@ const ProductList = () => {
 };
 
 export default ProductList;
-

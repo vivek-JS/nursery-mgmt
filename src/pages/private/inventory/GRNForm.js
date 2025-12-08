@@ -65,9 +65,15 @@ const GRNForm = () => {
 
   const loadProducts = async () => {
     try {
-      const response = await axiosInstance.get('/inventory/products/all?limit=1000');
+      const response = await axiosInstance.get('/api/v1/inventory/products', {
+        params: { limit: 1000, isActive: true }
+      });
       if (response.data.success) {
-        setProducts(response.data.data.data);
+        // Handle both response structures: {data: products} or {data: {data: products}}
+        const productsData = Array.isArray(response.data.data) 
+          ? response.data.data 
+          : response.data.data?.data || [];
+        setProducts(productsData);
       }
     } catch (error) {
       console.error('Error loading products:', error);

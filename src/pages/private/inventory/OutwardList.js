@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Search, Filter, Eye, Send } from 'lucide-react';
 import axiosInstance from '../../../services/axiosConfig';
+import { formatDisplayDate } from '../../../utils/dateUtils';
 
 const OutwardList = () => {
   const navigate = useNavigate();
@@ -23,7 +24,7 @@ const OutwardList = () => {
       if (searchTerm) params.search = searchTerm;
       if (filterStatus) params.status = filterStatus;
 
-      const response = await axiosInstance.get('/inventory/outward', { params });
+      const response = await axiosInstance.get('/api/v1/inventory/outward', { params });
       if (response.data.success) {
         setOutwards(response.data.data);
         setPagination(response.data.pagination);
@@ -160,7 +161,7 @@ const OutwardList = () => {
                         <div>
                           <p className="text-xs text-gray-500 uppercase">Date</p>
                           <p className="font-semibold text-gray-800">
-                            {new Date(outward.outwardDate).toLocaleDateString()}
+                            {formatDisplayDate(outward.outwardDate)}
                           </p>
                         </div>
                         <div>

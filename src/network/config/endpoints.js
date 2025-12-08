@@ -159,6 +159,7 @@ export const API = {
   INVENTORY: {
     // Dashboard
     GET_DASHBOARD: new APIRouter("/inventory/dashboard", HTTP_METHODS.GET),
+    GET_PRODUCTS_SUMMARY: new APIRouter("/inventory/products/summary", HTTP_METHODS.GET),
 
     // Products
     GET_ALL_PRODUCTS: new APIRouter("/inventory/products", HTTP_METHODS.GET),
@@ -166,6 +167,78 @@ export const API = {
     CREATE_PRODUCT: new APIRouter("/inventory/products", HTTP_METHODS.POST),
     UPDATE_PRODUCT: new APIRouter("/inventory/products", HTTP_METHODS.PUT),
     DELETE_PRODUCT: new APIRouter("/inventory/products", HTTP_METHODS.DEL),
+    GET_LOW_STOCK_PRODUCTS: new APIRouter("/inventory/products/low-stock", HTTP_METHODS.GET),
+
+    // Categories
+    GET_ALL_CATEGORIES: new APIRouter("/inventory/categories", HTTP_METHODS.GET),
+    GET_CATEGORY_BY_ID: new APIRouter("/inventory/categories", HTTP_METHODS.GET),
+    CREATE_CATEGORY: new APIRouter("/inventory/categories", HTTP_METHODS.POST),
+    UPDATE_CATEGORY: new APIRouter("/inventory/categories", HTTP_METHODS.PUT),
+    DELETE_CATEGORY: new APIRouter("/inventory/categories", HTTP_METHODS.DEL),
+
+    // Measurement Units
+    GET_ALL_UNITS: new APIRouter("/inventory/units", HTTP_METHODS.GET),
+    GET_UNIT_BY_ID: new APIRouter("/inventory/units", HTTP_METHODS.GET),
+    CREATE_UNIT: new APIRouter("/inventory/units", HTTP_METHODS.POST),
+    UPDATE_UNIT: new APIRouter("/inventory/units", HTTP_METHODS.PUT),
+    DELETE_UNIT: new APIRouter("/inventory/units", HTTP_METHODS.DEL),
+
+    // Suppliers
+    GET_ALL_SUPPLIERS: new APIRouter("/inventory/suppliers", HTTP_METHODS.GET),
+    GET_ALL_SUPPLIERS_SIMPLE: new APIRouter("/inventory/suppliers/all", HTTP_METHODS.GET),
+    GET_SUPPLIER_BY_ID: new APIRouter("/inventory/suppliers", HTTP_METHODS.GET),
+    CREATE_SUPPLIER: new APIRouter("/inventory/suppliers", HTTP_METHODS.POST),
+    UPDATE_SUPPLIER: new APIRouter("/inventory/suppliers", HTTP_METHODS.PUT),
+    DELETE_SUPPLIER: new APIRouter("/inventory/suppliers", HTTP_METHODS.DEL),
+
+    // Merchants
+    GET_ALL_MERCHANTS: new APIRouter("/inventory/merchants", HTTP_METHODS.GET),
+    GET_ALL_MERCHANTS_SIMPLE: new APIRouter("/inventory/merchants/all", HTTP_METHODS.GET),
+    GET_MERCHANT_BY_ID: new APIRouter("/inventory/merchants", HTTP_METHODS.GET),
+    GET_MERCHANT_LEDGER: new APIRouter("/inventory/merchants/:id/ledger", HTTP_METHODS.GET),
+    CREATE_MERCHANT: new APIRouter("/inventory/merchants", HTTP_METHODS.POST),
+    UPDATE_MERCHANT: new APIRouter("/inventory/merchants", HTTP_METHODS.PUT),
+    DELETE_MERCHANT: new APIRouter("/inventory/merchants", HTTP_METHODS.DEL),
+
+    // Purchase Orders
+    GET_ALL_PURCHASE_ORDERS: new APIRouter("/inventory/purchase-orders", HTTP_METHODS.GET),
+    GET_PURCHASE_ORDER_BY_ID: new APIRouter("/inventory/purchase-orders", HTTP_METHODS.GET),
+    CREATE_PURCHASE_ORDER: new APIRouter("/inventory/purchase-orders", HTTP_METHODS.POST),
+    UPDATE_PURCHASE_ORDER: new APIRouter("/inventory/purchase-orders", HTTP_METHODS.PUT),
+    DELETE_PURCHASE_ORDER: new APIRouter("/inventory/purchase-orders", HTTP_METHODS.DEL),
+    APPROVE_PURCHASE_ORDER: new APIRouter("/inventory/purchase-orders", HTTP_METHODS.POST), // /:id/approve
+    CANCEL_PURCHASE_ORDER: new APIRouter("/inventory/purchase-orders", HTTP_METHODS.POST), // /:id/cancel
+
+    // GRN (Goods Received Note)
+    GET_ALL_GRN: new APIRouter("/inventory/grn", HTTP_METHODS.GET),
+    GET_GRN_BY_ID: new APIRouter("/inventory/grn", HTTP_METHODS.GET),
+    CREATE_GRN: new APIRouter("/inventory/grn", HTTP_METHODS.POST),
+    UPDATE_GRN: new APIRouter("/inventory/grn", HTTP_METHODS.PUT),
+    DELETE_GRN: new APIRouter("/inventory/grn", HTTP_METHODS.DEL),
+    APPROVE_GRN: new APIRouter("/inventory/grn", HTTP_METHODS.POST), // /:id/approve
+
+    // Sell Orders
+    GET_ALL_SELL_ORDERS: new APIRouter("/inventory/sell-orders", HTTP_METHODS.GET),
+    GET_SELL_ORDER_BY_ID: new APIRouter("/inventory/sell-orders", HTTP_METHODS.GET),
+    CREATE_SELL_ORDER: new APIRouter("/inventory/sell-orders", HTTP_METHODS.POST),
+    UPDATE_SELL_ORDER: new APIRouter("/inventory/sell-orders", HTTP_METHODS.PUT),
+    DELETE_SELL_ORDER: new APIRouter("/inventory/sell-orders", HTTP_METHODS.DEL),
+    APPROVE_SELL_ORDER: new APIRouter("/inventory/sell-orders", HTTP_METHODS.POST), // /:id/approve
+    ADD_SELL_ORDER_PAYMENT: new APIRouter("/inventory/sell-orders", HTTP_METHODS.POST), // /:id/payment
+    GET_SELL_ORDER_PENDING_PAYMENTS: new APIRouter("/inventory/sell-orders/pending-payments", HTTP_METHODS.GET),
+    UPDATE_SELL_ORDER_PAYMENT_STATUS: new APIRouter("/inventory/sell-orders", HTTP_METHODS.PATCH), // /:id/payment/:paymentId/status
+    GET_FARMER_LEDGER: new APIRouter("/inventory/sell-orders/farmer-ledger", HTTP_METHODS.GET),
+
+    // Inventory Outward
+    GET_ALL_OUTWARD: new APIRouter("/inventory/outward", HTTP_METHODS.GET),
+    GET_OUTWARD_BY_ID: new APIRouter("/inventory/outward", HTTP_METHODS.GET),
+    CREATE_OUTWARD: new APIRouter("/inventory/outward", HTTP_METHODS.POST),
+    UPDATE_OUTWARD: new APIRouter("/inventory/outward", HTTP_METHODS.PUT),
+    DELETE_OUTWARD: new APIRouter("/inventory/outward", HTTP_METHODS.DEL),
+
+    // Inventory Transactions
+    GET_ALL_TRANSACTIONS: new APIRouter("/inventory/transactions", HTTP_METHODS.GET),
+    GET_TRANSACTION_BY_ID: new APIRouter("/inventory/transactions", HTTP_METHODS.GET),
 
     // Batches
     GET_ALL_BATCHES: new APIRouter("/inventory/batches", HTTP_METHODS.GET),
@@ -180,13 +253,6 @@ export const API = {
     CREATE_INWARD: new APIRouter("/inventory/inwards", HTTP_METHODS.POST),
     UPDATE_INWARD: new APIRouter("/inventory/inwards", HTTP_METHODS.PUT),
     DELETE_INWARD: new APIRouter("/inventory/inwards", HTTP_METHODS.DEL),
-
-    // Outwards
-    GET_ALL_OUTWARDS: new APIRouter("/inventory/outwards", HTTP_METHODS.GET),
-    GET_OUTWARD_BY_ID: new APIRouter("/inventory/outwards", HTTP_METHODS.GET),
-    CREATE_OUTWARD: new APIRouter("/inventory/outwards", HTTP_METHODS.POST),
-    UPDATE_OUTWARD: new APIRouter("/inventory/outwards", HTTP_METHODS.PUT),
-    DELETE_OUTWARD: new APIRouter("/inventory/outwards", HTTP_METHODS.DEL),
 
     // Stock Adjustments
     GET_ALL_ADJUSTMENTS: new APIRouter("/inventory/adjustments", HTTP_METHODS.GET),
@@ -258,6 +324,12 @@ export const API = {
     GET_PLANTS: new APIRouter("/plantcms/plants", HTTP_METHODS.GET, OFFLINE.PROFILE),
     UPDATE_PLANT: new APIRouter("/plantcms/plants", HTTP_METHODS.PUT, OFFLINE.PROFILE),
     DELETE_PLANT: new APIRouter("/plantcms/plants", HTTP_METHODS.DEL, OFFLINE.PROFILE)
+  },
+  excel: {
+    VALIDATE_EXCEL: new APIRouter("/excel/validate-excel", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    IMPORT_EXCEL: new APIRouter("/excel/import-excel", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    GET_UNPROCESSED_FILES: new APIRouter("/excel/unprocessed-files", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    DOWNLOAD_UNPROCESSED_EXCEL: new APIRouter("/excel/download-unprocessed", HTTP_METHODS.GET, OFFLINE.PROFILE)
   },
 
   slots: {
@@ -414,17 +486,21 @@ export const API = {
     UPDATE_OFFICE_SOWED: new APIRouter("/sowing/:id/office-sowed", HTTP_METHODS.POST, OFFLINE.PROFILE),
     UPDATE_PRIMARY_SOWED: new APIRouter("/sowing/:id/primary-sowed", HTTP_METHODS.POST, OFFLINE.PROFILE),
     UPDATE_HARVEST: new APIRouter("/sowing/:id/harvest", HTTP_METHODS.POST, OFFLINE.PROFILE),
-    GET_REMINDERS: new APIRouter("/sowing/reminders", HTTP_METHODS.GET, OFFLINE.PROFILE),
-    GET_ALERTS: new APIRouter("/sowing/alerts", HTTP_METHODS.GET, OFFLINE.PROFILE),
-    GET_SOWING_ALERTS_BY_START: new APIRouter("/sowing/sowing-alerts", HTTP_METHODS.GET, OFFLINE.PROFILE),
-    GET_TODAY_SOWING_SUMMARY: new APIRouter(
-      "/sowing/sowing-alerts/today",
-      HTTP_METHODS.GET,
-      OFFLINE.PROFILE
-    ),
+    // NEW APIs with plant selection (mandatory)
+    GET_PLANT_REMINDERS: new APIRouter("/sowing/plant-reminders", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_PLANT_ALERTS: new APIRouter("/sowing/plant-alerts", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_PLANT_AVAILABILITY: new APIRouter("/sowing/plant-availability", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_ALL_PLANTS_AVAILABILITY: new APIRouter("/sowing/all-plants-availability", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    SEND_SOWING_REMINDERS_WHATSAPP: new APIRouter("/sowing/whatsapp/reminders", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    // OLD APIs - DEPRECATED (will be removed)
+    // GET_REMINDERS: new APIRouter("/sowing/reminders", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    // GET_ALERTS: new APIRouter("/sowing/alerts", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    // GET_SOWING_ALERTS_BY_START: new APIRouter("/sowing/sowing-alerts", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    // GET_TODAY_SOWING_SUMMARY: new APIRouter("/sowing/sowing-alerts/today", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_STATS: new APIRouter("/sowing/stats", HTTP_METHODS.GET, OFFLINE.PROFILE),
     UPDATE_SOWING: new APIRouter("/sowing/:id", HTTP_METHODS.PUT, OFFLINE.PROFILE),
-    DELETE_SOWING: new APIRouter("/sowing/:id", HTTP_METHODS.DEL, OFFLINE.PROFILE)
+    DELETE_SOWING: new APIRouter("/sowing/:id", HTTP_METHODS.DEL, OFFLINE.PROFILE),
+    DELETE_ALL_SOWINGS: new APIRouter("/sowing", HTTP_METHODS.DEL, OFFLINE.PROFILE)
   },
   WHATSAPP: {
     GET_MESSAGE_TEMPLATES: new APIRouter("/{tenantId}/api/v1/getMessageTemplates", HTTP_METHODS.GET),

@@ -171,11 +171,11 @@ export default function PrivateLayout(props) {
                 
                 // Apply role-based access control
                 return hasMenuAccess(item)
-              }).map((item) => {
+              }).map((item, index) => {
                 return (
                   <ListItemButton
                     sx={activeMenu(item) ? styles.activeListItem : styles.listItem}
-                    key={item.alias}
+                    key={`${item.alias}-${item.route}-${index}`}
                     onClick={() => navigate(item.route)}>
                     <ListItemIcon sx={activeMenu(item) ? styles.iconActive : styles.icon}>
                       {item.icon}

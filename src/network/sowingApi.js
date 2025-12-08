@@ -41,5 +41,13 @@ export const sowingApi = {
     path: `${API.BASE}/sowing/:id`,
     method: "DELETE",
   },
+  DELETE_ALL_SOWINGS: {
+    path: `${API.BASE}/sowing`,
+    method: "DELETE",
+  },
+  GET_ALL_PLANTS_AVAILABILITY: {
+    path: `${API.BASE}/sowing/all-plants-availability`,
+    method: "GET",
+  },
 };
 

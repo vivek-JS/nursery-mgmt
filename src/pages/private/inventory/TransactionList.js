@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, Filter, TrendingUp, TrendingDown, BarChart3 } from 'lucide-react';
 import axiosInstance from '../../../services/axiosConfig';
+import { formatDisplayDate } from '../../../utils/dateUtils';
 
 const TransactionList = () => {
   const navigate = useNavigate();
@@ -21,7 +22,7 @@ const TransactionList = () => {
       const params = { page: pagination.page, limit: pagination.limit };
       if (filterType) params.transactionType = filterType;
 
-      const response = await axiosInstance.get('/inventory/transactions', { params });
+      const response = await axiosInstance.get('/api/v1/inventory/transactions', { params });
       if (response.data.success) {
         setTransactions(response.data.data);
         setPagination(response.data.pagination);
@@ -154,7 +155,7 @@ const TransactionList = () => {
                           <div>
                             <p className="text-xs text-gray-500">Date</p>
                             <p className="font-semibold text-gray-800">
-                              {new Date(txn.transactionDate).toLocaleDateString()}
+                              {formatDisplayDate(txn.transactionDate)}
                             </p>
                           </div>
                         </div>
@@ -170,7 +171,7 @@ const TransactionList = () => {
                         {txn.performedBy && (
                           <div className="mt-2">
                             <p className="text-xs text-gray-500">
-                              By: {txn.performedBy.name} at {new Date(txn.transactionDate).toLocaleTimeString()}
+                              By: {txn.performedBy.name} on {formatDisplayDate(txn.transactionDate)}
                             </p>
                           </div>
                         )}

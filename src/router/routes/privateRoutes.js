@@ -22,7 +22,14 @@ const OutwardForm = React.lazy(() => import("pages/private/inventory/OutwardForm
 const OutwardDetails = React.lazy(() => import("pages/private/inventory/OutwardDetails"))
 const SupplierList = React.lazy(() => import("pages/private/inventory/SupplierList"))
 const SupplierForm = React.lazy(() => import("pages/private/inventory/SupplierForm"))
+const MerchantList = React.lazy(() => import("pages/private/inventory/MerchantList"))
+const MerchantForm = React.lazy(() => import("pages/private/inventory/MerchantForm"))
+const MerchantDashboard = React.lazy(() => import("pages/private/inventory/MerchantDashboard"))
+const SellOrderList = React.lazy(() => import("pages/private/inventory/SellOrderList"))
+const SellOrderForm = React.lazy(() => import("pages/private/inventory/SellOrderForm"))
+const SellOrderDetails = React.lazy(() => import("pages/private/inventory/SellOrderDetails"))
 const TransactionList = React.lazy(() => import("pages/private/inventory/TransactionList"))
+const InventoryLedger = React.lazy(() => import("pages/private/inventory/InventoryLedger"))
 
 const Transactions = React.lazy(() => import("pages/private/transaction"))
 const Patients = React.lazy(() => import("pages/private/employee"))
@@ -43,6 +50,7 @@ const CapacityInsights = React.lazy(() => import("pages/private/capacityinsights
 const Payments = React.lazy(() => import("pages/private/payments"))
 const WhatsAppManagement = React.lazy(() => import("pages/private/whatsapp/WhatsAppManagement"))
 const SowingManagement = React.lazy(() => import("pages/private/Sowing/SowingManagement"))
+const PlantAvailability = React.lazy(() => import("pages/private/Sowing/PlantAvailability"))
 const PublicFarmerLinks = React.lazy(() => import("pages/private/publicLinks/PublicFarmerLinks"))
 
 export const PrivateRoutes = [
@@ -71,7 +79,15 @@ export const PrivateRoutes = [
   { path: "/u/inventory/suppliers", exact: true, component: SupplierList },
   { path: "/u/inventory/suppliers/new", exact: true, component: SupplierForm },
   { path: "/u/inventory/suppliers/:id/edit", exact: true, component: SupplierForm },
+  { path: "/u/inventory/merchants", exact: true, component: MerchantList },
+  { path: "/u/inventory/merchants/new", exact: true, component: MerchantForm },
+  { path: "/u/inventory/merchants/:id/edit", exact: true, component: MerchantForm },
+  { path: "/u/inventory/merchants/:id/ledger", exact: true, component: MerchantDashboard },
+  { path: "/u/inventory/sell-orders", exact: true, component: SellOrderList },
+  { path: "/u/inventory/sell-orders/new", exact: true, component: SellOrderForm },
+  { path: "/u/inventory/sell-orders/:id", exact: true, component: SellOrderDetails },
   { path: "/u/inventory/transactions", exact: true, component: TransactionList },
+  { path: "/u/inventory/ledger", exact: true, component: InventoryLedger },
 
   {
     path: "/u/settings",
@@ -96,5 +112,6 @@ export const PrivateRoutes = [
   { path: "/u/payments", exact: true, component: Payments },
   { path: "/u/whatsapp", exact: true, component: WhatsAppManagement },
   { path: "/u/sowing", exact: true, component: SowingManagement },
+  { path: "/u/plant-availability", exact: true, component: PlantAvailability },
   { path: "/u/public-links", exact: true, component: PublicFarmerLinks }
 ]

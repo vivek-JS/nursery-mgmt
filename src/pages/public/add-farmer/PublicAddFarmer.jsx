@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react"
 import { useParams } from "react-router-dom"
 import { API, NetworkManager } from "network/core"
 import { Toast } from "helpers/toasts/toastHelper"
+import SearchableDropdown from "components/FormField/SearchableDropdown"
 
 const PublicAddFarmer = () => {
   const { slug } = useParams()
@@ -99,6 +100,27 @@ const PublicAddFarmer = () => {
         ).values()
       )
     : []
+
+  // Transform data for SearchableDropdown components
+  const stateOptions = uniqueStates.map((s) => ({
+    value: s.code,
+    label: s.name
+  }))
+
+  const districtOptions = availableDistricts.map((d) => ({
+    value: d.districtCode,
+    label: d.districtName
+  }))
+
+  const talukaOptions = availableTalukas.map((t) => ({
+    value: t.talukaCode,
+    label: t.talukaName
+  }))
+
+  const villageOptions = availableVillages.map((v) => ({
+    value: v.villageName,
+    label: v.villageName
+  }))
 
   const handleStateSelect = (code) => {
     const state = uniqueStates.find((s) => s.code === code)
@@ -289,76 +311,40 @@ const PublicAddFarmer = () => {
             />
           </div>
 
-          <div className="space-y-1">
-            <label className="block text-xs font-medium text-gray-700">
-              राज्य (State)
-            </label>
-            <select
-              value={form.stateCode}
-              onChange={(e) => handleStateSelect(e.target.value)}
-              className="w-full px-3 py-2 rounded-md border border-gray-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
-              <option value="">राज्य निवडा</option>
-              {uniqueStates.map((s) => (
-                <option key={s.code} value={s.code}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
-          </div>
+          <SearchableDropdown
+            label="राज्य (State)"
+            value={form.stateCode}
+            onChange={(value) => handleStateSelect(value)}
+            options={stateOptions}
+            placeholder="राज्य निवडा"
+          />
 
-          <div className="space-y-1">
-            <label className="block text-xs font-medium text-gray-700">
-              जिल्हा (District)
-            </label>
-            <select
-              value={form.districtCode}
-              onChange={(e) => handleDistrictSelect(e.target.value)}
-              disabled={!form.stateCode}
-              className="w-full px-3 py-2 rounded-md border border-gray-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100">
-              <option value="">जिल्हा निवडा</option>
-              {availableDistricts.map((d) => (
-                <option key={d.districtCode} value={d.districtCode}>
-                  {d.districtName}
-                </option>
-              ))}
-            </select>
-          </div>
+          <SearchableDropdown
+            label="जिल्हा (District)"
+            value={form.districtCode}
+            onChange={(value) => handleDistrictSelect(value)}
+            options={districtOptions}
+            placeholder="जिल्हा निवडा"
+            disabled={!form.stateCode}
+          />
 
-          <div className="space-y-1">
-            <label className="block text-xs font-medium text-gray-700">
-              तालुका (Taluka)
-            </label>
-            <select
-              value={form.talukaCode}
-              onChange={(e) => handleTalukaSelect(e.target.value)}
-              disabled={!form.districtCode}
-              className="w-full px-3 py-2 rounded-md border border-gray-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100">
-              <option value="">तालुका निवडा</option>
-              {availableTalukas.map((t) => (
-                <option key={t.talukaCode} value={t.talukaCode}>
-                  {t.talukaName}
-                </option>
-              ))}
-            </select>
-          </div>
+          <SearchableDropdown
+            label="तालुका (Taluka)"
+            value={form.talukaCode}
+            onChange={(value) => handleTalukaSelect(value)}
+            options={talukaOptions}
+            placeholder="तालुका निवडा"
+            disabled={!form.districtCode}
+          />
 
-          <div className="space-y-1">
-            <label className="block text-xs font-medium text-gray-700">
-              गाव (Village)
-            </label>
-            <select
-              value={form.villageName}
-              onChange={(e) => handleChange("villageName", e.target.value)}
-              disabled={!form.talukaCode}
-              className="w-full px-3 py-2 rounded-md border border-gray-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100">
-              <option value="">गाव निवडा</option>
-              {availableVillages.map((v) => (
-                <option key={v.villageName} value={v.villageName}>
-                  {v.villageName}
-                </option>
-              ))}
-            </select>
-          </div>
+          <SearchableDropdown
+            label="गाव (Village)"
+            value={form.villageName}
+            onChange={(value) => handleChange("villageName", value)}
+            options={villageOptions}
+            placeholder="गाव निवडा"
+            disabled={!form.talukaCode}
+          />
 
           <button
             type="submit"

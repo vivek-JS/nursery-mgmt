@@ -49,6 +49,7 @@ import {
   LocalFlorist,
   GridView,
   Save as SaveIcon,
+  DeleteForever,
 } from "@mui/icons-material";
 import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
@@ -58,6 +59,9 @@ import { Toast } from "helpers/toasts/toastHelper";
 import { NetworkManager, API } from "network/core";
 import { useSelector } from "react-redux";
 import SowingAlerts from "./components/SowingAlerts";
+import AddSowingModal from "./components/AddSowingModal";
+import SowingDateWiseLog from "./components/SowingDateWiseLog";
+import ClearAllSowingDialog from "./components/ClearAllSowingDialog";
 
 const createTransferDialogState = () => ({
   open: false,
@@ -79,14 +83,7 @@ const SowingManagement = () => {
   const [sowings, setSowings] = useState([]);
   const [loading, setLoading] = useState(false);
   const [stats, setStats] = useState(null);
-  const [reminders, setReminders] = useState([]);
-  const [alerts, setAlerts] = useState({
-    summary: null,
-    dayAlerts: [],
-    slotAlerts: [],
-    plantAlerts: [],
-  });
-  const [todaySummary, setTodaySummary] = useState(null);
+  // Removed reminders, alerts, and todaySummary states - now handled by SowingAlerts component
   const [plants, setPlants] = useState([]);
   const [selectedPlant, setSelectedPlant] = useState(null);
   const [selectedSubtype, setSelectedSubtype] = useState(null);
@@ -98,7 +95,15 @@ const SowingManagement = () => {
   // Modal states
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
+  const [isDateWiseLogOpen, setIsDateWiseLogOpen] = useState(false);
+  const [isClearAllDialogOpen, setIsClearAllDialogOpen] = useState(false);
   const [selectedSowing, setSelectedSowing] = useState(null);
+  const [dateWiseLogFilters, setDateWiseLogFilters] = useState({
+    plantId: null,
+    subtypeId: null,
+    slotId: null,
+    date: null,
+  });
 
   // Slot-wise sowing states
   const [slotSowingData, setSlotSowingData] = useState({});
@@ -152,79 +157,104 @@ const SowingManagement = () => {
     fetchPlants();
     fetchSowings();
     fetchStats();
-    fetchReminders();
-    fetchAlerts();
+    // Removed old fetchReminders() and fetchAlerts() - now handled by SowingAlerts component
   }, []);
 
   useEffect(() => {
     if (plants.length > 0 && activeTab < plants.length) {
       const currentPlant = plants[activeTab];
-      fetchPlantSlots(currentPlant._id);
       // Reset subtype tab when switching plants
       setActiveSubtypeTab(0);
+      // Don't auto-fetch slots - wait for subtype selection or month expand
+      // fetchPlantSlots will be called when subtype is selected or month is expanded
     }
   }, [activeTab, plants]);
 
   // Auto-expand months with urgent/overdue slots
+  // Fetch slots when subtype is selected or month is expanded (optimized)
+  useEffect(() => {
+    if (plants.length > 0 && activeTab < plants.length && activeSubtypeTab < plants[activeTab]?.subtypes?.length) {
+      const currentPlant = plants[activeTab];
+      const currentSubtype = currentPlant.subtypes[activeSubtypeTab];
+      
+      // Check if we need to fetch slots for this subtype
+      const subtypeKey = `${currentPlant._id}-${currentSubtype._id}`;
+      const hasSlots = plantSlots[currentPlant._id]?.some(s => s.subtypeId === currentSubtype._id);
+      
+      // Fetch slots if subtype is selected and not already loaded
+      if (currentSubtype && !hasSlots) {
+        fetchPlantSlots(currentPlant._id, currentSubtype._id);
+      }
+    }
+  }, [activeTab, activeSubtypeTab, plants]);
+
+  // Auto-expand months with urgent/overdue slots (only if slots are loaded)
   useEffect(() => {
     if (plants.length > 0 && activeTab < plants.length && plantSlots[plants[activeTab]._id]) {
       const autoExpand = {};
       const currentPlant = plants[activeTab];
+      const currentSubtype = currentPlant.subtypes?.[activeSubtypeTab];
       
-      currentPlant.subtypes?.forEach((subtype) => {
+      if (currentSubtype) {
         const subtypeData = plantSlots[currentPlant._id]?.find(
-          (s) => s.subtypeId === subtype._id
+          (s) => s.subtypeId === currentSubtype._id
         );
         const slots = Array.isArray(subtypeData?.slots) ? subtypeData.slots : [];
-        const defaultReadyDays = subtype.plantReadyDays || 0;
-        const reminderDays = 5;
+        
+        if (slots.length > 0) {
+          const defaultReadyDays = currentSubtype.plantReadyDays || 0;
+          const reminderDays = 5;
 
-        // Group slots by month to check for urgent/overdue
-        const slotsByMonth = slots.reduce((acc, slot) => {
-          const month = slot.month || "Unknown";
-          if (!acc[month]) acc[month] = [];
-          
-          const deliveryDate = moment(slot?.endDay, "DD-MM-YYYY");
-          const slotReadyDays = Number(slot?.plantReadyDays ?? defaultReadyDays) || 0;
-          const hasReadyDays = slotReadyDays > 0;
-          const sowByDate = hasReadyDays ? deliveryDate.clone().subtract(slotReadyDays, "days") : null;
-          const alertDate = hasReadyDays ? sowByDate.clone().subtract(reminderDays, "days") : null;
-          const today = moment().startOf('day');
-          const daysUntilSow = hasReadyDays ? sowByDate.diff(today, "days") : null;
-          const daysUntilAlert = hasReadyDays ? alertDate.diff(today, "days") : null;
-          // Gap is now calculated in BE as bookedPlants - primarySowed
-          const gap = slot?.gap ?? ((slot?.totalBookedPlants || 0) - (slot?.primarySowed || 0));
-          
-          let priority = "upcoming";
-          if (!hasReadyDays && gap > 0) {
-            priority = "missingReadyDays";
-          } else if (gap > 0 && daysUntilSow !== null && daysUntilSow < 0) {
-            priority = "overdue";
-          } else if (gap > 0 && daysUntilAlert !== null && daysUntilAlert <= 0) {
-            priority = "urgent";
-          }
-          
-          acc[month].push({ priority });
-          return acc;
-        }, {});
+          // Group slots by month to check for urgent/overdue
+          const slotsByMonth = slots.reduce((acc, slot) => {
+            const month = slot.month || "Unknown";
+            if (!acc[month]) acc[month] = [];
+            
+            const deliveryDate = moment(slot?.endDay, "DD-MM-YYYY");
+            const slotReadyDaysValue = slot?.plantReadyDays;
+            const isSlotReadyDaysSet = slotReadyDaysValue !== null && slotReadyDaysValue !== undefined && slotReadyDaysValue > 0;
+            const slotReadyDays = isSlotReadyDaysSet 
+              ? Number(slotReadyDaysValue) 
+              : defaultReadyDays;
+            const hasReadyDays = slotReadyDays > 0;
+            const sowByDate = hasReadyDays ? deliveryDate.clone().subtract(slotReadyDays, "days") : null;
+            const alertDate = hasReadyDays ? sowByDate.clone().subtract(reminderDays, "days") : null;
+            const today = moment().startOf('day');
+            const daysUntilSow = hasReadyDays ? sowByDate.diff(today, "days") : null;
+            const daysUntilAlert = hasReadyDays ? alertDate.diff(today, "days") : null;
+            const gap = slot?.gap ?? ((slot?.totalBookedPlants || 0) - (slot?.primarySowed || 0));
+            
+            let priority = "upcoming";
+            if (!hasReadyDays && gap > 0) {
+              priority = "missingReadyDays";
+            } else if (gap > 0 && daysUntilSow !== null && daysUntilSow < 0) {
+              priority = "overdue";
+            } else if (gap > 0 && daysUntilAlert !== null && daysUntilAlert <= 0) {
+              priority = "urgent";
+            }
+            
+            acc[month].push({ priority });
+            return acc;
+          }, {});
 
-        // Auto-expand months with urgent/overdue slots
-        Object.keys(slotsByMonth).forEach(month => {
-          const monthKey = `${subtype._id}-${month}`;
-          const hasUrgent = slotsByMonth[month].some(
-            s => s.priority === "overdue" || s.priority === "urgent" || s.priority === "missingReadyDays"
-          );
-          if (hasUrgent && expandedMonths[monthKey] === undefined) {
-            autoExpand[monthKey] = true;
-          }
-        });
-      });
+          // Auto-expand months with urgent/overdue slots
+          Object.keys(slotsByMonth).forEach(month => {
+            const monthKey = `${currentSubtype._id}-${month}`;
+            const hasUrgent = slotsByMonth[month].some(
+              s => s.priority === "overdue" || s.priority === "urgent" || s.priority === "missingReadyDays"
+            );
+            if (hasUrgent && expandedMonths[monthKey] === undefined) {
+              autoExpand[monthKey] = true;
+            }
+          });
+        }
+      }
 
       if (Object.keys(autoExpand).length > 0) {
         setExpandedMonths(prev => ({ ...prev, ...autoExpand }));
       }
     }
-  }, [plants, activeTab, plantSlots]);
+  }, [plants, activeTab, activeSubtypeTab, plantSlots, expandedMonths]);
 
   const fetchPlants = async () => {
     try {
@@ -240,17 +270,24 @@ const SowingManagement = () => {
     }
   };
 
-  const fetchPlantSlots = async (plantId) => {
+  const fetchPlantSlots = async (plantId, subtypeId = null) => {
     try {
       const year = new Date().getFullYear();
       const plant = plants.find(p => p._id === plantId);
       
       if (!plant) return;
       
-      // Fetch slots for each subtype
+      // Optimized: Fetch only for selected subtype if provided, otherwise fetch all
+      const subtypesToFetch = subtypeId 
+        ? plant.subtypes.filter(s => s._id === subtypeId)
+        : plant.subtypes;
+      
+      if (subtypesToFetch.length === 0) return;
+      
+      // Fetch slots for subtypes (optimized - fetch only what's needed)
       const allSlots = [];
       
-      for (const subtype of plant.subtypes) {
+      for (const subtype of subtypesToFetch) {
         // Use faster simple endpoint for sowing page
         const instance = NetworkManager(API.slots.GET_SIMPLE_SLOTS);
         const response = await instance.request({}, { plantId, subtypeId: subtype._id, year });
@@ -267,10 +304,21 @@ const SowingManagement = () => {
         }
       }
       
-      setPlantSlots((prev) => ({
-        ...prev,
-        [plantId]: allSlots,
-      }));
+      // Merge with existing slots or replace if fetching all
+      setPlantSlots((prev) => {
+        const existingSlots = prev[plantId] || [];
+        const mergedSlots = subtypeId 
+          ? [
+              ...existingSlots.filter(s => s.subtypeId !== subtypeId),
+              ...allSlots
+            ]
+          : allSlots;
+        
+        return {
+          ...prev,
+          [plantId]: mergedSlots,
+        };
+      });
     } catch (error) {
       console.error("Error fetching slots:", error);
       Toast.error("Failed to fetch slots data");
@@ -309,9 +357,22 @@ const SowingManagement = () => {
       return;
     }
 
+    // Filter to only FUTURE slots (endDay >= today) - past slots should not be affected
+    const today = moment().startOf('day');
+    const futureSlots = monthSlots.filter((item) => {
+      if (!item.slot?.endDay) return false;
+      const slotEndDate = moment(item.slot.endDay, "DD-MM-YYYY");
+      return slotEndDate.isSameOrAfter(today, 'day');
+    });
+
+    if (futureSlots.length === 0) {
+      Toast.warning("No future slots found in this month. Past slots are not updated to preserve historical data.");
+      return;
+    }
+
     const uniqueSlotIds = Array.from(
       new Set(
-        monthSlots
+        futureSlots
           .map((item) => item.slot?._id)
           .filter(Boolean)
       )
@@ -321,6 +382,11 @@ const SowingManagement = () => {
       Toast.error("No slots available in this month to update");
       return;
     }
+
+    const pastSlotsCount = monthSlots.length - futureSlots.length;
+    const warningMessage = pastSlotsCount > 0 
+      ? ` Note: ${pastSlotsCount} past slot${pastSlotsCount > 1 ? 's' : ''} not updated to preserve historical data.`
+      : '';
 
     setSavingMonthReadyDays((prev) => {
       const next = new Set(prev);
@@ -334,7 +400,7 @@ const SowingManagement = () => {
       }
 
       Toast.success(
-        `Plant ready days updated to ${parsedValue} for ${uniqueSlotIds.length} slot${uniqueSlotIds.length > 1 ? "s" : ""}`
+        `Plant ready days updated to ${parsedValue} for ${uniqueSlotIds.length} future slot${uniqueSlotIds.length > 1 ? "s" : ""}.${warningMessage}`
       );
       setMonthReadyDaysInputs((prev) => ({ ...prev, [monthKey]: "" }));
 
@@ -520,7 +586,7 @@ const SowingManagement = () => {
         if (plants[activeTab]) {
           fetchPlantSlots(plants[activeTab]._id);
         }
-        fetchAlerts();
+        // Removed old fetchAlerts() - now handled by SowingAlerts component
       } else {
         setTransferDialog((prev) => ({
           ...prev,
@@ -643,7 +709,7 @@ const SowingManagement = () => {
         fetchSowings();
         fetchStats();
         fetchPlantSlots(plants[activeTab]._id);
-        fetchAlerts();
+        // Removed old fetchAlerts() - now handled by SowingAlerts component
       }
     } catch (error) {
       console.error("Error creating slot sowing:", error);
@@ -694,52 +760,7 @@ const SowingManagement = () => {
     }
   };
 
-  const fetchReminders = async () => {
-    try {
-      const instance = NetworkManager(API.sowing.GET_REMINDERS);
-      const response = await instance.request();
-      if (response?.data?.data) {
-        setReminders(response.data.data);
-        console.log("Reminders loaded:", {
-          total: response.data.count,
-          slotWise: response.data.slotWiseCount,
-          orderWise: response.data.orderWiseCount
-        });
-      }
-    } catch (error) {
-      console.error("Error fetching reminders:", error);
-    }
-  };
-
-  const fetchAlerts = async () => {
-    try {
-      const alertsInstance = NetworkManager(API.sowing.GET_SOWING_ALERTS_BY_START);
-      const todayInstance = NetworkManager(API.sowing.GET_TODAY_SOWING_SUMMARY);
-
-      const [alertsResponse, todayResponse] = await Promise.all([
-        alertsInstance.request(),
-        todayInstance.request(),
-      ]);
-
-      if (alertsResponse?.data?.data) {
-        const { summary = null, dayAlerts = [], slotAlerts = [], plantAlerts = [] } =
-          alertsResponse.data.data;
-        setAlerts({ summary, dayAlerts, slotAlerts, plantAlerts });
-      } else {
-        setAlerts({ summary: null, dayAlerts: [], slotAlerts: [], plantAlerts: [] });
-      }
-
-      if (todayResponse?.data?.data) {
-        setTodaySummary(todayResponse.data.data);
-      } else {
-        setTodaySummary(null);
-      }
-    } catch (error) {
-      console.error("Error fetching sowing alerts:", error);
-      Toast.error("Failed to fetch sowing alerts");
-      setTodaySummary(null);
-    }
-  };
+  // Removed fetchReminders and fetchAlerts functions - now handled by SowingAlerts component
 
   const handleCreateSowing = async () => {
     if (!selectedPlant || !selectedSubtype) {
@@ -771,7 +792,7 @@ const SowingManagement = () => {
         resetForm();
         fetchSowings();
         fetchStats();
-        fetchAlerts();
+        // Removed old fetchAlerts() - now handled by SowingAlerts component
       }
     } catch (error) {
       console.error("Error creating sowing:", error);
@@ -807,7 +828,7 @@ const SowingManagement = () => {
         setUpdateData({ quantity: "", location: "OFFICE", notes: "", batchNumber: "" });
         fetchSowings();
         fetchStats();
-        fetchAlerts();
+        // Removed old fetchAlerts() - now handled by SowingAlerts component
       }
     } catch (error) {
       console.error("Error updating sowing:", error);
@@ -918,9 +939,9 @@ const SowingManagement = () => {
               onClick={() => {
                 fetchSowings();
                 fetchStats();
-                fetchReminders();
+                // Removed fetchReminders() - now handled by SowingAlerts component
                 fetchPlants();
-                fetchAlerts();
+                // Removed old fetchAlerts() - now handled by SowingAlerts component
               }}
               sx={{ mr: 2 }}>
               Refresh
@@ -932,176 +953,48 @@ const SowingManagement = () => {
               sx={{
                 bgcolor: "#2e7d32",
                 "&:hover": { bgcolor: "#1b5e20" },
+                mr: 1,
               }}>
               Add Sowing
+            </Button>
+            <Button
+              variant="outlined"
+              startIcon={<EventNote />}
+              onClick={() => {
+                setDateWiseLogFilters({
+                  plantId: plants[activeTab]?._id || null,
+                  subtypeId: plants[activeTab]?.subtypes[activeSubtypeTab]?._id || null,
+                  slotId: null,
+                  date: null,
+                });
+                setIsDateWiseLogOpen(true);
+              }}
+              sx={{
+                borderColor: "#1976d2",
+                color: "#1976d2",
+                "&:hover": { borderColor: "#1565c0", bgcolor: "#e3f2fd" },
+                mr: 1,
+              }}>
+              Date Log
+            </Button>
+            <Button
+              variant="outlined"
+              color="error"
+              startIcon={<DeleteForever />}
+              onClick={() => setIsClearAllDialogOpen(true)}
+              sx={{
+                borderColor: "#d32f2f",
+                color: "#d32f2f",
+                "&:hover": { borderColor: "#b71c1c", bgcolor: "#ffebee" },
+              }}>
+              Clear All
             </Button>
           </Box>
         </Box>
 
-        <SowingAlerts
-          alerts={alerts}
-          todaySummary={todaySummary}
-          onNavigateToSlot={navigateToSlot}
-        />
+        <SowingAlerts onNavigateToSlot={navigateToSlot} />
 
-        {/* Hybrid Statistics Summary */}
-        <Card elevation={2} sx={{ mb: 3, p: 2 }}>
-          <Typography variant="h6" sx={{ mb: 2, fontWeight: 600, color: '#1976d2' }}>
-            🔄 Hybrid Sowing System Overview
-          </Typography>
-          <Grid container spacing={2}>
-            <Grid item xs={12} md={3}>
-              <Paper sx={{ p: 2, textAlign: "center", bgcolor: "#e3f2fd" }}>
-                <Typography variant="caption" color="textSecondary">
-                  Total Reminders
-                </Typography>
-                <Typography variant="h5" sx={{ fontWeight: 700, color: "#1976d2" }}>
-                  {reminders.length}
-                </Typography>
-              </Paper>
-            </Grid>
-            <Grid item xs={12} md={3}>
-              <Paper sx={{ p: 2, textAlign: "center", bgcolor: "#e8f5e9" }}>
-                <Typography variant="caption" color="textSecondary">
-                  Slot-wise
-                </Typography>
-                <Typography variant="h5" sx={{ fontWeight: 700, color: "#2e7d32" }}>
-                  {reminders.filter(r => r.reminderType === 'SLOT').length}
-                </Typography>
-              </Paper>
-            </Grid>
-            <Grid item xs={12} md={3}>
-              <Paper sx={{ p: 2, textAlign: "center", bgcolor: "#fff3e0" }}>
-                <Typography variant="caption" color="textSecondary">
-                  Order-wise
-                </Typography>
-                <Typography variant="h5" sx={{ fontWeight: 700, color: "#f57c00" }}>
-                  {reminders.filter(r => r.reminderType === 'ORDER').length}
-                </Typography>
-              </Paper>
-            </Grid>
-            <Grid item xs={12} md={3}>
-              <Paper sx={{ p: 2, textAlign: "center", bgcolor: "#fce4ec" }}>
-                <Typography variant="caption" color="textSecondary">
-                  Urgent/Overdue
-                </Typography>
-                <Typography variant="h5" sx={{ fontWeight: 700, color: "#c2185b" }}>
-                  {reminders.filter(r => r.priority === 'urgent' || r.priority === 'overdue').length}
-                </Typography>
-              </Paper>
-            </Grid>
-          </Grid>
-        </Card>
-
-        {/* Reminders Alert */}
-        {reminders.length > 0 && (
-          <Alert
-            severity="warning"
-            icon={<WarningIcon />}
-            sx={{ mb: 3, borderLeft: "4px solid #ff9800" }}>
-            <Typography variant="h6" sx={{ fontWeight: 600, mb: 1 }}>
-              ⚠️ Sowing Pending - {reminders.length} Reminder(s)
-            </Typography>
-            
-            {/* Slot-wise Reminders */}
-            {reminders.filter(r => r.reminderType === 'SLOT').length > 0 && (
-              <Box sx={{ mb: 2 }}>
-                <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1, color: '#1976d2' }}>
-                  📅 Slot-wise Reminders ({reminders.filter(r => r.reminderType === 'SLOT').length})
-                </Typography>
-                {reminders.filter(r => r.reminderType === 'SLOT').slice(0, 3).map((reminder) => (
-                  <Box
-                    key={reminder._id}
-                    onClick={() => navigateToSlot(reminder)}
-                    sx={{
-                      mt: 0.5,
-                      p: 1,
-                      cursor: "pointer",
-                      borderRadius: 1,
-                      backgroundColor: "rgba(25, 118, 210, 0.05)",
-                      "&:hover": {
-                        backgroundColor: "rgba(25, 118, 210, 0.15)",
-                        transform: "translateX(4px)",
-                        transition: "all 0.2s"
-                      },
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between"
-                    }}>
-                    <Typography variant="body2">
-                      • <strong>{reminder.plantName?.name || reminder.plantName} - {reminder.subtypeName}</strong>: {reminder.remainingToSow || reminder.totalQuantityRequired} plants
-                      {reminder.slotStartDay && reminder.slotEndDay && ` (Slot: ${reminder.slotStartDay} - ${reminder.slotEndDay})`}
-                      {reminder.daysUntilSow !== undefined && (
-                        <span style={{ color: reminder.priority === 'overdue' ? '#ff4444' : reminder.priority === 'urgent' ? '#ff8800' : '#4caf50' }}>
-                          ({reminder.daysUntilSow < 0 ? `${Math.abs(reminder.daysUntilSow)} days overdue` : `${reminder.daysUntilSow} days left`})
-                        </span>
-                      )}
-                      {reminder.sowingDate && !reminder.daysUntilSow && ` (Due: ${reminder.sowingDate})`}
-                    </Typography>
-                    <Chip 
-                      label={reminder.priority === 'overdue' ? 'Overdue' : reminder.priority === 'urgent' ? 'Urgent' : 'Slot →'} 
-                      size="small" 
-                      color={reminder.priority === 'overdue' ? 'error' : reminder.priority === 'urgent' ? 'warning' : 'primary'} 
-                      sx={{ ml: 1 }} 
-                    />
-                  </Box>
-                ))}
-              </Box>
-            )}
-
-            {/* Order-wise Reminders */}
-            {reminders.filter(r => r.reminderType === 'ORDER').length > 0 && (
-              <Box sx={{ mb: 2 }}>
-                <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1, color: '#2e7d32' }}>
-                  📦 Order-wise Reminders ({reminders.filter(r => r.reminderType === 'ORDER').length})
-                </Typography>
-                {reminders.filter(r => r.reminderType === 'ORDER').slice(0, 3).map((reminder) => (
-                  <Box
-                    key={reminder._id}
-                    onClick={() => navigateToSlot(reminder)}
-                    sx={{
-                      mt: 0.5,
-                      p: 1,
-                      cursor: "pointer",
-                      borderRadius: 1,
-                      backgroundColor: "rgba(46, 125, 50, 0.05)",
-                      "&:hover": {
-                        backgroundColor: "rgba(46, 125, 50, 0.15)",
-                        transform: "translateX(4px)",
-                        transition: "all 0.2s"
-                      },
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between"
-                    }}>
-                    <Typography variant="body2">
-                      • <strong>{reminder.plantName?.name || reminder.plantName} - {reminder.subtypeName}</strong>: {reminder.remainingToSow || reminder.totalQuantityRequired} plants
-                      {reminder.deliveryDate && ` (Delivery: ${new Date(reminder.deliveryDate).toLocaleDateString()})`}
-                      {reminder.daysUntilSow !== undefined && (
-                        <span style={{ color: reminder.priority === 'overdue' ? '#ff4444' : reminder.priority === 'urgent' ? '#ff8800' : '#4caf50' }}>
-                          ({reminder.daysUntilSow < 0 ? `${Math.abs(reminder.daysUntilSow)} days overdue` : `${reminder.daysUntilSow} days left`})
-                        </span>
-                      )}
-                      {reminder.sowByDate && !reminder.daysUntilSow && ` (Due: ${reminder.sowByDate})`}
-                    </Typography>
-                    <Chip 
-                      label={reminder.priority === 'overdue' ? 'Overdue' : reminder.priority === 'urgent' ? 'Urgent' : 'Order →'} 
-                      size="small" 
-                      color={reminder.priority === 'overdue' ? 'error' : reminder.priority === 'urgent' ? 'warning' : 'success'} 
-                      sx={{ ml: 1 }} 
-                    />
-                  </Box>
-                ))}
-              </Box>
-            )}
-
-            {reminders.length > 6 && (
-              <Typography variant="body2" sx={{ mt: 1, fontStyle: "italic", textAlign: "center" }}>
-                ... and {reminders.length - 6} more (switch to Slots view to see all)
-              </Typography>
-            )}
-          </Alert>
-        )}
+        {/* Removed old reminders section - now handled by SowingAlerts component */}
 
 
         {/* Plant Tabs */}
@@ -1152,7 +1045,20 @@ const SowingManagement = () => {
                     <Box sx={{ mb: 3 }}>
                       <Tabs
                         value={activeSubtypeTab}
-                        onChange={(e, newValue) => setActiveSubtypeTab(newValue)}
+                        onChange={(e, newValue) => {
+                          setActiveSubtypeTab(newValue);
+                          // Fetch slots when subtype is selected (optimized loading)
+                          const currentPlant = plants[activeTab];
+                          const selectedSubtype = currentPlant?.subtypes?.[newValue];
+                          if (currentPlant && selectedSubtype) {
+                            const hasSlots = plantSlots[currentPlant._id]?.some(
+                              s => s.subtypeId === selectedSubtype._id
+                            );
+                            if (!hasSlots) {
+                              fetchPlantSlots(currentPlant._id, selectedSubtype._id);
+                            }
+                          }
+                        }}
                         variant="scrollable"
                         scrollButtons="auto"
                         sx={{
@@ -1164,23 +1070,45 @@ const SowingManagement = () => {
                             minHeight: 40,
                           },
                         }}>
-                        {plants[activeTab].subtypes.map((subtype, index) => (
-                          <Tab
-                            key={subtype._id}
-                            label={
-                              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                                <Agriculture sx={{ fontSize: 20 }} />
-                                {subtype.name}
-                                <Chip 
-                                  label={`${subtype.plantReadyDays}d`} 
-                                  size="small" 
-                                  color="success" 
-                                  sx={{ fontSize: "0.7rem", height: 18 }}
-                                />
-                              </Box>
-                            }
-                          />
-                        ))}
+                        {plants[activeTab].subtypes.map((subtype, index) => {
+                          // Check if slots are loaded for this subtype
+                          const hasSlotsLoaded = plantSlots[plants[activeTab]._id]?.some(
+                            s => s.subtypeId === subtype._id
+                          );
+                          
+                          return (
+                            <Tab
+                              key={subtype._id}
+                              label={
+                                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                                  <Agriculture sx={{ fontSize: 20 }} />
+                                  {subtype.name}
+                                  <Chip 
+                                    label={`${subtype.plantReadyDays}d`} 
+                                    size="small" 
+                                    color="success" 
+                                    sx={{ fontSize: "0.7rem", height: 18 }}
+                                  />
+                                  {!hasSlotsLoaded && (
+                                    <Chip 
+                                      label="Click to load" 
+                                      size="small" 
+                                      color="info" 
+                                      variant="outlined"
+                                      sx={{ fontSize: "0.65rem", height: 16 }}
+                                    />
+                                  )}
+                                </Box>
+                              }
+                              onClick={() => {
+                                // Fetch slots when subtype tab is clicked
+                                if (!hasSlotsLoaded) {
+                                  fetchPlantSlots(plants[activeTab]._id, subtype._id);
+                                }
+                              }}
+                            />
+                          );
+                        })}
                       </Tabs>
                     </Box>
                   )}
@@ -1344,7 +1272,13 @@ const SowingManagement = () => {
                           if (!acc[month]) acc[month] = [];
                           
                           const deliveryDate = moment(slot?.endDay, "DD-MM-YYYY");
-                          const slotReadyDays = Number(slot?.plantReadyDays ?? defaultReadyDays) || 0;
+                          // Priority: First from slot.plantReadyDays (if explicitly set), then from subtype.plantReadyDays
+                          // If slot.plantReadyDays is null/undefined or 0, fall back to subtype default
+                          const slotReadyDaysValue = slot?.plantReadyDays;
+                          const isSlotReadyDaysSet = slotReadyDaysValue !== null && slotReadyDaysValue !== undefined && slotReadyDaysValue > 0;
+                          const slotReadyDays = isSlotReadyDaysSet 
+                            ? Number(slotReadyDaysValue) 
+                            : defaultReadyDays;
                           const hasReadyDays = slotReadyDays > 0;
                           const sowByDate = hasReadyDays ? deliveryDate.clone().subtract(slotReadyDays, "days") : null;
                           const alertDate = hasReadyDays ? sowByDate.clone().subtract(reminderDays, "days") : null;
@@ -1393,6 +1327,7 @@ const SowingManagement = () => {
                             readyDays: slotReadyDays,
                             hasReadyDays,
                             alertDate,
+                            isSlotReadyDaysSet, // Track if ready days is from slot or subtype
                           });
                           return acc;
                         }, {});
@@ -1486,6 +1421,12 @@ const SowingManagement = () => {
                                       ) / monthSlots.length
                                     )
                                   : 0;
+                                const today = moment().startOf('day');
+                                const futureSlotsCount = monthSlots.filter(s => {
+                                  const slotEndDate = moment(s.slot?.endDay, "DD-MM-YYYY");
+                                  return slotEndDate.isSameOrAfter(today, 'day');
+                                }).length;
+                                const pastSlotsCount = monthSlots.length - futureSlotsCount;
                                 const monthInputValue = monthReadyDaysInputs[monthKey] ?? "";
                                 const isSavingMonth = savingMonthReadyDays.has(monthKey);
                                 
@@ -1493,7 +1434,20 @@ const SowingManagement = () => {
                                   <Card key={month} sx={{ border: hasIssues ? "2px solid #f57c00" : "1px solid #e0e0e0" }}>
                                     {/* Month Header */}
                                     <Box 
-                                      onClick={() => setExpandedMonths(prev => ({ ...prev, [monthKey]: !prev[monthKey] }))}
+                                      onClick={() => {
+                                        const isExpanding = !expandedMonths[monthKey];
+                                        setExpandedMonths(prev => ({ ...prev, [monthKey]: isExpanding }));
+                                        
+                                        // Fetch slots if not already loaded when expanding
+                                        if (isExpanding && plants[activeTab] && currentSubtype) {
+                                          const hasLoaded = plantSlots[plants[activeTab]._id]?.some(
+                                            s => s.subtypeId === currentSubtype._id && s.slots?.length > 0
+                                          );
+                                          if (!hasLoaded) {
+                                            fetchPlantSlots(plants[activeTab]._id, currentSubtype._id);
+                                          }
+                                        }
+                                      }}
                                       sx={{ 
                                         p: 2, 
                                         bgcolor: hasIssues ? "#fff3e0" : "#f5f5f5",
@@ -1508,6 +1462,22 @@ const SowingManagement = () => {
                                           📅 {month}
                                         </Typography>
                                         <Chip label={`${monthSlots.length} slots`} size="small" />
+                                        {futureSlotsCount > 0 && (
+                                          <Chip 
+                                            label={`${futureSlotsCount} future`} 
+                                            size="small" 
+                                            color="info" 
+                                            variant="outlined"
+                                            sx={{ fontSize: "0.7rem" }}
+                                          />
+                                        )}
+                                        {pastSlotsCount > 0 && (
+                                          <Chip 
+                                            label={`${pastSlotsCount} past`} 
+                                            size="small" 
+                                            sx={{ fontSize: "0.7rem", opacity: 0.7 }}
+                                          />
+                                        )}
                                         {overdue > 0 && <Chip label={`${overdue} overdue`} size="small" color="error" />}
                                         {urgent > 0 && <Chip label={`${urgent} urgent`} size="small" color="warning" />}
                                         {avgReadyDays > 0 && (
@@ -1530,19 +1500,21 @@ const SowingManagement = () => {
                                           onChange={(e) => handleMonthReadyDaysInputChange(monthKey, e.target.value)}
                                           sx={{ width: 110 }}
                                         />
-                                        <Button
-                                          size="small"
-                                          variant="contained"
-                                          startIcon={!isSavingMonth ? <SaveIcon fontSize="small" /> : null}
-                                          disabled={isSavingMonth}
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            applyPlantReadyDaysToMonth(monthKey, monthSlots);
-                                          }}
-                                          sx={{ minWidth: 90 }}
-                                        >
-                                          {isSavingMonth ? "Saving..." : "Apply"}
-                                        </Button>
+                                        <Tooltip title="Updates plant ready days for future slots only (endDay >= today). Past slots remain unchanged to preserve historical data.">
+                                          <Button
+                                            size="small"
+                                            variant="contained"
+                                            startIcon={!isSavingMonth ? <SaveIcon fontSize="small" /> : null}
+                                            disabled={isSavingMonth}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              applyPlantReadyDaysToMonth(monthKey, monthSlots);
+                                            }}
+                                            sx={{ minWidth: 90 }}
+                                          >
+                                            {isSavingMonth ? "Saving..." : "Apply"}
+                                          </Button>
+                                        </Tooltip>
                                         <IconButton size="small">
                                           {expandedMonths[monthKey] ? <TrendingDown /> : <TrendingUp />}
                                         </IconButton>
@@ -1553,8 +1525,9 @@ const SowingManagement = () => {
                                     {expandedMonths[monthKey] && (
                                       <CardContent sx={{ p: 2, bgcolor: "#fafafa" }}>
                                         <Grid container spacing={compactView ? 1 : 1.5}>
-                                          {monthSlots.map(({ slot, daysUntilSow, gap, surplus, priority, bgcolor, borderColor, sowByDate, readyDays, hasReadyDays }) => {
+                                          {monthSlots.map(({ slot, daysUntilSow, gap, surplus, priority, bgcolor, borderColor, sowByDate, readyDays, hasReadyDays, isSlotReadyDaysSet }) => {
                                             const isHighlighted = highlightedSlot === slot._id;
+                                            const isPastSlot = moment(slot?.endDay, "DD-MM-YYYY").isBefore(moment().startOf('day'));
                                             return (
                                             <Grid item xs={12} sm={compactView ? 4 : 6} md={compactView ? 3 : 4} lg={compactView ? 2 : 3} key={slot._id}>
                                               <Paper 
@@ -1566,24 +1539,28 @@ const SowingManagement = () => {
                                                   border: isHighlighted ? `3px solid #fbc02d` : `2px solid ${borderColor}`,
                                                   transition: "all 0.2s",
                                                   "&:hover": { transform: "translateY(-2px)", boxShadow: 3 },
-                                                  boxShadow: isHighlighted ? 6 : 1
+                                                  boxShadow: isHighlighted ? 6 : 1,
+                                                  opacity: isPastSlot ? 0.8 : 1
                                                 }}>
                                                 {/* Header */}
                                                 <Box sx={{ mb: 1 }}>
                                                   <Typography variant="body2" sx={{ fontWeight: 700, fontSize: "0.85rem" }}>
                                                     {moment(slot.startDay, "DD-MM-YYYY").format("MMM D")} - {moment(slot.endDay, "DD-MM-YYYY").format("MMM D")}
+                                                    {isPastSlot && <span style={{ fontSize: "0.7rem", color: "#999", marginLeft: 4 }}>(Past)</span>}
                                                   </Typography>
                                                   <Box sx={{ display: "flex", gap: 0.5, mt: 0.5, flexWrap: "wrap" }}>
                                                     {priority === "overdue" && <Chip label="🚨" size="small" color="error" sx={{ fontSize: "0.65rem", height: 16 }} />}
                                                     {priority === "urgent" && <Chip label="⚠️" size="small" color="warning" sx={{ fontSize: "0.65rem", height: 16 }} />}
                                                     {priority === "complete" && <Chip label="✓" size="small" color="success" sx={{ fontSize: "0.65rem", height: 16 }} />}
-                                                    <Chip
-                                                      label={hasReadyDays ? `${readyDays}d` : "Set days"}
-                                                      size="small"
-                                                      color={hasReadyDays ? "primary" : "warning"}
-                                                      variant={hasReadyDays ? "outlined" : "filled"}
-                                                      sx={{ fontSize: "0.65rem", height: 16 }}
-                                                    />
+                                                    <Tooltip title={hasReadyDays ? (isSlotReadyDaysSet ? `Slot-specific: ${readyDays} days` : `Subtype default: ${readyDays} days`) : "No ready days set"}>
+                                                      <Chip
+                                                        label={hasReadyDays ? `${readyDays}d${isSlotReadyDaysSet ? " (slot)" : ""}` : "Set days"}
+                                                        size="small"
+                                                        color={hasReadyDays ? (isSlotReadyDaysSet ? "primary" : "info") : "warning"}
+                                                        variant={hasReadyDays ? "outlined" : "filled"}
+                                                        sx={{ fontSize: "0.65rem", height: 16 }}
+                                                      />
+                                                    </Tooltip>
                                                     {hasReadyDays && daysUntilSow !== null && daysUntilSow >= 0 && gap > 0 && (
                                                       <Chip label={`${daysUntilSow}d`} size="small" variant="outlined" sx={{ fontSize: "0.65rem", height: 16 }} />
                                                     )}
@@ -1768,115 +1745,48 @@ const SowingManagement = () => {
           )}
         </Card>
 
-        {/* Add Sowing Modal */}
-        <Dialog open={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} maxWidth="sm" fullWidth>
-          <DialogTitle sx={{ bgcolor: "#2e7d32", color: "white" }}>
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-              <AddIcon />
-              Add New Sowing
-            </Box>
-          </DialogTitle>
-          <DialogContent sx={{ mt: 2 }}>
-            <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-              <FormControl fullWidth>
-                <InputLabel>Plant</InputLabel>
-                <Select
-                  value={selectedPlant?._id || ""}
-                  label="Plant"
-                  onChange={(e) => {
-                    const plant = plants.find((p) => p._id === e.target.value);
-                    setSelectedPlant(plant);
-                    setSelectedSubtype(null);
-                  }}>
-                  {plants.map((plant) => (
-                    <MenuItem key={plant._id} value={plant._id}>
-                      {plant.name}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
+        {/* Add Sowing Modal - New Card Style */}
+        <AddSowingModal
+          open={isAddModalOpen}
+          onClose={() => setIsAddModalOpen(false)}
+          plants={plants}
+          userData={userData}
+          appUser={appUser}
+          onSuccess={() => {
+            fetchSowings();
+            fetchStats();
+            // Removed old fetchAlerts() - now handled by SowingAlerts component
+            if (plants[activeTab]) {
+              fetchPlantSlots(plants[activeTab]._id);
+            }
+          }}
+        />
 
-              {selectedPlant && (
-                <FormControl fullWidth>
-                  <InputLabel>Subtype</InputLabel>
-                  <Select
-                    value={selectedSubtype?._id || ""}
-                    label="Subtype"
-                    onChange={(e) => {
-                      const subtype = selectedPlant.subtypes.find((s) => s._id === e.target.value);
-                      setSelectedSubtype(subtype);
-                    }}>
-                    {selectedPlant.subtypes.map((subtype) => (
-                      <MenuItem key={subtype._id} value={subtype._id}>
-                        {subtype.name} (Ready in {subtype.plantReadyDays} days)
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              )}
+        {/* Date-wise Log Modal */}
+        <SowingDateWiseLog
+          open={isDateWiseLogOpen}
+          onClose={() => setIsDateWiseLogOpen(false)}
+          plantId={dateWiseLogFilters.plantId}
+          subtypeId={dateWiseLogFilters.subtypeId}
+          slotId={dateWiseLogFilters.slotId}
+          selectedDate={dateWiseLogFilters.date}
+        />
 
-              <DatePicker
-                label="Sowing Date"
-                value={formData.sowingDate}
-                onChange={(date) => setFormData({ ...formData, sowingDate: date })}
-                renderInput={(params) => <TextField {...params} fullWidth />}
-              />
-
-              <TextField
-                label="Total Quantity Required"
-                type="number"
-                value={formData.totalQuantityRequired}
-                onChange={(e) => setFormData({ ...formData, totalQuantityRequired: e.target.value })}
-                fullWidth
-              />
-
-              <TextField
-                label="Reminder Before Days"
-                type="number"
-                value={formData.reminderBeforeDays}
-                onChange={(e) => setFormData({ ...formData, reminderBeforeDays: e.target.value })}
-                fullWidth
-                helperText="Days before sowing date to show reminder"
-              />
-
-              <TextField
-                label="Notes"
-                multiline
-                rows={3}
-                value={formData.notes}
-                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                fullWidth
-              />
-
-              <TextField
-                label="Batch Number"
-                value={formData.batchNumber}
-                onChange={(e) => setFormData({ ...formData, batchNumber: e.target.value })}
-                fullWidth
-                placeholder="Enter batch number (optional)"
-              />
-
-              {selectedSubtype && (
-                <Alert severity="info" sx={{ mt: 1 }}>
-                  <Typography variant="body2">
-                    <strong>Expected Ready Date:</strong>{" "}
-                    {moment(formData.sowingDate)
-                      .add(selectedSubtype.plantReadyDays, "days")
-                      .format("DD-MM-YYYY")}
-                  </Typography>
-                </Alert>
-              )}
-            </Box>
-          </DialogContent>
-          <DialogActions sx={{ p: 2 }}>
-            <Button onClick={() => setIsAddModalOpen(false)} variant="outlined">
-              Cancel
-            </Button>
-            <Button variant="contained" onClick={handleCreateSowing} sx={{ bgcolor: "#2e7d32" }}>
-              Create Sowing
-            </Button>
-          </DialogActions>
-        </Dialog>
+        {/* Clear All Sowing Dialog */}
+        <ClearAllSowingDialog
+          open={isClearAllDialogOpen}
+          onClose={() => setIsClearAllDialogOpen(false)}
+          onSuccess={() => {
+            fetchSowings();
+            fetchStats();
+            // Removed fetchReminders() - now handled by SowingAlerts component
+            // Removed old fetchAlerts() - now handled by SowingAlerts component
+            if (plants[activeTab]) {
+              fetchPlantSlots(plants[activeTab]._id);
+            }
+          }}
+          sowingCount={sowings.length}
+        />
 
         {/* Update Sowing Modal */}
         <Dialog open={isUpdateModalOpen} onClose={() => setIsUpdateModalOpen(false)} maxWidth="sm" fullWidth>

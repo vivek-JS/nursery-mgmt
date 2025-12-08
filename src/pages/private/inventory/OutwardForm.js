@@ -39,8 +39,9 @@ const OutwardForm = () => {
   const fetchInitialData = async () => {
     try {
       const [productsRes, unitsRes] = await Promise.all([
-        axiosInstance.get('/inventory/products?isActive=true&limit=1000'),
-        axiosInstance.get('/inventory/units'),
+        // Following farmerService.js pattern - include /api/v1 in path
+        axiosInstance.get('/api/v1/inventory/products', { params: { isActive: true, limit: 1000 } }),
+        axiosInstance.get('/api/v1/inventory/units'),
       ]);
 
       if (productsRes.data.success) setProducts(productsRes.data.data);
@@ -119,7 +120,7 @@ const OutwardForm = () => {
     setLoading(true);
 
     try {
-      await axiosInstance.post('/inventory/outward', formData);
+      await axiosInstance.post('/api/v1/inventory/outward', formData);
       alert('Outward entry created successfully');
       navigate('/u/inventory/outward');
     } catch (error) {

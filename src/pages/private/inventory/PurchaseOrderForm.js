@@ -10,15 +10,35 @@ import {
   CheckCircle,
   AlertCircle,
 } from 'lucide-react';
-import axiosInstance from '../../../services/axiosConfig';
+import { API, NetworkManager } from '../../../network/core';
+import { formatDecimal, formatCurrency } from '../../../utils/numberUtils';
 
 const PurchaseOrderForm = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [products, setProducts] = useState([]);
-  const [suppliers, setSuppliers] = useState([]);
+  const [merchants, setMerchants] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [filterCategory, setFilterCategory] = useState('');
   const [selectedSupplier, setSelectedSupplier] = useState(null);
+  
+  // Use only merchants as suppliers (filter for both or supplier category)
+  const allSuppliers = React.useMemo(() => {
+    const filtered = merchants
+      .filter(m => m.category === 'both' || m.category === 'supplier')
+      .map(m => ({
+        ...m,
+        type: 'merchant',
+        displayName: m.name,
+        contact: m.contactPerson || m.phone || '',
+        gstNumber: m.gstin || '',
+        address: typeof m.address === 'string' ? m.address : 
+          m.address ? `${m.address.street || ''} ${m.address.city || ''} ${m.address.state || ''} ${m.address.pincode || ''}`.trim() : '',
+      }));
+    console.log('All suppliers (merchants) filtered:', filtered.length, filtered);
+    return filtered;
+  }, [merchants]);
   const [orderItems, setOrderItems] = useState([]);
   const [formData, setFormData] = useState({
     supplier: {
@@ -34,43 +54,116 @@ const PurchaseOrderForm = () => {
 
   useEffect(() => {
     loadProducts();
-    loadSuppliers();
+    loadMerchants();
+    loadCategories();
   }, []);
+
+  useEffect(() => {
+    loadProducts();
+  }, [filterCategory]);
 
   const loadProducts = async () => {
     try {
-      const response = await axiosInstance.get('/inventory/products/all?limit=1000');
-      if (response.data.success) {
-        setProducts(response.data.data.data);
+      // Following FarmerOrdersTable.js pattern - use NetworkManager with params
+      const instance = NetworkManager(API.INVENTORY.GET_ALL_PRODUCTS);
+      const params = { limit: 1000, isActive: true };
+      if (filterCategory) params.category = filterCategory;
+      const response = await instance.request({}, params);
+      
+      if (response?.data) {
+        const apiResponse = response.data;
+        // Handle both response formats: {success: true, data: [...]} or {status: "Success", data: {data: [...]}}
+        if (apiResponse.status === 'Success' && apiResponse.data) {
+          const productsData = Array.isArray(apiResponse.data.data) 
+            ? apiResponse.data.data 
+            : Array.isArray(apiResponse.data) 
+            ? apiResponse.data 
+            : [];
+          setProducts(productsData);
+        } else if (apiResponse.success && apiResponse.data) {
+          const productsData = Array.isArray(apiResponse.data) 
+            ? apiResponse.data 
+            : [];
+          setProducts(productsData);
+        }
       }
     } catch (error) {
       console.error('Error loading products:', error);
     }
   };
 
-  const loadSuppliers = async () => {
+  const loadMerchants = async () => {
     try {
-      const response = await axiosInstance.get('/inventory/suppliers/all?limit=1000');
-      if (response.data.success) {
-        setSuppliers(response.data.data.data);
+      // Following FarmerOrdersTable.js pattern - use NetworkManager with params
+      const instance = NetworkManager(API.INVENTORY.GET_ALL_MERCHANTS_SIMPLE);
+      const response = await instance.request({}, { limit: 1000 });
+      
+      if (response?.data) {
+        const apiResponse = response.data;
+        // Handle format: {success: true, data: [...], pagination: {...}}
+        if (apiResponse.success && apiResponse.data) {
+          const merchantsData = Array.isArray(apiResponse.data) 
+            ? apiResponse.data 
+            : [];
+          setMerchants(merchantsData);
+          console.log('Merchants loaded:', merchantsData.length, merchantsData);
+        } 
+        // Handle format: {status: "Success", data: {data: [...], pagination: {...}}}
+        else if (apiResponse.status === 'Success' && apiResponse.data) {
+          const merchantsData = Array.isArray(apiResponse.data.data) 
+            ? apiResponse.data.data 
+            : Array.isArray(apiResponse.data) 
+            ? apiResponse.data 
+            : [];
+          setMerchants(merchantsData);
+          console.log('Merchants loaded:', merchantsData.length, merchantsData);
+        }
       }
     } catch (error) {
-      console.error('Error loading suppliers:', error);
+      console.error('Error loading merchants:', error);
+      alert('Error loading merchants: ' + (error.response?.data?.message || error.message));
+    }
+  };
+
+  const loadCategories = async () => {
+    try {
+      // Following FarmerOrdersTable.js pattern - use NetworkManager with params
+      const instance = NetworkManager(API.INVENTORY.GET_ALL_CATEGORIES);
+      const response = await instance.request({}, { isActive: true });
+      
+      if (response?.data) {
+        const apiResponse = response.data;
+        if (apiResponse.status === 'Success' && apiResponse.data) {
+          const categoriesData = Array.isArray(apiResponse.data.data) 
+            ? apiResponse.data.data 
+            : Array.isArray(apiResponse.data) 
+            ? apiResponse.data 
+            : [];
+          setCategories(categoriesData);
+        } else if (apiResponse.success && apiResponse.data) {
+          const categoriesData = Array.isArray(apiResponse.data) 
+            ? apiResponse.data 
+            : [];
+          setCategories(categoriesData);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading categories:', error);
     }
   };
 
   const handleSupplierChange = (supplierId) => {
-    const supplier = suppliers.find(s => s._id === supplierId);
+    const supplier = allSuppliers.find(s => s._id === supplierId);
     if (supplier) {
       setSelectedSupplier(supplier);
       setFormData(prev => ({
         ...prev,
         supplier: {
           name: supplier.name,
-          contact: supplier.contact || '',
+          contact: supplier.contact || supplier.contactPerson || supplier.phone || '',
           email: supplier.email || '',
           address: supplier.address || '',
-          gstNumber: supplier.gstNumber || '',
+          gstNumber: supplier.gstNumber || supplier.gstin || '',
         }
       }));
     }
@@ -80,7 +173,7 @@ const PurchaseOrderForm = () => {
     setOrderItems([...orderItems, {
       productId: '',
       quantity: 1,
-      rate: 0,
+      rate: 0, // Optional, can be 0
       amount: 0,
     }]);
   };
@@ -92,9 +185,15 @@ const PurchaseOrderForm = () => {
       [field]: value,
     };
 
+    // Calculate amount only if both quantity and rate are provided
     if (field === 'quantity' || field === 'rate') {
-      updatedItems[index].amount = updatedItems[index].quantity * updatedItems[index].rate;
+      const quantity = updatedItems[index].quantity || 0;
+      const rate = updatedItems[index].rate || 0;
+      updatedItems[index].amount = quantity * rate;
     }
+    
+    // If product is selected, we can auto-populate unit from product's primaryUnit
+    // (This is handled in the submit transformation)
 
     setOrderItems(updatedItems);
   };
@@ -110,8 +209,14 @@ const PurchaseOrderForm = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     
-    if (!formData.supplier.name) {
-      alert('Please select a supplier');
+    // Only merchant (supplier) and expected delivery date are mandatory
+    if (!selectedSupplier || !selectedSupplier._id) {
+      alert('Please select a merchant');
+      return;
+    }
+
+    if (!formData.expectedDeliveryDate) {
+      alert('Please select expected delivery date');
       return;
     }
 
@@ -120,25 +225,62 @@ const PurchaseOrderForm = () => {
       return;
     }
 
-    if (orderItems.some(item => !item.productId || item.quantity <= 0 || item.rate <= 0)) {
-      alert('Please fill all item details correctly');
+    // Only product and quantity are required in order items
+    if (orderItems.some(item => !item.productId || !item.quantity || item.quantity <= 0)) {
+      alert('Please select product and enter quantity for all items');
       return;
     }
 
     try {
       setLoading(true);
-      const response = await axiosInstance.post('/purchase/purchase-orders/create', {
-        supplier: formData.supplier,
+      
+      // Transform items: productId -> product, add unit from product's primaryUnit
+      const transformedItems = orderItems.map(item => {
+        const product = products.find(p => p._id === item.productId);
+        if (!product) {
+          throw new Error(`Product not found for item: ${item.productId}`);
+        }
+        
+        // Get unit - handle both populated and non-populated cases
+        let unitId = null;
+        if (product.primaryUnit) {
+          unitId = typeof product.primaryUnit === 'object' 
+            ? product.primaryUnit._id 
+            : product.primaryUnit;
+        }
+        
+        if (!unitId) {
+          throw new Error(`Product ${product.name} (${product.code}) does not have a primary unit assigned`);
+        }
+        
+        return {
+          product: item.productId, // Use productId as product ObjectId
+          unit: unitId, // Get unit from product's primaryUnit
+          quantity: item.quantity,
+          rate: item.rate || 0, // Default to 0 if not provided
+          amount: (item.quantity || 0) * (item.rate || 0), // Calculate amount
+          gst: 0, // Default GST
+          discount: 0, // Default discount
+        };
+      });
+      
+      // Following FarmerOrdersTable.js pattern - use NetworkManager
+      const instance = NetworkManager(API.INVENTORY.CREATE_PURCHASE_ORDER);
+      const response = await instance.request({
+        supplier: selectedSupplier._id, // Send supplier ObjectId, not object
         expectedDeliveryDate: formData.expectedDeliveryDate,
-        items: orderItems,
+        items: transformedItems,
         notes: formData.notes,
       });
 
-      if (response.data.success) {
-        alert('Purchase order created successfully!');
-        navigate('/u/inventory/purchase-orders');
-      } else {
-        alert('Error creating purchase order: ' + response.data.message);
+      if (response?.data) {
+        const apiResponse = response.data;
+        if (apiResponse.success || apiResponse.status === 'Success') {
+          alert('Purchase order created successfully!');
+          navigate('/u/inventory/purchase-orders');
+        } else {
+          alert('Error creating purchase order: ' + (apiResponse.message || 'Unknown error'));
+        }
       }
     } catch (error) {
       console.error('Error creating purchase order:', error);
@@ -148,10 +290,14 @@ const PurchaseOrderForm = () => {
     }
   };
 
-  const filteredProducts = products.filter(product =>
-    product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    product.category.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredProducts = products.filter(product => {
+    const matchesSearch = !searchTerm || 
+      product.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      product.code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      product.category?.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesCategory = !filterCategory || product.category === filterCategory;
+    return matchesSearch && matchesCategory;
+  });
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
@@ -180,17 +326,18 @@ const PurchaseOrderForm = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Select Supplier
+                  Select Supplier / Merchant <span className="text-red-500">*</span>
                 </label>
                 <select
                   value={selectedSupplier?._id || ''}
                   onChange={(e) => handleSupplierChange(e.target.value)}
+                  required
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  <option value="">Select a supplier</option>
-                  {suppliers.map(supplier => (
+                  <option value="">Select a merchant</option>
+                  {allSuppliers.map(supplier => (
                     <option key={supplier._id} value={supplier._id}>
-                      {supplier.name}
+                      {supplier.displayName || supplier.name}
                     </option>
                   ))}
                 </select>
@@ -198,7 +345,7 @@ const PurchaseOrderForm = () => {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Expected Delivery Date
+                  Expected Delivery Date <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="date"
@@ -207,6 +354,7 @@ const PurchaseOrderForm = () => {
                     ...prev,
                     expectedDeliveryDate: e.target.value
                   }))}
+                  required
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
@@ -218,12 +366,9 @@ const PurchaseOrderForm = () => {
                 <input
                   type="text"
                   value={formData.supplier.contact}
-                  onChange={(e) => setFormData(prev => ({
-                    ...prev,
-                    supplier: { ...prev.supplier, contact: e.target.value }
-                  }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Enter contact number"
+                  readOnly
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50"
+                  placeholder="Auto-filled from merchant"
                 />
               </div>
 
@@ -234,12 +379,9 @@ const PurchaseOrderForm = () => {
                 <input
                   type="email"
                   value={formData.supplier.email}
-                  onChange={(e) => setFormData(prev => ({
-                    ...prev,
-                    supplier: { ...prev.supplier, email: e.target.value }
-                  }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Enter email address"
+                  readOnly
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50"
+                  placeholder="Auto-filled from merchant"
                 />
               </div>
 
@@ -275,8 +417,8 @@ const PurchaseOrderForm = () => {
               </button>
             </div>
 
-            {/* Product Search */}
-            <div className="mb-4">
+            {/* Product Search and Filter */}
+            <div className="mb-4 grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
                 <input
@@ -287,6 +429,20 @@ const PurchaseOrderForm = () => {
                   className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
+              <div>
+                <select
+                  value={filterCategory}
+                  onChange={(e) => setFilterCategory(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">All Categories</option>
+                  {categories.map(category => (
+                    <option key={category._id || category.name} value={category.name || category.displayName}>
+                      {category.displayName || category.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             {/* Items Table */}
@@ -296,13 +452,13 @@ const PurchaseOrderForm = () => {
                   <thead className="bg-gray-50">
                     <tr>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Product
+                        Product <span className="text-red-500">*</span>
                       </th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Quantity
+                        Quantity <span className="text-red-500">*</span>
                       </th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Rate
+                        Rate (Optional)
                       </th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Amount
@@ -319,6 +475,7 @@ const PurchaseOrderForm = () => {
                           <select
                             value={item.productId}
                             onChange={(e) => updateOrderItem(index, 'productId', e.target.value)}
+                            required
                             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                           >
                             <option value="">Select Product</option>
@@ -333,8 +490,10 @@ const PurchaseOrderForm = () => {
                           <input
                             type="number"
                             min="1"
+                            step="0.01"
                             value={item.quantity}
                             onChange={(e) => updateOrderItem(index, 'quantity', parseFloat(e.target.value) || 0)}
+                            required
                             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                           />
                         </td>
@@ -345,12 +504,13 @@ const PurchaseOrderForm = () => {
                             step="0.01"
                             value={item.rate}
                             onChange={(e) => updateOrderItem(index, 'rate', parseFloat(e.target.value) || 0)}
+                            placeholder="Optional"
                             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                           />
                         </td>
                         <td className="px-4 py-4">
                           <div className="text-sm font-medium text-gray-900">
-                            ₹{item.amount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                            {formatCurrency(formatDecimal(item.amount) || 0)}
                           </div>
                         </td>
                         <td className="px-4 py-4">
@@ -379,7 +539,7 @@ const PurchaseOrderForm = () => {
               <div className="mt-6 flex justify-end">
                 <div className="bg-gray-50 px-6 py-4 rounded-lg">
                   <div className="text-lg font-semibold text-gray-800">
-                    Total Amount: ₹{getTotalAmount().toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                    Total Amount: {formatCurrency(formatDecimal(getTotalAmount()) || 0)}
                   </div>
                 </div>
               </div>

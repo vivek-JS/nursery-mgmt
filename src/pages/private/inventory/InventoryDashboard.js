@@ -10,7 +10,7 @@ import {
   Send,
   BarChart3,
 } from 'lucide-react';
-import axiosInstance from '../../../services/axiosConfig';
+import { API, NetworkManager } from 'network/core';
 
 const InventoryDashboard = () => {
   const navigate = useNavigate();
@@ -23,9 +23,15 @@ const InventoryDashboard = () => {
 
   const fetchInventorySummary = async () => {
     try {
-      const response = await axiosInstance.get('/inventory/products/summary');
-      if (response.data.success) {
-        setSummary(response.data.data);
+      // Following FarmerOrdersTable.js pattern - use NetworkManager
+      const instance = NetworkManager(API.INVENTORY.GET_PRODUCTS_SUMMARY);
+      const response = await instance.request();
+      // Handle response format
+      if (response?.data) {
+        const data = response.data.data || response.data;
+        if (data.success || data.status === 'Success') {
+          setSummary(data.data);
+        }
       }
     } catch (error) {
       console.error('Error fetching inventory summary:', error);
@@ -144,12 +150,36 @@ const InventoryDashboard = () => {
       bgColor: 'bg-indigo-50',
     },
     {
+      title: 'Merchants',
+      description: 'Manage merchants & recipients',
+      icon: Package,
+      path: '/u/inventory/merchants',
+      color: 'text-purple-600',
+      bgColor: 'bg-purple-50',
+    },
+    {
+      title: 'Sell Orders',
+      description: 'Manage sell orders to merchants',
+      icon: ShoppingCart,
+      path: '/u/inventory/sell-orders',
+      color: 'text-pink-600',
+      bgColor: 'bg-pink-50',
+    },
+    {
       title: 'Transactions',
       description: 'View inventory movements',
       icon: BarChart3,
       path: '/u/inventory/transactions',
       color: 'text-pink-600',
       bgColor: 'bg-pink-50',
+    },
+    {
+      title: 'Ledger',
+      description: 'Merchant & Farmer ledgers',
+      icon: FileText,
+      path: '/u/inventory/ledger',
+      color: 'text-indigo-600',
+      bgColor: 'bg-indigo-50',
     },
   ];
 

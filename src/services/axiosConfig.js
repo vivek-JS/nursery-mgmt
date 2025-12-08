@@ -1,11 +1,13 @@
 import axios from 'axios';
 
 // Get base URL from environment or use default
+// Following farmerService.js pattern - baseURL should NOT include /api/v1
 const BASE_URL = process.env.REACT_APP_BASE_URL || 'http://localhost:8000';
 
 // Create axios instance
+// baseURL should be just the base URL, paths will include /api/v1
 const axiosInstance = axios.create({
-  baseURL: `${BASE_URL}/api/v1`,
+  baseURL: BASE_URL,
   headers: {
     'Content-Type': 'application/json',
   },

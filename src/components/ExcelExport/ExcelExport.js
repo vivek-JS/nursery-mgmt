@@ -1,4 +1,4 @@
-import React, { useState } from "react"
+import React, { useState, useEffect, useRef } from "react"
 import {
   Button,
   Dialog,
@@ -37,11 +37,23 @@ const ExcelExport = ({
     ...filters
   })
 
-  React.useEffect(() => {
-    setExportFilters((prev) => ({
-      ...prev,
-      ...filters
-    }))
+  const prevFiltersRef = useRef(filters)
+
+  useEffect(() => {
+    // Deep comparison to check if filters actually changed
+    // Only update if the filter values have actually changed
+    const prevFilters = prevFiltersRef.current || {}
+    const currentFilters = filters || {}
+    
+    const filtersChanged = JSON.stringify(prevFilters) !== JSON.stringify(currentFilters)
+    
+    if (filtersChanged) {
+      setExportFilters((prev) => ({
+        ...prev,
+        ...currentFilters
+      }))
+      prevFiltersRef.current = currentFilters
+    }
   }, [filters])
 
   const orderStatusOptions = [

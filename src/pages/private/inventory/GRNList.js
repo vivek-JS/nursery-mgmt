@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Search, Filter, Eye, FileText, CheckCircle } from 'lucide-react';
-import axiosInstance from '../../../services/axiosConfig';
+import { API, NetworkManager } from '../../../network/core';
+import { formatDisplayDate } from '../../../utils/dateUtils';
+import { formatDecimal, formatCurrency } from '../../../utils/numberUtils';
 
 const GRNList = () => {
   const navigate = useNavigate();
@@ -23,10 +25,28 @@ const GRNList = () => {
       if (searchTerm) params.search = searchTerm;
       if (filterStatus) params.status = filterStatus;
 
-      const response = await axiosInstance.get('/inventory/grn', { params });
-      if (response.data.success) {
-        setGrns(response.data.data);
-        setPagination(response.data.pagination);
+      // Following FarmerOrdersTable.js pattern - use NetworkManager with params
+      const instance = NetworkManager(API.INVENTORY.GET_ALL_GRN);
+      const response = await instance.request({}, params);
+      
+      if (response?.data) {
+        const apiResponse = response.data;
+        // Handle both response formats: {success: true, data: [...], pagination: {...}} or {status: "Success", data: {data: [...], pagination: {...}}}
+        if (apiResponse.success && apiResponse.data) {
+          const grnsData = Array.isArray(apiResponse.data) 
+            ? apiResponse.data 
+            : [];
+          setGrns(grnsData);
+          setPagination(apiResponse.pagination || {});
+        } else if (apiResponse.status === 'Success' && apiResponse.data) {
+          const grnsData = Array.isArray(apiResponse.data.data) 
+            ? apiResponse.data.data 
+            : Array.isArray(apiResponse.data) 
+            ? apiResponse.data 
+            : [];
+          setGrns(grnsData);
+          setPagination(apiResponse.data.pagination || apiResponse.pagination || {});
+        }
       }
     } catch (error) {
       console.error('Error fetching GRNs:', error);
@@ -143,12 +163,12 @@ const GRNList = () => {
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
                         <div>
                           <p className="text-xs text-gray-500 uppercase">Supplier</p>
-                          <p className="font-semibold text-gray-800">{grn.supplier?.name || 'N/A'}</p>
+                          <p className="font-semibold text-gray-800">{grn.supplier?.name || grn.supplier?.displayName || 'N/A'}</p>
                         </div>
                         <div>
                           <p className="text-xs text-gray-500 uppercase">GRN Date</p>
                           <p className="font-semibold text-gray-800">
-                            {new Date(grn.grnDate).toLocaleDateString()}
+                            {formatDisplayDate(grn.grnDate)}
                           </p>
                         </div>
                         <div>
@@ -158,7 +178,7 @@ const GRNList = () => {
                         <div>
                           <p className="text-xs text-gray-500 uppercase">Total Amount</p>
                           <p className="font-semibold text-gray-800">
-                            ₹{grn.totalAmount?.toLocaleString('en-IN') || '0'}
+                            {formatCurrency(formatDecimal(grn.totalAmount) || 0)}
                           </p>
                         </div>
                       </div>

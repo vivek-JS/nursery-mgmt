@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, CheckCircle, FileText, Package, Truck } from 'lucide-react';
 import axiosInstance from '../../../services/axiosConfig';
+import { formatDisplayDate } from '../../../utils/dateUtils';
+import { formatDecimal, formatCurrency } from '../../../utils/numberUtils';
 
 const GRNDetails = () => {
   const navigate = useNavigate();
@@ -102,7 +104,7 @@ const GRNDetails = () => {
                       {grn.status.replace('_', ' ').toUpperCase()}
                     </span>
                     <span className="text-gray-600">
-                      {new Date(grn.grnDate).toLocaleDateString()}
+                      {formatDisplayDate(grn.grnDate)}
                     </span>
                   </div>
                 </div>
@@ -214,7 +216,7 @@ const GRNDetails = () => {
                   </div>
                   <div>
                     <p className="text-sm text-gray-500">Amount</p>
-                    <p className="font-semibold text-gray-800">₹{item.amount?.toLocaleString('en-IN')}</p>
+                    <p className="font-semibold text-gray-800">{formatCurrency(formatDecimal(item.amount) || 0)}</p>
                   </div>
                 </div>
                 {(item.rejectedQuantity > 0 || item.damageQuantity > 0) && (
@@ -238,29 +240,29 @@ const GRNDetails = () => {
           <div className="space-y-2">
             <div className="flex justify-between">
               <span className="text-gray-600">Subtotal</span>
-              <span className="font-semibold">₹{grn.subtotal?.toLocaleString('en-IN')}</span>
+              <span className="font-semibold">{formatCurrency(formatDecimal(grn.subtotal) || 0)}</span>
             </div>
             {grn.gstAmount > 0 && (
               <div className="flex justify-between">
                 <span className="text-gray-600">GST</span>
-                <span className="font-semibold">₹{grn.gstAmount?.toLocaleString('en-IN')}</span>
+                <span className="font-semibold">{formatCurrency(formatDecimal(grn.gstAmount) || 0)}</span>
               </div>
             )}
             {grn.freightCharges > 0 && (
               <div className="flex justify-between">
                 <span className="text-gray-600">Freight Charges</span>
-                <span className="font-semibold">₹{grn.freightCharges?.toLocaleString('en-IN')}</span>
+                <span className="font-semibold">{formatCurrency(formatDecimal(grn.freightCharges) || 0)}</span>
               </div>
             )}
             {grn.otherCharges > 0 && (
               <div className="flex justify-between">
                 <span className="text-gray-600">Other Charges</span>
-                <span className="font-semibold">₹{grn.otherCharges?.toLocaleString('en-IN')}</span>
+                <span className="font-semibold">{formatCurrency(formatDecimal(grn.otherCharges) || 0)}</span>
               </div>
             )}
             <div className="flex justify-between pt-2 border-t border-gray-300 text-xl font-bold text-gray-900">
               <span>Total Amount</span>
-              <span>₹{grn.totalAmount?.toLocaleString('en-IN')}</span>
+              <span>{formatCurrency(formatDecimal(grn.totalAmount) || 0)}</span>
             </div>
           </div>
         </div>
@@ -294,7 +296,7 @@ const GRNDetails = () => {
             {grn.qualityCheckBy && (
               <p className="text-sm text-gray-500 mt-2">
                 Checked by: {grn.qualityCheckBy.name} on{' '}
-                {new Date(grn.qualityCheckDate).toLocaleString()}
+                {formatDisplayDate(grn.qualityCheckDate)}
               </p>
             )}
           </div>

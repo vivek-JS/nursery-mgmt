@@ -36,6 +36,7 @@ import {
 import { getMessageTemplates, testWatiConnection } from "network/core/wati"
 import FarmerCampaignModal from "./FarmerCampaignModal"
 import SingleSendModal from "./SingleSendModal"
+import SowingReminderModal from "./SowingReminderModal"
 import { useHasWhatsAppAccess } from "utils/roleUtils"
 
 const WhatsAppManagement = () => {
@@ -44,6 +45,7 @@ const WhatsAppManagement = () => {
   const [selectedTemplate, setSelectedTemplate] = useState(null)
   const [showFarmerCampaign, setShowFarmerCampaign] = useState(false)
   const [showSingleSend, setShowSingleSend] = useState(false)
+  const [showSowingReminder, setShowSowingReminder] = useState(false)
   const [loading, setLoading] = useState(false)
   const [searchTerm, setSearchTerm] = useState("")
   const [error, setError] = useState(null)
@@ -226,7 +228,16 @@ const WhatsAppManagement = () => {
               }}
               sx={{ minWidth: { xs: '100%', sm: 350 } }}
             />
-            <Stack direction="row" spacing={2}>
+            <Stack direction="row" spacing={2} flexWrap="wrap">
+              <Button
+                variant="contained"
+                color="primary"
+                startIcon={<Send size={18} />}
+                onClick={() => setShowSowingReminder(true)}
+                sx={{ borderRadius: 2 }}
+              >
+                Sowing Reminders
+              </Button>
               <Button
                 variant="outlined"
                 startIcon={<RotateCcw size={18} />}
@@ -419,6 +430,12 @@ const WhatsAppManagement = () => {
           setSelectedTemplate(null)
         }}
         template={selectedTemplate}
+      />
+
+      {/* Sowing Reminder Modal */}
+      <SowingReminderModal
+        open={showSowingReminder}
+        onClose={() => setShowSowingReminder(false)}
       />
     </Box>
   )

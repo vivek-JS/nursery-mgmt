@@ -19,17 +19,30 @@ const Router = () => {
             {/* All the public routes - MUST be before other routes */}
             {/* Public routes are accessible WITHOUT authentication - always render, no auth check */}
             {PublicRoutes.map(({ component: Component, allowWhenLoggedIn, ...route }) => {
-              // For public farmer form routes, always allow access (no redirect)
+              // For public farmer form routes, ALWAYS allow access - no conditions, no auth check
+              // This ensures it works in production, incognito, mobile, first visit, etc.
               const isPublicFarmerRoute = route.path?.startsWith("/public/add-farmer")
               
+              // Public farmer routes: UNCONDITIONAL access - always render, never redirect
+              if (isPublicFarmerRoute) {
+                return (
+                  <Route
+                    key={`Route-${route.path}`}
+                    path={route.path}
+                    element={<Component />}
+                  />
+                )
+              }
+              
+              // Other public routes: check allowWhenLoggedIn flag
               return (
                 <Route
                   key={`Route-${route.path}`}
                   path={route.path}
                   element={
-                    // Public farmer routes: always accessible (mobile users, incognito, etc.)
-                    // Other public routes: redirect to dashboard if logged in AND route doesn't allow logged in users
-                    isPublicFarmerRoute || allowWhenLoggedIn || !isLoggedIn ? (
+                    // If route allows logged in users OR user is not logged in, show component
+                    // Otherwise redirect to dashboard (for login/signup pages when already logged in)
+                    allowWhenLoggedIn || !isLoggedIn ? (
                       <Component />
                     ) : (
                       <Navigate to="/u/dashboard" replace={true} />

@@ -222,6 +222,7 @@ const PaymentsPage = () => {
     return [startDate, endDate]
   })
   const [activeTab, setActiveTab] = useState("pending") // "collected", "pending", or "rejected"
+  const [paymentType, setPaymentType] = useState("farmer") // "farmer" or "agri-inputs"
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("")
 
   // Role-based access control
@@ -305,18 +306,16 @@ const PaymentsPage = () => {
     }
   }, [searchTerm])
 
-  // Fetch payments function
-  const fetchPayments = async () => {
+  // Fetch payments function for farmer orders
+  const fetchFarmerPayments = async () => {
     setLoading(true)
     try {
-      // Only format dates if they are valid Date objects
       const params = {
         search: debouncedSearchTerm,
         paymentStatus:
           activeTab === "collected" ? "COLLECTED" : activeTab === "pending" ? "PENDING" : "REJECTED"
       }
 
-      // Add date range only if BOTH dates are valid (complete range selected)
       if (
         startDate &&
         endDate &&
@@ -346,10 +345,60 @@ const PaymentsPage = () => {
     }
   }
 
+  // Fetch payments function for agri inputs (sell orders)
+  const fetchAgriInputsPayments = async () => {
+    setLoading(true)
+    try {
+      const params = {
+        search: debouncedSearchTerm,
+        paymentStatus:
+          activeTab === "collected" ? "COLLECTED" : activeTab === "pending" ? "PENDING" : "REJECTED",
+        page: 1,
+        limit: 1000
+      }
+
+      if (
+        startDate &&
+        endDate &&
+        startDate instanceof Date &&
+        endDate instanceof Date &&
+        !isNaN(startDate.getTime()) &&
+        !isNaN(endDate.getTime())
+      ) {
+        params.startDate = moment(startDate).format("DD-MM-YYYY")
+        params.endDate = moment(endDate).format("DD-MM-YYYY")
+      }
+
+      const instance = NetworkManager(API.INVENTORY.GET_SELL_ORDER_PENDING_PAYMENTS)
+      const response = await instance.request({}, params)
+
+      if (response?.data?.success && response.data.data) {
+        setPayments(response.data.data)
+      } else {
+        setPayments([])
+      }
+    } catch (error) {
+      console.error("Error fetching agri inputs payments:", error)
+      Toast.error("Failed to fetch agri inputs payments")
+      setPayments([])
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Main fetch function that routes to appropriate API
+  const fetchPayments = () => {
+    if (paymentType === "agri-inputs") {
+      fetchAgriInputsPayments()
+    } else {
+      fetchFarmerPayments()
+    }
+  }
+
   // Fetch payments when filters change
   useEffect(() => {
     fetchPayments()
-  }, [debouncedSearchTerm, activeTab, startDateStr, endDateStr])
+  }, [debouncedSearchTerm, activeTab, startDateStr, endDateStr, paymentType])
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -469,18 +518,35 @@ const PaymentsPage = () => {
 
   const updatePaymentStatus = async (payment, newStatus) => {
     try {
-      const instance = NetworkManager(API.ORDER.UPDATE_PAYMENT_STATUS)
-      const response = await instance.request({
-        orderId: payment.orderId,
-        paymentId: payment.payment?._id,
-        paymentStatus: newStatus
-      })
+      if (paymentType === "agri-inputs") {
+        // Update sell order payment status
+        const instance = NetworkManager(API.INVENTORY.UPDATE_SELL_ORDER_PAYMENT_STATUS)
+        const response = await instance.request({
+          paymentId: payment.payment?._id,
+          paymentStatus: newStatus
+        }, [`${payment._id}/payment/${payment.payment?._id}/status`])
 
-      if (response?.data?.success) {
-        Toast.success("Payment status updated successfully")
-        fetchPayments() // Refresh the list
+        if (response?.data?.success) {
+          Toast.success("Payment status updated successfully")
+          fetchPayments()
+        } else {
+          Toast.error(response?.data?.message || "Failed to update payment status")
+        }
       } else {
-        Toast.error(response?.data?.message || "Failed to update payment status")
+        // Update farmer order payment status
+        const instance = NetworkManager(API.ORDER.UPDATE_PAYMENT_STATUS)
+        const response = await instance.request({
+          orderId: payment.orderId,
+          paymentId: payment.payment?._id,
+          paymentStatus: newStatus
+        })
+
+        if (response?.data?.success) {
+          Toast.success("Payment status updated successfully")
+          fetchPayments()
+        } else {
+          Toast.error(response?.data?.message || "Failed to update payment status")
+        }
       }
     } catch (error) {
       console.error("Error updating payment status:", error)
@@ -554,26 +620,38 @@ const PaymentsPage = () => {
   const getAllImagesForPayment = (payment) => {
     const images = []
     
-    // Add order screenshots
-    if (payment.screenshots && payment.screenshots.length > 0) {
-      payment.screenshots.forEach((screenshot, index) => {
-        images.push({
-          url: screenshot,
-          type: 'Order Screenshot',
-          index: index + 1
+    if (paymentType === "agri-inputs") {
+      // For agri inputs, only payment receipt photos
+      if (payment.payment?.receiptPhoto && payment.payment.receiptPhoto.length > 0) {
+        payment.payment.receiptPhoto.forEach((photo, index) => {
+          images.push({
+            url: photo,
+            type: 'Payment Receipt',
+            index: index + 1
+          })
         })
-      })
-    }
-    
-    // Add payment receipt photos
-    if (payment.payment?.receiptPhoto && payment.payment.receiptPhoto.length > 0) {
-      payment.payment.receiptPhoto.forEach((photo, index) => {
-        images.push({
-          url: photo,
-          type: 'Payment Receipt',
-          index: index + 1
+      }
+    } else {
+      // For farmer orders, order screenshots + payment receipt photos
+      if (payment.screenshots && payment.screenshots.length > 0) {
+        payment.screenshots.forEach((screenshot, index) => {
+          images.push({
+            url: screenshot,
+            type: 'Order Screenshot',
+            index: index + 1
+          })
         })
-      })
+      }
+      
+      if (payment.payment?.receiptPhoto && payment.payment.receiptPhoto.length > 0) {
+        payment.payment.receiptPhoto.forEach((photo, index) => {
+          images.push({
+            url: photo,
+            type: 'Payment Receipt',
+            index: index + 1
+          })
+        })
+      }
     }
     
     return images
@@ -594,6 +672,26 @@ const PaymentsPage = () => {
           className={classes.addButton}>
           Export CSV
         </Button>
+      </Box>
+
+      {/* Payment Type Tabs */}
+      <Box mb={3}>
+        <Grid container spacing={2} alignItems="center">
+          <Grid item>
+            <Button
+              className={`${classes.tabButton} ${paymentType === "farmer" ? "active" : ""}`}
+              onClick={() => setPaymentType("farmer")}>
+              Farmer Orders Payments
+            </Button>
+          </Grid>
+          <Grid item>
+            <Button
+              className={`${classes.tabButton} ${paymentType === "agri-inputs" ? "active" : ""}`}
+              onClick={() => setPaymentType("agri-inputs")}>
+              Agri Inputs Payments
+            </Button>
+          </Grid>
+        </Grid>
       </Box>
 
       {/* Payment Status Tabs */}
@@ -655,7 +753,9 @@ const PaymentsPage = () => {
           <Grid item xs={12} md={4}>
             <TextField
               fullWidth
-              placeholder="Search by order ID, farmer name, or mobile..."
+              placeholder={paymentType === "agri-inputs" 
+                ? "Search by order number, merchant name, or buyer name..." 
+                : "Search by order ID, farmer name, or mobile..."}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className={classes.searchBox}
@@ -691,7 +791,9 @@ const PaymentsPage = () => {
         ) : (
           payments.map((payment, index) => {
             const statusColors = getStatusColor(payment.payment?.paymentStatus)
-            const orderStatusColors = getOrderStatusColor(payment.orderStatus)
+            const orderStatusColors = paymentType === "agri-inputs" 
+              ? getStatusColor(payment.status) 
+              : getOrderStatusColor(payment.orderStatus)
 
             return (
               <Grid item xs={12} key={index}>
@@ -700,23 +802,61 @@ const PaymentsPage = () => {
                     <Grid container spacing={2} alignItems="center">
                       <Grid item xs={12} md={2}>
                         <Typography variant="h6" fontWeight="bold">
-                          Order #{payment.orderId}
+                          {paymentType === "agri-inputs" 
+                            ? `Order #${payment.orderNumber}` 
+                            : `Order #${payment.orderId}`}
                         </Typography>
-                        <Typography variant="body2" color="textSecondary">
-                          {payment.farmer?.name}
-                        </Typography>
-                        <Typography variant="body2" color="textSecondary">
-                          {payment.farmer?.mobileNumber}
-                        </Typography>
+                        {paymentType === "agri-inputs" ? (
+                          <>
+                            <Typography variant="body2" color="textSecondary">
+                              {payment.merchant?.name || payment.buyerName || "N/A"}
+                            </Typography>
+                            {payment.buyerVillage && (
+                              <Typography variant="body2" color="textSecondary">
+                                {payment.buyerVillage}
+                              </Typography>
+                            )}
+                            {payment.merchant?.phone && (
+                              <Typography variant="body2" color="textSecondary">
+                                {payment.merchant.phone}
+                              </Typography>
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            <Typography variant="body2" color="textSecondary">
+                              {payment.farmer?.name}
+                            </Typography>
+                            <Typography variant="body2" color="textSecondary">
+                              {payment.farmer?.mobileNumber}
+                            </Typography>
+                          </>
+                        )}
                       </Grid>
 
                       <Grid item xs={12} md={2}>
-                        <Typography variant="body1" fontWeight="medium">
-                          {payment.plantType?.name}
-                        </Typography>
-                        <Typography variant="body2" color="textSecondary">
-                          {payment.numberOfPlants} plants
-                        </Typography>
+                        {paymentType === "agri-inputs" ? (
+                          <>
+                            <Typography variant="body1" fontWeight="medium">
+                              Agri Inputs Order
+                            </Typography>
+                            <Typography variant="body2" color="textSecondary">
+                              {payment.items?.length || 0} items
+                            </Typography>
+                            <Typography variant="body2" color="textSecondary">
+                              Total: ₹{payment.totalAmount?.toLocaleString() || 0}
+                            </Typography>
+                          </>
+                        ) : (
+                          <>
+                            <Typography variant="body1" fontWeight="medium">
+                              {payment.plantType?.name}
+                            </Typography>
+                            <Typography variant="body2" color="textSecondary">
+                              {payment.numberOfPlants} plants
+                            </Typography>
+                          </>
+                        )}
                       </Grid>
 
                       <Grid item xs={12} md={2}>
@@ -771,35 +911,72 @@ const PaymentsPage = () => {
                       </Grid>
 
                       <Grid item xs={12} md={2}>
-                        <FormControl fullWidth size="small" className={classes.statusSelect}>
-                          <Select
-                            value={payment.orderStatus || ""}
-                            onChange={(e) => handleOrderStatusChange(payment, e.target.value)}
-                            displayEmpty
-                            style={{
-                              backgroundColor: orderStatusColors.bg,
-                              color: orderStatusColors.text,
-                              fontWeight: 600
-                            }}>
-                            <MenuItem value="COMPLETED">Completed</MenuItem>
-                            <MenuItem value="PENDING">Pending</MenuItem>
-                            <MenuItem value="ACCEPTED">Accepted</MenuItem>
-                            <MenuItem value="DISPATCHED">Dispatched</MenuItem>
-                            <MenuItem value="FARM_READY">Farm Ready</MenuItem>
-                          </Select>
-                        </FormControl>
-                        <Typography variant="body2" color="textSecondary" mt={1}>
-                          Total: ₹{payment.totalOrderAmount?.toLocaleString()}
-                        </Typography>
+                        {paymentType === "agri-inputs" ? (
+                          <>
+                            <Chip
+                              label={payment.status?.toUpperCase() || "DRAFT"}
+                              className={classes.statusChip}
+                              style={{
+                                backgroundColor: orderStatusColors.bg,
+                                color: orderStatusColors.text
+                              }}
+                            />
+                            <Typography variant="body2" color="textSecondary" mt={1}>
+                              Total: ₹{payment.totalAmount?.toLocaleString() || 0}
+                            </Typography>
+                            <Typography variant="body2" color="textSecondary" mt={1}>
+                              Paid: ₹{payment.paidAmount?.toLocaleString() || 0}
+                            </Typography>
+                            <Typography variant="body2" color="textSecondary">
+                              Outstanding: ₹{((payment.totalAmount || 0) - (payment.paidAmount || 0)).toLocaleString()}
+                            </Typography>
+                          </>
+                        ) : (
+                          <>
+                            <FormControl fullWidth size="small" className={classes.statusSelect}>
+                              <Select
+                                value={payment.orderStatus || ""}
+                                onChange={(e) => handleOrderStatusChange(payment, e.target.value)}
+                                displayEmpty
+                                style={{
+                                  backgroundColor: orderStatusColors.bg,
+                                  color: orderStatusColors.text,
+                                  fontWeight: 600
+                                }}>
+                                <MenuItem value="COMPLETED">Completed</MenuItem>
+                                <MenuItem value="PENDING">Pending</MenuItem>
+                                <MenuItem value="ACCEPTED">Accepted</MenuItem>
+                                <MenuItem value="DISPATCHED">Dispatched</MenuItem>
+                                <MenuItem value="FARM_READY">Farm Ready</MenuItem>
+                              </Select>
+                            </FormControl>
+                            <Typography variant="body2" color="textSecondary" mt={1}>
+                              Total: ₹{payment.totalOrderAmount?.toLocaleString()}
+                            </Typography>
+                          </>
+                        )}
                       </Grid>
 
                       <Grid item xs={12} md={2}>
-                        <Typography variant="body2" fontWeight="medium">
-                          {payment.salesPerson?.name}
-                        </Typography>
-                        <Typography variant="body2" color="textSecondary">
-                          {payment.salesPerson?.phoneNumber}
-                        </Typography>
+                        {paymentType === "agri-inputs" ? (
+                          <>
+                            <Typography variant="body2" fontWeight="medium">
+                              Created By: {payment.createdBy?.name || "N/A"}
+                            </Typography>
+                            <Typography variant="body2" color="textSecondary">
+                              {moment(payment.orderDate).format("DD-MM-YYYY")}
+                            </Typography>
+                          </>
+                        ) : (
+                          <>
+                            <Typography variant="body2" fontWeight="medium">
+                              {payment.salesPerson?.name}
+                            </Typography>
+                            <Typography variant="body2" color="textSecondary">
+                              {payment.salesPerson?.phoneNumber}
+                            </Typography>
+                          </>
+                        )}
                       </Grid>
 
                       <Grid item xs={12} md={1}>

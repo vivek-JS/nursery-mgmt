@@ -15,12 +15,14 @@ import PaymentIcon from "@mui/icons-material/Payment"
 import WhatsAppIcon from "@mui/icons-material/WhatsApp"
 import LinkIcon from "@mui/icons-material/Link"
 import GrassIcon from "@mui/icons-material/Grass"
+import AssessmentIcon from "@mui/icons-material/Assessment"
 
 export const DashboardMenus = [
   new MenuPath("Orders", <HomeIcon />, "/u/dashboard"),
   new MenuPath("Stats", <BiotechIcon />, "/u/stats"),
   new MenuPath("Plants and Products", <AlignHorizontalLeftIcon />, "/u/plants"),
   new MenuPath("Sowing Management", <GrassIcon />, "/u/sowing"),
+  new MenuPath("Plant Availability", <AssessmentIcon />, "/u/plant-availability"),
   new MenuPath("Slots Managment", <BiotechIcon />, "/u/slots"),
   new MenuPath("Hardening", <BiotechIcon />, "/u/hardening"),
   new MenuPath("CMS", <AodIcon />, "/u/cms"),
