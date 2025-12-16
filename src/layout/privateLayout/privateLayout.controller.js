@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router-dom"
+import { useNavigate, useLocation } from "react-router-dom"
 import { useLogoutModel } from "./privateLayout.model"
 import React from "react"
 import { Loader } from "redux/dispatcher/Loader"
@@ -9,7 +9,9 @@ import { hasSeenTodaysQuote, markQuoteAsSeen } from "utils/quoteUtils"
 
 export const usePrivateLayoutController = (props) => {
   const navigateTo = useNavigate()
-  const currentRoute = window.location.pathname
+  const location = useLocation()
+  // With HashRouter, location.pathname works correctly via useLocation hook
+  const currentRoute = location.pathname
   const model = useLogoutModel()
   const [showPasswordModal, setShowPasswordModal] = React.useState(false)
   const [showQuoteModal, setShowQuoteModal] = React.useState(false)

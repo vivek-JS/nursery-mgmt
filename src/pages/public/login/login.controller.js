@@ -102,10 +102,12 @@ export const useLoginController = () => {
             navigate("/u/dashboard", { replace: true })
           }, 500)
 
-          // Fallback: if navigation doesn't work, force a page reload
+          // Fallback: if navigation doesn't work, force a page reload with hash
           setTimeout(() => {
-            if (window.location.pathname !== "/u/dashboard") {
-              window.location.href = "/u/dashboard"
+            // With HashRouter, pathname is always "/" and route is in hash
+            const currentHash = window.location.hash
+            if (currentHash !== "#/u/dashboard") {
+              window.location.href = "/#/u/dashboard"
             }
           }, 2000)
         }

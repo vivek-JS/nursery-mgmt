@@ -21,6 +21,9 @@ import {
   Save,
   Refresh,
   CalendarToday,
+  Share,
+  WhatsApp,
+  ContentCopy,
 } from "@mui/icons-material";
 import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
@@ -87,6 +90,7 @@ const PrimarySowingEntry = () => {
   const [hasAutoFilled, setHasAutoFilled] = useState(false);
   const [showQuoteModal, setShowQuoteModal] = useState(false);
   const [quote, setQuote] = useState(null);
+  const [copiedToClipboard, setCopiedToClipboard] = useState(false);
 
   // Check if user has seen today's quote
   const hasSeenTodaysQuote = () => {
@@ -144,6 +148,133 @@ const PrimarySowingEntry = () => {
 
   const handleQuoteModalClose = () => {
     setShowQuoteModal(false);
+  };
+
+  // Generate beautiful WhatsApp message from payload
+  const generateWhatsAppMessage = () => {
+    const { packetGroups, primaryGroups } = getSummaryData();
+    const allGroups = [...packetGroups, ...primaryGroups];
+    
+    if (allGroups.length === 0) {
+      return "No sowing data to share.";
+    }
+
+    let message = `🌱 *Primary Sowing Entry Summary*\n\n`;
+    message += `📅 *Sowing Date:* ${moment(formData.sowingDate).format("DD-MM-YYYY")}\n`;
+    
+    if (formData.batchNumber) {
+      message += `🏷️ *Batch Number:* ${formData.batchNumber}\n`;
+    }
+    
+    if (formData.notes) {
+      message += `📝 *Notes:* ${formData.notes}\n`;
+    }
+    
+    message += `\n━━━━━━━━━━━━━━━━━━━━\n\n`;
+
+    // Packets Section
+    if (packetGroups.length > 0) {
+      message += `📦 *Packets (OFFICE)*\n`;
+      packetGroups.forEach((group, idx) => {
+        message += `\n${idx + 1}. *${group.plantName} - ${group.subtypeName}*\n`;
+        message += `   Quantity: ${group.totalQuantity} units\n`;
+        
+        // Group packets by batch
+        const batchMap = new Map();
+        group.packets.forEach(p => {
+          const batchKey = p.batchNumber || 'N/A';
+          if (!batchMap.has(batchKey)) {
+            batchMap.set(batchKey, {
+              productName: p.productName,
+              quantities: []
+            });
+          }
+          batchMap.get(batchKey).quantities.push(p.quantity);
+        });
+        
+        Array.from(batchMap.entries()).forEach(([batch, data]) => {
+          const totalQty = data.quantities.reduce((sum, q) => sum + q, 0);
+          message += `   • ${data.productName} (Batch: ${batch}): ${totalQty} units\n`;
+        });
+      });
+      message += `\n`;
+    }
+
+    // Primary Section
+    if (primaryGroups.length > 0) {
+      message += `🌾 *Primary (Field)*\n`;
+      primaryGroups.forEach((group, idx) => {
+        message += `\n${idx + 1}. *${group.plantName} - ${group.subtypeName}*\n`;
+        message += `   Quantity: ${group.totalQuantity} units\n`;
+        
+        // Group by batch
+        const batchMap = new Map();
+        group.packets.forEach(p => {
+          const batchKey = p.batchNumber || 'N/A';
+          if (!batchMap.has(batchKey)) {
+            batchMap.set(batchKey, {
+              productName: p.productName,
+              quantities: []
+            });
+          }
+          batchMap.get(batchKey).quantities.push(p.quantity);
+        });
+        
+        Array.from(batchMap.entries()).forEach(([batch, data]) => {
+          const totalQty = data.quantities.reduce((sum, q) => sum + q, 0);
+          message += `   • ${data.productName} (Batch: ${batch}): ${totalQty} units\n`;
+        });
+      });
+      message += `\n`;
+    }
+
+    message += `━━━━━━━━━━━━━━━━━━━━\n\n`;
+    message += `📊 *Total Records:* ${allGroups.length}\n`;
+    message += `📦 *Total Quantity:* ${totalQuantity} units\n`;
+    message += `\n_Generated from Nursery Management System_`;
+
+    return message;
+  };
+
+  // Share to WhatsApp or copy to clipboard
+  const handleShareWhatsApp = async () => {
+    const message = generateWhatsAppMessage();
+    const encodedMessage = encodeURIComponent(message);
+    const whatsappUrl = `https://wa.me/?text=${encodedMessage}`;
+
+    try {
+      // Try to use Web Share API first (works on mobile)
+      if (navigator.share) {
+        await navigator.share({
+          title: "Primary Sowing Entry Summary",
+          text: message,
+          url: whatsappUrl,
+        });
+        Toast.success("Shared successfully!");
+      } else {
+        // Fallback: Copy to clipboard and open WhatsApp
+        await navigator.clipboard.writeText(message);
+        setCopiedToClipboard(true);
+        Toast.success("Message copied to clipboard!");
+        
+        // Open WhatsApp Web or app
+        window.open(whatsappUrl, "_blank");
+        
+        // Reset copied state after 3 seconds
+        setTimeout(() => setCopiedToClipboard(false), 3000);
+      }
+    } catch (error) {
+      // If share fails, just copy to clipboard
+      try {
+        await navigator.clipboard.writeText(message);
+        setCopiedToClipboard(true);
+        Toast.success("Message copied to clipboard! You can paste it in WhatsApp.");
+        setTimeout(() => setCopiedToClipboard(false), 3000);
+      } catch (clipboardError) {
+        console.error("Failed to copy:", clipboardError);
+        Toast.error("Failed to share. Please try again.");
+      }
+    }
   };
 
   useEffect(() => {
@@ -1181,6 +1312,31 @@ const PrimarySowingEntry = () => {
                     {totalQuantity} units
                   </Typography>
                 </Box>
+                
+                {/* WhatsApp Share Button */}
+                <Box sx={{ mt: 2, display: "flex", justifyContent: "center" }}>
+                  <Button
+                    variant="contained"
+                    onClick={handleShareWhatsApp}
+                    startIcon={copiedToClipboard ? <ContentCopy /> : <WhatsApp />}
+                    sx={{
+                      bgcolor: "#25D366",
+                      color: "white",
+                      fontWeight: 600,
+                      px: 3,
+                      py: 1,
+                      borderRadius: 2,
+                      textTransform: "none",
+                      fontSize: isMobile ? "0.875rem" : "0.95rem",
+                      "&:hover": {
+                        bgcolor: "#20BA5A",
+                      },
+                      boxShadow: "0 2px 8px rgba(37, 211, 102, 0.3)",
+                    }}
+                  >
+                    {copiedToClipboard ? "Copied! Share on WhatsApp" : "Share on WhatsApp"}
+                  </Button>
+                </Box>
               </Box>
             </Paper>
           )}
@@ -1387,7 +1543,9 @@ const PrimarySowingEntry = () => {
                                     }}
                                     inputProps={{
                                       min: 0,
-                                      step: 1
+                                      step: 1,
+                                      inputMode: "numeric",
+                                      pattern: "[0-9]*"
                                     }}
                                     sx={{
                                       width: isMobile ? "120px" : "140px",
@@ -1574,6 +1732,13 @@ const PrimarySowingEntry = () => {
                           size={isMobile ? "medium" : "small"}
                           fullWidth
                           value={selectedQuantity || ''}
+                          inputProps={{
+                            inputMode: "numeric",
+                            pattern: "[0-9]*",
+                            min: 0,
+                            max: combined.totalAvailableQuantity,
+                            step: 1
+                          }}
                           onChange={(e) => {
                             const qty = parseFloat(e.target.value) || 0;
                             const maxQty = combined.totalAvailableQuantity;
@@ -1731,11 +1896,6 @@ const PrimarySowingEntry = () => {
                               setPrimaryQuantities(updatedPrimaryQuantities);
                             }
                           }}
-                          inputProps={{
-                            min: 0,
-                            max: combined.totalAvailableQuantity,
-                            step: 1
-                          }}
                           placeholder="0"
                           sx={{
                             "& .MuiInputBase-input": {
@@ -1752,6 +1912,12 @@ const PrimarySowingEntry = () => {
                                           fullWidth
                                           value={totalQtyForBatch || ''}
                                           onClick={(e) => e.stopPropagation()}
+                                          inputProps={{
+                                            inputMode: "numeric",
+                                            pattern: "[0-9]*",
+                                            min: 0,
+                                            step: 1
+                                          }}
                                           onChange={(e) => {
                                             const qty = parseFloat(e.target.value) || 0;
                                             const conversionFactor = combined.conversionFactor || 1;
@@ -1864,10 +2030,6 @@ const PrimarySowingEntry = () => {
                                                 !combined.itemIds.includes(sp.itemId)
                                               ));
                                             }
-                                          }}
-                                          inputProps={{
-                                            min: 0,
-                                            step: 1
                                           }}
                                           placeholder="0"
                                           sx={{

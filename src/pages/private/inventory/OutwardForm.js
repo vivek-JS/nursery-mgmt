@@ -262,7 +262,7 @@ const OutwardForm = () => {
     return { isValid, checks };
   };
 
-  const { isValid: formIsValid, checks: validationChecks } = isFormValid();
+  const formIsValid = isFormValid().isValid;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 p-2 md:p-4">
@@ -640,124 +640,6 @@ const OutwardForm = () => {
                 className="w-full px-2.5 py-2 md:px-3 md:py-2.5 text-xs md:text-sm border border-gray-300 rounded-lg focus:ring-1 focus:ring-slate-500 focus:border-slate-500 transition-all duration-200 resize-none"
                 placeholder="Enter any additional notes or remarks about this outward entry..."
               />
-            </div>
-          </div>
-
-          {/* Validation Status */}
-          <div className="bg-white rounded-xl md:rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
-            <div className={`px-3 py-2 md:px-4 md:py-2.5 ${formIsValid ? 'bg-gradient-to-r from-green-500 to-emerald-600' : 'bg-gradient-to-r from-amber-500 to-orange-600'}`}>
-              <h2 className="text-sm md:text-base font-bold text-white flex items-center">
-                {formIsValid ? (
-                  <>
-                    <CheckCircle className="w-4 h-4 md:w-5 md:h-5 mr-1.5" />
-                    Validation Checks
-                  </>
-                ) : (
-                  <>
-                    <AlertCircle className="w-4 h-4 md:w-5 md:h-5 mr-1.5" />
-                    Validation Checks
-                  </>
-                )}
-              </h2>
-            </div>
-            <div className="p-3 md:p-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                <div className={`p-2 rounded-lg border ${validationChecks.outwardDate ? 'bg-green-50 border-green-300' : 'bg-red-50 border-red-300'}`}>
-                  <div className="flex items-center space-x-1.5">
-                    {validationChecks.outwardDate ? (
-                      <CheckCircle className="w-4 h-4 text-green-600 flex-shrink-0" />
-                    ) : (
-                      <X className="w-4 h-4 text-red-600 flex-shrink-0" />
-                    )}
-                    <div>
-                      <p className="text-xs font-semibold text-gray-600">Outward Date</p>
-                      <p className={`text-xs font-bold ${validationChecks.outwardDate ? 'text-green-700' : 'text-red-700'}`}>
-                        {validationChecks.outwardDate ? '✓ Filled' : '✗ Required'}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className={`p-2 rounded-lg border ${validationChecks.purpose ? 'bg-green-50 border-green-300' : 'bg-red-50 border-red-300'}`}>
-                  <div className="flex items-center space-x-1.5">
-                    {validationChecks.purpose ? (
-                      <CheckCircle className="w-4 h-4 text-green-600 flex-shrink-0" />
-                    ) : (
-                      <X className="w-4 h-4 text-red-600 flex-shrink-0" />
-                    )}
-                    <div>
-                      <p className="text-xs font-semibold text-gray-600">Purpose</p>
-                      <p className={`text-xs font-bold ${validationChecks.purpose ? 'text-green-700' : 'text-red-700'}`}>
-                        {validationChecks.purpose ? '✓ Selected' : '✗ Required'}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className={`p-2 rounded-lg border ${validationChecks.hasItems ? 'bg-green-50 border-green-300' : 'bg-red-50 border-red-300'}`}>
-                  <div className="flex items-center space-x-1.5">
-                    {validationChecks.hasItems ? (
-                      <CheckCircle className="w-4 h-4 text-green-600 flex-shrink-0" />
-                    ) : (
-                      <X className="w-4 h-4 text-red-600 flex-shrink-0" />
-                    )}
-                    <div>
-                      <p className="text-xs font-semibold text-gray-600">Items Added</p>
-                      <p className={`text-xs font-bold ${validationChecks.hasItems ? 'text-green-700' : 'text-red-700'}`}>
-                        {formData.items.length} {validationChecks.hasItems ? '✓' : '✗'}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className={`p-2 rounded-lg border ${validationChecks.itemsValid ? 'bg-green-50 border-green-300' : 'bg-red-50 border-red-300'}`}>
-                  <div className="flex items-center space-x-1.5">
-                    {validationChecks.itemsValid ? (
-                      <CheckCircle className="w-4 h-4 text-green-600 flex-shrink-0" />
-                    ) : (
-                      <X className="w-4 h-4 text-red-600 flex-shrink-0" />
-                    )}
-                    <div>
-                      <p className="text-xs font-semibold text-gray-600">Items Valid</p>
-                      <p className={`text-xs font-bold ${validationChecks.itemsValid ? 'text-green-700' : 'text-red-700'}`}>
-                        {validationChecks.itemsValid ? '✓ All Valid' : '✗ Check Items'}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className={`p-2 rounded-lg border ${validationChecks.notLoading ? 'bg-green-50 border-green-300' : 'bg-yellow-50 border-yellow-300'}`}>
-                  <div className="flex items-center space-x-1.5">
-                    {validationChecks.notLoading ? (
-                      <CheckCircle className="w-4 h-4 text-green-600 flex-shrink-0" />
-                    ) : (
-                      <AlertCircle className="w-4 h-4 text-yellow-600 flex-shrink-0" />
-                    )}
-                    <div>
-                      <p className="text-xs font-semibold text-gray-600">Status</p>
-                      <p className={`text-xs font-bold ${validationChecks.notLoading ? 'text-green-700' : 'text-yellow-700'}`}>
-                        {validationChecks.notLoading ? '✓ Ready' : '⏳ Processing...'}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className={`p-2 rounded-lg border ${formIsValid ? 'bg-gradient-to-r from-green-100 to-emerald-100 border-green-400' : 'bg-gradient-to-r from-red-100 to-orange-100 border-red-400'}`}>
-                  <div className="flex items-center space-x-1.5">
-                    {formIsValid ? (
-                      <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0" />
-                    ) : (
-                      <X className="w-5 h-5 text-red-600 flex-shrink-0" />
-                    )}
-                    <div>
-                      <p className="text-xs font-semibold text-gray-600">Overall Status</p>
-                      <p className={`text-sm font-bold ${formIsValid ? 'text-green-700' : 'text-red-700'}`}>
-                        {formIsValid ? '✓ VALID' : '✗ INVALID'}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
             </div>
           </div>
 
