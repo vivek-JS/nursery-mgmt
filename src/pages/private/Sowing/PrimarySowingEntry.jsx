@@ -33,6 +33,10 @@ import { Toast } from "helpers/toasts/toastHelper";
 import { useSelector } from "react-redux";
 import { useNavigate } from "react-router-dom";
 import { useUserData, useUserRole } from "utils/roleUtils";
+import { useLogoutModel } from "layout/privateLayout/privateLayout.model";
+import { Loader } from "redux/dispatcher/Loader";
+import LogoutIcon from "@mui/icons-material/Logout";
+import MotivationalQuoteModal from "components/Modals/MotivationalQuoteModal";
 
 const PrimarySowingEntry = () => {
   const theme = useTheme();
@@ -40,6 +44,15 @@ const PrimarySowingEntry = () => {
   const navigate = useNavigate();
   const userData = useUserData();
   const userRole = useUserRole();
+  const logoutModel = useLogoutModel();
+  
+  // Handle logout
+  const handleLogout = async () => {
+    Loader.show();
+    await logoutModel.logout();
+    Loader.hide();
+    navigate("/auth/login", { replace: true });
+  };
   
   // Check if user has access: PRIMARY jobTitle, SUPER_ADMIN, or ADMIN role
   const userJobTitle = useSelector((state) => state?.userData?.userData?.jobTitle);
@@ -72,10 +85,72 @@ const PrimarySowingEntry = () => {
   const [submitting, setSubmitting] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
   const [hasAutoFilled, setHasAutoFilled] = useState(false);
+  const [showQuoteModal, setShowQuoteModal] = useState(false);
+  const [quote, setQuote] = useState(null);
+
+  // Check if user has seen today's quote
+  const hasSeenTodaysQuote = () => {
+    const lastSeenDate = localStorage.getItem("lastQuoteSeenDate");
+    const today = new Date().toDateString();
+    return lastSeenDate === today;
+  };
+
+  // Mark today's quote as seen
+  const markQuoteAsSeen = () => {
+    const today = new Date().toDateString();
+    localStorage.setItem("lastQuoteSeenDate", today);
+  };
+
+  // Fetch today's motivational quote
+  const fetchTodaysQuote = async () => {
+    try {
+      const instance = NetworkManager(API.MOTIVATIONAL_QUOTE.GET_TODAY);
+      const response = await instance.request();
+
+      // NetworkManager returns { success: boolean, data: backendResponse }
+      // Backend response structure: { status: "Success", message: "...", data: { quote } }
+      if (response?.success && response?.data) {
+        const backendData = response.data.data || response.data;
+        if (backendData && backendData.line1 && backendData.line2) {
+          return {
+            line1: backendData.line1,
+            line2: backendData.line2,
+            id: backendData.id
+          };
+        }
+      }
+      return null;
+    } catch (error) {
+      console.error("Error fetching motivational quote:", error);
+      return null;
+    }
+  };
+
+  // Check and show motivational quote if not seen today
+  const checkAndShowQuote = async () => {
+    // Check if user has already seen today's quote
+    if (hasSeenTodaysQuote()) {
+      return;
+    }
+
+    // Fetch today's quote
+    const todaysQuote = await fetchTodaysQuote();
+    if (todaysQuote) {
+      setQuote(todaysQuote);
+      setShowQuoteModal(true);
+      markQuoteAsSeen();
+    }
+  };
+
+  const handleQuoteModalClose = () => {
+    setShowQuoteModal(false);
+  };
 
   useEffect(() => {
     if (hasAccess && userData !== undefined) {
       fetchAllAvailablePackets();
+      // Check and show motivational quote if not seen today
+      checkAndShowQuote();
     }
   }, [hasAccess, userData]);
 
@@ -699,6 +774,18 @@ const PrimarySowingEntry = () => {
             <Typography variant="h6" sx={{ flexGrow: 1, fontWeight: 600, fontSize: isMobile ? "1rem" : "1.125rem" }}>
               Primary Sowing Entry
             </Typography>
+            <IconButton
+              color="inherit"
+              onClick={handleLogout}
+              sx={{ 
+                ml: 1,
+                p: 0.75,
+                "&:hover": { bgcolor: "rgba(255,255,255,0.1)" }
+              }}
+              title="Logout"
+            >
+              <LogoutIcon sx={{ fontSize: isMobile ? "1.25rem" : "1.5rem" }} />
+            </IconButton>
             {!showSummary ? (
               <Button
                 variant="contained"
@@ -1812,6 +1899,13 @@ const PrimarySowingEntry = () => {
           )}
         </Container>
       </Box>
+
+      {/* Motivational Quote Modal - shown once per day */}
+      <MotivationalQuoteModal
+        open={showQuoteModal}
+        onClose={handleQuoteModalClose}
+        quote={quote}
+      />
     </LocalizationProvider>
   );
 };

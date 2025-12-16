@@ -35,6 +35,9 @@ export const API = {
     VERIFYOTP: new APIWithOfflineRouter("/auth/login", HTTP_METHODS.POST, OFFLINE.LOGIN),
     REFRESH_TOKEN: new APIRouter("user/refresh-token", HTTP_METHODS.POST)
   },
+  MOTIVATIONAL_QUOTE: {
+    GET_TODAY: new APIRouter("/motivational-quote/today", HTTP_METHODS.GET)
+  },
   HOSPITAL: {
     LOGIN_HOSPITAL: new APIWithOfflineRouter("user/login", HTTP_METHODS.POST, OFFLINE.LOGIN),
     CREATE_HOSPITAL: new APIRouter(

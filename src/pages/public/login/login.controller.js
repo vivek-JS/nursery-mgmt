@@ -2,11 +2,15 @@ import { useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { useLoginModel } from "./login.model"
 import PasswordChangeModal from "components/Modals/PasswordChangeModal"
+import { NetworkManager, API } from "network/core"
+import { hasSeenTodaysQuote, markQuoteAsSeen } from "utils/quoteUtils"
 
 export const useLoginController = () => {
   const [showPassword, setShowPassword] = useState(false)
   const [showLoader, setShowLoader] = useState(false)
   const [showPasswordChangeModal, setShowPasswordChangeModal] = useState(false)
+  const [showQuoteModal, setShowQuoteModal] = useState(false)
+  const [quote, setQuote] = useState(null)
   const [loginResponse, setLoginResponse] = useState(null)
 
   const navigate = useNavigate()
@@ -14,6 +18,49 @@ export const useLoginController = () => {
 
   const togglePasswordVisiblity = () => {
     setShowPassword((prev) => !prev)
+  }
+
+  // Using utility functions from quoteUtils
+
+  // Fetch today's motivational quote
+  const fetchTodaysQuote = async () => {
+    try {
+      const instance = NetworkManager(API.MOTIVATIONAL_QUOTE.GET_TODAY)
+      const response = await instance.request()
+
+      // NetworkManager returns { success: boolean, data: backendResponse }
+      // Backend response structure: { status: "Success", message: "...", data: { quote } }
+      if (response?.success && response?.data) {
+        const backendData = response.data.data || response.data
+        if (backendData && backendData.line1 && backendData.line2) {
+          return {
+            line1: backendData.line1,
+            line2: backendData.line2,
+            id: backendData.id
+          }
+        }
+      }
+      return null
+    } catch (error) {
+      console.error("Error fetching motivational quote:", error)
+      return null
+    }
+  }
+
+  // Show motivational quote modal if user hasn't seen it today
+  const showMotivationalQuote = async () => {
+    // Check if user has already seen today's quote
+    if (hasSeenTodaysQuote()) {
+      return
+    }
+
+    // Fetch today's quote
+    const todaysQuote = await fetchTodaysQuote()
+    if (todaysQuote) {
+      setQuote(todaysQuote)
+      setShowQuoteModal(true)
+      markQuoteAsSeen()
+    }
   }
 
   const handleLogin = async (values) => {
@@ -47,6 +94,9 @@ export const useLoginController = () => {
           console.log("🔍 Modal state set to true")
         } else {
           console.log("🔍 Navigating to dashboard (password already set)")
+          // Show motivational quote modal first (if not seen today)
+          await showMotivationalQuote()
+
           // Navigate to dashboard if password is already set and no reset required
           setTimeout(() => {
             navigate("/u/dashboard", { replace: true })
@@ -67,12 +117,20 @@ export const useLoginController = () => {
     }
   }
 
-  const handlePasswordChangeSuccess = () => {
+  const handlePasswordChangeSuccess = async () => {
     // Close the modal and navigate to dashboard after successful password change
     setShowPasswordChangeModal(false)
+    
+    // Show motivational quote modal after password change
+    await showMotivationalQuote()
+    
     setTimeout(() => {
       navigate("/u/dashboard", { replace: true })
     }, 500)
+  }
+
+  const handleQuoteModalClose = () => {
+    setShowQuoteModal(false)
   }
 
   // Prevent closing modal if password is not set
@@ -105,10 +163,13 @@ export const useLoginController = () => {
     showLoader,
     showPasswordChangeModal,
     setShowPasswordChangeModal,
+    showQuoteModal,
+    quote,
     togglePasswordVisiblity,
     handleLogin,
     handlePasswordChangeSuccess,
     handleModalClose,
+    handleQuoteModalClose,
     navigateToForgotPassword,
     navigateToSignUp,
     openPasswordResetModal,

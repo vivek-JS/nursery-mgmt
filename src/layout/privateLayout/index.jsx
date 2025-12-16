@@ -1,4 +1,5 @@
 import * as React from "react"
+import { useEffect } from "react"
 import { styled } from "@mui/material/styles"
 import {
   Box,
@@ -11,12 +12,13 @@ import {
   ListItemButton
 } from "@mui/material"
 import { DashboardMenus } from "router/routes/dashboardRoutes"
-import { Outlet, useLocation } from "react-router-dom"
+import { Outlet, useLocation, useNavigate } from "react-router-dom"
 import LogoutIcon from "@mui/icons-material/Logout"
 import { usePrivateLayoutController } from "./privateLayout.controller"
 import { useStyles } from "layout/privateLayoutStyles"
 import { useSelector } from "react-redux"
 import PasswordChangeModal from "components/Modals/PasswordChangeModal"
+import MotivationalQuoteModal from "components/Modals/MotivationalQuoteModal"
 import { useUserRole } from "utils/roleUtils"
 const drawerWidth = 65
 
@@ -72,21 +74,48 @@ export default function PrivateLayout(props) {
   // }, [])
   const styles = useStyles()
   const location = useLocation()
+  const navigate = useNavigate()
 
   const userType = useSelector((state) => state?.userData?.userData?.jobTitle)
   const userRole = useUserRole()
   console.log("User Type:", userType, "User Role:", userRole)
   
+  // Check if user is PRIMARY employee
+  const isPrimaryEmployee = userType && (userType.toUpperCase() === "PRIMARY")
+  const isSuperAdmin = userRole === "SUPER_ADMIN" || userRole === "SUPERADMIN"
+  const isAdmin = userRole === "ADMIN"
+  
+  // PRIMARY users can ONLY access /u/primary-sowing-entry route
+  // Redirect them immediately if they try to access any other route
+  useEffect(() => {
+    if (isPrimaryEmployee && !isSuperAdmin && !isAdmin) {
+      const currentPath = location.pathname
+      // Check both with and without hash prefix (HashRouter)
+      const isPrimarySowingRoute = 
+        currentPath === "/u/primary-sowing-entry" || 
+        currentPath === "#/u/primary-sowing-entry" ||
+        currentPath.includes("/u/primary-sowing-entry")
+      
+      if (!isPrimarySowingRoute) {
+        // Redirect PRIMARY users to primary sowing entry page
+        console.log(`[PrivateLayout] PRIMARY user accessing ${currentPath}, redirecting to /u/primary-sowing-entry`)
+        navigate("/u/primary-sowing-entry", { replace: true })
+      }
+    }
+  }, [isPrimaryEmployee, isSuperAdmin, isAdmin, location.pathname, navigate])
+  
   // Hide sidebar for primary sowing entry route
   const hideSidebar = location.pathname === "/u/primary-sowing-entry" || location.pathname === "#/u/primary-sowing-entry"
   
   const { 
-    navigate, 
     handleLogout, 
     activeMenu,
     showPasswordModal,
+    showQuoteModal,
+    quote,
     handlePasswordChangeSuccess,
     handlePasswordModalClose,
+    handleQuoteModalClose,
     userProfile
   } = usePrivateLayoutController(props)
 
@@ -174,6 +203,12 @@ export default function PrivateLayout(props) {
                   return false
                 }
                 
+                // PRIMARY users should only see menu items that lead to primary-sowing-entry
+                // Since PRIMARY users are redirected to primary-sowing-entry, hide all menu items
+                if (isPrimaryEmployee && !isSuperAdmin && !isAdmin) {
+                  return false
+                }
+                
                 // Apply role-based access control
                 return hasMenuAccess(item)
               }).map((item, index) => {
@@ -231,6 +266,13 @@ export default function PrivateLayout(props) {
           }}
         />
       )}
+
+      {/* Motivational Quote Modal - shown once per day */}
+      <MotivationalQuoteModal
+        open={showQuoteModal}
+        onClose={handleQuoteModalClose}
+        quote={quote}
+      />
     </Box>
   )
 }

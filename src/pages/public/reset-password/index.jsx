@@ -23,17 +23,30 @@ function ResetPassword() {
   } = useResetPasswordController()
 
   return (
-    <Box sx={styles.container}>
-      <Typography align="left" variant="h3">
+    <Box
+      sx={{
+        ...styles.container,
+        maxWidth: { xs: "100%", sm: "90%", md: "66%" },
+        padding: { xs: "20px", sm: "30px", md: "40px" },
+        height: { xs: "auto", sm: "100vh" },
+        minHeight: { xs: "100vh", sm: "auto" },
+        marginTop: { xs: "20px", sm: "0" },
+        marginBottom: { xs: "20px", sm: "0" }
+      }}>
+      <Typography
+        align="left"
+        variant="h3"
+        sx={{
+          fontSize: { xs: "1.75rem", sm: "2rem", md: "2.5rem" },
+          marginBottom: { xs: "20px", sm: "30px" }
+        }}>
         Set Your Password
       </Typography>
       <Grid sx={styles.form} container spacing={2}>
         <Divider />
         <Formik
           innerRef={formikRef}
-          validateOnMount
           initialValues={RPValidator.initialValues}
-          validationSchema={RPValidator.validationSchema}
           onSubmit={resetPassword}>
           {(formik) => (
             <React.Fragment>
@@ -61,12 +74,24 @@ function ResetPassword() {
                   togglePasswordVisiblity={toggleConfirmPasswordVisiblity}
                 />
               </Grid>
-              <Grid sx={styles.buttonContainer} item xs={12}>
+              <Grid
+                sx={{
+                  ...styles.buttonContainer,
+                  flexDirection: { xs: "column", sm: "row" },
+                  gap: { xs: "15px", sm: "0" },
+                  alignItems: { xs: "stretch", sm: "center" }
+                }}
+                item
+                xs={12}>
                 <LoadingButton
                   type="submit"
-                  disabled={!formik.isValid || showLoader}
+                  disabled={showLoader}
                   variant="contained"
-                  sx={styles.submitBtn}
+                  sx={{
+                    ...styles.submitBtn,
+                    width: { xs: "100%", sm: "auto" },
+                    padding: { xs: "14px 30px", sm: "16px 50px" }
+                  }}
                   size="large"
                   onClick={formik.handleSubmit}
                   loading={showLoader}
@@ -74,7 +99,14 @@ function ResetPassword() {
                   startIcon={<LockResetIcon />}>
                   Set Password
                 </LoadingButton>
-                <Typography onClick={navigateToLogin} sx={styles.forgotPassword} variant="c3">
+                <Typography
+                  onClick={navigateToLogin}
+                  sx={{
+                    ...styles.forgotPassword,
+                    textAlign: { xs: "center", sm: "left" },
+                    marginTop: { xs: "10px", sm: "0" }
+                  }}
+                  variant="c3">
                   Back To Login
                 </Typography>
               </Grid>

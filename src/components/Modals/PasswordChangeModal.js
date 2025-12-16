@@ -12,14 +12,7 @@ import { Toast } from "helpers/toasts/toastHelper"
 import { useUserSession } from "hooks/userSession"
 import { UserState } from "redux/dispatcher/UserState"
 
-const validationSchema = Yup.object().shape({
-  newPassword: Yup.string()
-    .min(8, "Password must be at least 8 characters")
-    .required("New password is required"),
-  confirmPassword: Yup.string()
-    .oneOf([Yup.ref("newPassword"), null], "Passwords must match")
-    .required("Confirm password is required")
-})
+const validationSchema = Yup.object().shape({})
 
 const initialValues = {
   newPassword: "",
@@ -175,7 +168,6 @@ const PasswordChangeModal = ({ open, onClose, onSuccess, loginResponse, canClose
 
       <Formik
         initialValues={initialValues}
-        validationSchema={validationSchema}
         onSubmit={handleSubmit}>
         {(formik) => (
           <Form>
@@ -214,7 +206,7 @@ const PasswordChangeModal = ({ open, onClose, onSuccess, loginResponse, canClose
                 type="submit"
                 variant="contained"
                 color="primary"
-                disabled={!formik.isValid || !formik.dirty || loading}
+                disabled={loading}
                 style={{ minWidth: "120px" }}>
                 {loading ? "Changing..." : "Change Password"}
               </Button>
