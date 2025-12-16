@@ -64,11 +64,20 @@ export default function networkManager(router, withFile = false) {
     const getArrayParams = !Array.isArray(params) && Object.keys(params).length
     const httpBody = httpBodyBuilder(body, withFile)
 
+    // Get fresh token for each request to ensure it's up to date
+    const currentAuthToken = localStorage.getItem(CookieKeys.Auth)
+    const requestHeaders = {}
+    
+    if (currentAuthToken && currentAuthToken !== "undefined" && currentAuthToken !== "null") {
+      requestHeaders[API_AUTH_HEADER] = `${AUTH_TYPE} ${currentAuthToken}`
+    }
+
     try {
       const result = await axios.request({
         signal: APIAborter.initiate().signal,
         url: url,
         method: router.method,
+        headers: requestHeaders,
         ...(getHttpMethod && { data: httpBody }),
         ...(getArrayParams && { params: params })
       })
@@ -83,8 +92,12 @@ export default function networkManager(router, withFile = false) {
       console.log(err?.response?.data?.message)
       const fullError = err?.response?.data?.rowErrors
       const colError = err?.response?.data?.errors
-
-      apiError(fullError?.message || "Unknown error")
+      
+      // Extract error message from response
+      const errorMessage = err?.response?.data?.message || fullError?.message || "Unknown error"
+      
+      // Show toast notification for the error
+      apiError(errorMessage)
 
       const isNetworkError = err.code === HTTP_STATUS.NETWORK_ERR
 

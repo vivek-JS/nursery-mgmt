@@ -11,7 +11,7 @@ import {
   ListItemButton
 } from "@mui/material"
 import { DashboardMenus } from "router/routes/dashboardRoutes"
-import { Outlet } from "react-router-dom"
+import { Outlet, useLocation } from "react-router-dom"
 import LogoutIcon from "@mui/icons-material/Logout"
 import { usePrivateLayoutController } from "./privateLayout.controller"
 import { useStyles } from "layout/privateLayoutStyles"
@@ -71,10 +71,14 @@ export default function PrivateLayout(props) {
   //   }
   // }, [])
   const styles = useStyles()
+  const location = useLocation()
 
   const userType = useSelector((state) => state?.userData?.userData?.jobTitle)
   const userRole = useUserRole()
   console.log("User Type:", userType, "User Role:", userRole)
+  
+  // Hide sidebar for primary sowing entry route
+  const hideSidebar = location.pathname === "/u/primary-sowing-entry" || location.pathname === "#/u/primary-sowing-entry"
   
   const { 
     navigate, 
@@ -120,6 +124,7 @@ export default function PrivateLayout(props) {
 
   return (
     <Box sx={{ display: "flex" }}>
+      {!hideSidebar && (
       <Drawer open={false} sx={styles.drawer} variant="permanent" anchor="left">
         <Box
           sx={{
@@ -208,7 +213,8 @@ export default function PrivateLayout(props) {
           </Box>
         </Box>
       </Drawer>
-      <Main open={open}>
+      )}
+      <Main open={false} sx={hideSidebar ? { marginLeft: 0, padding: 0 } : {}}>
         <Outlet />
       </Main>
       

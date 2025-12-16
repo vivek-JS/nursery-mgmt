@@ -1,15 +1,24 @@
 import { Toast } from "helpers/toasts/toastHelper"
 
 export const apiError = (error) => {
+  if (!error) {
+    return;
+  }
+  
   if (Array.isArray(error)) {
-    error?.map((msg) => {
+    error?.forEach((msg) => {
       Toast.error(msg)
     })
-    // Toast.error(error)
   } else if (typeof error === "object") {
-    // Toast.error(error.message)
+    // Handle error objects with message property
+    const errorMessage = error?.message || error?.error || JSON.stringify(error);
+    Toast.error(errorMessage)
+  } else if (typeof error === "string") {
+    // Handle string error messages
+    Toast.error(error)
   } else {
-    // Toast.error(error)
+    // Fallback for any other type
+    Toast.error(String(error))
   }
 }
 

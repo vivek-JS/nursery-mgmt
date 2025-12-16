@@ -393,9 +393,9 @@ const customStyles = `
   }
 
   .searchable-dropdown.status-dropdown .searchable-dropdown-button {
-    padding: 6px 12px;
-    min-height: 32px;
-    font-size: 12px;
+    padding: 4px 10px;
+    min-height: 28px;
+    font-size: 11px;
     font-weight: 600;
   }
 
@@ -669,6 +669,7 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
   const [slotsLoading, setSlotsLoading] = useState(false)
   const [updatedObject, setUpdatedObject] = useState(null)
   const [viewMode, setViewMode] = useState("booking")
+  const [viewType, setViewType] = useState("table") // "table" or "grid"
   const [selectedRows, setSelectedRows] = useState(new Set())
   const [isDispatchFormOpen, setIsDispatchFormOpen] = useState(false)
   const [isDispatchtab, setisDispatchtab] = useState(false)
@@ -989,11 +990,9 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
                 orderDate: moment(orderBookingDate || createdAt).format("DD MMM YYYY"),
                 deliveryDate: deliveryDate ? moment(deliveryDate).format("DD MMM YYYY") : "-", // Specific delivery date
                 rate,
-                total: `₹ ${totalOrderAmount}`,
-                "Paid Amt": `₹ ${Number(getTotalPaidAmount(payment))}`,
-                "remaining Amt": `₹ ${
-                  totalOrderAmount - Number(getTotalPaidAmount(payment))
-                }`,
+                total: `₹ ${Number(totalOrderAmount).toFixed(2)}`,
+                "Paid Amt": `₹ ${Number(getTotalPaidAmount(payment)).toFixed(2)}`,
+                "remaining Amt": `₹ ${(totalOrderAmount - Number(getTotalPaidAmount(payment))).toFixed(2)}`,
                 "remaining Plants": remainingPlantCount,
                 "returned Plants": returnedPlants || 0,
                 orderStatus: orderStatus,
@@ -1820,11 +1819,9 @@ const mapSlotForUi = (slotData) => {
             orderDate: moment(orderBookingDate || createdAt).format("DD MMM YYYY"),
             deliveryDate: deliveryDate ? moment(deliveryDate).format("DD MMM YYYY") : "-", // Specific delivery date
             rate,
-            total: `₹ ${totalOrderAmount}`,
-            "Paid Amt": `₹ ${Number(getTotalPaidAmount(payment))}`,
-            "remaining Amt": `₹ ${
-              totalOrderAmount - Number(getTotalPaidAmount(payment))
-            }`,
+            total: `₹ ${Number(totalOrderAmount).toFixed(2)}`,
+            "Paid Amt": `₹ ${Number(getTotalPaidAmount(payment)).toFixed(2)}`,
+            "remaining Amt": `₹ ${(totalOrderAmount - Number(getTotalPaidAmount(payment))).toFixed(2)}`,
             "remaining Plants": remainingPlantCount,
             "returned Plants": returnedPlants || 0,
             orderStatus: orderStatus,
@@ -2330,376 +2327,725 @@ const mapSlotForUi = (slotData) => {
         </div>
 
 
-        {/* View mode toggle buttons */}
-        <div className="space-y-3">
-          <div className="flex flex-wrap gap-3">
-            <button
-              onClick={() => setViewMode("booking")}
-              className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all duration-300 transform hover:scale-105 ${
-                viewMode === "booking"
-                  ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg"
-                  : "bg-gradient-to-r from-gray-50 to-gray-100 text-gray-700 hover:from-gray-100 hover:to-gray-200 border border-gray-200"
-              }`}>
-              📋 Booking Orders
-            </button>
-            <button
-              onClick={() => setViewMode("dispatched")}
-              className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all duration-300 transform hover:scale-105 ${
-                viewMode === "dispatched"
-                  ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg"
-                  : "bg-gradient-to-r from-gray-50 to-gray-100 text-gray-700 hover:from-gray-100 hover:to-gray-200 border border-gray-200"
-              }`}>
-              🚚 Dispatched Orders
-            </button>
-            <button
-              onClick={() => setViewMode("farmready")}
-              className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all duration-300 transform hover:scale-105 ${
-                viewMode === "farmready"
-                  ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg"
-                  : "bg-gradient-to-r from-gray-50 to-gray-100 text-gray-700 hover:from-gray-100 hover:to-gray-200 border border-gray-200"
-              }`}>
-              🌱 Farm Ready
-            </button>
-            <button
-              onClick={() => setViewMode("ready_for_dispatch")}
-              className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all duration-300 transform hover:scale-105 ${
-                viewMode === "ready_for_dispatch"
-                  ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg"
-                  : "bg-gradient-to-r from-gray-50 to-gray-100 text-gray-700 hover:from-gray-100 hover:to-gray-200 border border-gray-200"
-              }`}>
-              ✅ Ready for Dispatch
-            </button>
-            <button
-              onClick={() => setViewMode("dispatch_process")}
-              className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all duration-300 transform hover:scale-105 ${
-                viewMode === "dispatch_process"
-                  ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg"
-                  : "bg-gradient-to-r from-gray-50 to-gray-100 text-gray-700 hover:from-gray-100 hover:to-gray-200 border border-gray-200"
-              }`}>
-              ⏳ Loading
-            </button>
+        {/* View mode info banner */}
+        {viewMode === "farmready" && (
+          <div className="bg-green-50 border border-green-200 rounded-lg p-3 mb-4">
+            <p className="text-sm text-green-800">
+              <span className="font-semibold">🌱 Farm Ready View:</span> Shows orders marked as farm ready with date filtering applied.
+            </p>
           </div>
-          
-          {/* View mode descriptions */}
-          {viewMode === "farmready" && (
-            <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-              <p className="text-sm text-green-800">
-                <span className="font-semibold">🌱 Farm Ready View:</span> Shows orders marked as farm ready with date filtering applied.
-              </p>
-            </div>
-          )}
-          {viewMode === "ready_for_dispatch" && (
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-              <p className="text-sm text-blue-800">
-                <span className="font-semibold">✅ Ready for Dispatch View:</span> Shows all orders with &ldquo;Ready for Dispatch&rdquo; status, irrespective of date. 
-                {isDispatchManager && <span className="ml-1 font-medium">You can change status and delivery date.</span>}
-              </p>
-            </div>
-          )}
-        </div>
+        )}
+        {viewMode === "ready_for_dispatch" && (
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
+            <p className="text-sm text-blue-800">
+              <span className="font-semibold">✅ Ready for Dispatch View:</span> Shows all orders with &ldquo;Ready for Dispatch&rdquo; status, irrespective of date. 
+              {isDispatchManager && <span className="ml-1 font-medium">You can change status and delivery date.</span>}
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Dispatch list component */}
       <DispatchList setisDispatchtab={setisDispatchtab} viewMode={viewMode} refresh={refresh} />
 
-      {/* Orders Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
-        {orders && orders.length > 0 ? (
-          orders.map((row, index) => {
-            const farmerDetails = row?.details?.farmer
-            const farmerLocation = farmerDetails
-              ? [farmerDetails.district, farmerDetails.village].filter(Boolean).join(" → ")
-              : null
+      {/* Summary Cards */}
+      {orders && orders.length > 0 && (
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-4">
+          <div className="bg-white rounded-lg shadow-sm border p-3">
+            <div className="text-xs text-gray-500 mb-1">Total Orders</div>
+            <div className="text-lg font-bold text-gray-900">{orders.length}</div>
+          </div>
+          <div className="bg-white rounded-lg shadow-sm border p-3">
+            <div className="text-xs text-gray-500 mb-1">Total Amount</div>
+            <div className="text-lg font-bold text-gray-900">
+              ₹{orders.reduce((sum, o) => {
+                const total = parseFloat(o.total.replace(/[₹,\s]/g, '')) || 0
+                return sum + total
+              }, 0).toFixed(2)}
+            </div>
+          </div>
+          <div className="bg-white rounded-lg shadow-sm border p-3">
+            <div className="text-xs text-gray-500 mb-1">Paid Amount</div>
+            <div className="text-lg font-bold text-green-600">
+              ₹{orders.reduce((sum, o) => {
+                const paid = parseFloat(o["Paid Amt"].replace(/[₹,\s]/g, '')) || 0
+                return sum + paid
+              }, 0).toFixed(2)}
+            </div>
+          </div>
+          <div className="bg-white rounded-lg shadow-sm border p-3">
+            <div className="text-xs text-gray-500 mb-1">Remaining</div>
+            <div className="text-lg font-bold text-amber-600">
+              ₹{orders.reduce((sum, o) => {
+                const remaining = parseFloat(o["remaining Amt"].replace(/[₹,\s]/g, '')) || 0
+                return sum + remaining
+              }, 0).toFixed(2)}
+            </div>
+          </div>
+          <div className="bg-white rounded-lg shadow-sm border p-3">
+            <div className="text-xs text-gray-500 mb-1">Total Plants</div>
+            <div className="text-lg font-bold text-blue-600">
+              {orders.reduce((sum, o) => sum + (o.totalPlants ?? o.quantity ?? 0), 0).toLocaleString()}
+            </div>
+          </div>
+          <div className="bg-white rounded-lg shadow-sm border p-3">
+            <div className="text-xs text-gray-500 mb-1">Pending Payments</div>
+            <div className="text-lg font-bold text-amber-600">
+              {orders.filter(o => o?.details?.payment?.some(p => p.paymentStatus === "PENDING")).length}
+            </div>
+          </div>
+        </div>
+      )}
 
-            return (
-            <div
-              key={index}
-              className={`bg-white rounded-lg shadow-sm border hover:shadow-md transition-all duration-200 cursor-pointer ${
-                row?.details?.payment.some((payment) => payment.paymentStatus === "PENDING")
-                  ? "payment-blink"
-                  : ""
-              } ${row?.details?.dealerOrder ? "border-sky-200 bg-sky-50" : ""}`}
-              onClick={() => {
-                setSelectedOrder(row)
-                setIsOrderModalOpen(true)
-              }}>
-              {/* Card Header */}
-              <div className="p-4 border-b border-gray-100">
-                <div className="flex items-start justify-between mb-2">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-semibold text-gray-900 text-sm">Order #{row.order}</h3>
-                    </div>
-                    <div className="flex items-center gap-1 mt-1">
-                      {row.details?.orderFor ? (
-                        <>
-                          <span className="text-xs text-gray-500">Farmer:</span>
-                          <span className={`text-xs font-medium farmer-name-highlight`}>
-                            {row.details.farmer?.name || "Unknown"}
-                          </span>
-                          <span className="text-xs text-gray-500">| Order For:</span>
-                          <span className={`text-xs font-medium order-for-highlight`}>
-                            {row.details.orderFor.name}
-                          </span>
-                        </>
-                      ) : (
-                        <span className={`text-xs font-medium farmer-name-highlight`}>
-                          {row.farmerName}
-                        </span>
-                      )}
-                    </div>
-                    {/* Show who booked the order */}
-                    {row.details?.salesPerson && (
-                      <p className="text-xs text-blue-600 mt-1 font-medium">
-                        Booked by: {row.details.salesPerson.name}
-                        {row.details.salesPerson.jobTitle === "DEALER" && " (Dealer)"}
-                      </p>
-                    )}
-                    {farmerLocation && (
-                      <p className="text-xs text-gray-500 mt-1 font-medium">{farmerLocation}</p>
-                    )}
-                  </div>
-                  <div className="flex items-center space-x-2">
+      {/* View Toggle and Tab Navigation */}
+      <div className="bg-white rounded-lg shadow-sm border">
+        {/* Header with View Toggle */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-gray-50">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-gray-700">View:</span>
+            <button
+              onClick={() => setViewType("table")}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                viewType === "table"
+                  ? "bg-blue-600 text-white shadow-sm"
+                  : "bg-white text-gray-600 hover:bg-gray-100 border border-gray-300"
+              }`}>
+              📊 Table
+            </button>
+            <button
+              onClick={() => setViewType("grid")}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                viewType === "grid"
+                  ? "bg-blue-600 text-white shadow-sm"
+                  : "bg-white text-gray-600 hover:bg-gray-100 border border-gray-300"
+              }`}>
+              🎴 Grid
+            </button>
+          </div>
+          <div className="text-sm text-gray-600">
+            {orders.length} {orders.length === 1 ? "order" : "orders"}
+          </div>
+        </div>
+
+        {/* Tab Navigation */}
+        <div className="border-b border-gray-200 bg-gray-50">
+          <div className="flex overflow-x-auto scrollbar-hide">
+            <button
+              onClick={() => setViewMode("booking")}
+              className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+                viewMode === "booking"
+                  ? "border-blue-500 text-blue-600 bg-white"
+                  : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+              }`}>
+              <span className="hidden sm:inline">📋 </span>Booking {orders.length > 0 && <span className="ml-1 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
+            </button>
+            <button
+              onClick={() => setViewMode("dispatched")}
+              className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+                viewMode === "dispatched"
+                  ? "border-blue-500 text-blue-600 bg-white"
+                  : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+              }`}>
+              <span className="hidden sm:inline">🚚 </span>Dispatched {orders.length > 0 && <span className="ml-1 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
+            </button>
+            <button
+              onClick={() => setViewMode("farmready")}
+              className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+                viewMode === "farmready"
+                  ? "border-blue-500 text-blue-600 bg-white"
+                  : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+              }`}>
+              <span className="hidden sm:inline">🌱 </span>Farm Ready {orders.length > 0 && <span className="ml-1 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
+            </button>
+            <button
+              onClick={() => setViewMode("ready_for_dispatch")}
+              className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+                viewMode === "ready_for_dispatch"
+                  ? "border-blue-500 text-blue-600 bg-white"
+                  : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+              }`}>
+              <span className="hidden sm:inline">✅ </span>Ready {orders.length > 0 && <span className="ml-1 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
+            </button>
+            <button
+              onClick={() => setViewMode("dispatch_process")}
+              className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+                viewMode === "dispatch_process"
+                  ? "border-blue-500 text-blue-600 bg-white"
+                  : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+              }`}>
+              <span className="hidden sm:inline">⏳ </span>Loading {orders.length > 0 && <span className="ml-1 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
+            </button>
+          </div>
+        </div>
+
+        {/* Table View */}
+        {viewType === "table" && (
+          <div className="overflow-x-auto max-h-[calc(100vh-400px)]">
+            {orders && orders.length > 0 ? (
+              <table className="w-full text-sm">
+                <thead className="bg-gradient-to-r from-gray-50 to-gray-100 border-b-2 border-gray-300 sticky top-0 z-10">
+                  <tr>
                     {viewMode !== "booking" && (
-                      <input
-                        type="checkbox"
-                        onChange={(e) => {
-                          e.stopPropagation()
-                          toggleRowSelection(row.details.orderid, row)
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                        checked={selectedRows.has(row.details.orderid)}
-                        className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                      />
+                      <th className="px-2 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider w-10 bg-gray-50">
+                        <input
+                          type="checkbox"
+                          onChange={toggleSelectAll}
+                          checked={selectedRows.size === orders.length && orders.length > 0}
+                          className="w-3.5 h-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                        />
+                      </th>
                     )}
-                    <DownloadPDFButton order={row} />
-                  </div>
-                </div>
+                    <th className="px-2 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider min-w-[100px] bg-gray-50">
+                      Order #
+                    </th>
+                    <th className="px-2 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider min-w-[160px] bg-gray-50">
+                      Farmer / Customer
+                    </th>
+                    <th className="px-2 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider min-w-[140px] bg-gray-50">
+                      Plant Type
+                    </th>
+                    <th className="px-2 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider min-w-[90px] bg-gray-50">
+                      Qty
+                    </th>
+                    <th className="px-2 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider min-w-[70px] bg-gray-50">
+                      Rate
+                    </th>
+                    <th className="px-2 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider min-w-[110px] bg-gray-50">
+                      Amount
+                    </th>
+                    <th className="px-2 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider min-w-[110px] bg-gray-50">
+                      Payment
+                    </th>
+                    <th className="px-2 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider min-w-[140px] bg-gray-50">
+                      Delivery
+                    </th>
+                    <th className="px-2 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider min-w-[110px] bg-gray-50">
+                      Status
+                    </th>
+                    <th className="px-2 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider min-w-[80px] bg-gray-50">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                {orders.map((row, index) => {
+                  const farmerDetails = row?.details?.farmer
+                  const farmerLocation = farmerDetails
+                    ? [farmerDetails.district, farmerDetails.village].filter(Boolean).join(" → ")
+                    : null
+                  const hasPendingPayment = row?.details?.payment?.some((payment) => payment.paymentStatus === "PENDING")
 
-                {/* Status Badge */}
-                <div className="flex items-center justify-between">
-                  {row.orderStatus !== "COMPLETED" && row.orderStatus !== "DISPATCHED" ? (
-                    <div className="relative" onClick={(e) => e.stopPropagation()}>
-                      <SearchableDropdown
-                        label=""
-                        value={row.orderStatus}
-                        onChange={(newStatus) => handleStatusChange(row, newStatus)}
-                        options={orderStatusOptions || []}
-                        placeholder="Select Status"
-                        maxHeight="200px"
-                        isStatusDropdown={true}
-                      />
-                    </div>
-                  ) : (
-                    <span
-                      className={`status-badge-enhanced status-${row.orderStatus
-                        .toLowerCase()
-                        .replace("_", "-")} flex items-center gap-1`}>
-                      {row.orderStatus === "FARM_READY" && "🌱"}
-                      {row.orderStatus === "DISPATCH_PROCESS" ? "Loading" : row.orderStatus}
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              {/* Card Body */}
-              <div className="p-4 space-y-3">
-                {/* Plant Info */}
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-gray-500">Plant Type</span>
-                  <span className="text-sm font-medium text-gray-900">{row.plantType}</span>
-                </div>
-
-                {/* Quantity & Rate */}
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <span className="text-xs text-gray-500">Total Plants</span>
-                    <div className="text-sm font-medium text-gray-900">
-                      {(row.totalPlants ?? row.quantity)?.toLocaleString()}
-                    </div>
-                    {row.additionalPlants > 0 && (
-                      <div className="text-xs text-blue-600 mt-1">
-                        Base: {row.basePlants?.toLocaleString()} &middot; Extra: +
-                        {row.additionalPlants?.toLocaleString()}
-                      </div>
-                    )}
-                    {row["remaining Plants"] < (row.totalPlants ?? row.quantity) && (
-                      <div className="text-xs text-orange-600 mt-1">
-                        Remaining: {row["remaining Plants"]?.toLocaleString()}
-                      </div>
-                    )}
-                  </div>
-                  <div>
-                    <span className="text-xs text-gray-500">Rate</span>
-                    <div className="text-sm font-medium text-gray-900">₹{row.rate}</div>
-                  </div>
-                </div>
-
-                {/* Financial Info */}
-                <div className="bg-gray-50 rounded-md p-3 space-y-2">
-                  <div className="flex justify-between">
-                    <span className="text-xs text-gray-500">Total</span>
-                    <span className="text-sm font-semibold text-gray-900">{row.total}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-xs text-gray-500">Paid</span>
-                    <span className="text-sm text-green-600">{row["Paid Amt"]}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-xs text-gray-500">Remaining</span>
-                    <span className="text-sm text-amber-600">{row["remaining Amt"]}</span>
-                  </div>
-                </div>
-
-                {/* Delivery Info */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-gray-500">Delivery Period</span>
-                    <span className="text-sm font-medium text-blue-600">{row.Delivery}</span>
-                  </div>
-                  {row.deliveryDate && row.deliveryDate !== "-" && (
-                    <div className="bg-blue-50 rounded-md p-2 border border-blue-200">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs text-blue-700 font-medium flex items-center">
-                          📅 Delivery Date
-                        </span>
-                        <span className="text-sm font-semibold text-blue-800">
-                          {row.deliveryDate}
-                        </span>
-                      </div>
-                      {/* Delivery Date Changes Indicator */}
-                      {row.details?.deliveryChanges && row.details.deliveryChanges.length > 0 && (
-                        <div className="mt-2 pt-2 border-t border-blue-200">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setSelectedOrder(row)
-                              setIsOrderModalOpen(true)
-                              setActiveTab("overview")
-                            }}
-                            className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 transition-colors">
-                            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                            </svg>
-                            <span>{row.details.deliveryChanges.length} date change{row.details.deliveryChanges.length > 1 ? 's' : ''}</span>
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* Farm Ready Date Display - Shows when order has been marked as farm ready */}
-                {row["Farm Ready"] !== "-" && (
-                  <div className="flex items-center justify-between bg-green-50 rounded-md p-2 border border-green-200">
-                    <span className="text-xs text-green-700 font-medium flex items-center">
-                      🌱 Farm Ready Date
-                    </span>
-                    <span className="text-sm font-semibold text-green-800">
-                      {row["Farm Ready"]}
-                    </span>
-                  </div>
-                )}
-
-                {/* Dispatch Details - Shows driver and vehicle for dispatched orders */}
-                {(row.orderStatus === "DISPATCHED" || row.orderStatus === "DISPATCH_PROCESS") && row.details?.dispatchHistory && row.details.dispatchHistory.length > 0 && (() => {
-                  const latestDispatch = row.details.dispatchHistory[row.details.dispatchHistory.length - 1];
-                  const driverName = latestDispatch?.dispatch?.driverName || latestDispatch?.driverName || 'N/A';
-                  const vehicleName = latestDispatch?.dispatch?.vehicleName || latestDispatch?.vehicleName || 'N/A';
-                  const transportId = latestDispatch?.dispatch?.transportId || latestDispatch?.transportId;
-                  const driverPhone = latestDispatch?.dispatch?.driverPhone || latestDispatch?.driverPhone;
-                  
-                  // Only show if we have at least driver or vehicle info
-                  if (driverName === 'N/A' && vehicleName === 'N/A') return null;
-                  
                   return (
-                    <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-3 border-l-4 border-blue-500 shadow-sm">
-                      <div className="flex items-center gap-2 text-sm">
-                        <span className="text-base">🚚</span>
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-bold text-blue-900">
-                            {driverName}
-                          </span>
-                          {driverPhone && (
-                            <span className="text-gray-600">
-                              ({driverPhone})
+                    <tr
+                      key={index}
+                      className={`hover:bg-blue-50 transition-all duration-150 cursor-pointer border-l-2 ${
+                        hasPendingPayment ? "payment-blink border-l-amber-400" : "border-l-transparent"
+                      } ${row?.details?.dealerOrder ? "bg-sky-50" : ""} ${
+                        selectedRows.has(row.details.orderid) ? "bg-blue-100 border-l-blue-500" : ""
+                      }`}
+                      onClick={() => {
+                        setSelectedOrder(row)
+                        setIsOrderModalOpen(true)
+                      }}>
+                      {viewMode !== "booking" && (
+                        <td className="px-2 py-2 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            onChange={(e) => {
+                              e.stopPropagation()
+                              toggleRowSelection(row.details.orderid, row)
+                            }}
+                            checked={selectedRows.has(row.details.orderid)}
+                            className="w-3.5 h-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                          />
+                        </td>
+                      )}
+                      <td className="px-2 py-2 whitespace-nowrap">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-bold text-gray-900">#{row.order}</span>
+                          <DownloadPDFButton order={row} />
+                        </div>
+                        <div className="text-[10px] text-gray-500 mt-0.5">{row.orderDate}</div>
+                      </td>
+                      <td className="px-2 py-2">
+                        <div className="text-xs font-medium text-gray-900 leading-tight">
+                          {row.details?.orderFor ? (
+                            <div className="space-y-0.5">
+                              <div className="farmer-name-highlight inline-block px-1.5 py-0.5 rounded text-[10px]">
+                                {row.details.farmer?.name || "Unknown"}
+                              </div>
+                              <div className="order-for-highlight inline-block px-1.5 py-0.5 rounded text-[10px] ml-1">
+                                For: {row.details.orderFor.name}
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="farmer-name-highlight inline-block px-1.5 py-0.5 rounded text-[10px]">
+                              {row.farmerName}
                             </span>
                           )}
-                          <span className="text-blue-600 font-bold">→</span>
-                          <span className="font-semibold text-gray-800">
-                            🚗 {vehicleName}
+                        </div>
+                        {row.details?.salesPerson && (
+                          <div className="text-[10px] text-blue-600 mt-0.5">
+                            By: {row.details.salesPerson.name}
+                            {row.details.salesPerson.jobTitle === "DEALER" && " (D)"}
+                          </div>
+                        )}
+                        {farmerLocation && (
+                          <div className="text-[10px] text-gray-500 mt-0.5 truncate max-w-[150px]">{farmerLocation}</div>
+                        )}
+                      </td>
+                      <td className="px-2 py-2">
+                        <div className="text-xs text-gray-900 font-medium leading-tight">{row.plantType}</div>
+                      </td>
+                      <td className="px-2 py-2">
+                        <div className="text-xs font-bold text-gray-900">
+                          {(row.totalPlants ?? row.quantity)?.toLocaleString()}
+                        </div>
+                        {row.additionalPlants > 0 && (
+                          <div className="text-[10px] text-blue-600 mt-0.5">
+                            B:{row.basePlants?.toLocaleString()} +{row.additionalPlants?.toLocaleString()}
+                          </div>
+                        )}
+                        {row["remaining Plants"] < (row.totalPlants ?? row.quantity) && (
+                          <div className="text-[10px] text-orange-600 mt-0.5 font-medium">
+                            Rem: {row["remaining Plants"]?.toLocaleString()}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-2 py-2 whitespace-nowrap">
+                        <div className="text-xs font-bold text-gray-900">₹{Number(row.rate).toFixed(2)}</div>
+                      </td>
+                      <td className="px-2 py-2">
+                        <div className="text-xs font-bold text-gray-900">{row.total}</div>
+                        <div className="text-[10px] text-green-600 mt-0.5 font-medium">{row["Paid Amt"]}</div>
+                        <div className="text-[10px] text-amber-600 mt-0.5 font-medium">{row["remaining Amt"]}</div>
+                      </td>
+                      <td className="px-2 py-2">
+                        <div className="flex flex-col gap-0.5">
+                          <div className="text-xs font-semibold text-green-600">{row["Paid Amt"]}</div>
+                          <div className="text-[10px] text-amber-600 font-medium">{row["remaining Amt"]}</div>
+                          {hasPendingPayment && (
+                            <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full inline-block w-fit font-medium">
+                              Pending
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-2 py-2">
+                        <div className="text-xs text-blue-600 font-semibold leading-tight">{row.Delivery}</div>
+                        {row.deliveryDate && row.deliveryDate !== "-" && (
+                          <div className="text-[10px] text-blue-700 mt-0.5 font-medium">📅 {row.deliveryDate}</div>
+                        )}
+                        {row["Farm Ready"] !== "-" && (
+                          <div className="text-[10px] text-green-700 mt-0.5 font-medium">🌱 {row["Farm Ready"]}</div>
+                        )}
+                      </td>
+                      <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
+                        {row.orderStatus !== "COMPLETED" && row.orderStatus !== "DISPATCHED" ? (
+                          <SearchableDropdown
+                            label=""
+                            value={row.orderStatus}
+                            onChange={(newStatus) => handleStatusChange(row, newStatus)}
+                            options={orderStatusOptions || []}
+                            placeholder="Select Status"
+                            maxHeight="200px"
+                            isStatusDropdown={true}
+                          />
+                        ) : (
+                          <span
+                            className={`status-badge-enhanced status-${row.orderStatus
+                              .toLowerCase()
+                              .replace("_", "-")} inline-flex items-center gap-1 text-[10px] px-2 py-0.5`}>
+                            {row.orderStatus === "FARM_READY" && "🌱"}
+                            {row.orderStatus === "DISPATCH_PROCESS" ? "Loading" : row.orderStatus}
                           </span>
-                          {transportId && (
-                            <>
-                              <span className="text-blue-600 font-bold">→</span>
-                              <span className="text-xs font-mono font-bold text-white bg-blue-600 px-2 py-1 rounded">
-                                #{transportId}
-                              </span>
-                            </>
+                        )}
+                      </td>
+                      <td className="px-2 py-2 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                        {viewMode !== "dispatch_process" &&
+                          row?.orderStatus !== "COMPLETED" &&
+                          row?.orderStatus !== "DISPATCH_PROCESS" &&
+                          row?.orderStatus !== "DISPATCHED" && (
+                            <div className="flex items-center space-x-2">
+                              {editingRows.has(index) ? (
+                                <>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      saveEditedRow(index, row)
+                                    }}
+                                    className="text-green-500 hover:text-green-700 p-1 rounded hover:bg-green-50"
+                                    title="Save">
+                                    <CheckIcon size={18} />
+                                  </button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      cancelEditing(index)
+                                    }}
+                                    className="text-red-500 hover:text-red-700 p-1 rounded hover:bg-red-50"
+                                    title="Cancel">
+                                    <XIcon size={18} />
+                                  </button>
+                                </>
+                              ) : (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    toggleEditing(index, row)
+                                  }}
+                                  className="text-gray-500 hover:text-gray-700 p-1 rounded hover:bg-gray-100"
+                                  title="Edit">
+                                  <Edit2Icon size={18} />
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        {(row.orderStatus === "DISPATCHED" || row.orderStatus === "DISPATCH_PROCESS") && 
+                         row.details?.dispatchHistory && 
+                         row.details.dispatchHistory.length > 0 && (() => {
+                          const latestDispatch = row.details.dispatchHistory[row.details.dispatchHistory.length - 1];
+                          const driverName = latestDispatch?.dispatch?.driverName || latestDispatch?.driverName || 'N/A';
+                          const vehicleName = latestDispatch?.dispatch?.vehicleName || latestDispatch?.vehicleName || 'N/A';
+                          
+                          if (driverName === 'N/A' && vehicleName === 'N/A') return null;
+                          
+                          return (
+                            <div className="text-xs text-blue-600">
+                              <div>🚚 {driverName}</div>
+                              <div>🚗 {vehicleName}</div>
+                            </div>
+                          );
+                        })()}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          ) : (
+            <div className="flex items-center justify-center py-12">
+              <div className="text-center">
+                <div className="text-gray-400 text-6xl mb-4">📋</div>
+                <h3 className="text-lg font-medium text-gray-900 mb-2">No Orders Found</h3>
+                <p className="text-gray-500">
+                  {loading ? "Loading orders..." : "No orders match your current filters."}
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+        )}
+
+        {/* Table Footer with Summary */}
+        {viewType === "table" && orders && orders.length > 0 && (
+          <div className="bg-gray-50 border-t border-gray-200 px-4 py-2">
+            <div className="flex items-center justify-between text-xs">
+              <div className="text-gray-600">
+                Showing <span className="font-semibold">{orders.length}</span> order{orders.length !== 1 ? 's' : ''}
+              </div>
+              <div className="flex items-center gap-3 text-gray-600">
+                <div>
+                  Total: <span className="font-semibold text-gray-900">
+                    ₹{orders.reduce((sum, o) => {
+                      const total = parseFloat(o.total.replace(/[₹,\s]/g, '')) || 0
+                      return sum + total
+                    }, 0).toLocaleString()}
+                  </span>
+                </div>
+                <div>
+                  Paid: <span className="font-semibold text-green-600">
+                    ₹{orders.reduce((sum, o) => {
+                      const paid = parseFloat(o["Paid Amt"].replace(/[₹,\s]/g, '')) || 0
+                      return sum + paid
+                    }, 0).toLocaleString()}
+                  </span>
+                </div>
+                <div>
+                  Remaining: <span className="font-semibold text-amber-600">
+                    ₹{orders.reduce((sum, o) => {
+                      const remaining = parseFloat(o["remaining Amt"].replace(/[₹,\s]/g, '')) || 0
+                      return sum + remaining
+                    }, 0).toLocaleString()}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Grid View */}
+        {viewType === "grid" && (
+          <div className="p-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3">
+              {orders && orders.length > 0 ? (
+                orders.map((row, index) => {
+                  const farmerDetails = row?.details?.farmer
+                  const farmerLocation = farmerDetails
+                    ? [farmerDetails.district, farmerDetails.village].filter(Boolean).join(" → ")
+                    : null
+
+                  return (
+                    <div
+                      key={index}
+                      className={`bg-white rounded-lg shadow-sm border hover:shadow-md transition-all duration-200 cursor-pointer ${
+                        row?.details?.payment.some((payment) => payment.paymentStatus === "PENDING")
+                          ? "payment-blink"
+                          : ""
+                      } ${row?.details?.dealerOrder ? "border-sky-200 bg-sky-50" : ""}`}
+                      onClick={() => {
+                        setSelectedOrder(row)
+                        setIsOrderModalOpen(true)
+                      }}>
+                      {/* Card Header */}
+                      <div className="p-3 border-b border-gray-100">
+                        <div className="flex items-start justify-between mb-2">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <h3 className="font-semibold text-gray-900 text-sm">Order #{row.order}</h3>
+                            </div>
+                            <div className="flex items-center gap-1 mt-1 flex-wrap">
+                              {row.details?.orderFor ? (
+                                <>
+                                  <span className="text-xs text-gray-500">Farmer:</span>
+                                  <span className={`text-xs font-medium farmer-name-highlight`}>
+                                    {row.details.farmer?.name || "Unknown"}
+                                  </span>
+                                  <span className="text-xs text-gray-500">| Order For:</span>
+                                  <span className={`text-xs font-medium order-for-highlight`}>
+                                    {row.details.orderFor.name}
+                                  </span>
+                                </>
+                              ) : (
+                                <span className={`text-xs font-medium farmer-name-highlight`}>
+                                  {row.farmerName}
+                                </span>
+                              )}
+                            </div>
+                            {row.details?.salesPerson && (
+                              <p className="text-xs text-blue-600 mt-1 font-medium">
+                                Booked by: {row.details.salesPerson.name}
+                                {row.details.salesPerson.jobTitle === "DEALER" && " (Dealer)"}
+                              </p>
+                            )}
+                            {farmerLocation && (
+                              <p className="text-xs text-gray-500 mt-1 font-medium truncate">{farmerLocation}</p>
+                            )}
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            {viewMode !== "booking" && (
+                              <input
+                                type="checkbox"
+                                onChange={(e) => {
+                                  e.stopPropagation()
+                                  toggleRowSelection(row.details.orderid, row)
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                                checked={selectedRows.has(row.details.orderid)}
+                                className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                              />
+                            )}
+                            <DownloadPDFButton order={row} />
+                          </div>
+                        </div>
+
+                        {/* Status Badge */}
+                        <div className="flex items-center justify-between mt-2">
+                          {row.orderStatus !== "COMPLETED" && row.orderStatus !== "DISPATCHED" ? (
+                            <div className="relative" onClick={(e) => e.stopPropagation()}>
+                              <SearchableDropdown
+                                label=""
+                                value={row.orderStatus}
+                                onChange={(newStatus) => handleStatusChange(row, newStatus)}
+                                options={orderStatusOptions || []}
+                                placeholder="Select Status"
+                                maxHeight="200px"
+                                isStatusDropdown={true}
+                              />
+                            </div>
+                          ) : (
+                            <span
+                              className={`status-badge-enhanced status-${row.orderStatus
+                                .toLowerCase()
+                                .replace("_", "-")} flex items-center gap-1`}>
+                              {row.orderStatus === "FARM_READY" && "🌱"}
+                              {row.orderStatus === "DISPATCH_PROCESS" ? "Loading" : row.orderStatus}
+                            </span>
                           )}
                         </div>
                       </div>
-                    </div>
-                  );
-                })()}
 
-                {/* Action Buttons */}
-                {viewMode !== "dispatch_process" &&
-                  row?.orderStatus !== "COMPLETED" &&
-                  row?.orderStatus !== "DISPATCH_PROCESS" &&
-                  row?.orderStatus !== "DISPATCHED" && (
-                    <div className="flex items-center justify-between pt-2 border-t border-gray-100">
-                      {/* Dispatch Manager indicator */}
-                      {isDispatchManager && (
-                        <span className="text-xs text-blue-600 font-medium">
-                          🚚 DM Access
-                        </span>
-                      )}
-                      <div className="flex items-center space-x-2 ml-auto">
-                        {editingRows.has(index) ? (
-                          <>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                saveEditedRow(index, row)
-                              }}
-                              className="text-green-500 hover:text-green-700">
-                              <CheckIcon size={16} />
-                            </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                cancelEditing(index)
-                              }}
-                              className="text-red-500 hover:text-red-700">
-                              <XIcon size={16} />
-                            </button>
-                          </>
-                        ) : (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              toggleEditing(index, row)
-                            }}
-                            className="text-gray-500 hover:text-gray-700">
-                            <Edit2Icon size={16} />
-                          </button>
+                      {/* Card Body */}
+                      <div className="p-3 space-y-2">
+                        {/* Plant Info */}
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs text-gray-500">Plant Type</span>
+                          <span className="text-xs font-medium text-gray-900 truncate ml-2">{row.plantType}</span>
+                        </div>
+
+                        {/* Quantity & Rate */}
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <span className="text-xs text-gray-500">Total Plants</span>
+                            <div className="text-sm font-medium text-gray-900">
+                              {(row.totalPlants ?? row.quantity)?.toLocaleString()}
+                            </div>
+                            {row.additionalPlants > 0 && (
+                              <div className="text-xs text-blue-600 mt-0.5">
+                                Base: {row.basePlants?.toLocaleString()} &middot; Extra: +
+                                {row.additionalPlants?.toLocaleString()}
+                              </div>
+                            )}
+                            {row["remaining Plants"] < (row.totalPlants ?? row.quantity) && (
+                              <div className="text-xs text-orange-600 mt-0.5">
+                                Remaining: {row["remaining Plants"]?.toLocaleString()}
+                              </div>
+                            )}
+                          </div>
+                          <div>
+                            <span className="text-xs text-gray-500">Rate</span>
+                            <div className="text-sm font-medium text-gray-900">₹{row.rate}</div>
+                          </div>
+                        </div>
+
+                        {/* Financial Info */}
+                        <div className="bg-gray-50 rounded-md p-2 space-y-1">
+                          <div className="flex justify-between">
+                            <span className="text-xs text-gray-500">Total</span>
+                            <span className="text-xs font-semibold text-gray-900">{row.total}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-xs text-gray-500">Paid</span>
+                            <span className="text-xs text-green-600">{row["Paid Amt"]}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-xs text-gray-500">Remaining</span>
+                            <span className="text-xs text-amber-600">{row["remaining Amt"]}</span>
+                          </div>
+                        </div>
+
+                        {/* Delivery Info */}
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs text-gray-500">Delivery Period</span>
+                            <span className="text-xs font-medium text-blue-600">{row.Delivery}</span>
+                          </div>
+                          {row.deliveryDate && row.deliveryDate !== "-" && (
+                            <div className="bg-blue-50 rounded-md p-1.5 border border-blue-200">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs text-blue-700 font-medium flex items-center">
+                                  📅 Delivery Date
+                                </span>
+                                <span className="text-xs font-semibold text-blue-800">
+                                  {row.deliveryDate}
+                                </span>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Farm Ready Date Display */}
+                        {row["Farm Ready"] !== "-" && (
+                          <div className="flex items-center justify-between bg-green-50 rounded-md p-1.5 border border-green-200">
+                            <span className="text-xs text-green-700 font-medium flex items-center">
+                              🌱 Farm Ready Date
+                            </span>
+                            <span className="text-xs font-semibold text-green-800">
+                              {row["Farm Ready"]}
+                            </span>
+                          </div>
                         )}
+
+                        {/* Dispatch Details */}
+                        {(row.orderStatus === "DISPATCHED" || row.orderStatus === "DISPATCH_PROCESS") && row.details?.dispatchHistory && row.details.dispatchHistory.length > 0 && (() => {
+                          const latestDispatch = row.details.dispatchHistory[row.details.dispatchHistory.length - 1];
+                          const driverName = latestDispatch?.dispatch?.driverName || latestDispatch?.driverName || 'N/A';
+                          const vehicleName = latestDispatch?.dispatch?.vehicleName || latestDispatch?.vehicleName || 'N/A';
+                          const transportId = latestDispatch?.dispatch?.transportId || latestDispatch?.transportId;
+                          const driverPhone = latestDispatch?.dispatch?.driverPhone || latestDispatch?.driverPhone;
+                          
+                          if (driverName === 'N/A' && vehicleName === 'N/A') return null;
+                          
+                          return (
+                            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-2 border-l-4 border-blue-500 shadow-sm">
+                              <div className="flex items-center gap-2 text-xs">
+                                <span className="text-sm">🚚</span>
+                                <div className="flex items-center gap-1 flex-wrap">
+                                  <span className="font-bold text-blue-900">{driverName}</span>
+                                  {driverPhone && <span className="text-gray-600">({driverPhone})</span>}
+                                  <span className="text-blue-600 font-bold">→</span>
+                                  <span className="font-semibold text-gray-800">🚗 {vehicleName}</span>
+                                  {transportId && (
+                                    <>
+                                      <span className="text-blue-600 font-bold">→</span>
+                                      <span className="text-[10px] font-mono font-bold text-white bg-blue-600 px-1.5 py-0.5 rounded">
+                                        #{transportId}
+                                      </span>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })()}
+
+                        {/* Action Buttons */}
+                        {viewMode !== "dispatch_process" &&
+                          row?.orderStatus !== "COMPLETED" &&
+                          row?.orderStatus !== "DISPATCH_PROCESS" &&
+                          row?.orderStatus !== "DISPATCHED" && (
+                            <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+                              {isDispatchManager && (
+                                <span className="text-xs text-blue-600 font-medium">🚚 DM Access</span>
+                              )}
+                              <div className="flex items-center space-x-2 ml-auto">
+                                {editingRows.has(index) ? (
+                                  <>
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        saveEditedRow(index, row)
+                                      }}
+                                      className="text-green-500 hover:text-green-700">
+                                      <CheckIcon size={16} />
+                                    </button>
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        cancelEditing(index)
+                                      }}
+                                      className="text-red-500 hover:text-red-700">
+                                      <XIcon size={16} />
+                                    </button>
+                                  </>
+                                ) : (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      toggleEditing(index, row)
+                                    }}
+                                    className="text-gray-500 hover:text-gray-700">
+                                    <Edit2Icon size={16} />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          )}
                       </div>
                     </div>
-                  )}
-              </div>
-            </div>
-            )
-          })
-        ) : (
-          <div className="col-span-full flex items-center justify-center py-12">
-            <div className="text-center">
-              <div className="text-gray-400 text-6xl mb-4">📋</div>
-              <h3 className="text-lg font-medium text-gray-900 mb-2">No Orders Found</h3>
-              <p className="text-gray-500">
-                {loading ? "Loading orders..." : "No orders match your current filters."}
-              </p>
+                  )
+                })
+              ) : (
+                <div className="col-span-full flex items-center justify-center py-12">
+                  <div className="text-center">
+                    <div className="text-gray-400 text-6xl mb-4">📋</div>
+                    <h3 className="text-lg font-medium text-gray-900 mb-2">No Orders Found</h3>
+                    <p className="text-gray-500">
+                      {loading ? "Loading orders..." : "No orders match your current filters."}
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -2958,36 +3304,91 @@ const mapSlotForUi = (slotData) => {
                         
                         {/* Show farmer information if orderFor is present but farmer also exists */}
                         {selectedOrder?.details?.orderFor && selectedOrder?.details?.farmer && (
-                          <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
-                            <h3 className="font-medium text-gray-900 mb-3 text-sm flex items-center">
-                              <span className="mr-2">🌾</span>
-                              Farmer Information
-                            </h3>
-                            <div className="space-y-3">
-                              <div className="flex flex-col space-y-1">
-                                <span className="text-xs text-gray-500 font-medium">Farmer Name</span>
-                                <span className="font-medium text-sm text-gray-900">
-                                  {selectedOrder?.details?.farmer?.name}
-                                </span>
-                              </div>
-                              <div className="flex flex-col space-y-1">
-                                <span className="text-xs text-gray-500 font-medium">Mobile Number</span>
-                                <span className="font-medium text-sm text-gray-900">
-                                  {selectedOrder?.details?.farmer?.mobileNumber}
-                                </span>
-                              </div>
-                              <div className="flex flex-col space-y-1">
-                                <span className="text-xs text-gray-500 font-medium">Village</span>
-                                <span className="font-medium text-sm text-gray-900">
-                                  {selectedOrder?.details?.farmer?.village}
-                                </span>
-                              </div>
-                              <div className="flex flex-col space-y-1">
-                                <span className="text-xs text-gray-500 font-medium">District</span>
-                                <span className="font-medium text-sm text-gray-900">
-                                  {selectedOrder?.details?.farmer?.district}
-                                </span>
-                              </div>
+                          <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+                            <div className="bg-gradient-to-r from-green-50 to-emerald-50 px-4 py-3 border-b border-gray-200">
+                              <h3 className="font-semibold text-gray-900 text-sm flex items-center">
+                                <span className="mr-2 text-green-600">🌾</span>
+                                Farmer Details
+                              </h3>
+                            </div>
+                            <div className="overflow-x-auto">
+                              <table className="w-full">
+                                <tbody className="divide-y divide-gray-200">
+                                  <tr className="hover:bg-gray-50 transition-colors">
+                                    <td className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider w-1/3 bg-gray-50">
+                                      Farmer Name
+                                    </td>
+                                    <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                                      {selectedOrder?.details?.farmer?.name || "-"}
+                                    </td>
+                                  </tr>
+                                  <tr className="hover:bg-gray-50 transition-colors">
+                                    <td className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider bg-gray-50">
+                                      Booking Date | Mobile Number | Placed For
+                                    </td>
+                                    <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                                      <div className="flex flex-wrap items-center gap-3">
+                                        <span className="inline-flex items-center gap-1.5">
+                                          <span className="text-gray-500 text-xs">📅</span>
+                                          <span>{selectedOrder?.orderDate || (selectedOrder?.details?.orderBookingDate ? moment(selectedOrder.details.orderBookingDate).format("DD MMM YYYY") : (selectedOrder?.details?.createdAt ? moment(selectedOrder.details.createdAt).format("DD MMM YYYY") : "-"))}</span>
+                                        </span>
+                                        <span className="text-gray-300">|</span>
+                                        <span className="inline-flex items-center gap-1.5">
+                                          <span className="text-gray-500 text-xs">📱</span>
+                                          <span>{selectedOrder?.details?.farmer?.mobileNumber || "-"}</span>
+                                        </span>
+                                        {selectedOrder?.details?.orderFor && (
+                                          <>
+                                            <span className="text-gray-300">|</span>
+                                            <span className="inline-flex items-center gap-1.5">
+                                              <span className="text-gray-500 text-xs">👤</span>
+                                              <span className="bg-orange-100 text-orange-700 px-2 py-0.5 rounded text-xs font-medium">
+                                                {selectedOrder?.details?.orderFor?.name}
+                                              </span>
+                                            </span>
+                                          </>
+                                        )}
+                                      </div>
+                                    </td>
+                                  </tr>
+                                  {selectedOrder?.details?.farmer?.taluka && (
+                                    <tr className="hover:bg-gray-50 transition-colors">
+                                      <td className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider bg-gray-50">
+                                        Taluka
+                                      </td>
+                                      <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                                        {selectedOrder?.details?.farmer?.taluka}
+                                      </td>
+                                    </tr>
+                                  )}
+                                  <tr className="hover:bg-gray-50 transition-colors">
+                                    <td className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider bg-gray-50">
+                                      Village
+                                    </td>
+                                    <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                                      {selectedOrder?.details?.farmer?.village || "-"}
+                                    </td>
+                                  </tr>
+                                  <tr className="hover:bg-gray-50 transition-colors">
+                                    <td className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider bg-gray-50">
+                                      District
+                                    </td>
+                                    <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                                      {selectedOrder?.details?.farmer?.district || "-"}
+                                    </td>
+                                  </tr>
+                                  {selectedOrder?.details?.farmer?.state && (
+                                    <tr className="hover:bg-gray-50 transition-colors">
+                                      <td className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider bg-gray-50">
+                                        State
+                                      </td>
+                                      <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                                        {selectedOrder?.details?.farmer?.state}
+                                      </td>
+                                    </tr>
+                                  )}
+                                </tbody>
+                              </table>
                             </div>
                           </div>
                         )}

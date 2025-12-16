@@ -54,30 +54,48 @@ import {
   FlashOn as FlashIcon,
   PhotoCamera as CameraIcon,
   Delete as DeleteIcon,
-  CloudUpload as UploadIcon
+  CloudUpload as UploadIcon,
+  ContentCopy as CopyIcon
 } from "@mui/icons-material"
 import moment from "moment"
 import LocationSelector from "components/LocationSelector"
 import SearchableSelect from "components/FormField/SearchableSelect"
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip as RechartsTooltip,
+  Legend,
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
+  LineChart,
+  Line
+} from "recharts"
 
 const useStyles = makeStyles()((theme) => ({
   dialog: {
     "& .MuiDialog-paper": {
       borderRadius: 12,
-      boxShadow: "0 12px 40px rgba(0,0,0,0.15)",
-      maxHeight: "90vh",
-      maxWidth: "95vw",
-      width: "100%"
+      boxShadow: "0 8px 32px rgba(0,0,0,0.15)",
+      maxHeight: "95vh",
+      maxWidth: "1000px",
+      width: "100%",
+      overflow: "hidden"
     }
   },
   dialogTitle: {
     background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
     color: "white",
-    padding: "16px 24px",
+    padding: "16px 20px",
     position: "relative",
     "& .MuiTypography-root": {
       fontSize: "1.25rem",
-      fontWeight: 600
+      fontWeight: 600,
+      letterSpacing: "0.3px"
     }
   },
   closeButton: {
@@ -86,72 +104,80 @@ const useStyles = makeStyles()((theme) => ({
     top: 12,
     color: "white",
     "&:hover": {
-      backgroundColor: "rgba(255,255,255,0.1)"
+      backgroundColor: "rgba(255,255,255,0.12)"
     }
   },
   formContainer: {
-    padding: "20px 24px",
-    maxWidth: 1000,
+    padding: "16px 20px",
+    maxWidth: "100%",
     margin: "0 auto",
-    background: "#fafafa"
+    background: "#ffffff",
+    minHeight: "50vh"
   },
   formCard: {
     marginBottom: 16,
-    borderRadius: 8,
-    boxShadow: "0 2px 12px rgba(0,0,0,0.06)",
-    border: "1px solid #e8e8e8",
+    borderRadius: 12,
+    boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
+    border: "1px solid #e0e0e0",
+    overflow: "hidden",
     transition: "all 0.2s ease",
     "&:hover": {
-      boxShadow: "0 4px 20px rgba(0,0,0,0.1)"
+      boxShadow: "0 4px 12px rgba(0,0,0,0.1)"
     }
   },
   cardHeader: {
-    background: "linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%)",
+    background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
     padding: "12px 16px",
-    borderBottom: "1px solid #e0e0e0",
-    borderRadius: "8px 8px 0 0"
+    borderBottom: "none",
+    borderRadius: "0"
   },
   sectionTitle: {
-    color: "#2c3e50",
+    color: "white",
     fontWeight: 600,
-    fontSize: "1rem",
+    fontSize: "0.95rem",
     display: "flex",
     alignItems: "center",
-    gap: 6
+    gap: 8,
+    letterSpacing: "0.2px"
   },
   orderTypeContainer: {
     marginBottom: 16
   },
   quotaTypeContainer: {
     marginTop: 12,
-    padding: 16,
+    padding: 12,
     backgroundColor: "#f8f9fa",
-    borderRadius: 6,
-    border: "1px solid #e9ecef"
+    borderRadius: 8,
+    border: "1px solid #e0e0e0"
   },
   quotaInfo: {
     marginTop: 8,
-    padding: 12,
+    padding: 10,
     backgroundColor: "#e3f2fd",
-    borderRadius: 6,
+    borderRadius: 8,
     border: "1px solid #2196f3",
     display: "flex",
     alignItems: "center",
-    gap: 6
+    gap: 8
   },
   submitButton: {
-    marginTop: 16,
-    padding: "12px 32px",
-    fontSize: "1rem",
-    borderRadius: 6,
+    marginTop: 0,
+    padding: "10px 28px",
+    fontSize: "0.95rem",
+    fontWeight: 600,
+    borderRadius: 8,
+    textTransform: "none",
     background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+    boxShadow: "0 2px 8px rgba(102, 126, 234, 0.3)",
     "&:hover": {
-      background: "linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%)"
+      background: "linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%)",
+      boxShadow: "0 4px 12px rgba(102, 126, 234, 0.4)"
     }
   },
   stepper: {
-    padding: "16px 0",
-    background: "transparent"
+    padding: "12px 0",
+    background: "transparent",
+    marginBottom: 4
   },
   stepIcon: {
     backgroundColor: "#e0e0e0",
@@ -163,50 +189,55 @@ const useStyles = makeStyles()((theme) => ({
     }
   },
   formSection: {
-    padding: "8px",
-    "& .MuiGrid-item": {
-      marginBottom: 6
-    }
+    padding: "16px",
+    backgroundColor: "#ffffff"
   },
   infoChip: {
-    margin: "4px 0",
+    margin: "4px 2px",
     backgroundColor: "#e3f2fd",
     color: "#1976d2",
-    fontWeight: 500
+    fontWeight: 500,
+    fontSize: "0.75rem",
+    height: 24
   },
   successChip: {
     backgroundColor: "#e8f5e8",
     color: "#2e7d32",
-    fontWeight: 500
+    fontWeight: 500,
+    fontSize: "0.75rem",
+    height: 24
   },
   warningChip: {
     backgroundColor: "#fff3e0",
     color: "#f57c00",
-    fontWeight: 500
+    fontWeight: 500,
+    fontSize: "0.75rem",
+    height: 24
   },
   farmerInfo: {
     display: "flex",
     alignItems: "center",
-    gap: 10,
+    gap: 12,
     padding: 12,
-    backgroundColor: "#f0f8ff",
-    borderRadius: 6,
-    border: "1px solid #2196f3",
+    background: "#e8f5e9",
+    borderRadius: 8,
+    border: "1px solid #4caf50",
     marginBottom: 12
   },
   avatar: {
-    backgroundColor: "#2196f3",
-    width: 32,
-    height: 32
+    backgroundColor: "#4caf50",
+    width: 36,
+    height: 36
   },
   slotInfo: {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    padding: 8,
-    backgroundColor: "#f5f5f5",
-    borderRadius: 4,
-    marginTop: 8
+    padding: 10,
+    backgroundColor: "#f8f9fa",
+    borderRadius: 8,
+    marginTop: 8,
+    border: "1px solid #e0e0e0"
   },
   loadingOverlay: {
     position: "absolute",
@@ -214,12 +245,24 @@ const useStyles = makeStyles()((theme) => ({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: "rgba(255,255,255,0.8)",
+    backgroundColor: "rgba(255,255,255,0.9)",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
     zIndex: 1000,
     borderRadius: 12
+  },
+  modernTextField: {
+    "& .MuiOutlinedInput-root": {
+      borderRadius: 8,
+      backgroundColor: "#ffffff"
+    }
+  },
+  modernSelect: {
+    "& .MuiOutlinedInput-root": {
+      borderRadius: 8,
+      backgroundColor: "#ffffff"
+    }
   }
 }))
 
@@ -424,35 +467,61 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
 
   const loadSubTypes = async (plantId) => {
     try {
+      // Load subtypes for both 2025 and 2026 to ensure all subtypes are available
       const instance = NetworkManager(API.slots.GET_PLANTS_SUBTYPE)
-      const response = await instance.request(null, { plantId, year: 2025 })
-      if (response?.data?.subtypes) {
-        const subtypes = response.data.subtypes.map((subtype) => {
-          // Handle rate as array - pick 0th element
-          let rate = 0
-
-          // Check multiple possible rate properties
-          if (subtype.rates) {
-            if (Array.isArray(subtype.rates)) {
-              rate = subtype.rates.length > 0 ? subtype.rates[0] : 0
-            } else {
-              rate = subtype.rates
-            }
-          } else if (subtype.rate) {
-            // Fallback to single rate property
-            rate = subtype.rate
+      const [response2025, response2026] = await Promise.all([
+        instance.request(null, { plantId, year: 2025 }).catch(() => ({ data: { subtypes: [] } })),
+        instance.request(null, { plantId, year: 2026 }).catch(() => ({ data: { subtypes: [] } }))
+      ])
+      
+      // Combine subtypes from both years, avoiding duplicates
+      const subtypes2025 = response2025?.data?.subtypes || []
+      const subtypes2026 = response2026?.data?.subtypes || []
+      
+      // Create a map to avoid duplicates by subtypeId
+      const subtypeMap = new Map()
+      
+      // Add 2025 subtypes first
+      subtypes2025.forEach((subtype) => {
+        let rate = 0
+        if (subtype.rates) {
+          if (Array.isArray(subtype.rates)) {
+            rate = subtype.rates.length > 0 ? subtype.rates[0] : 0
+          } else {
+            rate = subtype.rates
           }
-
-          return {
-            label: subtype.subtypeName,
-            value: subtype.subtypeId,
-            rate: rate
-          }
+        } else if (subtype.rate) {
+          rate = subtype.rate
+        }
+        
+        subtypeMap.set(subtype.subtypeId, {
+          label: subtype.subtypeName,
+          value: subtype.subtypeId,
+          rate: rate
         })
-        setSubTypes(subtypes)
-      } else {
-        setSubTypes([])
-      }
+      })
+      
+      // Add 2026 subtypes (will override 2025 if duplicate, keeping latest rate)
+      subtypes2026.forEach((subtype) => {
+        let rate = 0
+        if (subtype.rates) {
+          if (Array.isArray(subtype.rates)) {
+            rate = subtype.rates.length > 0 ? subtype.rates[0] : 0
+          } else {
+            rate = subtype.rates
+          }
+        } else if (subtype.rate) {
+          rate = subtype.rate
+        }
+        
+        subtypeMap.set(subtype.subtypeId, {
+          label: subtype.subtypeName,
+          value: subtype.subtypeId,
+          rate: rate
+        })
+      })
+      
+      setSubTypes(Array.from(subtypeMap.values()))
     } catch (error) {
       console.error("Error loading subtypes:", error)
       setSubTypes([])
@@ -512,20 +581,40 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
       }
 
       // Use fast simple slots endpoint for non-dealer quota
+      // Load slots for both 2025 and 2026 to support both years
       const instance = NetworkManager(API.slots.GET_SIMPLE_SLOTS)
-      const response = await instance.request({}, { plantId, subtypeId, year: 2025 })
+      const [response2025, response2026] = await Promise.all([
+        instance.request({}, { plantId, subtypeId, year: 2025 }).catch(() => ({ data: {} })),
+        instance.request({}, { plantId, subtypeId, year: 2026 }).catch(() => ({ data: {} }))
+      ])
 
-      const rawSlots =
-        response?.data?.data?.slots ||
-        response?.data?.slots ||
-        response?.data?.data ||
+      // Extract slots from both responses
+      const rawSlots2025 =
+        response2025?.data?.data?.slots ||
+        response2025?.data?.slots ||
+        response2025?.data?.data ||
+        []
+      
+      const rawSlots2026 =
+        response2026?.data?.data?.slots ||
+        response2026?.data?.slots ||
+        response2026?.data?.data ||
         []
 
-      const slotsData = Array.isArray(rawSlots)
-        ? rawSlots
-        : Array.isArray(rawSlots?.slots)
-        ? rawSlots.slots
+      const slots2025 = Array.isArray(rawSlots2025)
+        ? rawSlots2025
+        : Array.isArray(rawSlots2025?.slots)
+        ? rawSlots2025.slots
         : []
+      
+      const slots2026 = Array.isArray(rawSlots2026)
+        ? rawSlots2026
+        : Array.isArray(rawSlots2026?.slots)
+        ? rawSlots2026.slots
+        : []
+
+      // Combine slots from both years
+      const slotsData = [...slots2025, ...slots2026]
 
       if (slotsData.length > 0) {
         // Check if this plant has sowing allowed
@@ -963,6 +1052,73 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
       .reduce((total, entry) => total + (entry.remainingQuantity || 0), 0)
   }
 
+  // Prepare chart data for available plants visualization (dealer quota)
+  const getChartData = () => {
+    const availableSlots = getAvailablePlantsForSlots()
+    
+    if (availableSlots.length === 0 && dealerWallet?.entries && dealerWallet.entries.length > 0) {
+      // Use dealer wallet entries
+      return dealerWallet.entries
+        .filter((entry) => (entry.remainingQuantity || 0) > 0)
+        .map((entry, index) => {
+          const slotDetails = slots.find((slot) => slot.value === entry.bookingSlotId)
+          let slotLabel = `Slot ${index + 1}`
+          
+          if (slotDetails) {
+            slotLabel = slotDetails.label.split(" (")[0] // Remove availability text
+          } else if (entry.startDay && entry.endDay) {
+            const startDate = moment(entry.startDay, "DD-MM-YYYY").format("D MMM")
+            const endDate = moment(entry.endDay, "DD-MM-YYYY").format("D MMM")
+            slotLabel = `${startDate} - ${endDate}`
+          }
+          
+          return {
+            name: slotLabel.length > 20 ? slotLabel.substring(0, 20) + "..." : slotLabel,
+            available: entry.remainingQuantity || 0,
+            total: entry.quantity || 0,
+            booked: (entry.quantity || 0) - (entry.remainingQuantity || 0)
+          }
+        })
+    }
+    
+    return availableSlots.map((slotInfo, index) => {
+      const slotName = slotInfo.slotLabel.split(" (")[0] // Remove availability text
+      return {
+        name: slotName.length > 20 ? slotName.substring(0, 20) + "..." : slotName,
+        available: slotInfo.availableInWallet || 0,
+        total: slotInfo.totalInSlot || 0,
+        booked: (slotInfo.totalInSlot || 0) - (slotInfo.availableInWallet || 0)
+      }
+    })
+  }
+
+  // Prepare chart data for regular slots (non-dealer quota)
+  const getRegularSlotsChartData = () => {
+    if (!slots || slots.length === 0 || quotaType === "dealer") {
+      return []
+    }
+
+    return slots
+      .filter((slot) => slot.availableQuantity !== undefined)
+      .map((slot) => {
+        const slotName = slot.label.split(" (")[0] // Remove availability text
+        return {
+          name: slotName.length > 25 ? slotName.substring(0, 25) + "..." : slotName,
+          available: slot.availableQuantity || 0,
+          total: slot.totalPlants || 0,
+          booked: (slot.totalBookedPlants || 0)
+        }
+      })
+      .slice(0, 15) // Limit to first 15 slots for better visualization
+  }
+
+  // Chart colors
+  const CHART_COLORS = {
+    available: "#4caf50",
+    booked: "#f44336",
+    total: "#2196f3"
+  }
+
   // Payment Management Functions - Using same flow as FarmerOrdersTable
   const handlePaymentInputChange = (field, value) => {
     setNewPayment((prev) => {
@@ -1336,7 +1492,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
 
       if (availableQuantity !== null && requestedQuantity > availableQuantity) {
         Toast.error(
-          `⚠️ Slot Capacity Exceeded!\n\nOnly ${availableQuantity} plants available for ${moment(formData?.orderDate).format("DD/MM/YYYY")} (slot: ${slotPeriod})\n\nPlease select a different date or reduce the order quantity.`,
+          `⚠️ Slot Capacity Exceeded!\n\nOnly ${availableQuantity} plants available for ${moment(formData?.orderDate).format("D-MMM-YYYY")} (slot: ${slotPeriod})\n\nPlease select a different date or reduce the order quantity.`,
           {
             duration: 8000,
             style: {
@@ -1979,12 +2135,49 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
             </Box>
           )}
 
-          {/* Stepper */}
-          <Paper elevation={0} sx={{ mb: 0.5, p: 0.25, background: "transparent" }}>
-            <Stepper activeStep={activeStep} className={classes.stepper} size="small">
+          {/* Compact Stepper */}
+          <Paper 
+            elevation={0} 
+            sx={{ 
+              mb: 2, 
+              p: 1.5, 
+              background: "#f8f9fa",
+              borderRadius: 2,
+              border: "1px solid #e0e0e0"
+            }}
+          >
+            <Stepper 
+              activeStep={activeStep} 
+              className={classes.stepper}
+              size="small"
+              sx={{
+                "& .MuiStepLabel-root": {
+                  "& .MuiStepLabel-label": {
+                    fontSize: "0.75rem",
+                    fontWeight: 500,
+                    "&.Mui-completed": {
+                      color: "#4caf50"
+                    },
+                    "&.Mui-active": {
+                      color: "#667eea",
+                      fontWeight: 600
+                    }
+                  }
+                },
+                "& .MuiStepIcon-root": {
+                  fontSize: "1.5rem",
+                  "&.Mui-completed": {
+                    color: "#4caf50"
+                  },
+                  "&.Mui-active": {
+                    color: "#667eea"
+                  }
+                }
+              }}
+            >
               {steps.map((label) => (
                 <Step key={label}>
-                  <StepLabel sx={{ fontSize: "0.7rem" }}>{label}</StepLabel>
+                  <StepLabel>{label}</StepLabel>
                 </Step>
               ))}
             </Stepper>
@@ -1994,7 +2187,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
           {renderQuotaTypeSelector()}
 
 
-          {/* Farmer Details Section */}
+          {/* Farmer Details Section - Table Format */}
           {!bulkOrder && (
             <Card className={classes.formCard}>
               <div className={classes.cardHeader}>
@@ -2004,7 +2197,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
               </div>
               <CardContent className={classes.formSection}>
                 {farmerData?.name && (
-                  <Box className={classes.farmerInfo}>
+                  <Box className={classes.farmerInfo} sx={{ mb: 2 }}>
                     <Avatar className={classes.avatar}>
                       <PersonIcon />
                     </Avatar>
@@ -2027,223 +2220,238 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                   </Box>
                 )}
 
-                <Grid container spacing={2}>
-                  <Grid item xs={12} md={6}>
-                    <LocalizationProvider dateAdapter={AdapterDateFns}>
-                      <DatePicker
-                        label="Order Date"
-                        value={formData?.date}
-                        onChange={(date) => handleInputChange("date", date)}
-                        renderInput={(params) => <TextField {...params} fullWidth />}
-                      />
-                    </LocalizationProvider>
-                  </Grid>
-
-                  <Grid item xs={12} md={6}>
-                    <TextField
-                      fullWidth
-                      label="Mobile Number"
-                      value={formData?.mobileNumber}
-                      onChange={(e) => handleInputChange("mobileNumber", e.target.value)}
-                      inputProps={{ maxLength: 10 }}
-                      InputProps={{
-                        endAdornment: mobileLoading && (
-                          <CircularProgress size={20} color="primary" />
-                        )
-                      }}
-                      helperText={
-                        farmerData?.name
-                          ? "Farmer found in database - location auto-filled"
-                          : mobileLoading
-                          ? "Searching for farmer..."
-                          : "Enter 10-digit mobile number to auto-fill farmer details (500ms delay)"
-                      }
-                    />
-                  </Grid>
-
-                  <Grid item xs={12} md={6}>
-                    <TextField
-                      fullWidth
-                      label="Farmer Name"
-                      value={formData?.name}
-                      onChange={(e) => handleInputChange("name", e.target.value)}
-                      disabled={!!farmerData?.name}
-                    />
-                  </Grid>
-
-                  {/* Order For Toggle - Beside Farmer Name */}
-                  <Grid item xs={12} md={6}>
-                    <Box sx={{ mt: 1 }}>
-                      <FormControlLabel
-                        control={
-                          <Checkbox
-                            checked={formData?.orderForEnabled}
-                            onChange={(e) => handleInputChange("orderForEnabled", e.target.checked)}
-                            color="primary"
-                          />
-                        }
-                        label={
-                          <Typography variant="body2" fontWeight={600}>
-                            Place order for someone else?
-                          </Typography>
+                {/* Compact Grid Layout for Farmer Details */}
+                <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                  {/* Row 1: Order Date & Mobile Number */}
+                  <Grid container spacing={2}>
+                    <Grid item xs={12} md={6}>
+                      <LocalizationProvider dateAdapter={AdapterDateFns}>
+                        <DatePicker
+                          label="Order Booking Date"
+                          value={formData?.date}
+                          onChange={(date) => handleInputChange("date", date)}
+                          format="d-MMM-yyyy"
+                          renderInput={(params) => (
+                            <TextField 
+                              {...params} 
+                              fullWidth 
+                              size="small"
+                              className={classes.modernTextField}
+                            />
+                          )}
+                        />
+                      </LocalizationProvider>
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        fullWidth
+                        label="Mobile Number"
+                        value={formData?.mobileNumber}
+                        onChange={(e) => handleInputChange("mobileNumber", e.target.value)}
+                        inputProps={{ maxLength: 10 }}
+                        size="small"
+                        className={classes.modernTextField}
+                        InputProps={{
+                          endAdornment: mobileLoading && (
+                            <CircularProgress size={18} color="primary" />
+                          )
+                        }}
+                        helperText={
+                          farmerData?.name
+                            ? "✓ Farmer found"
+                            : mobileLoading
+                            ? "Searching..."
+                            : "Enter 10-digit mobile"
                         }
                       />
-                    </Box>
+                    </Grid>
                   </Grid>
 
-                  {/* Order For Fields - Show when enabled */}
-                  {formData?.orderForEnabled && (
-                    <>
-                      <Grid item xs={12}>
-                        <Divider sx={{ my: 1 }}>
-                          <Chip label="Order For Details" size="small" color="primary" />
-                        </Divider>
+                  {/* Row 2: Farmer Name & Order For Toggle */}
+                  <Grid container spacing={2} alignItems="center">
+                    <Grid item xs={12} md={8}>
+                      <TextField
+                        fullWidth
+                        label="Farmer Name"
+                        value={formData?.name}
+                        onChange={(e) => handleInputChange("name", e.target.value)}
+                        disabled={!!farmerData?.name}
+                        size="small"
+                        className={classes.modernTextField}
+                      />
+                    </Grid>
+                    <Grid item xs={12} md={4}>
+                      <Box 
+                        sx={{ 
+                          p: 1.5, 
+                          borderRadius: 2, 
+                          bgcolor: formData?.orderForEnabled ? "#e3f2fd" : "#f5f5f5",
+                          border: formData?.orderForEnabled ? "1px solid #2196f3" : "1px solid transparent",
+                          cursor: "pointer"
+                        }}
+                        onClick={() => handleInputChange("orderForEnabled", !formData?.orderForEnabled)}
+                      >
+                        <FormControlLabel
+                          control={
+                            <Checkbox
+                              checked={formData?.orderForEnabled}
+                              onChange={(e) => handleInputChange("orderForEnabled", e.target.checked)}
+                              color="primary"
+                              size="small"
+                            />
+                          }
+                          label={
+                            <Typography variant="body2" fontWeight={500} color={formData?.orderForEnabled ? "#1976d2" : "text.secondary"}>
+                              Order for someone else?
+                            </Typography>
+                          }
+                        />
+                      </Box>
+                    </Grid>
+                  </Grid>
+
+                  {/* Row 3: Location */}
+                  {farmerData?.name ? (
+                    <Grid container spacing={2}>
+                      <Grid item xs={12} sm={6} md={3}>
+                        <TextField
+                          fullWidth
+                          label="State"
+                          value={formData?.state || ""}
+                          disabled
+                          variant="outlined"
+                          size="small"
+                          className={classes.modernTextField}
+                        />
                       </Grid>
-                      
-                      <Grid item xs={12} md={6}>
+                      <Grid item xs={12} sm={6} md={3}>
+                        <TextField
+                          fullWidth
+                          label="District"
+                          value={formData?.district || ""}
+                          disabled
+                          variant="outlined"
+                          size="small"
+                          className={classes.modernTextField}
+                        />
+                      </Grid>
+                      <Grid item xs={12} sm={6} md={3}>
+                        <TextField
+                          fullWidth
+                          label="Taluka"
+                          value={formData?.taluka || ""}
+                          disabled
+                          variant="outlined"
+                          size="small"
+                          className={classes.modernTextField}
+                        />
+                      </Grid>
+                      <Grid item xs={12} sm={6} md={3}>
+                        <TextField
+                          fullWidth
+                          label="Village"
+                          value={formData?.village || ""}
+                          disabled
+                          variant="outlined"
+                          size="small"
+                          className={classes.modernTextField}
+                        />
+                      </Grid>
+                    </Grid>
+                  ) : (
+                    <LocationSelector
+                      selectedState={formData?.state}
+                      selectedDistrict={formData?.district}
+                      selectedTaluka={formData?.taluka}
+                      selectedVillage={formData?.village}
+                      onStateChange={(value) => handleInputChange("state", value)}
+                      onDistrictChange={(value) => handleInputChange("district", value)}
+                      onTalukaChange={(value) => handleInputChange("taluka", value)}
+                      onVillageChange={(value) => handleInputChange("village", value)}
+                      required={true}
+                      showLabels={false}
+                      disabled={false}
+                      autoFill={true}
+                    />
+                  )}
+                </Box>
+
+                {farmerData?.name ? (
+                  <Alert severity="success" sx={{ mb: 2 }}>
+                    <Typography variant="body2">
+                      <strong>Farmer Found:</strong> Location fields are auto-filled and disabled.
+                    </Typography>
+                  </Alert>
+                ) : (
+                  <Alert severity="info" sx={{ mb: 2 }}>
+                    <Typography variant="body2">
+                      {user?.defaultState ? (
+                        <>
+                          <strong>User Default Location:</strong> Using your saved location preferences.
+                        </>
+                      ) : (
+                        <>
+                          <strong>Default Location:</strong> Maharashtra state is pre-selected.
+                        </>
+                      )}
+                    </Typography>
+                  </Alert>
+                )}
+
+                {/* Order For Fields - Show when enabled */}
+                {formData?.orderForEnabled && (
+                  <Box 
+                    sx={{ 
+                      mt: 2, 
+                      p: 2, 
+                      background: "#e3f2fd",
+                      borderRadius: 2, 
+                      border: "1px solid #2196f3"
+                    }}
+                  >
+                    <Typography variant="subtitle2" fontWeight={600} color="#1976d2" sx={{ mb: 1.5 }}>
+                      Order For Details
+                    </Typography>
+                    <Grid container spacing={2}>
+                      <Grid item xs={12} md={4}>
                         <TextField
                           fullWidth
                           label="Name *"
                           value={formData?.orderForName}
                           onChange={(e) => handleInputChange("orderForName", e.target.value)}
-                          placeholder="Enter name of person order is for"
+                          placeholder="Enter name"
                           size="small"
+                          className={classes.modernTextField}
                         />
                       </Grid>
-                      
-                      <Grid item xs={12} md={6}>
+                      <Grid item xs={12} md={4}>
                         <TextField
                           fullWidth
                           label="Mobile Number *"
                           value={formData?.orderForMobileNumber}
                           onChange={(e) => handleInputChange("orderForMobileNumber", e.target.value)}
-                          placeholder="Enter 10-digit mobile number"
+                          placeholder="10-digit mobile"
                           inputProps={{ maxLength: 10 }}
                           size="small"
+                          className={classes.modernTextField}
                         />
                       </Grid>
-                      
-                      <Grid item xs={12}>
+                      <Grid item xs={12} md={4}>
                         <TextField
                           fullWidth
                           label="Address *"
                           value={formData?.orderForAddress}
                           onChange={(e) => handleInputChange("orderForAddress", e.target.value)}
-                          placeholder="Enter complete address"
+                          placeholder="Delivery address"
                           multiline
                           rows={2}
                           size="small"
+                          className={classes.modernTextField}
                         />
                       </Grid>
-                      
-                      <Grid item xs={12}>
-                        <Alert severity="info" sx={{ mt: 1 }}>
-                          <Typography variant="body2">
-                            This information will be stored with the order and can be used for delivery and communication purposes.
-                          </Typography>
-                        </Alert>
-                      </Grid>
-                    </>
-                  )}
-
-                  <Grid item xs={12}>
-
-                    {farmerData?.name ? (
-                      // Show location as read-only when farmer is found
-                      <Box sx={{ mt: 2 }}>
-                        <Typography
-                          variant="subtitle2"
-                          sx={{ mb: 2, fontWeight: 600, color: "#2c3e50" }}>
-                          Location (Auto-filled from farmer data)
-                        </Typography>
-                        <Grid container spacing={2}>
-                          <Grid item xs={12} md={3}>
-                            <TextField
-                              fullWidth
-                              label="State"
-                              value={formData?.state || ""}
-                              disabled
-                              variant="outlined"
-                              size="small"
-                            />
-                          </Grid>
-                          <Grid item xs={12} md={3}>
-                            <TextField
-                              fullWidth
-                              label="District"
-                              value={formData?.district || ""}
-                              disabled
-                              variant="outlined"
-                              size="small"
-                            />
-                          </Grid>
-                          <Grid item xs={12} md={3}>
-                            <TextField
-                              fullWidth
-                              label="Taluka"
-                              value={formData?.taluka || ""}
-                              disabled
-                              variant="outlined"
-                              size="small"
-                            />
-                          </Grid>
-                          <Grid item xs={12} md={3}>
-                            <TextField
-                              fullWidth
-                              label="Village"
-                              value={formData?.village || ""}
-                              disabled
-                              variant="outlined"
-                              size="small"
-                            />
-                          </Grid>
-                        </Grid>
-                      </Box>
-                    ) : (
-                      // Show normal LocationSelector when no farmer is found
-                      <LocationSelector
-                        selectedState={formData?.state}
-                        selectedDistrict={formData?.district}
-                        selectedTaluka={formData?.taluka}
-                        selectedVillage={formData?.village}
-                        onStateChange={(value) => handleInputChange("state", value)}
-                        onDistrictChange={(value) => handleInputChange("district", value)}
-                        onTalukaChange={(value) => handleInputChange("taluka", value)}
-                        onVillageChange={(value) => handleInputChange("village", value)}
-                        required={true}
-                        showLabels={false}
-                        className="mt-4"
-                        disabled={false}
-                        autoFill={true}
-                      />
-                    )}
-                    {farmerData?.name ? (
-                      <Alert severity="success" sx={{ mt: 2 }}>
-                        <Typography variant="body2">
-                          <strong>Farmer Found:</strong> Location fields are auto-filled and
-                          disabled. You can modify them if needed by clearing the mobile number
-                          first.
-                        </Typography>
-                      </Alert>
-                    ) : (
-                      <Alert severity="info" sx={{ mt: 2 }}>
-                        <Typography variant="body2">
-                          {user?.defaultState ? (
-                            <>
-                              <strong>User Default Location:</strong> Using your saved location
-                              preferences. You can modify if needed.
-                            </>
-                          ) : (
-                            <>
-                              <strong>Default Location:</strong> Maharashtra state is pre-selected.
-                              Please select your district, taluka, and village.
-                            </>
-                          )}
-                        </Typography>
-                      </Alert>
-                    )}
-                  </Grid>
-                </Grid>
+                    </Grid>
+                  </Box>
+                )}
               </CardContent>
             </Card>
           )}
@@ -2251,128 +2459,86 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
           {/* Sales Person Selection */}
           <Card className={classes.formCard}>
             <div className={classes.cardHeader}>
-              <Typography variant="h6" className={classes.sectionTitle}>
-                <PersonIcon /> Sales Assignment
+              <Typography variant="subtitle1" className={classes.sectionTitle}>
+                <PersonIcon fontSize="small" /> Sales Assignment
               </Typography>
             </div>
             <CardContent className={classes.formSection}>
               <Grid container spacing={2}>
                 <Grid item xs={12} md={6}>
-                  <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 1 }}>
-                    <Box sx={{ flex: 1 }}>
-                      <SearchableSelect
-                        label="Select Sales Person"
-                        items={[{ label: "Select a sales person", value: "" }, ...sales]}
-                        value={formData?.sales || ""}
-                        onChange={(e) => {
-                          const selectedSales = e.target.value
-                          handleInputChange("sales", selectedSales)
-                          // Clear dealer selection when sales person is selected
-                          if (selectedSales) {
-                            handleInputChange("dealer", "")
-                            setQuotaType(null)
-                            setDealerWallet({})
-                          }
-                        }}
-                        placeholder="Search sales person..."
-                        disabled={!!formData?.dealer || bulkOrder}
-                      />
-                    </Box>
-                    {formData?.sales && !bulkOrder && (
-                      <Button
-                        variant="outlined"
-                        color="secondary"
-                        size="small"
-                        onClick={() => {
-                          handleInputChange("sales", "")
-                        }}
-                        sx={{ 
-                          minWidth: 'auto',
-                          px: 1,
-                          height: '40px',
-                          borderColor: '#f44336',
-                          color: '#f44336',
-                          '&:hover': {
-                            borderColor: '#d32f2f',
-                            backgroundColor: '#ffebee'
-                          }
-                        }}
-                        title="Clear Sales Person Selection"
-                      >
-                        <CloseIcon fontSize="small" />
-                      </Button>
-                    )}
-                  </Box>
+                  <SearchableSelect
+                    label="Select Sales Person"
+                    items={[{ label: "Select a sales person", value: "" }, ...sales]}
+                    value={formData?.sales || ""}
+                    onChange={(e) => {
+                      const selectedSales = e.target.value
+                      handleInputChange("sales", selectedSales)
+                      if (selectedSales) {
+                        handleInputChange("dealer", "")
+                        setQuotaType(null)
+                        setDealerWallet({})
+                      }
+                    }}
+                    placeholder="Search sales person..."
+                    disabled={!!formData?.dealer || bulkOrder}
+                  />
                 </Grid>
 
                 <Grid item xs={12} md={6}>
-                  <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 1 }}>
-                    <Box sx={{ flex: 1 }}>
-                      <SearchableSelect
-                        label="Select Dealer"
-                        items={[{ label: "Select a dealer", value: "" }, ...dealers]}
-                        value={formData?.dealer || ""}
-                        onChange={(e) => {
-                          const selectedDealer = e.target.value
-                          handleInputChange("dealer", selectedDealer)
-                          // Clear sales person selection when dealer is selected
-                          if (selectedDealer) {
-                            handleInputChange("sales", "")
-                          }
-                        }}
-                        placeholder="Search dealer..."
-                        disabled={!!formData?.sales}
-                      />
-                    </Box>
-                    {formData?.dealer && (
-                      <Button
-                        variant="outlined"
-                        color="secondary"
-                        size="small"
-                        onClick={() => {
-                          handleInputChange("dealer", "")
-                          setQuotaType(null)
-                          setDealerWallet({})
-                        }}
-                        sx={{ 
-                          minWidth: 'auto',
-                          px: 1,
-                          height: '40px',
-                          borderColor: '#f44336',
-                          color: '#f44336',
-                          '&:hover': {
-                            borderColor: '#d32f2f',
-                            backgroundColor: '#ffebee'
-                          }
-                        }}
-                        title="Clear Dealer Selection"
-                      >
-                        <CloseIcon fontSize="small" />
-                      </Button>
-                    )}
-                  </Box>
+                  <SearchableSelect
+                    label="Select Dealer"
+                    items={[{ label: "Select a dealer", value: "" }, ...dealers]}
+                    value={formData?.dealer || ""}
+                    onChange={(e) => {
+                      const selectedDealer = e.target.value
+                      handleInputChange("dealer", selectedDealer)
+                      if (selectedDealer) {
+                        handleInputChange("sales", "")
+                      }
+                    }}
+                    placeholder="Search dealer..."
+                    disabled={!!formData?.sales}
+                  />
                 </Grid>
               </Grid>
 
               {/* Show quota type selection when dealer is selected for normal orders only */}
               {formData?.dealer && !bulkOrder && (
-                <Box sx={{ mt: 3 }}>
-                  <Typography variant="subtitle2" sx={{ mb: 2, fontWeight: 600, color: "#2c3e50" }}>
-                    Quota Type for Selected Dealer
+                <Box 
+                  sx={{ 
+                    mt: 2, 
+                    p: 2, 
+                    bgcolor: "#f8f9fa",
+                    borderRadius: 2,
+                    border: "1px solid #e0e0e0"
+                  }}
+                >
+                  <Typography variant="subtitle2" sx={{ mb: 1.5, fontWeight: 600, color: "#2c3e50" }}>
+                    Quota Type
                   </Typography>
                   <RadioGroup
                     row
                     value={quotaType || ""}
-                    onChange={(e) => setQuotaType(e.target.value)}>
+                    onChange={(e) => setQuotaType(e.target.value)}
+                    sx={{ gap: 2 }}
+                  >
                     <FormControlLabel
                       value="dealer"
-                      control={<Radio color="primary" />}
-                      label="From Dealer Quota"
+                      control={<Radio size="small" color="primary" />}
+                      label={
+                        <Typography variant="body2" fontWeight={500}>
+                          Dealer Quota
+                        </Typography>
+                      }
                     />
                     <FormControlLabel
                       value="company"
-                      control={<Radio color="primary" />}
-                      label="From Company Quota"
+                      control={<Radio size="small" color="primary" />}
+                      label={
+                        <Typography variant="body2" fontWeight={500}>
+                          Company Quota
+                        </Typography>
+                      }
                     />
                   </RadioGroup>
 
@@ -2396,6 +2562,187 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                           ? "Available Plants in Dealer Quota by Slot"
                           : "Total Available Plants in Dealer Quota by Slot (Select plant/subtype for specific details)"}
                       </Typography>
+                      
+                      {/* Charts Section */}
+                      {(() => {
+                        const chartData = getChartData()
+                        if (chartData.length > 0) {
+                          return (
+                            <Box sx={{ mb: 3 }}>
+                              <Grid container spacing={2}>
+                                {/* Bar Chart - Available vs Booked */}
+                                <Grid item xs={12} md={6}>
+                                  <Paper elevation={2} sx={{ p: 2, borderRadius: 2 }}>
+                                    <Typography variant="subtitle2" sx={{ mb: 2, fontWeight: 600, color: "#2c3e50" }}>
+                                      Available vs Booked Plants
+                                    </Typography>
+                                    <ResponsiveContainer width="100%" height={250}>
+                                      <BarChart data={chartData}>
+                                        <CartesianGrid strokeDasharray="3 3" />
+                                        <XAxis 
+                                          dataKey="name" 
+                                          angle={-45}
+                                          textAnchor="end"
+                                          height={80}
+                                          interval={0}
+                                          fontSize={10}
+                                        />
+                                        <YAxis />
+                                        <RechartsTooltip 
+                                          formatter={(value, name) => [
+                                            value.toLocaleString(),
+                                            name === "available" ? "Available" : name === "booked" ? "Booked" : "Total"
+                                          ]}
+                                        />
+                                        <Legend 
+                                          formatter={(value) => value === "available" ? "Available" : value === "booked" ? "Booked" : "Total"}
+                                        />
+                                        <Bar dataKey="available" fill={CHART_COLORS.available} name="available" />
+                                        <Bar dataKey="booked" fill={CHART_COLORS.booked} name="booked" />
+                                      </BarChart>
+                                    </ResponsiveContainer>
+                                  </Paper>
+                                </Grid>
+
+                                {/* Line Chart - Availability Trend */}
+                                <Grid item xs={12} md={6}>
+                                  <Paper elevation={2} sx={{ p: 2, borderRadius: 2 }}>
+                                    <Typography variant="subtitle2" sx={{ mb: 2, fontWeight: 600, color: "#2c3e50" }}>
+                                      Availability Trend by Slot
+                                    </Typography>
+                                    <ResponsiveContainer width="100%" height={250}>
+                                      <LineChart data={chartData}>
+                                        <CartesianGrid strokeDasharray="3 3" />
+                                        <XAxis 
+                                          dataKey="name" 
+                                          angle={-45}
+                                          textAnchor="end"
+                                          height={80}
+                                          interval={0}
+                                          fontSize={10}
+                                        />
+                                        <YAxis />
+                                        <RechartsTooltip 
+                                          formatter={(value) => value.toLocaleString()}
+                                        />
+                                        <Legend />
+                                        <Line 
+                                          type="monotone" 
+                                          dataKey="available" 
+                                          stroke={CHART_COLORS.available} 
+                                          strokeWidth={2}
+                                          name="Available"
+                                          dot={{ fill: CHART_COLORS.available, r: 4 }}
+                                        />
+                                        <Line 
+                                          type="monotone" 
+                                          dataKey="total" 
+                                          stroke={CHART_COLORS.total} 
+                                          strokeWidth={2}
+                                          name="Total Capacity"
+                                          strokeDasharray="5 5"
+                                          dot={{ fill: CHART_COLORS.total, r: 4 }}
+                                        />
+                                      </LineChart>
+                                    </ResponsiveContainer>
+                                  </Paper>
+                                </Grid>
+
+                                {/* Pie Chart - Distribution */}
+                                {chartData.length <= 8 && (
+                                  <Grid item xs={12} md={6}>
+                                    <Paper elevation={2} sx={{ p: 2, borderRadius: 2 }}>
+                                      <Typography variant="subtitle2" sx={{ mb: 2, fontWeight: 600, color: "#2c3e50" }}>
+                                        Availability Distribution
+                                      </Typography>
+                                      <ResponsiveContainer width="100%" height={250}>
+                                        <PieChart>
+                                          <Pie
+                                            data={chartData}
+                                            cx="50%"
+                                            cy="50%"
+                                            labelLine={false}
+                                            label={({ name, percent }) => 
+                                              `${name.substring(0, 15)}${name.length > 15 ? "..." : ""} (${(percent * 100).toFixed(0)}%)`
+                                            }
+                                            outerRadius={80}
+                                            fill="#8884d8"
+                                            dataKey="available"
+                                          >
+                                            {chartData.map((entry, index) => (
+                                              <Cell 
+                                                key={`cell-${index}`} 
+                                                fill={[
+                                                  "#4caf50", "#2196f3", "#ff9800", "#9c27b0", 
+                                                  "#f44336", "#00bcd4", "#ffeb3b", "#795548"
+                                                ][index % 8]} 
+                                              />
+                                            ))}
+                                          </Pie>
+                                          <RechartsTooltip formatter={(value) => value.toLocaleString()} />
+                                        </PieChart>
+                                      </ResponsiveContainer>
+                                    </Paper>
+                                  </Grid>
+                                )}
+
+                                {/* Summary Stats */}
+                                <Grid item xs={12} md={chartData.length <= 8 ? 6 : 12}>
+                                  <Paper elevation={2} sx={{ p: 2, borderRadius: 2, bgcolor: "#f8f9fa" }}>
+                                    <Typography variant="subtitle2" sx={{ mb: 2, fontWeight: 600, color: "#2c3e50" }}>
+                                      Summary Statistics
+                                    </Typography>
+                                    <Grid container spacing={2}>
+                                      <Grid item xs={6} md={3}>
+                                        <Box sx={{ textAlign: "center", p: 1, bgcolor: "white", borderRadius: 1 }}>
+                                          <Typography variant="h6" color="success.main" fontWeight={700}>
+                                            {chartData.reduce((sum, item) => sum + item.available, 0).toLocaleString()}
+                                          </Typography>
+                                          <Typography variant="caption" color="text.secondary">
+                                            Total Available
+                                          </Typography>
+                                        </Box>
+                                      </Grid>
+                                      <Grid item xs={6} md={3}>
+                                        <Box sx={{ textAlign: "center", p: 1, bgcolor: "white", borderRadius: 1 }}>
+                                          <Typography variant="h6" color="error.main" fontWeight={700}>
+                                            {chartData.reduce((sum, item) => sum + item.booked, 0).toLocaleString()}
+                                          </Typography>
+                                          <Typography variant="caption" color="text.secondary">
+                                            Total Booked
+                                          </Typography>
+                                        </Box>
+                                      </Grid>
+                                      <Grid item xs={6} md={3}>
+                                        <Box sx={{ textAlign: "center", p: 1, bgcolor: "white", borderRadius: 1 }}>
+                                          <Typography variant="h6" color="primary.main" fontWeight={700}>
+                                            {chartData.reduce((sum, item) => sum + item.total, 0).toLocaleString()}
+                                          </Typography>
+                                          <Typography variant="caption" color="text.secondary">
+                                            Total Capacity
+                                          </Typography>
+                                        </Box>
+                                      </Grid>
+                                      <Grid item xs={6} md={3}>
+                                        <Box sx={{ textAlign: "center", p: 1, bgcolor: "white", borderRadius: 1 }}>
+                                          <Typography variant="h6" color="info.main" fontWeight={700}>
+                                            {chartData.length}
+                                          </Typography>
+                                          <Typography variant="caption" color="text.secondary">
+                                            Active Slots
+                                          </Typography>
+                                        </Box>
+                                      </Grid>
+                                    </Grid>
+                                  </Paper>
+                                </Grid>
+                              </Grid>
+                            </Box>
+                          )
+                        }
+                        return null
+                      })()}
+                      
                       <Box
                         sx={{
                           maxHeight: 200,
@@ -2490,7 +2837,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                               return [
                                 {
                                   slotId: "test-slot-1",
-                                  slotLabel: "01-07-2025 to 07-07-2025 July, 2025 (1000 available)",
+                                  slotLabel: "01-07-2026 to 07-07-2026 July, 2026 (1000 available)",
                                   availableInWallet: 500,
                                   totalInSlot: 1000,
                                   hasQuota: true,
@@ -2498,7 +2845,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                                 },
                                 {
                                   slotId: "test-slot-2",
-                                  slotLabel: "08-07-2025 to 14-07-2025 July, 2025 (800 available)",
+                                  slotLabel: "08-07-2026 to 14-07-2026 July, 2026 (800 available)",
                                   availableInWallet: 300,
                                   totalInSlot: 800,
                                   hasQuota: true,
@@ -2660,14 +3007,18 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
               </Typography>
             </div>
             <CardContent className={classes.formSection}>
-              <Grid container spacing={1}>
-                <Grid item xs={12} md={6}>
-                  <FormControl fullWidth>
+              <Grid container spacing={2}>
+                <Grid item xs={12} md={4}>
+                  <FormControl fullWidth className={classes.modernSelect}>
                     <InputLabel>Select Plant</InputLabel>
                     <Select
                       value={formData?.plant || ""}
                       onChange={(e) => handleInputChange("plant", e.target.value)}
-                      label="Select Plant">
+                      label="Select Plant"
+                      sx={{
+                        borderRadius: 2
+                      }}
+                    >
                       {plants.map((plant) => (
                         <MenuItem key={plant.value} value={plant.value}>
                           {plant.label}
@@ -2677,14 +3028,18 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                   </FormControl>
                 </Grid>
 
-                <Grid item xs={12} md={6}>
-                  <FormControl fullWidth>
+                <Grid item xs={12} md={4}>
+                  <FormControl fullWidth className={classes.modernSelect}>
                     <InputLabel>Select Subtype</InputLabel>
                     <Select
                       value={formData?.subtype || ""}
                       onChange={(e) => handleInputChange("subtype", e.target.value)}
                       label="Select Subtype"
-                      disabled={!formData?.plant}>
+                      disabled={!formData?.plant}
+                      sx={{
+                        borderRadius: 2
+                      }}
+                    >
                       {subTypes.map((subtype) => (
                         <MenuItem key={subtype.value} value={subtype.value}>
                           {subtype.label}
@@ -2694,14 +3049,18 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                   </FormControl>
                 </Grid>
 
-                <Grid item xs={12} md={6}>
-                  <FormControl fullWidth>
+                <Grid item xs={12} md={4}>
+                  <FormControl fullWidth className={classes.modernSelect}>
                     <InputLabel>Select Cavity</InputLabel>
                     <Select
                       value={formData?.cavity || ""}
                       onChange={(e) => handleInputChange("cavity", e.target.value)}
                       label="Select Cavity"
-                      disabled={cavities.length === 0}>
+                      disabled={cavities.length === 0}
+                      sx={{
+                        borderRadius: 2
+                      }}
+                    >
                       {cavities.length === 0 && (
                         <MenuItem value="" disabled>
                           {loading ? "Loading cavities..." : "No cavities available"}
@@ -2785,18 +3144,21 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                 <Grid item xs={12} md={6}>
                   <LocalizationProvider dateAdapter={AdapterDateFns}>
                     <DatePicker
-                      label="Order Date *"
+                      label="Delivery Date *"
                       value={formData?.orderDate}
                       onChange={(date) => handleInputChange("orderDate", date)}
                       disabled={!formData?.subtype}
                       shouldDisableDate={isDateDisabled}
+                      format="d-MMM-yyyy"
                       renderInput={(params) => (
                         <TextField 
                           {...params} 
                           fullWidth 
+                          className={classes.modernTextField}
+                          size="small"
                           helperText={
                             formData?.subtype 
-                              ? "Select delivery date (only dates within available slots are enabled)" 
+                              ? "Select delivery date" 
                               : "Select plant and subtype first"
                           }
                         />
@@ -2806,6 +3168,157 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                   </LocalizationProvider>
                 </Grid>
 
+                {/* Slot Availability Charts - Regular Slots */}
+                {formData?.subtype && slots.length > 0 && quotaType !== "dealer" && (() => {
+                  const regularChartData = getRegularSlotsChartData()
+                  if (regularChartData.length > 0) {
+                    return (
+                      <Grid item xs={12}>
+                        <Paper elevation={2} sx={{ p: 2, borderRadius: 2, bgcolor: "#f8f9fa", mb: 2 }}>
+                          <Typography variant="subtitle2" sx={{ mb: 2, fontWeight: 600, color: "#2c3e50" }}>
+                            📊 Slot Availability Visualization
+                          </Typography>
+                          <Grid container spacing={2}>
+                            <Grid item xs={12} md={6}>
+                              <ResponsiveContainer width="100%" height={250}>
+                                <BarChart data={regularChartData}>
+                                  <CartesianGrid strokeDasharray="3 3" />
+                                  <XAxis 
+                                    dataKey="name" 
+                                    angle={-45}
+                                    textAnchor="end"
+                                    height={80}
+                                    interval={0}
+                                    fontSize={10}
+                                  />
+                                  <YAxis />
+                                  <Tooltip 
+                                    formatter={(value, name) => [
+                                      value.toLocaleString(),
+                                      name === "available" ? "Available" : name === "booked" ? "Booked" : "Total"
+                                    ]}
+                                  />
+                                  <Legend 
+                                    formatter={(value) => value === "available" ? "Available" : value === "booked" ? "Booked" : "Total"}
+                                  />
+                                  <Bar dataKey="available" fill={CHART_COLORS.available} name="available" />
+                                  <Bar dataKey="booked" fill={CHART_COLORS.booked} name="booked" />
+                                </BarChart>
+                              </ResponsiveContainer>
+                            </Grid>
+                            <Grid item xs={12} md={6}>
+                              <ResponsiveContainer width="100%" height={250}>
+                                <LineChart data={regularChartData}>
+                                  <CartesianGrid strokeDasharray="3 3" />
+                                  <XAxis 
+                                    dataKey="name" 
+                                    angle={-45}
+                                    textAnchor="end"
+                                    height={80}
+                                    interval={0}
+                                    fontSize={10}
+                                  />
+                                  <YAxis />
+                                  <Tooltip formatter={(value) => value.toLocaleString()} />
+                                  <Legend />
+                                  <Line 
+                                    type="monotone" 
+                                    dataKey="available" 
+                                    stroke={CHART_COLORS.available} 
+                                    strokeWidth={2}
+                                    name="Available"
+                                    dot={{ fill: CHART_COLORS.available, r: 4 }}
+                                  />
+                                  <Line 
+                                    type="monotone" 
+                                    dataKey="total" 
+                                    stroke={CHART_COLORS.total} 
+                                    strokeWidth={2}
+                                    name="Total Capacity"
+                                    strokeDasharray="5 5"
+                                    dot={{ fill: CHART_COLORS.total, r: 4 }}
+                                  />
+                                </LineChart>
+                              </ResponsiveContainer>
+                            </Grid>
+                            {regularChartData.length <= 8 && (
+                              <Grid item xs={12} md={6}>
+                                <ResponsiveContainer width="100%" height={250}>
+                                  <PieChart>
+                                    <Pie
+                                      data={regularChartData}
+                                      cx="50%"
+                                      cy="50%"
+                                      labelLine={false}
+                                      label={({ name, percent }) => 
+                                        `${name.substring(0, 15)}${name.length > 15 ? "..." : ""} (${(percent * 100).toFixed(0)}%)`
+                                      }
+                                      outerRadius={80}
+                                      fill="#8884d8"
+                                      dataKey="available"
+                                    >
+                                      {regularChartData.map((entry, index) => (
+                                        <Cell 
+                                          key={`cell-${index}`} 
+                                          fill={[
+                                            "#4caf50", "#2196f3", "#ff9800", "#9c27b0", 
+                                            "#f44336", "#00bcd4", "#ffeb3b", "#795548"
+                                          ][index % 8]} 
+                                        />
+                                      ))}
+                                    </Pie>
+                                    <Tooltip formatter={(value) => value.toLocaleString()} />
+                                  </PieChart>
+                                </ResponsiveContainer>
+                              </Grid>
+                            )}
+                            <Grid item xs={12} md={regularChartData.length <= 8 ? 6 : 12}>
+                              <Box sx={{ p: 2, bgcolor: "white", borderRadius: 1 }}>
+                                <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>
+                                  Quick Stats
+                                </Typography>
+                                <Grid container spacing={1}>
+                                  <Grid item xs={4}>
+                                    <Box sx={{ textAlign: "center" }}>
+                                      <Typography variant="h6" color="success.main" fontWeight={700}>
+                                        {regularChartData.reduce((sum, item) => sum + item.available, 0).toLocaleString()}
+                                      </Typography>
+                                      <Typography variant="caption" color="text.secondary">
+                                        Available
+                                      </Typography>
+                                    </Box>
+                                  </Grid>
+                                  <Grid item xs={4}>
+                                    <Box sx={{ textAlign: "center" }}>
+                                      <Typography variant="h6" color="error.main" fontWeight={700}>
+                                        {regularChartData.reduce((sum, item) => sum + item.booked, 0).toLocaleString()}
+                                      </Typography>
+                                      <Typography variant="caption" color="text.secondary">
+                                        Booked
+                                      </Typography>
+                                    </Box>
+                                  </Grid>
+                                  <Grid item xs={4}>
+                                    <Box sx={{ textAlign: "center" }}>
+                                      <Typography variant="h6" color="primary.main" fontWeight={700}>
+                                        {regularChartData.length}
+                                      </Typography>
+                                      <Typography variant="caption" color="text.secondary">
+                                        Slots
+                                      </Typography>
+                                    </Box>
+                                  </Grid>
+                                </Grid>
+                              </Box>
+                            </Grid>
+                          </Grid>
+                        </Paper>
+                      </Grid>
+                    )
+                  }
+                  return null
+                })()}
+
                 <Grid item xs={12} md={6}>
                   <TextField
                     fullWidth
@@ -2813,6 +3326,18 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                     type="number"
                     value={formData?.noOfPlants}
                     onChange={(e) => handleInputChange("noOfPlants", e.target.value)}
+                    size="small"
+                    className={classes.modernTextField}
+                    inputProps={{
+                      style: { MozAppearance: 'textfield' }
+                    }}
+                    InputProps={{
+                      sx: {
+                        '& input[type=number]': { MozAppearance: 'textfield' },
+                        '& input[type=number]::-webkit-outer-spin-button': { WebkitAppearance: 'none', margin: 0 },
+                        '& input[type=number]::-webkit-inner-spin-button': { WebkitAppearance: 'none', margin: 0 },
+                      }
+                    }}
                     error={
                       quotaType === "dealer" &&
                       formData?.plant &&
@@ -2828,8 +3353,8 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                       formData?.orderDate &&
                       formData?.noOfPlants
                         ? parseInt(formData?.noOfPlants) > (getRemainingQuantity() || 0)
-                          ? `Exceeds available dealer quota (${getRemainingQuantity() || 0})`
-                          : `Available dealer quota: ${getRemainingQuantity() || 0}`
+                          ? `Exceeds quota (${getRemainingQuantity() || 0})`
+                          : `Available: ${getRemainingQuantity() || 0}`
                         : ""
                     }
                   />
@@ -2839,10 +3364,23 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                   <Box sx={{ position: "relative" }}>
                     <TextField
                       fullWidth
-                      label="Rate per Plant"
+                      label="Rate per Plant (₹)"
                       type="number"
                       value={formData?.rate}
                       onChange={(e) => handleInputChange("rate", e.target.value)}
+                      size="small"
+                      className={classes.modernTextField}
+                      inputProps={{
+                        style: { MozAppearance: 'textfield' }
+                      }}
+                      InputProps={{
+                        startAdornment: <Typography sx={{ mr: 1, color: "text.secondary", fontSize: "0.875rem" }}>₹</Typography>,
+                        sx: {
+                          '& input[type=number]': { MozAppearance: 'textfield' },
+                          '& input[type=number]::-webkit-outer-spin-button': { WebkitAppearance: 'none', margin: 0 },
+                          '& input[type=number]::-webkit-inner-spin-button': { WebkitAppearance: 'none', margin: 0 },
+                        }
+                      }}
                       disabled={
                         !(
                           user?.jobTitle === "SUPERADMIN" ||
@@ -2850,32 +3388,22 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                           user?.jobTitle === "ACCOUNTANT"
                         )
                       }
-                      helperText={
-                        user?.jobTitle === "SUPERADMIN" ||
-                        user?.jobTitle === "OFFICE_ADMIN" ||
-                        user?.jobTitle === "ACCOUNTANT"
-                          ? formData?.subtype
-                            ? "Rate auto-filled from selected subtype. You can edit it as you have admin privileges."
-                            : "Select a subtype to auto-fill rate. You can edit it as you have admin privileges."
-                          : formData?.subtype
-                          ? "Rate auto-filled from selected subtype, but you can edit it."
-                          : "Select a subtype to auto-fill rate"
-                      }
+                      helperText={formData?.subtype ? "Auto-filled from subtype" : "Select subtype"}
                     />
                     {(user?.jobTitle === "SUPERADMIN" ||
                       user?.jobTitle === "OFFICE_ADMIN" ||
                       user?.jobTitle === "ACCOUNTANT") && (
                       <Chip
-                        label="Admin Edit"
+                        label="Admin"
                         size="small"
                         color="primary"
-                        variant="outlined"
                         sx={{
                           position: "absolute",
                           top: -8,
                           right: 8,
-                          fontSize: "0.7rem",
-                          height: 20
+                          fontSize: "0.65rem",
+                          height: 18,
+                          fontWeight: 600
                         }}
                       />
                     )}
@@ -3230,6 +3758,26 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                       onChange={(e) => handlePaymentInputChange("paidAmount", e.target.value)}
                       placeholder="Enter amount"
                       size="small"
+                      inputProps={{
+                        style: { 
+                          MozAppearance: 'textfield'
+                        }
+                      }}
+                      InputProps={{
+                        sx: {
+                          '& input[type=number]': {
+                            MozAppearance: 'textfield',
+                          },
+                          '& input[type=number]::-webkit-outer-spin-button': {
+                            WebkitAppearance: 'none',
+                            margin: 0,
+                          },
+                          '& input[type=number]::-webkit-inner-spin-button': {
+                            WebkitAppearance: 'none',
+                            margin: 0,
+                          },
+                        }
+                      }}
                     />
                   </Grid>
                   <Grid item xs={12} md={6}>
@@ -3449,19 +3997,38 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
         </Box>
       </DialogContent>
 
-      <DialogActions sx={{ p: 0.5, background: "#fafafa", borderTop: "1px solid #e0e0e0" }}>
-        <Button onClick={handleClose} color="secondary" variant="outlined" size="small">
+      <DialogActions sx={{ 
+        p: 2, 
+        background: "#f8f9fa", 
+        borderTop: "1px solid #e0e0e0",
+        gap: 1.5
+      }}>
+        <Button 
+          onClick={handleClose} 
+          variant="outlined" 
+          size="medium"
+          sx={{
+            borderRadius: 2,
+            px: 3,
+            textTransform: "none",
+            fontWeight: 500
+          }}
+        >
           Cancel
         </Button>
         <Button
           onClick={handleSubmit}
           variant="contained"
-          color="primary"
           disabled={loading}
           className={classes.submitButton}
-          size="small"
-          startIcon={loading ? <CircularProgress size={14} /> : <AddIcon fontSize="small" />}>
-          {loading ? "Adding Order..." : "Add Order"}
+          size="medium"
+          startIcon={loading ? <CircularProgress size={16} color="inherit" /> : <AddIcon />}
+          sx={{
+            px: 3,
+            textTransform: "none"
+          }}
+        >
+          {loading ? "Creating..." : "Create Order"}
         </Button>
       </DialogActions>
 
@@ -3551,12 +4118,12 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                 </Typography>
                 <Typography variant="body2" sx={{ mb: 0.5 }}>
                   <strong>Order Booking Date:</strong>{" "}
-                  {moment(confirmationData.orderDate).format("DD/MM/YYYY")}
+                  {moment(confirmationData.orderDate).format("D-MMM-YYYY")}
                 </Typography>
                 {confirmationData.deliveryDate && (
                   <Typography variant="body2" sx={{ fontWeight: 700, color: "#e74c3c", mb: 0.5 }}>
                     <strong>Delivery Date:</strong>{" "}
-                    {moment(confirmationData.deliveryDate).format("DD/MM/YYYY")}
+                    {moment(confirmationData.deliveryDate).format("D-MMM-YYYY")}
                   </Typography>
                 )}
                 {confirmationData.slotPeriod && (

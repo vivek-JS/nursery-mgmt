@@ -89,7 +89,8 @@ const SowingManagement = () => {
   const [selectedSubtype, setSelectedSubtype] = useState(null);
   const [activeTab, setActiveTab] = useState(0);
   const [activeSubtypeTab, setActiveSubtypeTab] = useState(0);
-  const [plantSlots, setPlantSlots] = useState({});
+  const [activeYearTab, setActiveYearTab] = useState(0); // 0 for 2025, 1 for 2026
+  const [plantSlots, setPlantSlots] = useState({}); // Structure: plantSlots[plantId][year] = [{subtypeId, subtypeName, slots}]
   const [viewMode, setViewMode] = useState("slots"); // Only slot-wise view
 
   // Modal states
@@ -160,11 +161,24 @@ const SowingManagement = () => {
     // Removed old fetchReminders() and fetchAlerts() - now handled by SowingAlerts component
   }, []);
 
+  // Helper function to get current year based on activeYearTab
+  const getCurrentYear = () => {
+    const years = [2025, 2026];
+    return years[activeYearTab] || 2025;
+  };
+
+  // Helper function to get slots for current plant and year
+  const getPlantSlotsForCurrentYear = (plantId) => {
+    const year = getCurrentYear();
+    return plantSlots[plantId]?.[year] || [];
+  };
+
   useEffect(() => {
     if (plants.length > 0 && activeTab < plants.length) {
       const currentPlant = plants[activeTab];
       // Reset subtype tab when switching plants
       setActiveSubtypeTab(0);
+      // Keep year tab - don't reset it when switching plants
       // Don't auto-fetch slots - wait for subtype selection or month expand
       // fetchPlantSlots will be called when subtype is selected or month is expanded
     }
@@ -179,7 +193,8 @@ const SowingManagement = () => {
       
       // Check if we need to fetch slots for this subtype
       const subtypeKey = `${currentPlant._id}-${currentSubtype._id}`;
-      const hasSlots = plantSlots[currentPlant._id]?.some(s => s.subtypeId === currentSubtype._id);
+      const currentYearSlots = getPlantSlotsForCurrentYear(currentPlant._id);
+      const hasSlots = currentYearSlots.some(s => s.subtypeId === currentSubtype._id);
       
       // Fetch slots if subtype is selected and not already loaded
       if (currentSubtype && !hasSlots) {
@@ -190,13 +205,14 @@ const SowingManagement = () => {
 
   // Auto-expand months with urgent/overdue slots (only if slots are loaded)
   useEffect(() => {
-    if (plants.length > 0 && activeTab < plants.length && plantSlots[plants[activeTab]._id]) {
+    const currentYearSlots = getPlantSlotsForCurrentYear(plants[activeTab]?._id);
+    if (plants.length > 0 && activeTab < plants.length && currentYearSlots.length > 0) {
       const autoExpand = {};
       const currentPlant = plants[activeTab];
       const currentSubtype = currentPlant.subtypes?.[activeSubtypeTab];
       
       if (currentSubtype) {
-        const subtypeData = plantSlots[currentPlant._id]?.find(
+        const subtypeData = currentYearSlots.find(
           (s) => s.subtypeId === currentSubtype._id
         );
         const slots = Array.isArray(subtypeData?.slots) ? subtypeData.slots : [];
@@ -254,7 +270,7 @@ const SowingManagement = () => {
         setExpandedMonths(prev => ({ ...prev, ...autoExpand }));
       }
     }
-  }, [plants, activeTab, activeSubtypeTab, plantSlots, expandedMonths]);
+  }, [plants, activeTab, activeSubtypeTab, activeYearTab, plantSlots, expandedMonths]);
 
   const fetchPlants = async () => {
     try {
@@ -272,7 +288,7 @@ const SowingManagement = () => {
 
   const fetchPlantSlots = async (plantId, subtypeId = null) => {
     try {
-      const year = new Date().getFullYear();
+      const years = [2025, 2026]; // Fetch slots for both 2025 and 2026
       const plant = plants.find(p => p._id === plantId);
       
       if (!plant) return;
@@ -284,39 +300,63 @@ const SowingManagement = () => {
       
       if (subtypesToFetch.length === 0) return;
       
-      // Fetch slots for subtypes (optimized - fetch only what's needed)
-      const allSlots = [];
+      // Fetch slots for subtypes and years (optimized - fetch only what's needed)
+      const slotsByYear = { 2025: [], 2026: [] };
       
       for (const subtype of subtypesToFetch) {
-        // Use faster simple endpoint for sowing page
+        // Fetch slots for both years in parallel
         const instance = NetworkManager(API.slots.GET_SIMPLE_SLOTS);
-        const response = await instance.request({}, { plantId, subtypeId: subtype._id, year });
+        const yearPromises = years.map(year => 
+          instance.request({}, { plantId, subtypeId: subtype._id, year })
+            .catch(error => {
+              console.error(`Error fetching slots for year ${year}:`, error);
+              return null; // Continue with other years even if one fails
+            })
+        );
         
-        // Handle the new API response structure
-        const slotsData = response?.data?.data?.slots || response?.data?.slots || [];
+        const responses = await Promise.all(yearPromises);
         
-        if (Array.isArray(slotsData) && slotsData.length > 0) {
-          allSlots.push({
-            subtypeId: subtype._id,
-            subtypeName: subtype.name,
-            slots: slotsData
-          });
-        }
+        // Store slots separately by year
+        responses.forEach((response, index) => {
+          const year = years[index];
+          if (response) {
+            const slotsData = response?.data?.data?.slots || response?.data?.slots || [];
+            if (Array.isArray(slotsData) && slotsData.length > 0) {
+              slotsByYear[year].push({
+                subtypeId: subtype._id,
+                subtypeName: subtype.name,
+                slots: slotsData
+              });
+            }
+          }
+        });
       }
       
-      // Merge with existing slots or replace if fetching all
+      // Store slots separately by year
       setPlantSlots((prev) => {
-        const existingSlots = prev[plantId] || [];
-        const mergedSlots = subtypeId 
-          ? [
-              ...existingSlots.filter(s => s.subtypeId !== subtypeId),
-              ...allSlots
-            ]
-          : allSlots;
+        const existingSlots = prev[plantId] || {};
+        const updatedSlots = { ...existingSlots };
+        
+        years.forEach(year => {
+          if (!updatedSlots[year]) {
+            updatedSlots[year] = [];
+          }
+          
+          if (subtypeId) {
+            // Replace only the specific subtype for this year
+            updatedSlots[year] = [
+              ...updatedSlots[year].filter(s => s.subtypeId !== subtypeId),
+              ...slotsByYear[year]
+            ];
+          } else {
+            // Replace all subtypes for this year
+            updatedSlots[year] = slotsByYear[year];
+          }
+        });
         
         return {
           ...prev,
-          [plantId]: mergedSlots,
+          [plantId]: updatedSlots,
         };
       });
     } catch (error) {
@@ -627,8 +667,32 @@ const SowingManagement = () => {
       
       // Find the month from the slot and auto-expand it
       const plant = plants[plantIndex];
-      const subtypeData = plantSlots[plant._id]?.find(s => s.subtypeId === reminder.subtypeId);
-      const slot = subtypeData?.slots?.find(s => s._id === reminder.slotId);
+      // Check both years for the slot and determine which year it belongs to
+      const year2025Slots = plantSlots[plant._id]?.[2025] || [];
+      const year2026Slots = plantSlots[plant._id]?.[2026] || [];
+      
+      // Find which year contains this slot
+      let foundYear = null;
+      let slot = null;
+      
+      const subtypeData2025 = year2025Slots.find(s => s.subtypeId === reminder.subtypeId);
+      slot = subtypeData2025?.slots?.find(s => s._id === reminder.slotId);
+      if (slot) {
+        foundYear = 2025;
+      } else {
+        const subtypeData2026 = year2026Slots.find(s => s.subtypeId === reminder.subtypeId);
+        slot = subtypeData2026?.slots?.find(s => s._id === reminder.slotId);
+        if (slot) {
+          foundYear = 2026;
+        }
+      }
+      
+      // Set the correct year tab
+      if (foundYear === 2025) {
+        setActiveYearTab(0);
+      } else if (foundYear === 2026) {
+        setActiveYearTab(1);
+      }
       
       if (slot?.month) {
         const monthKey = `${reminder.subtypeId}-${slot.month}`;
@@ -882,16 +946,15 @@ const SowingManagement = () => {
   };
 
   const getSubtypeBookings = (plantId, subtypeId) => {
-    const slots = plantSlots[plantId];
+    const slots = getPlantSlotsForCurrentYear(plantId);
     if (!slots || !slots.length) return { booked: 0, capacity: 0 };
 
     let totalBooked = 0;
     let totalCapacity = 0;
 
     slots.forEach((slotGroup) => {
-      const subtypeSlot = slotGroup.subtypeSlots?.find((st) => st.subtypeId === subtypeId);
-      if (subtypeSlot) {
-        subtypeSlot.slots?.forEach((slot) => {
+      if (slotGroup.subtypeId === subtypeId) {
+        slotGroup.slots?.forEach((slot) => {
           totalBooked += slot.totalBookedPlants || 0;
           totalCapacity += slot.totalPlants || 0;
         });
@@ -1040,6 +1103,45 @@ const SowingManagement = () => {
                     </Typography>
                   </Box>
 
+                  {/* Year Tabs */}
+                  <Box sx={{ mb: 3 }}>
+                    <Tabs
+                      value={activeYearTab}
+                      onChange={(e, newValue) => {
+                        setActiveYearTab(newValue);
+                        // Reset subtype tab when switching years
+                        setActiveSubtypeTab(0);
+                      }}
+                      variant="standard"
+                      sx={{
+                        borderBottom: 1,
+                        borderColor: "divider",
+                        "& .MuiTab-root": {
+                          fontWeight: 600,
+                          fontSize: "1rem",
+                          minHeight: 48,
+                          textTransform: "none",
+                        },
+                      }}>
+                      <Tab 
+                        label={
+                          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                            <EventNote sx={{ fontSize: 20 }} />
+                            2025
+                          </Box>
+                        }
+                      />
+                      <Tab 
+                        label={
+                          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                            <EventNote sx={{ fontSize: 20 }} />
+                            2026
+                          </Box>
+                        }
+                      />
+                    </Tabs>
+                  </Box>
+
                   {/* Subtype Tabs */}
                   {plants[activeTab].subtypes && plants[activeTab].subtypes.length > 0 && (
                     <Box sx={{ mb: 3 }}>
@@ -1051,7 +1153,8 @@ const SowingManagement = () => {
                           const currentPlant = plants[activeTab];
                           const selectedSubtype = currentPlant?.subtypes?.[newValue];
                           if (currentPlant && selectedSubtype) {
-                            const hasSlots = plantSlots[currentPlant._id]?.some(
+                            const currentYearSlots = getPlantSlotsForCurrentYear(currentPlant._id);
+                            const hasSlots = currentYearSlots.some(
                               s => s.subtypeId === selectedSubtype._id
                             );
                             if (!hasSlots) {
@@ -1072,7 +1175,8 @@ const SowingManagement = () => {
                         }}>
                         {plants[activeTab].subtypes.map((subtype, index) => {
                           // Check if slots are loaded for this subtype
-                          const hasSlotsLoaded = plantSlots[plants[activeTab]._id]?.some(
+                          const currentYearSlots = getPlantSlotsForCurrentYear(plants[activeTab]._id);
+                          const hasSlotsLoaded = currentYearSlots.some(
                             s => s.subtypeId === subtype._id
                           );
                           
@@ -1244,7 +1348,7 @@ const SowingManagement = () => {
                     </Grid>
                   </Card>
 
-                  {!plantSlots[plants[activeTab]._id] ? (
+                  {getPlantSlotsForCurrentYear(plants[activeTab]._id).length === 0 ? (
                     <Box sx={{ textAlign: "center", py: 8 }}>
                       <RefreshIcon sx={{ fontSize: 48, color: "#ccc", mb: 2 }} />
                       <Typography variant="h6" color="textSecondary">
@@ -1258,7 +1362,8 @@ const SowingManagement = () => {
                         const currentSubtype = plants[activeTab].subtypes[activeSubtypeTab];
                         if (!currentSubtype) return null;
                         
-                        const subtypeData = plantSlots[plants[activeTab]._id]?.find(
+                        const currentYearSlots = getPlantSlotsForCurrentYear(plants[activeTab]._id);
+                        const subtypeData = currentYearSlots.find(
                           (s) => s.subtypeId === currentSubtype._id
                         );
                         const slots = Array.isArray(subtypeData?.slots) ? subtypeData.slots : [];
@@ -1440,7 +1545,8 @@ const SowingManagement = () => {
                                         
                                         // Fetch slots if not already loaded when expanding
                                         if (isExpanding && plants[activeTab] && currentSubtype) {
-                                          const hasLoaded = plantSlots[plants[activeTab]._id]?.some(
+                                          const currentYearSlots = getPlantSlotsForCurrentYear(plants[activeTab]._id);
+                                          const hasLoaded = currentYearSlots.some(
                                             s => s.subtypeId === currentSubtype._id && s.slots?.length > 0
                                           );
                                           if (!hasLoaded) {

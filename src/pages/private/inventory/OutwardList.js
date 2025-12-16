@@ -24,7 +24,7 @@ const OutwardList = () => {
       if (searchTerm) params.search = searchTerm;
       if (filterStatus) params.status = filterStatus;
 
-      const response = await axiosInstance.get('/api/v1/inventory/outward', { params });
+      const response = await axiosInstance.get('/inventory/outward', { params });
       if (response.data.success) {
         setOutwards(response.data.data);
         setPagination(response.data.pagination);

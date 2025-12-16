@@ -235,6 +235,10 @@ export const API = {
     CREATE_OUTWARD: new APIRouter("/inventory/outward", HTTP_METHODS.POST),
     UPDATE_OUTWARD: new APIRouter("/inventory/outward", HTTP_METHODS.PUT),
     DELETE_OUTWARD: new APIRouter("/inventory/outward", HTTP_METHODS.DEL),
+    ISSUE_OUTWARD: new APIRouter("/inventory/outward/:id/issue", HTTP_METHODS.POST),
+    GET_AVAILABLE_BATCHES_FOR_OUTWARD: new APIRouter("/inventory/outward/batches/:productId", HTTP_METHODS.GET),
+    GET_AVAILABLE_PACKETS_FOR_SOWING: new APIRouter("/inventory/outward/packets-for-sowing/:productId", HTTP_METHODS.GET),
+    GET_ALL_AVAILABLE_PACKETS_FOR_SOWING: new APIRouter("/inventory/outward/packets-for-sowing", HTTP_METHODS.GET),
 
     // Inventory Transactions
     GET_ALL_TRANSACTIONS: new APIRouter("/inventory/transactions", HTTP_METHODS.GET),
@@ -481,6 +485,7 @@ export const API = {
   },
   sowing: {
     CREATE_SOWING: new APIRouter("/sowing", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    CREATE_MULTIPLE_SOWINGS: new APIRouter("/sowing/multiple", HTTP_METHODS.POST, OFFLINE.PROFILE),
     GET_SOWINGS: new APIRouter("/sowing", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_SOWING_BY_ID: new APIRouter("/sowing/:id", HTTP_METHODS.GET, OFFLINE.PROFILE),
     UPDATE_OFFICE_SOWED: new APIRouter("/sowing/:id/office-sowed", HTTP_METHODS.POST, OFFLINE.PROFILE),
@@ -491,6 +496,8 @@ export const API = {
     GET_PLANT_ALERTS: new APIRouter("/sowing/plant-alerts", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_PLANT_AVAILABILITY: new APIRouter("/sowing/plant-availability", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_ALL_PLANTS_AVAILABILITY: new APIRouter("/sowing/all-plants-availability", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_PLANTS_GAP_SUMMARY: new APIRouter("/sowing/plants-gap-summary", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_SLOT_ORDERS_SUMMARY: new APIRouter("/sowing/slot-orders/:slotId", HTTP_METHODS.GET, OFFLINE.PROFILE),
     SEND_SOWING_REMINDERS_WHATSAPP: new APIRouter("/sowing/whatsapp/reminders", HTTP_METHODS.POST, OFFLINE.PROFILE),
     // OLD APIs - DEPRECATED (will be removed)
     // GET_REMINDERS: new APIRouter("/sowing/reminders", HTTP_METHODS.GET, OFFLINE.PROFILE),

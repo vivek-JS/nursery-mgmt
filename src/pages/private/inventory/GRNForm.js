@@ -10,8 +10,11 @@ import {
   CheckCircle,
   AlertCircle,
   FileText,
+  Camera,
+  X,
+  Upload,
 } from 'lucide-react';
-import axiosInstance from '../../../services/axiosConfig';
+import { API, NetworkManager } from '../../../network/core';
 
 const GRNForm = () => {
   const navigate = useNavigate();
@@ -22,6 +25,7 @@ const GRNForm = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [grnItems, setGrnItems] = useState([]);
   const [additionalItems, setAdditionalItems] = useState([]);
+  const [images, setImages] = useState([]); // Mandatory images
   const [formData, setFormData] = useState({
     invoiceNumber: '',
     vehicleNumber: '',
@@ -39,23 +43,32 @@ const GRNForm = () => {
 
   const loadPurchaseOrder = async () => {
     try {
-      const response = await axiosInstance.get(`/purchase/purchase-orders/${purchaseOrderId}`);
-      if (response.data.success) {
-        setPurchaseOrder(response.data.data);
+      const instance = NetworkManager(API.INVENTORY.GET_PURCHASE_ORDER_BY_ID);
+      const response = await instance.request({}, [purchaseOrderId]);
+      if (response?.data) {
+        const apiResponse = response.data;
+        const purchaseOrderData = apiResponse.success ? apiResponse.data : apiResponse;
+        setPurchaseOrder(purchaseOrderData);
+        
         // Initialize GRN items from purchase order
-        const initialItems = response.data.data.items.map(item => ({
-          productId: item.productId._id,
-          productName: item.productId.name,
-          orderedQuantity: item.quantity,
-          receivedQuantity: 0,
-          rate: item.rate,
-          amount: 0,
-          batchNumber: '',
-          manufacturingDate: '',
-          expiryDate: '',
-          quality: 'good',
-          notes: '',
-        }));
+        const items = purchaseOrderData.items || [];
+        const initialItems = items.map(item => {
+          const product = item.product || item.productId;
+          return {
+            productId: typeof product === 'object' ? product._id : product,
+            productName: typeof product === 'object' ? product.name : '',
+            orderedQuantity: item.quantity,
+            receivedQuantity: 0,
+            rate: item.rate || 0,
+            amount: 0,
+            batchNumber: '', // Will be auto-generated if empty
+            lotNumber: '', // Alternative to batch number
+            manufacturingDate: '',
+            expiryDate: '', // Required field
+            quality: 'good',
+            notes: '',
+          };
+        });
         setGrnItems(initialItems);
       }
     } catch (error) {
@@ -65,14 +78,16 @@ const GRNForm = () => {
 
   const loadProducts = async () => {
     try {
-      const response = await axiosInstance.get('/api/v1/inventory/products', {
-        params: { limit: 1000, isActive: true }
-      });
-      if (response.data.success) {
-        // Handle both response structures: {data: products} or {data: {data: products}}
-        const productsData = Array.isArray(response.data.data) 
-          ? response.data.data 
-          : response.data.data?.data || [];
+      const instance = NetworkManager(API.INVENTORY.GET_ALL_PRODUCTS);
+      const response = await instance.request({}, { limit: 1000, isActive: true });
+      if (response?.data) {
+        const apiResponse = response.data;
+        // Handle both response structures
+        const productsData = apiResponse.success && apiResponse.data
+          ? (Array.isArray(apiResponse.data) ? apiResponse.data : apiResponse.data.data || [])
+          : apiResponse.status === 'Success' && apiResponse.data
+          ? (Array.isArray(apiResponse.data) ? apiResponse.data : apiResponse.data.data || [])
+          : [];
         setProducts(productsData);
       }
     } catch (error) {
@@ -100,9 +115,10 @@ const GRNForm = () => {
       quantity: 1,
       rate: 0,
       amount: 0,
-      batchNumber: '',
+      batchNumber: '', // Will be auto-generated if empty
+      lotNumber: '', // Alternative to batch number
       manufacturingDate: '',
-      expiryDate: '',
+      expiryDate: '', // Required field
       quality: 'good',
       notes: '',
     }]);
@@ -132,6 +148,47 @@ const GRNForm = () => {
     return grnTotal + additionalTotal;
   };
 
+  // Handle image upload
+  const handleImageUpload = (event) => {
+    const files = Array.from(event.target.files);
+    const imageFiles = files.filter(file => file.type.startsWith('image/'));
+    
+    if (imageFiles.length === 0) {
+      alert('Please select valid image files');
+      return;
+    }
+
+    if (imageFiles.length > 10) {
+      alert('Maximum 10 images allowed');
+      return;
+    }
+
+    imageFiles.forEach(file => {
+      if (file.size > 8 * 1024 * 1024) { // 8MB limit
+        alert(`File ${file.name} is too large. Maximum size is 8MB`);
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const newImage = {
+          id: Date.now() + Math.random(),
+          file: file,
+          preview: e.target.result,
+          name: file.name,
+          size: file.size
+        };
+        
+        setImages(prev => [...prev, newImage]);
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const removeImage = (imageId) => {
+    setImages(prev => prev.filter(img => img.id !== imageId));
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     
@@ -150,42 +207,79 @@ const GRNForm = () => {
       return;
     }
 
+    // Validate mandatory images
+    if (images.length === 0) {
+      alert('Please upload at least one image. Images are mandatory for GRN.');
+      return;
+    }
+
+    // Validate expiry dates for items
+    const itemsWithoutExpiry = grnItems.filter(item => !item.expiryDate);
+    if (itemsWithoutExpiry.length > 0) {
+      alert('Please enter expiry date for all items. Expiry date is mandatory.');
+      return;
+    }
+
     try {
       setLoading(true);
-      const response = await axiosInstance.post('/purchase/grn/create', {
-        purchaseOrderId,
-        items: grnItems.map(item => ({
-          productId: item.productId,
-          receivedQuantity: item.receivedQuantity,
-          rate: item.rate,
-          batchNumber: item.batchNumber,
-          manufacturingDate: item.manufacturingDate,
-          expiryDate: item.expiryDate,
-          quality: item.quality,
-          notes: item.notes,
-        })),
-        additionalItems: additionalItems.map(item => ({
-          productId: item.productId,
-          quantity: item.quantity,
-          rate: item.rate,
-          batchNumber: item.batchNumber,
-          manufacturingDate: item.manufacturingDate,
-          expiryDate: item.expiryDate,
-          quality: item.quality,
-          notes: item.notes,
-        })),
-        invoiceNumber: formData.invoiceNumber,
-        vehicleNumber: formData.vehicleNumber,
-        driverName: formData.driverName,
-        driverContact: formData.driverContact,
-        notes: formData.notes,
+      
+      // Create FormData for file uploads
+      const formDataForUpload = new FormData();
+      
+      // Append images
+      images.forEach((image) => {
+        if (image.file) {
+          formDataForUpload.append('images', image.file);
+        }
       });
 
-      if (response.data.success) {
-        alert('GRN created successfully!');
-        navigate('/u/inventory/grn');
-      } else {
-        alert('Error creating GRN: ' + response.data.message);
+      // Append other data
+      formDataForUpload.append('purchaseOrder', purchaseOrderId);
+      formDataForUpload.append('items', JSON.stringify(grnItems.map(item => ({
+        product: item.productId,
+        quantity: item.receivedQuantity,
+        acceptedQuantity: item.receivedQuantity,
+        rate: item.rate,
+        batchNumber: item.batchNumber || item.lotNumber || '', // Use batch or lot number
+        lotNumber: item.lotNumber || item.batchNumber || '',
+        manufactureDate: item.manufacturingDate || undefined,
+        expiryDate: item.expiryDate, // Required
+        amount: item.amount,
+        notes: item.notes || '',
+      }))));
+      
+      if (additionalItems.length > 0) {
+        formDataForUpload.append('additionalItems', JSON.stringify(additionalItems.map(item => ({
+          product: item.productId,
+          quantity: item.quantity,
+          acceptedQuantity: item.quantity,
+          rate: item.rate,
+          batchNumber: item.batchNumber || item.lotNumber || '',
+          lotNumber: item.lotNumber || item.batchNumber || '',
+          manufactureDate: item.manufacturingDate || undefined,
+          expiryDate: item.expiryDate, // Required
+          amount: item.amount,
+          notes: item.notes || '',
+        }))));
+      }
+
+      formDataForUpload.append('invoiceNumber', formData.invoiceNumber || '');
+      formDataForUpload.append('vehicleNumber', formData.vehicleNumber || '');
+      formDataForUpload.append('driverName', formData.driverName || '');
+      formDataForUpload.append('notes', formData.notes || '');
+
+      // Use NetworkManager with FormData
+      const instance = NetworkManager(API.INVENTORY.CREATE_GRN);
+      const response = await instance.request(formDataForUpload);
+
+      if (response?.data) {
+        const apiResponse = response.data;
+        if (apiResponse.success || apiResponse.status === 'Success') {
+          alert('GRN created successfully!');
+          navigate('/u/inventory/grn');
+        } else {
+          alert('Error creating GRN: ' + (apiResponse.message || 'Unknown error'));
+        }
       }
     } catch (error) {
       console.error('Error creating GRN:', error);
@@ -285,7 +379,10 @@ const GRNForm = () => {
                       Amount
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Batch No.
+                      Batch/Lot No.
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Expiry Date <span className="text-red-500">*</span>
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Quality
@@ -334,10 +431,23 @@ const GRNForm = () => {
                       <td className="px-4 py-4">
                         <input
                           type="text"
-                          value={item.batchNumber}
-                          onChange={(e) => updateGrnItem(index, 'batchNumber', e.target.value)}
+                          value={item.batchNumber || item.lotNumber || ''}
+                          onChange={(e) => {
+                            updateGrnItem(index, 'batchNumber', e.target.value);
+                            updateGrnItem(index, 'lotNumber', e.target.value);
+                          }}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          placeholder="Batch number"
+                          placeholder="Auto-generated if empty"
+                        />
+                        <p className="text-xs text-gray-500 mt-1">Will be auto-generated if left empty</p>
+                      </td>
+                      <td className="px-4 py-4">
+                        <input
+                          type="date"
+                          value={item.expiryDate}
+                          onChange={(e) => updateGrnItem(index, 'expiryDate', e.target.value)}
+                          required
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                         />
                       </td>
                       <td className="px-4 py-4">
@@ -405,7 +515,10 @@ const GRNForm = () => {
                         Amount
                       </th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Batch No.
+                        Batch/Lot No.
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Expiry Date <span className="text-red-500">*</span>
                       </th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Action
@@ -456,10 +569,23 @@ const GRNForm = () => {
                         <td className="px-4 py-4">
                           <input
                             type="text"
-                            value={item.batchNumber}
-                            onChange={(e) => updateAdditionalItem(index, 'batchNumber', e.target.value)}
+                            value={item.batchNumber || item.lotNumber || ''}
+                            onChange={(e) => {
+                              updateAdditionalItem(index, 'batchNumber', e.target.value);
+                              updateAdditionalItem(index, 'lotNumber', e.target.value);
+                            }}
                             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            placeholder="Batch number"
+                            placeholder="Auto-generated if empty"
+                          />
+                          <p className="text-xs text-gray-500 mt-1">Will be auto-generated if left empty</p>
+                        </td>
+                        <td className="px-4 py-4">
+                          <input
+                            type="date"
+                            value={item.expiryDate}
+                            onChange={(e) => updateAdditionalItem(index, 'expiryDate', e.target.value)}
+                            required
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                           />
                         </td>
                         <td className="px-4 py-4">
@@ -564,6 +690,60 @@ const GRNForm = () => {
                 placeholder="Enter any additional notes..."
               />
             </div>
+          </div>
+
+          {/* Images Section - Mandatory */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <h2 className="text-xl font-semibold text-gray-800 mb-4">
+              GRN Images <span className="text-red-500">*</span>
+            </h2>
+            <p className="text-sm text-gray-600 mb-4">
+              Upload images of the received goods. At least one image is required. Maximum 10 images, 8MB each.
+            </p>
+            
+            <div className="mb-4">
+              <label className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors cursor-pointer inline-flex">
+                <Camera className="w-4 h-4" />
+                <span>Upload Images</span>
+                <input
+                  type="file"
+                  multiple
+                  accept="image/*"
+                  onChange={handleImageUpload}
+                  className="hidden"
+                />
+              </label>
+            </div>
+
+            {images.length > 0 && (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {images.map((image) => (
+                  <div key={image.id} className="relative group">
+                    <img
+                      src={image.preview}
+                      alt={image.name}
+                      className="w-full h-32 object-cover rounded-lg border border-gray-300"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeImage(image.id)}
+                      className="absolute top-2 right-2 bg-red-600 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                    <p className="text-xs text-gray-500 mt-1 truncate">{image.name}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {images.length === 0 && (
+              <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
+                <Camera className="w-12 h-12 text-gray-400 mx-auto mb-2" />
+                <p className="text-gray-500">No images uploaded yet</p>
+                <p className="text-sm text-red-500 mt-1">At least one image is required</p>
+              </div>
+            )}
           </div>
 
           {/* Total Amount */}

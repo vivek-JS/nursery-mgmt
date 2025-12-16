@@ -1,0 +1,1689 @@
+import React, { useState, useEffect, useMemo } from "react";
+import {
+  Box,
+  Card,
+  CardContent,
+  Typography,
+  Grid,
+  CircularProgress,
+  Alert,
+  Chip,
+  IconButton,
+  Collapse,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Paper,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Button,
+  Tooltip,
+  Stack,
+  Divider,
+  Fade,
+  Zoom,
+  Grow,
+  LinearProgress,
+  Tabs,
+  Tab,
+} from "@mui/material";
+import {
+  ExpandMore as ExpandMoreIcon,
+  ExpandLess as ExpandLessIcon,
+  Refresh as RefreshIcon,
+  TrendingDown,
+  Assignment,
+  LocalFlorist,
+  Agriculture,
+  CalendarToday,
+  Warning,
+  CheckCircle,
+  Schedule,
+  Info as InfoIcon,
+  Inventory,
+  ShoppingCart,
+  AccountBalance,
+  Analytics,
+  PieChart as PieChartIcon,
+} from "@mui/icons-material";
+import {
+  BarChart,
+  Bar,
+  PieChart,
+  Pie,
+  Cell,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip as RechartsTooltip,
+  Legend,
+  ResponsiveContainer,
+  LineChart,
+  Line,
+} from "recharts";
+import { NetworkManager, API } from "network/core";
+
+const SowingGapAnalysis = () => {
+  const [loading, setLoading] = useState(false);
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+  const [expandedPlants, setExpandedPlants] = useState(new Set());
+  const [expandedSubtypes, setExpandedSubtypes] = useState(new Map());
+  const [subtypeReminders, setSubtypeReminders] = useState(new Map());
+  const [slotOrders, setSlotOrders] = useState(new Map());
+  const [selectedSlot, setSelectedSlot] = useState(null);
+  const [slotOrdersDialogOpen, setSlotOrdersDialogOpen] = useState(false);
+  const [loadingReminders, setLoadingReminders] = useState(new Set());
+  const [loadingOrders, setLoadingOrders] = useState(new Set());
+  const [activeTab, setActiveTab] = useState(0); // 0 = Critical, 1 = Available
+
+  useEffect(() => {
+    fetchGapSummary();
+  }, []);
+
+  const fetchGapSummary = async (isAvailableTab = false) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const instance = NetworkManager(API.sowing.GET_PLANTS_GAP_SUMMARY);
+      const params = { _t: Date.now() };
+      
+      // Add available parameter if on Available tab
+      if (isAvailableTab) {
+        params.available = "true";
+      }
+      
+      const response = await instance.request({}, params);
+      if (response?.data?.success) {
+        setData(response.data);
+      } else {
+        setError("Failed to fetch gap summary");
+      }
+    } catch (err) {
+      console.error("Error fetching gap summary:", err);
+      setError("Error loading gap summary. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const togglePlantExpansion = (plantId) => {
+    const newExpanded = new Set(expandedPlants);
+    if (newExpanded.has(plantId)) {
+      newExpanded.delete(plantId);
+    } else {
+      newExpanded.add(plantId);
+    }
+    setExpandedPlants(newExpanded);
+  };
+
+  const toggleSubtypeExpansion = async (plantId, subtypeId) => {
+    console.log("[toggleSubtypeExpansion] Called with:", { plantId, subtypeId, activeTab });
+    const key = `${plantId}-${subtypeId}`;
+    const isAvailableTab = activeTab === 1;
+    console.log("[toggleSubtypeExpansion] isAvailableTab:", isAvailableTab);
+
+    // Use functional state update to ensure we have latest state
+    let isExpanding = false;
+    
+    setExpandedSubtypes((prev) => {
+      const newMap = new Map(prev);
+      const plantExpanded = newMap.get(plantId) || new Set();
+      isExpanding = !plantExpanded.has(subtypeId);
+      console.log("[toggleSubtypeExpansion] isExpanding:", isExpanding);
+
+      if (isExpanding) {
+        plantExpanded.add(subtypeId);
+        newMap.set(plantId, plantExpanded);
+        console.log("[toggleSubtypeExpansion] Will fetch API for expanding subtype");
+      } else {
+        plantExpanded.delete(subtypeId);
+        if (plantExpanded.size > 0) {
+          newMap.set(plantId, plantExpanded);
+        } else {
+          newMap.delete(plantId);
+        }
+        console.log("[toggleSubtypeExpansion] Collapsing subtype, no fetch needed");
+      }
+      
+      return newMap;
+    });
+
+    // Fetch API after state update if expanding - check isExpanding directly
+    if (isExpanding) {
+      console.log(`[toggleSubtypeExpansion] Expanding ${key}, isAvailableTab: ${isAvailableTab}, activeTab: ${activeTab}`);
+      try {
+        await fetchSubtypeReminders(plantId, subtypeId, isAvailableTab);
+      } catch (err) {
+        console.error("Error in fetchSubtypeReminders:", err);
+      }
+    } else {
+      console.log("[toggleSubtypeExpansion] Not fetching, collapsing subtype");
+    }
+  };
+
+  const handleTabChange = async (event, newValue) => {
+    setActiveTab(newValue);
+    // Clear all reminders when switching tabs so they're refetched with new filters
+    setSubtypeReminders(new Map());
+    // Also collapse all subtypes
+    setExpandedSubtypes(new Map());
+    // Refetch gap summary with appropriate parameter
+    await fetchGapSummary(newValue === 1); // 1 = Available tab
+  };
+
+  const fetchSubtypeReminders = async (plantId, subtypeId, isAvailableTab = false) => {
+    const key = `${plantId}-${subtypeId}`;
+    
+    console.log(`[fetchSubtypeReminders] Starting fetch for ${key}, isAvailableTab: ${isAvailableTab}`);
+    
+    // Use functional state update to ensure we have latest state
+    setLoadingReminders((prev) => {
+      const newSet = new Set(prev);
+      newSet.add(key);
+      console.log(`[fetchSubtypeReminders] Added ${key} to loading set`);
+      return newSet;
+    });
+    
+    try {
+      const instance = NetworkManager(API.sowing.GET_PLANT_REMINDERS);
+      const params = {
+        plantId: plantId.toString(),
+        subtypeId: subtypeId.toString(),
+        _t: Date.now(),
+      };
+      
+      if (isAvailableTab) {
+        // Available tab: negative gaps, show all priorities (future, current, past)
+        params.gapFilter = "negative";
+        // Don't filter by priority - we want all (future, current, past)
+        // The API excludes future by default, so we need a way to include it
+        // For now, we'll let the API return what it can (current + past)
+        // Note: The backend excludes future by default, but for available we want all
+        console.log(`[AVAILABLE TAB] Setting gapFilter=negative for ${key} (will get current + past, future excluded by API)`);
+      } else {
+        // Critical tab: positive gaps, only overdue and urgent
+        params.gapFilter = "positive";
+        console.log(`[CRITICAL TAB] Setting gapFilter=positive for ${key}`);
+      }
+      
+      console.log(`[${isAvailableTab ? 'AVAILABLE' : 'CRITICAL'}] Calling API for ${key} with params:`, params);
+      const response = await instance.request({}, params);
+      console.log(`[${isAvailableTab ? 'AVAILABLE' : 'CRITICAL'}] API Response for ${key}:`, response?.data);
+      
+      if (response?.data?.success) {
+        let reminders = response.data.reminders || [];
+        
+        if (!isAvailableTab) {
+          // Critical tab: filter to show only overdue and urgent
+          reminders = reminders.filter(
+            (r) => r.priority === "overdue" || r.priority === "urgent"
+          );
+        } else {
+          // Available tab: show all (negative gaps - already filtered by API)
+          // The API excludes future by default, but for available we show negative gaps
+        }
+        
+        // Use functional state update to ensure we have latest state
+        setSubtypeReminders((prev) => {
+          const newMap = new Map(prev);
+          newMap.set(key, reminders);
+          return newMap;
+        });
+        console.log(`[${isAvailableTab ? 'AVAILABLE' : 'CRITICAL'}] Set ${reminders.length} reminders for ${key}`);
+      } else {
+        console.error(`[${isAvailableTab ? 'AVAILABLE' : 'CRITICAL'}] API returned unsuccessful response for ${key}:`, response?.data);
+        // Set empty array so UI knows the fetch completed
+        setSubtypeReminders((prev) => {
+          const newMap = new Map(prev);
+          newMap.set(key, []);
+          return newMap;
+        });
+      }
+    } catch (err) {
+      console.error(`[${isAvailableTab ? 'AVAILABLE' : 'CRITICAL'}] Error fetching subtype reminders for ${key}:`, err);
+      // Set empty array on error so UI knows the fetch completed
+      setSubtypeReminders((prev) => {
+        const newMap = new Map(prev);
+        newMap.set(key, []);
+        return newMap;
+      });
+    } finally {
+      // Use functional state update to ensure we have latest state
+      setLoadingReminders((prev) => {
+        const newSet = new Set(prev);
+        newSet.delete(key);
+        return newSet;
+      });
+    }
+  };
+
+  const handleSlotClick = async (slotId) => {
+    if (slotOrders.has(slotId)) {
+      setSelectedSlot({ slotId, orders: slotOrders.get(slotId) });
+      setSlotOrdersDialogOpen(true);
+      return;
+    }
+
+    setLoadingOrders(new Set([...loadingOrders, slotId]));
+    try {
+      const instance = NetworkManager(API.sowing.GET_SLOT_ORDERS_SUMMARY);
+      const response = await instance.request({}, [slotId]);
+      if (response?.data?.success) {
+        const orders = response.data.orders || [];
+        setSlotOrders(new Map(slotOrders).set(slotId, orders));
+        setSelectedSlot({
+          slotId,
+          orders,
+          slotInfo: response.data.slotInfo,
+          summary: response.data.summary,
+        });
+        setSlotOrdersDialogOpen(true);
+      }
+    } catch (err) {
+      console.error("Error fetching slot orders:", err);
+    } finally {
+      const newLoading = new Set(loadingOrders);
+      newLoading.delete(slotId);
+      setLoadingOrders(newLoading);
+    }
+  };
+
+  const formatNumber = (num) => {
+    if (num === null || num === undefined) return "0";
+    return new Intl.NumberFormat("en-IN").format(num);
+  };
+
+  const getPriorityColor = (priority) => {
+    switch (priority) {
+      case "overdue":
+        return "error";
+      case "urgent":
+        return "warning";
+      case "upcoming":
+        return "info";
+      default:
+        return "default";
+    }
+  };
+
+  // Analytics data preparation - All based on subtypes
+  const analyticsData = useMemo(() => {
+    if (!data?.plants) return null;
+
+    // Subtype-wise gap distribution for bar chart
+    const allSubtypes = data.plants.flatMap((plant) =>
+      (plant.subtypes || [])
+        .filter((subtype) => subtype.totalBookingGap > 0)
+        .map((subtype) => ({
+          name: `${subtype.subtypeName}`,
+          fullName: `${plant.plantName} - ${subtype.subtypeName}`,
+          plantName: plant.plantName,
+          subtypeName: subtype.subtypeName,
+          gap: subtype.totalBookingGap,
+          booked: subtype.totalBookedPlants,
+          sowed: subtype.totalPrimarySowed,
+          slotCount: subtype.slotCount,
+          completionPercentage: subtype.totalBookedPlants > 0
+            ? ((subtype.totalPrimarySowed / subtype.totalBookedPlants) * 100).toFixed(1)
+            : 0,
+        }))
+    );
+
+    // Top subtypes by gap
+    const topSubtypesData = allSubtypes
+      .sort((a, b) => b.gap - a.gap)
+      .slice(0, 15) // Top 15 subtypes
+      .map((subtype, index) => ({
+        ...subtype,
+        displayName: subtype.subtypeName.length > 20 
+          ? subtype.subtypeName.substring(0, 20) + "..." 
+          : subtype.subtypeName,
+      }));
+
+    // Gap distribution by range
+    const gapRanges = {
+      critical: { min: 100000, label: "Critical (>100K)", count: 0, total: 0, color: "#d32f2f" },
+      high: { min: 50000, max: 100000, label: "High (50K-100K)", count: 0, total: 0, color: "#f57c00" },
+      medium: { min: 10000, max: 50000, label: "Medium (10K-50K)", count: 0, total: 0, color: "#fbc02d" },
+      low: { min: 0, max: 10000, label: "Low (<10K)", count: 0, total: 0, color: "#388e3c" },
+    };
+
+    allSubtypes.forEach((subtype) => {
+      const gap = subtype.gap || 0;
+      if (gap >= 100000) {
+        gapRanges.critical.count++;
+        gapRanges.critical.total += gap;
+      } else if (gap >= 50000) {
+        gapRanges.high.count++;
+        gapRanges.high.total += gap;
+      } else if (gap >= 10000) {
+        gapRanges.medium.count++;
+        gapRanges.medium.total += gap;
+      } else if (gap > 0) {
+        gapRanges.low.count++;
+        gapRanges.low.total += gap;
+      }
+    });
+
+    const pieChartData = Object.values(gapRanges)
+      .filter((range) => range.count > 0)
+      .map((range) => ({
+        name: range.label,
+        value: range.count,
+        total: range.total,
+        color: range.color,
+      }));
+
+    // Plant-wise subtype distribution
+    const plantSubtypeData = data.plants
+      .filter((plant) => plant.subtypes && plant.subtypes.some((st) => st.totalBookingGap > 0))
+      .map((plant) => {
+        const subtypesWithGap = (plant.subtypes || []).filter((st) => st.totalBookingGap > 0);
+        return {
+          name: plant.plantName.length > 15 ? plant.plantName.substring(0, 15) + "..." : plant.plantName,
+          fullName: plant.plantName,
+          subtypeCount: subtypesWithGap.length,
+          totalGap: subtypesWithGap.reduce((sum, st) => sum + st.totalBookingGap, 0),
+          subtypes: subtypesWithGap,
+        };
+      })
+      .sort((a, b) => b.subtypeCount - a.subtypeCount)
+      .slice(0, 10);
+
+    // Priority distribution from reminders - only past (overdue) and current (urgent/upcoming), exclude future
+    const priorityStats = {
+      overdue: 0, // Past
+      urgent: 0, // Current
+      upcoming: 0, // Current
+    };
+
+    subtypeReminders.forEach((reminders) => {
+      reminders.forEach((reminder) => {
+        // Only count overdue, urgent, and upcoming - exclude future
+        if (reminder.priority === "overdue" || reminder.priority === "urgent" || reminder.priority === "upcoming") {
+          if (Object.prototype.hasOwnProperty.call(priorityStats, reminder.priority)) {
+            priorityStats[reminder.priority]++;
+          }
+        }
+      });
+    });
+
+    // Group into Past (overdue) and Current (urgent + upcoming)
+    const priorityChartData = [
+      {
+        name: "Past (Overdue)",
+        value: priorityStats.overdue,
+        color: "#d32f2f",
+      },
+      {
+        name: "Current (Urgent)",
+        value: priorityStats.urgent,
+        color: "#f57c00",
+      },
+      {
+        name: "Current (Upcoming)",
+        value: priorityStats.upcoming,
+        color: "#1976d2",
+      },
+    ].filter((item) => item.value > 0);
+
+    return {
+      topSubtypesData,
+      pieChartData,
+      priorityChartData,
+      plantSubtypeData,
+      allSubtypesCount: allSubtypes.length,
+    };
+  }, [data, subtypeReminders]);
+
+  const COLORS = ["#ff4444", "#ff8800", "#ffbb33", "#00C851", "#33b5e5", "#aa66cc"];
+
+  const statCards = data?.summary
+    ? [
+        {
+          label: "Total Plants",
+          value: data.summary.totalPlants,
+          icon: <LocalFlorist />,
+          color: "#1976d2",
+          bgcolor: "#e3f2fd",
+          tooltip: activeTab === 1 ? "Total plants with available capacity" : "Total plants with sowing gaps",
+        },
+        {
+          label: "Total Subtypes",
+          value: data.summary.totalSubtypes,
+          icon: <Agriculture />,
+          color: "#2e7d32",
+          bgcolor: "#e8f5e9",
+          tooltip: "Total subtypes across all plants",
+        },
+        {
+          label: activeTab === 1 ? "Total Available" : "Total Booking Gap",
+          value: formatNumber(
+            activeTab === 1 
+              ? (data.summary.totalAvailableGap || 0)
+              : (data.summary.totalBookingGap || 0)
+          ),
+          icon: activeTab === 1 ? <Inventory /> : <TrendingDown />,
+          color: activeTab === 1 ? "#1976d2" : "#d32f2f",
+          bgcolor: activeTab === 1 ? "#e3f2fd" : "#ffebee",
+          tooltip: activeTab === 1 
+            ? "Total plants available (surplus/sowed more than booked)" 
+            : "Total plants that need to be sown",
+        },
+      ]
+    : [];
+
+  if (loading) {
+    return (
+      <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
+        <CircularProgress size={60} />
+      </Box>
+    );
+  }
+
+  if (error) {
+    return (
+      <Box p={3}>
+        <Alert
+          severity="error"
+          action={
+            <Button color="inherit" size="small" onClick={fetchGapSummary}>
+              Retry
+            </Button>
+          }>
+          {error}
+        </Alert>
+      </Box>
+    );
+  }
+
+  if (!data || !data.plants || data.plants.length === 0) {
+    return (
+      <Box p={3}>
+        <Alert severity="info">No plants with sowing gaps found.</Alert>
+      </Box>
+    );
+  }
+
+  return (
+    <Box p={3} sx={{ bgcolor: "#f5f5f5", minHeight: "100vh" }}>
+      {/* Header */}
+      <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+        <Box display="flex" alignItems="center" gap={2}>
+          <Analytics sx={{ fontSize: 32, color: "#1976d2" }} />
+          <Typography variant="h4" component="h1" sx={{ fontWeight: 700, color: "#1976d2" }}>
+            Sowing Gap Analysis
+          </Typography>
+        </Box>
+        <IconButton
+          onClick={fetchGapSummary}
+          color="primary"
+          sx={{
+            bgcolor: "#e3f2fd",
+            "&:hover": { bgcolor: "#bbdefb" },
+            transition: "all 0.3s",
+          }}>
+          <RefreshIcon />
+        </IconButton>
+      </Box>
+
+      {/* Tabs for Critical and Available */}
+      <Card sx={{ mb: 3, boxShadow: 2 }}>
+        <Tabs
+          value={activeTab}
+          onChange={handleTabChange}
+          variant="fullWidth"
+          sx={{
+            borderBottom: 1,
+            borderColor: "divider",
+            "& .MuiTab-root": {
+              fontWeight: 600,
+              fontSize: "1rem",
+              textTransform: "none",
+            },
+            "& .Mui-selected": {
+              color: activeTab === 0 ? "#d32f2f" : "#1976d2",
+            },
+          }}
+          TabIndicatorProps={{
+            style: {
+              backgroundColor: activeTab === 0 ? "#d32f2f" : "#1976d2",
+              height: 3,
+            },
+          }}>
+          <Tab
+            label={
+              <Box display="flex" alignItems="center" gap={1}>
+                <Warning color="error" />
+                <Typography variant="body1" sx={{ fontWeight: 600 }}>
+                  Critical (Overdue & Urgent)
+                </Typography>
+              </Box>
+            }
+          />
+          <Tab
+            label={
+              <Box display="flex" alignItems="center" gap={1}>
+                <Inventory color="primary" />
+                <Typography variant="body1" sx={{ fontWeight: 600 }}>
+                  Available (Negative Gaps)
+                </Typography>
+              </Box>
+            }
+          />
+        </Tabs>
+      </Card>
+
+      {/* Stats Cards */}
+      <Grid container spacing={3} sx={{ mb: 4 }}>
+        {statCards.map((card, index) => (
+          <Grid item xs={12} sm={6} md={4} key={index}>
+            <Fade in timeout={300 + index * 100}>
+              <Tooltip title={card.tooltip} arrow>
+                <Card
+                  sx={{
+                    bgcolor: card.bgcolor,
+                    border: `2px solid ${card.color}40`,
+                    transition: "all 0.3s ease",
+                    cursor: "pointer",
+                    "&:hover": {
+                      transform: "translateY(-4px)",
+                      boxShadow: 6,
+                      borderColor: card.color,
+                    },
+                  }}>
+                  <CardContent>
+                    <Box display="flex" alignItems="center" justifyContent="space-between">
+                      <Box>
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          sx={{ textTransform: "uppercase", letterSpacing: 1 }}>
+                          {card.label}
+                        </Typography>
+                        <Typography
+                          variant="h4"
+                          sx={{
+                            fontWeight: 700,
+                            color: card.color,
+                            mt: 1,
+                          }}>
+                          {card.value}
+                        </Typography>
+                      </Box>
+                      <Box
+                        sx={{
+                          color: card.color,
+                          fontSize: "3rem",
+                          opacity: 0.8,
+                        }}>
+                        {card.icon}
+                      </Box>
+                    </Box>
+                  </CardContent>
+                </Card>
+              </Tooltip>
+            </Fade>
+          </Grid>
+        ))}
+      </Grid>
+
+      {/* Analytics Charts - All based on Subtypes */}
+      {analyticsData && (
+        <Grid container spacing={3} sx={{ mb: 4 }}>
+          {/* Top Subtypes by Gap - Horizontal Bar Chart */}
+          {analyticsData.topSubtypesData.length > 0 && (
+            <Grid item xs={12} md={8}>
+              <Card 
+                sx={{ 
+                  height: "100%",
+                  boxShadow: 3,
+                  borderRadius: 2,
+                  background: "linear-gradient(135deg, #f5f7fa 0%, #ffffff 100%)",
+                }}>
+                <CardContent>
+                  <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
+                    <Box display="flex" alignItems="center" gap={1}>
+                      <Box
+                        sx={{
+                          bgcolor: "#d32f2f",
+                          borderRadius: 2,
+                          p: 1,
+                          display: "flex",
+                          alignItems: "center",
+                        }}>
+                        <TrendingDown sx={{ color: "white", fontSize: 24 }} />
+                      </Box>
+                      <Box>
+                        <Typography variant="h6" sx={{ fontWeight: 700, color: "#1976d2" }}>
+                          Top Subtypes by Booking Gap
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {analyticsData.allSubtypesCount} subtypes with gaps
+                        </Typography>
+                      </Box>
+                    </Box>
+                  </Box>
+                  <ResponsiveContainer width="100%" height={400}>
+                    <BarChart
+                      data={analyticsData.topSubtypesData}
+                      layout="vertical"
+                      margin={{ top: 5, right: 30, left: 100, bottom: 5 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+                      <XAxis
+                        type="number"
+                        tick={{ fontSize: 11 }}
+                        tickFormatter={(value) => {
+                          if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
+                          if (value >= 1000) return `${(value / 1000).toFixed(1)}K`;
+                          return value.toString();
+                        }}
+                      />
+                      <YAxis
+                        type="category"
+                        dataKey="displayName"
+                        tick={{ fontSize: 11 }}
+                        width={95}
+                      />
+                      <RechartsTooltip
+                        formatter={(value, name, props) => {
+                          const data = props.payload;
+                          return [
+                            <Box key="tooltip">
+                              <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                                {data.fullName}
+                              </Typography>
+                              <Typography variant="caption">
+                                Gap: {formatNumber(value)} plants
+                              </Typography>
+                              <Typography variant="caption" display="block">
+                                Booked: {formatNumber(data.booked)}
+                              </Typography>
+                              <Typography variant="caption" display="block">
+                                Sowed: {formatNumber(data.sowed)} ({data.completionPercentage}%)
+                              </Typography>
+                              <Typography variant="caption" display="block">
+                                Slots: {data.slotCount}
+                              </Typography>
+                            </Box>,
+                            "Gap",
+                          ];
+                        }}
+                        contentStyle={{
+                          backgroundColor: "rgba(255, 255, 255, 0.95)",
+                          border: "1px solid #e0e0e0",
+                          borderRadius: 8,
+                          padding: 8,
+                        }}
+                      />
+                      <Bar
+                        dataKey="gap"
+                        radius={[0, 8, 8, 0]}
+                        fill="#d32f2f">
+                        {analyticsData.topSubtypesData.map((entry, index) => {
+                          const gap = entry.gap;
+                          let color = "#388e3c"; // green
+                          if (gap >= 100000) color = "#d32f2f"; // red - critical
+                          else if (gap >= 50000) color = "#f57c00"; // orange - high
+                          else if (gap >= 10000) color = "#fbc02d"; // yellow - medium
+                          return <Cell key={`cell-${index}`} fill={color} />;
+                        })}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+            </Grid>
+          )}
+
+          {/* Gap Distribution Pie Chart */}
+          {analyticsData.pieChartData.length > 0 && (
+            <Grid item xs={12} md={4}>
+              <Card
+                sx={{
+                  height: "100%",
+                  boxShadow: 3,
+                  borderRadius: 2,
+                  background: "linear-gradient(135deg, #f5f7fa 0%, #ffffff 100%)",
+                }}>
+                <CardContent>
+                  <Box display="flex" alignItems="center" gap={1} mb={2}>
+                    <Box
+                      sx={{
+                        bgcolor: "#1976d2",
+                        borderRadius: 2,
+                        p: 1,
+                        display: "flex",
+                        alignItems: "center",
+                      }}>
+                      <PieChartIcon sx={{ color: "white", fontSize: 24 }} />
+                    </Box>
+                    <Typography variant="h6" sx={{ fontWeight: 700, color: "#1976d2" }}>
+                      Gap Distribution by Range
+                    </Typography>
+                  </Box>
+                  <ResponsiveContainer width="100%" height={400}>
+                    <PieChart>
+                      <defs>
+                        {analyticsData.pieChartData.map((entry, index) => (
+                          <linearGradient
+                            key={`gradient-${index}`}
+                            id={`gradient-${index}`}
+                            x1="0"
+                            y1="0"
+                            x2="0"
+                            y2="1">
+                            <stop offset="0%" stopColor={entry.color} stopOpacity={1} />
+                            <stop offset="100%" stopColor={entry.color} stopOpacity={0.7} />
+                          </linearGradient>
+                        ))}
+                      </defs>
+                      <Pie
+                        data={analyticsData.pieChartData}
+                        cx="50%"
+                        cy="50%"
+                        labelLine={false}
+                        label={({ name, percent, value }) =>
+                          `${name}\n${value} subtypes (${(percent * 100).toFixed(0)}%)`
+                        }
+                        outerRadius={100}
+                        innerRadius={40}
+                        paddingAngle={2}
+                        dataKey="value">
+                        {analyticsData.pieChartData.map((entry, index) => (
+                          <Cell
+                            key={`cell-${index}`}
+                            fill={`url(#gradient-${index})`}
+                            stroke={entry.color}
+                            strokeWidth={2}
+                          />
+                        ))}
+                      </Pie>
+                      <RechartsTooltip
+                        formatter={(value, name, props) => {
+                          const data = props.payload;
+                          return [
+                            <Box key="tooltip">
+                              <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                                {data.name}
+                              </Typography>
+                              <Typography variant="caption" display="block">
+                                Subtypes: {value}
+                              </Typography>
+                              <Typography variant="caption" display="block">
+                                Total Gap: {formatNumber(data.total)} plants
+                              </Typography>
+                            </Box>,
+                            "Count",
+                          ];
+                        }}
+                        contentStyle={{
+                          backgroundColor: "rgba(255, 255, 255, 0.95)",
+                          border: "1px solid #e0e0e0",
+                          borderRadius: 8,
+                          padding: 8,
+                        }}
+                      />
+                      <Legend
+                        formatter={(value, entry) => (
+                          <span style={{ color: entry.color, fontWeight: 600 }}>
+                            {value}
+                          </span>
+                        )}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+            </Grid>
+          )}
+
+          {/* Priority Distribution Chart */}
+          {analyticsData.priorityChartData.length > 0 && (
+            <Grid item xs={12} md={6}>
+              <Card
+                sx={{
+                  height: "100%",
+                  boxShadow: 3,
+                  borderRadius: 2,
+                  background: "linear-gradient(135deg, #f5f7fa 0%, #ffffff 100%)",
+                }}>
+                <CardContent>
+                  <Box display="flex" alignItems="center" gap={1} mb={2}>
+                    <Box
+                      sx={{
+                        bgcolor: "#f57c00",
+                        borderRadius: 2,
+                        p: 1,
+                        display: "flex",
+                        alignItems: "center",
+                      }}>
+                      <Warning sx={{ color: "white", fontSize: 24 }} />
+                    </Box>
+                    <Typography variant="h6" sx={{ fontWeight: 700, color: "#1976d2" }}>
+                      Priority Distribution (Slots)
+                    </Typography>
+                  </Box>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={analyticsData.priorityChartData} layout="vertical">
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+                      <XAxis type="number" tick={{ fontSize: 12 }} />
+                      <YAxis
+                        type="category"
+                        dataKey="name"
+                        tick={{ fontSize: 12 }}
+                        width={80}
+                      />
+                      <RechartsTooltip
+                        formatter={(value) => [`${value} slots`, "Count"]}
+                        contentStyle={{
+                          backgroundColor: "rgba(255, 255, 255, 0.95)",
+                          border: "1px solid #e0e0e0",
+                          borderRadius: 8,
+                          padding: 8,
+                        }}
+                      />
+                      <Bar dataKey="value" radius={[0, 8, 8, 0]}>
+                        {analyticsData.priorityChartData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+            </Grid>
+          )}
+
+          {/* Plant-wise Subtype Count */}
+          {analyticsData.plantSubtypeData.length > 0 && (
+            <Grid item xs={12} md={6}>
+              <Card
+                sx={{
+                  height: "100%",
+                  boxShadow: 3,
+                  borderRadius: 2,
+                  background: "linear-gradient(135deg, #f5f7fa 0%, #ffffff 100%)",
+                }}>
+                <CardContent>
+                  <Box display="flex" alignItems="center" gap={1} mb={2}>
+                    <Box
+                      sx={{
+                        bgcolor: "#2e7d32",
+                        borderRadius: 2,
+                        p: 1,
+                        display: "flex",
+                        alignItems: "center",
+                      }}>
+                      <LocalFlorist sx={{ color: "white", fontSize: 24 }} />
+                    </Box>
+                    <Typography variant="h6" sx={{ fontWeight: 700, color: "#1976d2" }}>
+                      Plants by Subtype Count
+                    </Typography>
+                  </Box>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={analyticsData.plantSubtypeData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+                      <XAxis
+                        dataKey="name"
+                        angle={-45}
+                        textAnchor="end"
+                        height={100}
+                        tick={{ fontSize: 11 }}
+                      />
+                      <YAxis tick={{ fontSize: 12 }} />
+                      <RechartsTooltip
+                        formatter={(value, name, props) => {
+                          const data = props.payload;
+                          return [
+                            <Box key="tooltip">
+                              <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                                {data.fullName}
+                              </Typography>
+                              <Typography variant="caption" display="block">
+                                Subtypes with gaps: {value}
+                              </Typography>
+                              <Typography variant="caption" display="block">
+                                Total gap: {formatNumber(data.totalGap)} plants
+                              </Typography>
+                            </Box>,
+                            "Subtypes",
+                          ];
+                        }}
+                        contentStyle={{
+                          backgroundColor: "rgba(255, 255, 255, 0.95)",
+                          border: "1px solid #e0e0e0",
+                          borderRadius: 8,
+                          padding: 8,
+                        }}
+                      />
+                      <Bar dataKey="subtypeCount" radius={[8, 8, 0, 0]} fill="#2e7d32">
+                        {analyticsData.plantSubtypeData.map((entry, index) => (
+                          <Cell
+                            key={`cell-${index}`}
+                            fill={COLORS[index % COLORS.length]}
+                          />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+            </Grid>
+          )}
+        </Grid>
+      )}
+
+      {/* Plants List with Enhanced Analytics */}
+      {data.plants
+        .filter((plant) => {
+          // Filter plants based on active tab
+          if (activeTab === 0) {
+            // Critical tab: show plants with positive gaps (overdue/urgent)
+            return (plant.totalBookingGap || 0) > 0;
+          } else {
+            // Available tab: show all plants (we'll check subtypes for negative gaps via API)
+            console.log("[Render] Available tab - plant:", plant.plantName, "subtypes:", plant.subtypes?.length);
+            return true;
+          }
+        })
+        .map((plant, plantIndex) => {
+          const isPlantExpanded = expandedPlants.has(plant._id);
+          const plantSubtypes = plant.subtypes || [];
+          const totalSubtypes = plantSubtypes.length;
+          
+          // Filter subtypes based on active tab
+          const filteredSubtypes = activeTab === 0
+            ? plantSubtypes.filter((st) => (st.totalBookingGap || 0) > 0)
+            : plantSubtypes; // Available tab: show all subtypes, API will filter by negative gaps
+          
+          if (activeTab === 1) {
+            console.log(`[Render] Available tab - Plant ${plant.plantName}: ${filteredSubtypes.length} subtypes`);
+          }
+          
+          const subtypesWithGap = filteredSubtypes.length;
+          const completionPercentage = totalSubtypes > 0 ? (subtypesWithGap / totalSubtypes) * 100 : 0;
+
+        return (
+          <Zoom
+            in
+            timeout={300 + plantIndex * 100}
+            key={plant._id}
+            style={{ transitionDelay: `${plantIndex * 50}ms` }}>
+            <Card
+              sx={{
+                mb: 2,
+                transition: "all 0.3s ease",
+                border: `2px solid ${isPlantExpanded ? "#1976d2" : "#e0e0e0"}`,
+                "&:hover": {
+                  boxShadow: 4,
+                  borderColor: "#1976d2",
+                },
+              }}>
+              <CardContent>
+                <Box
+                  display="flex"
+                  justifyContent="space-between"
+                  alignItems="center"
+                  sx={{ cursor: "pointer" }}
+                  onClick={() => togglePlantExpansion(plant._id)}>
+                  <Box display="flex" alignItems="center" gap={2} flex={1}>
+                    <IconButton
+                      size="small"
+                      sx={{
+                        bgcolor: isPlantExpanded ? "#e3f2fd" : "transparent",
+                        transition: "all 0.3s",
+                      }}>
+                      {isPlantExpanded ? (
+                        <ExpandLessIcon color="primary" />
+                      ) : (
+                        <ExpandMoreIcon />
+                      )}
+                    </IconButton>
+                    <LocalFlorist sx={{ color: "#1976d2", fontSize: 28 }} />
+                    <Box flex={1}>
+                      <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                        {plant.plantName}
+                      </Typography>
+                      <Box display="flex" alignItems="center" gap={2} mt={0.5}>
+                        <Typography variant="caption" color="text.secondary">
+                          {totalSubtypes} subtypes • {subtypesWithGap} {activeTab === 1 ? "with available" : "with gaps"}
+                        </Typography>
+                        <Box sx={{ width: 100 }}>
+                          <LinearProgress
+                            variant="determinate"
+                            value={completionPercentage}
+                            color={activeTab === 1 ? "primary" : "error"}
+                            sx={{ height: 6, borderRadius: 3 }}
+                          />
+                        </Box>
+                        <Typography 
+                          variant="caption" 
+                          color={activeTab === 1 ? "primary.main" : "error.main"} 
+                          sx={{ fontWeight: 600 }}>
+                          {completionPercentage.toFixed(0)}% {activeTab === 1 ? "available" : "with gaps"}
+                        </Typography>
+                      </Box>
+                    </Box>
+                  </Box>
+                  <Chip
+                    label={
+                      activeTab === 1
+                        ? `Available: ${formatNumber(plant.totalAvailableGap || 0)}`
+                        : `Gap: ${formatNumber(plant.totalBookingGap || 0)}`
+                    }
+                    color={activeTab === 1 ? "primary" : "error"}
+                    icon={activeTab === 1 ? <Inventory /> : <TrendingDown />}
+                    sx={{ fontSize: "0.9rem", fontWeight: 600, ml: 2 }}
+                  />
+                </Box>
+
+                <Collapse in={isPlantExpanded} timeout="auto" unmountOnExit>
+                  <Box mt={3}>
+                    {filteredSubtypes.length > 0 ? (
+                      filteredSubtypes.map((subtype, subtypeIndex) => {
+                        const subtypeKey = `${plant._id}-${subtype._id}`;
+                        const isSubtypeExpanded =
+                          expandedSubtypes.get(plant._id)?.has(subtype._id) || false;
+                        const reminders = subtypeReminders.get(subtypeKey) || [];
+                        const isLoadingReminders = loadingReminders.has(subtypeKey);
+                        const gapPercentage = activeTab === 1
+                          ? (subtype.totalPrimarySowed > 0
+                              ? ((subtype.totalAvailableGap || 0) / subtype.totalPrimarySowed * 100).toFixed(1)
+                              : 0)
+                          : (subtype.totalBookedPlants > 0
+                              ? ((subtype.totalBookingGap || 0) / subtype.totalBookedPlants * 100).toFixed(1)
+                              : 0);
+                        
+                        // For available tab, we want to show available/surplus
+                        const isAvailableTab = activeTab === 1;
+
+                        return (
+                          <Grow
+                            in
+                            timeout={300}
+                            key={subtype._id}
+                            style={{ transitionDelay: `${subtypeIndex * 50}ms` }}>
+                            <Card
+                              variant="outlined"
+                              sx={{
+                                mb: 2,
+                                ml: 4,
+                                bgcolor: isSubtypeExpanded ? "#fafafa" : "white",
+                                transition: "all 0.3s ease",
+                                border: `2px solid ${isSubtypeExpanded ? "#2e7d32" : "#e0e0e0"}`,
+                                "&:hover": {
+                                  borderColor: "#2e7d32",
+                                  boxShadow: 2,
+                                },
+                              }}>
+                              <CardContent>
+                                <Box
+                                  display="flex"
+                                  justifyContent="space-between"
+                                  alignItems="center"
+                                  sx={{ cursor: "pointer" }}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    console.log("[onClick] Subtype clicked:", { plantId: plant._id, subtypeId: subtype._id, activeTab });
+                                    toggleSubtypeExpansion(plant._id, subtype._id);
+                                  }}>
+                                  <Box display="flex" alignItems="center" gap={2} flex={1}>
+                                    <IconButton size="small">
+                                      {isSubtypeExpanded ? (
+                                        <ExpandLessIcon color="success" />
+                                      ) : (
+                                        <ExpandMoreIcon />
+                                      )}
+                                    </IconButton>
+                                    <Agriculture sx={{ color: "#2e7d32", fontSize: 20 }} />
+                                    <Box flex={1}>
+                                      <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                                        {subtype.subtypeName}
+                                      </Typography>
+                                      <Box display="flex" alignItems="center" gap={2} mt={0.5}>
+                                        <Typography variant="caption" color="text.secondary">
+                                          {subtype.slotCount} slots
+                                        </Typography>
+                                        {activeTab === 1 ? (
+                                          subtype.totalPrimarySowed > 0 && (
+                                            <>
+                                              <Typography variant="caption" color="text.secondary">
+                                                • Available: {gapPercentage}% of sowed
+                                              </Typography>
+                                              <Box sx={{ width: 80 }}>
+                                                <LinearProgress
+                                                  variant="determinate"
+                                                  value={Math.min(Number(gapPercentage), 100)}
+                                                  color="primary"
+                                                  sx={{ height: 4, borderRadius: 2 }}
+                                                />
+                                              </Box>
+                                            </>
+                                          )
+                                        ) : (
+                                          subtype.totalBookedPlants > 0 && (
+                                            <>
+                                              <Typography variant="caption" color="text.secondary">
+                                                • Gap: {gapPercentage}% of booked
+                                              </Typography>
+                                              <Box sx={{ width: 80 }}>
+                                                <LinearProgress
+                                                  variant="determinate"
+                                                  value={Math.min(Number(gapPercentage), 100)}
+                                                  color={Number(gapPercentage) > 50 ? "error" : "warning"}
+                                                  sx={{ height: 4, borderRadius: 2 }}
+                                                />
+                                              </Box>
+                                            </>
+                                          )
+                                        )}
+                                      </Box>
+                                    </Box>
+                                  </Box>
+                                  <Box display="flex" gap={1} alignItems="center">
+                                    {activeTab === 1 ? (
+                                      <Chip
+                                        label={`Available: ${formatNumber(subtype.totalAvailableGap || 0)}`}
+                                        color={subtype.totalAvailableGap > 0 ? "primary" : "default"}
+                                        size="small"
+                                        icon={<Inventory />}
+                                      />
+                                    ) : (
+                                      <Chip
+                                        label={`Gap: ${formatNumber(subtype.totalBookingGap || 0)}`}
+                                        color={subtype.totalBookingGap > 0 ? "error" : "success"}
+                                        size="small"
+                                        icon={<TrendingDown />}
+                                      />
+                                    )}
+                                    <Chip
+                                      label={`${subtype.slotCount} slots`}
+                                      size="small"
+                                      variant="outlined"
+                                      icon={<CalendarToday />}
+                                    />
+                                  </Box>
+                                </Box>
+
+                                <Collapse
+                                  in={isSubtypeExpanded}
+                                  timeout="auto"
+                                  unmountOnExit>
+                                  <Box mt={2}>
+                                    {isLoadingReminders ? (
+                                      <Box display="flex" justifyContent="center" p={3}>
+                                        <CircularProgress />
+                                      </Box>
+                                    ) : reminders.length > 0 ? (
+                                      <>
+                                        {/* Summary Stats for Reminders */}
+                                        <Box mb={2} p={2} bgcolor="#f5f5f5" borderRadius={2}>
+                                          <Grid container spacing={2}>
+                                            <Grid item xs={12} sm={4}>
+                                              <Typography variant="caption" color="text.secondary">
+                                                {isAvailableTab ? "Total Slots Available" : "Total Slots with Gaps"}
+                                              </Typography>
+                                              <Typography variant="h6" color={isAvailableTab ? "primary" : "error"}>
+                                                {reminders.length}
+                                              </Typography>
+                                            </Grid>
+                                            <Grid item xs={12} sm={4}>
+                                              <Typography variant="caption" color="text.secondary">
+                                                {isAvailableTab ? "Total Available" : "Total Gap"}
+                                              </Typography>
+                                              <Typography variant="h6" color={isAvailableTab ? "primary" : "error"}>
+                                                {formatNumber(
+                                                  isAvailableTab
+                                                    ? reminders.reduce(
+                                                        (sum, r) => sum + Math.abs(r.bookingGap || 0),
+                                                        0
+                                                      )
+                                                    : reminders.reduce(
+                                                        (sum, r) => sum + (r.bookingGap || 0),
+                                                        0
+                                                      )
+                                                )}
+                                              </Typography>
+                                            </Grid>
+                                            {!isAvailableTab && (
+                                              <Grid item xs={12} sm={4}>
+                                                <Typography variant="caption" color="text.secondary">
+                                                  Overdue Slots
+                                                </Typography>
+                                                <Typography variant="h6" color="error">
+                                                  {
+                                                    reminders.filter(
+                                                      (r) => r.priority === "overdue"
+                                                    ).length
+                                                  }
+                                                </Typography>
+                                              </Grid>
+                                            )}
+                                          </Grid>
+                                        </Box>
+
+                                        <TableContainer
+                                          component={Paper}
+                                          variant="outlined"
+                                          sx={{ borderRadius: 2 }}>
+                                          <Table size="small">
+                                            <TableHead>
+                                              <TableRow sx={{ bgcolor: "#f5f5f5" }}>
+                                                <TableCell>
+                                                  <Box display="flex" alignItems="center" gap={1}>
+                                                    <CalendarToday fontSize="small" />
+                                                    Slot Date
+                                                  </Box>
+                                                </TableCell>
+                                                <TableCell align="right">
+                                                  <Box display="flex" alignItems="center" justifyContent="flex-end" gap={1}>
+                                                    <ShoppingCart fontSize="small" />
+                                                    Booked
+                                                  </Box>
+                                                </TableCell>
+                                                <TableCell align="right">
+                                                  <Box display="flex" alignItems="center" justifyContent="flex-end" gap={1}>
+                                                    <CheckCircle fontSize="small" />
+                                                    Sowed
+                                                  </Box>
+                                                </TableCell>
+                                                <TableCell align="right">
+                                                  <Box display="flex" alignItems="center" justifyContent="flex-end" gap={1}>
+                                                    {isAvailableTab ? (
+                                                      <Inventory fontSize="small" />
+                                                    ) : (
+                                                      <TrendingDown fontSize="small" />
+                                                    )}
+                                                    {isAvailableTab ? "Available" : "Gap"}
+                                                  </Box>
+                                                </TableCell>
+                                                <TableCell>
+                                                  <Box display="flex" alignItems="center" gap={1}>
+                                                    <Schedule fontSize="small" />
+                                                    Sow By
+                                                  </Box>
+                                                </TableCell>
+                                                <TableCell>
+                                                  <Box display="flex" alignItems="center" gap={1}>
+                                                    <Warning fontSize="small" />
+                                                    Priority
+                                                  </Box>
+                                                </TableCell>
+                                                <TableCell>Actions</TableCell>
+                                              </TableRow>
+                                            </TableHead>
+                                            <TableBody>
+                                              {reminders.map((reminder, reminderIndex) => {
+                                                const isLoadingSlotOrders =
+                                                  loadingOrders.has(reminder.slotId);
+                                                
+                                                // For Available tab, bookingGap is negative, convert to positive available
+                                                const availableAmount = isAvailableTab 
+                                                  ? Math.abs(reminder.bookingGap || 0)
+                                                  : (reminder.bookingGap || 0);
+                                                
+                                                const gapPercentage = isAvailableTab
+                                                  ? (reminder.primarySowed > 0
+                                                      ? ((availableAmount / reminder.primarySowed) * 100).toFixed(1)
+                                                      : 0)
+                                                  : (reminder.totalBookedPlants > 0
+                                                      ? ((reminder.bookingGap / reminder.totalBookedPlants) * 100).toFixed(1)
+                                                      : 0);
+                                                return (
+                                                  <TableRow
+                                                    key={reminder._id}
+                                                    hover
+                                                    sx={{
+                                                      bgcolor:
+                                                        reminder.priority === "overdue"
+                                                          ? "#ffebee"
+                                                          : "transparent",
+                                                      transition: "all 0.2s",
+                                                      "&:hover": {
+                                                        bgcolor:
+                                                          reminder.priority === "overdue"
+                                                            ? "#ffcdd2"
+                                                            : "#f5f5f5",
+                                                      },
+                                                    }}>
+                                                    <TableCell>
+                                                      {reminder.slotStartDay === reminder.slotEndDay
+                                                        ? reminder.slotStartDay
+                                                        : `${reminder.slotStartDay} - ${reminder.slotEndDay}`}
+                                                    </TableCell>
+                                                    <TableCell align="right">
+                                                      <Typography sx={{ fontWeight: 600 }}>
+                                                        {formatNumber(reminder.totalBookedPlants)}
+                                                      </Typography>
+                                                    </TableCell>
+                                                    <TableCell align="right">
+                                                      <Typography
+                                                        sx={{
+                                                          fontWeight: 600,
+                                                          color: "#2e7d32",
+                                                        }}>
+                                                        {formatNumber(reminder.primarySowed)}
+                                                      </Typography>
+                                                      {reminder.totalBookedPlants > 0 && (
+                                                        <Typography variant="caption" color="text.secondary">
+                                                          (
+                                                          {(
+                                                            (reminder.primarySowed / reminder.totalBookedPlants) *
+                                                            100
+                                                          ).toFixed(1)}
+                                                          %)
+                                                        </Typography>
+                                                      )}
+                                                    </TableCell>
+                                                    <TableCell align="right">
+                                                      <Chip
+                                                        label={
+                                                          isAvailableTab
+                                                            ? `${formatNumber(availableAmount)} (${gapPercentage}%)`
+                                                            : `${formatNumber(reminder.bookingGap)} (${gapPercentage}%)`
+                                                        }
+                                                        color={
+                                                          isAvailableTab
+                                                            ? "primary"
+                                                            : reminder.bookingGap > 0
+                                                            ? "error"
+                                                            : "success"
+                                                        }
+                                                        size="small"
+                                                        sx={{ fontWeight: 600 }}
+                                                      />
+                                                      {(isAvailableTab ? reminder.primarySowed > 0 : reminder.totalBookedPlants > 0) && (
+                                                        <Box sx={{ width: "100%", mt: 0.5 }}>
+                                                          <LinearProgress
+                                                            variant="determinate"
+                                                            value={Math.min(Math.abs(Number(gapPercentage)), 100)}
+                                                            color={
+                                                              isAvailableTab
+                                                                ? "primary"
+                                                                : Number(gapPercentage) > 50
+                                                                ? "error"
+                                                                : "warning"
+                                                            }
+                                                            sx={{ height: 4, borderRadius: 2 }}
+                                                          />
+                                                        </Box>
+                                                      )}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                      <Chip
+                                                        label={reminder.sowByDate}
+                                                        size="small"
+                                                        variant="outlined"
+                                                        icon={<Schedule />}
+                                                      />
+                                                    </TableCell>
+                                                    <TableCell>
+                                                      <Chip
+                                                        label={reminder.priority}
+                                                        color={getPriorityColor(reminder.priority)}
+                                                        size="small"
+                                                        icon={<Warning />}
+                                                      />
+                                                    </TableCell>
+                                                    <TableCell>
+                                                      <Tooltip title="View Orders">
+                                                        <IconButton
+                                                          size="small"
+                                                          onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleSlotClick(reminder.slotId);
+                                                          }}
+                                                          disabled={isLoadingSlotOrders}
+                                                          color="primary"
+                                                          sx={{
+                                                            "&:hover": {
+                                                              bgcolor: "#e3f2fd",
+                                                            },
+                                                          }}>
+                                                          {isLoadingSlotOrders ? (
+                                                            <CircularProgress size={16} />
+                                                          ) : (
+                                                            <Assignment fontSize="small" />
+                                                          )}
+                                                        </IconButton>
+                                                      </Tooltip>
+                                                    </TableCell>
+                                                  </TableRow>
+                                                );
+                                              })}
+                                            </TableBody>
+                                          </Table>
+                                        </TableContainer>
+                                      </>
+                                    ) : (
+                                      <Alert severity="info" icon={<InfoIcon />}>
+                                        No reminders found for this subtype.
+                                      </Alert>
+                                    )}
+                                  </Box>
+                                </Collapse>
+                              </CardContent>
+                            </Card>
+                          </Grow>
+                        );
+                      })
+                    ) : (
+                      <Alert severity="info" sx={{ ml: 4 }} icon={<InfoIcon />}>
+                        No subtypes found for this plant.
+                      </Alert>
+                    )}
+                  </Box>
+                </Collapse>
+              </CardContent>
+            </Card>
+          </Zoom>
+        );
+      })}
+
+      {/* Slot Orders Dialog */}
+      <Dialog
+        open={slotOrdersDialogOpen}
+        onClose={() => setSlotOrdersDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+        TransitionComponent={Fade}
+        TransitionProps={{ timeout: 300 }}>
+        <DialogTitle
+          sx={{
+            bgcolor: "#1976d2",
+            color: "white",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}>
+          <Box display="flex" alignItems="center" gap={1}>
+            <Assignment />
+            <Typography variant="h6">Slot Orders Summary</Typography>
+          </Box>
+          <IconButton
+            onClick={() => setSlotOrdersDialogOpen(false)}
+            sx={{ color: "white" }}>
+            <InfoIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ mt: 2 }}>
+          {selectedSlot && (
+            <>
+              {selectedSlot.slotInfo && (
+                <Card sx={{ mb: 2, bgcolor: "#f5f5f5" }}>
+                  <CardContent>
+                    <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 2 }}>
+                      📋 Slot Information
+                    </Typography>
+                    <Grid container spacing={2}>
+                      <Grid item xs={12} sm={6}>
+                        <Box display="flex" alignItems="center" gap={1} mb={1}>
+                          <LocalFlorist fontSize="small" color="primary" />
+                          <Typography variant="body2">
+                            <strong>Plant:</strong> {selectedSlot.slotInfo.plantName}
+                          </Typography>
+                        </Box>
+                      </Grid>
+                      <Grid item xs={12} sm={6}>
+                        <Box display="flex" alignItems="center" gap={1} mb={1}>
+                          <CalendarToday fontSize="small" color="primary" />
+                          <Typography variant="body2">
+                            <strong>Date:</strong> {selectedSlot.slotInfo.slot?.startDay}
+                            {selectedSlot.slotInfo.slot?.endDay !==
+                            selectedSlot.slotInfo.slot?.startDay
+                              ? ` - ${selectedSlot.slotInfo.slot?.endDay}`
+                              : ""}
+                          </Typography>
+                        </Box>
+                      </Grid>
+                      <Grid item xs={12} sm={6}>
+                        <Box display="flex" alignItems="center" gap={1} mb={1}>
+                          <Inventory fontSize="small" color="primary" />
+                          <Typography variant="body2">
+                            <strong>Total Capacity:</strong>{" "}
+                            {formatNumber(selectedSlot.slotInfo.slot?.totalPlants)}
+                          </Typography>
+                        </Box>
+                      </Grid>
+                      <Grid item xs={12} sm={6}>
+                        <Box display="flex" alignItems="center" gap={1} mb={1}>
+                          <CheckCircle fontSize="small" color="success" />
+                          <Typography variant="body2">
+                            <strong>Primary Sowed:</strong>{" "}
+                            {formatNumber(selectedSlot.slotInfo.slot?.primarySowed)}
+                          </Typography>
+                        </Box>
+                      </Grid>
+                    </Grid>
+                  </CardContent>
+                </Card>
+              )}
+
+              {selectedSlot.summary && (
+                <Stack direction="row" spacing={2} sx={{ mb: 2 }} flexWrap="wrap">
+                  <Chip
+                    icon={<ShoppingCart />}
+                    label={`Total Orders: ${selectedSlot.summary.totalOrders}`}
+                    color="primary"
+                    variant="outlined"
+                    sx={{ fontWeight: 600 }}
+                  />
+                  <Chip
+                    icon={<Inventory />}
+                    label={`Total Plants: ${formatNumber(selectedSlot.summary.totalPlants)}`}
+                    color="secondary"
+                    variant="outlined"
+                    sx={{ fontWeight: 600 }}
+                  />
+                  <Chip
+                    icon={<AccountBalance />}
+                    label={`Total Value: ₹${formatNumber(selectedSlot.summary.totalValue)}`}
+                    color="success"
+                    variant="outlined"
+                    sx={{ fontWeight: 600 }}
+                  />
+                </Stack>
+              )}
+
+              <Divider sx={{ my: 2 }} />
+
+              {selectedSlot.orders && selectedSlot.orders.length > 0 ? (
+                <TableContainer component={Paper} variant="outlined">
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow sx={{ bgcolor: "#f5f5f5" }}>
+                        <TableCell>Order ID</TableCell>
+                        <TableCell>Farmer</TableCell>
+                        <TableCell>Mobile</TableCell>
+                        <TableCell align="right">Plants</TableCell>
+                        <TableCell align="right">Rate</TableCell>
+                        <TableCell>Status</TableCell>
+                        <TableCell>Payment</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {selectedSlot.orders.map((order) => (
+                        <TableRow key={order._id} hover>
+                          <TableCell>
+                            <Typography sx={{ fontWeight: 600 }}>
+                              {order.orderId}
+                            </Typography>
+                          </TableCell>
+                          <TableCell>
+                            <Typography sx={{ fontWeight: 600 }}>
+                              {order.farmer?.name || "Unknown"}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              {order.farmer?.village || ""}
+                              {order.farmer?.taluka ? `, ${order.farmer.taluka}` : ""}
+                            </Typography>
+                          </TableCell>
+                          <TableCell>{order.farmer?.mobileNumber || "-"}</TableCell>
+                          <TableCell align="right">
+                            <Typography sx={{ fontWeight: 600 }}>
+                              {formatNumber(order.numberOfPlants)}
+                            </Typography>
+                          </TableCell>
+                          <TableCell align="right">
+                            <Typography sx={{ fontWeight: 600, color: "#2e7d32" }}>
+                              ₹{order.rate || 0}
+                            </Typography>
+                          </TableCell>
+                          <TableCell>
+                            <Chip
+                              label={order.orderStatus}
+                              size="small"
+                              color={
+                                order.orderStatus === "COMPLETED"
+                                  ? "success"
+                                  : order.orderStatus === "CANCELLED"
+                                  ? "error"
+                                  : "default"
+                              }
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Chip
+                              label={order.orderPaymentStatus}
+                              size="small"
+                              color={
+                                order.orderPaymentStatus === "COMPLETED"
+                                  ? "success"
+                                  : "warning"
+                              }
+                            />
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              ) : (
+                <Alert severity="info" icon={<InfoIcon />}>
+                  No orders found for this slot.
+                </Alert>
+              )}
+            </>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ p: 2, bgcolor: "#f5f5f5" }}>
+          <Button
+            onClick={() => setSlotOrdersDialogOpen(false)}
+            variant="contained"
+            color="primary">
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </Box>
+  );
+};
+
+export default SowingGapAnalysis;

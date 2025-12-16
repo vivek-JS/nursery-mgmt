@@ -9,6 +9,7 @@ import {
   Search,
   CheckCircle,
   AlertCircle,
+  Info,
 } from 'lucide-react';
 import { API, NetworkManager } from '../../../network/core';
 import { formatDecimal, formatCurrency } from '../../../utils/numberUtils';
@@ -17,6 +18,7 @@ const PurchaseOrderForm = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [products, setProducts] = useState([]);
+  const [units, setUnits] = useState([]);
   const [merchants, setMerchants] = useState([]);
   const [categories, setCategories] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -50,12 +52,14 @@ const PurchaseOrderForm = () => {
     },
     expectedDeliveryDate: '',
     notes: '',
+    autoGRN: false, // Auto GRN toggle
   });
 
   useEffect(() => {
     loadProducts();
     loadMerchants();
     loadCategories();
+    loadUnits();
   }, []);
 
   useEffect(() => {
@@ -152,6 +156,23 @@ const PurchaseOrderForm = () => {
     }
   };
 
+  const loadUnits = async () => {
+    try {
+      const instance = NetworkManager(API.INVENTORY.GET_ALL_UNITS);
+      const response = await instance.request();
+      if (response?.data) {
+        const apiResponse = response.data;
+        if (apiResponse.success && apiResponse.data) {
+          setUnits(apiResponse.data);
+        } else if (apiResponse.status === 'Success' && apiResponse.data) {
+          setUnits(apiResponse.data);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading units:', error);
+    }
+  };
+
   const handleSupplierChange = (supplierId) => {
     const supplier = allSuppliers.find(s => s._id === supplierId);
     if (supplier) {
@@ -173,27 +194,76 @@ const PurchaseOrderForm = () => {
     setOrderItems([...orderItems, {
       productId: '',
       quantity: 1,
+      secondaryQuantity: '', // For secondary unit
       rate: 0, // Optional, can be 0
       amount: 0,
+      batchNumber: '', // For auto GRN
+      expiryDate: '', // For auto GRN
     }]);
+  };
+
+  // Check if a unit requires secondary UOM
+  const requiresSecondaryUnit = (unit) => {
+    if (!unit) return false;
+    if (unit.requiresSecondaryUnit === true) return true;
+    const unitName = unit.name?.toLowerCase() || '';
+    const unitsRequiringSecondary = ['bag', 'box', 'seeds'];
+    return unitsRequiringSecondary.includes(unitName);
   };
 
   const updateOrderItem = (index, field, value) => {
     const updatedItems = [...orderItems];
+    const currentItem = updatedItems[index];
+    
     updatedItems[index] = {
-      ...updatedItems[index],
+      ...currentItem,
       [field]: value,
     };
 
+    // When product is selected, check if it needs secondary unit
+    if (field === 'productId' && value) {
+      const product = products.find(p => p._id === value);
+      if (product) {
+        const primaryUnit = typeof product.primaryUnit === 'object' 
+          ? product.primaryUnit 
+          : units.find(u => u._id === product.primaryUnit);
+        
+        if (primaryUnit && requiresSecondaryUnit(primaryUnit)) {
+          // Product requires secondary unit - keep secondary quantity field
+          // Auto-calculate secondary quantity if primary quantity exists
+          if (currentItem.quantity && product.conversionFactor) {
+            updatedItems[index].secondaryQuantity = (currentItem.quantity / product.conversionFactor).toFixed(2);
+          }
+        } else {
+          // Clear secondary quantity if not needed
+          updatedItems[index].secondaryQuantity = '';
+        }
+      }
+    }
+
+    // Auto-calculate secondary quantity when primary quantity changes
+    // Secondary is dependent on primary: Secondary = Primary * Conversion Factor
+    if (field === 'quantity' && value) {
+      const product = products.find(p => p._id === currentItem.productId);
+      if (product && product.conversionFactor && product.conversionFactor > 0) {
+        const primaryUnit = typeof product.primaryUnit === 'object' 
+          ? product.primaryUnit 
+          : units.find(u => u._id === product.primaryUnit);
+        
+        if (primaryUnit && requiresSecondaryUnit(primaryUnit)) {
+          // Calculate secondary quantity: primary * conversionFactor
+          const secondaryQty = (parseFloat(value) * product.conversionFactor).toFixed(2);
+          updatedItems[index].secondaryQuantity = parseFloat(secondaryQty);
+        }
+      }
+    }
+
     // Calculate amount only if both quantity and rate are provided
-    if (field === 'quantity' || field === 'rate') {
+    if (field === 'quantity' || field === 'rate' || field === 'secondaryQuantity') {
       const quantity = updatedItems[index].quantity || 0;
       const rate = updatedItems[index].rate || 0;
       updatedItems[index].amount = quantity * rate;
     }
-    
-    // If product is selected, we can auto-populate unit from product's primaryUnit
-    // (This is handled in the submit transformation)
 
     setOrderItems(updatedItems);
   };
@@ -253,7 +323,7 @@ const PurchaseOrderForm = () => {
           throw new Error(`Product ${product.name} (${product.code}) does not have a primary unit assigned`);
         }
         
-        return {
+        const itemData = {
           product: item.productId, // Use productId as product ObjectId
           unit: unitId, // Get unit from product's primaryUnit
           quantity: item.quantity,
@@ -262,6 +332,14 @@ const PurchaseOrderForm = () => {
           gst: 0, // Default GST
           discount: 0, // Default discount
         };
+
+        // Add batch number and expiry date if auto GRN is enabled
+        if (formData.autoGRN) {
+          itemData.batchNumber = item.batchNumber || ''; // Will be auto-generated in backend if empty
+          itemData.expiryDate = item.expiryDate || null;
+        }
+
+        return itemData;
       });
       
       // Following FarmerOrdersTable.js pattern - use NetworkManager
@@ -271,6 +349,7 @@ const PurchaseOrderForm = () => {
         expectedDeliveryDate: formData.expectedDeliveryDate,
         items: transformedItems,
         notes: formData.notes,
+        autoGRN: formData.autoGRN || false, // Include auto GRN flag
       });
 
       if (response?.data) {
@@ -359,6 +438,7 @@ const PurchaseOrderForm = () => {
                 />
               </div>
 
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Contact Number
@@ -445,6 +525,27 @@ const PurchaseOrderForm = () => {
               </div>
             </div>
 
+            {/* Auto GRN Toggle */}
+            <div className="mb-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+              <label className="flex items-center space-x-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={formData.autoGRN}
+                  onChange={(e) => setFormData(prev => ({
+                    ...prev,
+                    autoGRN: e.target.checked
+                  }))}
+                  className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                />
+                <span className="text-sm font-medium text-gray-700">
+                  Auto-create GRN when order is approved
+                </span>
+              </label>
+              <p className="text-xs text-gray-600 mt-1 ml-6">
+                When enabled, a GRN will be automatically created once this purchase order is approved. You can add batch numbers and expiry dates below.
+              </p>
+            </div>
+
             {/* Items Table */}
             {orderItems.length > 0 ? (
               <div className="overflow-x-auto">
@@ -455,11 +556,24 @@ const PurchaseOrderForm = () => {
                         Product <span className="text-red-500">*</span>
                       </th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Quantity <span className="text-red-500">*</span>
+                        Primary Qty <span className="text-red-500">*</span>
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Secondary Qty
                       </th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Rate (Optional)
                       </th>
+                      {formData.autoGRN && (
+                        <>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Batch/Lot No.
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Expiry Date
+                          </th>
+                        </>
+                      )}
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Amount
                       </th>
@@ -495,7 +609,88 @@ const PurchaseOrderForm = () => {
                             onChange={(e) => updateOrderItem(index, 'quantity', parseFloat(e.target.value) || 0)}
                             required
                             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            placeholder="Primary quantity"
                           />
+                          {(() => {
+                            const product = products.find(p => p._id === item.productId);
+                            if (product) {
+                              const primaryUnit = typeof product.primaryUnit === 'object' 
+                                ? product.primaryUnit 
+                                : units.find(u => u._id === product.primaryUnit);
+                              const secondaryUnit = product.secondaryUnit 
+                                ? (typeof product.secondaryUnit === 'object'
+                                  ? product.secondaryUnit
+                                  : units.find(u => u._id === product.secondaryUnit))
+                                : null;
+                              const conversionFactor = product.conversionFactor;
+                              
+                              if (primaryUnit) {
+                                return (
+                                  <div className="mt-1 space-y-1">
+                                    <p className="text-xs text-gray-500">
+                                      {primaryUnit.name} ({primaryUnit.abbreviation})
+                                    </p>
+                                    {secondaryUnit && conversionFactor && conversionFactor !== 1 && (
+                                      <div className="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-50 border border-purple-200 rounded-md">
+                                        <Info className="w-3 h-3 text-purple-600" />
+                                        <span className="text-xs font-medium text-purple-700">
+                                          1 {primaryUnit.abbreviation} = {conversionFactor} {secondaryUnit.abbreviation}
+                                        </span>
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              }
+                            }
+                            return null;
+                          })()}
+                        </td>
+                        <td className="px-4 py-4">
+                          {(() => {
+                            const product = products.find(p => p._id === item.productId);
+                            if (product) {
+                              const primaryUnit = typeof product.primaryUnit === 'object' 
+                                ? product.primaryUnit 
+                                : units.find(u => u._id === product.primaryUnit);
+                              
+                              if (primaryUnit && requiresSecondaryUnit(primaryUnit)) {
+                                const secondaryUnit = typeof product.secondaryUnit === 'object'
+                                  ? product.secondaryUnit
+                                  : units.find(u => u._id === product.secondaryUnit);
+                                
+                                const conversionFactor = product.conversionFactor || 1;
+                                
+                                return (
+                                  <div>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      step="0.01"
+                                      value={item.secondaryQuantity || ''}
+                                      onChange={(e) => updateOrderItem(index, 'secondaryQuantity', parseFloat(e.target.value) || '')}
+                                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                      placeholder="Secondary quantity"
+                                    />
+                                    {secondaryUnit && (
+                                      <div className="mt-1 space-y-0.5">
+                                        <p className="text-xs text-gray-500">
+                                          {secondaryUnit.name} ({secondaryUnit.abbreviation})
+                                        </p>
+                                        {conversionFactor && conversionFactor !== 1 && (
+                                          <div className="inline-flex items-center px-2 py-0.5 bg-blue-50 border border-blue-200 rounded-md">
+                                            <span className="text-xs font-medium text-blue-700">
+                                              1 {primaryUnit?.abbreviation || ''} = {conversionFactor} {secondaryUnit.abbreviation}
+                                            </span>
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              }
+                            }
+                            return <span className="text-xs text-gray-400">N/A</span>;
+                          })()}
                         </td>
                         <td className="px-4 py-4">
                           <input
@@ -508,6 +703,28 @@ const PurchaseOrderForm = () => {
                             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                           />
                         </td>
+                        {formData.autoGRN && (
+                          <>
+                            <td className="px-4 py-4">
+                              <input
+                                type="text"
+                                value={item.batchNumber || ''}
+                                onChange={(e) => updateOrderItem(index, 'batchNumber', e.target.value)}
+                                placeholder="Auto-generated if empty"
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              />
+                              <p className="text-xs text-gray-500 mt-1">Will be auto-generated if left empty</p>
+                            </td>
+                            <td className="px-4 py-4">
+                              <input
+                                type="date"
+                                value={item.expiryDate || ''}
+                                onChange={(e) => updateOrderItem(index, 'expiryDate', e.target.value)}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              />
+                            </td>
+                          </>
+                        )}
                         <td className="px-4 py-4">
                           <div className="text-sm font-medium text-gray-900">
                             {formatCurrency(formatDecimal(item.amount) || 0)}

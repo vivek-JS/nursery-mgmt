@@ -1,0 +1,128 @@
+/* FlowCharts Container - Simple Clean Design */
+.flowcharts-container {
+  width: 100%;
+  min-height: 100vh;
+  background: #f5f7fa;
+  padding: 30px 20px;
+}
+
+.flowcharts-wrapper {
+  max-width: 1600px;
+  margin: 0 auto;
+}
+
+/* Header Styles - Simple */
+.flowcharts-header {
+  margin-bottom: 30px;
+  padding: 20px 0;
+  text-align: center;
+}
+
+.header-content {
+  position: relative;
+}
+
+.header-title {
+  font-size: 2.5rem;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: #2d3748;
+}
+
+.title-gradient {
+  color: #2d3748;
+}
+
+.title-glow {
+  display: none;
+}
+
+.header-subtitle {
+  font-size: 1rem;
+  color: #718096;
+  font-weight: 400;
+}
+
+/* Remove Particles */
+.header-particles {
+  display: none;
+}
+
+/* Tabs Container - Simple */
+.tabs-container {
+  position: relative;
+  background: #ffffff;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  border: 1px solid #e2e8f0;
+}
+
+.tabs-background {
+  display: none;
+}
+
+.tabs-header {
+  position: relative;
+  background: #ffffff;
+  border-bottom: 2px solid #e2e8f0;
+}
+
+.tabs-gradient-overlay {
+  display: none;
+}
+
+.tabs-content-wrapper {
+  background: #ffffff;
+}
+
+/* Tab Content Animation - Simple */
+.tab-content-animated {
+  animation: fadeIn 0.3s ease;
+  padding: 30px;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .header-title {
+    font-size: 2rem;
+  }
+  
+  .header-subtitle {
+    font-size: 0.875rem;
+  }
+  
+  .flowcharts-container {
+    padding: 20px 10px;
+  }
+  
+  .tab-content-animated {
+    padding: 20px;
+  }
+}
+
+/* Scrollbar Styling - Simple */
+.tabs-content-wrapper::-webkit-scrollbar {
+  width: 6px;
+}
+
+.tabs-content-wrapper::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+.tabs-content-wrapper::-webkit-scrollbar-thumb {
+  background: #cbd5e0;
+  border-radius: 3px;
+}
+
+.tabs-content-wrapper::-webkit-scrollbar-thumb:hover {
+  background: #a0aec0;
+}

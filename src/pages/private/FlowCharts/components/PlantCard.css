@@ -1,0 +1,227 @@
+.plant-card {
+  position: relative;
+  animation: fadeIn 0.3s ease both;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.plant-card-main {
+  position: relative;
+  background: #ffffff;
+  border: 2px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 20px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.plant-card-main:hover {
+  border-color: #4299e1;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.plant-card.expanded .plant-card-main {
+  border-color: #4299e1;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+/* Remove Glow Effects */
+.card-glow {
+  display: none;
+}
+
+/* Plant Icon - Simple */
+.plant-icon-wrapper {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+
+.plant-icon {
+  width: 48px;
+  height: 48px;
+  background: #edf2f7;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.plant-icon svg {
+  width: 24px;
+  height: 24px;
+  color: #4299e1;
+}
+
+.plant-card-main:hover .plant-icon {
+  background: #e6fffa;
+}
+
+.plant-card-main:hover .plant-icon svg {
+  color: #38b2ac;
+}
+
+/* Plant Info - Simple */
+.plant-info {
+  text-align: center;
+  margin-bottom: 12px;
+}
+
+.plant-name {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #2d3748;
+  margin-bottom: 8px;
+}
+
+.plant-meta {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.meta-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background: #f7fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  color: #4a5568;
+  transition: all 0.2s ease;
+}
+
+.meta-badge:hover {
+  background: #edf2f7;
+}
+
+.meta-badge.sowing-allowed {
+  background: #f0fff4;
+  border-color: #9ae6b4;
+  color: #22543d;
+}
+
+.badge-icon {
+  font-size: 0.75rem;
+}
+
+/* Subtypes Indicator - Simple */
+.subtypes-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px;
+  background: #f7fafc;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+  transition: all 0.2s ease;
+  margin-top: 12px;
+}
+
+.indicator-dot {
+  width: 6px;
+  height: 6px;
+  background: #4299e1;
+  border-radius: 50%;
+}
+
+.indicator-text {
+  font-size: 0.875rem;
+  color: #4a5568;
+  font-weight: 500;
+}
+
+.expand-icon {
+  width: 18px;
+  height: 18px;
+  color: #4299e1;
+  transition: transform 0.2s ease;
+}
+
+.expand-icon.rotated {
+  transform: rotate(180deg);
+}
+
+.expand-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* Remove Hover Effect */
+.card-hover-effect {
+  display: none;
+}
+
+/* Subtypes Container - Simple */
+.subtypes-container {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 2px solid #e2e8f0;
+  animation: expandDown 0.3s ease;
+}
+
+@keyframes expandDown {
+  from {
+    opacity: 0;
+    max-height: 0;
+  }
+  to {
+    opacity: 1;
+    max-height: 2000px;
+  }
+}
+
+.subtypes-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.subtypes-line {
+  flex: 1;
+  height: 1px;
+  background: #e2e8f0;
+}
+
+.subtypes-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #4a5568;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.subtypes-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 12px;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .plant-card-main {
+    padding: 16px;
+  }
+
+  .plant-name {
+    font-size: 1.1rem;
+  }
+
+  .subtypes-grid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -16,6 +16,8 @@ import WhatsAppIcon from "@mui/icons-material/WhatsApp"
 import LinkIcon from "@mui/icons-material/Link"
 import GrassIcon from "@mui/icons-material/Grass"
 import AssessmentIcon from "@mui/icons-material/Assessment"
+import AccountTreeIcon from "@mui/icons-material/AccountTree"
+import TrendingDownIcon from "@mui/icons-material/TrendingDown"
 
 export const DashboardMenus = [
   new MenuPath("Orders", <HomeIcon />, "/u/dashboard"),
@@ -23,6 +25,8 @@ export const DashboardMenus = [
   new MenuPath("Plants and Products", <AlignHorizontalLeftIcon />, "/u/plants"),
   new MenuPath("Sowing Management", <GrassIcon />, "/u/sowing"),
   new MenuPath("Plant Availability", <AssessmentIcon />, "/u/plant-availability"),
+  new MenuPath("Sowing Gap Analysis", <TrendingDownIcon />, "/u/sowing-gap-analysis"),
+  // new MenuPath("Flow Charts", <AccountTreeIcon />, "/u/flow-charts"),
   new MenuPath("Slots Managment", <BiotechIcon />, "/u/slots"),
   new MenuPath("Hardening", <BiotechIcon />, "/u/hardening"),
   new MenuPath("CMS", <AodIcon />, "/u/cms"),

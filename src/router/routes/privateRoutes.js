@@ -51,7 +51,10 @@ const Payments = React.lazy(() => import("pages/private/payments"))
 const WhatsAppManagement = React.lazy(() => import("pages/private/whatsapp/WhatsAppManagement"))
 const SowingManagement = React.lazy(() => import("pages/private/Sowing/SowingManagement"))
 const PlantAvailability = React.lazy(() => import("pages/private/Sowing/PlantAvailability"))
+const SowingGapAnalysis = React.lazy(() => import("pages/private/Sowing/SowingGapAnalysis"))
+const PrimarySowingEntry = React.lazy(() => import("pages/private/Sowing/PrimarySowingEntry"))
 const PublicFarmerLinks = React.lazy(() => import("pages/private/publicLinks/PublicFarmerLinks"))
+const FlowCharts = React.lazy(() => import("pages/private/FlowCharts"))
 
 export const PrivateRoutes = [
   { path: "/u/dashboard", exact: true, component: Dashboard },
@@ -113,5 +116,8 @@ export const PrivateRoutes = [
   { path: "/u/whatsapp", exact: true, component: WhatsAppManagement },
   { path: "/u/sowing", exact: true, component: SowingManagement },
   { path: "/u/plant-availability", exact: true, component: PlantAvailability },
-  { path: "/u/public-links", exact: true, component: PublicFarmerLinks }
+  { path: "/u/sowing-gap-analysis", exact: true, component: SowingGapAnalysis },
+  { path: "/u/primary-sowing-entry", exact: true, component: PrimarySowingEntry },
+  { path: "/u/public-links", exact: true, component: PublicFarmerLinks },
+  { path: "/u/flow-charts", exact: true, component: FlowCharts }
 ]
