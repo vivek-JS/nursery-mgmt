@@ -31,6 +31,7 @@ import {
   LinearProgress,
   Tabs,
   Tab,
+  Skeleton,
 } from "@mui/material";
 import {
   ExpandMore as ExpandMoreIcon,
@@ -75,16 +76,57 @@ const SowingGapAnalysis = () => {
   const [expandedPlants, setExpandedPlants] = useState(new Set());
   const [expandedSubtypes, setExpandedSubtypes] = useState(new Map());
   const [subtypeReminders, setSubtypeReminders] = useState(new Map());
+  const [subtypeStats, setSubtypeStats] = useState(new Map()); // Store stats for each subtype
   const [slotOrders, setSlotOrders] = useState(new Map());
   const [selectedSlot, setSelectedSlot] = useState(null);
   const [slotOrdersDialogOpen, setSlotOrdersDialogOpen] = useState(false);
   const [loadingReminders, setLoadingReminders] = useState(new Set());
   const [loadingOrders, setLoadingOrders] = useState(new Set());
   const [activeTab, setActiveTab] = useState(0); // 0 = Critical, 1 = Available
+  // Today's sowing cards state
+  const [todayCardsData, setTodayCardsData] = useState(null);
+  const [loadingTodayCards, setLoadingTodayCards] = useState(false);
+  const [todayCardsError, setTodayCardsError] = useState(null);
+  // Plants with sowing buffer - maintain a map of plantId -> sowingBuffer
+  const [plantsSowingBuffer, setPlantsSowingBuffer] = useState(new Map());
+  // Expanded cards state for today's sowing cards
+  const [expandedCards, setExpandedCards] = useState(new Set());
 
   useEffect(() => {
     fetchGapSummary();
+    fetchTodaySowingCards();
   }, []);
+
+  const fetchTodaySowingCards = async () => {
+    setLoadingTodayCards(true);
+    setTodayCardsError(null);
+    try {
+      const instance = NetworkManager(API.sowing.GET_TODAY_SOWING_CARDS);
+      const params = { _t: Date.now() };
+      
+      const response = await instance.request({}, params);
+      if (response?.data?.success) {
+        setTodayCardsData(response.data);
+        // Extract and store sowing buffer for each plant
+        const bufferMap = new Map();
+        if (response.data.subtypeCards) {
+          response.data.subtypeCards.forEach((card) => {
+            if (card.sowingBuffer !== undefined && card.sowingBuffer !== null) {
+              bufferMap.set(card.plantId.toString(), card.sowingBuffer);
+            }
+          });
+        }
+        setPlantsSowingBuffer(bufferMap);
+      } else {
+        setTodayCardsError("Failed to fetch today&apos;s sowing cards");
+      }
+    } catch (err) {
+      console.error("Error fetching today's sowing cards:", err);
+      setTodayCardsError("Error loading today&apos;s sowing cards. Please try again.");
+    } finally {
+      setLoadingTodayCards(false);
+    }
+  };
 
   const fetchGapSummary = async (isAvailableTab = false) => {
     setLoading(true);
@@ -171,6 +213,7 @@ const SowingGapAnalysis = () => {
     setActiveTab(newValue);
     // Clear all reminders when switching tabs so they're refetched with new filters
     setSubtypeReminders(new Map());
+    setSubtypeStats(new Map()); // Clear stats too
     // Also collapse all subtypes
     setExpandedSubtypes(new Map());
     // Refetch gap summary with appropriate parameter
@@ -218,16 +261,11 @@ const SowingGapAnalysis = () => {
       
       if (response?.data?.success) {
         let reminders = response.data.reminders || [];
+        const stats = response.data.summary?.currentSowingNeeded || null;
         
-        if (!isAvailableTab) {
-          // Critical tab: filter to show only overdue and urgent
-          reminders = reminders.filter(
-            (r) => r.priority === "overdue" || r.priority === "urgent"
-          );
-        } else {
-          // Available tab: show all (negative gaps - already filtered by API)
-          // The API excludes future by default, but for available we show negative gaps
-        }
+        // Show all reminders including future when gapFilter is set
+        // The API now includes future entries when gapFilter is provided
+        // No need to filter - show all entries returned by API
         
         // Use functional state update to ensure we have latest state
         setSubtypeReminders((prev) => {
@@ -235,13 +273,29 @@ const SowingGapAnalysis = () => {
           newMap.set(key, reminders);
           return newMap;
         });
-        console.log(`[${isAvailableTab ? 'AVAILABLE' : 'CRITICAL'}] Set ${reminders.length} reminders for ${key}`);
+        
+        // Store stats for this subtype (excluding future entries)
+        if (stats) {
+          setSubtypeStats((prev) => {
+            const newMap = new Map(prev);
+            newMap.set(key, stats);
+            return newMap;
+          });
+        }
+        
+        console.log(`[${isAvailableTab ? 'AVAILABLE' : 'CRITICAL'}] Set ${reminders.length} reminders for ${key} (including future)`);
       } else {
         console.error(`[${isAvailableTab ? 'AVAILABLE' : 'CRITICAL'}] API returned unsuccessful response for ${key}:`, response?.data);
         // Set empty array so UI knows the fetch completed
         setSubtypeReminders((prev) => {
           const newMap = new Map(prev);
           newMap.set(key, []);
+          return newMap;
+        });
+        // Clear stats on error
+        setSubtypeStats((prev) => {
+          const newMap = new Map(prev);
+          newMap.delete(key);
           return newMap;
         });
       }
@@ -251,6 +305,12 @@ const SowingGapAnalysis = () => {
       setSubtypeReminders((prev) => {
         const newMap = new Map(prev);
         newMap.set(key, []);
+        return newMap;
+      });
+      // Clear stats on error
+      setSubtypeStats((prev) => {
+        const newMap = new Map(prev);
+        newMap.delete(key);
         return newMap;
       });
     } finally {
@@ -307,6 +367,8 @@ const SowingGapAnalysis = () => {
         return "warning";
       case "upcoming":
         return "info";
+      case "future":
+        return "default";
       default:
         return "default";
     }
@@ -479,13 +541,92 @@ const SowingGapAnalysis = () => {
       ]
     : [];
 
-  if (loading) {
-    return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
-        <CircularProgress size={60} />
-      </Box>
-    );
-  }
+  // Skeleton loader component for today's cards
+  const TodayCardsSkeleton = () => (
+    <>
+      <Grid container spacing={2} sx={{ mb: 3 }}>
+        {[1, 2, 3, 4].map((i) => (
+          <Grid item xs={12} sm={6} md={3} key={i}>
+            <Card>
+              <CardContent>
+                <Skeleton variant="text" width="60%" height={20} />
+                <Skeleton variant="text" width="80%" height={40} sx={{ mt: 1 }} />
+                <Skeleton variant="text" width="40%" height={16} sx={{ mt: 0.5 }} />
+              </CardContent>
+            </Card>
+          </Grid>
+        ))}
+      </Grid>
+      <Grid container spacing={2}>
+        {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+          <Grid item xs={12} sm={6} md={4} lg={3} key={i}>
+            <Card>
+              <CardContent>
+                <Box display="flex" justifyContent="space-between" mb={1}>
+                  <Box flex={1}>
+                    <Skeleton variant="text" width="60%" height={14} />
+                    <Skeleton variant="text" width="80%" height={24} sx={{ mt: 0.5 }} />
+                  </Box>
+                  <Skeleton variant="rectangular" width={40} height={24} sx={{ borderRadius: 1 }} />
+                </Box>
+                <Skeleton variant="rectangular" height={1} sx={{ my: 1.5 }} />
+                <Skeleton variant="text" width="100%" height={20} />
+                <Skeleton variant="text" width="100%" height={20} sx={{ mt: 0.5 }} />
+                <Skeleton variant="text" width="100%" height={20} sx={{ mt: 0.5 }} />
+                <Skeleton variant="rectangular" height={1} sx={{ my: 1 }} />
+                <Skeleton variant="text" width="100%" height={16} />
+                <Skeleton variant="text" width="100%" height={16} sx={{ mt: 0.5 }} />
+                <Skeleton variant="rectangular" width="100%" height={6} sx={{ mt: 1.5, borderRadius: 3 }} />
+              </CardContent>
+            </Card>
+          </Grid>
+        ))}
+      </Grid>
+    </>
+  );
+
+  // Skeleton loader component for main gap analysis
+  const GapAnalysisSkeleton = () => (
+    <>
+      <Grid container spacing={3} sx={{ mb: 4 }}>
+        {[1, 2, 3].map((i) => (
+          <Grid item xs={12} sm={6} md={4} key={i}>
+            <Card>
+              <CardContent>
+                <Box display="flex" justifyContent="space-between" alignItems="center">
+                  <Box flex={1}>
+                    <Skeleton variant="text" width="60%" height={16} />
+                    <Skeleton variant="text" width="80%" height={36} sx={{ mt: 1 }} />
+                  </Box>
+                  <Skeleton variant="circular" width={48} height={48} />
+                </Box>
+              </CardContent>
+            </Card>
+          </Grid>
+        ))}
+      </Grid>
+      {[1, 2, 3].map((i) => (
+        <Card key={i} sx={{ mb: 2 }}>
+          <CardContent>
+            <Box display="flex" justifyContent="space-between" alignItems="center">
+              <Box display="flex" alignItems="center" gap={2} flex={1}>
+                <Skeleton variant="circular" width={40} height={40} />
+                <Box flex={1}>
+                  <Skeleton variant="text" width="40%" height={28} />
+                  <Box display="flex" alignItems="center" gap={2} mt={0.5}>
+                    <Skeleton variant="text" width="30%" height={16} />
+                    <Skeleton variant="rectangular" width={100} height={6} sx={{ borderRadius: 3 }} />
+                    <Skeleton variant="text" width="20%" height={16} />
+                  </Box>
+                </Box>
+              </Box>
+              <Skeleton variant="rectangular" width={120} height={32} sx={{ borderRadius: 1 }} />
+            </Box>
+          </CardContent>
+        </Card>
+      ))}
+    </>
+  );
 
   if (error) {
     return (
@@ -521,17 +662,284 @@ const SowingGapAnalysis = () => {
             Sowing Gap Analysis
           </Typography>
         </Box>
-        <IconButton
-          onClick={fetchGapSummary}
-          color="primary"
-          sx={{
-            bgcolor: "#e3f2fd",
-            "&:hover": { bgcolor: "#bbdefb" },
-            transition: "all 0.3s",
-          }}>
-          <RefreshIcon />
-        </IconButton>
+        <Box display="flex" gap={1}>
+          <IconButton
+            onClick={fetchTodaySowingCards}
+            color="primary"
+            sx={{
+              bgcolor: "#e3f2fd",
+              "&:hover": { bgcolor: "#bbdefb" },
+              transition: "all 0.3s",
+            }}>
+            <RefreshIcon />
+          </IconButton>
+          <IconButton
+            onClick={fetchGapSummary}
+            color="primary"
+            sx={{
+              bgcolor: "#e3f2fd",
+              "&:hover": { bgcolor: "#bbdefb" },
+              transition: "all 0.3s",
+            }}>
+            <RefreshIcon />
+          </IconButton>
+        </Box>
       </Box>
+
+      {/* Today's Sowing Cards Section */}
+      <Card sx={{ mb: 3, boxShadow: 3 }}>
+        <CardContent>
+          <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+            <Box display="flex" alignItems="center" gap={1}>
+              <CalendarToday color="primary" />
+              <Typography variant="h5" sx={{ fontWeight: 700, color: "#1976d2" }}>
+                Today&apos;s Sowing (Due & Current Day)
+              </Typography>
+            </Box>
+            {todayCardsData?.summary && (
+              <Chip
+                label={`${todayCardsData.summary.totalSubtypes} Subtypes • ${formatNumber(todayCardsData.summary.totalGap)} Plants Needed`}
+                color="primary"
+                sx={{ fontWeight: 600 }}
+              />
+            )}
+          </Box>
+
+          {loadingTodayCards ? (
+            <TodayCardsSkeleton />
+          ) : todayCardsError ? (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {todayCardsError}
+            </Alert>
+          ) : todayCardsData?.subtypeCards && todayCardsData.subtypeCards.length > 0 ? (
+            <>
+              {/* Summary Cards */}
+              <Grid container spacing={2} sx={{ mb: 3 }}>
+                <Grid item xs={12} sm={6} md={3}>
+                  <Card sx={{ bgcolor: "#ffebee", border: "2px solid #d32f2f" }}>
+                    <CardContent>
+                      <Typography variant="caption" color="text.secondary">
+                        Due (Overdue)
+                      </Typography>
+                      <Typography variant="h5" color="error" sx={{ fontWeight: 700 }}>
+                        {formatNumber(todayCardsData.summary.totalDueGap || 0)}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {todayCardsData.summary.dueSlots || 0} slots
+                      </Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+                <Grid item xs={12} sm={6} md={3}>
+                  <Card sx={{ bgcolor: "#fff3e0", border: "2px solid #f57c00" }}>
+                    <CardContent>
+                      <Typography variant="caption" color="text.secondary">
+                        Today
+                      </Typography>
+                      <Typography variant="h5" color="warning.main" sx={{ fontWeight: 700 }}>
+                        {formatNumber(todayCardsData.summary.totalTodayGap || 0)}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {todayCardsData.summary.todaySlots || 0} slots
+                      </Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+                <Grid item xs={12} sm={6} md={3}>
+                  <Card sx={{ bgcolor: "#f5f5f5", border: "2px solid #616161" }}>
+                    <CardContent>
+                      <Typography variant="caption" color="text.secondary">
+                        Total Needed
+                      </Typography>
+                      <Typography variant="h5" sx={{ fontWeight: 700, color: "#616161" }}>
+                        {formatNumber(todayCardsData.summary.totalGap || 0)}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {todayCardsData.summary.totalSlots || 0} slots
+                      </Typography>
+                      {(() => {
+                        // Calculate total raw sowing and buffer
+                        const totalRawSowing = todayCardsData.subtypeCards?.reduce((sum, card) => {
+                          const rawGap = card.slots?.[0]?.bookingGapRaw || card.totalGap || 0;
+                          return sum + rawGap;
+                        }, 0) || 0;
+                        const totalBuffer = todayCardsData.summary.totalGap - totalRawSowing;
+                        const hasBuffer = totalBuffer > 0;
+                        
+                        return hasBuffer ? (
+                          <Box mt={1} p={0.75} sx={{ bgcolor: "#fff3e0", borderRadius: 1, border: "1px solid #f57c00" }}>
+                            <Box display="flex" justifyContent="space-between" alignItems="center" mb={0.25}>
+                              <Typography variant="caption" sx={{ fontSize: "0.65rem", color: "#616161" }}>
+                                Sowing:
+                              </Typography>
+                              <Typography variant="caption" sx={{ fontSize: "0.65rem", fontWeight: 600, color: "#616161" }}>
+                                {formatNumber(totalRawSowing)}
+                              </Typography>
+                            </Box>
+                            <Box display="flex" justifyContent="space-between" alignItems="center" mb={0.25}>
+                              <Typography variant="caption" sx={{ fontSize: "0.65rem", color: "#f57c00" }}>
+                                Buffer:
+                              </Typography>
+                              <Typography variant="caption" sx={{ fontSize: "0.65rem", fontWeight: 600, color: "#f57c00" }}>
+                                {formatNumber(totalBuffer)}
+                              </Typography>
+                            </Box>
+                            <Divider sx={{ my: 0.25 }} />
+                            <Box display="flex" justifyContent="space-between" alignItems="center">
+                              <Typography variant="caption" sx={{ fontSize: "0.7rem", fontWeight: 700, color: "#616161" }}>
+                                Total:
+                              </Typography>
+                              <Typography variant="caption" sx={{ fontSize: "0.7rem", fontWeight: 700, color: "#616161" }}>
+                                {formatNumber(todayCardsData.summary.totalGap || 0)}
+                              </Typography>
+                            </Box>
+                          </Box>
+                        ) : null;
+                      })()}
+                    </CardContent>
+                  </Card>
+                </Grid>
+                <Grid item xs={12} sm={6} md={3}>
+                  <Card sx={{ bgcolor: "#e3f2fd", border: "2px solid #1976d2" }}>
+                    <CardContent>
+                      <Typography variant="caption" color="text.secondary">
+                        Total Subtypes
+                      </Typography>
+                      <Typography variant="h5" color="primary" sx={{ fontWeight: 700 }}>
+                        {todayCardsData.summary.totalSubtypes || 0}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {todayCardsData.summary.totalPlants || 0} plants
+                      </Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+              </Grid>
+
+              {/* Subtype Cards Grid */}
+              <Grid container spacing={1.5}>
+                {todayCardsData.subtypeCards.map((card, index) => (
+                  <Grid item xs={6} sm={4} md={3} lg={2} xl={2} key={`${card.plantId}-${card.subtypeId}`}>
+                    <Fade in timeout={300 + index * 50}>
+                      <Card
+                        sx={{
+                          height: "100%",
+                          border: `2px solid ${card.totalGap > 0 ? "#d32f2f" : "#e0e0e0"}`,
+                          transition: "all 0.3s ease",
+                          "&:hover": {
+                            boxShadow: 6,
+                            transform: "translateY(-4px)",
+                          },
+                        }}>
+                        <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
+                          <Box display="flex" justifyContent="space-between" alignItems="start" mb={0.75}>
+                            <Box flex={1} sx={{ minWidth: 0 }}>
+                              <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.65rem", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                {card.plantName}
+                              </Typography>
+                              <Typography 
+                                variant="body2" 
+                                sx={{ 
+                                  fontWeight: 700, 
+                                  color: "#1976d2",
+                                  bgcolor: "#e3f2fd",
+                                  px: 0.75,
+                                  py: 0.25,
+                                  borderRadius: 0.5,
+                                  display: "inline-block",
+                                  mt: 0.25,
+                                  fontSize: "0.75rem",
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  whiteSpace: "nowrap",
+                                  maxWidth: "100%"
+                                }}
+                              >
+                                {card.subtypeName}
+                              </Typography>
+                            </Box>
+                            <Chip
+                              label={card.totalSlots}
+                              size="small"
+                              color={card.totalGap > 0 ? "error" : "default"}
+                              sx={{ fontSize: "0.65rem", height: "18px", ml: 0.5 }}
+                            />
+                          </Box>
+
+                          <Box 
+                            display="flex" 
+                            justifyContent="space-between" 
+                            alignItems="center" 
+                            mb={0.75}
+                            p={1}
+                            sx={{ 
+                              bgcolor: "#e8f5e9", 
+                              borderRadius: 0.75, 
+                              border: "1.5px solid #2e7d32" 
+                            }}
+                          >
+                            <Typography variant="caption" sx={{ fontWeight: 700, color: "#2e7d32", fontSize: "0.7rem" }}>
+                              Total
+                            </Typography>
+                            <Typography variant="body1" sx={{ fontWeight: 700, color: "#2e7d32", fontSize: "0.95rem" }}>
+                              {formatNumber(card.totalGap || 0)}
+                            </Typography>
+                          </Box>
+                          {card.conversionFactor && (card.primaryUnit || card.secondaryUnit) && (
+                            <Box 
+                              display="flex" 
+                              justifyContent="space-between" 
+                              alignItems="center"
+                              p={1}
+                              mb={0.75}
+                              sx={{ 
+                                bgcolor: "#fff3e0", 
+                                borderRadius: 0.75, 
+                                border: "1.5px solid #f57c00" 
+                              }}
+                            >
+                              <Typography variant="caption" sx={{ fontWeight: 700, color: "#f57c00", fontSize: "0.7rem" }}>
+                                Packets
+                              </Typography>
+                              <Typography variant="body1" sx={{ fontWeight: 700, color: "#f57c00", fontSize: "0.95rem" }}>
+                                {formatNumber(Math.ceil((card.totalGap || 0) / card.conversionFactor))} {card.primaryUnit?.symbol || card.primaryUnit?.name || card.secondaryUnit?.symbol || card.secondaryUnit?.name || "pkt"}
+                              </Typography>
+                            </Box>
+                          )}
+                          {card.availablePackets !== undefined && (
+                            <Box 
+                              display="flex" 
+                              justifyContent="space-between" 
+                              alignItems="center"
+                              p={1}
+                              sx={{ 
+                                bgcolor: card.availablePackets > 0 ? "#e8f5e9" : "#ffebee", 
+                                borderRadius: 0.75, 
+                                border: `1.5px solid ${card.availablePackets > 0 ? "#2e7d32" : "#d32f2f"}` 
+                              }}
+                            >
+                              <Typography variant="caption" sx={{ fontWeight: 700, color: card.availablePackets > 0 ? "#2e7d32" : "#d32f2f", fontSize: "0.7rem" }}>
+                                Available
+                              </Typography>
+                              <Typography variant="body1" sx={{ fontWeight: 700, color: card.availablePackets > 0 ? "#2e7d32" : "#d32f2f", fontSize: "0.95rem" }}>
+                                {formatNumber(card.availablePackets || 0)} {card.primaryUnit?.symbol || card.primaryUnit?.name || card.secondaryUnit?.symbol || card.secondaryUnit?.name || "pkt"}
+                              </Typography>
+                            </Box>
+                          )}
+                        </CardContent>
+                      </Card>
+                    </Fade>
+                  </Grid>
+                ))}
+              </Grid>
+            </>
+          ) : (
+            <Alert severity="info">
+              No sowing data for today. All slots are up to date or in the future.
+            </Alert>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Tabs for Critical and Available */}
       <Card sx={{ mb: 3, boxShadow: 2 }}>
@@ -581,61 +989,100 @@ const SowingGapAnalysis = () => {
       </Card>
 
       {/* Stats Cards */}
-      <Grid container spacing={3} sx={{ mb: 4 }}>
-        {statCards.map((card, index) => (
-          <Grid item xs={12} sm={6} md={4} key={index}>
-            <Fade in timeout={300 + index * 100}>
-              <Tooltip title={card.tooltip} arrow>
-                <Card
-                  sx={{
-                    bgcolor: card.bgcolor,
-                    border: `2px solid ${card.color}40`,
-                    transition: "all 0.3s ease",
-                    cursor: "pointer",
-                    "&:hover": {
-                      transform: "translateY(-4px)",
-                      boxShadow: 6,
-                      borderColor: card.color,
-                    },
-                  }}>
-                  <CardContent>
-                    <Box display="flex" alignItems="center" justifyContent="space-between">
-                      <Box>
-                        <Typography
-                          variant="caption"
-                          color="text.secondary"
-                          sx={{ textTransform: "uppercase", letterSpacing: 1 }}>
-                          {card.label}
-                        </Typography>
-                        <Typography
-                          variant="h4"
-                          sx={{
-                            fontWeight: 700,
-                            color: card.color,
-                            mt: 1,
-                          }}>
-                          {card.value}
-                        </Typography>
-                      </Box>
-                      <Box
-                        sx={{
-                          color: card.color,
-                          fontSize: "3rem",
-                          opacity: 0.8,
-                        }}>
-                        {card.icon}
-                      </Box>
+      {loading ? (
+        <Grid container spacing={3} sx={{ mb: 4 }}>
+          {[1, 2, 3].map((i) => (
+            <Grid item xs={12} sm={6} md={4} key={i}>
+              <Card>
+                <CardContent>
+                  <Box display="flex" justifyContent="space-between" alignItems="center">
+                    <Box flex={1}>
+                      <Skeleton variant="text" width="60%" height={16} />
+                      <Skeleton variant="text" width="80%" height={36} sx={{ mt: 1 }} />
                     </Box>
-                  </CardContent>
-                </Card>
-              </Tooltip>
-            </Fade>
-          </Grid>
-        ))}
-      </Grid>
+                    <Skeleton variant="circular" width={48} height={48} />
+                  </Box>
+                </CardContent>
+              </Card>
+            </Grid>
+          ))}
+        </Grid>
+      ) : (
+        <Grid container spacing={3} sx={{ mb: 4 }}>
+          {statCards.map((card, index) => (
+            <Grid item xs={12} sm={6} md={4} key={index}>
+              <Fade in timeout={300 + index * 100}>
+                <Tooltip title={card.tooltip} arrow>
+                  <Card
+                    sx={{
+                      bgcolor: card.bgcolor,
+                      border: `2px solid ${card.color}40`,
+                      transition: "all 0.3s ease",
+                      cursor: "pointer",
+                      "&:hover": {
+                        transform: "translateY(-4px)",
+                        boxShadow: 6,
+                        borderColor: card.color,
+                      },
+                    }}>
+                    <CardContent>
+                      <Box display="flex" alignItems="center" justifyContent="space-between">
+                        <Box>
+                          <Typography
+                            variant="caption"
+                            color="text.secondary"
+                            sx={{ textTransform: "uppercase", letterSpacing: 1 }}>
+                            {card.label}
+                          </Typography>
+                          <Typography
+                            variant="h4"
+                            sx={{
+                              fontWeight: 700,
+                              color: card.color,
+                              mt: 1,
+                            }}>
+                            {card.value}
+                          </Typography>
+                        </Box>
+                        <Box
+                          sx={{
+                            color: card.color,
+                            fontSize: "3rem",
+                            opacity: 0.8,
+                          }}>
+                          {card.icon}
+                        </Box>
+                      </Box>
+                    </CardContent>
+                  </Card>
+                </Tooltip>
+              </Fade>
+            </Grid>
+          ))}
+        </Grid>
+      )}
 
       {/* Analytics Charts - All based on Subtypes */}
-      {analyticsData && (
+      {loading ? (
+        <Grid container spacing={3} sx={{ mb: 4 }}>
+          <Grid item xs={12} md={8}>
+            <Card>
+              <CardContent>
+                <Skeleton variant="text" width="40%" height={28} sx={{ mb: 2 }} />
+                <Skeleton variant="rectangular" width="100%" height={400} sx={{ borderRadius: 2 }} />
+              </CardContent>
+            </Card>
+          </Grid>
+          <Grid item xs={12} md={4}>
+            <Card>
+              <CardContent>
+                <Skeleton variant="text" width="40%" height={28} sx={{ mb: 2 }} />
+                <Skeleton variant="rectangular" width="100%" height={400} sx={{ borderRadius: 2 }} />
+              </CardContent>
+            </Card>
+          </Grid>
+        </Grid>
+      ) : analyticsData && (
         <Grid container spacing={3} sx={{ mb: 4 }}>
           {/* Top Subtypes by Gap - Horizontal Bar Chart */}
           {analyticsData.topSubtypesData.length > 0 && (
@@ -981,7 +1428,31 @@ const SowingGapAnalysis = () => {
       )}
 
       {/* Plants List with Enhanced Analytics */}
-      {data.plants
+      {loading ? (
+        <>
+          {[1, 2, 3].map((i) => (
+            <Card key={i} sx={{ mb: 2 }}>
+              <CardContent>
+                <Box display="flex" justifyContent="space-between" alignItems="center">
+                  <Box display="flex" alignItems="center" gap={2} flex={1}>
+                    <Skeleton variant="circular" width={40} height={40} />
+                    <Box flex={1}>
+                      <Skeleton variant="text" width="40%" height={28} />
+                      <Box display="flex" alignItems="center" gap={2} mt={0.5}>
+                        <Skeleton variant="text" width="30%" height={16} />
+                        <Skeleton variant="rectangular" width={100} height={6} sx={{ borderRadius: 3 }} />
+                        <Skeleton variant="text" width="20%" height={16} />
+                      </Box>
+                    </Box>
+                  </Box>
+                  <Skeleton variant="rectangular" width={120} height={32} sx={{ borderRadius: 1 }} />
+                </Box>
+              </CardContent>
+            </Card>
+          ))}
+        </>
+      ) : data.plants ? (
+        data.plants
         .filter((plant) => {
           // Filter plants based on active tab
           if (activeTab === 0) {
@@ -1092,6 +1563,7 @@ const SowingGapAnalysis = () => {
                         const isSubtypeExpanded =
                           expandedSubtypes.get(plant._id)?.has(subtype._id) || false;
                         const reminders = subtypeReminders.get(subtypeKey) || [];
+                        const stats = subtypeStats.get(subtypeKey) || null;
                         const isLoadingReminders = loadingReminders.has(subtypeKey);
                         const gapPercentage = activeTab === 1
                           ? (subtype.totalPrimarySowed > 0
@@ -1223,6 +1695,99 @@ const SowingGapAnalysis = () => {
                                       </Box>
                                     ) : reminders.length > 0 ? (
                                       <>
+                                        {/* Sowing Needed Stats Cards (Excluding Future) */}
+                                        {!isAvailableTab && stats && (
+                                          <Box mb={3}>
+                                            <Box display="flex" justifyContent="space-between" alignItems="center" mb={1.5}>
+                                              <Typography variant="subtitle2" sx={{ fontWeight: 600, color: "#1976d2" }}>
+                                                📊 Sowing Needed (Current & Past - Excluding Future)
+                                              </Typography>
+                                              {plantsSowingBuffer.has(plant._id.toString()) && (
+                                                <Chip
+                                                  label={`Buffer: ${plantsSowingBuffer.get(plant._id.toString()) || 0}%`}
+                                                  size="small"
+                                                  color={plantsSowingBuffer.get(plant._id.toString()) > 0 ? "warning" : "default"}
+                                                  sx={{ fontSize: "0.7rem" }}
+                                                />
+                                              )}
+                                            </Box>
+                                            <Grid container spacing={2}>
+                                              <Grid item xs={12} sm={6} md={3}>
+                                                <Card sx={{ bgcolor: "#ffebee", border: "2px solid #d32f2f" }}>
+                                                  <CardContent>
+                                                    <Box display="flex" alignItems="center" gap={1} mb={1}>
+                                                      <Warning color="error" fontSize="small" />
+                                                      <Typography variant="caption" color="text.secondary">
+                                                        Overdue
+                                                      </Typography>
+                                                    </Box>
+                                                    <Typography variant="h5" color="error" sx={{ fontWeight: 700 }}>
+                                                      {formatNumber(stats.overdueGap || 0)}
+                                                    </Typography>
+                                                    <Typography variant="caption" color="text.secondary">
+                                                      {stats.overdueCount || 0} slots
+                                                    </Typography>
+                                                  </CardContent>
+                                                </Card>
+                                              </Grid>
+                                              <Grid item xs={12} sm={6} md={3}>
+                                                <Card sx={{ bgcolor: "#fff3e0", border: "2px solid #f57c00" }}>
+                                                  <CardContent>
+                                                    <Box display="flex" alignItems="center" gap={1} mb={1}>
+                                                      <Warning color="warning" fontSize="small" />
+                                                      <Typography variant="caption" color="text.secondary">
+                                                        Urgent (≤2 days)
+                                                      </Typography>
+                                                    </Box>
+                                                    <Typography variant="h5" color="warning.main" sx={{ fontWeight: 700 }}>
+                                                      {formatNumber(stats.urgentGap || 0)}
+                                                    </Typography>
+                                                    <Typography variant="caption" color="text.secondary">
+                                                      {stats.urgentCount || 0} slots
+                                                    </Typography>
+                                                  </CardContent>
+                                                </Card>
+                                              </Grid>
+                                              <Grid item xs={12} sm={6} md={3}>
+                                                <Card sx={{ bgcolor: "#e3f2fd", border: "2px solid #1976d2" }}>
+                                                  <CardContent>
+                                                    <Box display="flex" alignItems="center" gap={1} mb={1}>
+                                                      <Schedule color="info" fontSize="small" />
+                                                      <Typography variant="caption" color="text.secondary">
+                                                        Upcoming (≤5 days)
+                                                      </Typography>
+                                                    </Box>
+                                                    <Typography variant="h5" color="info.main" sx={{ fontWeight: 700 }}>
+                                                      {formatNumber(stats.upcomingGap || 0)}
+                                                    </Typography>
+                                                    <Typography variant="caption" color="text.secondary">
+                                                      {stats.upcomingCount || 0} slots
+                                                    </Typography>
+                                                  </CardContent>
+                                                </Card>
+                                              </Grid>
+                                              <Grid item xs={12} sm={6} md={3}>
+                                                <Card sx={{ bgcolor: "#f5f5f5", border: "2px solid #616161" }}>
+                                                  <CardContent>
+                                                    <Box display="flex" alignItems="center" gap={1} mb={1}>
+                                                      <TrendingDown color="action" fontSize="small" />
+                                                      <Typography variant="caption" color="text.secondary">
+                                                        Total Needed
+                                                      </Typography>
+                                                    </Box>
+                                                    <Typography variant="h5" sx={{ fontWeight: 700, color: "#616161" }}>
+                                                      {formatNumber(stats.totalBookingGap || 0)}
+                                                    </Typography>
+                                                    <Typography variant="caption" color="text.secondary">
+                                                      {stats.totalSlots || 0} slots (excl. future)
+                                                    </Typography>
+                                                  </CardContent>
+                                                </Card>
+                                              </Grid>
+                                            </Grid>
+                                          </Box>
+                                        )}
+
                                         {/* Summary Stats for Reminders */}
                                         <Box mb={2} p={2} bgcolor="#f5f5f5" borderRadius={2}>
                                           <Grid container spacing={2}>
@@ -1344,12 +1909,17 @@ const SowingGapAnalysis = () => {
                                                       bgcolor:
                                                         reminder.priority === "overdue"
                                                           ? "#ffebee"
+                                                          : reminder.priority === "future"
+                                                          ? "#fafafa"
                                                           : "transparent",
+                                                      opacity: reminder.priority === "future" ? 0.8 : 1,
                                                       transition: "all 0.2s",
                                                       "&:hover": {
                                                         bgcolor:
                                                           reminder.priority === "overdue"
                                                             ? "#ffcdd2"
+                                                            : reminder.priority === "future"
+                                                            ? "#f0f0f0"
                                                             : "#f5f5f5",
                                                       },
                                                     }}>
@@ -1383,22 +1953,29 @@ const SowingGapAnalysis = () => {
                                                       )}
                                                     </TableCell>
                                                     <TableCell align="right">
-                                                      <Chip
-                                                        label={
-                                                          isAvailableTab
-                                                            ? `${formatNumber(availableAmount)} (${gapPercentage}%)`
-                                                            : `${formatNumber(reminder.bookingGap)} (${gapPercentage}%)`
-                                                        }
-                                                        color={
-                                                          isAvailableTab
-                                                            ? "primary"
-                                                            : reminder.bookingGap > 0
-                                                            ? "error"
-                                                            : "success"
-                                                        }
-                                                        size="small"
-                                                        sx={{ fontWeight: 600 }}
-                                                      />
+                                                      <Box>
+                                                        <Chip
+                                                          label={
+                                                            isAvailableTab
+                                                              ? `${formatNumber(availableAmount)} (${gapPercentage}%)`
+                                                              : `${formatNumber(reminder.bookingGap)} (${gapPercentage}%)`
+                                                          }
+                                                          color={
+                                                            isAvailableTab
+                                                              ? "primary"
+                                                              : reminder.bookingGap > 0
+                                                              ? "error"
+                                                              : "success"
+                                                          }
+                                                          size="small"
+                                                          sx={{ fontWeight: 600 }}
+                                                        />
+                                                        {!isAvailableTab && reminder.bookingGapRaw !== undefined && reminder.bookingGapRaw !== reminder.bookingGap && (
+                                                          <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.65rem", display: "block", mt: 0.5 }}>
+                                                            Raw: {formatNumber(reminder.bookingGapRaw)} + Buffer
+                                                          </Typography>
+                                                        )}
+                                                      </Box>
                                                       {(isAvailableTab ? reminder.primarySowed > 0 : reminder.totalBookedPlants > 0) && (
                                                         <Box sx={{ width: "100%", mt: 0.5 }}>
                                                           <LinearProgress
@@ -1485,7 +2062,8 @@ const SowingGapAnalysis = () => {
             </Card>
           </Zoom>
         );
-      })}
+      })
+      ) : null}
 
       {/* Slot Orders Dialog */}
       <Dialog

@@ -143,6 +143,7 @@ const Slots = () => {
         slotSize: values.slotSize,
         dailyDispatchCapacity: values.dailyDispatchCapacity,
         buffer: values.buffer,
+        sowingBuffer: values.sowingBuffer || 0,
         sowingAllowed: values.sowingAllowed || false,
         subtypes: values.subtypes
       }
@@ -313,9 +314,15 @@ const Slots = () => {
                           </div>
                         </div>
                         
-                        <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl p-4">
-                          <div className="text-sm font-medium text-purple-600 mb-1">Buffer</div>
-                          <div className="text-lg font-bold text-purple-900">{plant.buffer || 0}%</div>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl p-4">
+                            <div className="text-sm font-medium text-purple-600 mb-1">Buffer</div>
+                            <div className="text-lg font-bold text-purple-900">{plant.buffer || 0}%</div>
+                          </div>
+                          <div className="bg-gradient-to-br from-orange-50 to-orange-100 rounded-xl p-4">
+                            <div className="text-sm font-medium text-orange-600 mb-1">Sowing Buffer</div>
+                            <div className="text-lg font-bold text-orange-900">{plant.sowingBuffer || 0}%</div>
+                          </div>
                         </div>
 
                         <div className="rounded-xl border-2 border-gray-100 overflow-hidden">
@@ -381,6 +388,7 @@ const Slots = () => {
                     slotSize: editPlant?.slotSize || "",
                     dailyDispatchCapacity: editPlant?.dailyDispatchCapacity || 2000,
                     buffer: editPlant?.buffer || 0,
+                    sowingBuffer: editPlant?.sowingBuffer || 0,
                     sowingAllowed: editPlant?.sowingAllowed || false,
                     subtypes: editPlant?.subtypes?.map((subtype) => ({
                       ...subtype,
@@ -486,6 +494,31 @@ const Slots = () => {
                             </p>
                           </div>
                         </div>
+
+                        {values.sowingAllowed && (
+                          <div className="space-y-3">
+                            <Label htmlFor="sowingBuffer" className="text-base">Sowing Buffer (%)</Label>
+                            <Input
+                              id="sowingBuffer"
+                              name="sowingBuffer"
+                              type="number"
+                              min="0"
+                              max="100"
+                              step="0.1"
+                              onChange={handleChange}
+                              onBlur={handleBlur}
+                              value={values.sowingBuffer}
+                              error={errors.sowingBuffer}
+                              touched={touched.sowingBuffer}
+                              placeholder="Enter sowing buffer percentage"
+                            />
+                            <div className="bg-orange-50 rounded-xl p-3">
+                              <p className="text-sm text-orange-700 font-medium">
+                                🌱 Sowing buffer percentage applied to sowing counts (e.g., 100 plants + 12% = 112 plants)
+                              </p>
+                            </div>
+                          </div>
+                        )}
                         <div className="space-y-4">
                           <div className="flex items-center justify-between">
                             <Label className="text-lg font-bold">Subtypes</Label>

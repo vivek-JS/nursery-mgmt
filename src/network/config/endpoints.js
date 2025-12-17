@@ -431,6 +431,7 @@ export const API = {
   },
   DATA: {
     CREATE_BACKUP: new APIRouter("backup/generateBackup", HTTP_METHODS.GET),
+    SAVE_BACKUP: new APIRouter("backup/saveBackup", HTTP_METHODS.POST),
     IMPORT_BACKUP: new APIRouter("backup/importBackup", HTTP_METHODS.POST)
   },
   FARMER: {
@@ -506,6 +507,7 @@ export const API = {
     GET_ALL_PLANTS_AVAILABILITY: new APIRouter("/sowing/all-plants-availability", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_PLANTS_GAP_SUMMARY: new APIRouter("/sowing/plants-gap-summary", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_SLOT_ORDERS_SUMMARY: new APIRouter("/sowing/slot-orders/:slotId", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_TODAY_SOWING_CARDS: new APIRouter("/sowing/today-sowing-cards", HTTP_METHODS.GET, OFFLINE.PROFILE),
     SEND_SOWING_REMINDERS_WHATSAPP: new APIRouter("/sowing/whatsapp/reminders", HTTP_METHODS.POST, OFFLINE.PROFILE),
     // OLD APIs - DEPRECATED (will be removed)
     // GET_REMINDERS: new APIRouter("/sowing/reminders", HTTP_METHODS.GET, OFFLINE.PROFILE),

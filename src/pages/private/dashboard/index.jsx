@@ -1,4 +1,4 @@
-import React, { useState } from "react"
+import React, { useState, useEffect } from "react"
 import { Grid, Button, Box, Badge, Alert } from "@mui/material"
 import { makeStyles } from "tss-react/mui"
 import { Add as AddIcon, Phone as PhoneIcon } from "@mui/icons-material"
@@ -17,6 +17,27 @@ function Dashboard() {
     // Refresh the orders table
     window.location.reload()
   }
+
+  // Keyboard shortcut: Ctrl + Shift to open Add Order dialog
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      // Check for Ctrl + Shift (or Cmd + Shift on Mac)
+      if ((event.ctrlKey || event.metaKey) && event.shiftKey) {
+        // Prevent default browser behavior
+        event.preventDefault()
+        // Open the Add Order dialog
+        setIsAddOrderOpen(true)
+      }
+    }
+
+    // Add event listener
+    window.addEventListener("keydown", handleKeyDown)
+
+    // Cleanup
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown)
+    }
+  }, [])
 
   return (
     <Grid className={classes.padding14}>

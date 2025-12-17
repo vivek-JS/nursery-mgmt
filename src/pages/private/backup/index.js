@@ -12,13 +12,15 @@ import {
 } from '@mui/material'
 import BackupIcon from '@mui/icons-material/Backup'
 import RestoreIcon from '@mui/icons-material/Restore'
+import SaveIcon from '@mui/icons-material/Save'
 import { API } from 'network/core'
+import NetworkManager from 'network/core/networkManager'
 import axios from 'axios'
-import { Cookies } from "react-cookie"
 import { CookieKeys } from "constants/cookieKeys"
 
 const DataBackupRestore = () => {
   const [isBackingUp, setIsBackingUp] = useState(false)
+  const [isSavingBackup, setIsSavingBackup] = useState(false)
   const [isImporting, setIsImporting] = useState(false)
   const [status, setStatus] = useState(null)
   const fileInputRef = useRef(null)
@@ -28,9 +30,17 @@ const DataBackupRestore = () => {
       setIsBackingUp(true)
       setStatus(null)
 
-      // Override axios defaults for this specific request
-      const cookie = new Cookies()
-      const authToken = cookie.get(CookieKeys.Auth)
+      // Get token from localStorage (same as NetworkManager)
+      const authToken = localStorage.getItem(CookieKeys.Auth)
+
+      if (!authToken || authToken === 'undefined' || authToken === 'null') {
+        setStatus({ 
+          severity: 'error', 
+          title: 'Error',
+          message: 'Authentication token not found. Please login again.' 
+        })
+        return
+      }
 
       // Override axios defaults for this specific request
       const customAxios = axios.create({
@@ -64,11 +74,95 @@ const DataBackupRestore = () => {
       setStatus({ 
         severity: 'error', 
         title: 'Error',
-        message: 'Failed to create backup. Please try again.' 
+        message: error.response?.data?.message || 'Failed to create backup. Please try again.' 
       })
       console.error('Backup error:', error)
     } finally {
       setIsBackingUp(false)
+    }
+  }
+
+  const handleSaveBackup = async () => {
+    try {
+      setIsSavingBackup(true)
+      setStatus(null)
+
+      // Get token from localStorage
+      const authToken = localStorage.getItem(CookieKeys.Auth)
+
+      if (!authToken || authToken === 'undefined' || authToken === 'null') {
+        setStatus({ 
+          severity: 'error', 
+          title: 'Error',
+          message: 'Authentication token not found. Please login again.' 
+        })
+        return
+      }
+
+      // Use axios with increased timeout for backup operation (10 minutes)
+      const customAxios = axios.create({
+        timeout: 600000, // 10 minutes
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`
+        }
+      })
+
+      setStatus({ 
+        severity: 'info', 
+        title: 'Processing',
+        message: 'Backup is being created. This may take a few minutes...' 
+      })
+
+      const result = await customAxios.post(`${API.DATA.SAVE_BACKUP.baseURL}/${API.DATA.SAVE_BACKUP.endpoint}`, {})
+      
+      // Handle 202 Accepted (async processing) or 200 OK (immediate completion)
+      if (result.status === 202 || result.status === 200) {
+        if (result.data?.success) {
+          if (result.data.data?.status === 'processing') {
+            setStatus({ 
+              severity: 'info', 
+              title: 'Processing',
+              message: `Backup process started! File will be saved as: ${result.data.data.fileName}. Check the server backups folder when complete.` 
+            })
+          } else {
+            setStatus({ 
+              severity: 'success', 
+              title: 'Success',
+              message: `Backup saved to server successfully! File: ${result.data.data.fileName} (${result.data.data.fileSize})` 
+            })
+          }
+        } else {
+          setStatus({ 
+            severity: 'error', 
+            title: 'Error',
+            message: result.data?.message || 'Failed to save backup to server. Please try again.' 
+          })
+        }
+      } else {
+        setStatus({ 
+          severity: 'error', 
+          title: 'Error',
+          message: 'Unexpected response from server. Please try again.' 
+        })
+      }
+    } catch (error) {
+      if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+        setStatus({ 
+          severity: 'error', 
+          title: 'Timeout',
+          message: 'Backup operation timed out. The backup might still be processing on the server. Please check the server logs or try again later.' 
+        })
+      } else {
+        setStatus({ 
+          severity: 'error', 
+          title: 'Error',
+          message: error.response?.data?.message || error.message || 'Failed to save backup to server. Please try again.' 
+        })
+      }
+      console.error('Save backup error:', error)
+    } finally {
+      setIsSavingBackup(false)
     }
   }
 
@@ -80,8 +174,17 @@ const DataBackupRestore = () => {
       setIsImporting(true)
       setStatus(null)
       
-      const cookie = new Cookies()
-      const authToken = cookie.get(CookieKeys.Auth)
+      // Get token from localStorage (same as NetworkManager)
+      const authToken = localStorage.getItem(CookieKeys.Auth)
+
+      if (!authToken || authToken === 'undefined' || authToken === 'null') {
+        setStatus({ 
+          severity: 'error', 
+          title: 'Error',
+          message: 'Authentication token not found. Please login again.' 
+        })
+        return
+      }
 
       const formData = new FormData()
       formData.append('backup', file)
@@ -93,19 +196,20 @@ const DataBackupRestore = () => {
         }
       })
 
-      await customAxios.post(`${API.DATA.IMPORT_BACKUP.baseURL}/${API.DATA.IMPORT_BACKUP.endpoint}`, formData)
+      const result = await customAxios.post(`${API.DATA.IMPORT_BACKUP.baseURL}/${API.DATA.IMPORT_BACKUP.endpoint}`, formData)
       
       setStatus({ 
         severity: 'success', 
         title: 'Success',
-        message: 'Data imported successfully!' 
+        message: result.data?.message || 'Data imported successfully!' 
       })
     } catch (error) {
       setStatus({ 
         severity: 'error', 
         title: 'Error',
-        message: 'Failed to import data. Please try again.' 
+        message: error.response?.data?.message || 'Failed to import data. Please try again.' 
       })
+      console.error('Import error:', error)
     } finally {
       setIsImporting(false)
       // Reset file input
@@ -138,7 +242,7 @@ const DataBackupRestore = () => {
           color="primary"
           startIcon={isBackingUp  ? <CircularProgress size={20} color="inherit" /> : <BackupIcon />}
           onClick={handleBackup}
-          disabled={isBackingUp || isImporting}
+          disabled={isBackingUp || isSavingBackup || isImporting}
           sx={{
             minWidth: 180,
             '&:hover': {
@@ -146,7 +250,23 @@ const DataBackupRestore = () => {
             }
           }}
         >
-          {isBackingUp ? 'Creating Backup...' : 'Backup Data'}
+          {isBackingUp ? 'Creating Backup...' : 'Download Backup'}
+        </Button>
+
+        <Button
+          variant="contained"
+          color="success"
+          startIcon={isSavingBackup ? <CircularProgress size={20} color="inherit" /> : <SaveIcon />}
+          onClick={handleSaveBackup}
+          disabled={isBackingUp || isSavingBackup || isImporting}
+          sx={{
+            minWidth: 180,
+            '&:hover': {
+              backgroundColor: 'success.dark',
+            }
+          }}
+        >
+          {isSavingBackup ? 'Saving...' : 'Save to Server'}
         </Button>
 
         <Box position="relative">
@@ -164,7 +284,7 @@ const DataBackupRestore = () => {
               color="secondary"
               component="span"
               startIcon={isImporting ? <CircularProgress size={20} color="inherit" /> : <RestoreIcon />}
-              disabled={isBackingUp || isImporting}
+              disabled={isBackingUp || isSavingBackup || isImporting}
               sx={{
                 minWidth: 180,
                 '&:hover': {

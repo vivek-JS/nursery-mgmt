@@ -201,6 +201,7 @@ const OrderBucketingTreeComponent = ({ filters = {}, onOrderNodeClick }) => {
             type: "order",
             orderId: order.orderId,
             orderData: order,
+            farmer: order.farmer || null,
             path: `${nodePath}.Order #${order.orderId}`,
             children: null,
             _hasChildren: false
@@ -547,7 +548,35 @@ const OrderBucketingTreeComponent = ({ filters = {}, onOrderNodeClick }) => {
           tooltipText += `Plants: ${d.data.totalPlants || 0}\n`;
           tooltipText += `Percentage: ${d.data.percentage ? d.data.percentage.toFixed(1) + '%' : 'N/A'}`;
           
-          if (d.data._hasChildren && !d.data.children) {
+          // Add farmer and order details for order nodes
+          if (d.data.type === 'order' && d.data.farmer) {
+            tooltipText += `\n\nFarmer Details:`;
+            tooltipText += `\nName: ${d.data.farmer.name || 'N/A'}`;
+            if (d.data.farmer.mobileNumber) {
+              tooltipText += `\nMobile: ${d.data.farmer.mobileNumber}`;
+            }
+            if (d.data.farmer.village) {
+              tooltipText += `\nVillage: ${d.data.farmer.village}`;
+            }
+            if (d.data.farmer.taluka) {
+              tooltipText += `\nTaluka: ${d.data.farmer.taluka}`;
+            }
+            if (d.data.farmer.district) {
+              tooltipText += `\nDistrict: ${d.data.farmer.district}`;
+            }
+            if (d.data.orderData?.orderBookingDate) {
+              const bookingDate = new Date(d.data.orderData.orderBookingDate);
+              tooltipText += `\nBooking Date: ${bookingDate.toLocaleDateString('en-IN')}`;
+            }
+            if (d.data.orderData?.deliveryDate) {
+              const deliveryDate = new Date(d.data.orderData.deliveryDate);
+              tooltipText += `\nDelivery Date: ${deliveryDate.toLocaleDateString('en-IN')}`;
+            }
+            if (d.data.orderData?.orderStatus) {
+              tooltipText += `\nStatus: ${d.data.orderData.orderStatus}`;
+            }
+            tooltipText += `\n\nClick to view order details`;
+          } else if (d.data._hasChildren && !d.data.children) {
             tooltipText += `\nClick to load children`;
           } else if (d.data.children && d.data.children.length > 0) {
             tooltipText += `\nClick to collapse (${d.data.children.length} children)`;

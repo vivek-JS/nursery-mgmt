@@ -1377,7 +1377,8 @@ const loadPlantOptions = async () => {
         const id = plant.plantId || plant._id || plant.id || ""
         return {
           label: plant.name,
-          value: id ? String(id) : ""
+          value: id ? String(id) : "",
+          sowingAllowed: plant.sowingAllowed || false // Track if sowing is allowed (same as AddOrderForm)
         }
       })
       .filter((plant) => plant.value)
@@ -1594,71 +1595,83 @@ const mapSlotForUi = (slotData) => {
   const getSlots = async (plantId, subtypeId) => {
     setSlotsLoading(true)
     try {
-      const instance = NetworkManager(API.ORDER.GET_SLOTS)
-      const response = await instance.request(
-        {},
-        {
-          plantId: plantId,
-          subtypeId: subtypeId,
-          year: new Date().getFullYear().toString()
-        }
+      // Use fast simple slots endpoint (same as AddOrderForm)
+      const instance = NetworkManager(API.slots.GET_SIMPLE_SLOTS)
+      const years = [2025, 2026]
+      
+      // Fetch slots for both years in parallel
+      const responses = await Promise.all(
+        years.map(year => instance.request({}, { plantId, subtypeId, year }))
       )
 
-      if (response?.data?.slots?.[0]?.slots) {
-        const apiSlots = response.data.slots[0].slots
+      // Combine slots from both years
+      let allSlotsData = []
+      
+      responses.forEach((response) => {
+        const rawSlots =
+          response?.data?.data?.slots ||
+          response?.data?.slots ||
+          response?.data?.data ||
+          []
 
-        const processedSlots = apiSlots
-          .filter((slot) => {
-            // Filter out inactive slots
-            if (!slot?.status) return false
+        const slotsData = Array.isArray(rawSlots)
+          ? rawSlots
+          : Array.isArray(rawSlots?.slots)
+          ? rawSlots.slots
+          : []
 
-            // Validate date format
-            const startDateValid = moment(slot.startDay, "DD-MM-YYYY", true).isValid()
-            const endDateValid = moment(slot.endDay, "DD-MM-YYYY", true).isValid()
+        allSlotsData = [...allSlotsData, ...slotsData]
+      })
 
-            if (!startDateValid || !endDateValid) {
-              return false
-            }
+      if (allSlotsData.length > 0) {
+        // Check if this plant has sowing allowed
+        const selectedPlant = plants.find((p) => p.value === plantId)
+        const isSowingAllowedPlant = selectedPlant?.sowingAllowed || false
 
-            return true
-          })
+        const processedSlots = allSlotsData
           .map((slot) => {
             const {
               startDay,
               endDay,
+              month,
               totalBookedPlants,
               totalPlants,
               status,
               _id,
-              effectiveBuffer,
-              availablePlants,
-              bufferAdjustedCapacity
+              availablePlants
             } = slot || {}
+
+            if (!startDay || !endDay) return null
+
+            // Validate date format
+            const startDateValid = moment(startDay, "DD-MM-YYYY", true).isValid()
+            const endDateValid = moment(endDay, "DD-MM-YYYY", true).isValid()
+
+            if (!startDateValid || !endDateValid) return null
 
             const start = moment(startDay, "DD-MM-YYYY").format("D")
             const end = moment(endDay, "DD-MM-YYYY").format("D")
             const monthYear = moment(startDay, "DD-MM-YYYY").format("MMMM, YYYY")
 
-            // Calculate available plants considering buffer
-            const effectiveBufferPercent = effectiveBuffer || 0
-            const bufferAmount = Math.round((totalPlants * effectiveBufferPercent) / 100)
-            const bufferAdjustedCapacityValue = bufferAdjustedCapacity || totalPlants - bufferAmount
-            const availablePlantsValue =
-              availablePlants || Math.max(0, bufferAdjustedCapacityValue - (totalBookedPlants || 0))
+            // Calculate available plants (can be negative for sowing-allowed plants)
+            const available = availablePlants !== undefined ? availablePlants : totalPlants - (totalBookedPlants || 0)
 
             return {
-              label: `${start} - ${end} ${monthYear} (${availablePlantsValue} available)`,
+              label: `${start} - ${end} ${monthYear} (${available} available)`,
               value: _id,
-              available: availablePlantsValue,
+              available: available,
+              availableQuantity: available, // Keep for compatibility
               totalPlants: totalPlants,
               totalBookedPlants: totalBookedPlants || 0,
-              effectiveBuffer: effectiveBufferPercent,
-              bufferAdjustedCapacity: bufferAdjustedCapacityValue,
               startDay: startDay,
               endDay: endDay
             }
           })
-          .filter((slot) => slot.available > 0) // Only show slots with available capacity
+          .filter((slot) => {
+            // For sowing-allowed plants, show all slots (even with negative availability)
+            // For regular plants, only show slots with positive availability
+            return slot !== null && (isSowingAllowedPlant || slot.available > 0)
+          })
 
         setSlots(processedSlots)
       } else {

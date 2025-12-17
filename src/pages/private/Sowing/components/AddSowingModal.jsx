@@ -49,6 +49,7 @@ const AddSowingModal = ({ open, onClose, plants = [], onSuccess, userData, appUs
   const [selectedPlant, setSelectedPlant] = useState(null);
   const [selectedSubtype, setSelectedSubtype] = useState(null);
   const [selectedSlot, setSelectedSlot] = useState(null);
+  const [plantSowingBuffer, setPlantSowingBuffer] = useState(0); // Store sowing buffer for selected plant
   const [availableSlots, setAvailableSlots] = useState([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [availablePackets, setAvailablePackets] = useState([]); // Now grouped by plant -> subtype
@@ -71,6 +72,20 @@ const AddSowingModal = ({ open, onClose, plants = [], onSuccess, userData, appUs
   });
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState({});
+
+  // Fetch sowing buffer when plant is selected
+  useEffect(() => {
+    if (selectedPlant && plants.length > 0) {
+      const plant = plants.find(p => p._id === selectedPlant._id);
+      if (plant && plant.sowingBuffer !== undefined) {
+        setPlantSowingBuffer(plant.sowingBuffer || 0);
+      } else {
+        setPlantSowingBuffer(0);
+      }
+    } else {
+      setPlantSowingBuffer(0);
+    }
+  }, [selectedPlant, plants]);
 
   useEffect(() => {
     if (open) {
