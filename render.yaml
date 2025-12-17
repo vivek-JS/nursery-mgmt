@@ -4,10 +4,6 @@ services:
     env: static
     buildCommand: npm run build:prod
     staticPublishPath: ./build
-    routes:
-      - type: rewrite
-        source: /*
-        destination: /index.html
     envVars:
       - key: REACT_APP_BASE_URL
         value: https://ram-biotek-backend.onrender.com

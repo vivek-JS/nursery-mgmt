@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   Box,
   Card,
@@ -32,6 +32,7 @@ import {
   Tabs,
   Tab,
   Skeleton,
+  TextField,
 } from "@mui/material";
 import {
   ExpandMore as ExpandMoreIcon,
@@ -51,6 +52,7 @@ import {
   AccountBalance,
   Analytics,
   PieChart as PieChartIcon,
+  Print as PrintIcon,
 } from "@mui/icons-material";
 import {
   BarChart,
@@ -91,11 +93,25 @@ const SowingGapAnalysis = () => {
   const [plantsSowingBuffer, setPlantsSowingBuffer] = useState(new Map());
   // Expanded cards state for today's sowing cards
   const [expandedCards, setExpandedCards] = useState(new Set());
+  // Track existing requests for each card
+  const [existingRequests, setExistingRequests] = useState(new Map());
+  // Dialog states
+  const [alertDialog, setAlertDialog] = useState({ open: false, message: "", title: "" });
+  const [confirmDialog, setConfirmDialog] = useState({ open: false, message: "", title: "", onConfirm: null });
+  const [promptDialog, setPromptDialog] = useState({ open: false, message: "", title: "", defaultValue: "", onConfirm: null, label: "" });
+  const promptInputRef = useRef(null);
 
   useEffect(() => {
     fetchGapSummary();
     fetchTodaySowingCards();
   }, []);
+
+  // Check for existing requests when cards data changes
+  useEffect(() => {
+    if (todayCardsData?.subtypeCards) {
+      checkExistingRequests();
+    }
+  }, [todayCardsData]);
 
   const fetchTodaySowingCards = async () => {
     setLoadingTodayCards(true);
@@ -126,6 +142,29 @@ const SowingGapAnalysis = () => {
     } finally {
       setLoadingTodayCards(false);
     }
+  };
+
+  const checkExistingRequests = async () => {
+    if (!todayCardsData?.subtypeCards) return;
+
+    const requestsMap = new Map();
+    const checkPromises = todayCardsData.subtypeCards.map(async (card) => {
+      try {
+        const instance = NetworkManager(API.sowing.CHECK_REQUEST_EXISTS);
+        const response = await instance.request({}, {
+          plantId: card.plantId,
+          subtypeId: card.subtypeId,
+        });
+        if (response?.data?.success && response.data.exists) {
+          requestsMap.set(`${card.plantId}-${card.subtypeId}`, response.data.data);
+        }
+      } catch (error) {
+        console.error(`Error checking request for ${card.plantId}-${card.subtypeId}:`, error);
+      }
+    });
+
+    await Promise.all(checkPromises);
+    setExistingRequests(requestsMap);
   };
 
   const fetchGapSummary = async (isAvailableTab = false) => {
@@ -357,6 +396,491 @@ const SowingGapAnalysis = () => {
   const formatNumber = (num) => {
     if (num === null || num === undefined) return "0";
     return new Intl.NumberFormat("en-IN").format(num);
+  };
+
+  const handleCreateRequest = async (card) => {
+    const packetsNeeded = (card.totalGap || 0) / card.conversionFactor;
+    
+    if (!packetsNeeded || packetsNeeded <= 0) {
+      setAlertDialog({
+        open: true,
+        title: "No Packets Needed",
+        message: "No packets needed for this subtype",
+      });
+      return;
+    }
+
+    // Show prompt dialog for packets requested
+    const unitName = card.primaryUnit?.symbol || card.primaryUnit?.name || card.secondaryUnit?.symbol || card.secondaryUnit?.name || "pkt";
+    setPromptDialog({
+      open: true,
+      title: `Create Stock Request - ${card.plantName} - ${card.subtypeName}`,
+      message: `Packets Needed: ${packetsNeeded.toFixed(2)} ${unitName}\n\nEnter packets to request (can be more than needed):`,
+      label: "Packets to Request",
+      defaultValue: packetsNeeded.toFixed(2),
+      onConfirm: async (packetsRequestedInput) => {
+        if (!packetsRequestedInput) {
+          setAlertDialog({
+            open: true,
+            title: "Invalid Input",
+            message: "Please enter a valid number",
+          });
+          return;
+        }
+
+        const packetsRequested = parseFloat(packetsRequestedInput);
+        
+        if (isNaN(packetsRequested) || packetsRequested <= 0) {
+          setAlertDialog({
+            open: true,
+            title: "Invalid Input",
+            message: "Please enter a valid number greater than 0",
+          });
+          return;
+        }
+
+        if (packetsRequested < packetsNeeded) {
+          setAlertDialog({
+            open: true,
+            title: "Invalid Quantity",
+            message: `Requested packets (${packetsRequested.toFixed(2)}) cannot be less than needed (${packetsNeeded.toFixed(2)})`,
+          });
+          return;
+        }
+
+        const excessPackets = packetsRequested - packetsNeeded;
+        const confirmMessage = excessPackets > 0
+          ? `Request ${packetsRequested.toFixed(2)} packets?\n\nNeeded: ${packetsNeeded.toFixed(2)}\nExcess: ${excessPackets.toFixed(2)}`
+          : `Request ${packetsRequested.toFixed(2)} packets?`;
+
+        setConfirmDialog({
+          open: true,
+          title: "Confirm Request",
+          message: confirmMessage,
+          onConfirm: async () => {
+            try {
+              const instance = NetworkManager(API.sowing.CREATE_SOWING_REQUEST);
+              const response = await instance.request({
+                plantId: card.plantId,
+                subtypeId: card.subtypeId,
+                packetsNeeded: packetsNeeded,
+                packetsRequested: packetsRequested,
+                notes: `Auto-generated from Today's Sowing Cards${excessPackets > 0 ? ` (Excess: ${excessPackets.toFixed(2)} packets)` : ''}`,
+              });
+
+              if (response?.data?.success) {
+                setAlertDialog({
+                  open: true,
+                  title: "Success",
+                  message: `Stock request created successfully!\n\nRequest Number: ${response.data.data.requestNumber}\nRequested: ${packetsRequested.toFixed(2)} packets${excessPackets > 0 ? `\nExcess: ${excessPackets.toFixed(2)} packets` : ''}`,
+                });
+                // Refresh data and check existing requests
+                await fetchTodaySowingCards();
+                await checkExistingRequests();
+              } else {
+                setAlertDialog({
+                  open: true,
+                  title: "Error",
+                  message: response?.data?.message || "Failed to create request",
+                });
+              }
+            } catch (error) {
+              console.error("Error creating sowing request:", error);
+              setAlertDialog({
+                open: true,
+                title: "Error",
+                message: error?.response?.data?.message || "Failed to create stock request",
+              });
+            }
+          },
+        });
+      },
+    });
+  };
+
+  const handleCancelRequest = async (card, requestId) => {
+    setConfirmDialog({
+      open: true,
+      title: "Cancel Request",
+      message: `Are you sure you want to cancel the stock request for ${card.plantName} - ${card.subtypeName}?`,
+      onConfirm: async () => {
+        try {
+          const instance = NetworkManager(API.sowing.CANCEL_SOWING_REQUEST);
+          const response = await instance.request({}, [requestId]);
+          if (response?.data?.success) {
+            setAlertDialog({
+              open: true,
+              title: "Success",
+              message: "Stock request cancelled successfully",
+            });
+            // Refresh data and check existing requests
+            await fetchTodaySowingCards();
+            await checkExistingRequests();
+          } else {
+            setAlertDialog({
+              open: true,
+              title: "Error",
+              message: response?.data?.message || "Failed to cancel request",
+            });
+          }
+        } catch (error) {
+          console.error("Error cancelling sowing request:", error);
+          setAlertDialog({
+            open: true,
+            title: "Error",
+            message: error?.response?.data?.message || "Failed to cancel stock request",
+          });
+        }
+      },
+    });
+  };
+
+  const handleRequestAll = async () => {
+    if (!todayCardsData?.subtypeCards || todayCardsData.subtypeCards.length === 0) {
+      setAlertDialog({
+        open: true,
+        title: "No Cards",
+        message: "No cards to request",
+      });
+      return;
+    }
+
+    // Filter cards that can be requested (have conversion factor and no existing pending/issued request)
+    const requestableCards = todayCardsData.subtypeCards.filter((card) => {
+      if (!card.conversionFactor || (!card.primaryUnit && !card.secondaryUnit)) {
+        return false;
+      }
+      const requestKey = `${card.plantId}-${card.subtypeId}`;
+      const existingRequest = existingRequests.get(requestKey);
+      // Only include if no request exists or if it's rejected/cancelled
+      return !existingRequest || existingRequest.status === 'rejected' || existingRequest.status === 'cancelled';
+    });
+
+    if (requestableCards.length === 0) {
+      setAlertDialog({
+        open: true,
+        title: "All Requested",
+        message: "All cards already have pending or issued requests",
+      });
+      return;
+    }
+
+    const confirmMessage = `Create stock requests for ${requestableCards.length} subtype(s)?\n\nThis will create requests for:\n${requestableCards.map((card, idx) => `${idx + 1}. ${card.plantName} - ${card.subtypeName}`).join('\n')}`;
+
+    setConfirmDialog({
+      open: true,
+      title: "Request All",
+      message: confirmMessage,
+      onConfirm: async () => {
+        let successCount = 0;
+        let failCount = 0;
+        const errors = [];
+
+        // Process requests sequentially to avoid overwhelming the server
+        for (const card of requestableCards) {
+          try {
+            const packetsNeeded = (card.totalGap || 0) / card.conversionFactor;
+            
+            if (!packetsNeeded || packetsNeeded <= 0) {
+              continue;
+            }
+
+            const instance = NetworkManager(API.sowing.CREATE_SOWING_REQUEST);
+            const response = await instance.request({
+              plantId: card.plantId,
+              subtypeId: card.subtypeId,
+              packetsNeeded: packetsNeeded,
+              packetsRequested: packetsNeeded, // Use needed as requested by default
+              notes: `Auto-generated from Today's Sowing Cards (Batch Request)`,
+            });
+
+            if (response?.data?.success) {
+              successCount++;
+            } else {
+              failCount++;
+              errors.push(`${card.plantName} - ${card.subtypeName}: ${response?.data?.message || "Failed"}`);
+            }
+          } catch (error) {
+            failCount++;
+            errors.push(`${card.plantName} - ${card.subtypeName}: ${error?.response?.data?.message || "Error"}`);
+            console.error(`Error creating request for ${card.plantId}-${card.subtypeId}:`, error);
+          }
+        }
+
+        // Refresh data
+        await fetchTodaySowingCards();
+        await checkExistingRequests();
+
+        // Show summary
+        let message = `Requests created: ${successCount}`;
+        if (failCount > 0) {
+          message += `\nFailed: ${failCount}`;
+          if (errors.length > 0) {
+            message += `\n\nErrors:\n${errors.slice(0, 5).join('\n')}`;
+            if (errors.length > 5) {
+              message += `\n... and ${errors.length - 5} more`;
+            }
+          }
+        }
+        setAlertDialog({
+          open: true,
+          title: successCount > 0 ? "Requests Created" : "Request Failed",
+          message: message,
+        });
+      },
+    });
+  };
+
+  const handlePrint = async () => {
+    if (!todayCardsData?.subtypeCards || todayCardsData.subtypeCards.length === 0) {
+      setAlertDialog({
+        open: true,
+        title: "No Data",
+        message: "No data to print",
+      });
+      return;
+    }
+
+    // Fetch orders for all slots before printing
+    const allSlotIds = new Set();
+    todayCardsData.subtypeCards.forEach((card) => {
+      if (card.slots && card.slots.length > 0) {
+        card.slots.forEach((slot) => {
+          allSlotIds.add(slot.slotId);
+        });
+      }
+    });
+
+    // Fetch orders for slots that don't have orders yet
+    const slotsToFetch = Array.from(allSlotIds).filter(slotId => !slotOrders.has(slotId));
+    
+    if (slotsToFetch.length > 0) {
+      try {
+        const fetchPromises = slotsToFetch.map(async (slotId) => {
+          try {
+            const instance = NetworkManager(API.sowing.GET_SLOT_ORDERS_SUMMARY);
+            const response = await instance.request({}, [slotId]);
+            if (response?.data?.success) {
+              const orders = response.data.orders || [];
+              return { slotId, orders };
+            }
+          } catch (err) {
+            console.error(`Error fetching orders for slot ${slotId}:`, err);
+          }
+          return { slotId, orders: [] };
+        });
+
+        const results = await Promise.all(fetchPromises);
+        const newSlotOrders = new Map(slotOrders);
+        results.forEach(({ slotId, orders }) => {
+          newSlotOrders.set(slotId, orders);
+        });
+        setSlotOrders(newSlotOrders);
+        
+        // Wait a bit for state to update
+        await new Promise(resolve => setTimeout(resolve, 500));
+      } catch (err) {
+        console.error("Error fetching slot orders for print:", err);
+      }
+    }
+
+    // Generate print HTML with current slotOrders
+    const currentSlotOrders = new Map(slotOrders);
+    const printContent = generatePrintHTML(currentSlotOrders);
+    
+    // Open print window
+    const printWindow = window.open("", "_blank");
+    printWindow.document.write(printContent);
+    printWindow.document.close();
+    
+    // Wait for content to load then print
+    setTimeout(() => {
+      printWindow.focus();
+      printWindow.print();
+      printWindow.onafterprint = () => {
+        printWindow.close();
+      };
+    }, 500);
+  };
+
+  const generatePrintHTML = (ordersMap = slotOrders) => {
+    const date = new Date().toLocaleDateString("en-IN", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    });
+
+    // Generate sowing summary table
+    let sowingTableRows = "";
+    todayCardsData.subtypeCards.forEach((card, index) => {
+      const packetsNeeded = card.conversionFactor && (card.primaryUnit || card.secondaryUnit)
+        ? ((card.totalGap || 0) / card.conversionFactor)
+        : 0;
+      const unitName = card.primaryUnit?.symbol || card.primaryUnit?.name || card.secondaryUnit?.symbol || card.secondaryUnit?.name || "pkt";
+      
+      sowingTableRows += `
+        <tr>
+          <td>${index + 1}</td>
+          <td>${card.plantName || "N/A"}</td>
+          <td>${card.subtypeName || "N/A"}</td>
+          <td>${formatNumber(card.totalGap || 0)}</td>
+          <td>${packetsNeeded.toFixed(2)} ${unitName}</td>
+        </tr>
+      `;
+    });
+
+    // Generate orders table for each slot
+    let ordersTables = "";
+    todayCardsData.subtypeCards.forEach((card) => {
+      if (card.slots && card.slots.length > 0) {
+        card.slots.forEach((slot) => {
+          const slotKey = `${card.plantName} - ${card.subtypeName} - ${slot.slotStartDay} to ${slot.slotEndDay}`;
+          const orders = ordersMap.get(slot.slotId) || [];
+          
+          if (orders.length > 0) {
+            let orderRows = "";
+            orders.forEach((order, idx) => {
+              orderRows += `
+                <tr>
+                  <td>${idx + 1}</td>
+                  <td>${order.orderNumber || "N/A"}</td>
+                  <td>${order.farmerName || "N/A"}</td>
+                  <td>${order.village || "N/A"}</td>
+                  <td>${formatNumber(order.numberOfPlants || 0)}</td>
+                  <td>${order.orderStatus || "N/A"}</td>
+                </tr>
+              `;
+            });
+
+            ordersTables += `
+              <div style="page-break-inside: avoid; margin-bottom: 20px;">
+                <h3 style="margin: 15px 0 10px 0; font-size: 14px; font-weight: bold; color: #333;">
+                  ${slotKey}
+                </h3>
+                <table style="width: 100%; border-collapse: collapse; font-size: 10px;">
+                  <thead>
+                    <tr style="background-color: #f5f5f5;">
+                      <th style="border: 1px solid #ddd; padding: 6px; text-align: left;">#</th>
+                      <th style="border: 1px solid #ddd; padding: 6px; text-align: left;">Order No</th>
+                      <th style="border: 1px solid #ddd; padding: 6px; text-align: left;">Farmer Name</th>
+                      <th style="border: 1px solid #ddd; padding: 6px; text-align: left;">Village</th>
+                      <th style="border: 1px solid #ddd; padding: 6px; text-align: right;">Plants</th>
+                      <th style="border: 1px solid #ddd; padding: 6px; text-align: left;">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${orderRows}
+                  </tbody>
+                </table>
+              </div>
+            `;
+          }
+        });
+      }
+    });
+
+    return `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Sowing Report - ${date}</title>
+          <style>
+            @media print {
+              @page {
+                margin: 1cm;
+              }
+              body {
+                margin: 0;
+                padding: 0;
+                font-family: Arial, sans-serif;
+                font-size: 11px;
+                color: #333;
+              }
+              .no-print {
+                display: none;
+              }
+            }
+            body {
+              font-family: Arial, sans-serif;
+              font-size: 11px;
+              color: #333;
+              padding: 20px;
+            }
+            h1 {
+              font-size: 18px;
+              font-weight: bold;
+              margin-bottom: 5px;
+              color: #1976d2;
+            }
+            h2 {
+              font-size: 14px;
+              font-weight: bold;
+              margin: 15px 0 10px 0;
+              color: #333;
+            }
+            h3 {
+              font-size: 12px;
+              font-weight: bold;
+              margin: 10px 0 5px 0;
+              color: #555;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-bottom: 20px;
+              font-size: 10px;
+            }
+            th, td {
+              border: 1px solid #ddd;
+              padding: 6px;
+              text-align: left;
+            }
+            th {
+              background-color: #f5f5f5;
+              font-weight: bold;
+            }
+            tr:nth-child(even) {
+              background-color: #f9f9f9;
+            }
+            .summary {
+              margin-bottom: 20px;
+              padding: 10px;
+              background-color: #f0f0f0;
+              border-radius: 4px;
+            }
+            .page-break {
+              page-break-after: always;
+            }
+          </style>
+        </head>
+        <body>
+          <h1>Sowing Report - ${date}</h1>
+          <div class="summary">
+            <strong>Summary:</strong> ${todayCardsData.summary.totalSubtypes} Subtypes • 
+            ${formatNumber(todayCardsData.summary.totalGap)} Plants Needed • 
+            ${todayCardsData.summary.totalSlots} Slots
+          </div>
+
+          <h2>Sowing Summary</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Plant Name</th>
+                <th>Subtype</th>
+                <th>Sowing Needed</th>
+                <th>Packets Needed</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${sowingTableRows}
+            </tbody>
+          </table>
+
+          ${ordersTables ? `<h2>Orders by Slot</h2>${ordersTables}` : ""}
+        </body>
+      </html>
+    `;
   };
 
   const getPriorityColor = (priority) => {
@@ -696,13 +1220,34 @@ const SowingGapAnalysis = () => {
                 Today&apos;s Sowing (Due & Current Day)
               </Typography>
             </Box>
-            {todayCardsData?.summary && (
-              <Chip
-                label={`${todayCardsData.summary.totalSubtypes} Subtypes • ${formatNumber(todayCardsData.summary.totalGap)} Plants Needed`}
-                color="primary"
-                sx={{ fontWeight: 600 }}
-              />
-            )}
+            <Box display="flex" alignItems="center" gap={1}>
+              {todayCardsData?.summary && (
+                <Chip
+                  label={`${todayCardsData.summary.totalSubtypes} Subtypes • ${formatNumber(todayCardsData.summary.totalGap)} Plants Needed`}
+                  color="primary"
+                  sx={{ fontWeight: 600 }}
+                />
+              )}
+              {todayCardsData?.subtypeCards && todayCardsData.subtypeCards.length > 0 && (
+                <Button
+                  variant="contained"
+                  color="success"
+                  onClick={handleRequestAll}
+                  sx={{ ml: 1 }}
+                  disabled={loadingTodayCards}
+                >
+                  Request All
+                </Button>
+              )}
+              <Button
+                variant="outlined"
+                startIcon={<PrintIcon />}
+                onClick={handlePrint}
+                sx={{ ml: 1 }}
+              >
+                Print
+              </Button>
+            </Box>
           </Box>
 
           {loadingTodayCards ? (
@@ -902,7 +1447,7 @@ const SowingGapAnalysis = () => {
                                 Packets
                               </Typography>
                               <Typography variant="body1" sx={{ fontWeight: 700, color: "#f57c00", fontSize: "0.95rem" }}>
-                                {formatNumber(Math.ceil((card.totalGap || 0) / card.conversionFactor))} {card.primaryUnit?.symbol || card.primaryUnit?.name || card.secondaryUnit?.symbol || card.secondaryUnit?.name || "pkt"}
+                                {((card.totalGap || 0) / card.conversionFactor).toFixed(2)} {card.primaryUnit?.symbol || card.primaryUnit?.name || card.secondaryUnit?.symbol || card.secondaryUnit?.name || "pkt"}
                               </Typography>
                             </Box>
                           )}
@@ -912,6 +1457,7 @@ const SowingGapAnalysis = () => {
                               justifyContent="space-between" 
                               alignItems="center"
                               p={1}
+                              mb={0.75}
                               sx={{ 
                                 bgcolor: card.availablePackets > 0 ? "#e8f5e9" : "#ffebee", 
                                 borderRadius: 0.75, 
@@ -926,6 +1472,93 @@ const SowingGapAnalysis = () => {
                               </Typography>
                             </Box>
                           )}
+                          {(() => {
+                            const requestKey = `${card.plantId}-${card.subtypeId}`;
+                            const existingRequest = existingRequests.get(requestKey);
+                            
+                            if (existingRequest) {
+                              if (existingRequest.status === 'issued' && existingRequest.isIssuedToday) {
+                                return (
+                                  <Chip
+                                    label="Stock Issued"
+                                    size="small"
+                                    color="success"
+                                    sx={{ 
+                                      mt: 0.5,
+                                      width: "100%",
+                                      fontSize: "0.7rem",
+                                      height: "24px"
+                                    }}
+                                  />
+                                );
+                              } else if (existingRequest.status === 'pending' || existingRequest.status === 'processing') {
+                                return (
+                                  <Button
+                                    variant="outlined"
+                                    size="small"
+                                    fullWidth
+                                    onClick={() => handleCancelRequest(card, existingRequest._id)}
+                                    sx={{ 
+                                      mt: 0.5,
+                                      fontSize: "0.7rem",
+                                      py: 0.5,
+                                      borderColor: "#f57c00",
+                                      color: "#f57c00",
+                                      "&:hover": { 
+                                        borderColor: "#e65100",
+                                        bgcolor: "#fff3e0"
+                                      }
+                                    }}
+                                  >
+                                    Cancel Request
+                                  </Button>
+                                );
+                              } else if (existingRequest.status === 'rejected') {
+                                return (
+                                  <Button
+                                    variant="outlined"
+                                    size="small"
+                                    fullWidth
+                                    onClick={() => handleCreateRequest(card)}
+                                    sx={{ 
+                                      mt: 0.5,
+                                      fontSize: "0.7rem",
+                                      py: 0.5,
+                                      borderColor: "#f57c00",
+                                      color: "#f57c00",
+                                      "&:hover": { 
+                                        borderColor: "#e65100",
+                                        bgcolor: "#fff3e0"
+                                      }
+                                    }}
+                                  >
+                                    Request Again
+                                  </Button>
+                                );
+                              }
+                            }
+                            
+                            if (card.conversionFactor && (card.primaryUnit || card.secondaryUnit)) {
+                              return (
+                                <Button
+                                  variant="contained"
+                                  size="small"
+                                  fullWidth
+                                  onClick={() => handleCreateRequest(card)}
+                                  sx={{ 
+                                    mt: 0.5,
+                                    fontSize: "0.7rem",
+                                    py: 0.5,
+                                    bgcolor: "#1976d2",
+                                    "&:hover": { bgcolor: "#1565c0" }
+                                  }}
+                                >
+                                  Request Stock
+                                </Button>
+                              );
+                            }
+                            return null;
+                          })()}
                         </CardContent>
                       </Card>
                     </Fade>
@@ -2257,6 +2890,89 @@ const SowingGapAnalysis = () => {
             variant="contained"
             color="primary">
             Close
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Alert Dialog */}
+      <Dialog open={alertDialog.open} onClose={() => setAlertDialog({ open: false, message: "", title: "" })}>
+        <DialogTitle>{alertDialog.title || "Alert"}</DialogTitle>
+        <DialogContent>
+          <Typography style={{ whiteSpace: 'pre-line' }}>{alertDialog.message}</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAlertDialog({ open: false, message: "", title: "" })}>OK</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Confirm Dialog */}
+      <Dialog open={confirmDialog.open} onClose={() => setConfirmDialog({ open: false, message: "", title: "", onConfirm: null })}>
+        <DialogTitle>{confirmDialog.title || "Confirm"}</DialogTitle>
+        <DialogContent>
+          <Typography style={{ whiteSpace: 'pre-line' }}>{confirmDialog.message}</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmDialog({ open: false, message: "", title: "", onConfirm: null })}>Cancel</Button>
+          <Button
+            onClick={() => {
+              if (confirmDialog.onConfirm) {
+                confirmDialog.onConfirm();
+              }
+              setConfirmDialog({ open: false, message: "", title: "", onConfirm: null });
+            }}
+            variant="contained"
+            color="primary"
+          >
+            Confirm
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Prompt Dialog */}
+      <Dialog open={promptDialog.open} onClose={() => setPromptDialog({ open: false, message: "", title: "", defaultValue: "", onConfirm: null, label: "" })}>
+        <DialogTitle>{promptDialog.title || "Input"}</DialogTitle>
+        <DialogContent>
+          <Typography style={{ whiteSpace: 'pre-line', mb: 2 }}>{promptDialog.message}</Typography>
+          <TextField
+            autoFocus
+            margin="dense"
+            label={promptDialog.label || "Value"}
+            type="number"
+            fullWidth
+            variant="outlined"
+            defaultValue={promptDialog.defaultValue}
+            inputProps={{ step: 0.01, min: 0 }}
+            inputRef={(input) => {
+              if (input) {
+                promptInputRef.current = input;
+                setTimeout(() => input.select(), 100);
+              }
+            }}
+            onKeyPress={(e) => {
+              if (e.key === 'Enter') {
+                const value = e.target.value || promptDialog.defaultValue;
+                if (promptDialog.onConfirm) {
+                  promptDialog.onConfirm(value);
+                }
+                setPromptDialog({ open: false, message: "", title: "", defaultValue: "", onConfirm: null, label: "" });
+              }
+            }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPromptDialog({ open: false, message: "", title: "", defaultValue: "", onConfirm: null, label: "" })}>Cancel</Button>
+          <Button
+            onClick={() => {
+              const value = promptInputRef.current?.value || promptDialog.defaultValue;
+              if (promptDialog.onConfirm) {
+                promptDialog.onConfirm(value);
+              }
+              setPromptDialog({ open: false, message: "", title: "", defaultValue: "", onConfirm: null, label: "" });
+            }}
+            variant="contained"
+            color="primary"
+          >
+            OK
           </Button>
         </DialogActions>
       </Dialog>

@@ -79,6 +79,7 @@ const PrimarySowingEntry = () => {
   const [selectedPackets, setSelectedPackets] = useState([]); // Array of selected packets with quantities
   const [primaryQuantities, setPrimaryQuantities] = useState({}); // Map of itemId -> primary quantity for field sowing
   const [plantReadyDays, setPlantReadyDays] = useState({}); // Map of plantId_subtypeId -> plantReadyDays value
+  const [completeSowingFlags, setCompleteSowingFlags] = useState({}); // Map of combinedKey -> boolean for complete sowing (auto-set when decimal entered)
   const [formData, setFormData] = useState({
     sowingDate: moment(),
     batchNumber: "",
@@ -541,6 +542,39 @@ const PrimarySowingEntry = () => {
           const readyDaysKey = `${group.plantId}_${group.subtypeId}`;
           const groupReadyDays = plantReadyDays[readyDaysKey] || 0;
           
+          // Check if complete sowing is checked for any packet in this group
+          // Also check if there's any remaining quantity to return (auto-complete sowing)
+          const groupCompleteSowing = group.packets.some(p => {
+            // Try both key formats to match
+            const key1 = `${p.productId}_${p.batchNumber}`;
+            const key2 = `${p.productId || p.productName}_${p.batchNumber || 'NO_BATCH'}`;
+            const isComplete = completeSowingFlags[key1] === true || completeSowingFlags[key2] === true;
+            
+            // Also check if there's remaining quantity (auto-complete sowing)
+            const originalAvailableQty = p.availableQuantity || 0;
+            const usedQty = p.quantity || 0;
+            const remainingQty = Math.max(0, originalAvailableQty - usedQty);
+            const hasRemaining = remainingQty > 0;
+            
+            console.log(`[PrimarySowingEntry] Checking completeSowing for packet:`, {
+              productId: p.productId,
+              productName: p.productName,
+              batchNumber: p.batchNumber,
+              key1,
+              key2,
+              isComplete,
+              originalAvailableQty,
+              usedQty,
+              remainingQty,
+              hasRemaining,
+              flags: completeSowingFlags
+            });
+            
+            return isComplete || hasRemaining; // Complete sowing if flag is set OR if there's remaining quantity
+          });
+          
+          console.log(`[PrimarySowingEntry] Group completeSowing:`, groupCompleteSowing);
+          
           const payload = {
             plantId: group.plantId,
             subtypeId: group.subtypeId,
@@ -552,13 +586,85 @@ const PrimarySowingEntry = () => {
             batchNumber: batchNumberFromPackets, // Use batch number from packets (mandatory)
             sowingLocation: "OFFICE",
             slotId: group.slotId,
-            plantReadyDays: groupReadyDays, // Include plant ready days from state
-            packets: group.packets.map(p => ({
-              outwardId: p.outwardId,
-              itemId: p.itemId,
-              quantity: p.quantity || p.availableQuantity,
-              batchNumber: p.batchNumber,
-            })),
+            plantReadyDays: groupCompleteSowing ? 0 : groupReadyDays, // Set to 0 if complete sowing (don't show next day)
+            completeSowing: groupCompleteSowing, // Flag to indicate complete sowing
+            packets: group.packets.map(p => {
+              // Try both key formats to match
+              const key1 = `${p.productId}_${p.batchNumber}`;
+              const key2 = `${p.productId || p.productName}_${p.batchNumber || 'NO_BATCH'}`;
+              const isComplete = completeSowingFlags[key1] === true || completeSowingFlags[key2] === true;
+              
+              // Get the original availableQuantity from the packet (preserved when packet was selected)
+              // If not available in packet, try to find it from availablePackets
+              let originalAvailableQty = p.availableQuantity || 0;
+              
+              // If still 0 or missing, look up from availablePackets
+              if (!originalAvailableQty || originalAvailableQty === 0) {
+                // Look up the original availableQuantity from availablePackets
+                const originalPacket = availablePackets
+                  .flatMap(pg => pg.subtypes?.flatMap(sg => sg.packets || []) || [])
+                  .find(ap => {
+                    const itemIdMatch = ap.itemId?.toString() === p.itemId?.toString();
+                    const outwardIdMatch = ap.outwardId?.toString() === p.outwardId?.toString();
+                    return itemIdMatch && outwardIdMatch;
+                  });
+                if (originalPacket && originalPacket.availableQuantity) {
+                  originalAvailableQty = originalPacket.availableQuantity;
+                  console.log(`[PrimarySowingEntry] Found originalAvailableQty from availablePackets:`, originalAvailableQty);
+                } else {
+                  // If still not found, use the quantity from the outward item (total quantity)
+                  // This is a fallback - the availableQuantity should ideally be preserved
+                  console.warn(`[PrimarySowingEntry] Could not find originalAvailableQty for itemId: ${p.itemId}, outwardId: ${p.outwardId}`);
+                }
+              }
+              
+              // If originalAvailableQty is still 0, it means we couldn't find it
+              // In this case, we can't calculate remaining quantity accurately
+              if (originalAvailableQty === 0) {
+                console.warn(`[PrimarySowingEntry] originalAvailableQty is 0 for packet:`, {
+                  itemId: p.itemId,
+                  outwardId: p.outwardId,
+                  productName: p.productName,
+                  batchNumber: p.batchNumber
+                });
+              }
+              
+              const usedQty = p.quantity || 0;
+              const remainingQty = Math.max(0, originalAvailableQty - usedQty);
+              
+              // If there's remaining quantity, automatically set completeSowing to true to return it
+              // This handles both decimal entries and cases where user uses less than available
+              const shouldReturnRemaining = remainingQty > 0;
+              const finalCompleteSowing = isComplete || shouldReturnRemaining;
+              
+              console.log(`[PrimarySowingEntry] Building packet payload:`, {
+                productName: p.productName,
+                productId: p.productId,
+                batchNumber: p.batchNumber,
+                itemId: p.itemId,
+                outwardId: p.outwardId,
+                key1,
+                key2,
+                isComplete,
+                originalAvailableQty,
+                usedQty,
+                remainingQty,
+                shouldReturnRemaining,
+                finalCompleteSowing,
+                flagValue1: completeSowingFlags[key1],
+                flagValue2: completeSowingFlags[key2],
+                packetAvailableQty: p.availableQuantity
+              });
+              
+              return {
+                outwardId: p.outwardId,
+                itemId: p.itemId,
+                quantity: usedQty,
+                batchNumber: p.batchNumber,
+                completeSowing: finalCompleteSowing,
+                remainingQuantity: finalCompleteSowing ? remainingQty : 0, // Return remaining stock if there's any remaining
+              };
+            }),
           };
 
           if (user?._id) {
@@ -634,6 +740,24 @@ const PrimarySowingEntry = () => {
             const readyDaysKey = `${group.plantId}_${group.subtypeId}`;
             const groupReadyDays = plantReadyDays[readyDaysKey] || 0;
             
+            // Check if complete sowing is checked for any packet in this PRIMARY group
+            let primaryCompleteSowing = false;
+            Object.entries(primaryQuantities).forEach(([itemId, qty]) => {
+              if (qty > 0) {
+                const packet = availablePackets
+                  .flatMap(pg => pg.subtypes?.flatMap(sg => sg.packets || []) || [])
+                  .find(p => p.itemId === itemId && 
+                    p.plantId === group.plantId && 
+                    p.subtypeId === group.subtypeId);
+                if (packet) {
+                  const combinedKey = `${packet.productId || packet.productName}_${packet.batchNumber || 'NO_BATCH'}`;
+                  if (completeSowingFlags[combinedKey] === true) {
+                    primaryCompleteSowing = true;
+                  }
+                }
+              }
+            });
+            
             const payload = {
               plantId: group.plantId,
               subtypeId: group.subtypeId,
@@ -645,7 +769,8 @@ const PrimarySowingEntry = () => {
               batchNumber: batchNumberToUse, // Use batch number from packets or form
               sowingLocation: "PRIMARY",
               slotId: group.slotId,
-              plantReadyDays: groupReadyDays, // Include plant ready days from state
+              plantReadyDays: primaryCompleteSowing ? 0 : groupReadyDays, // Set to 0 if complete sowing
+              completeSowing: primaryCompleteSowing, // Flag to indicate complete sowing
             };
 
             if (user?._id) {
@@ -1574,26 +1699,39 @@ const PrimarySowingEntry = () => {
                                     }}
                                   />
                                 </Box>
-                                {expectedReadyDate && (
-                                  <Box sx={{ 
-                                    p: 0.75, 
-                                    bgcolor: "#e8f5e9", 
-                                    borderRadius: 1,
-                                    border: "1px solid #4caf50",
-                                    display: "flex",
-                                    alignItems: "center",
-                                    gap: 0.5
-                                  }}>
-                                    <CalendarToday sx={{ fontSize: "0.875rem", color: "#2e7d32" }} />
-                                    <Typography variant="body2" sx={{ 
-                                      fontWeight: 600, 
-                                      color: "#2e7d32", 
-                                      fontSize: isMobile ? "0.75rem" : "0.8rem" 
+                                {(() => {
+                                  // Check if any packet in this subtype has complete sowing checked
+                                  const hasCompleteSowing = combinedBatches.some(combined => {
+                                    const combinedKey = `${combined.productId}_${combined.batchNumber}`;
+                                    return completeSowingFlags[combinedKey] === true;
+                                  });
+                                  
+                                  // Don't show expected ready date if complete sowing is checked
+                                  if (hasCompleteSowing) {
+                                    return null;
+                                  }
+                                  
+                                  return expectedReadyDate ? (
+                                    <Box sx={{ 
+                                      p: 0.75, 
+                                      bgcolor: "#e8f5e9", 
+                                      borderRadius: 1,
+                                      border: "1px solid #4caf50",
+                                      display: "flex",
+                                      alignItems: "center",
+                                      gap: 0.5
                                     }}>
-                                      Plants will be ready on: {expectedReadyDate}
-                                    </Typography>
-                                  </Box>
-                                )}
+                                      <CalendarToday sx={{ fontSize: "0.875rem", color: "#2e7d32" }} />
+                                      <Typography variant="body2" sx={{ 
+                                        fontWeight: 600, 
+                                        color: "#2e7d32", 
+                                        fontSize: isMobile ? "0.75rem" : "0.8rem" 
+                                      }}>
+                                        Plants will be ready on: {expectedReadyDate}
+                                      </Typography>
+                                    </Box>
+                                  ) : null;
+                                })()}
                               </Box>
                               
                               <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
@@ -1651,10 +1789,12 @@ const PrimarySowingEntry = () => {
                                           updatedPackets.push({
                                             ...p,
                                             quantity: p.availableQuantity,
+                                            availableQuantity: p.availableQuantity, // Preserve original availableQuantity
                                             plantId: combined.plantId,
                                             plantName: combined.plantName,
                                             subtypeId: combined.subtypeId,
                                             subtypeName: combined.subtypeName,
+                                            productId: p.productId || combined.productId, // Ensure productId is preserved
                                           });
                                         });
                                         
@@ -1751,16 +1891,19 @@ const PrimarySowingEntry = () => {
                           fullWidth
                           value={selectedQuantity || ''}
                           inputProps={{
-                            inputMode: "numeric",
-                            pattern: "[0-9]*",
+                            inputMode: "decimal",
                             min: 0,
                             max: combined.totalAvailableQuantity,
-                            step: 1
+                            step: 0.1
                           }}
                           onChange={(e) => {
                             const qty = parseFloat(e.target.value) || 0;
                             const maxQty = combined.totalAvailableQuantity;
                             const conversionFactor = combined.conversionFactor || 1;
+                            const combinedKey = `${combined.productId}_${combined.batchNumber}`;
+                            
+                            // Check if decimal value is entered (has decimal point)
+                            const hasDecimal = e.target.value.includes('.');
                             
                             console.log(`[PrimarySowingEntry] Packets onChange:`, {
                               productName: combined.productName,
@@ -1768,7 +1911,23 @@ const PrimarySowingEntry = () => {
                               enteredQty: qty,
                               maxQty,
                               conversionFactor: conversionFactor,
+                              hasDecimal,
                             });
+                            
+                            // If decimal is entered, automatically set complete sowing
+                            if (hasDecimal && qty > 0) {
+                              setCompleteSowingFlags(prev => ({
+                                ...prev,
+                                [combinedKey]: true
+                              }));
+                            } else if (!hasDecimal) {
+                              // Clear complete sowing flag if no decimal
+                              setCompleteSowingFlags(prev => {
+                                const updated = { ...prev };
+                                delete updated[combinedKey];
+                                return updated;
+                              });
+                            }
                             
                             // Enforce maximum limit
                             if (qty > maxQty) {
@@ -1785,10 +1944,12 @@ const PrimarySowingEntry = () => {
                                   updatedPackets.push({
                                     ...p,
                                     quantity: packetQty,
+                                    availableQuantity: p.availableQuantity, // Preserve original availableQuantity
                                     plantId: combined.plantId,
                                     plantName: combined.plantName,
                                     subtypeId: combined.subtypeId,
                                     subtypeName: combined.subtypeName,
+                                    productId: p.productId || combined.productId, // Ensure productId is preserved
                                   });
                                   remainingQty -= packetQty;
                                 }
@@ -1844,10 +2005,12 @@ const PrimarySowingEntry = () => {
                                     updatedPackets.push({
                                       ...p,
                                       quantity: packetQty,
+                                      availableQuantity: p.availableQuantity, // Preserve original availableQuantity
                                       plantId: combined.plantId,
                                       plantName: combined.plantName,
                                       subtypeId: combined.subtypeId,
                                       subtypeName: combined.subtypeName,
+                                      productId: p.productId || combined.productId, // Ensure productId is preserved
                                     });
                                     remainingQty -= packetQty;
                                   }
@@ -1864,10 +2027,12 @@ const PrimarySowingEntry = () => {
                                     packetsToAdd.push({
                                       ...p,
                                       quantity: packetQty,
+                                      availableQuantity: p.availableQuantity, // Preserve original availableQuantity
                                       plantId: combined.plantId,
                                       plantName: combined.plantName,
                                       subtypeId: combined.subtypeId,
                                       subtypeName: combined.subtypeName,
+                                      productId: p.productId || combined.productId, // Ensure productId is preserved
                                     });
                                     remainingQty -= packetQty;
                                   }
@@ -1940,6 +2105,50 @@ const PrimarySowingEntry = () => {
                                             const qty = parseFloat(e.target.value) || 0;
                                             const conversionFactor = combined.conversionFactor || 1;
                                             
+                                            // Calculate expected primary quantity from packets (only validate if packets are selected)
+                                            const selectedItems = selectedPackets.filter(sp => 
+                                              combined.itemIds.includes(sp.itemId)
+                                            );
+                                            const totalPacketQty = selectedItems.reduce((sum, sp) => sum + (sp.quantity || 0), 0);
+                                            
+                                            // Validate: Primary should not exceed 10% more than calculated from packets
+                                            // Only apply validation if packets are selected
+                                            if (totalPacketQty > 0) {
+                                              const expectedPrimaryQty = totalPacketQty * conversionFactor;
+                                              const maxAllowedPrimaryQty = expectedPrimaryQty * 1.1; // Allow 10% more
+                                              
+                                              console.log(`[PrimarySowingEntry] Primary (Field) validation:`, {
+                                                productName: combined.productName,
+                                                batchNumber: combined.batchNumber,
+                                                enteredQty: qty,
+                                                totalPacketQty,
+                                                conversionFactor,
+                                                expectedPrimaryQty,
+                                                maxAllowedPrimaryQty,
+                                              });
+                                              
+                                              if (qty > 0 && qty > maxAllowedPrimaryQty) {
+                                                Toast.error(`Primary (Field) cannot exceed ${Math.round(maxAllowedPrimaryQty)} (10% more than calculated ${Math.round(expectedPrimaryQty)} from ${totalPacketQty} packets)`);
+                                                // Reset to max allowed value
+                                                const maxAllowedValue = Math.round(maxAllowedPrimaryQty);
+                                                const itemCount = combined.itemIds.length;
+                                                const qtyPerItem = itemCount > 0 ? Math.floor(maxAllowedValue / itemCount) : 0;
+                                                const remainder = itemCount > 0 ? maxAllowedValue % itemCount : 0;
+                                                
+                                                const updatedPrimaryQuantities = { ...primaryQuantities };
+                                                combined.itemIds.forEach((itemId, idx) => {
+                                                  const itemQty = qtyPerItem + (idx < remainder ? 1 : 0);
+                                                  if (itemQty > 0) {
+                                                    updatedPrimaryQuantities[itemId] = itemQty;
+                                                  } else {
+                                                    delete updatedPrimaryQuantities[itemId];
+                                                  }
+                                                });
+                                                setPrimaryQuantities(updatedPrimaryQuantities);
+                                                return; // Don't update with the invalid value
+                                              }
+                                            }
+                                            
                                             console.log(`[PrimarySowingEntry] Primary (Field) onChange:`, {
                                               productName: combined.productName,
                                               batchNumber: combined.batchNumber,
@@ -2001,10 +2210,12 @@ const PrimarySowingEntry = () => {
                                                       updatedPackets.push({
                                                         ...p,
                                                         quantity: packetQty,
+                                                        availableQuantity: p.availableQuantity, // Preserve original availableQuantity
                                                         plantId: combined.plantId,
                                                         plantName: combined.plantName,
                                                         subtypeId: combined.subtypeId,
                                                         subtypeName: combined.subtypeName,
+                                                        productId: p.productId || combined.productId, // Ensure productId is preserved
                                                       });
                                                       remainingQty -= packetQty;
                                                     }
@@ -2022,10 +2233,12 @@ const PrimarySowingEntry = () => {
                                                       packetsToAdd.push({
                                                         ...p,
                                                         quantity: packetQty,
+                                                        availableQuantity: p.availableQuantity, // Preserve original availableQuantity
                                                         plantId: combined.plantId,
                                                         plantName: combined.plantName,
                                                         subtypeId: combined.subtypeId,
                                                         subtypeName: combined.subtypeName,
+                                                        productId: p.productId || combined.productId, // Ensure productId is preserved
                                                       });
                                                       remainingQty -= packetQty;
                                                     }

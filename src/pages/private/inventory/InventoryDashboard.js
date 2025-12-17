@@ -9,16 +9,34 @@ import {
   FileText,
   Send,
   BarChart3,
+  RotateCcw,
 } from 'lucide-react';
 import { API, NetworkManager } from 'network/core';
+import SowingRequestDialog from './components/SowingRequestDialog';
+import { Toast } from 'helpers/toasts/toastHelper';
+import { CheckCircle, XCircle } from 'lucide-react';
 
 const InventoryDashboard = () => {
   const navigate = useNavigate();
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [sowingRequests, setSowingRequests] = useState([]);
+  const [loadingRequests, setLoadingRequests] = useState(false);
+  const [selectedRequest, setSelectedRequest] = useState(null);
+  const [requestDialogOpen, setRequestDialogOpen] = useState(false);
+  const [returnRequests, setReturnRequests] = useState([]);
+  const [loadingReturnRequests, setLoadingReturnRequests] = useState(false);
+  const [approvingId, setApprovingId] = useState(null);
+  const [rejectingId, setRejectingId] = useState(null);
+  const [rejectionReason, setRejectionReason] = useState('');
+  const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
+  const [approveDialogOpen, setApproveDialogOpen] = useState(false);
+  const [selectedReturnRequest, setSelectedReturnRequest] = useState(null);
 
   useEffect(() => {
     fetchInventorySummary();
+    fetchPendingSowingRequests();
+    fetchPendingReturnRequests();
   }, []);
 
   const fetchInventorySummary = async () => {
@@ -37,6 +55,122 @@ const InventoryDashboard = () => {
       console.error('Error fetching inventory summary:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchPendingSowingRequests = async () => {
+    setLoadingRequests(true);
+    try {
+      const instance = NetworkManager(API.sowing.GET_PENDING_SOWING_REQUESTS);
+      const response = await instance.request();
+      if (response?.data?.success) {
+        setSowingRequests(response.data.data || []);
+      }
+    } catch (error) {
+      console.error('Error fetching sowing requests:', error);
+    } finally {
+      setLoadingRequests(false);
+    }
+  };
+
+  const fetchPendingReturnRequests = async () => {
+    setLoadingReturnRequests(true);
+    try {
+      const instance = NetworkManager(API.INVENTORY.GET_RETURN_REQUESTS);
+      const response = await instance.request({ status: 'pending' });
+      if (response?.data?.success) {
+        // Filter to show only pending requests and get first 6 for dashboard
+        const pendingRequests = (response.data.data || []).filter(req => req.status === 'pending');
+        setReturnRequests(pendingRequests.slice(0, 6));
+      }
+    } catch (error) {
+      console.error('Error fetching return requests:', error);
+    } finally {
+      setLoadingReturnRequests(false);
+    }
+  };
+
+  const handleApproveReturnRequest = (request, e) => {
+    e.stopPropagation(); // Prevent card click navigation
+    setSelectedReturnRequest(request);
+    setApproveDialogOpen(true);
+  };
+
+  const confirmApproveReturnRequest = async () => {
+    if (!selectedReturnRequest) return;
+
+    setApprovingId(selectedReturnRequest._id);
+    try {
+      const instance = NetworkManager(API.INVENTORY.APPROVE_RETURN_REQUEST);
+      const response = await instance.request({ remarks: '' }, [`${selectedReturnRequest._id}/approve`]);
+      
+      if (response?.data?.success) {
+        Toast.success('Return request approved successfully');
+        setApproveDialogOpen(false);
+        setSelectedReturnRequest(null);
+        fetchPendingReturnRequests();
+        fetchInventorySummary(); // Refresh summary to show updated stock
+      } else {
+        Toast.error(response?.data?.message || 'Failed to approve return request');
+      }
+    } catch (error) {
+      console.error('Error approving return request:', error);
+      Toast.error(error?.response?.data?.message || 'Error approving return request');
+    } finally {
+      setApprovingId(null);
+    }
+  };
+
+  const handleRejectReturnRequest = (request, e) => {
+    e.stopPropagation(); // Prevent card click navigation
+    setSelectedReturnRequest(request);
+    setRejectDialogOpen(true);
+  };
+
+  const confirmRejectReturnRequest = async () => {
+    if (!rejectionReason.trim()) {
+      Toast.error('Please provide a rejection reason');
+      return;
+    }
+
+    if (!selectedReturnRequest) return;
+
+    setRejectingId(selectedReturnRequest._id);
+    try {
+      const instance = NetworkManager(API.INVENTORY.REJECT_RETURN_REQUEST);
+      const response = await instance.request(
+        { rejectionReason },
+        [`${selectedReturnRequest._id}/reject`]
+      );
+      
+      if (response?.data?.success) {
+        Toast.success('Return request rejected');
+        setRejectDialogOpen(false);
+        setRejectionReason('');
+        setSelectedReturnRequest(null);
+        fetchPendingReturnRequests();
+      } else {
+        Toast.error(response?.data?.message || 'Failed to reject return request');
+      }
+    } catch (error) {
+      console.error('Error rejecting return request:', error);
+      Toast.error(error?.response?.data?.message || 'Error rejecting return request');
+    } finally {
+      setRejectingId(null);
+    }
+  };
+
+  const handleRequestClick = async (request) => {
+    try {
+      const instance = NetworkManager(API.sowing.GET_SOWING_REQUEST_BY_ID);
+      const response = await instance.request({}, [request._id]);
+      if (response?.data?.success) {
+        setSelectedRequest(response.data.data);
+        setRequestDialogOpen(true);
+      }
+    } catch (error) {
+      console.error('Error fetching request details:', error);
+      alert('Error loading request details');
     }
   };
 
@@ -181,6 +315,14 @@ const InventoryDashboard = () => {
       color: 'text-indigo-600',
       bgColor: 'bg-indigo-50',
     },
+    {
+      title: 'Return Requests',
+      description: 'Approve stock return requests',
+      icon: RotateCcw,
+      path: '/u/inventory/return-requests',
+      color: 'text-yellow-600',
+      bgColor: 'bg-yellow-50',
+    },
   ];
 
   if (loading) {
@@ -279,6 +421,223 @@ const InventoryDashboard = () => {
         </div>
       )}
 
+      {/* Sowing Requests Section */}
+      {sowingRequests.length > 0 && (
+        <div className="mb-4 sm:mb-6 md:mb-8">
+          <div className="flex items-center justify-between mb-3 sm:mb-4">
+            <h2 className="text-xl sm:text-2xl font-bold text-gray-800">
+              Sowing Requests Received ({sowingRequests.length})
+            </h2>
+            <button
+              onClick={() => navigate('/u/inventory/sowing-requests')}
+              className="text-blue-600 hover:text-blue-800 text-sm font-semibold"
+            >
+              View All →
+            </button>
+          </div>
+          <div className="bg-white rounded-xl sm:rounded-2xl shadow-lg p-3 sm:p-4 md:p-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+              {sowingRequests.map((request) => (
+                <button
+                  key={request._id}
+                  onClick={() => handleRequestClick(request)}
+                  className="border-2 border-orange-300 rounded-lg sm:rounded-xl p-3 sm:p-4 hover:border-orange-500 hover:shadow-md transition-all text-left"
+                >
+                  <div className="flex items-start justify-between mb-2">
+                    <div className="flex-1">
+                      <p className="text-xs text-gray-500 mb-1">{request.requestNumber}</p>
+                      <h3 className="text-sm sm:text-base font-bold text-gray-800 mb-1">
+                        {request.plantName}
+                      </h3>
+                      <p className="text-xs sm:text-sm text-gray-600 mb-2">{request.subtypeName}</p>
+                    </div>
+                    <div className="text-right">
+                      <span className="bg-orange-100 text-orange-700 text-xs font-semibold px-2 py-1 rounded block mb-1">
+                        {request.packetsRequested?.toFixed(2) || request.packetsNeeded?.toFixed(2) || request.packetsNeeded} {request.unitName}
+                      </span>
+                      {request.excessPackets > 0 && (
+                        <span className="bg-yellow-100 text-yellow-700 text-xs font-semibold px-2 py-1 rounded block">
+                          +{request.excessPackets.toFixed(2)} excess
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between text-xs text-gray-500">
+                    <span>Available: {request.availablePackets || 0}</span>
+                    <span className="text-orange-600 font-semibold">Click to Issue →</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Return Requests Section */}
+      {returnRequests.length > 0 && (
+        <div className="mb-4 sm:mb-6 md:mb-8">
+          <div className="flex items-center justify-between mb-3 sm:mb-4">
+            <h2 className="text-xl sm:text-2xl font-bold text-gray-800">
+              Return Requests Pending ({returnRequests.length})
+            </h2>
+            <button
+              onClick={() => navigate('/u/inventory/return-requests')}
+              className="text-blue-600 hover:text-blue-800 text-sm font-semibold"
+            >
+              View All →
+            </button>
+          </div>
+          <div className="bg-white rounded-xl sm:rounded-2xl shadow-lg p-3 sm:p-4 md:p-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+              {returnRequests.map((request) => (
+                <div
+                  key={request._id}
+                  className="border-2 border-yellow-300 rounded-lg sm:rounded-xl p-3 sm:p-4 hover:border-yellow-500 hover:shadow-md transition-all"
+                >
+                  <div className="flex items-start justify-between mb-2">
+                    <div className="flex-1">
+                      <p className="text-xs text-gray-500 mb-1">{request.requestNumber}</p>
+                      <h3 className="text-sm sm:text-base font-bold text-gray-800 mb-1">
+                        {request.product?.name || 'N/A'}
+                      </h3>
+                      {request.batch?.batchNumber && (
+                        <p className="text-xs sm:text-sm text-gray-600 mb-2">
+                          Batch: {request.batch.batchNumber}
+                        </p>
+                      )}
+                    </div>
+                    <div className="text-right">
+                      <span className="bg-yellow-100 text-yellow-700 text-xs font-semibold px-2 py-1 rounded block mb-1">
+                        {request.quantity} {request.unit?.abbreviation || request.unit?.name || ''}
+                      </span>
+                      <span className="bg-yellow-100 text-yellow-700 text-xs font-semibold px-2 py-1 rounded block capitalize">
+                        {request.returnType}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between text-xs text-gray-500 mb-3">
+                    <span>By: {request.requestedBy?.name || 'N/A'}</span>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={(e) => handleApproveReturnRequest(request, e)}
+                      disabled={approvingId === request._id || rejectingId === request._id}
+                      className="flex-1 flex items-center justify-center gap-1 px-3 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-semibold"
+                    >
+                      <CheckCircle className="w-4 h-4" />
+                      <span>Approve</span>
+                    </button>
+                    <button
+                      onClick={(e) => handleRejectReturnRequest(request, e)}
+                      disabled={approvingId === request._id || rejectingId === request._id}
+                      className="flex-1 flex items-center justify-center gap-1 px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-semibold"
+                    >
+                      <XCircle className="w-4 h-4" />
+                      <span>Reject</span>
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Approve Dialog */}
+      {approveDialogOpen && selectedReturnRequest && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-md w-full">
+            <h2 className="text-2xl font-bold text-gray-800 mb-4">Approve Return Request</h2>
+            <div className="mb-4 space-y-2">
+              <p><span className="font-semibold">Request:</span> {selectedReturnRequest.requestNumber}</p>
+              <p><span className="font-semibold">Product:</span> {selectedReturnRequest.product?.name}</p>
+              {selectedReturnRequest.batch?.batchNumber && (
+                <p><span className="font-semibold">Batch:</span> {selectedReturnRequest.batch.batchNumber}</p>
+              )}
+              <p><span className="font-semibold">Quantity:</span> {selectedReturnRequest.quantity} {selectedReturnRequest.unit?.abbreviation || selectedReturnRequest.unit?.name || ''}</p>
+              <p><span className="font-semibold">Type:</span> <span className="capitalize">{selectedReturnRequest.returnType}</span></p>
+            </div>
+            <p className="text-gray-600 mb-6">
+              Are you sure you want to approve this return request? The stock will be added back to inventory.
+            </p>
+            <div className="flex space-x-3">
+              <button
+                onClick={() => {
+                  setApproveDialogOpen(false);
+                  setSelectedReturnRequest(null);
+                }}
+                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmApproveReturnRequest}
+                disabled={approvingId === selectedReturnRequest._id}
+                className="flex-1 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {approvingId === selectedReturnRequest._id ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    <span>Approving...</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle className="w-4 h-4" />
+                    <span>Approve</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reject Dialog */}
+      {rejectDialogOpen && selectedReturnRequest && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-md w-full">
+            <h2 className="text-2xl font-bold text-gray-800 mb-4">Reject Return Request</h2>
+            <div className="mb-4 space-y-2">
+              <p><span className="font-semibold">Request:</span> {selectedReturnRequest.requestNumber}</p>
+              <p><span className="font-semibold">Product:</span> {selectedReturnRequest.product?.name}</p>
+              <p><span className="font-semibold">Quantity:</span> {selectedReturnRequest.quantity} {selectedReturnRequest.unit?.abbreviation || ''}</p>
+            </div>
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Rejection Reason <span className="text-red-500">*</span>
+              </label>
+              <textarea
+                value={rejectionReason}
+                onChange={(e) => setRejectionReason(e.target.value)}
+                placeholder="Enter reason for rejection..."
+                rows={4}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                required
+              />
+            </div>
+            <div className="flex space-x-3">
+              <button
+                onClick={() => {
+                  setRejectDialogOpen(false);
+                  setRejectionReason('');
+                  setSelectedReturnRequest(null);
+                }}
+                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmRejectReturnRequest}
+                disabled={!rejectionReason.trim() || rejectingId === selectedReturnRequest._id}
+                className="flex-1 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {rejectingId === selectedReturnRequest._id ? 'Rejecting...' : 'Reject'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Menu Grid */}
       <div>
         <h2 className="text-xl sm:text-2xl font-bold text-gray-800 mb-3 sm:mb-4">Inventory Modules</h2>
@@ -304,6 +663,20 @@ const InventoryDashboard = () => {
           ))}
         </div>
       </div>
+
+      {/* Sowing Request Dialog */}
+      <SowingRequestDialog
+        open={requestDialogOpen}
+        onClose={() => {
+          setRequestDialogOpen(false);
+          setSelectedRequest(null);
+        }}
+        request={selectedRequest}
+        onSuccess={() => {
+          fetchPendingSowingRequests();
+          fetchInventorySummary();
+        }}
+      />
     </div>
   );
 };

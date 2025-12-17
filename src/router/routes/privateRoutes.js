@@ -30,6 +30,8 @@ const SellOrderForm = React.lazy(() => import("pages/private/inventory/SellOrder
 const SellOrderDetails = React.lazy(() => import("pages/private/inventory/SellOrderDetails"))
 const TransactionList = React.lazy(() => import("pages/private/inventory/TransactionList"))
 const InventoryLedger = React.lazy(() => import("pages/private/inventory/InventoryLedger"))
+const SowingRequestsList = React.lazy(() => import("pages/private/inventory/SowingRequestsList"))
+const ReturnRequestList = React.lazy(() => import("pages/private/inventory/ReturnRequestList"))
 
 const Transactions = React.lazy(() => import("pages/private/transaction"))
 const Patients = React.lazy(() => import("pages/private/employee"))
@@ -92,6 +94,8 @@ export const PrivateRoutes = [
   { path: "/u/inventory/sell-orders/:id", component: SellOrderDetails },
   { path: "/u/inventory/transactions", component: TransactionList },
   { path: "/u/inventory/ledger", component: InventoryLedger },
+  { path: "/u/inventory/sowing-requests", component: SowingRequestsList },
+  { path: "/u/inventory/return-requests", component: ReturnRequestList },
 
   { path: "/u/settings", component: Settings },
 

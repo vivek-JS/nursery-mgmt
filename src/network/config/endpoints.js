@@ -247,6 +247,13 @@ export const API = {
     GET_ALL_TRANSACTIONS: new APIRouter("/inventory/transactions", HTTP_METHODS.GET),
     GET_TRANSACTION_BY_ID: new APIRouter("/inventory/transactions", HTTP_METHODS.GET),
 
+    // Return Requests
+    GET_RETURN_REQUESTS: new APIRouter("/inventory/return-requests", HTTP_METHODS.GET),
+    GET_RETURN_REQUEST_BY_ID: new APIRouter("/inventory/return-requests", HTTP_METHODS.GET),
+    GET_PENDING_RETURN_REQUESTS_COUNT: new APIRouter("/inventory/return-requests/pending/count", HTTP_METHODS.GET),
+    APPROVE_RETURN_REQUEST: new APIRouter("/inventory/return-requests", HTTP_METHODS.PATCH), // /:id/approve
+    REJECT_RETURN_REQUEST: new APIRouter("/inventory/return-requests", HTTP_METHODS.PATCH), // /:id/reject
+
     // Batches
     GET_ALL_BATCHES: new APIRouter("/inventory/batches", HTTP_METHODS.GET),
     GET_BATCH_BY_ID: new APIRouter("/inventory/batches", HTTP_METHODS.GET),
@@ -509,6 +516,17 @@ export const API = {
     GET_SLOT_ORDERS_SUMMARY: new APIRouter("/sowing/slot-orders/:slotId", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_TODAY_SOWING_CARDS: new APIRouter("/sowing/today-sowing-cards", HTTP_METHODS.GET, OFFLINE.PROFILE),
     SEND_SOWING_REMINDERS_WHATSAPP: new APIRouter("/sowing/whatsapp/reminders", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    // Sowing Request APIs
+    CREATE_SOWING_REQUEST: new APIRouter("/sowing/request/create", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    CHECK_REQUEST_EXISTS: new APIRouter("/sowing/request/check", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_ALL_SOWING_REQUESTS: new APIRouter("/sowing/request/all", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_PENDING_SOWING_REQUESTS: new APIRouter("/sowing/request/pending", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_SOWING_REQUEST_BY_ID: new APIRouter("/sowing/request/:id", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    UPDATE_SOWING_REQUEST: new APIRouter("/sowing/request/:id", HTTP_METHODS.PUT, OFFLINE.PROFILE),
+    ISSUE_STOCK_FROM_REQUEST: new APIRouter("/sowing/request/:id/issue", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    REJECT_SOWING_REQUEST: new APIRouter("/sowing/request/:id/reject", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    CANCEL_SOWING_REQUEST: new APIRouter("/sowing/request/:id/cancel", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    CANCEL_ALL_SOWING_REQUESTS: new APIRouter("/sowing/request/cancel-all", HTTP_METHODS.POST, OFFLINE.PROFILE),
     // OLD APIs - DEPRECATED (will be removed)
     // GET_REMINDERS: new APIRouter("/sowing/reminders", HTTP_METHODS.GET, OFFLINE.PROFILE),
     // GET_ALERTS: new APIRouter("/sowing/alerts", HTTP_METHODS.GET, OFFLINE.PROFILE),
