@@ -595,3 +595,4 @@ const InventoryBucketingTreeComponent = ({ filters = {}, onOutwardNodeClick }) =
 export default InventoryBucketingTreeComponent;
 
 
+

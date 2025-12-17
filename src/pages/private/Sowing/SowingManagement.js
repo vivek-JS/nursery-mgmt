@@ -1144,7 +1144,7 @@ const SowingManagement = () => {
 
                   {/* Subtype Tabs */}
                   {plants[activeTab].subtypes && plants[activeTab].subtypes.length > 0 && (
-                    <Box sx={{ mb: 3 }}>
+                    <Box sx={{ mb: 3, overflow: "hidden" }}>
                       <Tabs
                         value={activeSubtypeTab}
                         onChange={(e, newValue) => {
@@ -1171,6 +1171,15 @@ const SowingManagement = () => {
                             fontWeight: 600,
                             fontSize: "0.9rem",
                             minHeight: 40,
+                            maxWidth: "none",
+                            minWidth: 120,
+                            textTransform: "none",
+                            px: 2,
+                          },
+                          "& .MuiTabs-scrollButtons": {
+                            "&.Mui-disabled": {
+                              opacity: 0.3,
+                            },
                           },
                         }}>
                         {plants[activeTab].subtypes.map((subtype, index) => {
@@ -1184,14 +1193,32 @@ const SowingManagement = () => {
                             <Tab
                               key={subtype._id}
                               label={
-                                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                                  <Agriculture sx={{ fontSize: 20 }} />
-                                  {subtype.name}
+                                <Box 
+                                  sx={{ 
+                                    display: "flex", 
+                                    alignItems: "center", 
+                                    gap: 1,
+                                    maxWidth: 200,
+                                    overflow: "hidden",
+                                  }}>
+                                  <Agriculture sx={{ fontSize: 20, flexShrink: 0 }} />
+                                  <Typography
+                                    variant="body2"
+                                    sx={{
+                                      overflow: "hidden",
+                                      textOverflow: "ellipsis",
+                                      whiteSpace: "nowrap",
+                                      maxWidth: 120,
+                                      fontWeight: 600,
+                                    }}
+                                    title={subtype.name}>
+                                    {subtype.name}
+                                  </Typography>
                                   <Chip 
                                     label={`${subtype.plantReadyDays}d`} 
                                     size="small" 
                                     color="success" 
-                                    sx={{ fontSize: "0.7rem", height: 18 }}
+                                    sx={{ fontSize: "0.7rem", height: 18, flexShrink: 0 }}
                                   />
                                   {!hasSlotsLoaded && (
                                     <Chip 
@@ -1199,7 +1226,7 @@ const SowingManagement = () => {
                                       size="small" 
                                       color="info" 
                                       variant="outlined"
-                                      sx={{ fontSize: "0.65rem", height: 16 }}
+                                      sx={{ fontSize: "0.65rem", height: 16, flexShrink: 0 }}
                                     />
                                   )}
                                 </Box>

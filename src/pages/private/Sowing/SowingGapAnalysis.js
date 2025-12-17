@@ -1539,6 +1539,7 @@ const SowingGapAnalysis = () => {
                             }
                             
                             if (card.conversionFactor && (card.primaryUnit || card.secondaryUnit)) {
+                              const hasStock = card.availablePackets > 0;
                               return (
                                 <Button
                                   variant="contained"
@@ -1549,11 +1550,11 @@ const SowingGapAnalysis = () => {
                                     mt: 0.5,
                                     fontSize: "0.7rem",
                                     py: 0.5,
-                                    bgcolor: "#1976d2",
-                                    "&:hover": { bgcolor: "#1565c0" }
+                                    bgcolor: hasStock ? "#2e7d32" : "#1976d2",
+                                    "&:hover": { bgcolor: hasStock ? "#1b5e20" : "#1565c0" }
                                   }}
                                 >
-                                  Request Stock
+                                  {hasStock ? "Stock Issue" : "Request Stock"}
                                 </Button>
                               );
                             }
@@ -2089,8 +2090,12 @@ const SowingGapAnalysis = () => {
         .filter((plant) => {
           // Filter plants based on active tab
           if (activeTab === 0) {
-            // Critical tab: show plants with positive gaps (overdue/urgent)
-            return (plant.totalBookingGap || 0) > 0;
+            // Critical tab: show plants with positive gaps OR overdue subtypes
+            // Check if plant has any subtypes with gap or overdue slots
+            const hasCriticalSubtypes = plant.subtypes?.some((st) => 
+              (st.totalBookingGap || 0) > 0 || (st.overdueSlotCount || 0) > 0
+            );
+            return hasCriticalSubtypes || (plant.totalBookingGap || 0) > 0;
           } else {
             // Available tab: show all plants (we'll check subtypes for negative gaps via API)
             console.log("[Render] Available tab - plant:", plant.plantName, "subtypes:", plant.subtypes?.length);
@@ -2103,8 +2108,12 @@ const SowingGapAnalysis = () => {
           const totalSubtypes = plantSubtypes.length;
           
           // Filter subtypes based on active tab
+          // Critical tab: show subtypes with positive gap OR overdue slots
+          // Available tab: show all subtypes, API will filter by negative gaps
           const filteredSubtypes = activeTab === 0
-            ? plantSubtypes.filter((st) => (st.totalBookingGap || 0) > 0)
+            ? plantSubtypes.filter((st) => 
+                (st.totalBookingGap || 0) > 0 || (st.overdueSlotCount || 0) > 0
+              )
             : plantSubtypes; // Available tab: show all subtypes, API will filter by negative gaps
           
           if (activeTab === 1) {

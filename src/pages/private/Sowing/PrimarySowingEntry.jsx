@@ -575,12 +575,28 @@ const PrimarySowingEntry = () => {
           
           console.log(`[PrimarySowingEntry] Group completeSowing:`, groupCompleteSowing);
           
+          // Calculate sowedPlant for this OFFICE group from primaryQuantities for this group's packets
+          const groupSowedPlant = group.packets.reduce((sum, packet) => {
+            const primaryQty = primaryQuantities[packet.itemId] || 0;
+            return sum + primaryQty;
+          }, 0);
+          
+          console.log(`[PrimarySowingEntry] OFFICE group sowedPlant calculation:`, {
+            groupKey,
+            plantName: group.plantName,
+            subtypeName: group.subtypeName,
+            groupSowedPlant,
+            totalQuantityRequired: group.totalQuantity,
+            packetItemIds: group.packets.map(p => p.itemId),
+            primaryQuantitiesForGroup: group.packets.map(p => ({ itemId: p.itemId, qty: primaryQuantities[p.itemId] || 0 }))
+          });
+          
           const payload = {
             plantId: group.plantId,
             subtypeId: group.subtypeId,
             sowingDate: moment(formData.sowingDate).format("DD-MM-YYYY"),
             totalQuantityRequired: group.totalQuantity,
-            sowedPlant: totalPrimaryQuantities || 0, // Use Primary (Field) input value
+            sowedPlant: groupSowedPlant || group.totalQuantity, // Use Primary (Field) for this group's packets, fallback to totalQuantity
             reminderBeforeDays: parseInt(formData.reminderBeforeDays),
             notes: formData.notes || "",
             batchNumber: batchNumberFromPackets, // Use batch number from packets (mandatory)
@@ -2173,94 +2189,8 @@ const PrimarySowingEntry = () => {
                                             
                                             console.log(`[PrimarySowingEntry] Updated primaryQuantities:`, updatedPrimaryQuantities);
                                             setPrimaryQuantities(updatedPrimaryQuantities);
-                                            
-                                            // Auto-fill Packets = primary / conversionFactor
-                                            if (qty > 0 && conversionFactor > 0) {
-                                              const packetQty = Math.floor(qty / conversionFactor);
-                                              const maxQty = combined.totalAvailableQuantity;
-                                              const finalPacketQty = Math.min(packetQty, maxQty);
-                                              
-                                              console.log(`[PrimarySowingEntry] Auto-filling Packets from Primary:`, {
-                                                primaryQty: qty,
-                                                conversionFactor,
-                                                calculatedPacketQty: packetQty,
-                                                finalPacketQty,
-                                                maxQty,
-                                              });
-                                              
-                                              if (finalPacketQty > 0) {
-                                                const existingPackets = selectedPackets.filter(sp => 
-                                                  combined.itemIds.includes(sp.itemId)
-                                                );
-                                                
-                                                if (existingPackets.length > 0) {
-                                                  const updatedPackets = [...selectedPackets];
-                                                  let remainingQty = finalPacketQty;
-                                                  
-                                                  combined.itemIds.forEach(itemId => {
-                                                    const idx = updatedPackets.findIndex(sp => sp.itemId === itemId);
-                                                    if (idx >= 0) {
-                                                      updatedPackets.splice(idx, 1);
-                                                    }
-                                                  });
-                                                  
-                                                  combined.packets.forEach((p) => {
-                                                    if (remainingQty > 0) {
-                                                      const packetQty = Math.min(p.availableQuantity, remainingQty);
-                                                      updatedPackets.push({
-                                                        ...p,
-                                                        quantity: packetQty,
-                                                        availableQuantity: p.availableQuantity, // Preserve original availableQuantity
-                                                        plantId: combined.plantId,
-                                                        plantName: combined.plantName,
-                                                        subtypeId: combined.subtypeId,
-                                                        subtypeName: combined.subtypeName,
-                                                        productId: p.productId || combined.productId, // Ensure productId is preserved
-                                                      });
-                                                      remainingQty -= packetQty;
-                                                    }
-                                                  });
-                                                  
-                                                  setSelectedPackets(updatedPackets);
-                                                  console.log(`[PrimarySowingEntry] Updated existing packets`);
-                                                } else {
-                                                  const packetsToAdd = [];
-                                                  let remainingQty = finalPacketQty;
-                                                  
-                                                  combined.packets.forEach((p) => {
-                                                    if (remainingQty > 0) {
-                                                      const packetQty = Math.min(p.availableQuantity, remainingQty);
-                                                      packetsToAdd.push({
-                                                        ...p,
-                                                        quantity: packetQty,
-                                                        availableQuantity: p.availableQuantity, // Preserve original availableQuantity
-                                                        plantId: combined.plantId,
-                                                        plantName: combined.plantName,
-                                                        subtypeId: combined.subtypeId,
-                                                        subtypeName: combined.subtypeName,
-                                                        productId: p.productId || combined.productId, // Ensure productId is preserved
-                                                      });
-                                                      remainingQty -= packetQty;
-                                                    }
-                                                  });
-                                                  
-                                                  setSelectedPackets([...selectedPackets, ...packetsToAdd]);
-                                                  console.log(`[PrimarySowingEntry] Added new packets from Primary:`, packetsToAdd);
-                                                }
-                                              } else {
-                                                // Clear Packets when Primary is too small
-                                                console.log(`[PrimarySowingEntry] Primary quantity too small, clearing Packets`);
-                                                setSelectedPackets(selectedPackets.filter(sp => 
-                                                  !combined.itemIds.includes(sp.itemId)
-                                                ));
-                                              }
-                                            } else {
-                                              // Clear Packets when Primary is cleared
-                                              console.log(`[PrimarySowingEntry] Primary cleared, clearing Packets`);
-                                              setSelectedPackets(selectedPackets.filter(sp => 
-                                                !combined.itemIds.includes(sp.itemId)
-                                              ));
-                                            }
+                                            // Note: Primary (Field) changes do NOT auto-fill Packets
+                                            // Only Packets -> Primary auto-fill is enabled
                                           }}
                                           placeholder="0"
                                           sx={{
