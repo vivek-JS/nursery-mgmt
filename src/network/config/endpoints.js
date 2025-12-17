@@ -280,7 +280,10 @@ export const API = {
       "api/v2/inventory/deleteInventory",
       HTTP_METHODS.DEL,
       OFFLINE.PROFILE
-    )
+    ),
+
+    // Bucketing
+    GET_BUCKETING: new APIRouter("/inventory/bucketing", HTTP_METHODS.GET)
   },
   STATS: {
     DASHBOARD_STATS: new APIRouter("api/v2/stats/dashboard", HTTP_METHODS.GET, OFFLINE.PROFILE)
@@ -322,7 +325,9 @@ export const API = {
     ),
     ADD_PAYMENT: new APIRouter("order/payment/:orderId", HTTP_METHODS.PATCH, OFFLINE.PROFILE),
     GET_CSV: new APIRouter("order/getCSV", HTTP_METHODS.GET, OFFLINE.PROFILE),
-    GET_SLOTS: new APIRouter("slots/getslots", HTTP_METHODS.GET, OFFLINE.PROFILE)
+    GET_SLOTS: new APIRouter("slots/getslots", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_BUCKETING: new APIRouter("/order/bucketing", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_SALESMEN_BUCKETING: new APIRouter("/order/salesmen-bucketing", HTTP_METHODS.GET, OFFLINE.PROFILE)
   },
   plantCms: {
     POST_NEWPLANT: new APIRouter("/plantcms/plants", HTTP_METHODS.POST, OFFLINE.PROFILE),

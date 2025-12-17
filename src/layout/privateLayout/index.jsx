@@ -90,7 +90,7 @@ export default function PrivateLayout(props) {
   useEffect(() => {
     if (isPrimaryEmployee && !isSuperAdmin && !isAdmin) {
       const currentPath = location.pathname
-      // useLocation hook normalizes pathname for HashRouter, so no need to check for hash
+      // With BrowserRouter, pathname is the actual route path
       const isPrimarySowingRoute = currentPath === "/u/primary-sowing-entry" || currentPath.includes("/u/primary-sowing-entry")
       
       if (!isPrimarySowingRoute) {
@@ -102,7 +102,7 @@ export default function PrivateLayout(props) {
   }, [isPrimaryEmployee, isSuperAdmin, isAdmin, location.pathname, navigate])
   
   // Hide sidebar for primary sowing entry route
-  // useLocation hook normalizes pathname for HashRouter
+  // With BrowserRouter, pathname is the actual route path
   const hideSidebar = location.pathname === "/u/primary-sowing-entry"
   
   const { 

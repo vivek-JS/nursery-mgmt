@@ -10,7 +10,7 @@ import { hasSeenTodaysQuote, markQuoteAsSeen } from "utils/quoteUtils"
 export const usePrivateLayoutController = (props) => {
   const navigateTo = useNavigate()
   const location = useLocation()
-  // With HashRouter, location.pathname works correctly via useLocation hook
+  // With BrowserRouter, location.pathname works correctly via useLocation hook
   const currentRoute = location.pathname
   const model = useLogoutModel()
   const [showPasswordModal, setShowPasswordModal] = React.useState(false)

@@ -75,7 +75,7 @@ axiosInstance.interceptors.response.use(
         // Clear token and redirect to login
         localStorage.removeItem(CookieKeys.Auth);
         localStorage.removeItem(CookieKeys.REFRESH_TOKEN);
-        window.location.href = '/#/auth/login';
+        window.location.href = '/auth/login';
       }
     }
     return Promise.reject(error);

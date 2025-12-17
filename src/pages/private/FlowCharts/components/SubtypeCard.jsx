@@ -102,3 +102,4 @@ const SubtypeCard = ({ subtype, plantName, index }) => {
 
 export default SubtypeCard
 
+

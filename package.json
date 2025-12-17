@@ -3,7 +3,7 @@
   "version": "3.0.0",
   "private": true,
   "scripts": {
-    "start": "env-cmd -f .env.dev react-scripts start",
+    "start": "FAST_REFRESH=false env-cmd -f .env.dev react-scripts start",
     "start:qa": "env-cmd -f .env.qa react-scripts start",
     "start:stage": "env-cmd -f .env.staging react-scripts start",
     "build": "react-scripts build",
@@ -41,6 +41,7 @@
     "axios": "^1.6.8",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
+    "d3": "^7.9.0",
     "date-fns": "^2.30.0",
     "dayjs": "^1.11.10",
     "formik": "^2.4.6",

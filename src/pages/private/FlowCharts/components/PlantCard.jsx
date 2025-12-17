@@ -102,3 +102,4 @@ const PlantCard = ({ plant, index, isExpanded, onClick }) => {
 
 export default PlantCard
 
+

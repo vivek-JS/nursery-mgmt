@@ -54,3 +54,4 @@ if (typeof window !== "undefined") {
   window.hasSeenQuote = hasSeenTodaysQuote
 }
 
+

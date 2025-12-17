@@ -1,5 +1,5 @@
 import React, { Suspense } from "react"
-import { HashRouter, Route, Navigate, Routes } from "react-router-dom"
+import { BrowserRouter, Route, Navigate, Routes } from "react-router-dom"
 import { AuthContext } from "../auth/AuthContext"
 import { PrivateRoutes, PublicRoutes } from "./routes"
 import Error404 from "pages/Error404"
@@ -14,7 +14,7 @@ const Router = () => {
   return (
     <AuthContext.Provider value={isLoggedIn}>
       <Suspense fallback={<AppLoader visible={true} />}>
-        <HashRouter>
+        <BrowserRouter>
           <Routes>
             {/* All the public routes - MUST be before other routes */}
             {/* Public routes are accessible WITHOUT authentication - always render, no auth check */}
@@ -27,7 +27,7 @@ const Router = () => {
               if (isPublicFarmerRoute) {
                 return (
                   <Route
-                    key={`Route-${route.path}`}
+                    key={`public-route-${route.path}`}
                     path={route.path}
                     element={<Component />}
                   />
@@ -37,7 +37,7 @@ const Router = () => {
               // Other public routes: check allowWhenLoggedIn flag
               return (
                 <Route
-                  key={`Route-${route.path}`}
+                  key={`public-route-${route.path}`}
                   path={route.path}
                   element={
                     // If route allows logged in users OR user is not logged in, show component
@@ -52,13 +52,18 @@ const Router = () => {
               )
             })}
             
+            {/* Root redirect */}
             <Route path="/" element={<Navigate to="/u/dashboard" replace />} />
+            
+            {/* Alias route: /u/d redirects to /u/dashboard */}
+            <Route path="/u/d" element={<Navigate to="/u/dashboard" replace />} />
 
             {/* All the private routes */}
             {PrivateRoutes.map(({ component: Component, ...route }) => (
               <Route
-                key={`Route-${route.path}`}
-                element={<PrivateLayout isLoggedIn={isLoggedIn} />}>
+                key={`private-route-${route.path}`}
+                element={<PrivateLayout isLoggedIn={isLoggedIn} />}
+              >
                 <Route
                   path={route.path}
                   element={
@@ -73,9 +78,9 @@ const Router = () => {
             ))}
 
             {/* 404 page route */}
-            <Route exact path="*" element={<Error404 />} />
+            <Route path="*" element={<Error404 />} />
           </Routes>
-        </HashRouter>
+        </BrowserRouter>
       </Suspense>
     </AuthContext.Provider>
   )

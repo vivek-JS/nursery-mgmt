@@ -51,10 +51,10 @@ export function SessionObserver() {
       UserState.login({})
 
       // If we're on the login page and have a valid session, redirect to dashboard
-      // With HashRouter, check hash instead of pathname
-      const currentHash = window.location.hash
-      if (currentHash === "#/auth/login" || currentHash === "" || currentHash === "#/") {
-        window.location.href = "/#/u/dashboard"
+      // With BrowserRouter, check pathname directly
+      const currentPath = window.location.pathname
+      if (currentPath === "/auth/login" || currentPath === "" || currentPath === "/") {
+        window.location.href = "/u/dashboard"
       }
     } catch (error) {
       console.error("Error fetching user profile:", error)

@@ -179,6 +179,13 @@ const PrimarySowingEntry = () => {
         message += `\n${idx + 1}. *${group.plantName} - ${group.subtypeName}*\n`;
         message += `   Quantity: ${group.totalQuantity} units\n`;
         
+        // Add Plant Ready By date if available
+        if (formData.sowingDate && group.plantReadyDays > 0) {
+          const readyDate = moment(formData.sowingDate).add(group.plantReadyDays, 'days');
+          const formattedDate = readyDate.format("DD-MMM-YYYY");
+          message += `   *Plant Ready By: ${formattedDate}*\n`;
+        }
+        
         // Group packets by batch
         const batchMap = new Map();
         group.packets.forEach(p => {
@@ -207,6 +214,13 @@ const PrimarySowingEntry = () => {
         message += `\n${idx + 1}. *${group.plantName} - ${group.subtypeName}*\n`;
         message += `   Quantity: ${group.totalQuantity} units\n`;
         
+        // Add Plant Ready By date if available
+        if (formData.sowingDate && group.plantReadyDays > 0) {
+          const readyDate = moment(formData.sowingDate).add(group.plantReadyDays, 'days');
+          const formattedDate = readyDate.format("DD-MMM-YYYY");
+          message += `   *Plant Ready By: ${formattedDate}*\n`;
+        }
+        
         // Group by batch
         const batchMap = new Map();
         group.packets.forEach(p => {
@@ -231,7 +245,6 @@ const PrimarySowingEntry = () => {
     message += `━━━━━━━━━━━━━━━━━━━━\n\n`;
     message += `📊 *Total Records:* ${allGroups.length}\n`;
     message += `📦 *Total Quantity:* ${totalQuantity} units\n`;
-    message += `\n_Generated from Nursery Management System_`;
 
     return message;
   };
@@ -793,6 +806,7 @@ const PrimarySowingEntry = () => {
       const groupKey = `${packet.plantId}_${packet.subtypeId}`;
       
       if (!groupedPackets.has(groupKey)) {
+        const readyDaysKey = `${packet.plantId}_${packet.subtypeId}`;
         groupedPackets.set(groupKey, {
           plantId: packet.plantId,
           plantName: packet.plantName,
@@ -801,6 +815,7 @@ const PrimarySowingEntry = () => {
           sowingLocation: "OFFICE",
           packets: [],
           totalQuantity: 0,
+          plantReadyDays: plantReadyDays[readyDaysKey] || 0,
         });
       }
       
@@ -825,6 +840,7 @@ const PrimarySowingEntry = () => {
         if (packet) {
           const key = `${packet.plantId}_${packet.subtypeId}`;
           if (!primaryGroupsMap.has(key)) {
+            const readyDaysKey = `${packet.plantId}_${packet.subtypeId}`;
             primaryGroupsMap.set(key, {
               plantId: packet.plantId,
               plantName: packet.plantName,
@@ -833,6 +849,7 @@ const PrimarySowingEntry = () => {
               sowingLocation: "PRIMARY",
               totalQty: 0,
               packets: [],
+              plantReadyDays: plantReadyDays[readyDaysKey] || 0,
             });
           }
           const group = primaryGroupsMap.get(key);
@@ -856,6 +873,7 @@ const PrimarySowingEntry = () => {
         sowingLocation: "PRIMARY",
         totalQuantity: group.totalQty,
         packets: group.packets,
+        plantReadyDays: group.plantReadyDays,
       });
     });
 

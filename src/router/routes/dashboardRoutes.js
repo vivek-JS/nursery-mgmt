@@ -40,6 +40,7 @@ export const DashboardMenus = [
   // new MenuPath("Admin", <AdminPanelSettingsIcon />, "/u/admin"),
   new MenuPath("Labs", <BiotechIcon />, "/u/labs", ["LABORATORY_MANAGER", "SUPER_ADMIN"]),
   new MenuPath("Order", <ListAltIcon />, "/u/orders"),
+  new MenuPath("Order Bucketing", <AccountTreeIcon />, "/u/order-bucketing"),
   new MenuPath("Orders-upload", <ListAltIcon />, "/u/upload-orders"),
   new MenuPath("Dealers", <ListAltIcon />, "/u/dealers"),
   new MenuPath("Payments", <PaymentIcon />, "/u/payments", ["ACCOUNTANT", "SUPER_ADMIN"]),
