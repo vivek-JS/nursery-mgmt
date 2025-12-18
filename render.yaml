@@ -3,11 +3,8 @@ services:
     name: ram-biotek-frontend
     env: static
     buildCommand: npm run build:prod
-    staticPublishPath: ./build
+    staticPublishPath: ./dist
     routes:
-      - type: rewrite
-        source: /public/add-farmer/*
-        destination: /index.html
       - type: rewrite
         source: /*
         destination: /index.html

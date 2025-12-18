@@ -53,7 +53,9 @@ import {
   Analytics,
   PieChart as PieChartIcon,
   Print as PrintIcon,
+  Add as AddIcon,
 } from "@mui/icons-material";
+import ExcessiveSowingModal from "components/Modals/ExcessiveSowingModal";
 import {
   BarChart,
   Bar,
@@ -100,6 +102,8 @@ const SowingGapAnalysis = () => {
   const [confirmDialog, setConfirmDialog] = useState({ open: false, message: "", title: "", onConfirm: null });
   const [promptDialog, setPromptDialog] = useState({ open: false, message: "", title: "", defaultValue: "", onConfirm: null, label: "" });
   const promptInputRef = useRef(null);
+  // Excessive Sowing Modal
+  const [excessiveSowingModalOpen, setExcessiveSowingModalOpen] = useState(false);
 
   useEffect(() => {
     fetchGapSummary();
@@ -628,6 +632,18 @@ const SowingGapAnalysis = () => {
           message: message,
         });
       },
+    });
+  };
+
+  const handleExcessiveSowingSuccess = async (data) => {
+    // Refresh today's cards and gap summary
+    await fetchTodaySowingCards();
+    await fetchGapSummary(activeTab === 1);
+    
+    setAlertDialog({
+      open: true,
+      title: "Success",
+      message: `Excessive sowing request created successfully!\n\nRequest Number: ${data.request?.requestNumber || 'N/A'}\nExpected Plants: ${data.slot?.totalPlants || 0}`,
     });
   };
 
@@ -1187,6 +1203,21 @@ const SowingGapAnalysis = () => {
           </Typography>
         </Box>
         <Box display="flex" gap={1}>
+          <Button
+            variant="contained"
+            color="success"
+            startIcon={<AddIcon />}
+            onClick={() => setExcessiveSowingModalOpen(true)}
+            sx={{
+              fontWeight: 600,
+              textTransform: "none",
+              boxShadow: 2,
+              "&:hover": {
+                boxShadow: 4,
+              },
+            }}>
+            Create Excessive Sowing
+          </Button>
           <IconButton
             onClick={fetchTodaySowingCards}
             color="primary"
@@ -2985,6 +3016,13 @@ const SowingGapAnalysis = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Excessive Sowing Modal */}
+      <ExcessiveSowingModal
+        open={excessiveSowingModalOpen}
+        onClose={() => setExcessiveSowingModalOpen(false)}
+        onSuccess={handleExcessiveSowingSuccess}
+      />
     </Box>
   );
 };
