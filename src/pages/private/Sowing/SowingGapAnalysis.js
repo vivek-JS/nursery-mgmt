@@ -170,7 +170,11 @@ const SowingGapAnalysis = () => {
 
   const handleIssueStock = (request) => {
     // Navigate to inventory to issue stock
-    showAlert("Issue Stock", `Please go to Inventory → Sowing Requests to issue stock for ${request.plantName} - ${request.subtypeName}`);
+    setAlertDialog({
+      open: true,
+      title: "Issue Stock",
+      message: `Please go to Inventory → Sowing Requests to issue stock for ${request.plantName} - ${request.subtypeName}`,
+    });
   };
 
   const handleCancelPendingRequest = async (requestId) => {
@@ -182,15 +186,27 @@ const SowingGapAnalysis = () => {
       const instance = NetworkManager(API.sowing.CANCEL_SOWING_REQUEST);
       const response = await instance.request({}, [requestId]);
       if (response?.data?.success) {
-        showAlert("Success", "Sowing request cancelled successfully");
+        setAlertDialog({
+          open: true,
+          title: "Success",
+          message: "Sowing request cancelled successfully",
+        });
         fetchPendingRequests(); // Refresh
         fetchTodaySowingCards(); // Refresh cards
       } else {
-        showAlert("Error", response?.data?.message || "Failed to cancel request");
+        setAlertDialog({
+          open: true,
+          title: "Error",
+          message: response?.data?.message || "Failed to cancel request",
+        });
       }
     } catch (err) {
       console.error("Error cancelling request:", err);
-      showAlert("Error", "Failed to cancel request. Please try again.");
+      setAlertDialog({
+        open: true,
+        title: "Error",
+        message: "Failed to cancel request. Please try again.",
+      });
     }
   };
 
