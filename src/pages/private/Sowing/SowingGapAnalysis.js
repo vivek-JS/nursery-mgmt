@@ -104,10 +104,15 @@ const SowingGapAnalysis = () => {
   const promptInputRef = useRef(null);
   // Excessive Sowing Modal
   const [excessiveSowingModalOpen, setExcessiveSowingModalOpen] = useState(false);
+  
+  // Pending Sowing Requests
+  const [pendingRequests, setPendingRequests] = useState([]);
+  const [loadingRequests, setLoadingRequests] = useState(false);
 
   useEffect(() => {
     fetchGapSummary();
     fetchTodaySowingCards();
+    fetchPendingRequests();
   }, []);
 
   // Check for existing requests when cards data changes
@@ -145,6 +150,47 @@ const SowingGapAnalysis = () => {
       setTodayCardsError("Error loading today&apos;s sowing cards. Please try again.");
     } finally {
       setLoadingTodayCards(false);
+    }
+  };
+
+  const fetchPendingRequests = async () => {
+    setLoadingRequests(true);
+    try {
+      const instance = NetworkManager(API.sowing.GET_PENDING_SOWING_REQUESTS);
+      const response = await instance.request();
+      if (response?.data?.success) {
+        setPendingRequests(response.data.data || []);
+      }
+    } catch (err) {
+      console.error("Error fetching pending requests:", err);
+    } finally {
+      setLoadingRequests(false);
+    }
+  };
+
+  const handleIssueStock = (request) => {
+    // Navigate to inventory to issue stock
+    showAlert("Issue Stock", `Please go to Inventory → Sowing Requests to issue stock for ${request.plantName} - ${request.subtypeName}`);
+  };
+
+  const handleCancelRequest = async (requestId) => {
+    if (!window.confirm("Are you sure you want to cancel this sowing request?")) {
+      return;
+    }
+    
+    try {
+      const instance = NetworkManager(API.sowing.CANCEL_SOWING_REQUEST);
+      const response = await instance.request({}, [requestId]);
+      if (response?.data?.success) {
+        showAlert("Success", "Sowing request cancelled successfully");
+        fetchPendingRequests(); // Refresh
+        fetchTodaySowingCards(); // Refresh cards
+      } else {
+        showAlert("Error", response?.data?.message || "Failed to cancel request");
+      }
+    } catch (err) {
+      console.error("Error cancelling request:", err);
+      showAlert("Error", "Failed to cancel request. Please try again.");
     }
   };
 
@@ -636,9 +682,10 @@ const SowingGapAnalysis = () => {
   };
 
   const handleExcessiveSowingSuccess = async (data) => {
-    // Refresh today's cards and gap summary
+    // Refresh today's cards, gap summary, and pending requests
     await fetchTodaySowingCards();
     await fetchGapSummary(activeTab === 1);
+    await fetchPendingRequests();
     
     setAlertDialog({
       open: true,
@@ -1391,6 +1438,120 @@ const SowingGapAnalysis = () => {
                   </Card>
                 </Grid>
               </Grid>
+
+              {/* Pending Sowing Requests Section */}
+              {pendingRequests && pendingRequests.length > 0 && (
+                <Box sx={{ mb: 3 }}>
+                  <Box display="flex" alignItems="center" gap={1} mb={2}>
+                    <Chip 
+                      label={`${pendingRequests.length} Pending Request${pendingRequests.length > 1 ? 's' : ''}`}
+                      color="warning"
+                      size="small"
+                      sx={{ fontWeight: 600 }}
+                    />
+                    <Typography variant="caption" color="text.secondary">
+                      Awaiting stock issuance
+                    </Typography>
+                  </Box>
+                  <Grid container spacing={2}>
+                    {pendingRequests.map((request) => (
+                      <Grid item xs={12} sm={6} md={4} key={request._id}>
+                        <Card 
+                          sx={{ 
+                            border: request.isExcessiveSowing ? '2px solid #4caf50' : '2px solid #ff9800',
+                            bgcolor: request.isExcessiveSowing ? '#e8f5e9' : '#fff3e0',
+                            '&:hover': { boxShadow: 4 }
+                          }}
+                        >
+                          <CardContent>
+                            <Box display="flex" justifyContent="space-between" alignItems="start" mb={1}>
+                              <Box>
+                                <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#1976d2' }}>
+                                  {request.plantName}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                  {request.subtypeName}
+                                </Typography>
+                              </Box>
+                              {request.isExcessiveSowing && (
+                                <Chip 
+                                  label="EXCESSIVE"
+                                  size="small"
+                                  color="success"
+                                  sx={{ fontSize: '0.65rem', height: 20 }}
+                                />
+                              )}
+                            </Box>
+                            
+                            <Divider sx={{ my: 1 }} />
+                            
+                            <Box display="flex" justifyContent="space-between" alignItems="center" mb={0.5}>
+                              <Typography variant="caption" color="text.secondary">
+                                Request #:
+                              </Typography>
+                              <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                                {request.requestNumber}
+                              </Typography>
+                            </Box>
+                            
+                            <Box display="flex" justifyContent="space-between" alignItems="center" mb={0.5}>
+                              <Typography variant="caption" color="text.secondary">
+                                Packets:
+                              </Typography>
+                              <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                                {request.packetsRequested} pkt
+                              </Typography>
+                            </Box>
+                            
+                            <Box display="flex" justifyContent="space-between" alignItems="center" mb={0.5}>
+                              <Typography variant="caption" color="text.secondary">
+                                Expected Plants:
+                              </Typography>
+                              <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                                {formatNumber(request.remainingSowingNeeded || 0)}
+                              </Typography>
+                            </Box>
+                            
+                            <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
+                              <Typography variant="caption" color="text.secondary">
+                                Status:
+                              </Typography>
+                              <Chip 
+                                label={request.status?.toUpperCase() || 'PENDING'}
+                                size="small"
+                                color="warning"
+                                sx={{ fontSize: '0.65rem', height: 18 }}
+                              />
+                            </Box>
+                            
+                            <Box display="flex" gap={1} mt={2}>
+                              <Button
+                                variant="contained"
+                                color="success"
+                                size="small"
+                                fullWidth
+                                onClick={() => handleIssueStock(request)}
+                                sx={{ textTransform: 'none', fontSize: '0.75rem' }}
+                              >
+                                Issue Stock
+                              </Button>
+                              <Button
+                                variant="outlined"
+                                color="error"
+                                size="small"
+                                onClick={() => handleCancelRequest(request._id)}
+                                sx={{ textTransform: 'none', fontSize: '0.75rem', minWidth: 'auto', px: 2 }}
+                              >
+                                Cancel
+                              </Button>
+                            </Box>
+                          </CardContent>
+                        </Card>
+                      </Grid>
+                    ))}
+                  </Grid>
+                </Box>
+              )}
 
               {/* Subtype Cards Grid */}
               <Grid container spacing={1.5}>
