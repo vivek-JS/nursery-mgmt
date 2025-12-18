@@ -2802,9 +2802,27 @@ const SowingGapAnalysis = () => {
                                                           size="small"
                                                           sx={{ fontWeight: 600 }}
                                                         />
+                                                        {reminder.sowingInProgress && (
+                                                          <Chip
+                                                            label={`🔄 In Progress (${reminder.totalPlantsInProgress || 0} plants)`}
+                                                            size="small"
+                                                            sx={{ 
+                                                              ml: 0.5, 
+                                                              bgcolor: '#1976d2', 
+                                                              color: 'white', 
+                                                              fontWeight: 600,
+                                                              fontSize: '0.7rem'
+                                                            }}
+                                                          />
+                                                        )}
                                                         {!isAvailableTab && reminder.bookingGapRaw !== undefined && reminder.bookingGapRaw !== reminder.bookingGap && (
                                                           <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.65rem", display: "block", mt: 0.5 }}>
                                                             Raw: {formatNumber(reminder.bookingGapRaw)} + Buffer
+                                                          </Typography>
+                                                        )}
+                                                        {reminder.sowingInProgress && reminder.totalPacketsIssued && (
+                                                          <Typography variant="caption" sx={{ fontSize: "0.65rem", display: "block", mt: 0.5, color: '#1976d2', fontWeight: 600 }}>
+                                                            Stock Issued: {reminder.totalPacketsIssued} packets
                                                           </Typography>
                                                         )}
                                                       </Box>
