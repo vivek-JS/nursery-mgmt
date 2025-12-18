@@ -1531,23 +1531,6 @@ const SowingGapAnalysis = () => {
                               />
                             </Box>
                             
-                            <Box 
-                              sx={{ 
-                                mt: 1.5,
-                                p: 1, 
-                                bgcolor: '#fff3e0', 
-                                borderRadius: 1,
-                                border: '1px solid #ff9800'
-                              }}
-                            >
-                              <Typography variant="caption" sx={{ fontSize: '0.7rem', color: '#e65100', display: 'block', mb: 0.5 }}>
-                                ⏳ Awaiting Stock Issuance
-                              </Typography>
-                              <Typography variant="caption" sx={{ fontSize: '0.65rem', color: 'text.secondary' }}>
-                                Go to Inventory → Sowing Requests to issue stock
-                              </Typography>
-                            </Box>
-                            
                             <Box display="flex" gap={1} mt={2}>
                               <Button
                                 variant="outlined"
