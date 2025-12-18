@@ -85,7 +85,7 @@ const ExcessiveSowingModal = ({ open, onClose, onSuccess }) => {
     setCheckingCard(true);
     try {
       const instance = NetworkManager(API.sowing.CHECK_EXCESSIVE_CARD);
-      const response = await instance.request({}, {}, [selectedPlantId, selectedSubtypeId]);
+      const response = await instance.request({}, [selectedPlantId, selectedSubtypeId]);
 
       if (response?.data?.success) {
         setCardExists(response.data);
