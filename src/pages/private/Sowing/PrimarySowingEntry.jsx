@@ -1275,7 +1275,8 @@ const PrimarySowingEntry = () => {
                                 batchMap.set(batchKey, {
                                   batchNumber: batchKey,
                                   productName: p.productName,
-                                  quantities: []
+                                  quantities: [],
+                                  isExcessiveSowing: p.isExcessiveSowing || false
                                 });
                               }
                               batchMap.get(batchKey).quantities.push(p.quantity);
@@ -1293,7 +1294,8 @@ const PrimarySowingEntry = () => {
                                     p: 0.75,
                                     bgcolor: "#e8f5e9",
                                     borderRadius: 1,
-                                    border: "1px solid #c8e6c9"
+                                    border: "1px solid #c8e6c9",
+                                    flexWrap: "wrap"
                                   }}
                                 >
                                   <Typography variant="body2" sx={{ fontWeight: 600, color: "#1976d2", fontSize: isMobile ? "0.75rem" : "0.8rem", minWidth: "fit-content" }}>
@@ -1308,6 +1310,19 @@ const PrimarySowingEntry = () => {
                                       bgcolor: "white"
                                     }}
                                   />
+                                  {batchGroup.isExcessiveSowing && (
+                                    <Chip
+                                      label="EXCESSIVE"
+                                      size="small"
+                                      sx={{ 
+                                        bgcolor: '#4caf50',
+                                        color: 'white',
+                                        fontWeight: 600,
+                                        fontSize: '0.65rem',
+                                        height: 20
+                                      }}
+                                    />
+                                  )}
                                   <Typography variant="body2" sx={{ fontWeight: 700, color: "#2e7d32", fontSize: isMobile ? "0.75rem" : "0.8rem", ml: "auto" }}>
                                     {totalQty} units
                                   </Typography>
@@ -1895,6 +1910,19 @@ const PrimarySowingEntry = () => {
                                             color="success"
                                             sx={{ fontSize: "0.7rem", height: 20 }}
                                           />
+                                          {combined.packets?.some(p => p.isExcessiveSowing) && (
+                                            <Chip 
+                                              label="EXCESSIVE" 
+                                              size="small" 
+                                              sx={{ 
+                                                bgcolor: '#4caf50',
+                                                color: 'white',
+                                                fontWeight: 600,
+                                                fontSize: '0.7rem',
+                                                height: 20
+                                              }}
+                                            />
+                                          )}
                                         </Box>
                                       </Box>
 
