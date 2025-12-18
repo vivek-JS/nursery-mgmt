@@ -1871,6 +1871,119 @@ const SowingGapAnalysis = () => {
         </CardContent>
       </Card>
 
+      {/* Sowing in Progress (Gap = 0, Fully Covered) */}
+      {todayCardsData?.inProgressCards && todayCardsData.inProgressCards.length > 0 && (
+        <Card sx={{ mb: 3, boxShadow: 2, bgcolor: '#e3f2fd' }}>
+          <CardContent sx={{ p: 2 }}>
+            <Box display="flex" alignItems="center" gap={1} mb={2}>
+              <Box
+                sx={{
+                  width: 8,
+                  height: 32,
+                  bgcolor: '#1976d2',
+                  borderRadius: 1,
+                }}
+              />
+              <Typography variant="h6" sx={{ fontWeight: 700, color: '#1976d2' }}>
+                🔄 Sowing in Progress (Gap Fully Covered)
+              </Typography>
+              <Chip
+                label={`${todayCardsData.inProgressCards.length} ${todayCardsData.inProgressCards.length === 1 ? 'card' : 'cards'}`}
+                size="small"
+                sx={{ bgcolor: '#1976d2', color: 'white', fontWeight: 600 }}
+              />
+            </Box>
+            
+            <Alert severity="info" sx={{ mb: 2 }}>
+              These cards have stock issued and sowing in progress. No additional action needed until sowing is completed by primary staff.
+            </Alert>
+
+            <Grid container spacing={1.5}>
+              {todayCardsData.inProgressCards.map((card, index) => (
+                <Grid item xs={6} sm={4} md={3} lg={2} xl={2} key={`progress-${card.plantId}-${card.subtypeId}`}>
+                  <Fade in timeout={300 + index * 50}>
+                    <Card
+                      sx={{
+                        height: "100%",
+                        border: "2px solid #1976d2",
+                        bgcolor: "#e3f2fd",
+                        transition: "all 0.3s ease",
+                        "&:hover": {
+                          boxShadow: 6,
+                          transform: "translateY(-4px)",
+                        },
+                      }}>
+                      <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
+                        <Box display="flex" justifyContent="space-between" alignItems="start" mb={0.75}>
+                          <Box flex={1}>
+                            <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.65rem" }}>
+                              {card.plantName}
+                            </Typography>
+                            <Typography variant="body2" sx={{ fontWeight: 700, fontSize: "0.85rem", color: "#1976d2" }}>
+                              {card.subtypeName}
+                            </Typography>
+                          </Box>
+                        </Box>
+
+                        <Divider sx={{ my: 0.75 }} />
+
+                        <Box mb={1}>
+                          <Chip
+                            label="🔄 Sowing in Progress"
+                            size="small"
+                            sx={{
+                              width: "100%",
+                              fontSize: "0.7rem",
+                              height: "24px",
+                              bgcolor: '#1976d2',
+                              color: 'white',
+                              fontWeight: 600,
+                            }}
+                          />
+                        </Box>
+
+                        <Box display="flex" justifyContent="space-between" sx={{ mb: 0.5 }}>
+                          <Typography variant="caption" sx={{ fontSize: "0.7rem", fontWeight: 600 }}>
+                            📦 Packets Issued:
+                          </Typography>
+                          <Typography variant="caption" sx={{ fontSize: "0.7rem", fontWeight: 700, color: "#1976d2" }}>
+                            {card.totalPacketsInProgress || 0} {card.primaryUnit?.symbol || 'pkt'}
+                          </Typography>
+                        </Box>
+
+                        <Box display="flex" justifyContent="space-between" sx={{ mb: 0.5 }}>
+                          <Typography variant="caption" sx={{ fontSize: "0.7rem", fontWeight: 600 }}>
+                            🌿 Plants Expected:
+                          </Typography>
+                          <Typography variant="caption" sx={{ fontSize: "0.7rem", fontWeight: 700, color: "#1976d2" }}>
+                            {formatNumber(card.totalPlantsInProgress || 0)}
+                          </Typography>
+                        </Box>
+
+                        <Box display="flex" justifyContent="space-between">
+                          <Typography variant="caption" sx={{ fontSize: "0.7rem", fontWeight: 600 }}>
+                            📍 Slots:
+                          </Typography>
+                          <Typography variant="caption" sx={{ fontSize: "0.7rem", fontWeight: 700, color: "#1976d2" }}>
+                            {card.totalSlots || 0}
+                          </Typography>
+                        </Box>
+
+                        <Divider sx={{ my: 0.75 }} />
+
+                        <Typography variant="caption" sx={{ fontSize: "0.65rem", color: "#666", textAlign: "center", display: "block" }}>
+                          ⏳ Awaiting primary staff to complete sowing
+                        </Typography>
+                      </CardContent>
+                    </Card>
+                  </Fade>
+                </Grid>
+              ))}
+            </Grid>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Tabs for Critical and Available */}
       <Card sx={{ mb: 3, boxShadow: 2 }}>
         <Tabs
