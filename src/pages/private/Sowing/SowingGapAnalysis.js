@@ -168,15 +168,6 @@ const SowingGapAnalysis = () => {
     }
   };
 
-  const handleIssueStock = (request) => {
-    // Navigate to inventory to issue stock
-    setAlertDialog({
-      open: true,
-      title: "Issue Stock",
-      message: `Please go to Inventory → Sowing Requests to issue stock for ${request.plantName} - ${request.subtypeName}`,
-    });
-  };
-
   const handleCancelPendingRequest = async (requestId) => {
     if (!window.confirm("Are you sure you want to cancel this sowing request?")) {
       return;
@@ -1540,25 +1531,33 @@ const SowingGapAnalysis = () => {
                               />
                             </Box>
                             
+                            <Box 
+                              sx={{ 
+                                mt: 1.5,
+                                p: 1, 
+                                bgcolor: '#fff3e0', 
+                                borderRadius: 1,
+                                border: '1px solid #ff9800'
+                              }}
+                            >
+                              <Typography variant="caption" sx={{ fontSize: '0.7rem', color: '#e65100', display: 'block', mb: 0.5 }}>
+                                ⏳ Awaiting Stock Issuance
+                              </Typography>
+                              <Typography variant="caption" sx={{ fontSize: '0.65rem', color: 'text.secondary' }}>
+                                Go to Inventory → Sowing Requests to issue stock
+                              </Typography>
+                            </Box>
+                            
                             <Box display="flex" gap={1} mt={2}>
-                              <Button
-                                variant="contained"
-                                color="success"
-                                size="small"
-                                fullWidth
-                                onClick={() => handleIssueStock(request)}
-                                sx={{ textTransform: 'none', fontSize: '0.75rem' }}
-                              >
-                                Issue Stock
-                              </Button>
                               <Button
                                 variant="outlined"
                                 color="error"
                                 size="small"
+                                fullWidth
                                 onClick={() => handleCancelPendingRequest(request._id)}
-                                sx={{ textTransform: 'none', fontSize: '0.75rem', minWidth: 'auto', px: 2 }}
+                                sx={{ textTransform: 'none', fontSize: '0.75rem' }}
                               >
-                                Cancel
+                                Cancel Request
                               </Button>
                             </Box>
                           </CardContent>
