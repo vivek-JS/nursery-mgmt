@@ -68,7 +68,9 @@ export default function networkManager(router, withFile = false) {
     const currentAuthToken = localStorage.getItem(CookieKeys.Auth)
     const requestHeaders = {}
     
-    if (currentAuthToken && currentAuthToken !== "undefined" && currentAuthToken !== "null") {
+    // ⛔ For completely public endpoints, NEVER send Authorization header
+    // This ensures public links work even with expired/invalid tokens in localStorage
+    if (!isCompletelyPublicEndpoint && currentAuthToken && currentAuthToken !== "undefined" && currentAuthToken !== "null") {
       requestHeaders[API_AUTH_HEADER] = `${AUTH_TYPE} ${currentAuthToken}`
     }
 
