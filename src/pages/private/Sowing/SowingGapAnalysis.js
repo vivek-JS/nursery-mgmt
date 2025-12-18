@@ -1553,13 +1553,37 @@ const SowingGapAnalysis = () => {
 
               {/* Subtype Cards Grid */}
               <Grid container spacing={1.5}>
-                {todayCardsData.subtypeCards.map((card, index) => (
+                {(() => {
+                  // Combine normal cards with excessive sowing cards
+                  const normalCards = todayCardsData.subtypeCards || [];
+                  const excessiveCards = (pendingRequests || [])
+                    .filter(req => req.isExcessiveSowing)
+                    .map(req => ({
+                      plantId: req.plantId,
+                      subtypeId: req.subtypeId,
+                      plantName: req.plantName,
+                      subtypeName: req.subtypeName,
+                      totalGap: req.remainingSowingNeeded || 0,
+                      totalSlots: 1,
+                      conversionFactor: 1,
+                      primaryUnit: { symbol: 'pkt' },
+                      availablePackets: 0,
+                      isExcessiveSowing: true,
+                      excessiveRequest: req,
+                    }));
+                  
+                  const allCards = [...normalCards, ...excessiveCards];
+                  
+                  return allCards.map((card, index) => (
                   <Grid item xs={6} sm={4} md={3} lg={2} xl={2} key={`${card.plantId}-${card.subtypeId}`}>
                     <Fade in timeout={300 + index * 50}>
                       <Card
                         sx={{
                           height: "100%",
-                          border: `2px solid ${card.totalGap > 0 ? "#d32f2f" : "#e0e0e0"}`,
+                          border: card.isExcessiveSowing 
+                            ? "2px solid #4caf50"
+                            : `2px solid ${card.totalGap > 0 ? "#d32f2f" : "#e0e0e0"}`,
+                          bgcolor: card.isExcessiveSowing ? "#e8f5e9" : "white",
                           transition: "all 0.3s ease",
                           "&:hover": {
                             boxShadow: 6,
@@ -1569,9 +1593,25 @@ const SowingGapAnalysis = () => {
                         <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
                           <Box display="flex" justifyContent="space-between" alignItems="start" mb={0.75}>
                             <Box flex={1} sx={{ minWidth: 0 }}>
-                              <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.65rem", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                {card.plantName}
-                              </Typography>
+                              <Box display="flex" alignItems="center" gap={0.5} mb={0.25}>
+                                <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.65rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                  {card.plantName}
+                                </Typography>
+                                {card.isExcessiveSowing && (
+                                  <Chip 
+                                    label="EXCESSIVE"
+                                    size="small"
+                                    sx={{ 
+                                      bgcolor: '#4caf50',
+                                      color: 'white',
+                                      fontWeight: 600,
+                                      fontSize: '0.6rem',
+                                      height: '16px',
+                                      '& .MuiChip-label': { px: 0.5 }
+                                    }}
+                                  />
+                                )}
+                              </Box>
                               <Typography 
                                 variant="body2" 
                                 sx={{ 
@@ -1582,7 +1622,6 @@ const SowingGapAnalysis = () => {
                                   py: 0.25,
                                   borderRadius: 0.5,
                                   display: "inline-block",
-                                  mt: 0.25,
                                   fontSize: "0.75rem",
                                   overflow: "hidden",
                                   textOverflow: "ellipsis",
@@ -1596,7 +1635,7 @@ const SowingGapAnalysis = () => {
                             <Chip
                               label={card.totalSlots}
                               size="small"
-                              color={card.totalGap > 0 ? "error" : "default"}
+                              color={card.isExcessiveSowing ? "success" : (card.totalGap > 0 ? "error" : "default")}
                               sx={{ fontSize: "0.65rem", height: "18px", ml: 0.5 }}
                             />
                           </Box>
@@ -1608,19 +1647,19 @@ const SowingGapAnalysis = () => {
                             mb={0.75}
                             p={1}
                             sx={{ 
-                              bgcolor: "#e8f5e9", 
+                              bgcolor: card.isExcessiveSowing ? "#e8f5e9" : "#e8f5e9", 
                               borderRadius: 0.75, 
-                              border: "1.5px solid #2e7d32" 
+                              border: card.isExcessiveSowing ? "1.5px solid #4caf50" : "1.5px solid #2e7d32" 
                             }}
                           >
-                            <Typography variant="caption" sx={{ fontWeight: 700, color: "#2e7d32", fontSize: "0.7rem" }}>
-                              Total
+                            <Typography variant="caption" sx={{ fontWeight: 700, color: card.isExcessiveSowing ? "#4caf50" : "#2e7d32", fontSize: "0.7rem" }}>
+                              {card.isExcessiveSowing ? "Expected" : "Total"}
                             </Typography>
-                            <Typography variant="body1" sx={{ fontWeight: 700, color: "#2e7d32", fontSize: "0.95rem" }}>
+                            <Typography variant="body1" sx={{ fontWeight: 700, color: card.isExcessiveSowing ? "#4caf50" : "#2e7d32", fontSize: "0.95rem" }}>
                               {formatNumber(card.totalGap || 0)}
                             </Typography>
                           </Box>
-                          {card.conversionFactor && (card.primaryUnit || card.secondaryUnit) && (
+                          {(card.conversionFactor && (card.primaryUnit || card.secondaryUnit) || card.isExcessiveSowing) && (
                             <Box 
                               display="flex" 
                               justifyContent="space-between" 
@@ -1637,11 +1676,14 @@ const SowingGapAnalysis = () => {
                                 Packets
                               </Typography>
                               <Typography variant="body1" sx={{ fontWeight: 700, color: "#f57c00", fontSize: "0.95rem" }}>
-                                {((card.totalGap || 0) / card.conversionFactor).toFixed(2)} {card.primaryUnit?.symbol || card.primaryUnit?.name || card.secondaryUnit?.symbol || card.secondaryUnit?.name || "pkt"}
+                                {card.isExcessiveSowing 
+                                  ? `${card.excessiveRequest?.packetsRequested || 0} pkt`
+                                  : `${((card.totalGap || 0) / card.conversionFactor).toFixed(2)} ${card.primaryUnit?.symbol || card.primaryUnit?.name || card.secondaryUnit?.symbol || card.secondaryUnit?.name || "pkt"}`
+                                }
                               </Typography>
                             </Box>
                           )}
-                          {card.availablePackets !== undefined && (
+                          {!card.isExcessiveSowing && card.availablePackets !== undefined && (
                             <Box 
                               display="flex" 
                               justifyContent="space-between" 
@@ -1663,6 +1705,52 @@ const SowingGapAnalysis = () => {
                             </Box>
                           )}
                           {(() => {
+                            // Handle excessive sowing cards separately
+                            if (card.isExcessiveSowing && card.excessiveRequest) {
+                              const req = card.excessiveRequest;
+                              if (req.status === 'issued') {
+                                return (
+                                  <Box sx={{ mt: 0.5 }}>
+                                    <Chip
+                                      label="🔄 Sowing in Progress"
+                                      size="small"
+                                      sx={{ 
+                                        width: "100%",
+                                        fontSize: "0.7rem",
+                                        height: "24px",
+                                        bgcolor: '#1976d2',
+                                        color: 'white',
+                                        fontWeight: 600,
+                                      }}
+                                    />
+                                  </Box>
+                                );
+                              } else if (req.status === 'pending' || req.status === 'processing') {
+                                return (
+                                  <Button
+                                    variant="outlined"
+                                    size="small"
+                                    fullWidth
+                                    onClick={() => handleCancelPendingRequest(req._id)}
+                                    sx={{ 
+                                      mt: 0.5,
+                                      fontSize: "0.7rem",
+                                      py: 0.5,
+                                      borderColor: "#f57c00",
+                                      color: "#f57c00",
+                                      "&:hover": { 
+                                        borderColor: "#e65100",
+                                        bgcolor: "#fff3e0"
+                                      }
+                                    }}
+                                  >
+                                    Cancel Request
+                                  </Button>
+                                );
+                              }
+                              return null;
+                            }
+                            
                             const requestKey = `${card.plantId}-${card.subtypeId}`;
                             const existingRequest = existingRequests.get(requestKey);
                             
@@ -1763,7 +1851,8 @@ const SowingGapAnalysis = () => {
                       </Card>
                     </Fade>
                   </Grid>
-                ))}
+                  ));
+                })()}
               </Grid>
             </>
           ) : (
