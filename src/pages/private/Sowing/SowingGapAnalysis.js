@@ -1667,19 +1667,28 @@ const SowingGapAnalysis = () => {
                             const existingRequest = existingRequests.get(requestKey);
                             
                             if (existingRequest) {
-                              if (existingRequest.status === 'issued' && existingRequest.isIssuedToday) {
+                              if (existingRequest.status === 'issued') {
                                 return (
-                                  <Chip
-                                    label="Stock Issued"
-                                    size="small"
-                                    color="success"
-                                    sx={{ 
-                                      mt: 0.5,
-                                      width: "100%",
-                                      fontSize: "0.7rem",
-                                      height: "24px"
-                                    }}
-                                  />
+                                  <Box sx={{ mt: 0.5 }}>
+                                    <Chip
+                                      label="🔄 Sowing in Progress"
+                                      size="small"
+                                      sx={{ 
+                                        width: "100%",
+                                        fontSize: "0.7rem",
+                                        height: "24px",
+                                        bgcolor: '#1976d2',
+                                        color: 'white',
+                                        fontWeight: 600,
+                                        mb: 0.5
+                                      }}
+                                    />
+                                    {existingRequest.isIssuedToday && (
+                                      <Typography variant="caption" sx={{ fontSize: "0.65rem", color: "#2e7d32", display: "block" }}>
+                                        ✓ Stock issued today
+                                      </Typography>
+                                    )}
+                                  </Box>
                                 );
                               } else if (existingRequest.status === 'pending' || existingRequest.status === 'processing') {
                                 return (
