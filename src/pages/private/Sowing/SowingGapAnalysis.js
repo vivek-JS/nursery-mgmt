@@ -173,7 +173,7 @@ const SowingGapAnalysis = () => {
     showAlert("Issue Stock", `Please go to Inventory → Sowing Requests to issue stock for ${request.plantName} - ${request.subtypeName}`);
   };
 
-  const handleCancelRequest = async (requestId) => {
+  const handleCancelPendingRequest = async (requestId) => {
     if (!window.confirm("Are you sure you want to cancel this sowing request?")) {
       return;
     }
@@ -1539,7 +1539,7 @@ const SowingGapAnalysis = () => {
                                 variant="outlined"
                                 color="error"
                                 size="small"
-                                onClick={() => handleCancelRequest(request._id)}
+                                onClick={() => handleCancelPendingRequest(request._id)}
                                 sx={{ textTransform: 'none', fontSize: '0.75rem', minWidth: 'auto', px: 2 }}
                               >
                                 Cancel
