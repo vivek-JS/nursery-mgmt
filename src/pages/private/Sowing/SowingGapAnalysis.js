@@ -516,12 +516,16 @@ const SowingGapAnalysis = () => {
           message: confirmMessage,
           onConfirm: async () => {
             try {
+              // Extract slot IDs from card
+              const slotIds = card.slots ? card.slots.map(slot => slot._id || slot.slotId).filter(Boolean) : [];
+              
               const instance = NetworkManager(API.sowing.CREATE_SOWING_REQUEST);
               const response = await instance.request({
                 plantId: card.plantId,
                 subtypeId: card.subtypeId,
                 packetsNeeded: packetsNeeded,
                 packetsRequested: packetsRequested,
+                slotIds: slotIds, // Include slot IDs for tracking
                 notes: `Auto-generated from Today's Sowing Cards${excessPackets > 0 ? ` (Excess: ${excessPackets.toFixed(2)} packets)` : ''}`,
               });
 
@@ -642,12 +646,16 @@ const SowingGapAnalysis = () => {
               continue;
             }
 
+            // Extract slot IDs from card
+            const slotIds = card.slots ? card.slots.map(slot => slot._id || slot.slotId).filter(Boolean) : [];
+
             const instance = NetworkManager(API.sowing.CREATE_SOWING_REQUEST);
             const response = await instance.request({
               plantId: card.plantId,
               subtypeId: card.subtypeId,
               packetsNeeded: packetsNeeded,
               packetsRequested: packetsNeeded, // Use needed as requested by default
+              slotIds: slotIds, // Include slot IDs for tracking
               notes: `Auto-generated from Today's Sowing Cards (Batch Request)`,
             });
 
