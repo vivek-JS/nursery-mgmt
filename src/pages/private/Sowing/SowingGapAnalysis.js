@@ -97,6 +97,10 @@ const SowingGapAnalysis = () => {
   const [expandedCards, setExpandedCards] = useState(new Set());
   // Track existing requests for each card
   const [existingRequests, setExistingRequests] = useState(new Map());
+  // In-progress requests dialog
+  const [inProgressDialogOpen, setInProgressDialogOpen] = useState(false);
+  const [selectedInProgressCard, setSelectedInProgressCard] = useState(null);
+  const [cancellingRequestId, setCancellingRequestId] = useState(null);
   // Dialog states
   const [alertDialog, setAlertDialog] = useState({ open: false, message: "", title: "" });
   const [confirmDialog, setConfirmDialog] = useState({ open: false, message: "", title: "", onConfirm: null });
@@ -198,6 +202,49 @@ const SowingGapAnalysis = () => {
         title: "Error",
         message: "Failed to cancel request. Please try again.",
       });
+    }
+  };
+
+  // View and cancel in-progress requests
+  const handleViewInProgressRequests = (card) => {
+    setSelectedInProgressCard(card);
+    setInProgressDialogOpen(true);
+  };
+
+  const handleCancelInProgressRequest = async (requestId, requestNumber, reason) => {
+    setCancellingRequestId(requestId);
+    
+    try {
+      const instance = NetworkManager(API.sowing.CANCEL_SOWING_AND_REVERT);
+      const response = await instance.request({ reason: reason || "User cancelled from UI" }, [requestId]);
+      
+      if (response?.data?.success) {
+        setAlertDialog({
+          open: true,
+          title: "✅ Success",
+          message: `Request ${requestNumber} cancelled successfully!\n\n` +
+                   `Stock returned: ${response.data.reverted?.totalPacketsReturned || 0} packets\n` +
+                   `Slots updated: ${response.data.reverted?.totalSlotsUpdated || 0}`,
+        });
+        setInProgressDialogOpen(false);
+        fetchTodaySowingCards(); // Refresh cards
+        fetchPendingRequests(); // Refresh pending requests if any
+      } else {
+        setAlertDialog({
+          open: true,
+          title: "Error",
+          message: response?.data?.message || "Failed to cancel request",
+        });
+      }
+    } catch (err) {
+      console.error("Error cancelling in-progress request:", err);
+      setAlertDialog({
+        open: true,
+        title: "Error",
+        message: err?.response?.data?.message || "Failed to cancel request and revert changes",
+      });
+    } finally {
+      setCancellingRequestId(null);
     }
   };
 
@@ -1971,9 +2018,29 @@ const SowingGapAnalysis = () => {
 
                         <Divider sx={{ my: 0.75 }} />
 
-                        <Typography variant="caption" sx={{ fontSize: "0.65rem", color: "#666", textAlign: "center", display: "block" }}>
+                        <Typography variant="caption" sx={{ fontSize: "0.65rem", color: "#666", textAlign: "center", display: "block", mb: 0.75 }}>
                           ⏳ Awaiting primary staff to complete sowing
                         </Typography>
+
+                        {/* Cancel Button for In-Progress Requests */}
+                        <Button
+                          variant="outlined"
+                          size="small"
+                          fullWidth
+                          onClick={() => handleViewInProgressRequests(card)}
+                          sx={{
+                            fontSize: "0.7rem",
+                            textTransform: "none",
+                            borderColor: "#d32f2f",
+                            color: "#d32f2f",
+                            "&:hover": {
+                              borderColor: "#b71c1c",
+                              bgcolor: "#ffebee",
+                            },
+                          }}
+                        >
+                          View & Cancel Requests
+                        </Button>
                       </CardContent>
                     </Card>
                   </Fade>
@@ -3419,6 +3486,95 @@ const SowingGapAnalysis = () => {
         onClose={() => setExcessiveSowingModalOpen(false)}
         onSuccess={handleExcessiveSowingSuccess}
       />
+
+      {/* In-Progress Requests Dialog */}
+      <Dialog
+        open={inProgressDialogOpen}
+        onClose={() => setInProgressDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle sx={{ bgcolor: '#1976d2', color: 'white', fontWeight: 700 }}>
+          🔄 Sowing Requests in Progress
+          {selectedInProgressCard && ` - ${selectedInProgressCard.plantName} (${selectedInProgressCard.subtypeName})`}
+        </DialogTitle>
+        <DialogContent sx={{ mt: 2 }}>
+          {selectedInProgressCard?.slots && selectedInProgressCard.slots.length > 0 ? (
+            <>
+              <Alert severity="warning" sx={{ mb: 2 }}>
+                <strong>⚠️ Warning:</strong> Cancelling will return stock to inventory and remove all progress. This action cannot be undone.
+              </Alert>
+              
+              {selectedInProgressCard.slots.map((slot, index) => (
+                <Box key={index} sx={{ mb: 2 }}>
+                  {slot.sowingProgressDetails && slot.sowingProgressDetails.map((progress, pIndex) => (
+                    <Card key={pIndex} sx={{ mb: 2, border: '1px solid #e0e0e0' }}>
+                      <CardContent>
+                        <Box display="flex" justifyContent="space-between" alignItems="start" mb={2}>
+                          <Box flex={1}>
+                            <Typography variant="body2" color="primary" sx={{ fontWeight: 700, mb: 0.5 }}>
+                              {progress.requestNumber}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              Slot: {slot.slotStartDay} - {slot.slotEndDay}
+                            </Typography>
+                          </Box>
+                          {progress.isExcessiveSowing && (
+                            <Chip label="EXCESSIVE" size="small" color="success" />
+                          )}
+                        </Box>
+
+                        <Box display="flex" gap={3} mb={2}>
+                          <Box>
+                            <Typography variant="caption" color="text.secondary">
+                              Packets Issued
+                            </Typography>
+                            <Typography variant="body1" sx={{ fontWeight: 700 }}>
+                              {progress.packetsIssued} {selectedInProgressCard.primaryUnit?.symbol || 'pkt'}
+                            </Typography>
+                          </Box>
+                          <Box>
+                            <Typography variant="caption" color="text.secondary">
+                              Plants Expected
+                            </Typography>
+                            <Typography variant="body1" sx={{ fontWeight: 700 }}>
+                              {formatNumber(progress.remainingPlants)}
+                            </Typography>
+                          </Box>
+                        </Box>
+
+                        <Button
+                          variant="contained"
+                          color="error"
+                          fullWidth
+                          onClick={() => {
+                            if (window.confirm(`Cancel ${progress.requestNumber}?\n\nThis will:\n- Return ${progress.packetsIssued} packets to inventory\n- Remove ${formatNumber(progress.remainingPlants)} plants from progress\n- Reset slot status\n\nThis cannot be undone.`)) {
+                              handleCancelInProgressRequest(
+                                progress.sowingRequestId,
+                                progress.requestNumber,
+                                "User cancelled from in-progress section"
+                              );
+                            }
+                          }}
+                          disabled={cancellingRequestId === progress.sowingRequestId}
+                          startIcon={cancellingRequestId === progress.sowingRequestId ? <CircularProgress size={20} /> : null}
+                        >
+                          {cancellingRequestId === progress.sowingRequestId ? "Cancelling..." : "Cancel & Revert Stock"}
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </Box>
+              ))}
+            </>
+          ) : (
+            <Alert severity="info">No requests in progress</Alert>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setInProgressDialogOpen(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

@@ -531,6 +531,7 @@ export const API = {
     RECALCULATE_SOWING_REMAINING: new APIRouter("/sowing/request/:requestId/recalculate", HTTP_METHODS.POST, OFFLINE.PROFILE),
     REJECT_SOWING_REQUEST: new APIRouter("/sowing/request/:id/reject", HTTP_METHODS.POST, OFFLINE.PROFILE),
     CANCEL_SOWING_REQUEST: new APIRouter("/sowing/request/:id/cancel", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    CANCEL_SOWING_AND_REVERT: new APIRouter("/sowing/request/:requestId/cancel-and-revert", HTTP_METHODS.POST, OFFLINE.PROFILE),
     CANCEL_ALL_SOWING_REQUESTS: new APIRouter("/sowing/request/cancel-all", HTTP_METHODS.POST, OFFLINE.PROFILE),
     // Excessive Sowing APIs
     CREATE_EXCESSIVE_REQUEST: new APIRouter("/sowing/excessive/create-request", HTTP_METHODS.POST, OFFLINE.PROFILE),
