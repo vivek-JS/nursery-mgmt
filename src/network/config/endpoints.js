@@ -536,6 +536,7 @@ export const API = {
     CREATE_EXCESSIVE_REQUEST: new APIRouter("/sowing/excessive/create-request", HTTP_METHODS.POST, OFFLINE.PROFILE),
     GET_EXCESSIVE_AVAILABLE_PLANTS: new APIRouter("/sowing/excessive/available-plants", HTTP_METHODS.GET, OFFLINE.PROFILE),
     CHECK_EXCESSIVE_CARD: new APIRouter("/sowing/excessive/check-card/:plantId/:subtypeId", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_EXCESSIVE_DIAGNOSTIC: new APIRouter("/sowing/excessive/diagnostic", HTTP_METHODS.GET, OFFLINE.PROFILE),
     // OLD APIs - DEPRECATED (will be removed)
     // GET_REMINDERS: new APIRouter("/sowing/reminders", HTTP_METHODS.GET, OFFLINE.PROFILE),
     // GET_ALERTS: new APIRouter("/sowing/alerts", HTTP_METHODS.GET, OFFLINE.PROFILE),

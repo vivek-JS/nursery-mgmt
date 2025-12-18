@@ -1059,7 +1059,6 @@ const PrimarySowingEntry = () => {
               onClick={() => navigate("/u/dashboard")}
               sx={{ mr: 1 }}
             >
-              <ArrowBack />
             </IconButton>
             <Typography variant="h6" sx={{ flexGrow: 1, fontWeight: 600, fontSize: isMobile ? "1rem" : "1.125rem" }}>
               Primary Sowing Entry

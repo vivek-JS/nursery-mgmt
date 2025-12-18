@@ -2,8 +2,8 @@ services:
   - type: web
     name: ram-biotek-frontend
     env: static
-    buildCommand: npm run build:prod
-    staticPublishPath: ./dist
+    buildCommand: GENERATE_SOURCEMAP=false react-scripts build
+    staticPublishPath: ./build
     routes:
       - type: rewrite
         source: /*
