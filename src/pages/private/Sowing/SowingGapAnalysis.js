@@ -158,12 +158,17 @@ const SowingGapAnalysis = () => {
       const response = await instance.request({}, params);
       if (response?.data?.success) {
         setTodayCardsData(response.data);
-        // Extract and store sowing buffer for each plant
+        // Extract and store slot-level buffer info for each plant (for display purposes)
+        // Buffer is now applied at slot level, so we track which plants have buffer
         const bufferMap = new Map();
         if (response.data.subtypeCards) {
           response.data.subtypeCards.forEach((card) => {
-            if (card.sowingBuffer !== undefined && card.sowingBuffer !== null) {
-              bufferMap.set(card.plantId.toString(), card.sowingBuffer);
+            // Check if any slot has buffer
+            const hasSlotBuffer = card.slots?.some(slot => (slot.slotBuffer || 0) > 0);
+            if (hasSlotBuffer) {
+              // Store the total slot buffer count for this plant
+              const totalSlotBuffer = card.slotBufferCount || 0;
+              bufferMap.set(card.plantId.toString(), totalSlotBuffer);
             }
           });
         }
@@ -1007,7 +1012,11 @@ const SowingGapAnalysis = () => {
   };
 
   const handleCreateRequest = async (card) => {
-    const packetsNeeded = (card.totalGap || 0) / card.conversionFactor;
+    // Calculate total plantsToSowWithBuffer from all slots
+    const totalPlantsToSowWithBuffer = card.slots
+      ? card.slots.reduce((sum, slot) => sum + (slot.plantsToSowWithBuffer || 0), 0)
+      : (card.totalGap || 0);
+    const packetsNeeded = totalPlantsToSowWithBuffer / card.conversionFactor;
     
     if (!packetsNeeded || packetsNeeded <= 0) {
       setAlertDialog({
@@ -1115,16 +1124,18 @@ const SowingGapAnalysis = () => {
   };
 
   const handleReRequestStock = async (card) => {
-    // For re-request, use the original gap (before any adjustments)
-    const originalGap = card.dueGap + card.todayGap; // Total gap for all slots
-    const packetsNeeded = originalGap / card.conversionFactor;
+    // Calculate total plantsToSowWithBuffer from all slots
+    const totalPlantsToSowWithBuffer = card.slots
+      ? card.slots.reduce((sum, slot) => sum + (slot.plantsToSowWithBuffer || 0), 0)
+      : (card.totalGap || 0);
+    const packetsNeeded = totalPlantsToSowWithBuffer / card.conversionFactor;
     
     // Show prompt dialog for packets requested
     const unitName = card.primaryUnit?.symbol || card.primaryUnit?.name || card.secondaryUnit?.symbol || card.secondaryUnit?.name || "pkt";
     setPromptDialog({
       open: true,
       title: `Re-request Stock - ${card.plantName} - ${card.subtypeName}`,
-      message: `Gap: ${originalGap} plants\nPackets Needed: ${packetsNeeded.toFixed(2)} ${unitName}\n\nEnter packets to request:`,
+      message: `Plants to Sow: ${totalPlantsToSowWithBuffer} (includes buffer)\nPackets Needed: ${packetsNeeded.toFixed(2)} ${unitName}\n\nEnter packets to request:`,
       label: "Packets to Request",
       defaultValue: packetsNeeded.toFixed(2),
       onConfirm: async (packetsRequestedInput) => {
@@ -1282,7 +1293,11 @@ const SowingGapAnalysis = () => {
         // Process requests sequentially to avoid overwhelming the server
         for (const card of requestableCards) {
           try {
-            const packetsNeeded = (card.totalGap || 0) / card.conversionFactor;
+            // Calculate total plantsToSowWithBuffer from all slots
+            const totalPlantsToSowWithBuffer = card.slots
+              ? card.slots.reduce((sum, slot) => sum + (slot.plantsToSowWithBuffer || 0), 0)
+              : (card.totalGap || 0);
+            const packetsNeeded = totalPlantsToSowWithBuffer / card.conversionFactor;
             
             if (!packetsNeeded || packetsNeeded <= 0) {
               continue;
@@ -1437,8 +1452,12 @@ const SowingGapAnalysis = () => {
     // Generate sowing summary table
     let sowingTableRows = "";
     todayCardsData.subtypeCards.forEach((card, index) => {
+      // Calculate total plantsToSowWithBuffer from all slots
+      const totalPlantsToSowWithBuffer = card.slots
+        ? card.slots.reduce((sum, slot) => sum + (slot.plantsToSowWithBuffer || 0), 0)
+        : (card.totalGap || 0);
       const packetsNeeded = card.conversionFactor && (card.primaryUnit || card.secondaryUnit)
-        ? ((card.totalGap || 0) / card.conversionFactor)
+        ? (totalPlantsToSowWithBuffer / card.conversionFactor)
         : 0;
       const unitName = card.primaryUnit?.symbol || card.primaryUnit?.name || card.secondaryUnit?.symbol || card.secondaryUnit?.name || "pkt";
       
@@ -1447,7 +1466,7 @@ const SowingGapAnalysis = () => {
           <td>${index + 1}</td>
           <td>${card.plantName || "N/A"}</td>
           <td>${card.subtypeName || "N/A"}</td>
-          <td>${formatNumber(card.totalGap || 0)}</td>
+          <td>${formatNumber(totalPlantsToSowWithBuffer)}</td>
           <td>${packetsNeeded.toFixed(2)} ${unitName}</td>
         </tr>
       `;
@@ -1581,7 +1600,16 @@ const SowingGapAnalysis = () => {
           <h1>Sowing Report - ${date}</h1>
           <div class="summary">
             <strong>Summary:</strong> ${todayCardsData.summary.totalSubtypes} Subtypes • 
-            ${formatNumber(todayCardsData.summary.totalGap)} Plants Needed • 
+            ${formatNumber((() => {
+              // Calculate total plantsToSowWithBuffer from all slots in all cards
+              const total = (todayCardsData.subtypeCards || []).reduce((sum, card) => {
+                const cardTotal = (card.slots || []).reduce((slotSum, slot) => 
+                  slotSum + (slot.plantsToSowWithBuffer || 0), 0
+                );
+                return sum + cardTotal;
+              }, 0);
+              return total;
+            })())} Plants Needed • 
             ${todayCardsData.summary.totalSlots} Slots
           </div>
 
@@ -2151,50 +2179,41 @@ const SowingGapAnalysis = () => {
                   <Card sx={{ bgcolor: "#f5f5f5", border: "2px solid #616161" }}>
                     <CardContent>
                       <Typography variant="caption" color="text.secondary">
-                        Total Needed
+                        Need to Sow
                       </Typography>
                       <Typography variant="h5" sx={{ fontWeight: 700, color: "#616161" }}>
-                        {formatNumber(todayCardsData.summary.totalGap || 0)}
+                        {formatNumber((() => {
+                          // Calculate total plantsToSowWithBuffer from all slots in all cards
+                          const total = (todayCardsData.subtypeCards || []).reduce((sum, card) => {
+                            const cardTotal = (card.slots || []).reduce((slotSum, slot) => 
+                              slotSum + (slot.plantsToSowWithBuffer || 0), 0
+                            );
+                            return sum + cardTotal;
+                          }, 0);
+                          return total;
+                        })())}
                       </Typography>
                       <Typography variant="caption" color="text.secondary">
                         {todayCardsData.summary.totalSlots || 0} slots
                       </Typography>
                       {(() => {
-                        // Calculate total raw sowing and buffer
-                        const totalRawSowing = todayCardsData.subtypeCards?.reduce((sum, card) => {
-                          const rawGap = card.slots?.[0]?.bookingGapRaw || card.totalGap || 0;
-                          return sum + rawGap;
-                        }, 0) || 0;
-                        const totalBuffer = todayCardsData.summary.totalGap - totalRawSowing;
-                        const hasBuffer = totalBuffer > 0;
+                        // Show buffer info if available (from backend)
+                        const totalBufferCount = todayCardsData.summary?.totalSlotBufferCount || 0;
+                        const hasBuffer = totalBufferCount > 0;
                         
                         return hasBuffer ? (
                           <Box mt={1} p={0.75} sx={{ bgcolor: "#fff3e0", borderRadius: 1, border: "1px solid #f57c00" }}>
-                            <Box display="flex" justifyContent="space-between" alignItems="center" mb={0.25}>
-                              <Typography variant="caption" sx={{ fontSize: "0.65rem", color: "#616161" }}>
-                                Sowing:
-                              </Typography>
-                              <Typography variant="caption" sx={{ fontSize: "0.65rem", fontWeight: 600, color: "#616161" }}>
-                                {formatNumber(totalRawSowing)}
-                              </Typography>
-                            </Box>
-                            <Box display="flex" justifyContent="space-between" alignItems="center" mb={0.25}>
+                            <Box display="flex" justifyContent="space-between" alignItems="center">
                               <Typography variant="caption" sx={{ fontSize: "0.65rem", color: "#f57c00" }}>
-                                Buffer:
+                                Buffer Added:
                               </Typography>
                               <Typography variant="caption" sx={{ fontSize: "0.65rem", fontWeight: 600, color: "#f57c00" }}>
-                                {formatNumber(totalBuffer)}
+                                {formatNumber(totalBufferCount)}
                               </Typography>
                             </Box>
-                            <Divider sx={{ my: 0.25 }} />
-                            <Box display="flex" justifyContent="space-between" alignItems="center">
-                              <Typography variant="caption" sx={{ fontSize: "0.7rem", fontWeight: 700, color: "#616161" }}>
-                                Total:
-                              </Typography>
-                              <Typography variant="caption" sx={{ fontSize: "0.7rem", fontWeight: 700, color: "#616161" }}>
-                                {formatNumber(todayCardsData.summary.totalGap || 0)}
-                              </Typography>
-                            </Box>
+                            <Typography variant="caption" sx={{ fontSize: "0.6rem", color: "#616161", mt: 0.5, display: "block" }}>
+                              (Total includes buffer)
+                            </Typography>
                           </Box>
                         ) : null;
                       })()}
@@ -2327,6 +2346,7 @@ const SowingGapAnalysis = () => {
               <Grid container spacing={1.5}>
                 {(() => {
                   // Combine normal cards with excessive sowing cards
+                  // Backend already filters cards to only include those with plantsToSowWithBuffer > 0
                   const normalCards = todayCardsData.subtypeCards || [];
                   const excessiveCards = (pendingRequests || [])
                     .filter(req => req.isExcessiveSowing)
@@ -2346,117 +2366,123 @@ const SowingGapAnalysis = () => {
                   
                   const allCards = [...normalCards, ...excessiveCards];
                   
-                  return allCards.map((card, index) => (
-                  <Grid item xs={6} sm={4} md={3} lg={2} xl={2} key={`${card.plantId}-${card.subtypeId}`}>
-                    <Fade in timeout={300 + index * 50}>
-                      <Card
-                        onClick={() => handleCardClick(card)}
-                        sx={{
-                          height: "100%",
-                          border: card.isExcessiveSowing 
-                            ? "2px solid #4caf50"
-                            : `2px solid ${card.totalGap > 0 ? "#d32f2f" : "#e0e0e0"}`,
-                          bgcolor: card.isExcessiveSowing ? "#e8f5e9" : "white",
-                          transition: "all 0.3s ease",
-                          cursor: "pointer",
-                          "&:hover": {
-                            boxShadow: 6,
-                            transform: "translateY(-4px)",
-                          },
-                        }}>
-                        <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
-                          <Box display="flex" justifyContent="space-between" alignItems="start" mb={0.75}>
-                            <Box flex={1} sx={{ minWidth: 0 }}>
-                              <Box display="flex" alignItems="center" gap={0.5} mb={0.25}>
-                                <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.65rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                  {card.plantName}
+                  return allCards.map((card, index) => {
+                    // Calculate total plantsToSowWithBuffer from all slots
+                    const totalPlantsToSowWithBuffer = !card.isExcessiveSowing && card.slots
+                      ? card.slots.reduce((sum, slot) => sum + (slot.plantsToSowWithBuffer || 0), 0)
+                      : (card.totalGap || 0);
+                    
+                    return (
+                    <Grid item xs={6} sm={4} md={3} lg={2} xl={2} key={`${card.plantId}-${card.subtypeId}`}>
+                      <Fade in timeout={300 + index * 50}>
+                        <Card
+                          onClick={() => handleCardClick(card)}
+                          sx={{
+                            height: "100%",
+                            border: card.isExcessiveSowing 
+                              ? "2px solid #4caf50"
+                              : `2px solid ${totalPlantsToSowWithBuffer > 0 ? "#d32f2f" : "#e0e0e0"}`,
+                            bgcolor: card.isExcessiveSowing ? "#e8f5e9" : "white",
+                            transition: "all 0.3s ease",
+                            cursor: "pointer",
+                            "&:hover": {
+                              boxShadow: 6,
+                              transform: "translateY(-4px)",
+                            },
+                          }}>
+                          <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
+                            <Box display="flex" justifyContent="space-between" alignItems="start" mb={0.75}>
+                              <Box flex={1} sx={{ minWidth: 0 }}>
+                                <Box display="flex" alignItems="center" gap={0.5} mb={0.25}>
+                                  <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.65rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                    {card.plantName}
+                                  </Typography>
+                                  {card.isExcessiveSowing && (
+                                    <Chip 
+                                      label="EXCESSIVE"
+                                      size="small"
+                                      sx={{ 
+                                        bgcolor: '#4caf50',
+                                        color: 'white',
+                                        fontWeight: 600,
+                                        fontSize: '0.6rem',
+                                        height: '16px',
+                                        '& .MuiChip-label': { px: 0.5 }
+                                      }}
+                                    />
+                                  )}
+                                </Box>
+                                <Typography 
+                                  variant="body2" 
+                                  sx={{ 
+                                    fontWeight: 700, 
+                                    color: "#1976d2",
+                                    bgcolor: "#e3f2fd",
+                                    px: 0.75,
+                                    py: 0.25,
+                                    borderRadius: 0.5,
+                                    display: "inline-block",
+                                    fontSize: "0.75rem",
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                    whiteSpace: "nowrap",
+                                    maxWidth: "100%"
+                                  }}
+                                >
+                                  {card.subtypeName}
                                 </Typography>
-                                {card.isExcessiveSowing && (
-                                  <Chip 
-                                    label="EXCESSIVE"
-                                    size="small"
-                                    sx={{ 
-                                      bgcolor: '#4caf50',
-                                      color: 'white',
-                                      fontWeight: 600,
-                                      fontSize: '0.6rem',
-                                      height: '16px',
-                                      '& .MuiChip-label': { px: 0.5 }
-                                    }}
-                                  />
-                                )}
                               </Box>
-                              <Typography 
-                                variant="body2" 
-                                sx={{ 
-                                  fontWeight: 700, 
-                                  color: "#1976d2",
-                                  bgcolor: "#e3f2fd",
-                                  px: 0.75,
-                                  py: 0.25,
-                                  borderRadius: 0.5,
-                                  display: "inline-block",
-                                  fontSize: "0.75rem",
-                                  overflow: "hidden",
-                                  textOverflow: "ellipsis",
-                                  whiteSpace: "nowrap",
-                                  maxWidth: "100%"
-                                }}
-                              >
-                                {card.subtypeName}
-                              </Typography>
+                              <Chip
+                                label={card.totalSlots}
+                                size="small"
+                                color={card.isExcessiveSowing ? "success" : (totalPlantsToSowWithBuffer > 0 ? "error" : "default")}
+                                sx={{ fontSize: "0.65rem", height: "18px", ml: 0.5 }}
+                              />
                             </Box>
-                            <Chip
-                              label={card.totalSlots}
-                              size="small"
-                              color={card.isExcessiveSowing ? "success" : (card.totalGap > 0 ? "error" : "default")}
-                              sx={{ fontSize: "0.65rem", height: "18px", ml: 0.5 }}
-                            />
-                          </Box>
 
-                          <Box 
-                            display="flex" 
-                            justifyContent="space-between" 
-                            alignItems="center" 
-                            mb={0.75}
-                            p={1}
-                            sx={{ 
-                              bgcolor: card.isExcessiveSowing ? "#e8f5e9" : "#e8f5e9", 
-                              borderRadius: 0.75, 
-                              border: card.isExcessiveSowing ? "1.5px solid #4caf50" : "1.5px solid #2e7d32" 
-                            }}
-                          >
-                            <Typography variant="caption" sx={{ fontWeight: 700, color: card.isExcessiveSowing ? "#4caf50" : "#2e7d32", fontSize: "0.7rem" }}>
-                              {card.isExcessiveSowing ? "Expected" : "Total"}
-                            </Typography>
-                            <Typography variant="body1" sx={{ fontWeight: 700, color: card.isExcessiveSowing ? "#4caf50" : "#2e7d32", fontSize: "0.95rem" }}>
-                              {formatNumber(card.totalGap || 0)}
-                            </Typography>
-                          </Box>
-                          {(card.conversionFactor && (card.primaryUnit || card.secondaryUnit) || card.isExcessiveSowing) && (
                             <Box 
                               display="flex" 
                               justifyContent="space-between" 
-                              alignItems="center"
-                              p={1}
+                              alignItems="center" 
                               mb={0.75}
+                              p={1}
                               sx={{ 
-                                bgcolor: "#fff3e0", 
+                                bgcolor: card.isExcessiveSowing ? "#e8f5e9" : "#e8f5e9", 
                                 borderRadius: 0.75, 
-                                border: "1.5px solid #f57c00" 
+                                border: card.isExcessiveSowing ? "1.5px solid #4caf50" : "1.5px solid #2e7d32" 
                               }}
                             >
-                              <Typography variant="caption" sx={{ fontWeight: 700, color: "#f57c00", fontSize: "0.7rem" }}>
-                                Packets
+                              <Typography variant="caption" sx={{ fontWeight: 700, color: card.isExcessiveSowing ? "#4caf50" : "#2e7d32", fontSize: "0.7rem" }}>
+                                {card.isExcessiveSowing ? "Expected" : "Need to Sow"}
                               </Typography>
-                              <Typography variant="body1" sx={{ fontWeight: 700, color: "#f57c00", fontSize: "0.95rem" }}>
-                                {card.isExcessiveSowing 
-                                  ? `${card.excessiveRequest?.packetsRequested || 0} pkt`
-                                  : `${((card.totalGap || 0) / card.conversionFactor).toFixed(2)} ${card.primaryUnit?.symbol || card.primaryUnit?.name || card.secondaryUnit?.symbol || card.secondaryUnit?.name || "pkt"}`
-                                }
+                              <Typography variant="body1" sx={{ fontWeight: 700, color: card.isExcessiveSowing ? "#4caf50" : "#2e7d32", fontSize: "0.95rem" }}>
+                                {formatNumber(totalPlantsToSowWithBuffer)}
                               </Typography>
                             </Box>
-                          )}
+                            {(card.conversionFactor && (card.primaryUnit || card.secondaryUnit) || card.isExcessiveSowing) && (
+                              <Box 
+                                display="flex" 
+                                justifyContent="space-between" 
+                                alignItems="center"
+                                p={1}
+                                mb={0.75}
+                                sx={{ 
+                                  bgcolor: "#fff3e0", 
+                                  borderRadius: 0.75, 
+                                  border: "1.5px solid #f57c00" 
+                                }}
+                              >
+                                <Typography variant="caption" sx={{ fontWeight: 700, color: "#f57c00", fontSize: "0.7rem" }}>
+                                  Packets
+                                </Typography>
+                                <Typography variant="body1" sx={{ fontWeight: 700, color: "#f57c00", fontSize: "0.95rem" }}>
+                                  {card.isExcessiveSowing 
+                                    ? `${card.excessiveRequest?.packetsRequested || 0} pkt`
+                                    : `${(totalPlantsToSowWithBuffer / card.conversionFactor).toFixed(2)} ${card.primaryUnit?.symbol || card.primaryUnit?.name || card.secondaryUnit?.symbol || card.secondaryUnit?.name || "pkt"}`
+                                  }
+                                </Typography>
+                              </Box>
+                            )}
                           {!card.isExcessiveSowing && card.availablePackets !== undefined && (
                             <Box 
                               display="flex" 
@@ -2642,7 +2668,8 @@ const SowingGapAnalysis = () => {
                       </Card>
                     </Fade>
                   </Grid>
-                  ));
+                    );
+                  });
                 })()}
               </Grid>
             </>
@@ -3830,7 +3857,7 @@ const SowingGapAnalysis = () => {
                                               </Typography>
                                               {plantsSowingBuffer.has(plant._id.toString()) && (
                                                 <Chip
-                                                  label={`Buffer: ${plantsSowingBuffer.get(plant._id.toString()) || 0}%`}
+                                                  label={`Buffer: +${formatNumber(plantsSowingBuffer.get(plant._id.toString()) || 0)} plants`}
                                                   size="small"
                                                   color={plantsSowingBuffer.get(plant._id.toString()) > 0 ? "warning" : "default"}
                                                   sx={{ fontSize: "0.7rem" }}
@@ -4131,9 +4158,9 @@ const SowingGapAnalysis = () => {
                                                             }}
                                                           />
                                                         )}
-                                                        {!isAvailableTab && reminder.bookingGapRaw !== undefined && reminder.bookingGapRaw !== reminder.bookingGap && !reminder.gapFullyCovered && (
+                                                        {!isAvailableTab && reminder.slotBufferCount !== undefined && reminder.slotBufferCount > 0 && !reminder.gapFullyCovered && (
                                                           <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.65rem", display: "block", mt: 0.5 }}>
-                                                            Raw: {formatNumber(reminder.bookingGapRaw)} + Buffer
+                                                            Buffer: +{formatNumber(reminder.slotBufferCount)} (included in total)
                                                           </Typography>
                                                         )}
                                                         {reminder.sowingInProgress && reminder.totalPacketsIssued && (

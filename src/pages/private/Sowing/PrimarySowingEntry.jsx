@@ -711,13 +711,33 @@ const PrimarySowingEntry = () => {
 
       // Create sowing for each OFFICE group (now sorted by slot date)
       if (hasPackets) {
-        // Distribute plants and packets proportionally if user edited Primary (Field)
-        let remainingPlantsToDistribute = totalPrimaryQuantities;
-        let remainingPacketsToDistribute = totalPacketsAvailable;
+        // ✅ Calculate total required plants across all slots (for in-progress)
+        const totalRequiredPlants = sortedGroups.reduce((sum, [groupKey, group]) => {
+          const allInProgress = group.packets.every(p => p.isInProgress === true);
+          if (allInProgress) {
+            return sum + group.packets.reduce((s, p) => s + (p.remainingPlants || 0), 0);
+          }
+          return sum;
+        }, 0);
+        
+        // ✅ Track remaining plants to distribute (user input - required)
+        // This can be negative if user entered less than required
+        let remainingPlantsToDistribute = totalPrimaryQuantities - totalRequiredPlants;
+        
+        // ✅ Track total allocated so far (for last slot calculation)
+        let totalAllocatedSoFar = 0;
+        
+        console.log('[PrimarySowingEntry] 📊 Distribution strategy:', {
+          totalPrimaryQuantities,
+          totalRequiredPlants,
+          remainingPlantsToDistribute,
+          note: 'Each slot gets required quantity, last slot gets remaining from user input'
+        });
         
         for (let i = 0; i < sortedGroups.length; i++) {
           const [groupKey, group] = sortedGroups[i];
           const groupInfo = groupsWithNeeds[i];
+          const isLastSlot = i === sortedGroups.length - 1;
           
           // Check if packets are in-progress (already issued)
           const allPacketsInProgressCheck = group.packets.every(p => p.isInProgress === true);
@@ -771,34 +791,38 @@ const PrimarySowingEntry = () => {
           const conversionFactor = group.conversionFactor || 1000;
           
           if (allPacketsInProgress) {
-            // For in-progress: prioritize user-entered primaryQuantities, fallback to remainingPlants
-            groupSowedPlant = group.packets.reduce((sum, packet) => {
-              // ✅ Use user-entered primaryQuantities if available, otherwise use remainingPlants
-              const userEnteredPlants = primaryQuantities[packet.itemId] || 0;
-              const remainingPlants = packet.remainingPlants || 0;
-              // Use user-entered value if provided, otherwise use remainingPlants
-              const plants = userEnteredPlants > 0 ? userEnteredPlants : remainingPlants;
-              return sum + plants;
+            // ✅ For in-progress: Use required quantity (remainingPlants) for each slot
+            // Last slot gets remaining from user input (totalPrimaryQuantities - totalAllocatedSoFar)
+            const requiredPlantsForSlot = group.packets.reduce((sum, packet) => {
+              return sum + (packet.remainingPlants || 0);
             }, 0);
             
-            // ✅ Use actual packet quantities entered by user (from selectedPackets), not calculated from plants
-            // This ensures we use what user actually entered in the Packets field
+            if (isLastSlot) {
+              // Last slot: Use remaining from user input (ensures total = totalPrimaryQuantities)
+              const remainingFromUserInput = totalPrimaryQuantities - totalAllocatedSoFar;
+              groupSowedPlant = Math.max(0, remainingFromUserInput); // Ensure non-negative
+              console.log(`[PrimarySowingEntry] 📦 Last slot ${group.slotId}: totalPrimaryQuantities=${totalPrimaryQuantities}, totalAllocatedSoFar=${totalAllocatedSoFar}, remaining=${remainingFromUserInput}, final=${groupSowedPlant}`);
+            } else {
+              // Other slots: only required quantity (but don't exceed totalPrimaryQuantities)
+              const maxAllowed = totalPrimaryQuantities - totalAllocatedSoFar;
+              groupSowedPlant = Math.min(requiredPlantsForSlot, maxAllowed);
+              console.log(`[PrimarySowingEntry] 📦 Slot ${group.slotId}: required=${requiredPlantsForSlot}, maxAllowed=${maxAllowed}, using=${groupSowedPlant}`);
+            }
+            
+            // Update total allocated
+            totalAllocatedSoFar += groupSowedPlant;
+            
+            // ✅ Use actual packet quantities entered by user (from selectedPackets)
             groupPacketsUsed = group.totalQuantity;
             
             console.log(`[PrimarySowingEntry] 📦 In-progress calculation for slot ${group.slotId}:`, {
               groupSowedPlant,
+              requiredPlantsForSlot,
+              totalAllocatedSoFar,
+              totalPrimaryQuantities,
               conversionFactor,
               groupPacketsUsed,
-              groupTotalQuantity: group.totalQuantity,
-              note: 'Using actual packets entered by user',
-              usedUserInput: group.packets.some(p => primaryQuantities[p.itemId] > 0),
-              packetDetails: group.packets.map(p => ({
-                itemId: p.itemId,
-                packetQty: p.quantity || p.availableQuantity,
-                userEnteredPlants: primaryQuantities[p.itemId] || 0,
-                remainingPlants: p.remainingPlants || 0,
-                usedPlants: primaryQuantities[p.itemId] > 0 ? primaryQuantities[p.itemId] : (p.remainingPlants || 0)
-              }))
+              isLastSlot
             });
           } else {
             // Regular packets: use primaryQuantities from user input

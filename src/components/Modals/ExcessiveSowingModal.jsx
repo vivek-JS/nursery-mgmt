@@ -108,20 +108,38 @@ const ExcessiveSowingModal = ({ open, onClose, onSuccess }) => {
     setError(null);
 
     try {
+      // Calculate plantReadyBy from sowingDate + plantReadyDays
+      const plantReadyDays = selectedSubtype?.plantReadyDays || 0;
+      const plantReadyBy = plantReadyDays > 0
+        ? sowingDate.clone().add(plantReadyDays, 'days').format('DD-MM-YYYY')
+        : sowingDate.format('DD-MM-YYYY');
+
       const instance = NetworkManager(API.sowing.CREATE_EXCESSIVE_REQUEST);
       const response = await instance.request({
         plantId: selectedPlantId,
         subtypeId: selectedSubtypeId,
         packetsRequested: parseFloat(packetsRequested),
         sowingDate: sowingDate.format('DD-MM-YYYY'),
+        plantReadyBy: plantReadyBy, // Include plantReadyBy in payload
+        plantReadyDays: plantReadyDays, // Include plantReadyDays in payload
         notes: notes || 'Excessive sowing (no orders)',
       });
 
       if (response?.data?.success) {
-        Toast.success('Excessive sowing request created successfully');
+        const responseData = response.data.data || {};
+        const successMessage = responseData.plantReadyBy
+          ? `Excessive sowing request created successfully. Plants will be ready by ${responseData.plantReadyBy}`
+          : 'Excessive sowing request created successfully';
+        
+        Toast.success(successMessage);
         handleClose();
         if (onSuccess) {
-          onSuccess(response.data.data);
+          // Include plantReadyBy and plantReadyDays from API response in the payload
+          onSuccess({
+            ...responseData,
+            plantReadyBy: responseData.plantReadyBy,
+            plantReadyDays: responseData.plantReadyDays,
+          });
         }
       } else {
         setError(response?.data?.message || 'Failed to create request');
