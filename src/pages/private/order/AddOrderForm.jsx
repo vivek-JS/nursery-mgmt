@@ -293,10 +293,9 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
     modeOfPayment: "",
     bankName: "",
     remark: "",
-    receiptPhoto: [],
+    receiptPhoto: [], // Array of image URLs (uploaded to media endpoint)
     paymentStatus: "PENDING", // Default to PENDING, will be updated based on payment type
-    isWalletPayment: false,
-    paymentScreenshot: null // For payment image upload
+    isWalletPayment: false
   })
 
   const steps = [
@@ -1062,43 +1061,60 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
     }))
   }
 
-  // Payment image upload functions
-  const handlePaymentImageUpload = (event) => {
-    const file = event.target.files[0]
+  // Payment image upload functions - matching FarmerOrdersTable pattern
+  const handlePaymentImageUpload = async (event) => {
+    const files = Array.from(event.target.files)
     
-    if (!file) return
+    if (files.length === 0) return
 
-    if (!file.type.startsWith('image/')) {
-      Toast.error('Please select a valid image file')
-      return
-    }
-
-    if (file.size > 8 * 1024 * 1024) { // 8MB limit
-      Toast.error('File is too large. Maximum size is 8MB')
-      return
-    }
-
-    const reader = new FileReader()
-    reader.onload = (e) => {
-      const paymentImage = {
-        file: file,
-        preview: e.target.result,
-        name: file.name,
-        size: file.size
+    // Validate all files
+    for (const file of files) {
+      if (!file.type.startsWith('image/')) {
+        Toast.error('Please select valid image files only')
+        return
       }
+
+      if (file.size > 8 * 1024 * 1024) { // 8MB limit
+        Toast.error('File is too large. Maximum size is 8MB per file')
+        return
+      }
+    }
+
+    try {
+      setLoading(true)
+      // Upload each file to the media endpoint and get URLs
+      const uploadedUrls = await Promise.all(
+        files.map(async (file) => {
+          const formData = new FormData()
+          formData.append("media_key", file)
+          formData.append("media_type", "IMAGE")
+          formData.append("content_type", "multipart/form-data")
+          
+          const instance = NetworkManager(API.MEDIA.UPLOAD)
+          const response = await instance.request(formData)
+          return response.data.media_url
+        })
+      )
       
+      // Add new URLs to existing receiptPhoto array
       setNewPayment(prev => ({
         ...prev,
-        paymentScreenshot: paymentImage
+        receiptPhoto: [...(prev.receiptPhoto || []), ...uploadedUrls]
       }))
+      
+      Toast.success("Images uploaded successfully")
+    } catch (error) {
+      console.error("Error uploading images:", error)
+      Toast.error("Failed to upload images")
+    } finally {
+      setLoading(false)
     }
-    reader.readAsDataURL(file)
   }
 
-  const removePaymentImage = () => {
+  const removePaymentImage = (index) => {
     setNewPayment(prev => ({
       ...prev,
-      paymentScreenshot: null
+      receiptPhoto: prev.receiptPhoto.filter((_, i) => i !== index)
     }))
   }
 
@@ -1382,7 +1398,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
 
     // Validate image requirement for non-Cash payments (except NEFT/RTGS)
     if (newPayment.paidAmount && newPayment.modeOfPayment && newPayment.modeOfPayment !== "Cash" && newPayment.modeOfPayment !== "NEFT/RTGS") {
-      if (!newPayment.paymentScreenshot) {
+      if (!newPayment.receiptPhoto || newPayment.receiptPhoto.length === 0) {
         Toast.error(`Payment image is mandatory for ${newPayment.modeOfPayment} payments`)
         return false
       }
@@ -1669,7 +1685,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
               modeOfPayment = "Wallet"
             }
 
-            // Prepare payment payload (matching FarmerOrdersTable pattern)
+            // Prepare payment payload (matching FarmerOrdersTable pattern exactly)
             const paymentPayload = {
               paidAmount: newPayment.paidAmount,
               paymentDate: newPayment.paymentDate,
@@ -1682,30 +1698,11 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
             }
 
             console.log("Payment payload:", paymentPayload)
+            console.log("isWalletPayment value:", isWalletPayment)
             console.log("Order ID for payment:", orderId)
 
-            // If there's a payment screenshot, use FormData, otherwise use plain object
-            let paymentRequestPayload
-            if (newPayment.paymentScreenshot) {
-              // Use FormData when there's a screenshot
-              paymentRequestPayload = new FormData()
-              Object.entries(paymentPayload).forEach(([key, value]) => {
-                if (value === null || value === undefined) {
-                  return
-                }
-                if (Array.isArray(value) || (typeof value === "object" && value !== null && !(value instanceof File) && !(value instanceof Blob))) {
-                  paymentRequestPayload.append(key, JSON.stringify(value))
-                } else if (typeof value === "boolean") {
-                  paymentRequestPayload.append(key, value ? "true" : "false")
-                } else {
-                  paymentRequestPayload.append(key, value)
-                }
-              })
-              paymentRequestPayload.append('paymentScreenshot', newPayment.paymentScreenshot.file)
-            } else {
-              // Use plain object when no screenshot (matching FarmerOrdersTable)
-              paymentRequestPayload = paymentPayload
-            }
+            // Use plain object (matching FarmerOrdersTable - images are already uploaded as URLs)
+            const paymentRequestPayload = paymentPayload
 
             // Call ADD_PAYMENT API
             const paymentInstance = NetworkManager(API.ORDER.ADD_PAYMENT)
@@ -1848,8 +1845,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
       remark: "",
       receiptPhoto: [],
       paymentStatus: "PENDING", // Default to PENDING, will be updated based on payment type
-      isWalletPayment: false,
-      paymentScreenshot: null
+      isWalletPayment: false
     })
     onClose()
   }
@@ -3360,104 +3356,86 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                     />
                   </Grid>
 
-                  {/* Payment Image Upload */}
+                  {/* Payment Image Upload - Multiple images support */}
                   <Grid item xs={12}>
                     <Box sx={{ mt: 2 }}>
                       <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600, color: "#2c3e50" }}>
-                        Payment Screenshot {newPayment.modeOfPayment && newPayment.modeOfPayment !== "Cash" && newPayment.modeOfPayment !== "NEFT/RTGS" ? "(Required)" : "(Optional)"}
+                        Payment Receipt Photo {newPayment.modeOfPayment && newPayment.modeOfPayment !== "Cash" && newPayment.modeOfPayment !== "NEFT/RTGS" ? "(Required)" : "(Optional)"}
                       </Typography>
                       
-                      {newPayment.paymentScreenshot ? (
-                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                          <Box sx={{ position: 'relative', display: 'inline-block' }}>
-                            <img
-                              src={newPayment.paymentScreenshot.preview}
-                              alt="Payment screenshot"
-                              style={{
-                                width: '100%',
-                                maxWidth: 300,
-                                height: 200,
-                                objectFit: 'cover',
-                                borderRadius: 8,
-                                border: '2px solid #e0e0e0'
-                              }}
-                            />
-                            <IconButton
-                              onClick={removePaymentImage}
+                      <Box sx={{ mb: 2 }}>
+                        <Button
+                          variant="outlined"
+                          component="label"
+                          startIcon={<UploadIcon />}
+                          size="small"
+                          disabled={loading}
+                        >
+                          {loading ? "Uploading..." : "Upload Images"}
+                          <input
+                            type="file"
+                            hidden
+                            accept="image/*"
+                            multiple
+                            onChange={handlePaymentImageUpload}
+                          />
+                        </Button>
+                        {newPayment.modeOfPayment && newPayment.modeOfPayment !== "Cash" && newPayment.modeOfPayment !== "NEFT/RTGS" && (
+                          <Typography variant="caption" color="error" sx={{ ml: 2, display: 'inline-block' }}>
+                            Payment image is mandatory for {newPayment.modeOfPayment} payments
+                          </Typography>
+                        )}
+                      </Box>
+
+                      {/* Show preview of uploaded images */}
+                      {newPayment.receiptPhoto && newPayment.receiptPhoto.length > 0 && (
+                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mt: 2 }}>
+                          {newPayment.receiptPhoto.map((photo, index) => (
+                            <Box
+                              key={index}
                               sx={{
-                                position: 'absolute',
-                                top: 8,
-                                right: 8,
-                                backgroundColor: 'rgba(244, 67, 54, 0.8)',
-                                color: 'white',
-                                '&:hover': {
-                                  backgroundColor: 'rgba(244, 67, 54, 1)'
-                                }
+                                position: 'relative',
+                                display: 'inline-block',
+                                border: '2px solid #e0e0e0',
+                                borderRadius: 2,
+                                overflow: 'hidden'
                               }}
-                              size="small"
                             >
-                              <DeleteIcon fontSize="small" />
-                            </IconButton>
-                          </Box>
-                          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                            <Button
-                              variant="outlined"
-                              component="label"
-                              startIcon={<CameraIcon />}
-                              size="small"
-                            >
-                              Change Image
-                              <input
-                                type="file"
-                                hidden
-                                accept="image/*"
-                                onChange={handlePaymentImageUpload}
+                              <img
+                                src={photo}
+                                alt={`Receipt ${index + 1}`}
+                                style={{
+                                  width: 120,
+                                  height: 120,
+                                  objectFit: 'cover',
+                                  display: 'block'
+                                }}
                               />
-                            </Button>
-                            <Typography variant="caption" color="text.secondary" sx={{ alignSelf: 'center' }}>
-                              {newPayment.paymentScreenshot.name} ({(newPayment.paymentScreenshot.size / 1024 / 1024).toFixed(2)} MB)
-                            </Typography>
-                          </Box>
-                        </Box>
-                      ) : (
-                        <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-                          <Button
-                            variant="outlined"
-                            component="label"
-                            startIcon={<CameraIcon />}
-                            size="small"
-                          >
-                            Take Picture
-                            <input
-                              type="file"
-                              hidden
-                              accept="image/*"
-                              capture="camera"
-                              onChange={handlePaymentImageUpload}
-                            />
-                          </Button>
-                          <Button
-                            variant="outlined"
-                            component="label"
-                            startIcon={<UploadIcon />}
-                            size="small"
-                          >
-                            Select Image
-                            <input
-                              type="file"
-                              hidden
-                              accept="image/*"
-                              onChange={handlePaymentImageUpload}
-                            />
-                          </Button>
+                              <IconButton
+                                onClick={() => removePaymentImage(index)}
+                                sx={{
+                                  position: 'absolute',
+                                  top: 4,
+                                  right: 4,
+                                  backgroundColor: 'rgba(244, 67, 54, 0.8)',
+                                  color: 'white',
+                                  width: 24,
+                                  height: 24,
+                                  '&:hover': {
+                                    backgroundColor: 'rgba(244, 67, 54, 1)'
+                                  }
+                                }}
+                                size="small"
+                              >
+                                <DeleteIcon fontSize="small" />
+                              </IconButton>
+                            </Box>
+                          ))}
                         </Box>
                       )}
                       
                       <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-                        {newPayment.modeOfPayment && newPayment.modeOfPayment !== "Cash" && newPayment.modeOfPayment !== "NEFT/RTGS"
-                          ? `Payment image is mandatory for ${newPayment.modeOfPayment} payments`
-                          : 'Upload a screenshot of the payment confirmation for record keeping'
-                        }
+                        Upload payment confirmation screenshots or photos. You can upload multiple images.
                       </Typography>
                     </Box>
                   </Grid>

@@ -42,6 +42,8 @@ const PurchaseOrderForm = () => {
     return filtered;
   }, [merchants]);
   const [orderItems, setOrderItems] = useState([]);
+  const [productSlots, setProductSlots] = useState({}); // Store slots for each product
+  const [loadingSlots, setLoadingSlots] = useState({}); // Track loading state for each product
   const [formData, setFormData] = useState({
     supplier: {
       name: '',
@@ -199,7 +201,78 @@ const PurchaseOrderForm = () => {
       amount: 0,
       batchNumber: '', // For auto GRN
       expiryDate: '', // For auto GRN
+      slotId: '', // For slot selection when autoGRN is enabled
     }]);
+  };
+
+  // Fetch slots for a product when it has plantId and subtypeId
+  const fetchSlotsForProduct = async (productId) => {
+    const product = products.find(p => p._id === productId);
+    if (!product || !product.plantId || !product.subtypeId) {
+      return;
+    }
+
+    const plantId = typeof product.plantId === 'object' ? product.plantId._id : product.plantId;
+    const subtypeId = product.subtypeId;
+
+    setLoadingSlots(prev => ({ ...prev, [productId]: true }));
+    try {
+      const years = [new Date().getFullYear(), new Date().getFullYear() + 1];
+      const instance = NetworkManager(API.slots.GET_SIMPLE_SLOTS);
+      
+      const yearPromises = years.map(year => 
+        instance.request({}, { plantId, subtypeId, year })
+          .catch(error => {
+            console.error(`Error fetching slots for year ${year}:`, error);
+            return null;
+          })
+      );
+      
+      const responses = await Promise.all(yearPromises);
+      const mergedSlots = [];
+      
+      responses.forEach((response) => {
+        if (response) {
+          const slotsData = response?.data?.data?.slots || response?.data?.slots || [];
+          if (Array.isArray(slotsData) && slotsData.length > 0) {
+            mergedSlots.push(...slotsData);
+          }
+        }
+      });
+
+      // Format slots for dropdown
+      const formattedSlots = mergedSlots
+        .filter(slot => slot.startDay && slot.endDay && slot.status)
+        .map((slot) => {
+          const formatDate = (dateStr) => {
+            if (!dateStr) return '';
+            const parts = dateStr.split('-');
+            if (parts.length === 3) {
+              return `${parts[0]}-${parts[1]}-${parts[2]}`;
+            }
+            return dateStr;
+          };
+          
+          const available = slot.availablePlants || 0;
+          const startDate = formatDate(slot.startDay);
+          const endDate = formatDate(slot.endDay);
+          
+          return {
+            label: `${startDate} to ${endDate} (${available} available)`,
+            value: slot._id,
+            availableQuantity: available,
+            startDay: slot.startDay,
+            endDay: slot.endDay,
+          };
+        });
+
+      setProductSlots(prev => ({ ...prev, [productId]: formattedSlots }));
+    } catch (error) {
+      console.error(`Error fetching slots for product ${productId}:`, error);
+      setProductSlots(prev => ({ ...prev, [productId]: [] }));
+    } finally {
+      setLoadingSlots(prev => ({ ...prev, [productId]: false }));
+    }
   };
 
   // Check if a unit requires secondary UOM
@@ -220,7 +293,7 @@ const PurchaseOrderForm = () => {
       [field]: value,
     };
 
-    // When product is selected, check if it needs secondary unit
+    // When product is selected, check if it needs secondary unit and fetch slots if needed
     if (field === 'productId' && value) {
       const product = products.find(p => p._id === value);
       if (product) {
@@ -238,8 +311,17 @@ const PurchaseOrderForm = () => {
           // Clear secondary quantity if not needed
           updatedItems[index].secondaryQuantity = '';
         }
+
+        // If autoGRN is enabled and product has plantId/subtypeId, fetch slots
+        if (formData.autoGRN && product.plantId && product.subtypeId) {
+          fetchSlotsForProduct(value);
+        } else {
+          // Clear slot selection if conditions not met
+          updatedItems[index].slotId = '';
+        }
       }
     }
+
 
     // Auto-calculate secondary quantity when primary quantity changes
     // Secondary is dependent on primary: Secondary = Primary * Conversion Factor
@@ -333,10 +415,11 @@ const PurchaseOrderForm = () => {
           discount: 0, // Default discount
         };
 
-        // Add batch number and expiry date if auto GRN is enabled
+        // Add batch number, expiry date, and slotId if auto GRN is enabled
         if (formData.autoGRN) {
           itemData.batchNumber = item.batchNumber || ''; // Will be auto-generated in backend if empty
           itemData.expiryDate = item.expiryDate || null;
+          itemData.slotId = item.slotId || null; // Slot ID for updating availablePlants
         }
 
         return itemData;
@@ -531,10 +614,24 @@ const PurchaseOrderForm = () => {
                 <input
                   type="checkbox"
                   checked={formData.autoGRN}
-                  onChange={(e) => setFormData(prev => ({
-                    ...prev,
-                    autoGRN: e.target.checked
-                  }))}
+                  onChange={(e) => {
+                    const newAutoGRN = e.target.checked;
+                    setFormData(prev => ({
+                      ...prev,
+                      autoGRN: newAutoGRN
+                    }));
+                    // When autoGRN is enabled, fetch slots for products that have plantId/subtypeId
+                    if (newAutoGRN) {
+                      orderItems.forEach((item) => {
+                        if (item.productId) {
+                          const product = products.find(p => p._id === item.productId);
+                          if (product && product.plantId && product.subtypeId) {
+                            fetchSlotsForProduct(item.productId);
+                          }
+                        }
+                      });
+                    }
+                  }}
                   className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                 />
                 <span className="text-sm font-medium text-gray-700">
@@ -542,7 +639,7 @@ const PurchaseOrderForm = () => {
                 </span>
               </label>
               <p className="text-xs text-gray-600 mt-1 ml-6">
-                When enabled, a GRN will be automatically created once this purchase order is approved. You can add batch numbers and expiry dates below.
+                When enabled, a GRN will be automatically created once this purchase order is approved. You can add batch numbers, expiry dates, and select slots below.
               </p>
             </div>
 
@@ -571,6 +668,9 @@ const PurchaseOrderForm = () => {
                           </th>
                           <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                             Expiry Date
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Slot (Optional)
                           </th>
                         </>
                       )}
@@ -722,6 +822,49 @@ const PurchaseOrderForm = () => {
                                 onChange={(e) => updateOrderItem(index, 'expiryDate', e.target.value)}
                                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                               />
+                            </td>
+                            <td className="px-4 py-4">
+                              {(() => {
+                                const product = products.find(p => p._id === item.productId);
+                                const hasPlantLink = product && product.plantId && product.subtypeId;
+                                const slots = productSlots[item.productId] || [];
+                                const isLoading = loadingSlots[item.productId];
+
+                                if (!hasPlantLink) {
+                                  return (
+                                    <span className="text-xs text-gray-400">
+                                      Product not linked to plant
+                                    </span>
+                                  );
+                                }
+
+                                if (isLoading) {
+                                  return (
+                                    <div className="text-xs text-gray-500">Loading slots...</div>
+                                  );
+                                }
+
+                                if (slots.length === 0) {
+                                  return (
+                                    <span className="text-xs text-gray-400">No slots available</span>
+                                  );
+                                }
+
+                                return (
+                                  <select
+                                    value={item.slotId || ''}
+                                    onChange={(e) => updateOrderItem(index, 'slotId', e.target.value)}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                                  >
+                                    <option value="">Select slot (optional)</option>
+                                    {slots.map((slot) => (
+                                      <option key={slot.value} value={slot.value}>
+                                        {slot.label}
+                                      </option>
+                                    ))}
+                                  </select>
+                                );
+                              })()}
                             </td>
                           </>
                         )}

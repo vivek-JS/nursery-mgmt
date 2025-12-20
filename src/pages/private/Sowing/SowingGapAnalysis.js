@@ -57,6 +57,8 @@ import {
   Clear as ClearIcon,
   WhatsApp,
   ContentCopy,
+  History as HistoryIcon,
+  Timeline as TimelineIcon,
 } from "@mui/icons-material";
 import ExcessiveSowingModal from "components/Modals/ExcessiveSowingModal";
 import {
@@ -91,6 +93,7 @@ const SowingGapAnalysis = () => {
   const [subtypeReminders, setSubtypeReminders] = useState(new Map());
   const [subtypeStats, setSubtypeStats] = useState(new Map()); // Store stats for each subtype
   const [slotOrders, setSlotOrders] = useState(new Map());
+  const [slotInfosCache, setSlotInfosCache] = useState(new Map()); // Cache slotInfo for each slotId
   const [selectedSlot, setSelectedSlot] = useState(null);
   const [slotOrdersDialogOpen, setSlotOrdersDialogOpen] = useState(false);
   const [loadingReminders, setLoadingReminders] = useState(new Set());
@@ -127,6 +130,10 @@ const SowingGapAnalysis = () => {
   // Pending Sowing Requests
   const [pendingRequests, setPendingRequests] = useState([]);
   const [loadingRequests, setLoadingRequests] = useState(false);
+  // Activity Logs Modal
+  const [logsModalOpen, setLogsModalOpen] = useState(false);
+  const [allSlotLogs, setAllSlotLogs] = useState([]);
+  const [loadingLogs, setLoadingLogs] = useState(false);
 
   useEffect(() => {
     fetchGapSummary();
@@ -500,8 +507,14 @@ const SowingGapAnalysis = () => {
   };
 
   const handleSlotClick = async (slotId) => {
-    if (slotOrders.has(slotId)) {
-      setSelectedSlot({ slotId, orders: slotOrders.get(slotId) });
+    if (slotOrders.has(slotId) && slotInfosCache.has(slotId)) {
+      // Retrieve from cache
+      setSelectedSlot({ 
+        slotId, 
+        orders: slotOrders.get(slotId),
+        slotInfo: slotInfosCache.get(slotId),
+        summary: slotInfosCache.get(slotId)?.summary || null,
+      });
       setSlotOrdersDialogOpen(true);
       return;
     }
@@ -512,12 +525,18 @@ const SowingGapAnalysis = () => {
       const response = await instance.request({}, [slotId]);
       if (response?.data?.success) {
         const orders = response.data.orders || [];
+        const slotInfo = response.data.slotInfo;
+        const summary = response.data.summary;
+        
+        // Cache both orders and slotInfo
         setSlotOrders(new Map(slotOrders).set(slotId, orders));
+        setSlotInfosCache(new Map(slotInfosCache).set(slotId, { slotInfo, summary }));
+        
         setSelectedSlot({
           slotId,
           orders,
-          slotInfo: response.data.slotInfo,
-          summary: response.data.summary,
+          slotInfo,
+          summary,
         });
         setSlotOrdersDialogOpen(true);
       }
@@ -609,12 +628,17 @@ const SowingGapAnalysis = () => {
 
       const results = await Promise.all(fetchPromises);
 
-      // Store all orders in cache
+      // Store all orders and slotInfo in cache
       const newSlotOrders = new Map(slotOrders);
-      results.forEach(({ slotId, orders }) => {
+      const newSlotInfosCache = new Map(slotInfosCache);
+      results.forEach(({ slotId, orders, slotInfo, summary }) => {
         newSlotOrders.set(slotId, orders);
+        if (slotInfo) {
+          newSlotInfosCache.set(slotId, { slotInfo, summary });
+        }
       });
       setSlotOrders(newSlotOrders);
+      setSlotInfosCache(newSlotInfosCache);
 
       // Combine all orders
       const allOrders = [];
@@ -683,7 +707,7 @@ const SowingGapAnalysis = () => {
         if (dateGroup.slots && dateGroup.slots.length > 0) {
           dateGroup.slots.forEach((slot) => {
             const daysSpan = calculateDaysSpan(slot.slotStartDay, slot.slotEndDay);
-            message += `📅 *${slot.slotStartDay}* to *${slot.slotEndDay}*\n`;
+            message += `📅 *${formatSlotDate(slot.slotStartDay)}* to *${formatSlotDate(slot.slotEndDay)}*\n`;
             message += `   (${daysSpan} days)\n`;
             message += `*${subtypeGroup.plantName}-${subtypeGroup.subtypeName}*: Available *${formatNumber(slot.availablePlants || 0)}* plants\n\n`;
           });
@@ -720,7 +744,7 @@ const SowingGapAnalysis = () => {
           if (dateGroup.slots && dateGroup.slots.length > 0) {
             dateGroup.slots.forEach((slot) => {
               const daysSpan = calculateDaysSpan(slot.slotStartDay, slot.slotEndDay);
-              message += `📅 *${slot.slotStartDay}* to *${slot.slotEndDay}*\n`;
+              message += `📅 *${formatSlotDate(slot.slotStartDay)}* to *${formatSlotDate(slot.slotEndDay)}*\n`;
               message += `   (${daysSpan} days)\n`;
               message += `*${subtypeGroup.plantName}-${subtypeGroup.subtypeName}*: Available *${formatNumber(slot.availablePlants || 0)}* plants\n\n`;
             });
@@ -801,7 +825,7 @@ const SowingGapAnalysis = () => {
     message += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
     message += `📅 *Report Date:* ${currentDate}\n\n`;
     message += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
-    message += `📅 *${slot.slotStartDay}* to *${slot.slotEndDay}*\n`;
+    message += `📅 *${formatSlotDate(slot.slotStartDay)}* to *${formatSlotDate(slot.slotEndDay)}*\n`;
     message += `   (${daysSpan} days)\n`;
     message += `*${plantName}-${subtypeName}*: Available *${formatNumber(slot.availablePlants || 0)}* plants\n\n`;
     message += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
@@ -877,7 +901,7 @@ const SowingGapAnalysis = () => {
           if (dateGroup.slots && dateGroup.slots.length > 0) {
             dateGroup.slots.forEach((slot) => {
               const daysSpan = calculateDaysSpan(slot.slotStartDay, slot.slotEndDay);
-              message += `📅 *${slot.slotStartDay}* to *${slot.slotEndDay}*\n`;
+              message += `📅 *${formatSlotDate(slot.slotStartDay)}* to *${formatSlotDate(slot.slotEndDay)}*\n`;
               message += `   (${daysSpan} days)\n`;
               message += `*${subtypeGroup.plantName}-${subtypeGroup.subtypeName}*: Available *${formatNumber(slot.availablePlants || 0)}* plants\n\n`;
             });
@@ -1009,6 +1033,24 @@ const SowingGapAnalysis = () => {
   const formatNumber = (num) => {
     if (num === null || num === undefined) return "0";
     return new Intl.NumberFormat("en-IN").format(num);
+  };
+
+  // Format slot date from "DD-MM-YYYY" to "DD - MMM - YYYY" (e.g., "12 - dec -2025")
+  const formatSlotDate = (dateString) => {
+    if (!dateString) return "";
+    try {
+      // Parse date in DD-MM-YYYY format
+      const date = moment(dateString, "DD-MM-YYYY");
+      if (!date.isValid()) {
+        // Try parsing as-is if already formatted
+        return dateString;
+      }
+      // Format as "DD - MMM - YYYY" (e.g., "12 - dec -2025")
+      return date.format("DD - MMM - YYYY").toLowerCase();
+    } catch (error) {
+      console.error("Error formatting slot date:", error, dateString);
+      return dateString; // Return original if parsing fails
+    }
   };
 
   const handleCreateRequest = async (card) => {
@@ -1355,6 +1397,76 @@ const SowingGapAnalysis = () => {
         });
       },
     });
+  };
+
+  const handleViewAllLogs = async () => {
+    setLogsModalOpen(true);
+    setLoadingLogs(true);
+    setAllSlotLogs([]);
+    
+    try {
+      // Collect all slot IDs from today's cards
+      const allSlotIds = [];
+      if (todayCardsData?.subtypeCards) {
+        todayCardsData.subtypeCards.forEach((card) => {
+          if (card.slots && card.slots.length > 0) {
+            card.slots.forEach((slot) => {
+              if (slot.slotId) {
+                allSlotIds.push({
+                  slotId: slot.slotId,
+                  plantName: card.plantName,
+                  subtypeName: card.subtypeName,
+                  slotStartDay: slot.slotStartDay,
+                  slotEndDay: slot.slotEndDay,
+                });
+              }
+            });
+          }
+        });
+      }
+      
+      // Fetch logs for each slot
+      const logsPromises = allSlotIds.map(async (slotInfo) => {
+        try {
+          const instance = NetworkManager(API.SLOTS.GET_SLOT_TRAIL);
+          const response = await instance.request({}, [slotInfo.slotId]);
+          
+          if (response?.data?.success && response.data.data) {
+            return {
+              slotInfo,
+              logs: response.data.data || [],
+            };
+          }
+          return { slotInfo, logs: [] };
+        } catch (err) {
+          console.error(`Error fetching logs for slot ${slotInfo.slotId}:`, err);
+          return { slotInfo, logs: [] };
+        }
+      });
+      
+      const logsResults = await Promise.all(logsPromises);
+      
+      // Flatten and sort all logs by date (newest first)
+      const allLogs = logsResults
+        .flatMap((result) =>
+          result.logs.map((log) => ({
+            ...log,
+            slotInfo: result.slotInfo,
+          }))
+        )
+        .sort((a, b) => {
+          const dateA = new Date(a.createdAt || 0);
+          const dateB = new Date(b.createdAt || 0);
+          return dateB - dateA; // Newest first
+        });
+      
+      setAllSlotLogs(allLogs);
+    } catch (error) {
+      console.error("Error fetching logs:", error);
+      Toast.error("Failed to load activity logs");
+    } finally {
+      setLoadingLogs(false);
+    }
   };
 
   const handleExcessiveSowingSuccess = async (data) => {
@@ -2234,6 +2346,27 @@ const SowingGapAnalysis = () => {
                       </Typography>
                     </CardContent>
                   </Card>
+                </Grid>
+                {/* View Activity Logs Button */}
+                <Grid item xs={12}>
+                  <Box display="flex" justifyContent="center" mt={1}>
+                    <Button
+                      variant="outlined"
+                      startIcon={<HistoryIcon />}
+                      onClick={handleViewAllLogs}
+                      sx={{
+                        borderColor: "#1976d2",
+                        color: "#1976d2",
+                        "&:hover": {
+                          borderColor: "#1565c0",
+                          bgcolor: "#e3f2fd",
+                        },
+                      }}
+                      disabled={loadingLogs}
+                    >
+                      {loadingLogs ? "Loading Logs..." : "View Activity Logs"}
+                    </Button>
+                  </Box>
                 </Grid>
               </Grid>
 
@@ -3555,7 +3688,7 @@ const SowingGapAnalysis = () => {
                                     <Box display="flex" justifyContent="space-between" alignItems="flex-start">
                                       <Box flex={1}>
                                         <Typography variant="body2" color="textSecondary" sx={{ fontSize: "0.75rem" }}>
-                                          {slot.slotStartDay} to {slot.slotEndDay}
+                                          {formatSlotDate(slot.slotStartDay)} to {formatSlotDate(slot.slotEndDay)}
                                         </Typography>
                                         <Typography variant="h6" sx={{ fontWeight: 600, color: "#2e7d32", mt: 0.5 }}>
                                           {formatNumber(slot.availablePlants || 0)} plants
@@ -4078,8 +4211,8 @@ const SowingGapAnalysis = () => {
                                                     }}>
                                                     <TableCell>
                                                       {reminder.slotStartDay === reminder.slotEndDay
-                                                        ? reminder.slotStartDay
-                                                        : `${reminder.slotStartDay} - ${reminder.slotEndDay}`}
+                                                        ? formatSlotDate(reminder.slotStartDay)
+                                                        : `${formatSlotDate(reminder.slotStartDay)} - ${formatSlotDate(reminder.slotEndDay)}`}
                                                     </TableCell>
                                                     <TableCell align="right">
                                                       <Typography sx={{ fontWeight: 600 }}>
@@ -4344,11 +4477,11 @@ const SowingGapAnalysis = () => {
                         <Box display="flex" alignItems="center" gap={1} mb={1}>
                           <CalendarToday fontSize="small" color="primary" />
                           <Typography variant="body2">
-                            <strong>Date:</strong> {selectedSlot.slotInfo.slot?.startDay}
-                            {selectedSlot.slotInfo.slot?.endDay !==
-                            selectedSlot.slotInfo.slot?.startDay
-                              ? ` - ${selectedSlot.slotInfo.slot?.endDay}`
-                              : ""}
+                            <strong>Date:</strong> {selectedSlot.slotInfo?.slot?.startDay
+                              ? (selectedSlot.slotInfo.slot.startDay === selectedSlot.slotInfo.slot.endDay
+                                  ? formatSlotDate(selectedSlot.slotInfo.slot.startDay)
+                                  : `${formatSlotDate(selectedSlot.slotInfo.slot.startDay)} - ${formatSlotDate(selectedSlot.slotInfo.slot.endDay)}`)
+                              : "N/A"}
                           </Typography>
                         </Box>
                       </Grid>
@@ -4428,8 +4561,8 @@ const SowingGapAnalysis = () => {
                           );
                           if (slotInfo?.slot) {
                             slotDateInfo = slotInfo.slot.startDay === slotInfo.slot.endDay
-                              ? slotInfo.slot.startDay
-                              : `${slotInfo.slot.startDay} - ${slotInfo.slot.endDay}`;
+                              ? formatSlotDate(slotInfo.slot.startDay)
+                              : `${formatSlotDate(slotInfo.slot.startDay)} - ${formatSlotDate(slotInfo.slot.endDay)}`;
                           }
                         }
                         
@@ -4634,7 +4767,7 @@ const SowingGapAnalysis = () => {
                               {progress.requestNumber}
                             </Typography>
                             <Typography variant="caption" color="text.secondary">
-                              Slot: {slot.slotStartDay} - {slot.slotEndDay}
+                              Slot: {formatSlotDate(slot.slotStartDay)} - {formatSlotDate(slot.slotEndDay)}
                             </Typography>
                           </Box>
                           {progress.isExcessiveSowing && (
@@ -4691,6 +4824,300 @@ const SowingGapAnalysis = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setInProgressDialogOpen(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Activity Logs Modal */}
+      <Dialog
+        open={logsModalOpen}
+        onClose={() => setLogsModalOpen(false)}
+        maxWidth="lg"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 2,
+            maxHeight: "90vh",
+          },
+        }}
+      >
+        <DialogTitle
+          sx={{
+            bgcolor: "#1976d2",
+            color: "white",
+            display: "flex",
+            alignItems: "center",
+            gap: 1,
+            py: 2,
+          }}
+        >
+          <TimelineIcon />
+          <Typography variant="h6" sx={{ fontWeight: 700 }}>
+            Activity Logs - All Slots
+          </Typography>
+        </DialogTitle>
+        <DialogContent sx={{ p: 0, mt: 2 }}>
+          {loadingLogs ? (
+            <Box display="flex" justifyContent="center" alignItems="center" p={4}>
+              <CircularProgress />
+              <Typography variant="body2" sx={{ ml: 2 }}>
+                Loading activity logs...
+              </Typography>
+            </Box>
+          ) : allSlotLogs.length === 0 ? (
+            <Box p={4} textAlign="center">
+              <HistoryIcon sx={{ fontSize: 64, color: "#ccc", mb: 2 }} />
+              <Typography variant="h6" color="text.secondary">
+                No activity logs found
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                There are no activity logs for the slots in today&apos;s sowing cards.
+              </Typography>
+            </Box>
+          ) : (
+            <Box sx={{ maxHeight: "70vh", overflowY: "auto", p: 2 }}>
+              {/* Timeline-style display */}
+              {allSlotLogs.map((log, index) => {
+                const logDate = log.createdAt ? new Date(log.createdAt) : null;
+                const formattedDate = logDate
+                  ? logDate.toLocaleString("en-IN", {
+                      day: "2-digit",
+                      month: "short",
+                      year: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })
+                  : "Unknown date";
+
+                // Determine color based on action type
+                const getActionColor = (action) => {
+                  if (action?.includes("SOWING_PRIMARY")) return "#2e7d32";
+                  if (action?.includes("SOWING_OFFICE")) return "#1976d2";
+                  if (action?.includes("SOWING_EXCESSIVE")) return "#f57c00";
+                  if (action?.includes("GAP_COVERED")) return "#7b1fa2";
+                  if (action?.includes("COMPLETED")) return "#388e3c";
+                  return "#616161";
+                };
+
+                const actionColor = getActionColor(log.action);
+
+                return (
+                  <Box
+                    key={index}
+                    sx={{
+                      mb: 3,
+                      position: "relative",
+                      pl: 4,
+                      "&::before": {
+                        content: '""',
+                        position: "absolute",
+                        left: 7,
+                        top: 0,
+                        bottom: -24,
+                        width: 2,
+                        bgcolor: "#e0e0e0",
+                      },
+                      "&:last-child::before": {
+                        display: "none",
+                      },
+                    }}
+                  >
+                    {/* Timeline dot */}
+                    <Box
+                      sx={{
+                        position: "absolute",
+                        left: 0,
+                        top: 4,
+                        width: 16,
+                        height: 16,
+                        borderRadius: "50%",
+                        bgcolor: actionColor,
+                        border: "3px solid white",
+                        boxShadow: "0 0 0 2px #e0e0e0",
+                        zIndex: 1,
+                      }}
+                    />
+
+                    {/* Log Card */}
+                    <Card
+                      sx={{
+                        boxShadow: 2,
+                        borderLeft: `4px solid ${actionColor}`,
+                        transition: "all 0.2s",
+                        "&:hover": {
+                          boxShadow: 4,
+                          transform: "translateX(4px)",
+                        },
+                      }}
+                    >
+                      <CardContent>
+                        {/* Header */}
+                        <Box display="flex" justifyContent="space-between" alignItems="start" mb={1.5}>
+                          <Box>
+                            <Typography
+                              variant="subtitle1"
+                              sx={{
+                                fontWeight: 700,
+                                color: actionColor,
+                                mb: 0.5,
+                              }}
+                            >
+                              {log.activityName || log.action || "Activity"}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              {log.slotInfo?.plantName} - {log.slotInfo?.subtypeName}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                              • Slot: {formatSlotDate(log.slotInfo?.slotStartDay)} to {formatSlotDate(log.slotInfo?.slotEndDay)}
+                            </Typography>
+                          </Box>
+                          <Chip
+                            label={formattedDate}
+                            size="small"
+                            sx={{ bgcolor: "#f5f5f5", fontSize: "0.7rem" }}
+                          />
+                        </Box>
+
+                        <Divider sx={{ my: 1.5 }} />
+
+                        {/* Details Grid */}
+                        <Grid container spacing={2}>
+                          {/* Plus values */}
+                          {log.plus && (
+                            <Grid item xs={12} sm={6}>
+                              <Typography variant="caption" color="success.main" sx={{ fontWeight: 600 }}>
+                                Added (+)
+                              </Typography>
+                              <Box sx={{ mt: 0.5, pl: 1 }}>
+                                {log.plus.primarySowed > 0 && (
+                                  <Typography variant="body2">
+                                    Primary Sowed: <strong>{formatNumber(log.plus.primarySowed)}</strong>
+                                  </Typography>
+                                )}
+                                {log.plus.officeSowed > 0 && (
+                                  <Typography variant="body2">
+                                    Office Sowed: <strong>{formatNumber(log.plus.officeSowed)}</strong>
+                                  </Typography>
+                                )}
+                                {log.plus.totalPlants > 0 && (
+                                  <Typography variant="body2">
+                                    Total Plants: <strong>{formatNumber(log.plus.totalPlants)}</strong>
+                                  </Typography>
+                                )}
+                                {log.plus.availablePlants > 0 && (
+                                  <Typography variant="body2">
+                                    Available: <strong>{formatNumber(log.plus.availablePlants)}</strong>
+                                  </Typography>
+                                )}
+                                {log.plus.excessivePlants > 0 && (
+                                  <Typography variant="body2" color="warning.main">
+                                    Excessive: <strong>{formatNumber(log.plus.excessivePlants)}</strong>
+                                  </Typography>
+                                )}
+                                {log.plus.gapCovered > 0 && (
+                                  <Typography variant="body2" color="secondary.main">
+                                    Gap Covered: <strong>{formatNumber(log.plus.gapCovered)}</strong>
+                                  </Typography>
+                                )}
+                              </Box>
+                            </Grid>
+                          )}
+
+                          {/* Minus values */}
+                          {log.minus && (
+                            <Grid item xs={12} sm={6}>
+                              <Typography variant="caption" color="error.main" sx={{ fontWeight: 600 }}>
+                                Subtracted (-)
+                              </Typography>
+                              <Box sx={{ mt: 0.5, pl: 1 }}>
+                                {log.minus.packetsRemaining > 0 && (
+                                  <Typography variant="body2">
+                                    Packets Returned: <strong>{formatNumber(log.minus.packetsRemaining)}</strong>
+                                  </Typography>
+                                )}
+                                {log.minus.inProgressEntries > 0 && (
+                                  <Typography variant="body2">
+                                    In-Progress Cleared: <strong>{log.minus.inProgressEntries}</strong>
+                                  </Typography>
+                                )}
+                              </Box>
+                            </Grid>
+                          )}
+
+                          {/* Before/After state */}
+                          {log.before && log.after && (
+                            <>
+                              <Grid item xs={12} sm={6}>
+                                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+                                  Before
+                                </Typography>
+                                <Box sx={{ mt: 0.5, pl: 1, bgcolor: "#fafafa", p: 1, borderRadius: 1 }}>
+                                  <Typography variant="body2" sx={{ fontSize: "0.8rem" }}>
+                                    Primary: {formatNumber(log.before.primarySowed || 0)} | Total:{" "}
+                                    {formatNumber(log.before.totalPlants || 0)} | Available:{" "}
+                                    {formatNumber(log.before.availablePlants || 0)}
+                                  </Typography>
+                                </Box>
+                              </Grid>
+                              <Grid item xs={12} sm={6}>
+                                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+                                  After
+                                </Typography>
+                                <Box sx={{ mt: 0.5, pl: 1, bgcolor: "#f0f7ff", p: 1, borderRadius: 1 }}>
+                                  <Typography variant="body2" sx={{ fontSize: "0.8rem" }}>
+                                    Primary: {formatNumber(log.after.primarySowed || 0)} | Total:{" "}
+                                    {formatNumber(log.after.totalPlants || 0)} | Available:{" "}
+                                    {formatNumber(log.after.availablePlants || 0)}
+                                  </Typography>
+                                </Box>
+                              </Grid>
+                            </>
+                          )}
+                        </Grid>
+
+                        {/* Additional Info */}
+                        {(log.batchNumber || log.sowingLocation || log.reason) && (
+                          <>
+                            <Divider sx={{ my: 1.5 }} />
+                            <Box>
+                              {log.reason && (
+                                <Typography variant="body2" sx={{ mb: 0.5 }}>
+                                  <strong>Reason:</strong> {log.reason}
+                                </Typography>
+                              )}
+                              {log.notes && (
+                                <Typography variant="body2" color="text.secondary" sx={{ fontSize: "0.85rem" }}>
+                                  {log.notes}
+                                </Typography>
+                              )}
+                              <Box display="flex" gap={2} mt={1}>
+                                {log.batchNumber && (
+                                  <Chip label={`Batch: ${log.batchNumber}`} size="small" variant="outlined" />
+                                )}
+                                {log.sowingLocation && (
+                                  <Chip label={`Location: ${log.sowingLocation}`} size="small" variant="outlined" />
+                                )}
+                                {log.performedBy?.name && (
+                                  <Chip label={`By: ${log.performedBy.name}`} size="small" variant="outlined" />
+                                )}
+                              </Box>
+                            </Box>
+                          </>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </Box>
+                );
+              })}
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ p: 2, bgcolor: "#f5f5f5" }}>
+          <Typography variant="caption" color="text.secondary" sx={{ mr: "auto" }}>
+            Total {allSlotLogs.length} activity log{allSlotLogs.length !== 1 ? "s" : ""}
+          </Typography>
+          <Button onClick={() => setLogsModalOpen(false)} variant="contained" color="primary">
+            Close
+          </Button>
         </DialogActions>
       </Dialog>
     </Box>

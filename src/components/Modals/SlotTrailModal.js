@@ -141,62 +141,78 @@ const SlotTrailModal = ({ open, onClose, slotId, slotInfo }) => {
         ) : trail.length > 0 ? (
           <div className="space-y-3">
             <h3 className="font-semibold text-gray-900">Activity History</h3>
-            {trail.map((entry, index) => (
-              <div key={index} className={`border rounded-lg p-4 ${getActionColor(entry.action)}`}>
-                <div className="flex items-start justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    {getActionIcon(entry.action)}
-                    <span className="font-medium capitalize">
-                      {entry.action.replace("_", " ").toLowerCase()}
+            {trail.map((entry, index) => {
+              // Safely handle undefined/null values
+              const action = entry?.action || entry?.activityName || "UNKNOWN";
+              const activityName = entry?.activityName || action;
+              const quantity = entry?.quantity || 0;
+              const reason = entry?.reason || "No reason provided";
+              const notes = entry?.notes || "";
+              const createdAt = entry?.createdAt ? moment(entry.createdAt) : moment();
+              const previousAvailablePlants = entry?.previousAvailablePlants ?? entry?.before?.availablePlants ?? 0;
+              const newAvailablePlants = entry?.newAvailablePlants ?? entry?.after?.availablePlants ?? 0;
+              const bufferPercentage = entry?.bufferPercentage ?? 0;
+              const bufferAmount = entry?.bufferAmount ?? 0;
+              const performedBy = entry?.performedBy;
+              const orderId = entry?.orderId;
+
+              return (
+                <div key={index} className={`border rounded-lg p-4 ${getActionColor(action)}`}>
+                  <div className="flex items-start justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      {getActionIcon(action)}
+                      <span className="font-medium capitalize">
+                        {(activityName || action || "Unknown").replace(/_/g, " ").toLowerCase()}
+                      </span>
+                      <span className="text-sm font-bold">
+                        {formatQuantity(action, quantity)}
+                      </span>
+                    </div>
+                    <span className="text-xs text-gray-500">
+                      {createdAt.isValid() ? createdAt.format("DD/MM/YYYY HH:mm") : "N/A"}
                     </span>
-                    <span className="text-sm font-bold">
-                      {formatQuantity(entry.action, entry.quantity)}
-                    </span>
                   </div>
-                  <span className="text-xs text-gray-500">
-                    {moment(entry.createdAt).format("DD/MM/YYYY HH:mm")}
-                  </span>
-                </div>
 
-                <div className="text-sm mb-2">
-                  <p className="font-medium">{entry.reason}</p>
-                  {entry.notes && <p className="text-gray-600 mt-1">{entry.notes}</p>}
-                </div>
+                  <div className="text-sm mb-2">
+                    <p className="font-medium">{reason}</p>
+                    {notes && <p className="text-gray-600 mt-1">{notes}</p>}
+                  </div>
 
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-                  <div>
-                    <span className="text-gray-500">Previous Available:</span>
-                    <div className="font-medium">
-                      {entry.previousAvailablePlants?.toLocaleString()}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                    <div>
+                      <span className="text-gray-500">Previous Available:</span>
+                      <div className="font-medium">
+                        {previousAvailablePlants?.toLocaleString() || "0"}
+                      </div>
+                    </div>
+                    <div>
+                      <span className="text-gray-500">New Available:</span>
+                      <div className="font-medium">{newAvailablePlants?.toLocaleString() || "0"}</div>
+                    </div>
+                    <div>
+                      <span className="text-gray-500">Buffer:</span>
+                      <div className="font-medium">
+                        {bufferPercentage}% ({bufferAmount?.toLocaleString() || "0"})
+                      </div>
+                    </div>
+                    <div>
+                      <span className="text-gray-500">Performed By:</span>
+                      <div className="font-medium flex items-center gap-1">
+                        <User size={12} />
+                        {performedBy?.name || "System"}
+                      </div>
                     </div>
                   </div>
-                  <div>
-                    <span className="text-gray-500">New Available:</span>
-                    <div className="font-medium">{entry.newAvailablePlants?.toLocaleString()}</div>
-                  </div>
-                  <div>
-                    <span className="text-gray-500">Buffer:</span>
-                    <div className="font-medium">
-                      {entry.bufferPercentage}% ({entry.bufferAmount?.toLocaleString()})
-                    </div>
-                  </div>
-                  <div>
-                    <span className="text-gray-500">Performed By:</span>
-                    <div className="font-medium flex items-center gap-1">
-                      <User size={12} />
-                      {entry.performedBy?.name || "System"}
-                    </div>
-                  </div>
-                </div>
 
-                {entry.orderId && (
-                  <div className="mt-2 text-xs">
-                    <span className="text-gray-500">Order ID:</span>
-                    <span className="font-medium ml-1">#{entry.orderId}</span>
-                  </div>
-                )}
-              </div>
-            ))}
+                  {orderId && (
+                    <div className="mt-2 text-xs">
+                      <span className="text-gray-500">Order ID:</span>
+                      <span className="font-medium ml-1">#{orderId}</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         ) : (
           <div className="text-center py-8">

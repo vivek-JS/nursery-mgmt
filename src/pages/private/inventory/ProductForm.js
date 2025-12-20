@@ -40,7 +40,7 @@ const ProductForm = () => {
   useEffect(() => {
     fetchUnits();
     fetchCategories();
-    if (formData.category === 'seeds') {
+    if (formData.category === 'seeds' || formData.category === 'plants') {
       fetchPlants();
     }
     if (isEditMode) {
@@ -49,11 +49,11 @@ const ProductForm = () => {
   }, [id]);
 
   useEffect(() => {
-    // Fetch plants when category changes to "seeds"
-    if (formData.category === 'seeds') {
+    // Fetch plants when category changes to "seeds" or "plants"
+    if (formData.category === 'seeds' || formData.category === 'plants') {
       fetchPlants();
     } else {
-      // Clear plant and subtype when category is not "seeds"
+      // Clear plant and subtype when category is not "seeds" or "plants"
       setSelectedPlant(null);
       setFormData(prev => ({ ...prev, plantId: '', subtypeId: '' }));
     }
@@ -139,8 +139,8 @@ const ProductForm = () => {
             subtypeId: product.subtypeId || '',
           });
           
-          // If category is seeds and plantId exists, set selected plant
-          if (product.category === 'seeds' && product.plantId) {
+          // If category is seeds or plants and plantId exists, set selected plant
+          if ((product.category === 'seeds' || product.category === 'plants') && product.plantId) {
             const plantId = product.plantId._id || product.plantId;
             if (plants.length > 0) {
               const plant = plants.find(p => p._id === plantId);
@@ -292,10 +292,10 @@ const ProductForm = () => {
     if (!formData.category) newErrors.category = 'Category is required';
     if (!formData.primaryUnit) newErrors.primaryUnit = 'Primary unit is required';
 
-    // Validate plant and subtype for seeds category
-    if (formData.category === 'seeds') {
-      if (!formData.plantId) newErrors.plantId = 'Plant is required for seeds products';
-      if (!formData.subtypeId) newErrors.subtypeId = 'Subtype is required for seeds products';
+    // Validate plant and subtype for seeds or plants category
+    if (formData.category === 'seeds' || formData.category === 'plants') {
+      if (!formData.plantId) newErrors.plantId = `Plant is required for ${formData.category} products`;
+      if (!formData.subtypeId) newErrors.subtypeId = `Subtype is required for ${formData.category} products`;
     }
 
     if (formData.primaryUnit) {
@@ -333,13 +333,13 @@ const ProductForm = () => {
         secondaryUnit: formData.secondaryUnit || null,
       };
       
-      // Include plantId and subtypeId only if category is "seeds"
+      // Include plantId and subtypeId if category is "seeds" or "plants"
       // Always include them (even if null) so backend can handle them properly
-      if (formData.category === 'seeds') {
+      if (formData.category === 'seeds' || formData.category === 'plants') {
         payload.plantId = formData.plantId && formData.plantId.trim() !== '' ? formData.plantId : null;
         payload.subtypeId = formData.subtypeId && formData.subtypeId.trim() !== '' ? formData.subtypeId : null;
       } else {
-        // Explicitly set to null for non-seeds products
+        // Explicitly set to null for non-seeds/plants products
         payload.plantId = null;
         payload.subtypeId = null;
       }
@@ -530,8 +530,8 @@ const ProductForm = () => {
               {errors.category && <p className="text-red-500 text-xs mt-1">{errors.category}</p>}
             </div>
 
-            {/* Plant and Subtype Selection - Only for Seeds Category */}
-            {formData.category === 'seeds' && (
+            {/* Plant and Subtype Selection - Only for Seeds or Plants Category */}
+            {(formData.category === 'seeds' || formData.category === 'plants') && (
               <>
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">

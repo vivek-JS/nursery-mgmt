@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -20,14 +20,17 @@ import {
   Chip,
 } from '@mui/material';
 import { NetworkManager, API } from 'network/core';
+import { formatDisplayDate } from '../../../../utils/dateUtils';
 
 const SowingRequestDialog = ({ open, onClose, request, onSuccess }) => {
   const [batches, setBatches] = useState([]);
   const [allocations, setAllocations] = useState({});
+  const [expiryDates, setExpiryDates] = useState({}); // Store expiry dates per batch allocation
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
   const [alertDialog, setAlertDialog] = useState({ open: false, message: "", title: "" });
+  const autoFilledRef = useRef(false); // Track if auto-fill has been done for this request
 
   const getPacketsNeeded = () => {
     return request?.packetsNeeded || 0;
@@ -59,7 +62,7 @@ const SowingRequestDialog = ({ open, onClose, request, onSuccess }) => {
   };
 
   // Auto-fill allocations to match requested quantity
-  const autoFillAllocations = () => {
+  const autoFillAllocations = useCallback(() => {
     if (!request || batches.length === 0) return;
 
     const packetsRequested = getPacketsRequested();
@@ -77,6 +80,7 @@ const SowingRequestDialog = ({ open, onClose, request, onSuccess }) => {
 
     // Distribute requested quantity across batches
     const newAllocations = {};
+    const newExpiryDates = {};
     let remainingToAllocate = packetsRequested;
     const primaryUnitId = request?.primaryUnit?._id?.toString();
     const secondaryUnitId = request?.secondaryUnit?._id?.toString();
@@ -115,6 +119,10 @@ const SowingRequestDialog = ({ open, onClose, request, onSuccess }) => {
 
       if (batchAllocationInPackets > 0.01) {
         newAllocations[batch._id] = parseFloat(batchAllocationInBatchUnit.toFixed(2));
+        // Set expiry date from batch if available
+        if (batch.expiryDate) {
+          newExpiryDates[batch._id] = batch.expiryDate;
+        }
         remainingToAllocate -= batchAllocationInPackets;
       }
     }
@@ -129,32 +137,57 @@ const SowingRequestDialog = ({ open, onClose, request, onSuccess }) => {
     }
 
     setAllocations(newAllocations);
-  };
+    if (Object.keys(newExpiryDates).length > 0) {
+      setExpiryDates((prev) => ({ ...prev, ...newExpiryDates }));
+    }
+  }, [request, batches]);
 
   useEffect(() => {
     if (open && request) {
       setBatches(request.batches || []);
       setAllocations({});
+      setExpiryDates({});
       setError(null);
+      autoFilledRef.current = false; // Reset auto-fill flag when dialog opens with new request
     }
   }, [open, request]);
 
-  // Auto-fill when batches are loaded
+  // Auto-fill when batches are loaded (only once per dialog open)
   useEffect(() => {
-    if (open && request && batches.length > 0) {
+    if (open && request && batches.length > 0 && !autoFilledRef.current) {
       // Auto-fill allocations after a short delay to ensure state is set
+      // Only auto-fill once per dialog open
       const timer = setTimeout(() => {
         autoFillAllocations();
+        autoFilledRef.current = true; // Mark as auto-filled
       }, 100);
       return () => clearTimeout(timer);
     }
-  }, [batches, open, request, autoFillAllocations]);
+  }, [batches, open, request, autoFillAllocations]); // autoFillAllocations is stable due to useCallback
 
   const handleAllocationChange = (batchId, value) => {
     const numValue = parseFloat(value) || 0;
     setAllocations((prev) => ({
       ...prev,
       [batchId]: numValue,
+    }));
+    
+    // If allocation is set and batch has expiry date, use it
+    if (numValue > 0) {
+      const batch = batches.find((b) => b._id === batchId);
+      if (batch?.expiryDate && !expiryDates[batchId]) {
+        setExpiryDates((prev) => ({
+          ...prev,
+          [batchId]: batch.expiryDate,
+        }));
+      }
+    }
+  };
+
+  const handleExpiryDateChange = (batchId, value) => {
+    setExpiryDates((prev) => ({
+      ...prev,
+      [batchId]: value ? new Date(value) : null,
     }));
   };
 
@@ -201,10 +234,15 @@ const SowingRequestDialog = ({ open, onClose, request, onSuccess }) => {
     // Validate all allocations are positive
     const batchAllocations = Object.entries(allocations)
       .filter(([_, qty]) => qty > 0)
-      .map(([batchId, quantity]) => ({
-        batchId,
-        quantity: parseFloat(quantity),
-      }));
+      .map(([batchId, quantity]) => {
+        const batch = batches.find((b) => b._id.toString() === batchId);
+        const expiryDate = expiryDates[batchId] || batch?.expiryDate;
+        return {
+          batchId,
+          quantity: parseFloat(quantity),
+          expiryDate: expiryDate ? (typeof expiryDate === 'string' ? expiryDate : expiryDate.toISOString()) : undefined,
+        };
+      });
 
     if (batchAllocations.length === 0) {
       setError('Please allocate at least one batch');
@@ -366,6 +404,7 @@ const SowingRequestDialog = ({ open, onClose, request, onSuccess }) => {
                 <TableCell>Batch Number</TableCell>
                 <TableCell align="right">Available</TableCell>
                 <TableCell align="right">Unit</TableCell>
+                <TableCell>Expiry Date</TableCell>
                 <TableCell align="right">Allocate</TableCell>
               </TableRow>
             </TableHead>
@@ -381,11 +420,39 @@ const SowingRequestDialog = ({ open, onClose, request, onSuccess }) => {
                   allocatedInPackets = allocated / request.conversionFactor;
                 }
 
+                const expiryDate = expiryDates[batch._id] || batch.expiryDate;
+                const expiryDateValue = expiryDate 
+                  ? (typeof expiryDate === 'string' 
+                      ? new Date(expiryDate).toISOString().split('T')[0] 
+                      : expiryDate.toISOString().split('T')[0])
+                  : '';
+
                 return (
                   <TableRow key={batch._id}>
                     <TableCell>{batch.batchNumber}</TableCell>
                     <TableCell align="right">{batch.remainingQuantity}</TableCell>
                     <TableCell align="right">{batch.unit?.symbol || batch.unit?.name || 'N/A'}</TableCell>
+                    <TableCell>
+                      {allocated > 0 ? (
+                        <TextField
+                          type="date"
+                          size="small"
+                          value={expiryDateValue}
+                          onChange={(e) => handleExpiryDateChange(batch._id, e.target.value)}
+                          InputLabelProps={{ shrink: true }}
+                          sx={{ width: 150 }}
+                          InputProps={{
+                            inputProps: {
+                              min: new Date().toISOString().split('T')[0], // Optional: prevent past dates
+                            },
+                          }}
+                        />
+                      ) : (
+                        <Typography variant="body2" color="text.secondary">
+                          {batch.expiryDate ? formatDisplayDate(batch.expiryDate) : 'N/A'}
+                        </Typography>
+                      )}
+                    </TableCell>
                     <TableCell align="right">
                       <TextField
                         type="number"
@@ -396,6 +463,8 @@ const SowingRequestDialog = ({ open, onClose, request, onSuccess }) => {
                         sx={{ width: 100 }}
                         error={allocated > batch.remainingQuantity}
                         helperText={allocated > batch.remainingQuantity ? 'Exceeds available' : ''}
+                        disabled={false}
+                        readOnly={false}
                       />
                       {allocated > 0 && (
                         <Typography variant="caption" color="text.secondary" display="block">
