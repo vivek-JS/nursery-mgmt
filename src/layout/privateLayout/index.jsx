@@ -84,6 +84,7 @@ export default function PrivateLayout(props) {
   const isPrimaryEmployee = userType && (userType.toUpperCase() === "PRIMARY")
   const isSuperAdmin = userRole === "SUPER_ADMIN" || userRole === "SUPERADMIN"
   const isAdmin = userRole === "ADMIN"
+  const isDispatchManager = userRole === "DISPATCH_MANAGER"
   
   // PRIMARY users can ONLY access /u/primary-sowing-entry route
   // Redirect them immediately if they try to access any other route
@@ -101,9 +102,25 @@ export default function PrivateLayout(props) {
     }
   }, [isPrimaryEmployee, isSuperAdmin, isAdmin, location.pathname, navigate])
   
-  // Hide sidebar for primary sowing entry route
+  // DISPATCH_MANAGER users can ONLY access /u/dispatch-orders route
+  // Redirect them immediately if they try to access any other route
+  // SUPER_ADMIN can access all routes, so don't redirect them
+  useEffect(() => {
+    if (isDispatchManager && !isSuperAdmin && !isAdmin) {
+      const currentPath = location.pathname
+      const isDispatchOrdersRoute = currentPath === "/u/dispatch-orders" || currentPath.includes("/u/dispatch-orders")
+      
+      if (!isDispatchOrdersRoute) {
+        // Redirect DISPATCH_MANAGER users to dispatch orders page
+        console.log(`[PrivateLayout] DISPATCH_MANAGER user accessing ${currentPath}, redirecting to /u/dispatch-orders`)
+        navigate("/u/dispatch-orders", { replace: true })
+      }
+    }
+  }, [isDispatchManager, isSuperAdmin, isAdmin, location.pathname, navigate])
+  
+  // Hide sidebar for primary sowing entry route and dispatch orders route
   // With BrowserRouter, pathname is the actual route path
-  const hideSidebar = location.pathname === "/u/primary-sowing-entry"
+  const hideSidebar = location.pathname === "/u/primary-sowing-entry" || location.pathname === "/u/dispatch-orders"
   
   const { 
     handleLogout, 
@@ -204,6 +221,13 @@ export default function PrivateLayout(props) {
                 // PRIMARY users should only see menu items that lead to primary-sowing-entry
                 // Since PRIMARY users are redirected to primary-sowing-entry, hide all menu items
                 if (isPrimaryEmployee && !isSuperAdmin && !isAdmin) {
+                  return false
+                }
+                
+                // DISPATCH_MANAGER users should only see menu items that lead to dispatch-orders
+                // Since DISPATCH_MANAGER users are redirected to dispatch-orders, hide all menu items
+                // SUPER_ADMIN can see all menu items
+                if (isDispatchManager && !isSuperAdmin && !isAdmin) {
                   return false
                 }
                 

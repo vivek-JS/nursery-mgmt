@@ -75,6 +75,7 @@ const PrimarySowingEntry = () => {
   }, [userData, userRole, hasAccess, navigate]);
 
   const [availablePackets, setAvailablePackets] = useState([]);
+  const [inProgressCards, setInProgressCards] = useState([]); // Sowing in progress cards
   const [loadingPackets, setLoadingPackets] = useState(false);
   const [selectedPackets, setSelectedPackets] = useState([]); // Array of selected packets with quantities
   const [primaryQuantities, setPrimaryQuantities] = useState({}); // Map of itemId -> primary quantity for field sowing
@@ -366,18 +367,33 @@ const PrimarySowingEntry = () => {
                   });
                 });
                 
-                // Auto-fill Primary (Field) = packets * conversionFactor
-                const primaryQty = availableQty * conversionFactor;
-                const itemCount = combined.itemIds.length;
-                const qtyPerItem = itemCount > 0 ? Math.floor(primaryQty / itemCount) : 0;
-                const remainder = itemCount > 0 ? primaryQty % itemCount : 0;
+                // Auto-fill Primary (Field)
+                // For in-progress packets: use remainingPlants (gap + buffer already calculated)
+                // For regular packets: calculate from packets * conversionFactor
+                const isInProgress = combined.packets.some(p => p.isInProgress === true);
                 
-                combined.itemIds.forEach((itemId, idx) => {
-                  const itemQty = qtyPerItem + (idx < remainder ? 1 : 0);
-                  if (itemQty > 0) {
-                    newPrimaryQuantities[itemId] = itemQty;
-                  }
-                });
+                if (isInProgress) {
+                  // Use remainingPlants from each packet
+                  combined.packets.forEach((p) => {
+                    const plants = p.remainingPlants || 0;
+                    if (plants > 0) {
+                      newPrimaryQuantities[p.itemId] = plants;
+                    }
+                  });
+                } else {
+                  // Calculate from packets * conversionFactor
+                  const primaryQty = availableQty * conversionFactor;
+                  const itemCount = combined.itemIds.length;
+                  const qtyPerItem = itemCount > 0 ? Math.floor(primaryQty / itemCount) : 0;
+                  const remainder = itemCount > 0 ? primaryQty % itemCount : 0;
+                  
+                  combined.itemIds.forEach((itemId, idx) => {
+                    const itemQty = qtyPerItem + (idx < remainder ? 1 : 0);
+                    if (itemQty > 0) {
+                      newPrimaryQuantities[itemId] = itemQty;
+                    }
+                  });
+                }
               }
             });
           });
@@ -398,44 +414,116 @@ const PrimarySowingEntry = () => {
     }
   }, [availablePackets, hasAutoFilled, selectedPackets.length, primaryQuantities]); // Run when availablePackets changes
 
-  // Fetch all available packets
+  // Fetch all data from today-sowing-cards API (packets + in-progress)
   const fetchAllAvailablePackets = async () => {
     setLoadingPackets(true);
     try {
-      const instance = NetworkManager(API.INVENTORY.GET_ALL_AVAILABLE_PACKETS_FOR_SOWING);
-      const response = await instance.request({}, {});
+      // Fetch everything from today-sowing-cards API
+      const todayCardsInstance = NetworkManager(API.sowing.GET_TODAY_SOWING_CARDS);
+      const todayCardsResponse = await todayCardsInstance.request();
       
-      console.log("[PrimarySowingEntry] Fetched packets response:", response?.data);
+      console.log("[PrimarySowingEntry] Fetched today cards response:", todayCardsResponse?.data);
       
-      if (response?.data?.success && response?.data?.data) {
-        // Initialize plant ready days from API response
+      if (todayCardsResponse?.data?.success) {
+        // Extract in-progress cards
+        const inProgressData = todayCardsResponse.data.inProgressCards || [];
+        setInProgressCards(inProgressData);
+        console.log("[PrimarySowingEntry] Fetched in-progress cards:", inProgressData);
+        
+        // Transform in-progress cards into availablePackets format
+        // This allows users to sow what's already in progress
+        const transformedPackets = [];
         const initialReadyDays = {};
-        response.data.data.forEach(plantGroup => {
-          plantGroup.subtypes?.forEach(subtype => {
-            const readyDaysKey = `${plantGroup.plantId}_${subtype.subtypeId}`;
-            if (subtype.plantReadyDays !== undefined) {
-              initialReadyDays[readyDaysKey] = subtype.plantReadyDays || 0;
-            }
-            subtype.packets?.forEach(packet => {
-              console.log(`[PrimarySowingEntry] Packet conversionFactor:`, {
-                productName: packet.productName,
-                batchNumber: packet.batchNumber,
-                conversionFactor: packet.conversionFactor,
-                availableQuantity: packet.availableQuantity,
-                plantReadyDays: packet.plantReadyDays,
+        
+        inProgressData.forEach(card => {
+          const plantId = card.plantId;
+          const subtypeId = card.subtypeId;
+          const conversionFactor = card.conversionFactor || 1000;
+          
+          // Get plantReadyDays from slots
+          const plantReadyDaysValue = card.slots?.[0]?.plantReadyDays || 0;
+          const readyDaysKey = `${plantId}_${subtypeId}`;
+          initialReadyDays[readyDaysKey] = plantReadyDaysValue;
+          
+          // Find existing plant group or create new one
+          let plantGroup = transformedPackets.find(p => p.plantId === plantId);
+          if (!plantGroup) {
+            plantGroup = {
+              plantId: plantId,
+              plantName: card.plantName,
+              subtypes: []
+            };
+            transformedPackets.push(plantGroup);
+          }
+          
+          // Create subtype with in-progress packets
+          const subtypeGroup = {
+            subtypeId: subtypeId,
+            subtypeName: card.subtypeName,
+            plantReadyDays: plantReadyDaysValue,
+            packets: []
+          };
+          
+          // Create a "virtual packet" representing the in-progress sowing
+          // Use total packets from the card
+          card.slots?.forEach(slot => {
+            if (slot.sowingProgressDetails && slot.sowingProgressDetails.length > 0) {
+              slot.sowingProgressDetails.forEach(progress => {
+                // Create a packet entry for each in-progress item
+                // Note: These are "display-only" packets showing what's in progress
+                // When creating sowings, we'll skip the packets array since they're already issued
+                subtypeGroup.packets.push({
+                  // Virtual packet for display purposes
+                  outwardId: null, // Not needed - packets already issued
+                  outwardNumber: progress.requestNumber || 'IN-PROGRESS',
+                  itemId: `in-progress-${slot.slotId}-${progress.sowingRequestId}`, // ✅ Unique per slot
+                  batchNumber: 'IN-PROGRESS',
+                  availableQuantity: progress.packetsIssued || 0,
+                  quantity: progress.packetsIssued || 0,
+                  usedQuantity: 0,
+                  productId: null,
+                  productName: `${card.plantName} - ${card.subtypeName}`,
+                  plantId: plantId,
+                  plantName: card.plantName,
+                  subtypeId: subtypeId,
+                  subtypeName: card.subtypeName,
+                  conversionFactor: conversionFactor,
+                  isExcessiveSowing: progress.isExcessiveSowing || false,
+                  plantReadyDays: plantReadyDaysValue,
+                  // Special flags
+                  isInProgress: true,
+                  remainingPlants: progress.remainingPlants || 0,
+                  sowingRequestId: progress.sowingRequestId, // Keep for reference
+                  slotId: slot.slotId, // ✅ CRITICAL: Include slotId for backend cleanup
+                  slotStartDay: slot.slotStartDay, // ✅ For sorting by date
+                });
               });
-            });
+            }
           });
+          
+          plantGroup.subtypes.push(subtypeGroup);
         });
+        
+        console.log("[PrimarySowingEntry] Transformed in-progress to packets:", transformedPackets);
+        console.log("[PrimarySowingEntry] Virtual itemIds created:", transformedPackets.flatMap(p => 
+          p.subtypes?.flatMap(st => st.packets?.map(pkt => ({
+            itemId: pkt.itemId,
+            slotId: pkt.slotId,
+            slotStartDay: pkt.slotStartDay,
+            packetsIssued: pkt.availableQuantity
+          })) || []) || []
+        ));
         setPlantReadyDays(prev => ({ ...prev, ...initialReadyDays }));
-        setAvailablePackets(response.data.data);
+        setAvailablePackets(transformedPackets);
       } else {
         setAvailablePackets([]);
+        setInProgressCards([]);
       }
     } catch (error) {
-      console.error("[PrimarySowingEntry] Error fetching available packets:", error);
-      Toast.error("Failed to fetch available packets");
+      console.error("[PrimarySowingEntry] Error fetching data:", error);
+      Toast.error("Failed to fetch data");
       setAvailablePackets([]);
+      setInProgressCards([]);
     } finally {
       setLoadingPackets(false);
     }
@@ -443,8 +531,23 @@ const PrimarySowingEntry = () => {
 
   // Create sowings from selected packets and primary quantities (same logic as AddSowingModal)
   const handleCreateSowings = async () => {
+    console.log("=".repeat(80));
+    console.log("[Primary Sowing] 🎬 STARTING PAYLOAD FORMATION");
+    console.log("=".repeat(80));
+    
     const hasPackets = selectedPackets.length > 0;
     const hasPrimaryQuantities = Object.keys(primaryQuantities).length > 0;
+    
+    console.log("[Primary Sowing] 📥 Input Data:");
+    console.log(`  - selectedPackets count: ${selectedPackets.length}`);
+    console.log(`  - primaryQuantities keys: ${Object.keys(primaryQuantities).length}`);
+    console.log(`  - hasPackets: ${hasPackets}`);
+    console.log(`  - hasPrimaryQuantities: ${hasPrimaryQuantities}`);
+    console.log(`  - formData.sowingDate: ${moment(formData.sowingDate).format("DD-MM-YYYY")}`);
+    console.log(`  - formData.batchNumber: ${formData.batchNumber || 'N/A'}`);
+    console.log(`  - formData.notes: ${formData.notes || 'N/A'}`);
+    console.log(`  - formData.reminderBeforeDays: ${formData.reminderBeforeDays}`);
+    console.log("");
     
     if (!hasPackets && !hasPrimaryQuantities) {
       Toast.error("Please enter quantities in at least one packet card");
@@ -491,12 +594,22 @@ const PrimarySowingEntry = () => {
     try {
       const user = userData;
       const sowingsToCreate = [];
+      
+      console.log("[Primary Sowing] 👤 User data:", {
+        userId: user?._id,
+        userName: user?.name || user?.email
+      });
 
-      // Group selected packets by plant/subtype combination (same as AddSowingModal)
+      // Group selected packets by plant/subtype/slot combination for in-progress packets
+      // This ensures each slot gets its own sowing entry
       const groupedPackets = new Map();
       
       selectedPackets.forEach(packet => {
-        const groupKey = `${packet.plantId}_${packet.subtypeId}`;
+        // If packet has slotId (in-progress), group by plant/subtype/slot
+        // Otherwise, group by plant/subtype only
+        const groupKey = packet.slotId 
+          ? `${packet.plantId}_${packet.subtypeId}_${packet.slotId}`
+          : `${packet.plantId}_${packet.subtypeId}`;
         
         if (!groupedPackets.has(groupKey)) {
           groupedPackets.set(groupKey, {
@@ -504,7 +617,9 @@ const PrimarySowingEntry = () => {
             plantName: packet.plantName,
             subtypeId: packet.subtypeId,
             subtypeName: packet.subtypeName,
-            slotId: null,
+            slotId: packet.slotId || null,
+            slotStartDay: packet.slotStartDay || null, // For sorting
+            conversionFactor: packet.conversionFactor || 1000, // Add conversion factor
             packets: [],
             totalQuantity: 0,
           });
@@ -513,98 +628,259 @@ const PrimarySowingEntry = () => {
         const group = groupedPackets.get(groupKey);
         group.packets.push(packet);
         group.totalQuantity += packet.quantity || packet.availableQuantity;
+        
+        // Update conversionFactor if not set
+        if (!group.conversionFactor && packet.conversionFactor) {
+          group.conversionFactor = packet.conversionFactor;
+        }
       });
 
       // Calculate total primary quantities from Primary (Field) input fields
       const totalPrimaryQuantities = Object.values(primaryQuantities).reduce((sum, qty) => sum + (qty || 0), 0);
+      
+      console.log("[Primary Sowing] 📦 Grouped Packets:");
+      console.log(`  - Total groups: ${groupedPackets.size}`);
+      Array.from(groupedPackets.entries()).forEach(([key, group]) => {
+        console.log(`  - Group: ${key}`);
+        console.log(`    plantId: ${group.plantId}, subtypeId: ${group.subtypeId}`);
+        console.log(`    slotId: ${group.slotId || 'null'}, totalQuantity: ${group.totalQuantity}`);
+        console.log(`    packets count: ${group.packets.length}`);
+      });
+      console.log(`  - Total primary quantities: ${totalPrimaryQuantities}`);
+      console.log("");
 
-      // Create sowing for each OFFICE group
+      // Sort groups by slot date (ascending) for in-progress packets
+      const sortedGroups = Array.from(groupedPackets.entries()).sort((a, b) => {
+        const [keyA, groupA] = a;
+        const [keyB, groupB] = b;
+        
+        // If both have slotStartDay, sort by date
+        if (groupA.slotStartDay && groupB.slotStartDay) {
+          const dateA = moment(groupA.slotStartDay, 'DD-MM-YYYY');
+          const dateB = moment(groupB.slotStartDay, 'DD-MM-YYYY');
+          return dateA.diff(dateB);
+        }
+        
+        // Keep original order if no dates
+        return 0;
+      });
+      
+      console.log('[PrimarySowingEntry] Sorted groups by slot date:', sortedGroups.map(([key, group]) => ({
+        key,
+        slotId: group.slotId,
+        slotStartDay: group.slotStartDay,
+        plantName: group.plantName,
+        subtypeName: group.subtypeName
+      })));
+
+      // Calculate total plants and packets needed across all groups
+      let totalPlantsNeeded = 0;
+      let totalPacketsAvailable = 0;
+      const groupsWithNeeds = [];
+      
+      sortedGroups.forEach(([groupKey, group]) => {
+        const allPacketsInProgress = group.packets.every(p => p.isInProgress === true);
+        const plantsNeeded = allPacketsInProgress
+          ? group.packets.reduce((sum, p) => sum + (p.remainingPlants || 0), 0)
+          : 0;
+        
+        totalPlantsNeeded += plantsNeeded;
+        totalPacketsAvailable += group.totalQuantity;
+        
+        groupsWithNeeds.push({
+          groupKey,
+          group,
+          plantsNeeded,
+          packetsAvailable: group.totalQuantity,
+          allPacketsInProgress
+        });
+      });
+      
+      console.log('[PrimarySowingEntry] 📊 Distribution calculation:', {
+        totalPlantsNeeded,
+        totalPacketsAvailable,
+        totalPrimaryQuantities,
+        packetsWillBeDistributed: totalPacketsAvailable,
+        note: 'Using ACTUAL packets entered, not recalculating from Primary',
+        groupsWithNeeds: groupsWithNeeds.map(g => ({
+          slotId: g.group.slotId,
+          plantsNeeded: g.plantsNeeded,
+          packetsAvailable: g.packetsAvailable
+        }))
+      });
+
+      // Create sowing for each OFFICE group (now sorted by slot date)
       if (hasPackets) {
-        for (const [groupKey, group] of groupedPackets) {
+        // Distribute plants and packets proportionally if user edited Primary (Field)
+        let remainingPlantsToDistribute = totalPrimaryQuantities;
+        let remainingPacketsToDistribute = totalPacketsAvailable;
+        
+        for (let i = 0; i < sortedGroups.length; i++) {
+          const [groupKey, group] = sortedGroups[i];
+          const groupInfo = groupsWithNeeds[i];
+          
+          // Check if packets are in-progress (already issued)
+          const allPacketsInProgressCheck = group.packets.every(p => p.isInProgress === true);
+          
           // Extract batch numbers from packets (mandatory)
-          const packetBatchNumbers = group.packets
-            .map(p => p.batchNumber)
-            .filter(bn => bn && bn.trim() !== "");
+          let batchNumberFromPackets;
           
-          if (packetBatchNumbers.length === 0) {
-            Toast.error(`Batch number is required. Please ensure all packets have batch numbers for ${group.plantName} - ${group.subtypeName}`);
-            setSubmitting(false);
-            return;
+          if (allPacketsInProgressCheck) {
+            // For in-progress packets, use a generated batch number
+            batchNumberFromPackets = `SOWING-IP-${moment().format('YYMMDD')}`;
+            console.log(`[PrimarySowingEntry] Using generated batch number for in-progress: ${batchNumberFromPackets}`);
+          } else {
+            const packetBatchNumbers = group.packets
+              .map(p => p.batchNumber)
+              .filter(bn => bn && bn.trim() !== "" && bn !== "IN-PROGRESS");
+            
+            if (packetBatchNumbers.length === 0) {
+              Toast.error(`Batch number is required. Please ensure all packets have batch numbers for ${group.plantName} - ${group.subtypeName}`);
+              setSubmitting(false);
+              return;
+            }
+            
+            // Combine batch numbers: if all same, use single; if different, use comma-separated
+            const uniqueBatchNumbers = [...new Set(packetBatchNumbers)];
+            batchNumberFromPackets = uniqueBatchNumbers.length === 1 
+              ? uniqueBatchNumbers[0] 
+              : uniqueBatchNumbers.join(", ");
           }
-          
-          // Combine batch numbers: if all same, use single; if different, use comma-separated
-          const uniqueBatchNumbers = [...new Set(packetBatchNumbers)];
-          const batchNumberFromPackets = uniqueBatchNumbers.length === 1 
-            ? uniqueBatchNumbers[0] 
-            : uniqueBatchNumbers.join(", ");
           
           // Get plant ready days for this group
           const readyDaysKey = `${group.plantId}_${group.subtypeId}`;
           const groupReadyDays = plantReadyDays[readyDaysKey] || 0;
           
           // Check if complete sowing is checked for any packet in this group
-          // Also check if there's any remaining quantity to return (auto-complete sowing)
           const groupCompleteSowing = group.packets.some(p => {
-            // Try both key formats to match
             const key1 = `${p.productId}_${p.batchNumber}`;
             const key2 = `${p.productId || p.productName}_${p.batchNumber || 'NO_BATCH'}`;
             const isComplete = completeSowingFlags[key1] === true || completeSowingFlags[key2] === true;
-            
-            // Also check if there's remaining quantity (auto-complete sowing)
             const originalAvailableQty = p.availableQuantity || 0;
             const usedQty = p.quantity || 0;
             const remainingQty = Math.max(0, originalAvailableQty - usedQty);
             const hasRemaining = remainingQty > 0;
-            
-            console.log(`[PrimarySowingEntry] Checking completeSowing for packet:`, {
-              productId: p.productId,
-              productName: p.productName,
-              batchNumber: p.batchNumber,
-              key1,
-              key2,
-              isComplete,
-              originalAvailableQty,
-              usedQty,
-              remainingQty,
-              hasRemaining,
-              flags: completeSowingFlags
-            });
-            
-            return isComplete || hasRemaining; // Complete sowing if flag is set OR if there's remaining quantity
+            return isComplete || hasRemaining;
           });
           
-          console.log(`[PrimarySowingEntry] Group completeSowing:`, groupCompleteSowing);
+          // Calculate sowedPlant for this group based on distribution
+          let groupSowedPlant = 0;
+          let groupPacketsUsed = 0;
           
-          // Calculate sowedPlant for this OFFICE group from primaryQuantities for this group's packets
-          const groupSowedPlant = group.packets.reduce((sum, packet) => {
-            const primaryQty = primaryQuantities[packet.itemId] || 0;
-            return sum + primaryQty;
-          }, 0);
+          const allPacketsInProgress = group.packets.every(p => p.isInProgress === true);
+          const conversionFactor = group.conversionFactor || 1000;
+          
+          if (allPacketsInProgress) {
+            // For in-progress: prioritize user-entered primaryQuantities, fallback to remainingPlants
+            groupSowedPlant = group.packets.reduce((sum, packet) => {
+              // ✅ Use user-entered primaryQuantities if available, otherwise use remainingPlants
+              const userEnteredPlants = primaryQuantities[packet.itemId] || 0;
+              const remainingPlants = packet.remainingPlants || 0;
+              // Use user-entered value if provided, otherwise use remainingPlants
+              const plants = userEnteredPlants > 0 ? userEnteredPlants : remainingPlants;
+              return sum + plants;
+            }, 0);
+            
+            // ✅ Use actual packet quantities entered by user (from selectedPackets), not calculated from plants
+            // This ensures we use what user actually entered in the Packets field
+            groupPacketsUsed = group.totalQuantity;
+            
+            console.log(`[PrimarySowingEntry] 📦 In-progress calculation for slot ${group.slotId}:`, {
+              groupSowedPlant,
+              conversionFactor,
+              groupPacketsUsed,
+              groupTotalQuantity: group.totalQuantity,
+              note: 'Using actual packets entered by user',
+              usedUserInput: group.packets.some(p => primaryQuantities[p.itemId] > 0),
+              packetDetails: group.packets.map(p => ({
+                itemId: p.itemId,
+                packetQty: p.quantity || p.availableQuantity,
+                userEnteredPlants: primaryQuantities[p.itemId] || 0,
+                remainingPlants: p.remainingPlants || 0,
+                usedPlants: primaryQuantities[p.itemId] > 0 ? primaryQuantities[p.itemId] : (p.remainingPlants || 0)
+              }))
+            });
+          } else {
+            // Regular packets: use primaryQuantities from user input
+            groupSowedPlant = group.packets.reduce((sum, packet) => {
+              const primaryQty = primaryQuantities[packet.itemId] || 0;
+              return sum + primaryQty;
+            }, 0);
+            groupPacketsUsed = group.totalQuantity;
+            
+            // ✅ If no primaryQuantities provided, calculate sowedPlant from packets * conversionFactor
+            if (groupSowedPlant === 0 && groupPacketsUsed > 0) {
+              groupSowedPlant = groupPacketsUsed * conversionFactor;
+              console.log(`[PrimarySowingEntry] ⚠️ No primaryQuantities found, calculating sowedPlant from packets: ${groupPacketsUsed} * ${conversionFactor} = ${groupSowedPlant}`);
+            }
+          }
           
           console.log(`[PrimarySowingEntry] OFFICE group sowedPlant calculation:`, {
             groupKey,
+            slotId: group.slotId,
+            slotStartDay: group.slotStartDay,
             plantName: group.plantName,
             subtypeName: group.subtypeName,
             groupSowedPlant,
+            groupPacketsUsed,
             totalQuantityRequired: group.totalQuantity,
-            packetItemIds: group.packets.map(p => p.itemId),
-            primaryQuantitiesForGroup: group.packets.map(p => ({ itemId: p.itemId, qty: primaryQuantities[p.itemId] || 0 }))
+            isInProgress: allPacketsInProgress
           });
           
+          // ✅ Skip this slot if no plants/packets allocated
+          if (groupSowedPlant === 0 && allPacketsInProgress) {
+            console.log(`[PrimarySowingEntry] ⏭️ Skipping slot ${group.slotId} - no plants allocated`);
+            continue;
+          }
+          
+          // ✅ Skip regular packets if no plants/packets allocated
+          if (groupSowedPlant === 0 && !allPacketsInProgress && groupPacketsUsed === 0) {
+            console.log(`[PrimarySowingEntry] ⏭️ Skipping group ${groupKey} - no plants/packets allocated`);
+            continue;
+          }
+          
+          // ✅ Calculate packetsToReturn for in-progress sowings
+          let packetsToReturn = 0;
+          if (allPacketsInProgress) {
+            // Get total packets issued for this group
+            const totalPacketsIssued = group.packets.reduce((sum, p) => {
+              return sum + (p.availableQuantity || p.quantity || 0);
+            }, 0);
+            packetsToReturn = totalPacketsIssued - groupPacketsUsed;
+            console.log(`[PrimarySowingEntry] 📦 Return calculation for slot ${group.slotId}:`, {
+              totalPacketsIssued,
+              packetsUsed: groupPacketsUsed,
+              packetsToReturn,
+              packets: group.packets.map(p => ({ itemId: p.itemId, quantity: p.availableQuantity || p.quantity }))
+            });
+          }
+          
+          // ✅ Payload structure for OFFICE location sowing:
+          // - For in-progress: packetsUsed and packetsToReturn are sent (packets array is skipped)
+          // - For regular: packets array is sent with completeSowing and remainingQuantity
           const payload = {
             plantId: group.plantId,
             subtypeId: group.subtypeId,
             sowingDate: moment(formData.sowingDate).format("DD-MM-YYYY"),
-            totalQuantityRequired: group.totalQuantity,
-            sowedPlant: groupSowedPlant || group.totalQuantity, // Use Primary (Field) for this group's packets, fallback to totalQuantity
+            totalQuantityRequired: groupPacketsUsed, // ✅ User-entered packets quantity
+            sowedPlant: groupSowedPlant, // ✅ User-entered plants quantity (from Primary field or calculated)
             reminderBeforeDays: parseInt(formData.reminderBeforeDays),
             notes: formData.notes || "",
-            batchNumber: batchNumberFromPackets, // Use batch number from packets (mandatory)
-            sowingLocation: "OFFICE",
+            batchNumber: batchNumberFromPackets,
+            sowingLocation: "OFFICE", // ✅ Packets are sown in OFFICE location
             slotId: group.slotId,
-            plantReadyDays: groupCompleteSowing ? 0 : groupReadyDays, // Set to 0 if complete sowing (don't show next day)
-            completeSowing: groupCompleteSowing, // Flag to indicate complete sowing
-            packets: group.packets.map(p => {
+            plantReadyDays: groupReadyDays,
+            completeSowing: true,
+            // ✅ For in-progress packets: send explicit counts (backend handles cleanup)
+            packetsUsed: allPacketsInProgress ? groupPacketsUsed : undefined,
+            packetsToReturn: allPacketsInProgress && packetsToReturn > 0 ? packetsToReturn : undefined,
+            // ✅ For regular packets: packets array will be added below with completeSowing and remainingQuantity
+          };
+          
+          // Only include packets array if they are NOT in-progress
+          // In-progress packets are already issued, so backend will clean them up automatically
+          if (!allPacketsInProgress) {
+            payload.packets = group.packets.map(p => {
               // Try both key formats to match
               const key1 = `${p.productId}_${p.batchNumber}`;
               const key2 = `${p.productId || p.productName}_${p.batchNumber || 'NO_BATCH'}`;
@@ -672,26 +948,77 @@ const PrimarySowingEntry = () => {
                 packetAvailableQty: p.availableQuantity
               });
               
-              return {
+              const packetPayload = {
                 outwardId: p.outwardId,
                 itemId: p.itemId,
                 quantity: usedQty,
                 batchNumber: p.batchNumber,
-                completeSowing: finalCompleteSowing,
-                remainingQuantity: finalCompleteSowing ? remainingQty : 0, // Return remaining stock if there's any remaining
+                completeSowing: true, // ✅ ALWAYS TRUE - backend will return remaining stock
+                remainingQuantity: remainingQty, // Calculated remaining quantity to return
               };
-            }),
-          };
+              
+              // Debug: Log individual packet payload structure
+              console.log(`[PrimarySowingEntry] 📦 Regular packet payload:`, {
+                outwardId: packetPayload.outwardId,
+                itemId: packetPayload.itemId,
+                quantity: packetPayload.quantity,
+                batchNumber: packetPayload.batchNumber,
+                completeSowing: packetPayload.completeSowing,
+                remainingQuantity: packetPayload.remainingQuantity,
+                originalAvailableQty,
+                usedQty,
+                remainingQty
+              });
+              
+              return packetPayload;
+            });
+            
+            console.log(`[PrimarySowingEntry] ✅ Created ${payload.packets.length} regular packet payload(s)`);
+          } else {
+            console.log(`[PrimarySowingEntry] ⏭️ Skipping packets array (all packets are in-progress)`);
+          }
 
           if (user?._id) {
             payload.createdBy = user._id;
           }
 
+          // Debug: Log individual OFFICE payload
+          console.log(`[PrimarySowingEntry] 📦 OFFICE Payload #${sowingsToCreate.length + 1}:`, {
+            plantId: payload.plantId,
+            plantName: group.plantName,
+            subtypeId: payload.subtypeId,
+            subtypeName: group.subtypeName,
+            sowingLocation: payload.sowingLocation,
+            slotId: payload.slotId,
+            sowingDate: payload.sowingDate,
+            totalQuantityRequired: payload.totalQuantityRequired,
+            sowedPlant: payload.sowedPlant,
+            batchNumber: payload.batchNumber,
+            plantReadyDays: payload.plantReadyDays,
+            packetsCount: payload.packets?.length || 0,
+            packetsUsed: payload.packetsUsed,
+            packetsToReturn: payload.packetsToReturn,
+            completeSowing: payload.completeSowing,
+            reminderBeforeDays: payload.reminderBeforeDays,
+            notes: payload.notes,
+            createdBy: payload.createdBy,
+            isInProgress: allPacketsInProgress,
+            packets: payload.packets ? payload.packets.map(p => ({
+              outwardId: p.outwardId,
+              itemId: p.itemId,
+              quantity: p.quantity,
+              batchNumber: p.batchNumber,
+              completeSowing: p.completeSowing,
+              remainingQuantity: p.remainingQuantity
+            })) : 'N/A (in-progress)'
+          });
+
           sowingsToCreate.push(payload);
         }
       }
 
-      // Handle PRIMARY quantities - group by plant/subtype from primaryQuantities (same as AddSowingModal)
+      // Handle PRIMARY quantities WITHOUT packets (packets were already handled above)
+      // Only create entries for plant/subtypes that don't have packet entries
       if (hasPrimaryQuantities) {
         // Group by plant/subtype from primaryQuantities
         const primaryGroups = new Map();
@@ -721,6 +1048,21 @@ const PrimarySowingEntry = () => {
 
         for (const [key, group] of primaryGroups) {
           if (group.totalQty > 0) {
+            // ✅ CHECK: Skip if this plant/subtype already has a packet entry
+            const existingPacketEntry = sowingsToCreate.find(
+              s => s.plantId === group.plantId && 
+                   s.subtypeId === group.subtypeId
+            );
+            
+            if (existingPacketEntry) {
+              // Entry already exists with packets - primary quantities were already included in sowedPlant
+              console.log(`[PrimarySowingEntry] Skipping duplicate - PRIMARY quantities already included in packet entry for ${group.plantName} - ${group.subtypeName}`);
+              continue; // Skip creating duplicate
+            }
+            
+            // Only create entry if NO packet entry exists (primary quantities only, no packets)
+            console.log(`[PrimarySowingEntry] Creating PRIMARY-only entry (no packets) for ${group.plantName} - ${group.subtypeName}`);
+            
             // Extract batch numbers from packets used in this PRIMARY group
             const primaryBatchNumbers = [];
             Object.entries(primaryQuantities).forEach(([itemId, qty]) => {
@@ -737,7 +1079,7 @@ const PrimarySowingEntry = () => {
             });
             
             // Use batch numbers from packets, fallback to formData.batchNumber if needed
-            let batchNumberToUse = "";
+            let batchNumberToUse = "IN-PROGRESS";
             if (primaryBatchNumbers.length > 0) {
               const uniqueBatchNumbers = [...new Set(primaryBatchNumbers)];
               batchNumberToUse = uniqueBatchNumbers.length === 1 
@@ -745,34 +1087,11 @@ const PrimarySowingEntry = () => {
                 : uniqueBatchNumbers.join(", ");
             } else if (formData.batchNumber && formData.batchNumber.trim() !== "") {
               batchNumberToUse = formData.batchNumber.trim();
-            } else {
-              console.error(`[Primary Sowing] No batch number found for PRIMARY group: ${group.plantName} - ${group.subtypeName}`);
-              Toast.error(`Batch number is required for ${group.plantName} - ${group.subtypeName}`);
-              setSubmitting(false);
-              return;
             }
             
             // Get plant ready days for this PRIMARY group
             const readyDaysKey = `${group.plantId}_${group.subtypeId}`;
             const groupReadyDays = plantReadyDays[readyDaysKey] || 0;
-            
-            // Check if complete sowing is checked for any packet in this PRIMARY group
-            let primaryCompleteSowing = false;
-            Object.entries(primaryQuantities).forEach(([itemId, qty]) => {
-              if (qty > 0) {
-                const packet = availablePackets
-                  .flatMap(pg => pg.subtypes?.flatMap(sg => sg.packets || []) || [])
-                  .find(p => p.itemId === itemId && 
-                    p.plantId === group.plantId && 
-                    p.subtypeId === group.subtypeId);
-                if (packet) {
-                  const combinedKey = `${packet.productId || packet.productName}_${packet.batchNumber || 'NO_BATCH'}`;
-                  if (completeSowingFlags[combinedKey] === true) {
-                    primaryCompleteSowing = true;
-                  }
-                }
-              }
-            });
             
             const payload = {
               plantId: group.plantId,
@@ -785,13 +1104,33 @@ const PrimarySowingEntry = () => {
               batchNumber: batchNumberToUse, // Use batch number from packets or form
               sowingLocation: "PRIMARY",
               slotId: group.slotId,
-              plantReadyDays: primaryCompleteSowing ? 0 : groupReadyDays, // Set to 0 if complete sowing
-              completeSowing: primaryCompleteSowing, // Flag to indicate complete sowing
+              plantReadyDays: groupReadyDays, // Use actual plant ready days
+              completeSowing: true, // ✅ ALWAYS TRUE
             };
 
             if (user?._id) {
               payload.createdBy = user._id;
             }
+
+            // Debug: Log individual PRIMARY payload
+            console.log(`[PrimarySowingEntry] 🌾 PRIMARY Payload #${sowingsToCreate.length + 1}:`, {
+              plantId: payload.plantId,
+              plantName: group.plantName,
+              subtypeId: payload.subtypeId,
+              subtypeName: group.subtypeName,
+              sowingLocation: payload.sowingLocation,
+              slotId: payload.slotId,
+              sowingDate: payload.sowingDate,
+              totalQuantityRequired: payload.totalQuantityRequired,
+              sowedPlant: payload.sowedPlant,
+              batchNumber: payload.batchNumber,
+              plantReadyDays: payload.plantReadyDays,
+              completeSowing: payload.completeSowing,
+              reminderBeforeDays: payload.reminderBeforeDays,
+              notes: payload.notes,
+              createdBy: payload.createdBy,
+              totalQty: group.totalQty
+            });
 
             sowingsToCreate.push(payload);
           }
@@ -805,62 +1144,107 @@ const PrimarySowingEntry = () => {
       }
 
       // Ensure sowedPlant is added to all sowings using Primary (Field) values (same as AddSowingModal)
-      const finalPrimaryQty = totalPrimaryQuantities || 0;
+      // Note: sowedPlant should already be calculated correctly above, this is a safety check
       sowingsToCreate.forEach((sowing, index) => {
-        if (sowing.sowedPlant === undefined || sowing.sowedPlant === null) {
-          // Use primaryQuantities if available, otherwise fallback to totalQuantityRequired
-          sowing.sowedPlant = finalPrimaryQty > 0 ? finalPrimaryQty : sowing.totalQuantityRequired;
-          console.log(`[Primary Sowing] ⚠️ Added missing sowedPlant to ${sowing.sowingLocation} sowing #${index + 1}:`, sowing.sowedPlant);
+        if (sowing.sowedPlant === undefined || sowing.sowedPlant === null || sowing.sowedPlant === 0) {
+          // For PRIMARY location, totalQuantityRequired is already in plants
+          // For OFFICE location, totalQuantityRequired is in packets - we shouldn't use it as fallback
+          if (sowing.sowingLocation === "PRIMARY") {
+            sowing.sowedPlant = sowing.totalQuantityRequired;
+            console.log(`[Primary Sowing] ⚠️ Added missing sowedPlant to PRIMARY sowing #${index + 1}:`, sowing.sowedPlant);
+          } else {
+            console.error(`[Primary Sowing] ❌ ERROR: OFFICE sowing #${index + 1} missing sowedPlant! This should not happen.`);
+            // Don't set a wrong value - let backend handle the error
+          }
         } else {
           console.log(`[Primary Sowing] ✅ ${sowing.sowingLocation} sowing #${index + 1} has sowedPlant:`, sowing.sowedPlant);
         }
       });
 
       // Log all sowings before sending with explicit verification (same as AddSowingModal)
-      console.log("[Primary Sowing] 📤 Final payload being sent:", JSON.stringify(sowingsToCreate, null, 2));
-      
-      // Verify all sowings have sowedPlant
-      const sowingsWithoutSowedPlant = sowingsToCreate.filter(s => !s.sowedPlant);
-      if (sowingsWithoutSowedPlant.length > 0) {
-        console.error("[Primary Sowing] ❌ ERROR: Found sowings without sowedPlant:", sowingsWithoutSowedPlant);
-      } else {
-        console.log(`[Primary Sowing] ✅ All ${sowingsToCreate.length} sowing(s) have sowedPlant`);
-      }
+      console.log("=".repeat(80));
+      console.log("[Primary Sowing] 📊 PAYLOAD FORMATION SUMMARY");
+      console.log("=".repeat(80));
+      console.log(`[Primary Sowing] Total sowings created: ${sowingsToCreate.length}`);
+      console.log(`[Primary Sowing] Total packets: ${selectedPackets.length}`);
+      console.log(`[Primary Sowing] Total primary quantities entries: ${Object.keys(primaryQuantities).length}`);
+      console.log(`[Primary Sowing] Total primary quantities sum: ${totalPrimaryQuantities}`);
+      console.log("");
+      console.log("[Primary Sowing] 📋 Individual Sowing Summary:");
+      sowingsToCreate.forEach((s, idx) => {
+        console.log(`  [${idx + 1}] ${s.sowingLocation} - Plant: ${s.plantId?.toString().slice(-8)}, Subtype: ${s.subtypeId?.toString().slice(-8)}`);
+        console.log(`      totalQuantityRequired: ${s.totalQuantityRequired}, sowedPlant: ${s.sowedPlant}`);
+        console.log(`      batchNumber: ${s.batchNumber}, slotId: ${s.slotId || 'null'}`);
+        console.log(`      packets array: ${s.packets ? `${s.packets.length} items` : 'N/A (in-progress)'}`);
+        console.log("");
+      });
+      console.log("[Primary Sowing] 📤 Complete JSON payload:", JSON.stringify(sowingsToCreate, null, 2));
+      console.log("=".repeat(80));
 
       // Call the multiple sowings endpoint (same as AddSowingModal)
-      const finalTotalPrimaryQty = totalPrimaryQuantities || 0;
+      // Filter out any sowings without valid sowedPlant before sending
+      const validSowings = sowingsToCreate.filter(sowing => {
+        if (!sowing.sowedPlant || sowing.sowedPlant <= 0) {
+          console.error(`[Primary Sowing] ❌ Filtering out invalid sowing (missing or zero sowedPlant):`, sowing);
+          return false;
+        }
+        return true;
+      });
+      
+      if (validSowings.length === 0) {
+        Toast.error("No valid sowings to create (all sowings missing sowedPlant)");
+        setSubmitting(false);
+        return;
+      }
+      
       const requestPayload = { 
-        sowings: sowingsToCreate.map(sowing => ({
-          ...sowing,
-          // Use primaryQuantities value if available, otherwise keep existing sowedPlant or use totalQuantityRequired
-          sowedPlant: sowing.sowedPlant !== undefined && sowing.sowedPlant !== null 
-            ? sowing.sowedPlant 
-            : (finalTotalPrimaryQty > 0 ? finalTotalPrimaryQty : sowing.totalQuantityRequired)
-        }))
+        sowings: validSowings
       };
       
       // Final verification - log the exact payload being sent (same as AddSowingModal)
-      console.log("[Primary Sowing] 🔍 Request payload object:", JSON.stringify(requestPayload, null, 2));
-      console.log("[Primary Sowing] 🔍 First sowing in request:", JSON.stringify(requestPayload.sowings[0], null, 2));
-      console.log("[Primary Sowing] 🔍 Has sowedPlant?", requestPayload.sowings[0]?.sowedPlant !== undefined);
-      console.log("[Primary Sowing] 🔍 sowedPlant value:", requestPayload.sowings[0]?.sowedPlant);
+      console.log("=".repeat(80));
+      console.log("[Primary Sowing] 🚀 FINAL REQUEST PAYLOAD (AFTER VALIDATION)");
+      console.log("=".repeat(80));
+      console.log(`[Primary Sowing] Valid sowings count: ${validSowings.length}`);
+      console.log(`[Primary Sowing] Filtered out: ${sowingsToCreate.length - validSowings.length} invalid sowing(s)`);
+      console.log("");
+      console.log("[Primary Sowing] 🔍 Complete request payload:", JSON.stringify(requestPayload, null, 2));
+      console.log("");
+      if (requestPayload.sowings.length > 0) {
+        console.log("[Primary Sowing] 🔍 First sowing in request:", JSON.stringify(requestPayload.sowings[0], null, 2));
+        console.log(`[Primary Sowing] 🔍 Has sowedPlant? ${requestPayload.sowings[0]?.sowedPlant !== undefined}`);
+        console.log(`[Primary Sowing] 🔍 sowedPlant value: ${requestPayload.sowings[0]?.sowedPlant}`);
+        console.log(`[Primary Sowing] 🔍 sowingLocation: ${requestPayload.sowings[0]?.sowingLocation}`);
+        console.log(`[Primary Sowing] 🔍 totalQuantityRequired: ${requestPayload.sowings[0]?.totalQuantityRequired}`);
+        console.log(`[Primary Sowing] 🔍 batchNumber: ${requestPayload.sowings[0]?.batchNumber}`);
+      }
+      console.log("=".repeat(80));
       
-      // Verify all sowings have sowedPlant before sending
-      requestPayload.sowings.forEach((sowing, idx) => {
-        if (sowing.sowedPlant === undefined || sowing.sowedPlant === null) {
-          console.error(`[Primary Sowing] ❌ CRITICAL: Sowing #${idx + 1} missing sowedPlant!`, sowing);
-          // Use primaryQuantities value if available, otherwise fallback to totalQuantityRequired
-          sowing.sowedPlant = finalTotalPrimaryQty > 0 ? finalTotalPrimaryQty : sowing.totalQuantityRequired;
-          console.log(`[Primary Sowing] ✅ Fixed sowedPlant to:`, sowing.sowedPlant);
-        }
-      });
+      // Final verification - all sowings must have valid sowedPlant
+      const sowingsWithoutSowedPlant = requestPayload.sowings.filter(s => !s.sowedPlant || s.sowedPlant <= 0);
+      if (sowingsWithoutSowedPlant.length > 0) {
+        console.error("[Primary Sowing] ❌ CRITICAL: Found sowings without valid sowedPlant:", sowingsWithoutSowedPlant);
+        Toast.error("Invalid payload: some sowings missing sowedPlant");
+        setSubmitting(false);
+        return;
+      }
 
+      console.log("[Primary Sowing] ⏳ Sending request to backend...");
       const instance = NetworkManager(API.sowing.CREATE_MULTIPLE_SOWINGS);
       const response = await instance.request(requestPayload);
+      
+      console.log("[Primary Sowing] ✅ Backend response received:", response);
 
       if (response?.data) {
         const successCount = response.data.success || 0;
         const failedCount = response.data.failed || 0;
+        
+        console.log("[Primary Sowing] 📊 Backend response summary:", {
+          success: successCount,
+          failed: failedCount,
+          message: response.data.message,
+          errors: response.data.errors
+        });
         
         if (successCount > 0) {
           Toast.success(`Successfully created ${successCount} sowing record(s)${failedCount > 0 ? `, ${failedCount} failed` : ''}`);
@@ -924,10 +1308,19 @@ const PrimarySowingEntry = () => {
         }
       }
     } catch (error) {
-      console.error("Error creating sowings:", error);
+      console.error("=".repeat(80));
+      console.error("[Primary Sowing] ❌ ERROR CREATING SOWINGS");
+      console.error("=".repeat(80));
+      console.error("[Primary Sowing] Error object:", error);
+      console.error("[Primary Sowing] Error message:", error?.message);
+      console.error("[Primary Sowing] Error response:", error?.response);
+      console.error("[Primary Sowing] Error response data:", error?.response?.data);
+      console.error("[Primary Sowing] Error stack:", error?.stack);
+      console.error("=".repeat(80));
       Toast.error(error?.response?.data?.message || "Failed to create sowing records");
     } finally {
       setSubmitting(false);
+      console.log("[Primary Sowing] ✅ Payload formation process completed (submitting set to false)");
     }
   };
 
@@ -1563,6 +1956,69 @@ const PrimarySowingEntry = () => {
             </Paper>
           )}
 
+          {/* In-Progress Cards Section */}
+          {!showSummary && inProgressCards.length > 0 && (
+            <Paper sx={{ 
+              p: isMobile ? 2 : 2.5, 
+              mb: 2,
+              bgcolor: "#e3f2fd", 
+              borderRadius: 2,
+              border: "2px solid #2196f3",
+              boxShadow: "0 2px 8px rgba(33, 150, 243, 0.2)"
+            }}>
+              <Typography 
+                variant="h6" 
+                sx={{ 
+                  fontWeight: 600, 
+                  color: "#1976d2",
+                  mb: 2,
+                  fontSize: isMobile ? "1rem" : "1.125rem"
+                }}
+              >
+                🔄 Sowing in Progress (Complete These)
+              </Typography>
+              <Alert severity="info" sx={{ mb: 2 }}>
+                <Typography variant="body2" sx={{ fontSize: isMobile ? "0.875rem" : "0.9rem" }}>
+                  These packets have stock issued but sowing is not yet completed. Complete sowing for these first.
+                </Typography>
+              </Alert>
+              <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                {inProgressCards.map((card, cardIdx) => (
+                  <Paper 
+                    key={`${card.plantId}_${card.subtypeId}_${cardIdx}`}
+                    sx={{ 
+                      p: 1.5, 
+                      bgcolor: "white", 
+                      border: "1px solid #2196f3",
+                      borderRadius: 1.5 
+                    }}
+                  >
+                    <Typography variant="body1" sx={{ fontWeight: 600, color: "#1976d2", mb: 1 }}>
+                      {card.plantName} - {card.subtypeName}
+                    </Typography>
+                    <Box sx={{ display: "flex", gap: 1, mb: 1, flexWrap: "wrap" }}>
+                      <Chip 
+                        label={`${card.totalPacketsInProgress} packets issued`} 
+                        size="small" 
+                        color="primary"
+                        sx={{ fontSize: "0.7rem", height: 20 }}
+                      />
+                      <Chip 
+                        label={`${card.totalPlantsInProgress} plants expected`} 
+                        size="small" 
+                        color="success"
+                        sx={{ fontSize: "0.7rem", height: 20 }}
+                      />
+                    </Box>
+                    <Typography variant="caption" color="textSecondary">
+                      Complete the sowing for these packets to clear them from this section.
+                    </Typography>
+                  </Paper>
+                ))}
+              </Box>
+            </Paper>
+          )}
+
           {/* Packets Section */}
           {!showSummary && (
           <Paper sx={{ 
@@ -1772,18 +2228,24 @@ const PrimarySowingEntry = () => {
                                   const isSelected = selectedItems.length > 0;
                                   const selectedQuantity = selectedItems.reduce((sum, sp) => sum + (sp.quantity || 0), 0);
                                   const totalQtyForBatch = combined.itemIds.reduce((sum, itemId) => {
-                                    return sum + (primaryQuantities[itemId] || 0);
+                                    const value = primaryQuantities[itemId] || 0;
+                                    console.log(`[PrimarySowingEntry] 🔍 Adding itemId ${itemId}: ${value}`);
+                                    return sum + value;
                                   }, 0);
                                   
-                                  // Debug logging
-                                  console.log(`[PrimarySowingEntry] Combined Batch:`, {
+                                  // Debug logging - showing Primary field calculation
+                                  console.log(`[PrimarySowingEntry] 🔍 Rendering Batch Card:`, {
                                     productName: combined.productName,
                                     batchNumber: combined.batchNumber,
                                     conversionFactor: combined.conversionFactor,
-                                    totalAvailableQuantity: combined.totalAvailableQuantity,
                                     selectedQuantity,
-                                    totalQtyForBatch,
+                                    totalQtyForBatch: totalQtyForBatch,
                                     itemIds: combined.itemIds,
+                                    primaryQuantitiesState: JSON.stringify(primaryQuantities),
+                                    mappedValues: combined.itemIds.map(id => ({
+                                      itemId: id,
+                                      value: primaryQuantities[id] || 0
+                                    })),
                                   });
 
                                   const handleCardClick = () => {
@@ -1830,13 +2292,14 @@ const PrimarySowingEntry = () => {
                                         
                                         setSelectedPackets(updatedPackets);
                                         
-                                        // Auto-fill Primary (Field) = packets * conversionFactor
+                                        // Auto-fill Primary (Field)
+                                        // ✅ ALWAYS calculate from packets * conversionFactor
+                                        const updatedPrimaryQuantities = { ...primaryQuantities };
                                         const primaryQty = availableQty * conversionFactor;
                                         const itemCount = combined.itemIds.length;
                                         const qtyPerItem = itemCount > 0 ? Math.floor(primaryQty / itemCount) : 0;
                                         const remainder = itemCount > 0 ? primaryQty % itemCount : 0;
                                         
-                                        const updatedPrimaryQuantities = { ...primaryQuantities };
                                         combined.itemIds.forEach((itemId, idx) => {
                                           const itemQty = qtyPerItem + (idx < remainder ? 1 : 0);
                                           if (itemQty > 0) {
@@ -1940,6 +2403,11 @@ const PrimarySowingEntry = () => {
                             step: 0.1
                           }}
                           onChange={(e) => {
+                            console.log(`[PrimarySowingEntry] 🎯 Packets onChange TRIGGERED!`, {
+                              inputValue: e.target.value,
+                              productName: combined.productName
+                            });
+                            
                             const qty = parseFloat(e.target.value) || 0;
                             const maxQty = combined.totalAvailableQuantity;
                             const conversionFactor = combined.conversionFactor || 1;
@@ -1948,13 +2416,15 @@ const PrimarySowingEntry = () => {
                             // Check if decimal value is entered (has decimal point)
                             const hasDecimal = e.target.value.includes('.');
                             
-                            console.log(`[PrimarySowingEntry] Packets onChange:`, {
+                            console.log(`[PrimarySowingEntry] 📦 Packets onChange details:`, {
                               productName: combined.productName,
                               batchNumber: combined.batchNumber,
                               enteredQty: qty,
                               maxQty,
                               conversionFactor: conversionFactor,
                               hasDecimal,
+                              itemIds: combined.itemIds,
+                              expectedPrimaryQty: qty * conversionFactor
                             });
                             
                             // If decimal is entered, automatically set complete sowing
@@ -2000,12 +2470,14 @@ const PrimarySowingEntry = () => {
                               
                               setSelectedPackets(updatedPackets);
                               
-                              // Auto-fill Primary (Field) = packets * conversionFactor
+                              // Auto-fill Primary (Field)
+                              // ✅ ALWAYS calculate from packets * conversionFactor
+                              const updatedPrimaryQuantities = { ...primaryQuantities };
                               const primaryQty = finalQty * conversionFactor;
                               const itemCount = combined.itemIds.length;
                               const qtyPerItem = itemCount > 0 ? Math.floor(primaryQty / itemCount) : 0;
                               const remainder = itemCount > 0 ? primaryQty % itemCount : 0;
-                              const updatedPrimaryQuantities = { ...primaryQuantities };
+                              
                               combined.itemIds.forEach((itemId, idx) => {
                                 const itemQty = qtyPerItem + (idx < remainder ? 1 : 0);
                                 if (itemQty > 0) {
@@ -2014,10 +2486,11 @@ const PrimarySowingEntry = () => {
                                   delete updatedPrimaryQuantities[itemId];
                                 }
                               });
-                              console.log(`[PrimarySowingEntry] Auto-filled Primary (Field) from Packets:`, {
+                              
+                              console.log(`[PrimarySowingEntry] Auto-filled Primary (Field) from Packets (max qty):`, {
                                 packetQty: finalQty,
                                 conversionFactor,
-                                calculatedPrimaryQty: primaryQty,
+                                primaryQty,
                                 updatedPrimaryQuantities,
                               });
                               setPrimaryQuantities(updatedPrimaryQuantities);
@@ -2085,12 +2558,17 @@ const PrimarySowingEntry = () => {
                                 console.log(`[PrimarySowingEntry] Added new packets:`, packetsToAdd);
                               }
                               
-                              // Auto-fill Primary (Field) = packets * conversionFactor
+                              // Auto-fill Primary (Field)
+                              // ✅ ALWAYS calculate from packets * conversionFactor (one-way dependency)
+                              const isInProgress = combined.packets.some(p => p.isInProgress === true);
+                              const updatedPrimaryQuantities = { ...primaryQuantities };
+                              
+                              // Calculate from packets * conversionFactor (works for both in-progress and regular)
                               const primaryQty = qty * conversionFactor;
                               const itemCount = combined.itemIds.length;
                               const qtyPerItem = itemCount > 0 ? Math.floor(primaryQty / itemCount) : 0;
                               const remainder = itemCount > 0 ? primaryQty % itemCount : 0;
-                              const updatedPrimaryQuantities = { ...primaryQuantities };
+                              
                               combined.itemIds.forEach((itemId, idx) => {
                                 const itemQty = qtyPerItem + (idx < remainder ? 1 : 0);
                                 if (itemQty > 0) {
@@ -2099,13 +2577,17 @@ const PrimarySowingEntry = () => {
                                   delete updatedPrimaryQuantities[itemId];
                                 }
                               });
-                              console.log(`[PrimarySowingEntry] Auto-filled Primary (Field) from Packets:`, {
+                              
+                              console.log(`[PrimarySowingEntry] 🔥 Auto-filled Primary (Field) from Packets:`, {
                                 packetQty: qty,
                                 conversionFactor,
-                                calculatedPrimaryQty: primaryQty,
+                                primaryQty: primaryQty,
+                                itemIds: combined.itemIds,
                                 updatedPrimaryQuantities,
+                                oldPrimaryQuantities: primaryQuantities,
                               });
                               setPrimaryQuantities(updatedPrimaryQuantities);
+                              console.log(`[PrimarySowingEntry] ✅ Primary quantities STATE UPDATED`);
                               
                               console.log(`[PrimarySowingEntry] Final selectedPackets count:`, selectedPackets.length);
                             } else {
@@ -2146,60 +2628,9 @@ const PrimarySowingEntry = () => {
                                           }}
                                           onChange={(e) => {
                                             const qty = parseFloat(e.target.value) || 0;
-                                            const conversionFactor = combined.conversionFactor || 1;
                                             
-                                            // Calculate expected primary quantity from packets (only validate if packets are selected)
-                                            const selectedItems = selectedPackets.filter(sp => 
-                                              combined.itemIds.includes(sp.itemId)
-                                            );
-                                            const totalPacketQty = selectedItems.reduce((sum, sp) => sum + (sp.quantity || 0), 0);
-                                            
-                                            // Validate: Primary should not exceed 10% more than calculated from packets
-                                            // Only apply validation if packets are selected
-                                            if (totalPacketQty > 0) {
-                                              const expectedPrimaryQty = totalPacketQty * conversionFactor;
-                                              const maxAllowedPrimaryQty = expectedPrimaryQty * 1.1; // Allow 10% more
-                                              
-                                              console.log(`[PrimarySowingEntry] Primary (Field) validation:`, {
-                                                productName: combined.productName,
-                                                batchNumber: combined.batchNumber,
-                                                enteredQty: qty,
-                                                totalPacketQty,
-                                                conversionFactor,
-                                                expectedPrimaryQty,
-                                                maxAllowedPrimaryQty,
-                                              });
-                                              
-                                              if (qty > 0 && qty > maxAllowedPrimaryQty) {
-                                                Toast.error(`Primary (Field) cannot exceed ${Math.round(maxAllowedPrimaryQty)} (10% more than calculated ${Math.round(expectedPrimaryQty)} from ${totalPacketQty} packets)`);
-                                                // Reset to max allowed value
-                                                const maxAllowedValue = Math.round(maxAllowedPrimaryQty);
-                                                const itemCount = combined.itemIds.length;
-                                                const qtyPerItem = itemCount > 0 ? Math.floor(maxAllowedValue / itemCount) : 0;
-                                                const remainder = itemCount > 0 ? maxAllowedValue % itemCount : 0;
-                                                
-                                                const updatedPrimaryQuantities = { ...primaryQuantities };
-                                                combined.itemIds.forEach((itemId, idx) => {
-                                                  const itemQty = qtyPerItem + (idx < remainder ? 1 : 0);
-                                                  if (itemQty > 0) {
-                                                    updatedPrimaryQuantities[itemId] = itemQty;
-                                                  } else {
-                                                    delete updatedPrimaryQuantities[itemId];
-                                                  }
-                                                });
-                                                setPrimaryQuantities(updatedPrimaryQuantities);
-                                                return; // Don't update with the invalid value
-                                              }
-                                            }
-                                            
-                                            console.log(`[PrimarySowingEntry] Primary (Field) onChange:`, {
-                                              productName: combined.productName,
-                                              batchNumber: combined.batchNumber,
-                                              enteredQty: qty,
-                                              conversionFactor: conversionFactor,
-                                              itemIds: combined.itemIds,
-                                            });
-                                            
+                                            // ✅ Allow free typing - no validation on change
+                                            // Update primaryQuantities - distribute across itemIds
                                             const itemCount = combined.itemIds.length;
                                             const qtyPerItem = itemCount > 0 ? Math.floor(qty / itemCount) : 0;
                                             const remainder = itemCount > 0 ? qty % itemCount : 0;
@@ -2214,12 +2645,77 @@ const PrimarySowingEntry = () => {
                                               }
                                             });
                                             
-                                            console.log(`[PrimarySowingEntry] Updated primaryQuantities:`, updatedPrimaryQuantities);
                                             setPrimaryQuantities(updatedPrimaryQuantities);
-                                            // Note: Primary (Field) changes do NOT auto-fill Packets
-                                            // Only Packets -> Primary auto-fill is enabled
+                                            // ✅ Primary (Field) changes do NOT auto-fill Packets (one-way dependency)
                                           }}
-                                          placeholder="0"
+                                          onBlur={(e) => {
+                                            // ✅ Validate and clamp on blur (when user finishes editing)
+                                            let qty = parseFloat(e.target.value) || 0;
+                                            const selectedItems = selectedPackets.filter(sp => 
+                                              combined.itemIds.includes(sp.itemId)
+                                            );
+                                            const totalPacketQty = selectedItems.reduce((sum, sp) => sum + (sp.quantity || 0), 0);
+                                            const conversionFactor = combined.conversionFactor || 1000;
+                                            
+                                            if (totalPacketQty > 0 && qty > 0) {
+                                              const expectedPrimaryQty = totalPacketQty * conversionFactor;
+                                              const minAllowed = Math.floor(expectedPrimaryQty * 0.9); // -10%
+                                              const maxAllowed = Math.ceil(expectedPrimaryQty * 1.1); // +10%
+                                              
+                                              let needsUpdate = false;
+                                              
+                                              // Clamp value to allowed range
+                                              if (qty < minAllowed) {
+                                                qty = minAllowed;
+                                                Toast.warn(`Adjusted to minimum allowed: ${minAllowed.toLocaleString()} (-10%)`);
+                                                needsUpdate = true;
+                                              } else if (qty > maxAllowed) {
+                                                qty = maxAllowed;
+                                                Toast.warn(`Adjusted to maximum allowed: ${maxAllowed.toLocaleString()} (+10%)`);
+                                                needsUpdate = true;
+                                              }
+                                              
+                                              if (needsUpdate) {
+                                                // Update primaryQuantities with clamped value
+                                                const itemCount = combined.itemIds.length;
+                                                const qtyPerItem = itemCount > 0 ? Math.floor(qty / itemCount) : 0;
+                                                const remainder = itemCount > 0 ? qty % itemCount : 0;
+
+                                                const updatedPrimaryQuantities = { ...primaryQuantities };
+                                                combined.itemIds.forEach((itemId, idx) => {
+                                                  const itemQty = qtyPerItem + (idx < remainder ? 1 : 0);
+                                                  if (itemQty > 0) {
+                                                    updatedPrimaryQuantities[itemId] = itemQty;
+                                                  } else {
+                                                    delete updatedPrimaryQuantities[itemId];
+                                                  }
+                                                });
+                                                
+                                                setPrimaryQuantities(updatedPrimaryQuantities);
+                                                
+                                                console.log(`[PrimarySowingEntry] Primary clamped on blur:`, {
+                                                  entered: parseFloat(e.target.value),
+                                                  clamped: qty,
+                                                  range: `${minAllowed} - ${maxAllowed}`
+                                                });
+                                              }
+                                            }
+                                          }}
+                                          placeholder="Auto-filled from Packets"
+                                          helperText={(() => {
+                                            const selectedItems = selectedPackets.filter(sp => 
+                                              combined.itemIds.includes(sp.itemId)
+                                            );
+                                            const totalPacketQty = selectedItems.reduce((sum, sp) => sum + (sp.quantity || 0), 0);
+                                            if (totalPacketQty > 0) {
+                                              const conversionFactor = combined.conversionFactor || 1000;
+                                              const expectedPrimaryQty = totalPacketQty * conversionFactor;
+                                              const minAllowed = Math.floor(expectedPrimaryQty * 0.9);
+                                              const maxAllowed = Math.ceil(expectedPrimaryQty * 1.1);
+                                              return `Allowed range: ${minAllowed.toLocaleString()} - ${maxAllowed.toLocaleString()} (±10%)`;
+                                            }
+                                            return "Auto-filled when Packets entered";
+                                          })()}
                                           sx={{
                                             "& .MuiInputBase-input": {
                                               fontSize: isMobile ? "16px" : "0.95rem",
@@ -2228,6 +2724,11 @@ const PrimarySowingEntry = () => {
                                             },
                                             "& .MuiInputLabel-root": {
                                               fontWeight: 600,
+                                            },
+                                            "& .MuiFormHelperText-root": {
+                                              fontSize: "0.7rem",
+                                              color: "#666",
+                                              fontStyle: "italic",
                                             },
                                           }}
                                         />

@@ -18,6 +18,8 @@ import GrassIcon from "@mui/icons-material/Grass"
 import AssessmentIcon from "@mui/icons-material/Assessment"
 import AccountTreeIcon from "@mui/icons-material/AccountTree"
 import TrendingDownIcon from "@mui/icons-material/TrendingDown"
+import AssignmentIcon from "@mui/icons-material/Assignment"
+import TaskIcon from "@mui/icons-material/Task"
 
 export const DashboardMenus = [
   new MenuPath("Orders", <HomeIcon />, "/u/dashboard"),
@@ -35,6 +37,8 @@ export const DashboardMenus = [
   // new MenuPath("Weekly", <DateRangeOutlinedIcon />, "/u/weekly"),
   // new MenuPath("Transactions", <PaidIcon />, "/u/transactions"),
   new MenuPath("Employees", <GroupIcon />, "/u/employeese"),
+  new MenuPath("Employee Follow-Up", <AssignmentIcon />, "/u/follow-ups"),
+  new MenuPath("Task Management", <TaskIcon />, "/u/tasks"),
   new MenuPath("Inventory", <InventoryIcon />, "/u/inventory"),
   // new MenuPath("Settings", <SettingsSuggestIcon />, "/u/settings"),
   // new MenuPath("Admin", <AdminPanelSettingsIcon />, "/u/admin"),

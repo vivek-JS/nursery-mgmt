@@ -7,6 +7,7 @@ const SignUp = React.lazy(() => import("pages/public/signup"))
 const ResetPassword = React.lazy(() => import("pages/public/reset-password"))
 const HospitalOnboarding = React.lazy(() => import("components/Modals/HospitalOnboarding"))
 const PublicAddFarmer = React.lazy(() => import("pages/public/add-farmer/PublicAddFarmer"))
+const PublicFollowUp = React.lazy(() => import("pages/public/follow-up"))
 
 export const PublicRoutes = [
   { path: "/auth/login", component: Login },
@@ -16,5 +17,7 @@ export const PublicRoutes = [
   { path: "/auth/reset-password/:id", component: ResetPassword },
   { path: "/HospitalOnboarding", component: HospitalOnboarding },
   // Public farmer form: accessible even when logged in
-  { path: "/public/add-farmer/:slug", component: PublicAddFarmer, allowWhenLoggedIn: true }
+  { path: "/public/add-farmer/:slug", component: PublicAddFarmer, allowWhenLoggedIn: true },
+  // Public follow-up page: accessible without login
+  { path: "/follow-up/:token", component: PublicFollowUp, allowWhenLoggedIn: true }
 ]

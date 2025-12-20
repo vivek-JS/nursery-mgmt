@@ -54,6 +54,9 @@ import {
   PieChart as PieChartIcon,
   Print as PrintIcon,
   Add as AddIcon,
+  Clear as ClearIcon,
+  WhatsApp,
+  ContentCopy,
 } from "@mui/icons-material";
 import ExcessiveSowingModal from "components/Modals/ExcessiveSowingModal";
 import {
@@ -72,6 +75,12 @@ import {
   Line,
 } from "recharts";
 import { NetworkManager, API } from "network/core";
+import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
+import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFns";
+import { DatePicker } from "@mui/x-date-pickers/DatePicker";
+import moment from "moment";
+import { format } from "date-fns";
+import { Toast } from "helpers/toasts/toastHelper";
 
 const SowingGapAnalysis = () => {
   const [loading, setLoading] = useState(false);
@@ -87,6 +96,12 @@ const SowingGapAnalysis = () => {
   const [loadingReminders, setLoadingReminders] = useState(new Set());
   const [loadingOrders, setLoadingOrders] = useState(new Set());
   const [activeTab, setActiveTab] = useState(0); // 0 = Critical, 1 = Available
+  // Date range and grouping for Available tab
+  const [dateRange, setDateRange] = useState([null, null]); // [startDate, endDate]
+  const [groupByDays, setGroupByDays] = useState("");
+  const [showGroupedView, setShowGroupedView] = useState(false);
+  // WhatsApp share state
+  const [copiedWhatsAppMessages, setCopiedWhatsAppMessages] = useState(new Map()); // Track copied messages by subtype key
   // Today's sowing cards state
   const [todayCardsData, setTodayCardsData] = useState(null);
   const [loadingTodayCards, setLoadingTodayCards] = useState(false);
@@ -118,6 +133,13 @@ const SowingGapAnalysis = () => {
     fetchTodaySowingCards();
     fetchPendingRequests();
   }, []);
+
+  // Refetch when date range changes (only for Available tab)
+  useEffect(() => {
+    if (activeTab === 1 && (dateRange[0] || dateRange[1])) {
+      fetchGapSummary(true);
+    }
+  }, [dateRange]);
 
   // Check for existing requests when cards data changes
   useEffect(() => {
@@ -281,6 +303,12 @@ const SowingGapAnalysis = () => {
       // Add available parameter if on Available tab
       if (isAvailableTab) {
         params.available = "true";
+        
+        // Add date range if provided (format as DD-MM-YYYY)
+        if (dateRange[0] && dateRange[1]) {
+          params.startDate = format(dateRange[0], "dd-MM-yyyy");
+          params.endDate = format(dateRange[1], "dd-MM-yyyy");
+        }
       }
       
       const response = await instance.request({}, params);
@@ -497,6 +525,482 @@ const SowingGapAnalysis = () => {
     }
   };
 
+  // Handle card click - fetch orders for all slots in the card
+  const handleCardClick = async (card) => {
+    if (!card.slots || card.slots.length === 0) {
+      setAlertDialog({
+        open: true,
+        title: "No Slots",
+        message: "No slots available for this card",
+      });
+      return;
+    }
+
+    const slotIds = card.slots.map(slot => slot.slotId || slot._id).filter(Boolean);
+    if (slotIds.length === 0) {
+      setAlertDialog({
+        open: true,
+        title: "No Slots",
+        message: "No valid slot IDs found for this card",
+      });
+      return;
+    }
+
+    // Check if all slots are already loaded
+    const allLoaded = slotIds.every(slotId => slotOrders.has(slotId));
+    if (allLoaded) {
+      // Combine all orders from all slots
+      const allOrders = [];
+      const slotInfoArray = [];
+      let totalOrders = 0;
+      let totalPlants = 0;
+      let totalValue = 0;
+
+      slotIds.forEach(slotId => {
+        const orders = slotOrders.get(slotId) || [];
+        allOrders.push(...orders.map(order => ({ ...order, slotId })));
+        // Note: We don't have slotInfo cached, so we'll just use orders
+      });
+
+      setSelectedSlot({
+        slotIds,
+        orders: allOrders,
+        cardInfo: {
+          plantId: card.plantId,
+          plantName: card.plantName,
+          subtypeId: card.subtypeId,
+          subtypeName: card.subtypeName,
+        },
+        summary: {
+          totalOrders: allOrders.length,
+          totalPlants: allOrders.reduce((sum, order) => sum + (order.numberOfPlants || 0), 0),
+          totalValue: allOrders.reduce((sum, order) => sum + (order.totalAmount || 0), 0),
+        },
+        isMultipleSlots: true,
+      });
+      setSlotOrdersDialogOpen(true);
+      return;
+    }
+
+    // Fetch orders for all slots
+    const slotsToFetch = slotIds.filter(slotId => !slotOrders.has(slotId));
+    setLoadingOrders(new Set([...loadingOrders, ...slotsToFetch]));
+
+    try {
+      const fetchPromises = slotsToFetch.map(async (slotId) => {
+        try {
+          const instance = NetworkManager(API.sowing.GET_SLOT_ORDERS_SUMMARY);
+          const response = await instance.request({}, [slotId]);
+          if (response?.data?.success) {
+            const orders = response.data.orders || [];
+            return { slotId, orders, slotInfo: response.data.slotInfo, summary: response.data.summary };
+          }
+          return { slotId, orders: [], slotInfo: null, summary: null };
+        } catch (err) {
+          console.error(`Error fetching orders for slot ${slotId}:`, err);
+          return { slotId, orders: [], slotInfo: null, summary: null };
+        }
+      });
+
+      const results = await Promise.all(fetchPromises);
+
+      // Store all orders in cache
+      const newSlotOrders = new Map(slotOrders);
+      results.forEach(({ slotId, orders }) => {
+        newSlotOrders.set(slotId, orders);
+      });
+      setSlotOrders(newSlotOrders);
+
+      // Combine all orders
+      const allOrders = [];
+      results.forEach(({ slotId, orders }) => {
+        allOrders.push(...orders.map(order => ({ ...order, slotId })));
+      });
+
+      // Calculate combined summary
+      const combinedSummary = {
+        totalOrders: allOrders.length,
+        totalPlants: allOrders.reduce((sum, order) => sum + (order.numberOfPlants || 0), 0),
+        totalValue: allOrders.reduce((sum, order) => sum + (order.totalAmount || 0), 0),
+        pendingPaymentCount: allOrders.filter(order => order.paymentStatus !== 'COMPLETED').length,
+        completedPaymentCount: allOrders.filter(order => order.paymentStatus === 'COMPLETED').length,
+      };
+
+      setSelectedSlot({
+        slotIds,
+        orders: allOrders,
+        cardInfo: {
+          plantId: card.plantId,
+          plantName: card.plantName,
+          subtypeId: card.subtypeId,
+          subtypeName: card.subtypeName,
+        },
+        slotInfos: results.map(r => r.slotInfo).filter(Boolean),
+        summary: combinedSummary,
+        isMultipleSlots: true,
+      });
+      setSlotOrdersDialogOpen(true);
+    } catch (err) {
+      console.error("Error fetching card slot orders:", err);
+      setAlertDialog({
+        open: true,
+        title: "Error",
+        message: "Failed to fetch slot orders. Please try again.",
+      });
+    } finally {
+      const newLoading = new Set(loadingOrders);
+      slotsToFetch.forEach(slotId => newLoading.delete(slotId));
+      setLoadingOrders(newLoading);
+    }
+  };
+
+  // Helper function to calculate days between two dates
+  const calculateDaysSpan = (startDate, endDate) => {
+    const start = moment(startDate, "DD-MM-YYYY");
+    const end = moment(endDate, "DD-MM-YYYY");
+    const days = end.diff(start, "days") + 1; // +1 to include both start and end day
+    return days;
+  };
+
+  // Generate WhatsApp message for available plants (subtype-wise) - Best formatted message
+  const generateAvailablePlantsWhatsAppMessage = (subtypeGroup) => {
+    const currentDate = moment().format("DD-MMM-YYYY");
+    
+    let message = `🌱 *Available Plants Information*\n\n`;
+    message += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+    
+    message += `📅 *Report Date:* ${currentDate}\n\n`;
+    message += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+    
+    // Add date range details
+    if (subtypeGroup.dateGroups && subtypeGroup.dateGroups.length > 0) {
+      subtypeGroup.dateGroups.forEach((dateGroup, idx) => {
+        if (dateGroup.slots && dateGroup.slots.length > 0) {
+          dateGroup.slots.forEach((slot) => {
+            const daysSpan = calculateDaysSpan(slot.slotStartDay, slot.slotEndDay);
+            message += `📅 *${slot.slotStartDay}* to *${slot.slotEndDay}*\n`;
+            message += `   (${daysSpan} days)\n`;
+            message += `*${subtypeGroup.plantName}-${subtypeGroup.subtypeName}*: Available *${formatNumber(slot.availablePlants || 0)}* plants\n\n`;
+          });
+        }
+      });
+    } else {
+      // Fallback: show summary if no date groups
+      message += `*${subtypeGroup.plantName}-${subtypeGroup.subtypeName}*: Available *${formatNumber(subtypeGroup.totalAvailable)}* plants\n\n`;
+    }
+    
+    message += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+    message += `📞 *For booking and inquiries, please contact the office.*`;
+    
+    return message;
+  };
+
+  // Generate WhatsApp message for ALL available subtypes
+  const generateAllAvailablePlantsWhatsAppMessage = () => {
+    if (!groupedSlots || groupedSlots.length === 0) {
+      return "No available plants data to share.";
+    }
+
+    const currentDate = moment().format("DD-MMM-YYYY");
+    
+    let message = `🌱 *All Available Plants*\n\n`;
+    message += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+    message += `📅 *Report Date:* ${currentDate}\n\n`;
+    message += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+    
+    // Add each subtype group with date ranges
+    groupedSlots.forEach((subtypeGroup) => {
+      if (subtypeGroup.dateGroups && subtypeGroup.dateGroups.length > 0) {
+        subtypeGroup.dateGroups.forEach((dateGroup) => {
+          if (dateGroup.slots && dateGroup.slots.length > 0) {
+            dateGroup.slots.forEach((slot) => {
+              const daysSpan = calculateDaysSpan(slot.slotStartDay, slot.slotEndDay);
+              message += `📅 *${slot.slotStartDay}* to *${slot.slotEndDay}*\n`;
+              message += `   (${daysSpan} days)\n`;
+              message += `*${subtypeGroup.plantName}-${subtypeGroup.subtypeName}*: Available *${formatNumber(slot.availablePlants || 0)}* plants\n\n`;
+            });
+          }
+        });
+      } else {
+        // Fallback: show summary if no date groups
+        message += `*${subtypeGroup.plantName}-${subtypeGroup.subtypeName}*: Available *${formatNumber(subtypeGroup.totalAvailable)}* plants\n\n`;
+      }
+    });
+    
+    message += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+    message += `📞 *For booking and inquiries, please contact the office.*`;
+    
+    return message;
+  };
+
+  // Share available plants message to WhatsApp
+  const handleShareAvailablePlantsWhatsApp = async (subtypeGroup) => {
+    const message = generateAvailablePlantsWhatsAppMessage(subtypeGroup);
+    const encodedMessage = encodeURIComponent(message);
+    const whatsappUrl = `https://wa.me/?text=${encodedMessage}`;
+    const subtypeKey = `${subtypeGroup.plantId}-${subtypeGroup.subtypeId}`;
+
+    try {
+      // Try to use Web Share API first (works on mobile)
+      if (navigator.share) {
+        await navigator.share({
+          title: `Available Plants - ${subtypeGroup.plantName} - ${subtypeGroup.subtypeName}`,
+          text: message,
+          url: whatsappUrl,
+        });
+        Toast.success("Shared successfully!");
+      } else {
+        // Fallback: Copy to clipboard and open WhatsApp
+        await navigator.clipboard.writeText(message);
+        setCopiedWhatsAppMessages(new Map(copiedWhatsAppMessages).set(subtypeKey, true));
+        Toast.success("Message copied to clipboard!");
+        
+        // Open WhatsApp Web or app
+        window.open(whatsappUrl, "_blank");
+        
+        // Reset copied state after 3 seconds
+        setTimeout(() => {
+          setCopiedWhatsAppMessages(prev => {
+            const newMap = new Map(prev);
+            newMap.delete(subtypeKey);
+            return newMap;
+          });
+        }, 3000);
+      }
+    } catch (error) {
+      // If share fails, just copy to clipboard
+      try {
+        await navigator.clipboard.writeText(message);
+        setCopiedWhatsAppMessages(new Map(copiedWhatsAppMessages).set(subtypeKey, true));
+        Toast.success("Message copied to clipboard! You can paste it in WhatsApp.");
+        setTimeout(() => {
+          setCopiedWhatsAppMessages(prev => {
+            const newMap = new Map(prev);
+            newMap.delete(subtypeKey);
+            return newMap;
+          });
+        }, 3000);
+      } catch (clipboardError) {
+        console.error("Failed to copy:", clipboardError);
+        Toast.error("Failed to share. Please try again.");
+      }
+    }
+  };
+
+  // Generate WhatsApp message for a single slot
+  const generateSlotWhatsAppMessage = (slot, plantName, subtypeName) => {
+    const currentDate = moment().format("DD-MMM-YYYY");
+    const daysSpan = calculateDaysSpan(slot.slotStartDay, slot.slotEndDay);
+    
+    let message = `🌱 *Available Plants*\n\n`;
+    message += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+    message += `📅 *Report Date:* ${currentDate}\n\n`;
+    message += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+    message += `📅 *${slot.slotStartDay}* to *${slot.slotEndDay}*\n`;
+    message += `   (${daysSpan} days)\n`;
+    message += `*${plantName}-${subtypeName}*: Available *${formatNumber(slot.availablePlants || 0)}* plants\n\n`;
+    message += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+    message += `📞 *For booking and inquiries, please contact the office.*`;
+    
+    return message;
+  };
+
+  // Share single slot to WhatsApp
+  const handleShareSlotWhatsApp = async (slot, plantName, subtypeName) => {
+    const message = generateSlotWhatsAppMessage(slot, plantName, subtypeName);
+    const encodedMessage = encodeURIComponent(message);
+    const whatsappUrl = `https://wa.me/?text=${encodedMessage}`;
+    const slotKey = `slot-${slot.slotId || slot._id}`;
+
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: `Available Plants - ${plantName} - ${subtypeName}`,
+          text: message,
+          url: whatsappUrl,
+        });
+        Toast.success("Shared successfully!");
+      } else {
+        await navigator.clipboard.writeText(message);
+        setCopiedWhatsAppMessages(new Map(copiedWhatsAppMessages).set(slotKey, true));
+        Toast.success("Message copied to clipboard!");
+        window.open(whatsappUrl, "_blank");
+        setTimeout(() => {
+          setCopiedWhatsAppMessages(prev => {
+            const newMap = new Map(prev);
+            newMap.delete(slotKey);
+            return newMap;
+          });
+        }, 3000);
+      }
+    } catch (error) {
+      try {
+        await navigator.clipboard.writeText(message);
+        setCopiedWhatsAppMessages(new Map(copiedWhatsAppMessages).set(slotKey, true));
+        Toast.success("Message copied to clipboard! You can paste it in WhatsApp.");
+        setTimeout(() => {
+          setCopiedWhatsAppMessages(prev => {
+            const newMap = new Map(prev);
+            newMap.delete(slotKey);
+            return newMap;
+          });
+        }, 3000);
+      } catch (clipboardError) {
+        console.error("Failed to copy:", clipboardError);
+        Toast.error("Failed to share. Please try again.");
+      }
+    }
+  };
+
+  // Generate WhatsApp message for ALL slots data (comprehensive)
+  const generateAllSlotsDataWhatsAppMessage = () => {
+    if (!groupedSlots || groupedSlots.length === 0) {
+      return "No available plants data to share.";
+    }
+
+    const currentDate = moment().format("DD-MMM-YYYY");
+    
+    let message = `🌱 *Complete Available Plants Data*\n\n`;
+    message += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+    message += `📅 *Report Date:* ${currentDate}\n\n`;
+    message += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+    
+    // List all date ranges with plant-subtype and available plants
+    groupedSlots.forEach((subtypeGroup) => {
+      if (subtypeGroup.dateGroups && subtypeGroup.dateGroups.length > 0) {
+        subtypeGroup.dateGroups.forEach((dateGroup) => {
+          if (dateGroup.slots && dateGroup.slots.length > 0) {
+            dateGroup.slots.forEach((slot) => {
+              const daysSpan = calculateDaysSpan(slot.slotStartDay, slot.slotEndDay);
+              message += `📅 *${slot.slotStartDay}* to *${slot.slotEndDay}*\n`;
+              message += `   (${daysSpan} days)\n`;
+              message += `*${subtypeGroup.plantName}-${subtypeGroup.subtypeName}*: Available *${formatNumber(slot.availablePlants || 0)}* plants\n\n`;
+            });
+          }
+        });
+      } else {
+        // Fallback: show summary if no date groups
+        message += `*${subtypeGroup.plantName}-${subtypeGroup.subtypeName}*: Available *${formatNumber(subtypeGroup.totalAvailable)}* plants\n\n`;
+      }
+    });
+    
+    message += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+    message += `📞 *For booking and inquiries, please contact the office.*`;
+    
+    return message;
+  };
+
+  // Share ALL available subtypes to WhatsApp
+  const handleShareAllAvailablePlantsWhatsApp = async () => {
+    if (!groupedSlots || groupedSlots.length === 0) {
+      Toast.warn("No available plants data to share.");
+      return;
+    }
+
+    const message = generateAllAvailablePlantsWhatsAppMessage();
+    const encodedMessage = encodeURIComponent(message);
+    const whatsappUrl = `https://wa.me/?text=${encodedMessage}`;
+    const allSubtypesKey = "all-subtypes";
+
+    try {
+      // Try to use Web Share API first (works on mobile)
+      if (navigator.share) {
+        await navigator.share({
+          title: `All Available Plants Summary`,
+          text: message,
+          url: whatsappUrl,
+        });
+        Toast.success("All subtypes shared successfully!");
+      } else {
+        // Fallback: Copy to clipboard and open WhatsApp
+        await navigator.clipboard.writeText(message);
+        setCopiedWhatsAppMessages(new Map(copiedWhatsAppMessages).set(allSubtypesKey, true));
+        Toast.success("Message copied to clipboard!");
+        
+        // Open WhatsApp Web or app
+        window.open(whatsappUrl, "_blank");
+        
+        // Reset copied state after 3 seconds
+        setTimeout(() => {
+          setCopiedWhatsAppMessages(prev => {
+            const newMap = new Map(prev);
+            newMap.delete(allSubtypesKey);
+            return newMap;
+          });
+        }, 3000);
+      }
+    } catch (error) {
+      // If share fails, just copy to clipboard
+      try {
+        await navigator.clipboard.writeText(message);
+        setCopiedWhatsAppMessages(new Map(copiedWhatsAppMessages).set(allSubtypesKey, true));
+        Toast.success("Message copied to clipboard! You can paste it in WhatsApp.");
+        setTimeout(() => {
+          setCopiedWhatsAppMessages(prev => {
+            const newMap = new Map(prev);
+            newMap.delete(allSubtypesKey);
+            return newMap;
+          });
+        }, 3000);
+      } catch (clipboardError) {
+        console.error("Failed to copy:", clipboardError);
+        Toast.error("Failed to share. Please try again.");
+      }
+    }
+  };
+
+  // Share ALL slots data (comprehensive with all slot details)
+  const handleShareAllSlotsDataWhatsApp = async () => {
+    if (!groupedSlots || groupedSlots.length === 0) {
+      Toast.warn("No available plants data to share.");
+      return;
+    }
+
+    const message = generateAllSlotsDataWhatsAppMessage();
+    const encodedMessage = encodeURIComponent(message);
+    const whatsappUrl = `https://wa.me/?text=${encodedMessage}`;
+    const allSlotsKey = "all-slots-data";
+
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: `Complete Available Plants Data - All Slots`,
+          text: message,
+          url: whatsappUrl,
+        });
+        Toast.success("All slots data shared successfully!");
+      } else {
+        await navigator.clipboard.writeText(message);
+        setCopiedWhatsAppMessages(new Map(copiedWhatsAppMessages).set(allSlotsKey, true));
+        Toast.success("Message copied to clipboard!");
+        window.open(whatsappUrl, "_blank");
+        setTimeout(() => {
+          setCopiedWhatsAppMessages(prev => {
+            const newMap = new Map(prev);
+            newMap.delete(allSlotsKey);
+            return newMap;
+          });
+        }, 3000);
+      }
+    } catch (error) {
+      try {
+        await navigator.clipboard.writeText(message);
+        setCopiedWhatsAppMessages(new Map(copiedWhatsAppMessages).set(allSlotsKey, true));
+        Toast.success("Message copied to clipboard! You can paste it in WhatsApp.");
+        setTimeout(() => {
+          setCopiedWhatsAppMessages(prev => {
+            const newMap = new Map(prev);
+            newMap.delete(allSlotsKey);
+            return newMap;
+          });
+        }, 3000);
+      } catch (clipboardError) {
+        console.error("Failed to copy:", clipboardError);
+        Toast.error("Failed to share. Please try again.");
+      }
+    }
+  };
+
   const formatNumber = (num) => {
     if (num === null || num === undefined) return "0";
     return new Intl.NumberFormat("en-IN").format(num);
@@ -566,12 +1070,16 @@ const SowingGapAnalysis = () => {
               // Extract slot IDs from card
               const slotIds = card.slots ? card.slots.map(slot => slot._id || slot.slotId).filter(Boolean) : [];
               
+              // Calculate expected plants from packets
+              const expectedPlants = Math.round(packetsRequested * (card.conversionFactor || 1000));
+              
               const instance = NetworkManager(API.sowing.CREATE_SOWING_REQUEST);
               const response = await instance.request({
                 plantId: card.plantId,
                 subtypeId: card.subtypeId,
                 packetsNeeded: packetsNeeded,
                 packetsRequested: packetsRequested,
+                expectedPlants: expectedPlants, // Total plants expected from packets
                 slotIds: slotIds, // Include slot IDs for tracking
                 notes: `Auto-generated from Today's Sowing Cards${excessPackets > 0 ? ` (Excess: ${excessPackets.toFixed(2)} packets)` : ''}`,
               });
@@ -598,6 +1106,93 @@ const SowingGapAnalysis = () => {
                 open: true,
                 title: "Error",
                 message: error?.response?.data?.message || "Failed to create stock request",
+              });
+            }
+          },
+        });
+      },
+    });
+  };
+
+  const handleReRequestStock = async (card) => {
+    // For re-request, use the original gap (before any adjustments)
+    const originalGap = card.dueGap + card.todayGap; // Total gap for all slots
+    const packetsNeeded = originalGap / card.conversionFactor;
+    
+    // Show prompt dialog for packets requested
+    const unitName = card.primaryUnit?.symbol || card.primaryUnit?.name || card.secondaryUnit?.symbol || card.secondaryUnit?.name || "pkt";
+    setPromptDialog({
+      open: true,
+      title: `Re-request Stock - ${card.plantName} - ${card.subtypeName}`,
+      message: `Gap: ${originalGap} plants\nPackets Needed: ${packetsNeeded.toFixed(2)} ${unitName}\n\nEnter packets to request:`,
+      label: "Packets to Request",
+      defaultValue: packetsNeeded.toFixed(2),
+      onConfirm: async (packetsRequestedInput) => {
+        if (!packetsRequestedInput) {
+          setAlertDialog({
+            open: true,
+            title: "Invalid Input",
+            message: "Please enter a valid number",
+          });
+          return;
+        }
+
+        const packetsRequested = parseFloat(packetsRequestedInput);
+        
+        if (isNaN(packetsRequested) || packetsRequested <= 0) {
+          setAlertDialog({
+            open: true,
+            title: "Invalid Input",
+            message: "Please enter a valid number greater than 0",
+          });
+          return;
+        }
+
+        setConfirmDialog({
+          open: true,
+          title: "Confirm Re-request",
+          message: `Re-request ${packetsRequested.toFixed(2)} ${unitName}?\n\nThis will create a new stock request.`,
+          onConfirm: async () => {
+            try {
+              // Extract slot IDs from card
+              const slotIds = card.slots ? card.slots.map(slot => slot._id || slot.slotId).filter(Boolean) : [];
+              
+              // Calculate expected plants from packets
+              const expectedPlants = Math.round(packetsRequested * (card.conversionFactor || 1000));
+              
+              const instance = NetworkManager(API.sowing.CREATE_SOWING_REQUEST);
+              const response = await instance.request({
+                plantId: card.plantId,
+                subtypeId: card.subtypeId,
+                packetsNeeded: packetsNeeded,
+                packetsRequested: packetsRequested,
+                expectedPlants: expectedPlants, // Total plants expected from packets
+                slotIds: slotIds,
+                notes: `Re-requested from Today's Sowing Cards`,
+              });
+
+              if (response?.data?.success) {
+                setAlertDialog({
+                  open: true,
+                  title: "Success",
+                  message: `Stock re-request created successfully!\n\nRequest Number: ${response.data.data.requestNumber}\nRequested: ${packetsRequested.toFixed(2)} ${unitName}`,
+                });
+                // Refresh data and check existing requests
+                await fetchTodaySowingCards();
+                await checkExistingRequests();
+              } else {
+                setAlertDialog({
+                  open: true,
+                  title: "Error",
+                  message: response?.data?.message || "Failed to create re-request",
+                });
+              }
+            } catch (error) {
+              console.error("Error re-requesting stock:", error);
+              setAlertDialog({
+                open: true,
+                title: "Error",
+                message: error?.response?.data?.message || "Failed to re-request stock",
               });
             }
           },
@@ -696,12 +1291,16 @@ const SowingGapAnalysis = () => {
             // Extract slot IDs from card
             const slotIds = card.slots ? card.slots.map(slot => slot._id || slot.slotId).filter(Boolean) : [];
 
+            // Calculate expected plants from packets
+            const expectedPlants = Math.round(packetsNeeded * (card.conversionFactor || 1000));
+            
             const instance = NetworkManager(API.sowing.CREATE_SOWING_REQUEST);
             const response = await instance.request({
               plantId: card.plantId,
               subtypeId: card.subtypeId,
               packetsNeeded: packetsNeeded,
               packetsRequested: packetsNeeded, // Use needed as requested by default
+              expectedPlants: expectedPlants, // Total plants expected from packets
               slotIds: slotIds, // Include slot IDs for tracking
               notes: `Auto-generated from Today's Sowing Cards (Batch Request)`,
             });
@@ -1190,6 +1789,124 @@ const SowingGapAnalysis = () => {
       ]
     : [];
 
+  // Group slots by subtype first, then by date ranges within each subtype (if groupByDays is set)
+  // Always create subtype groups for Available tab to show as cards by default
+  const groupedSlots = useMemo(() => {
+    if (!data?.plants || activeTab !== 1) {
+      return null;
+    }
+
+    const days = groupByDays ? parseInt(groupByDays, 10) : null;
+    // If groupByDays is provided but invalid, ignore it (will show all slots together)
+    if (groupByDays && (isNaN(days) || days <= 0)) {
+      // Invalid groupByDays, but still create subtype groups
+    }
+
+    // First, group all slots by subtype (plant-subtype combination)
+    const subtypeGroupsMap = new Map();
+    
+    data.plants.forEach((plant) => {
+      plant.subtypes?.forEach((subtype) => {
+        if (subtype.slots && subtype.slots.length > 0) {
+          const subtypeKey = `${plant._id}-${subtype._id}`;
+          
+          if (!subtypeGroupsMap.has(subtypeKey)) {
+            subtypeGroupsMap.set(subtypeKey, {
+              plantId: plant._id,
+              plantName: plant.plantName,
+              subtypeId: subtype._id,
+              subtypeName: subtype.subtypeName,
+              totalAvailable: 0,
+              totalSlots: 0,
+              dateGroups: [], // Will contain date range groups if groupByDays is set
+              allSlots: [], // All slots for this subtype
+            });
+          }
+          
+          const subtypeGroup = subtypeGroupsMap.get(subtypeKey);
+          subtype.slots.forEach((slot) => {
+            const slotData = {
+              ...slot,
+              plantId: plant._id,
+              plantName: plant.plantName,
+              subtypeId: subtype._id,
+              subtypeName: subtype.subtypeName,
+            };
+            subtypeGroup.allSlots.push(slotData);
+            subtypeGroup.totalAvailable += slot.availablePlants || 0;
+            subtypeGroup.totalSlots += 1;
+          });
+        }
+      });
+    });
+
+    if (subtypeGroupsMap.size === 0) return null;
+
+    // Convert to array and process date grouping if groupByDays is set
+    const subtypeGroups = Array.from(subtypeGroupsMap.values()).map((subtypeGroup) => {
+      // Sort slots by date
+      const sortedSlots = [...subtypeGroup.allSlots].sort((a, b) => {
+        const dateA = moment(a.slotStartDay, "DD-MM-YYYY");
+        const dateB = moment(b.slotStartDay, "DD-MM-YYYY");
+        return dateA.valueOf() - dateB.valueOf();
+      });
+
+      // If groupByDays is set, group slots by date ranges within this subtype
+      if (days && days > 0) {
+        const dateGroups = [];
+        let currentGroup = null;
+        let currentGroupStart = null;
+        let currentGroupEnd = null;
+
+        sortedSlots.forEach((slot) => {
+          const slotDate = moment(slot.slotStartDay, "DD-MM-YYYY");
+          
+          if (!currentGroupStart || !currentGroupEnd || slotDate.isAfter(currentGroupEnd)) {
+            // Start a new date group
+            if (currentGroup) {
+              dateGroups.push(currentGroup);
+            }
+            currentGroupStart = slotDate.clone();
+            currentGroupEnd = slotDate.clone().add(days - 1, 'days');
+            currentGroup = {
+              startDate: currentGroupStart.format("DD-MM-YYYY"),
+              endDate: currentGroupEnd.format("DD-MM-YYYY"),
+              slots: [],
+              totalAvailable: 0,
+            };
+          }
+
+          if (slotDate.isSameOrBefore(currentGroupEnd)) {
+            currentGroup.slots.push(slot);
+            currentGroup.totalAvailable += slot.availablePlants || 0;
+          }
+        });
+
+        // Add the last group
+        if (currentGroup) {
+          dateGroups.push(currentGroup);
+        }
+
+        subtypeGroup.dateGroups = dateGroups;
+      } else {
+        // If no groupByDays, just show all slots together (no date grouping)
+        subtypeGroup.dateGroups = [{
+          startDate: null,
+          endDate: null,
+          slots: sortedSlots,
+          totalAvailable: subtypeGroup.totalAvailable,
+        }];
+      }
+
+      return subtypeGroup;
+    });
+
+    // Sort subtypes by total available (descending)
+    subtypeGroups.sort((a, b) => b.totalAvailable - a.totalAvailable);
+
+    return subtypeGroups;
+  }, [data, activeTab, showGroupedView, groupByDays]);
+
   // Skeleton loader component for today's cards
   const TodayCardsSkeleton = () => (
     <>
@@ -1633,6 +2350,7 @@ const SowingGapAnalysis = () => {
                   <Grid item xs={6} sm={4} md={3} lg={2} xl={2} key={`${card.plantId}-${card.subtypeId}`}>
                     <Fade in timeout={300 + index * 50}>
                       <Card
+                        onClick={() => handleCardClick(card)}
                         sx={{
                           height: "100%",
                           border: card.isExcessiveSowing 
@@ -1640,6 +2358,7 @@ const SowingGapAnalysis = () => {
                             : `2px solid ${card.totalGap > 0 ? "#d32f2f" : "#e0e0e0"}`,
                           bgcolor: card.isExcessiveSowing ? "#e8f5e9" : "white",
                           transition: "all 0.3s ease",
+                          cursor: "pointer",
                           "&:hover": {
                             boxShadow: 6,
                             transform: "translateY(-4px)",
@@ -1827,10 +2546,28 @@ const SowingGapAnalysis = () => {
                                       }}
                                     />
                                     {existingRequest.isIssuedToday && (
-                                      <Typography variant="caption" sx={{ fontSize: "0.65rem", color: "#2e7d32", display: "block" }}>
+                                      <Typography variant="caption" sx={{ fontSize: "0.65rem", color: "#2e7d32", display: "block", mb: 0.5 }}>
                                         ✓ Stock issued today
                                       </Typography>
                                     )}
+                                    <Button
+                                      variant="outlined"
+                                      size="small"
+                                      fullWidth
+                                      onClick={() => handleReRequestStock(card)}
+                                      sx={{ 
+                                        fontSize: "0.7rem",
+                                        py: 0.5,
+                                        borderColor: "#1976d2",
+                                        color: "#1976d2",
+                                        "&:hover": { 
+                                          borderColor: "#1565c0",
+                                          bgcolor: "#e3f2fd"
+                                        }
+                                      }}
+                                    >
+                                      Re-request Stock Issue
+                                    </Button>
                                   </Box>
                                 );
                               } else if (existingRequest.status === 'pending' || existingRequest.status === 'processing') {
@@ -1881,7 +2618,6 @@ const SowingGapAnalysis = () => {
                             }
                             
                             if (card.conversionFactor && (card.primaryUnit || card.secondaryUnit)) {
-                              const hasStock = card.availablePackets > 0;
                               return (
                                 <Button
                                   variant="contained"
@@ -1892,11 +2628,11 @@ const SowingGapAnalysis = () => {
                                     mt: 0.5,
                                     fontSize: "0.7rem",
                                     py: 0.5,
-                                    bgcolor: hasStock ? "#2e7d32" : "#1976d2",
-                                    "&:hover": { bgcolor: hasStock ? "#1b5e20" : "#1565c0" }
+                                    bgcolor: "#1976d2",
+                                    "&:hover": { bgcolor: "#1565c0" }
                                   }}
                                 >
-                                  {hasStock ? "Stock Issue" : "Request Stock"}
+                                  Request Stock
                                 </Button>
                               );
                             }
@@ -2097,6 +2833,137 @@ const SowingGapAnalysis = () => {
           />
         </Tabs>
       </Card>
+
+      {/* Date Range and Grouping Controls for Available Tab */}
+      {activeTab === 1 && (
+        <Card sx={{ mb: 3, boxShadow: 2 }}>
+          <CardContent>
+            <Grid container spacing={2} alignItems="center">
+              {/* Date Range Filter */}
+              <Grid item xs={12} md={6}>
+                <LocalizationProvider dateAdapter={AdapterDateFns}>
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <DatePicker
+                      label="Start Date"
+                      value={dateRange[0]}
+                      onChange={(newValue) => setDateRange([newValue, dateRange[1]])}
+                      slotProps={{
+                        textField: {
+                          size: "small",
+                          fullWidth: true,
+                        },
+                      }}
+                    />
+                    <Typography variant="body2" color="textSecondary">
+                      to
+                    </Typography>
+                    <DatePicker
+                      label="End Date"
+                      value={dateRange[1]}
+                      onChange={(newValue) => setDateRange([dateRange[0], newValue])}
+                      minDate={dateRange[0]}
+                      slotProps={{
+                        textField: {
+                          size: "small",
+                          fullWidth: true,
+                        },
+                      }}
+                    />
+                    {(dateRange[0] || dateRange[1]) && (
+                      <IconButton
+                        size="small"
+                        onClick={() => setDateRange([null, null])}
+                        color="error">
+                        <ClearIcon />
+                      </IconButton>
+                    )}
+                  </Stack>
+                </LocalizationProvider>
+              </Grid>
+              
+              {/* Group By Days */}
+              <Grid item xs={12} md={3}>
+                <TextField
+                  fullWidth
+                  size="small"
+                  label="Group By Days"
+                  type="number"
+                  value={groupByDays}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setGroupByDays(value);
+                    // showGroupedView is kept for UI state but cards are always shown now
+                  }}
+                  placeholder="e.g., 3"
+                  helperText="Enter days to group slots (e.g., 3 for 3-day groups)"
+                />
+              </Grid>
+              
+              {/* Clear Grouping */}
+              {groupByDays && (
+                <Grid item xs={12} md={2}>
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    startIcon={<ClearIcon />}
+                    onClick={() => {
+                      setGroupByDays("");
+                    }}
+                    fullWidth>
+                    Clear Grouping
+                  </Button>
+                </Grid>
+              )}
+              
+              {/* Share All Subtypes WhatsApp Button */}
+              {groupedSlots && groupedSlots.length > 0 && (
+                <>
+                  <Grid item xs={12} md={groupByDays ? 2.5 : 3}>
+                    <Button
+                      variant="contained"
+                      size="small"
+                      startIcon={copiedWhatsAppMessages.has("all-subtypes") ? <ContentCopy /> : <WhatsApp />}
+                      onClick={handleShareAllAvailablePlantsWhatsApp}
+                      fullWidth
+                      sx={{
+                        bgcolor: "#25D366",
+                        color: "white",
+                        fontWeight: 600,
+                        "&:hover": {
+                          bgcolor: "#20BA5A",
+                        },
+                      }}>
+                      {copiedWhatsAppMessages.has("all-subtypes") 
+                        ? "Copied! Share All Subtypes" 
+                        : `Share All Subtypes (${groupedSlots.length})`}
+                    </Button>
+                  </Grid>
+                  <Grid item xs={12} md={groupByDays ? 2.5 : 3}>
+                    <Button
+                      variant="contained"
+                      size="small"
+                      startIcon={copiedWhatsAppMessages.has("all-slots-data") ? <ContentCopy /> : <WhatsApp />}
+                      onClick={handleShareAllSlotsDataWhatsApp}
+                      fullWidth
+                      sx={{
+                        bgcolor: "#128C7E",
+                        color: "white",
+                        fontWeight: 600,
+                        "&:hover": {
+                          bgcolor: "#0E7369",
+                        },
+                      }}>
+                      {copiedWhatsAppMessages.has("all-slots-data") 
+                        ? "Copied! Share All Slots Data" 
+                        : "Share All Slots Data"}
+                    </Button>
+                  </Grid>
+                </>
+              )}
+            </Grid>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Stats Cards */}
       {loading ? (
@@ -2562,9 +3429,153 @@ const SowingGapAnalysis = () => {
           ))}
         </>
       ) : data.plants ? (
-        data.plants
+        <>
+          {/* Cards View for Available Tab - Always show as cards grouped by Subtype */}
+          {activeTab === 1 && groupedSlots && groupedSlots.length > 0 && (
+            groupedSlots.map((subtypeGroup, subtypeIndex) => (
+              <Zoom
+                in
+                timeout={300 + subtypeIndex * 100}
+                key={`subtype-${subtypeGroup.plantId}-${subtypeGroup.subtypeId}`}
+                style={{ transitionDelay: `${subtypeIndex * 50}ms` }}>
+                <Card
+                  sx={{
+                    mb: 3,
+                    boxShadow: 3,
+                    border: "2px solid #1976d2",
+                  }}>
+                  <CardContent>
+                    {/* Subtype Header */}
+                    <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+                      <Box>
+                        <Typography variant="h6" sx={{ fontWeight: 700, color: "#1976d2" }}>
+                          {subtypeGroup.plantName} - {subtypeGroup.subtypeName}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                          {subtypeGroup.totalSlots} slot(s)
+                        </Typography>
+                      </Box>
+                      <Box display="flex" alignItems="center" gap={1}>
+                        <Chip
+                          label={`Total Available: ${formatNumber(subtypeGroup.totalAvailable)} plants`}
+                          color="primary"
+                          sx={{ fontWeight: 600 }}
+                        />
+                        <Tooltip title="Share on WhatsApp">
+                          <IconButton
+                            size="small"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleShareAvailablePlantsWhatsApp(subtypeGroup);
+                            }}
+                            sx={{
+                              bgcolor: "#25D366",
+                              color: "white",
+                              "&:hover": {
+                                bgcolor: "#20BA5A",
+                              },
+                            }}>
+                            {copiedWhatsAppMessages.has(`${subtypeGroup.plantId}-${subtypeGroup.subtypeId}`) ? (
+                              <ContentCopy fontSize="small" />
+                            ) : (
+                              <WhatsApp fontSize="small" />
+                            )}
+                          </IconButton>
+                        </Tooltip>
+                      </Box>
+                    </Box>
+                    
+                    {/* Date Range Groups within this subtype (if groupByDays is set) */}
+                    {subtypeGroup.dateGroups && subtypeGroup.dateGroups.length > 0 && (
+                      subtypeGroup.dateGroups.map((dateGroup, dateGroupIndex) => (
+                        <Card
+                          key={`date-group-${subtypeGroup.plantId}-${subtypeGroup.subtypeId}-${dateGroupIndex}`}
+                          sx={{
+                            mb: 2,
+                            bgcolor: "#f5f5f5",
+                            border: "1px solid #e0e0e0",
+                          }}>
+                          <CardContent>
+                            {dateGroup.startDate && dateGroup.endDate && (
+                              <Box display="flex" justifyContent="space-between" alignItems="center" mb={1.5}>
+                                <Typography variant="subtitle2" sx={{ fontWeight: 600, color: "#f57c00" }}>
+                                  📅 Date Range: {dateGroup.startDate} to {dateGroup.endDate}
+                                </Typography>
+                                <Chip
+                                  label={`${formatNumber(dateGroup.totalAvailable)} plants (${dateGroup.slots.length} slots)`}
+                                  color="success"
+                                  size="small"
+                                />
+                              </Box>
+                            )}
+                            
+                            {/* Slots in this date group */}
+                            <Grid container spacing={1}>
+                              {dateGroup.slots.map((slot) => (
+                                <Grid item xs={12} sm={6} md={4} key={slot.slotId || slot._id}>
+                                  <Paper
+                                    sx={{
+                                      p: 1.5,
+                                      bgcolor: "white",
+                                      border: "1px solid #e0e0e0",
+                                      borderRadius: 1,
+                                      position: "relative",
+                                      "&:hover": {
+                                        boxShadow: 2,
+                                        borderColor: "#1976d2",
+                                      },
+                                    }}>
+                                    <Box display="flex" justifyContent="space-between" alignItems="flex-start">
+                                      <Box flex={1}>
+                                        <Typography variant="body2" color="textSecondary" sx={{ fontSize: "0.75rem" }}>
+                                          {slot.slotStartDay} to {slot.slotEndDay}
+                                        </Typography>
+                                        <Typography variant="h6" sx={{ fontWeight: 600, color: "#2e7d32", mt: 0.5 }}>
+                                          {formatNumber(slot.availablePlants || 0)} plants
+                                        </Typography>
+                                      </Box>
+                                      <Tooltip title="Share slot on WhatsApp">
+                                        <IconButton
+                                          size="small"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleShareSlotWhatsApp(slot, subtypeGroup.plantName, subtypeGroup.subtypeName);
+                                          }}
+                                          sx={{
+                                            bgcolor: "#25D366",
+                                            color: "white",
+                                            width: 28,
+                                            height: 28,
+                                            "&:hover": {
+                                              bgcolor: "#20BA5A",
+                                            },
+                                          }}>
+                                          {copiedWhatsAppMessages.has(`slot-${slot.slotId || slot._id}`) ? (
+                                            <ContentCopy fontSize="small" sx={{ fontSize: "0.875rem" }} />
+                                          ) : (
+                                            <WhatsApp fontSize="small" sx={{ fontSize: "0.875rem" }} />
+                                          )}
+                                        </IconButton>
+                                      </Tooltip>
+                                    </Box>
+                                  </Paper>
+                                </Grid>
+                              ))}
+                            </Grid>
+                          </CardContent>
+                        </Card>
+                      ))
+                    )}
+                  </CardContent>
+                </Card>
+              </Zoom>
+            ))
+          )}
+          
+          {/* Regular Plants List - Show only for Critical tab (Available tab uses cards view) */}
+          {activeTab === 0 && data.plants
         .filter((plant) => {
-          // Filter plants based on active tab
+          // For Critical tab, filter plants with positive gaps OR overdue subtypes
           if (activeTab === 0) {
             // Critical tab: show plants with positive gaps OR overdue subtypes
             // Check if plant has any subtypes with gap or overdue slots
@@ -2572,11 +3583,8 @@ const SowingGapAnalysis = () => {
               (st.totalBookingGap || 0) > 0 || (st.overdueSlotCount || 0) > 0
             );
             return hasCriticalSubtypes || (plant.totalBookingGap || 0) > 0;
-          } else {
-            // Available tab: show all plants (we'll check subtypes for negative gaps via API)
-            console.log("[Render] Available tab - plant:", plant.plantName, "subtypes:", plant.subtypes?.length);
-            return true;
           }
+          return false; // Available tab uses cards view, don't show expandable list
         })
         .map((plant, plantIndex) => {
           const isPlantExpanded = expandedPlants.has(plant._id);
@@ -3076,10 +4084,14 @@ const SowingGapAnalysis = () => {
                                                           label={
                                                             isAvailableTab
                                                               ? `${formatNumber(availableAmount)} (${gapPercentage}%)`
+                                                              : reminder.gapFullyCovered
+                                                              ? `Covered ✓`
                                                               : `${formatNumber(reminder.bookingGap)} (${gapPercentage}%)`
                                                           }
                                                           color={
-                                                            isAvailableTab
+                                                            reminder.gapFullyCovered
+                                                              ? "success"
+                                                              : isAvailableTab
                                                               ? "primary"
                                                               : reminder.bookingGap > 0
                                                               ? "error"
@@ -3088,6 +4100,24 @@ const SowingGapAnalysis = () => {
                                                           size="small"
                                                           sx={{ fontWeight: 600 }}
                                                         />
+                                                        {reminder.gapCovered && reminder.gapCovered.length > 0 && (
+                                                          <Box sx={{ mt: 0.5 }}>
+                                                            {reminder.gapCovered.map((coverage, idx) => (
+                                                              <Typography 
+                                                                key={idx}
+                                                                variant="caption" 
+                                                                sx={{ 
+                                                                  fontSize: "0.65rem", 
+                                                                  display: "block", 
+                                                                  color: '#2e7d32', 
+                                                                  fontWeight: 600 
+                                                                }}
+                                                              >
+                                                                ✓ {formatNumber(coverage.plantsCovered)} from {coverage.fromSlotDate}
+                                                              </Typography>
+                                                            ))}
+                                                          </Box>
+                                                        )}
                                                         {reminder.sowingInProgress && (
                                                           <Chip
                                                             label={`🔄 In Progress (${reminder.totalPlantsInProgress || 0} plants)`}
@@ -3101,7 +4131,7 @@ const SowingGapAnalysis = () => {
                                                             }}
                                                           />
                                                         )}
-                                                        {!isAvailableTab && reminder.bookingGapRaw !== undefined && reminder.bookingGapRaw !== reminder.bookingGap && (
+                                                        {!isAvailableTab && reminder.bookingGapRaw !== undefined && reminder.bookingGapRaw !== reminder.bookingGap && !reminder.gapFullyCovered && (
                                                           <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.65rem", display: "block", mt: 0.5 }}>
                                                             Raw: {formatNumber(reminder.bookingGapRaw)} + Buffer
                                                           </Typography>
@@ -3198,8 +4228,11 @@ const SowingGapAnalysis = () => {
             </Card>
           </Zoom>
         );
-      })
-      ) : null}
+      })}
+        </>
+      ) : (
+        <Alert severity="info">No plants found.</Alert>
+      )}
 
       {/* Slot Orders Dialog */}
       <Dialog
@@ -3230,7 +4263,42 @@ const SowingGapAnalysis = () => {
         <DialogContent sx={{ mt: 2 }}>
           {selectedSlot && (
             <>
-              {selectedSlot.slotInfo && (
+              {/* Card Information (for multiple slots) */}
+              {selectedSlot.isMultipleSlots && selectedSlot.cardInfo && (
+                <Card sx={{ mb: 2, bgcolor: "#e3f2fd", border: "2px solid #1976d2" }}>
+                  <CardContent>
+                    <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 2, color: "#1976d2" }}>
+                      📋 Card Information
+                    </Typography>
+                    <Grid container spacing={2}>
+                      <Grid item xs={12} sm={6}>
+                        <Box display="flex" alignItems="center" gap={1} mb={1}>
+                          <LocalFlorist fontSize="small" color="primary" />
+                          <Typography variant="body2">
+                            <strong>Plant:</strong> {selectedSlot.cardInfo.plantName}
+                          </Typography>
+                        </Box>
+                      </Grid>
+                      <Grid item xs={12} sm={6}>
+                        <Box display="flex" alignItems="center" gap={1} mb={1}>
+                          <Agriculture fontSize="small" color="primary" />
+                          <Typography variant="body2">
+                            <strong>Subtype:</strong> {selectedSlot.cardInfo.subtypeName}
+                          </Typography>
+                        </Box>
+                      </Grid>
+                      <Grid item xs={12}>
+                        <Typography variant="body2" color="text.secondary">
+                          <strong>Slots:</strong> {selectedSlot.slotIds?.length || 0} slot(s)
+                        </Typography>
+                      </Grid>
+                    </Grid>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Single Slot Information */}
+              {!selectedSlot.isMultipleSlots && selectedSlot.slotInfo && (
                 <Card sx={{ mb: 2, bgcolor: "#f5f5f5" }}>
                   <CardContent>
                     <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 2 }}>
@@ -3314,6 +4382,7 @@ const SowingGapAnalysis = () => {
                     <TableHead>
                       <TableRow sx={{ bgcolor: "#f5f5f5" }}>
                         <TableCell>Order ID</TableCell>
+                        {selectedSlot.isMultipleSlots && <TableCell>Slot Date</TableCell>}
                         <TableCell>Farmer</TableCell>
                         <TableCell>Mobile</TableCell>
                         <TableCell align="right">Plants</TableCell>
@@ -3323,14 +4392,35 @@ const SowingGapAnalysis = () => {
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {selectedSlot.orders.map((order) => (
-                        <TableRow key={order._id} hover>
-                          <TableCell>
-                            <Typography sx={{ fontWeight: 600 }}>
-                              {order.orderId}
-                            </Typography>
-                          </TableCell>
-                          <TableCell>
+                      {selectedSlot.orders.map((order, index) => {
+                        // Find slot info for this order if multiple slots
+                        let slotDateInfo = null;
+                        if (selectedSlot.isMultipleSlots && selectedSlot.slotInfos && order.slotId) {
+                          const slotInfo = selectedSlot.slotInfos.find(si => 
+                            si?.slot?._id?.toString() === order.slotId?.toString()
+                          );
+                          if (slotInfo?.slot) {
+                            slotDateInfo = slotInfo.slot.startDay === slotInfo.slot.endDay
+                              ? slotInfo.slot.startDay
+                              : `${slotInfo.slot.startDay} - ${slotInfo.slot.endDay}`;
+                          }
+                        }
+                        
+                        return (
+                          <TableRow key={order._id || index} hover>
+                            <TableCell>
+                              <Typography sx={{ fontWeight: 600 }}>
+                                {order.orderId}
+                              </Typography>
+                            </TableCell>
+                            {selectedSlot.isMultipleSlots && (
+                              <TableCell>
+                                <Typography variant="body2" color="text.secondary">
+                                  {slotDateInfo || "N/A"}
+                                </Typography>
+                              </TableCell>
+                            )}
+                            <TableCell>
                             <Typography sx={{ fontWeight: 600 }}>
                               {order.farmer?.name || "Unknown"}
                             </Typography>
@@ -3375,7 +4465,8 @@ const SowingGapAnalysis = () => {
                             />
                           </TableCell>
                         </TableRow>
-                      ))}
+                      );
+                      })}
                     </TableBody>
                   </Table>
                 </TableContainer>

@@ -157,7 +157,24 @@ export const API = {
       HTTP_METHODS.POST,
       OFFLINE.PROFILE
     ),
-    GET_FOLLOW_UP: new APIRouter("api/v2/followup/getFollowup", HTTP_METHODS.GET, OFFLINE.PROFILE)
+    GET_FOLLOW_UP: new APIRouter("api/v2/followup/getFollowup", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    CREATE: new APIRouter("/employees/:employeeId/follow-ups", HTTP_METHODS.POST),
+    GET_ALL: new APIRouter("/employees/:employeeId/follow-ups", HTTP_METHODS.GET),
+    GET_ALL_FOLLOW_UPS: new APIRouter("/employees/follow-ups/all", HTTP_METHODS.GET),
+    UPDATE: new APIRouter("/employees/:employeeId/follow-ups/:followUpId", HTTP_METHODS.PUT),
+    DELETE: new APIRouter("/employees/:employeeId/follow-ups/:followUpId", HTTP_METHODS.DEL),
+    GET_PUBLIC: new APIRouter("/public/follow-up/:token", HTTP_METHODS.GET),
+    ADD_COMMENT: new APIRouter("/public/follow-up/:token/comment", HTTP_METHODS.POST)
+  },
+  TASK: {
+    CREATE: new APIRouter("/tasks", HTTP_METHODS.POST),
+    GET_ALL: new APIRouter("/tasks", HTTP_METHODS.GET),
+    GET_BY_ID: new APIRouter("/tasks/:taskId", HTTP_METHODS.GET),
+    UPDATE: new APIRouter("/tasks/:taskId", HTTP_METHODS.PUT),
+    DELETE: new APIRouter("/tasks/:taskId", HTTP_METHODS.DEL),
+    ADD_COMMENT: new APIRouter("/tasks/:taskId/comment", HTTP_METHODS.POST),
+    GET_PUBLIC_BY_EMPLOYEE: new APIRouter("/tasks/public/employee/:employeeId", HTTP_METHODS.GET),
+    ADD_PUBLIC_COMMENT: new APIRouter("/tasks/public/:taskId/comment", HTTP_METHODS.POST),
   },
   INVENTORY: {
     // Dashboard
