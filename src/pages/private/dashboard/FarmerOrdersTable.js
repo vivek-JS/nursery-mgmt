@@ -2370,6 +2370,54 @@ const mapSlotForUi = (slotData) => {
       {/* Dispatch list component */}
       <DispatchList setisDispatchtab={setisDispatchtab} viewMode={viewMode} refresh={refresh} />
 
+      {/* Plant/Subtype Summary Cards for Ready for Dispatch */}
+      {viewMode === "ready_for_dispatch" && orders && orders.length > 0 && (() => {
+        // Group orders by plant type and subtype
+        const plantSummary = new Map();
+        
+        orders.forEach(order => {
+          const plantType = order.plantType || "Unknown";
+          const key = plantType;
+          
+          if (!plantSummary.has(key)) {
+            plantSummary.set(key, {
+              plantType: plantType,
+              totalQuantity: 0,
+              orderCount: 0
+            });
+          }
+          
+          const summary = plantSummary.get(key);
+          summary.totalQuantity += order.totalPlants ?? order.quantity ?? 0;
+          summary.orderCount += 1;
+        });
+        
+        const summaryArray = Array.from(plantSummary.values()).sort((a, b) => 
+          b.totalQuantity - a.totalQuantity
+        );
+        
+        return (
+          <div className="mb-4">
+            <h3 className="text-sm font-semibold text-gray-700 mb-3">📦 Delivery Summary by Plant Type</h3>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+              {summaryArray.map((summary, index) => (
+                <div key={index} className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg shadow-sm border border-blue-200 p-3 hover:shadow-md transition-shadow">
+                  <div className="text-xs text-gray-600 mb-1 truncate" title={summary.plantType}>
+                    {summary.plantType}
+                  </div>
+                  <div className="text-lg font-bold text-blue-700">
+                    {summary.totalQuantity.toLocaleString()}
+                  </div>
+                  <div className="text-[10px] text-gray-500 mt-1">
+                    {summary.orderCount} {summary.orderCount === 1 ? 'order' : 'orders'}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Summary Cards */}
       {orders && orders.length > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-4">

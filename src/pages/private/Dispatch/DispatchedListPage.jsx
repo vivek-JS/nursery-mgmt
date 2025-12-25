@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Box,
@@ -32,6 +32,8 @@ import {
   Close,
   Check,
   Person,
+  Map as MapIcon,
+  FormatListBulleted,
 } from "@mui/icons-material";
 import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
@@ -43,6 +45,9 @@ import { useUserRole, useIsDispatchManager, useUserData } from "utils/roleUtils"
 import { useLogoutModel } from "layout/privateLayout/privateLayout.model";
 import { Loader } from "redux/dispatcher/Loader";
 import EditOrderModal from "./components/EditOrderModal";
+
+// Dynamically import OrderMapView to avoid SSR issues with Leaflet
+const OrderMapView = lazy(() => import("./components/OrderMapView"));
 
 const DispatchedListPage = () => {
   const theme = useTheme();
@@ -61,6 +66,8 @@ const DispatchedListPage = () => {
   const [filteredOrders, setFilteredOrders] = useState([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
+  const debounceTimerRef = useRef(null);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -72,6 +79,7 @@ const DispatchedListPage = () => {
   const [showDeliveryDateModal, setShowDeliveryDateModal] = useState(false);
   const [patchLoading, setPatchLoading] = useState(false);
   const [viewMode, setViewMode] = useState("all"); // "all" or "ready_for_dispatch"
+  const [displayMode, setDisplayMode] = useState("list"); // "list" or "map"
   const [statusChange, setStatusChange] = useState("");
   const [showCallModal, setShowCallModal] = useState(false);
   const [callNote, setCallNote] = useState("");
@@ -116,22 +124,27 @@ const DispatchedListPage = () => {
     setLoading(true);
     try {
       const params = {
-        search: searchTerm || "",
-        dispatched: true,
+        search: debouncedSearchTerm || "",
+        // Set dispatched based on whether we're searching
+        // When searching, set dispatched=false to search all orders
+        dispatched: debouncedSearchTerm?.trim() ? false : true,
         limit: 10000,
         page: 1,
       };
 
       // Set status based on viewMode
       if (viewMode === "ready_for_dispatch") {
-        params.status = "READY_FOR_DISPATCH";
-        // Remove date filters for ready for dispatch
-        params.startDate = null;
-        params.endDate = null;
+        params.ready_for_dispatch = "true";
+        // Remove date filters for ready for dispatch - always fetch all orders regardless of date
+        delete params.startDate;
+        delete params.endDate;
+        // Don't set status filter when using ready_for_dispatch
+        delete params.status;
       } else {
         params.status = "ACCEPTED,FARM_READY";
-        // Add date range if provided
-        if (dateRange.startDate && dateRange.endDate) {
+        // Don't send date filters if there's a search term
+        // When searching, we want to find orders regardless of date
+        if (dateRange.startDate && dateRange.endDate && !debouncedSearchTerm?.trim()) {
           params.startDate = formatDateForAPI(dateRange.startDate);
           params.endDate = formatDateForAPI(dateRange.endDate);
         }
@@ -193,9 +206,29 @@ const DispatchedListPage = () => {
     } finally {
       setLoading(false);
     }
-  }, [hasAccess, userData, dateRange.startDate, dateRange.endDate, searchTerm, viewMode]);
+  }, [hasAccess, userData, dateRange.startDate, dateRange.endDate, debouncedSearchTerm, viewMode]);
 
-  // Filter orders by search term
+  // Debounce search term - update debouncedSearchTerm after user stops typing
+  useEffect(() => {
+    // Clear existing timer
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+
+    // Set new timer
+    debounceTimerRef.current = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+    }, 500); // 500ms delay
+
+    // Cleanup function to clear timer on unmount or when searchTerm changes
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+    };
+  }, [searchTerm]);
+
+  // Filter orders by search term (client-side filtering for immediate UI feedback)
   useEffect(() => {
     if (!searchTerm.trim()) {
       setFilteredOrders(orders);
@@ -225,7 +258,7 @@ const DispatchedListPage = () => {
     if (hasAccess && userData !== undefined) {
       fetchOrders();
     }
-  }, [hasAccess, userData, dateRange.startDate, dateRange.endDate, fetchOrders]);
+  }, [hasAccess, userData, dateRange.startDate, dateRange.endDate, debouncedSearchTerm, viewMode, fetchOrders]);
 
   // Handle logout
   const handleLogout = async () => {
@@ -236,11 +269,49 @@ const DispatchedListPage = () => {
   };
 
   // Handle call button click with note tracking
-  const handleCallClick = (order, mobileNumber) => {
+  // Handle call button click - opens modal and creates initial call history entry
+  const handleCallClick = async (order, mobileNumber) => {
     if (mobileNumber && mobileNumber !== "N/A") {
-      setCallOrderId(order._id || order.id);
+      const orderId = order._id || order.id;
+      setCallOrderId(orderId);
       setCallNote("");
       setShowCallModal(true);
+      
+      // Immediately create a call history entry with current date
+      try {
+        const instance = NetworkManager(API.ORDER.UPDATE_ORDER);
+        const callHistoryEntry = {
+          date: new Date().toISOString(),
+          calledBy: userData?._id || userData?.id,
+          note: "", // Empty note initially, will be updated when "Mark Call Done" is clicked
+        };
+
+        const response = await instance.request({
+          id: orderId,
+          callHistory: callHistoryEntry
+        });
+
+        if (response?.data?.status === "Success" || response?.data?.success) {
+          // Optimistically update the order in the local state
+          setOrders(prevOrders => 
+            prevOrders.map(o => {
+              if ((o._id || o.id) === orderId) {
+                return {
+                  ...o,
+                  callHistory: [
+                    ...(o.callHistory || []),
+                    callHistoryEntry
+                  ]
+                };
+              }
+              return o;
+            })
+          );
+        }
+      } catch (error) {
+        console.error("Error creating initial call history:", error);
+        // Don't show error to user, just log it
+      }
     } else {
       Toast.error("Invalid phone number");
     }
@@ -267,28 +338,29 @@ const DispatchedListPage = () => {
     }
   };
 
-  // Save call with note
+  // Update call note - creates a new entry with the note (or updates if note is empty)
   const handleSaveCall = async () => {
     if (!callOrderId) return;
 
     try {
       const instance = NetworkManager(API.ORDER.UPDATE_ORDER);
       
-      // Prepare call history entry
+      // Create a new call history entry with the note
+      // If note is empty, we'll still save it (the initial entry was already created)
       const callHistoryEntry = {
         date: new Date().toISOString(),
         calledBy: userData?._id || userData?.id,
         note: callNote || "",
       };
 
-      // Send the call history entry - backend should push it to the array
+      // Send the call history entry - backend will push it to the array
       const response = await instance.request({
         id: callOrderId,
         callHistory: callHistoryEntry
       });
 
       if (response?.data?.status === "Success" || response?.data?.success) {
-        Toast.success("Call record saved successfully");
+        Toast.success("Call note saved successfully");
         setShowCallModal(false);
         setCallNote("");
         setCallOrderId(null);
@@ -314,12 +386,17 @@ const DispatchedListPage = () => {
           fetchOrders();
         }, 500);
       } else {
-        Toast.error(response?.data?.message || "Failed to save call record");
+        Toast.error(response?.data?.message || "Failed to save call note");
       }
     } catch (error) {
-      console.error("Error saving call:", error);
-      Toast.error(error?.response?.data?.message || "Failed to save call record");
+      console.error("Error saving call note:", error);
+      Toast.error(error?.response?.data?.message || "Failed to save call note");
     }
+  };
+
+  // Handle shortcut note selection
+  const handleShortcutNote = (note) => {
+    setCallNote(note);
   };
 
   // Load slots for a plant and subtype
@@ -852,7 +929,36 @@ const DispatchedListPage = () => {
               </Alert>
 
               {/* Action Buttons */}
-              <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+              <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center" }}>
+                {/* Display Mode Toggle */}
+                <Button
+                  variant={displayMode === "list" ? "contained" : "outlined"}
+                  size="small"
+                  onClick={() => setDisplayMode("list")}
+                  startIcon={<FormatListBulleted />}
+                  sx={{ 
+                    fontSize: "0.8rem", 
+                    px: 2, 
+                    py: 0.75,
+                    borderRadius: 2,
+                  }}
+                >
+                  List
+                </Button>
+                <Button
+                  variant={displayMode === "map" ? "contained" : "outlined"}
+                  size="small"
+                  onClick={() => setDisplayMode("map")}
+                  startIcon={<MapIcon />}
+                  sx={{ 
+                    fontSize: "0.8rem", 
+                    px: 2, 
+                    py: 0.75,
+                    borderRadius: 2,
+                  }}
+                >
+                  Map
+                </Button>
                 <Button
                   variant="outlined"
                   size="small"
@@ -926,7 +1032,7 @@ const DispatchedListPage = () => {
             </Box>
           </Paper>
 
-          {/* Orders List */}
+          {/* Orders List or Map View */}
           {loading ? (
             <Box sx={{ textAlign: "center", py: 4 }}>
               <CircularProgress size={32} />
@@ -940,6 +1046,16 @@ const DispatchedListPage = () => {
                 No orders found for the selected criteria.
               </Typography>
             </Alert>
+          ) : displayMode === "map" ? (
+            <Box sx={{ height: "calc(100vh - 300px)", width: "100%", mt: 2 }}>
+              <Suspense fallback={
+                <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}>
+                  <CircularProgress />
+                </Box>
+              }>
+                <OrderMapView orders={filteredOrders} />
+              </Suspense>
+            </Box>
           ) : (
             <>
               {/* Summary */}
@@ -981,6 +1097,121 @@ const DispatchedListPage = () => {
                   />
                 )}
               </Box>
+
+              {/* Plant-wise Summary Cards for Ready for Dispatch */}
+              {viewMode === "ready_for_dispatch" && filteredOrders.length > 0 && (() => {
+                // Group orders by plant type and calculate total plants
+                const plantSummary = new Map();
+                
+                filteredOrders.forEach(order => {
+                  const plantType = order.plantType?.name || order.plantName || "Unknown";
+                  const plantSubtype = order.plantSubtype?.name || "Unknown";
+                  const key = `${plantType} - ${plantSubtype}`;
+                  
+                  if (!plantSummary.has(key)) {
+                    plantSummary.set(key, {
+                      plantType: plantType,
+                      plantSubtype: plantSubtype,
+                      totalPlants: 0,
+                      orderCount: 0
+                    });
+                  }
+                  
+                  const summary = plantSummary.get(key);
+                  const quantity = order.numberOfPlants || order.totalPlants || order.quantity || 0;
+                  summary.totalPlants += quantity;
+                  summary.orderCount += 1;
+                });
+                
+                const summaryArray = Array.from(plantSummary.values()).sort((a, b) => 
+                  b.totalPlants - a.totalPlants
+                );
+                
+                return (
+                  <Box sx={{ mb: 3 }}>
+                    <Typography 
+                      variant="h6" 
+                      sx={{ 
+                        mb: 2, 
+                        fontSize: "0.95rem", 
+                        fontWeight: 600,
+                        color: "#1976d2"
+                      }}
+                    >
+                      📦 Delivery Summary by Plant Type
+                    </Typography>
+                    <Box
+                      sx={{
+                        display: "grid",
+                        gridTemplateColumns: {
+                          xs: "repeat(auto-fill, minmax(140px, 1fr))",
+                          sm: "repeat(auto-fill, minmax(160px, 1fr))",
+                          md: "repeat(auto-fill, minmax(180px, 1fr))",
+                          lg: "repeat(auto-fill, minmax(200px, 1fr))",
+                        },
+                        gap: 1.5,
+                      }}
+                    >
+                      {summaryArray.map((summary, index) => (
+                        <Paper
+                          key={index}
+                          sx={{
+                            p: 1.2,
+                            background: "linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%)",
+                            borderRadius: 2,
+                            border: "1px solid rgba(25, 118, 210, 0.2)",
+                            boxShadow: "0 2px 4px rgba(25, 118, 210, 0.1)",
+                            transition: "all 0.2s",
+                            minWidth: 0, // Allow cards to shrink below minmax minimum
+                            "&:hover": {
+                              boxShadow: "0 4px 8px rgba(25, 118, 210, 0.2)",
+                              transform: "translateY(-2px)",
+                            },
+                          }}
+                        >
+                          <Typography
+                            variant="caption"
+                            sx={{
+                              display: "block",
+                              color: "#1565c0",
+                              fontWeight: 500,
+                              fontSize: "0.65rem",
+                              mb: 0.4,
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}
+                            title={`${summary.plantType} - ${summary.plantSubtype}`}
+                          >
+                            {summary.plantType} - {summary.plantSubtype}
+                          </Typography>
+                          <Typography
+                            variant="h6"
+                            sx={{
+                              fontWeight: 700,
+                              color: "#0d47a1",
+                              fontSize: "0.95rem",
+                              mb: 0.3,
+                              lineHeight: 1.2,
+                            }}
+                          >
+                            {summary.totalPlants.toLocaleString()}
+                          </Typography>
+                          <Typography
+                            variant="caption"
+                            sx={{
+                              color: "#424242",
+                              fontSize: "0.6rem",
+                            }}
+                          >
+                            {summary.orderCount} {summary.orderCount === 1 ? 'order' : 'orders'}
+                          </Typography>
+                        </Paper>
+                      ))}
+                    </Box>
+                  </Box>
+                );
+              })()}
 
               {/* Orders Cards - Grid Layout */}
               <Box 
@@ -1094,22 +1325,6 @@ const DispatchedListPage = () => {
                               display: "flex", 
                               alignItems: "center", 
                               gap: 0.5,
-                              cursor: phoneNumber !== "N/A" ? "pointer" : "default",
-                              px: phoneNumber !== "N/A" ? 1 : 0,
-                              py: phoneNumber !== "N/A" ? 0.5 : 0,
-                              borderRadius: phoneNumber !== "N/A" ? 1 : 0,
-                              bgcolor: phoneNumber !== "N/A" ? "rgba(25, 118, 210, 0.08)" : "transparent",
-                              transition: "all 0.2s",
-                              "&:hover": phoneNumber !== "N/A" ? {
-                                bgcolor: "rgba(25, 118, 210, 0.15)",
-                                transform: "scale(1.02)",
-                              } : {},
-                            }}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (phoneNumber !== "N/A") {
-                                handleCallClick(order, phoneNumber);
-                              }
                             }}
                           >
                             <Phone sx={{ fontSize: "0.9rem", color: phoneNumber !== "N/A" ? "#1976d2" : "text.secondary" }} />
@@ -1125,35 +1340,6 @@ const DispatchedListPage = () => {
                               {phoneNumber}
                             </Typography>
                           </Box>
-                          {phoneNumber !== "N/A" && (
-                            <Button
-                              size="small"
-                              variant="outlined"
-                              color="success"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setCallOrderId(order._id || order.id);
-                                setCallNote("");
-                                setShowCallModal(true);
-                              }}
-                              sx={{
-                                fontSize: "0.65rem",
-                                px: 1,
-                                py: 0.25,
-                                minWidth: "auto",
-                                height: "24px",
-                                textTransform: "none",
-                                borderColor: "success.main",
-                                color: "success.main",
-                                "&:hover": {
-                                  bgcolor: "rgba(46, 125, 50, 0.1)",
-                                  borderColor: "success.dark",
-                                },
-                              }}
-                            >
-                              ✓ Call Done
-                            </Button>
-                          )}
                           <Typography variant="body2" sx={{ fontSize: "0.75rem", color: "text.secondary", mx: 0.25 }}>
                             •
                           </Typography>
@@ -1265,7 +1451,12 @@ const DispatchedListPage = () => {
                             <Box sx={{ p: 1, bgcolor: "rgba(25, 118, 210, 0.05)", borderRadius: 1, border: "1px solid rgba(25, 118, 210, 0.1)" }}>
                               {/* Last Call Done - Prominent Display */}
                               {(() => {
-                                const lastCall = order.callHistory[order.callHistory.length - 1];
+                                // Find the last call with a note
+                                const callsWithNotes = order.callHistory.filter(call => call.note && call.note.trim() !== "");
+                                const lastCall = callsWithNotes.length > 0 ? callsWithNotes[callsWithNotes.length - 1] : null;
+                                
+                                if (!lastCall) return null;
+                                
                                 return (
                                   <Box 
                                     sx={{ 
@@ -1333,35 +1524,38 @@ const DispatchedListPage = () => {
                                   </Button>
                                 )}
                               </Box>
-                              {order.callHistory.slice(-3).map((call, idx, arr) => {
-                                const isLastCall = idx === arr.length - 1;
-                                return (
-                                  <Box 
-                                    key={idx} 
-                                    sx={{ 
-                                      mb: 0.5, 
-                                      fontSize: "0.65rem",
-                                      p: isLastCall ? 0.75 : 0,
-                                      bgcolor: isLastCall ? "rgba(25, 118, 210, 0.15)" : "transparent",
-                                      borderRadius: isLastCall ? 0.75 : 0,
-                                      border: isLastCall ? "1px solid rgba(25, 118, 210, 0.3)" : "none",
-                                      fontWeight: isLastCall ? 600 : 400,
-                                    }}
-                                  >
-                                    <Typography 
-                                      variant="caption" 
+                              {order.callHistory
+                                .filter(call => call.note && call.note.trim() !== "") // Filter out empty notes
+                                .slice(-3)
+                                .map((call, idx, arr) => {
+                                  const isLastCall = idx === arr.length - 1;
+                                  return (
+                                    <Box 
+                                      key={idx} 
                                       sx={{ 
-                                        color: isLastCall ? "primary.main" : "text.secondary",
+                                        mb: 0.5, 
+                                        fontSize: "0.65rem",
+                                        p: isLastCall ? 0.75 : 0,
+                                        bgcolor: isLastCall ? "rgba(25, 118, 210, 0.15)" : "transparent",
+                                        borderRadius: isLastCall ? 0.75 : 0,
+                                        border: isLastCall ? "1px solid rgba(25, 118, 210, 0.3)" : "none",
                                         fontWeight: isLastCall ? 600 : 400,
                                       }}
                                     >
-                                      {isLastCall && "🟢 "}
-                                      {moment(call.date).format("DD-MM-YYYY HH:mm")}
-                                      {call.note && ` • ${call.note.substring(0, 30)}${call.note.length > 30 ? "..." : ""}`}
-                                    </Typography>
-                                  </Box>
-                                );
-                              })}
+                                      <Typography 
+                                        variant="caption" 
+                                        sx={{ 
+                                          color: isLastCall ? "primary.main" : "text.secondary",
+                                          fontWeight: isLastCall ? 600 : 400,
+                                        }}
+                                      >
+                                        {isLastCall && "🟢 "}
+                                        {moment(call.date).format("DD-MM-YYYY HH:mm")}
+                                        {call.note && ` • ${call.note.substring(0, 30)}${call.note.length > 30 ? "..." : ""}`}
+                                      </Typography>
+                                    </Box>
+                                  );
+                                })}
                             </Box>
                           ) : (
                             phoneNumber !== "N/A" && (
@@ -1981,6 +2175,16 @@ const DispatchedListPage = () => {
               const phoneNumber = order?.farmer?.mobileNumber;
               const farmerName = order?.farmer?.name || "N/A";
               
+              // Shortcut notes
+              const shortcutNotes = [
+                "Not reachable",
+                "Mobile off",
+                "Delivery date changes",
+                "Will call back",
+                "Confirmed delivery",
+                "Postponed",
+              ];
+              
               return (
                 <Box sx={{ mt: 2 }}>
                   <Box sx={{ mb: 2, p: 1.5, bgcolor: "rgba(25, 118, 210, 0.05)", borderRadius: 1 }}>
@@ -1994,8 +2198,34 @@ const DispatchedListPage = () => {
                       📞 {phoneNumber || "N/A"}
                     </Typography>
                   </Box>
+                  
+                  {/* Shortcut Notes */}
+                  <Box sx={{ mb: 2 }}>
+                    <Typography variant="body2" color="text.secondary" gutterBottom sx={{ mb: 1 }}>
+                      Quick Notes
+                    </Typography>
+                    <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
+                      {shortcutNotes.map((note) => (
+                        <Chip
+                          key={note}
+                          label={note}
+                          onClick={() => handleShortcutNote(note)}
+                          sx={{
+                            cursor: "pointer",
+                            "&:hover": {
+                              bgcolor: "primary.light",
+                              color: "white",
+                            },
+                          }}
+                          variant={callNote === note ? "filled" : "outlined"}
+                          color={callNote === note ? "primary" : "default"}
+                        />
+                      ))}
+                    </Box>
+                  </Box>
+                  
                   <Typography variant="body2" color="text.secondary" gutterBottom>
-                    Call Note (Optional)
+                    Call Note
                   </Typography>
                   <TextField
                     fullWidth
@@ -2022,17 +2252,6 @@ const DispatchedListPage = () => {
             </Button>
             <Button
               variant="outlined"
-              color="success"
-              onClick={() => {
-                // Save call without calling
-                handleSaveCall();
-              }}
-              sx={{ textTransform: "none" }}
-            >
-              ✓ Save Call Done
-            </Button>
-            <Button
-              variant="outlined"
               onClick={() => {
                 // Get the order to find phone number
                 const order = orders.find(o => (o._id || o.id) === callOrderId);
@@ -2044,26 +2263,18 @@ const DispatchedListPage = () => {
               startIcon={<Phone />}
               sx={{ textTransform: "none" }}
             >
-              Call Only
+              Call
             </Button>
             <Button
               variant="contained"
+              color="success"
               onClick={() => {
-                // Get the order to find phone number
-                const order = orders.find(o => (o._id || o.id) === callOrderId);
-                const phoneNumber = order?.farmer?.mobileNumber;
-                if (phoneNumber) {
-                  handleCall(phoneNumber);
-                }
-                // Save call after initiating
-                setTimeout(() => {
-                  handleSaveCall();
-                }, 500);
+                handleSaveCall();
               }}
-              startIcon={<Phone />}
+              startIcon={<Check />}
               sx={{ textTransform: "none" }}
             >
-              Call & Save
+              Mark Call Done
             </Button>
           </DialogActions>
         </Dialog>
