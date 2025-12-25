@@ -31,6 +31,7 @@ import {
   Remove,
   Close,
   Check,
+  Person,
 } from "@mui/icons-material";
 import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
@@ -70,6 +71,11 @@ const DispatchedListPage = () => {
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [showDeliveryDateModal, setShowDeliveryDateModal] = useState(false);
   const [patchLoading, setPatchLoading] = useState(false);
+  const [viewMode, setViewMode] = useState("all"); // "all" or "ready_for_dispatch"
+  const [statusChange, setStatusChange] = useState("");
+  const [showCallModal, setShowCallModal] = useState(false);
+  const [callNote, setCallNote] = useState("");
+  const [callOrderId, setCallOrderId] = useState(null);
   const [dateRange, setDateRange] = useState(() => {
     // Default to last 7 days
     const endDate = moment();
@@ -114,13 +120,21 @@ const DispatchedListPage = () => {
         dispatched: true,
         limit: 10000,
         page: 1,
-        status: "ACCEPTED,FARM_READY",
       };
 
-      // Add date range if provided
-      if (dateRange.startDate && dateRange.endDate) {
-        params.startDate = formatDateForAPI(dateRange.startDate);
-        params.endDate = formatDateForAPI(dateRange.endDate);
+      // Set status based on viewMode
+      if (viewMode === "ready_for_dispatch") {
+        params.status = "READY_FOR_DISPATCH";
+        // Remove date filters for ready for dispatch
+        params.startDate = null;
+        params.endDate = null;
+      } else {
+        params.status = "ACCEPTED,FARM_READY";
+        // Add date range if provided
+        if (dateRange.startDate && dateRange.endDate) {
+          params.startDate = formatDateForAPI(dateRange.startDate);
+          params.endDate = formatDateForAPI(dateRange.endDate);
+        }
       }
 
       console.log("[DispatchedListPage] Fetching orders with params:", params);
@@ -132,6 +146,12 @@ const DispatchedListPage = () => {
 
       if (response?.data?.success || response?.data?.status === "Success" || response?.data?.data) {
         let ordersData = response.data.data?.data || response.data.data || [];
+
+        // Normalize orders: ensure callHistory exists as an array
+        ordersData = ordersData.map(order => ({
+          ...order,
+          callHistory: Array.isArray(order.callHistory) ? order.callHistory : []
+        }));
 
         // Separate past due orders and current orders
         const pastDueOrders = ordersData.filter(isPastDue);
@@ -153,8 +173,15 @@ const DispatchedListPage = () => {
 
         // Combine: past due first, then current orders
         const sortedOrders = [...pastDueOrders, ...currentOrders];
-        setOrders(sortedOrders);
-        console.log(`[DispatchedListPage] Loaded ${sortedOrders.length} orders (${pastDueOrders.length} past due)`);
+        
+        // Filter out READY_FOR_DISPATCH orders from main list (unless in ready_for_dispatch view)
+        let filteredData = sortedOrders;
+        if (viewMode === "all") {
+          filteredData = sortedOrders.filter(order => order.orderStatus !== "READY_FOR_DISPATCH");
+        }
+
+        setOrders(filteredData);
+        console.log(`[DispatchedListPage] Loaded ${filteredData.length} orders (${pastDueOrders.length} past due, viewMode: ${viewMode})`);
       } else {
         setOrders([]);
         Toast.error("Failed to fetch orders");
@@ -166,7 +193,7 @@ const DispatchedListPage = () => {
     } finally {
       setLoading(false);
     }
-  }, [hasAccess, userData, dateRange.startDate, dateRange.endDate, searchTerm]);
+  }, [hasAccess, userData, dateRange.startDate, dateRange.endDate, searchTerm, viewMode]);
 
   // Filter orders by search term
   useEffect(() => {
@@ -208,7 +235,18 @@ const DispatchedListPage = () => {
     navigate("/auth/login", { replace: true });
   };
 
-  // Handle call button click
+  // Handle call button click with note tracking
+  const handleCallClick = (order, mobileNumber) => {
+    if (mobileNumber && mobileNumber !== "N/A") {
+      setCallOrderId(order._id || order.id);
+      setCallNote("");
+      setShowCallModal(true);
+    } else {
+      Toast.error("Invalid phone number");
+    }
+  };
+
+  // Handle actual call initiation
   const handleCall = (mobileNumber) => {
     if (mobileNumber && mobileNumber !== "N/A") {
       try {
@@ -226,6 +264,61 @@ const DispatchedListPage = () => {
         console.error("Error calling number:", error);
         Toast.error("Unable to make call");
       }
+    }
+  };
+
+  // Save call with note
+  const handleSaveCall = async () => {
+    if (!callOrderId) return;
+
+    try {
+      const instance = NetworkManager(API.ORDER.UPDATE_ORDER);
+      
+      // Prepare call history entry
+      const callHistoryEntry = {
+        date: new Date().toISOString(),
+        calledBy: userData?._id || userData?.id,
+        note: callNote || "",
+      };
+
+      // Send the call history entry - backend should push it to the array
+      const response = await instance.request({
+        id: callOrderId,
+        callHistory: callHistoryEntry
+      });
+
+      if (response?.data?.status === "Success" || response?.data?.success) {
+        Toast.success("Call record saved successfully");
+        setShowCallModal(false);
+        setCallNote("");
+        setCallOrderId(null);
+        
+        // Optimistically update the order in the local state
+        setOrders(prevOrders => 
+          prevOrders.map(order => {
+            if ((order._id || order.id) === callOrderId) {
+              return {
+                ...order,
+                callHistory: [
+                  ...(order.callHistory || []),
+                  callHistoryEntry
+                ]
+              };
+            }
+            return order;
+          })
+        );
+        
+        // Refresh orders to get updated call history from server
+        setTimeout(() => {
+          fetchOrders();
+        }, 500);
+      } else {
+        Toast.error(response?.data?.message || "Failed to save call record");
+      }
+    } catch (error) {
+      console.error("Error saving call:", error);
+      Toast.error(error?.response?.data?.message || "Failed to save call record");
     }
   };
 
@@ -424,6 +517,7 @@ const DispatchedListPage = () => {
     setEditingOrder(null);
     setQuantityChange(0);
     setRateChange(0);
+    setStatusChange("");
     setSlots([]);
   };
 
@@ -492,6 +586,11 @@ const DispatchedListPage = () => {
       updateData.bookingSlot = editingOrder.bookingSlot[0].slotId;
     }
 
+    // Include status change if selected
+    if (statusChange) {
+      updateData.orderStatus = statusChange;
+    }
+
     patchOrder(orderId, updateData, editingOrder);
   };
 
@@ -505,7 +604,7 @@ const DispatchedListPage = () => {
       bookingSlot: [{ slotId }],
     });
     setShowDeliveryDateModal(false);
-    Toast.success(`Delivery date set to ${moment(date).format("DD MMM YYYY")}`);
+    Toast.success(`Delivery date set to ${moment(date).format("DD - MMM-YYYY").toUpperCase()}`);
   };
 
   // Show loading while user data is being fetched
@@ -697,6 +796,40 @@ const DispatchedListPage = () => {
               />
             </Box>
 
+            {/* View Mode Tabs */}
+            <Box sx={{ mb: 2, display: "flex", gap: 1, borderBottom: 1, borderColor: "divider" }}>
+              <Button
+                variant={viewMode === "all" ? "contained" : "text"}
+                onClick={() => setViewMode("all")}
+                sx={{
+                  borderRadius: 0,
+                  borderBottom: viewMode === "all" ? 2 : 0,
+                  borderColor: "primary.main",
+                  fontWeight: viewMode === "all" ? 600 : 400,
+                  textTransform: "none",
+                  px: 3,
+                  py: 1.5,
+                }}
+              >
+                All Orders
+              </Button>
+              <Button
+                variant={viewMode === "ready_for_dispatch" ? "contained" : "text"}
+                onClick={() => setViewMode("ready_for_dispatch")}
+                sx={{
+                  borderRadius: 0,
+                  borderBottom: viewMode === "ready_for_dispatch" ? 2 : 0,
+                  borderColor: "primary.main",
+                  fontWeight: viewMode === "ready_for_dispatch" ? 600 : 400,
+                  textTransform: "none",
+                  px: 3,
+                  py: 1.5,
+                }}
+              >
+                Ready for Dispatch
+              </Button>
+            </Box>
+
             {/* Info Alert & Action Buttons */}
             <Box sx={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: 2, alignItems: isMobile ? "stretch" : "center" }}>
               <Alert 
@@ -712,7 +845,9 @@ const DispatchedListPage = () => {
                 }}
               >
                 <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                  {formatDateForAPI(dateRange.startDate)} to {formatDateForAPI(dateRange.endDate)} • Past due orders shown at top
+                  {viewMode === "ready_for_dispatch" 
+                    ? "Showing all orders ready for dispatch (no date filter)"
+                    : `${formatDateForAPI(dateRange.startDate)} to ${formatDateForAPI(dateRange.endDate)} • Past due orders shown at top`}
                 </Typography>
               </Alert>
 
@@ -973,7 +1108,7 @@ const DispatchedListPage = () => {
                             onClick={(e) => {
                               e.stopPropagation();
                               if (phoneNumber !== "N/A") {
-                                handleCall(phoneNumber);
+                                handleCallClick(order, phoneNumber);
                               }
                             }}
                           >
@@ -990,6 +1125,35 @@ const DispatchedListPage = () => {
                               {phoneNumber}
                             </Typography>
                           </Box>
+                          {phoneNumber !== "N/A" && (
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              color="success"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setCallOrderId(order._id || order.id);
+                                setCallNote("");
+                                setShowCallModal(true);
+                              }}
+                              sx={{
+                                fontSize: "0.65rem",
+                                px: 1,
+                                py: 0.25,
+                                minWidth: "auto",
+                                height: "24px",
+                                textTransform: "none",
+                                borderColor: "success.main",
+                                color: "success.main",
+                                "&:hover": {
+                                  bgcolor: "rgba(46, 125, 50, 0.1)",
+                                  borderColor: "success.dark",
+                                },
+                              }}
+                            >
+                              ✓ Call Done
+                            </Button>
+                          )}
                           <Typography variant="body2" sx={{ fontSize: "0.75rem", color: "text.secondary", mx: 0.25 }}>
                             •
                           </Typography>
@@ -1023,7 +1187,7 @@ const DispatchedListPage = () => {
                                 color: "#1976d2",
                               }}
                             >
-                              {dueDate ? moment(dueDate).format("DD-MM-YYYY") : "N/A"}
+                              {dueDate ? moment(dueDate).format("DD - MMM-YYYY").toUpperCase() : "N/A"}
                             </Typography>
                           </Box>
                           <Typography variant="body2" sx={{ fontSize: "0.7rem", color: "rgba(0,0,0,0.3)", mx: 0.5 }}>
@@ -1080,17 +1244,153 @@ const DispatchedListPage = () => {
                               <Typography variant="body2" sx={{ fontSize: "0.7rem", color: "rgba(0,0,0,0.3)" }}>
                                 •
                               </Typography>
+                              <Person sx={{ fontSize: "0.75rem", color: "info.main" }} />
                               <Typography 
                                 variant="body2" 
                                 sx={{ 
                                   fontSize: "0.75rem",
                                   fontWeight: 600,
-                                  color: "#0277bd",
+                                  color: "info.main",
                                 }}
                               >
-                                👤 {order.salesPerson.name}
+                                {order.salesPerson.name}
                               </Typography>
                             </>
+                          )}
+                        </Box>
+
+                        {/* Call History */}
+                        <Box sx={{ mt: 1 }}>
+                          {order.callHistory && order.callHistory.length > 0 ? (
+                            <Box sx={{ p: 1, bgcolor: "rgba(25, 118, 210, 0.05)", borderRadius: 1, border: "1px solid rgba(25, 118, 210, 0.1)" }}>
+                              {/* Last Call Done - Prominent Display */}
+                              {(() => {
+                                const lastCall = order.callHistory[order.callHistory.length - 1];
+                                return (
+                                  <Box 
+                                    sx={{ 
+                                      mb: 1, 
+                                      p: 1, 
+                                      bgcolor: "rgba(46, 125, 50, 0.15)", 
+                                      borderRadius: 1, 
+                                      border: "1px solid rgba(46, 125, 50, 0.3)",
+                                    }}
+                                  >
+                                    <Typography 
+                                      variant="caption" 
+                                      sx={{ 
+                                        fontSize: "0.7rem", 
+                                        fontWeight: 700, 
+                                        color: "success.dark",
+                                        display: "block",
+                                      }}
+                                    >
+                                      ✓ Last call done on {moment(lastCall.date).format("DD - MMM-YYYY").toUpperCase()}
+                                    </Typography>
+                                    {lastCall.note && (
+                                      <Typography 
+                                        variant="caption" 
+                                        sx={{ 
+                                          fontSize: "0.65rem", 
+                                          color: "text.secondary",
+                                          display: "block",
+                                          mt: 0.5,
+                                          fontStyle: "italic",
+                                        }}
+                                      >
+                                        {lastCall.note}
+                                      </Typography>
+                                    )}
+                                  </Box>
+                                );
+                              })()}
+                              
+                              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 0.5 }}>
+                                <Typography variant="caption" sx={{ fontSize: "0.7rem", fontWeight: 600, color: "primary.main" }}>
+                                  📞 Call History ({order.callHistory.length})
+                                </Typography>
+                                {phoneNumber !== "N/A" && (
+                                  <Button
+                                    size="small"
+                                    variant="text"
+                                    color="success"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setCallOrderId(order._id || order.id);
+                                      setCallNote("");
+                                      setShowCallModal(true);
+                                    }}
+                                    sx={{
+                                      fontSize: "0.6rem",
+                                      px: 0.75,
+                                      py: 0.25,
+                                      minWidth: "auto",
+                                      height: "20px",
+                                      textTransform: "none",
+                                    }}
+                                  >
+                                    + Add
+                                  </Button>
+                                )}
+                              </Box>
+                              {order.callHistory.slice(-3).map((call, idx, arr) => {
+                                const isLastCall = idx === arr.length - 1;
+                                return (
+                                  <Box 
+                                    key={idx} 
+                                    sx={{ 
+                                      mb: 0.5, 
+                                      fontSize: "0.65rem",
+                                      p: isLastCall ? 0.75 : 0,
+                                      bgcolor: isLastCall ? "rgba(25, 118, 210, 0.15)" : "transparent",
+                                      borderRadius: isLastCall ? 0.75 : 0,
+                                      border: isLastCall ? "1px solid rgba(25, 118, 210, 0.3)" : "none",
+                                      fontWeight: isLastCall ? 600 : 400,
+                                    }}
+                                  >
+                                    <Typography 
+                                      variant="caption" 
+                                      sx={{ 
+                                        color: isLastCall ? "primary.main" : "text.secondary",
+                                        fontWeight: isLastCall ? 600 : 400,
+                                      }}
+                                    >
+                                      {isLastCall && "🟢 "}
+                                      {moment(call.date).format("DD-MM-YYYY HH:mm")}
+                                      {call.note && ` • ${call.note.substring(0, 30)}${call.note.length > 30 ? "..." : ""}`}
+                                    </Typography>
+                                  </Box>
+                                );
+                              })}
+                            </Box>
+                          ) : (
+                            phoneNumber !== "N/A" && (
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                color="success"
+                                fullWidth
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setCallOrderId(order._id || order.id);
+                                  setCallNote("");
+                                  setShowCallModal(true);
+                                }}
+                                sx={{
+                                  fontSize: "0.7rem",
+                                  py: 0.5,
+                                  textTransform: "none",
+                                  borderColor: "success.main",
+                                  color: "success.main",
+                                  "&:hover": {
+                                    bgcolor: "rgba(46, 125, 50, 0.1)",
+                                    borderColor: "success.dark",
+                                  },
+                                }}
+                              >
+                                ✓ Mark Call Done
+                              </Button>
+                            )
                           )}
                         </Box>
                       </Box>
@@ -1280,9 +1580,9 @@ const DispatchedListPage = () => {
                       sx={{ justifyContent: "flex-start", mb: 1 }}
                     >
                       <CalendarToday sx={{ mr: 1 }} />
-                      {editingOrder.deliveryDate
-                        ? moment(editingOrder.deliveryDate).format("DD MMM YYYY")
-                        : "Click to select delivery date"}
+                    {editingOrder.deliveryDate
+                      ? moment(editingOrder.deliveryDate).format("DD - MMM-YYYY").toUpperCase()
+                      : "Click to select delivery date"}
                     </Button>
                   )}
                   
@@ -1361,6 +1661,40 @@ const DispatchedListPage = () => {
                   })()}
                 </Box>
 
+                {/* Status Change Section */}
+                <Box>
+                  <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                    Change Status
+                  </Typography>
+                  <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+                    <Button
+                      variant={statusChange === "CANCELLED" ? "contained" : "outlined"}
+                      color="error"
+                      size="small"
+                      onClick={() => setStatusChange(statusChange === "CANCELLED" ? "" : "CANCELLED")}
+                      disabled={patchLoading}
+                      sx={{ fontSize: "0.8rem" }}
+                    >
+                      Cancel Order
+                    </Button>
+                    <Button
+                      variant={statusChange === "READY_FOR_DISPATCH" ? "contained" : "outlined"}
+                      color="success"
+                      size="small"
+                      onClick={() => setStatusChange(statusChange === "READY_FOR_DISPATCH" ? "" : "READY_FOR_DISPATCH")}
+                      disabled={patchLoading}
+                      sx={{ fontSize: "0.8rem" }}
+                    >
+                      Ready for Dispatch
+                    </Button>
+                  </Box>
+                  {statusChange && (
+                    <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: "block" }}>
+                      Current: {editingOrder.orderStatus || "N/A"} → New: {statusChange}
+                    </Typography>
+                  )}
+                </Box>
+
                 {/* Summary */}
                 <Box sx={{ bgcolor: "grey.100", p: 2, borderRadius: 1 }}>
                   <Typography variant="subtitle2" gutterBottom>
@@ -1397,7 +1731,7 @@ const DispatchedListPage = () => {
             <Button
               variant="contained"
               onClick={handleSaveChanges}
-              disabled={patchLoading || (quantityChange === 0 && rateChange === 0 && !editingOrder?.bookingSlot?.[0]?.slotId)}
+              disabled={patchLoading || (quantityChange === 0 && rateChange === 0 && !editingOrder?.bookingSlot?.[0]?.slotId && !statusChange)}
               startIcon={patchLoading ? <CircularProgress size={16} /> : null}
             >
               Save Changes
@@ -1623,6 +1957,116 @@ const DispatchedListPage = () => {
             </Paper>
           </Box>
         )}
+
+        {/* Call Modal */}
+        <Dialog
+          open={showCallModal}
+          onClose={() => {
+            setShowCallModal(false);
+            setCallNote("");
+            setCallOrderId(null);
+          }}
+          maxWidth="sm"
+          fullWidth
+        >
+          <DialogTitle>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <Phone sx={{ color: "primary.main" }} />
+              <Typography variant="h6">Record Call</Typography>
+            </Box>
+          </DialogTitle>
+          <DialogContent>
+            {callOrderId && (() => {
+              const order = orders.find(o => (o._id || o.id) === callOrderId);
+              const phoneNumber = order?.farmer?.mobileNumber;
+              const farmerName = order?.farmer?.name || "N/A";
+              
+              return (
+                <Box sx={{ mt: 2 }}>
+                  <Box sx={{ mb: 2, p: 1.5, bgcolor: "rgba(25, 118, 210, 0.05)", borderRadius: 1 }}>
+                    <Typography variant="body2" color="text.secondary" gutterBottom>
+                      Calling
+                    </Typography>
+                    <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                      {farmerName}
+                    </Typography>
+                    <Typography variant="body2" sx={{ color: "primary.main", fontWeight: 600, mt: 0.5 }}>
+                      📞 {phoneNumber || "N/A"}
+                    </Typography>
+                  </Box>
+                  <Typography variant="body2" color="text.secondary" gutterBottom>
+                    Call Note (Optional)
+                  </Typography>
+                  <TextField
+                    fullWidth
+                    multiline
+                    rows={4}
+                    value={callNote}
+                    onChange={(e) => setCallNote(e.target.value)}
+                    placeholder="Enter call notes, conversation summary, or any important information..."
+                    variant="outlined"
+                  />
+                </Box>
+              );
+            })()}
+          </DialogContent>
+          <DialogActions>
+            <Button
+              onClick={() => {
+                setShowCallModal(false);
+                setCallNote("");
+                setCallOrderId(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="outlined"
+              color="success"
+              onClick={() => {
+                // Save call without calling
+                handleSaveCall();
+              }}
+              sx={{ textTransform: "none" }}
+            >
+              ✓ Save Call Done
+            </Button>
+            <Button
+              variant="outlined"
+              onClick={() => {
+                // Get the order to find phone number
+                const order = orders.find(o => (o._id || o.id) === callOrderId);
+                const phoneNumber = order?.farmer?.mobileNumber;
+                if (phoneNumber) {
+                  handleCall(phoneNumber);
+                }
+              }}
+              startIcon={<Phone />}
+              sx={{ textTransform: "none" }}
+            >
+              Call Only
+            </Button>
+            <Button
+              variant="contained"
+              onClick={() => {
+                // Get the order to find phone number
+                const order = orders.find(o => (o._id || o.id) === callOrderId);
+                const phoneNumber = order?.farmer?.mobileNumber;
+                if (phoneNumber) {
+                  handleCall(phoneNumber);
+                }
+                // Save call after initiating
+                setTimeout(() => {
+                  handleSaveCall();
+                }, 500);
+              }}
+              startIcon={<Phone />}
+              sx={{ textTransform: "none" }}
+            >
+              Call & Save
+            </Button>
+          </DialogActions>
+        </Dialog>
       </Box>
     </LocalizationProvider>
   );
