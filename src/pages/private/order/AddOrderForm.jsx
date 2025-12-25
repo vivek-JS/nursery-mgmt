@@ -225,14 +225,18 @@ const useStyles = makeStyles()((theme) => ({
 
 const AddOrderForm = ({ open, onClose, onSuccess }) => {
   const { classes } = useStyles()
+  
+  // ============================================================================
+  // REDUX & USER DATA
+  // ============================================================================
   const userData = useSelector((state) => state?.userData?.userData)
   const appUser = useSelector((state) => state?.app?.user)
   const token = useSelector((state) => state?.app?.token)
-
-  // Try to get user data from multiple sources
   const user = userData || appUser || {}
 
-  // Form state - Initialize with default values
+  // ============================================================================
+  // FORM STATE
+  // ============================================================================
   const [formData, setFormData] = useState(() => ({
     date: new Date(),
     name: "",
@@ -250,6 +254,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
     plant: "",
     subtype: "",
     orderDate: null, // Changed from selectedSlot to orderDate
+    transferredSlotId: null, // Slot ID if booking is transferred to nearby slot
     cavity: "",
     sales: null,
     dealer: null,
@@ -262,31 +267,58 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
     screenshots: []
   }))
 
-  // UI state
+  // ============================================================================
+  // UI STATE
+  // ============================================================================
   const [loading, setLoading] = useState(false)
   const [mobileLoading, setMobileLoading] = useState(false)
+  const [slotsLoading, setSlotsLoading] = useState(false)
+  const [mappingsLoading, setMappingsLoading] = useState(false)
   const [activeStep, setActiveStep] = useState(0)
-  const [isInstantOrder, setIsInstantOrder] = useState(false) // Default to Normal Order
-  const [bulkOrder, setBulkOrder] = useState(false)
-  const [quotaType, setQuotaType] = useState(null) // "dealer" or "company"
-  const [farmerData, setFarmerData] = useState({})
   const [showConfirmation, setShowConfirmation] = useState(false)
   const [confirmationData, setConfirmationData] = useState({})
 
-  // Data state
+  // ============================================================================
+  // ORDER TYPE STATE
+  // ============================================================================
+  const [isInstantOrder, setIsInstantOrder] = useState(false)
+  const [bulkOrder, setBulkOrder] = useState(false)
+  const [quotaType, setQuotaType] = useState(null) // "dealer" or "company"
+
+  // ============================================================================
+  // FARMER DATA STATE
+  // ============================================================================
+  const [farmerData, setFarmerData] = useState({})
+
+  // ============================================================================
+  // DROPDOWN DATA STATE
+  // ============================================================================
   const [plants, setPlants] = useState([])
   const [subTypes, setSubTypes] = useState([])
   const [slots, setSlots] = useState([])
   const [sales, setSales] = useState([])
   const [dealers, setDealers] = useState([])
-
   const [cavities, setCavities] = useState([])
+
+  // ============================================================================
+  // SLOT & PRODUCT STATE
+  // ============================================================================
+  const [allSlots, setAllSlots] = useState([])
+  const [filteredSlotsByProduct, setFilteredSlotsByProduct] = useState([])
+  const [plantProductMappings, setPlantProductMappings] = useState([])
+  const [plantDetails, setPlantDetails] = useState(new Map())
+  const [available, setAvailable] = useState(null)
+
+  // ============================================================================
+  // DEALER & RATE STATE
+  // ============================================================================
   const [dealerWallet, setDealerWallet] = useState({})
   const [rate, setRate] = useState(null)
-  const [available, setAvailable] = useState(null)
   const [rateManuallySet, setRateManuallySet] = useState(false)
 
-  // Payment Management State - Using same structure as FarmerOrdersTable
+  // ============================================================================
+  // PAYMENT STATE
+  // ============================================================================
   const [newPayment, setNewPayment] = useState({
     paidAmount: "",
     paymentDate: moment().format("YYYY-MM-DD"),
@@ -298,6 +330,9 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
     isWalletPayment: false
   })
 
+  // ============================================================================
+  // CONSTANTS
+  // ============================================================================
   const steps = [
     "Order Type",
     "Farmer Details",
@@ -306,6 +341,10 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
     "Review & Submit"
   ]
 
+  // ============================================================================
+  // EFFECTS - INITIALIZATION
+  // ============================================================================
+  
   // Initialize form with user defaults
   useEffect(() => {
     if (user && Object.keys(user).length > 0) {
@@ -324,7 +363,8 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
     // Note: Default state is already set in initial state, so no need to set it again
   }, [user])
 
-  // Load initial data
+
+  // Load initial data on mount
   useEffect(() => {
     loadInitialData()
   }, [])
@@ -339,7 +379,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
   // Debounced mobile number for farmer lookup
   const debouncedMobileNumber = useDebounce(formData?.mobileNumber || "", 500)
 
-  // Auto-fill farmer data when mobile number is entered (with debouncing)
+  // Auto-fill farmer data when mobile number is entered
   useEffect(() => {
     if (debouncedMobileNumber?.length === 10) {
       setMobileLoading(true)
@@ -349,12 +389,15 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
     }
   }, [debouncedMobileNumber])
 
+  // Load subtypes and product mappings when plant changes
   useEffect(() => {
     if (formData?.plant) {
       loadSubTypes(formData?.plant)
+      loadAllPlantProductMappings(formData?.plant)
     }
   }, [formData?.plant])
 
+  // Load slots when subtype changes
   useEffect(() => {
     if (formData?.subtype) {
       loadSlots(formData?.plant, formData?.subtype)
@@ -368,6 +411,10 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
     }
   }, [bulkOrder])
 
+  // ============================================================================
+  // DATA LOADING FUNCTIONS
+  // ============================================================================
+  
   const loadInitialData = async () => {
     setLoading(true)
     try {
@@ -385,17 +432,99 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
       const instance = NetworkManager(API.slots.GET_PLANTS)
       const response = await instance.request()
       if (response?.data) {
-        setPlants(
-          response.data.map((plant) => ({
-            label: plant.name,
-            value: plant.plantId,
-            sowingAllowed: plant.sowingAllowed || false // Track if sowing is allowed
-          }))
-        )
+        const plantsData = response.data.map((plant) => ({
+          label: plant.name,
+          value: plant.plantId,
+          sowingAllowed: plant.sowingAllowed || false // Track if sowing is allowed
+        }))
+        setPlants(plantsData)
+        // Store full plant data for subtype name lookup
+        const plantsMap = new Map()
+        response.data.forEach(plant => {
+          plantsMap.set(plant.plantId, plant)
+        })
+        setPlantDetails(plantsMap)
       }
     } catch (error) {
       console.error("Error loading plants:", error)
     }
+  }
+  
+  // ============================================================================
+  // HELPER FUNCTIONS
+  // ============================================================================
+  
+  // Calculate form completion percentage
+  const getFormCompletionPercentage = () => {
+    const requiredFields = [
+      'name', 'mobileNumber', 'village', 'taluka', 'district', 'state',
+      'noOfPlants', 'plant', 'subtype', 'orderDate', 'cavity'
+    ]
+    const filledFields = requiredFields.filter(field => {
+      const value = formData?.[field]
+      return value !== null && value !== undefined && value !== ''
+    })
+    return Math.round((filledFields.length / requiredFields.length) * 100)
+  }
+
+  // Get form completion status
+  const getFormCompletionStatus = () => {
+    const percentage = getFormCompletionPercentage()
+    if (percentage === 100) return { text: 'Ready to Submit', color: 'success' }
+    if (percentage >= 75) return { text: 'Almost Complete', color: 'warning' }
+    if (percentage >= 50) return { text: 'In Progress', color: 'info' }
+    return { text: 'Getting Started', color: 'default' }
+  }
+
+  // Get missing required fields
+  const getMissingFields = () => {
+    const requiredFields = {
+      name: 'Farmer Name',
+      mobileNumber: 'Mobile Number',
+      village: 'Village',
+      taluka: 'Taluka',
+      district: 'District',
+      state: 'State',
+      noOfPlants: 'Number of Plants',
+      plant: 'Plant',
+      subtype: 'Subtype',
+      orderDate: 'Order Date',
+      cavity: 'Cavity'
+    }
+    
+    const missing = []
+    Object.entries(requiredFields).forEach(([key, label]) => {
+      const value = formData?.[key]
+      if (!value || value === '' || (key === 'mobileNumber' && value.length !== 10)) {
+        missing.push(label)
+      }
+    })
+    
+    return missing
+  }
+
+  // Get subtype name from subtypeId
+  const getSubtypeName = (subtypeId, plantId) => {
+    if (!subtypeId || !plantId) return ""
+    
+    // First try from subTypes list (if subtype is selected)
+    const subtype = subTypes.find(s => 
+      s.value === subtypeId || 
+      s.value?.toString() === subtypeId?.toString()
+    )
+    if (subtype) return subtype.label
+    
+    // Then try from plant details Map
+    const plant = plantDetails.get(plantId)
+    if (plant && plant.subtypes) {
+      const subtypeObj = plant.subtypes.find(st => 
+        st._id?.toString() === subtypeId?.toString() ||
+        st.subtypeId?.toString() === subtypeId?.toString()
+      )
+      if (subtypeObj) return subtypeObj.name || subtypeObj.subtypeName || ""
+    }
+    
+    return ""
   }
 
   const loadCavities = async () => {
@@ -458,7 +587,92 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
     }
   }
 
+  // Load all plant product mappings for a plant (all subtypes)
+  const loadAllPlantProductMappings = async (plantId) => {
+    if (!plantId) {
+      setPlantProductMappings([])
+      setMappingsLoading(false)
+      return
+    }
+
+    setMappingsLoading(true)
+    try {
+      // Use the endpoint: /api/v1/plant-product-mappings?plantId=xxx&isActive=true
+      const instance = NetworkManager(API.INVENTORY.GET_ALL_PLANT_PRODUCT_MAPPINGS)
+      const response = await instance.request({}, { plantId, isActive: true })
+      
+      if (response?.data) {
+        const apiResponse = response.data
+        const mappings = apiResponse?.data || apiResponse || []
+        // Filter to only active mappings and ensure they're arrays
+        const activeMappings = Array.isArray(mappings) 
+          ? mappings.filter(m => m.isActive !== false)
+          : []
+        setPlantProductMappings(activeMappings)
+      } else {
+        setPlantProductMappings([])
+      }
+    } catch (error) {
+      console.error("Error loading all plant product mappings:", error)
+      setPlantProductMappings([])
+    } finally {
+      setMappingsLoading(false)
+    }
+  }
+
+  // Load plant product mappings for ready plants products (kept for backward compatibility)
+  const loadPlantProductMappings = async (plantId, subtypeId) => {
+    if (!plantId || !subtypeId) {
+      setPlantProductMappings([])
+      setMappingsLoading(false)
+      return
+    }
+
+    setMappingsLoading(true)
+    try {
+      // Use the endpoint: /api/v1/plant-product-mappings/plant/:plantId/subtype/:subtypeId
+      const instance = NetworkManager(API.INVENTORY.GET_MAPPINGS_BY_PLANT_SUBTYPE)
+      // The endpoint expects plantId and subtypeId as path parameters (array)
+      const response = await instance.request({}, [plantId, subtypeId])
+      
+      if (response?.data) {
+        const apiResponse = response.data
+        const mappings = apiResponse?.data || apiResponse || []
+        // Filter to only active mappings
+        const activeMappings = Array.isArray(mappings) 
+          ? mappings.filter(m => m.isActive !== false)
+          : []
+        setPlantProductMappings(activeMappings)
+      } else {
+        setPlantProductMappings([])
+      }
+    } catch (error) {
+      console.error("Error loading plant product mappings:", error)
+      setPlantProductMappings([])
+    } finally {
+      setMappingsLoading(false)
+    }
+  }
+
+  // Check if a date is within a product's date range
+  const isDateInProductRange = (selectedDate, dateRange) => {
+    if (!selectedDate || !dateRange || !dateRange.startDate || !dateRange.endDate) {
+      return false
+    }
+    
+    const selected = moment(selectedDate)
+    const start = moment(dateRange.startDate, "DD-MM-YYYY", true)
+    const end = moment(dateRange.endDate, "DD-MM-YYYY", true)
+    
+    if (!start.isValid() || !end.isValid()) {
+      return false
+    }
+    
+    return selected.isSameOrAfter(start, "day") && selected.isSameOrBefore(end, "day")
+  }
+
   const loadSlots = async (plantId, subtypeId) => {
+    setSlotsLoading(true)
     try {
       // Check if dealer quota should be used
       const shouldUseDealerQuota =
@@ -506,7 +720,9 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
           })
           .filter((slot) => slot !== null && slot.availableQuantity > 0)
 
+        setAllSlots(dealerQuotaSlots)
         setSlots(dealerQuotaSlots)
+        setFilteredSlotsByProduct([])
         return
       }
 
@@ -572,6 +788,9 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
             // Calculate available plants (can be negative for sowing-allowed plants)
             const available = availablePlants !== undefined ? availablePlants : totalPlants - (totalBookedPlants || 0)
 
+            // Include productStock if available
+            const productStock = slot.productStock || []
+            
             return {
               label: `${start} - ${end} ${monthYear} (${available} available)`,
               value: _id,
@@ -579,7 +798,8 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
               startDay,
               endDay,
               totalPlants,
-              totalBookedPlants
+              totalBookedPlants,
+              productStock: productStock // Include productStock for product selection
             }
           })
           .filter((slot) => {
@@ -588,13 +808,44 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
             return slot !== null && (isSowingAllowedPlant || slot.availableQuantity > 0)
           })
 
-        setSlots(processedSlots)
+        setAllSlots(processedSlots) // Store all slots
+        // Apply product date range filter if a product is selected
+        if (formData?.productMappingId) {
+          const selectedMapping = plantProductMappings.find(m => m._id === formData.productMappingId)
+          if (selectedMapping) {
+            const filtered = processedSlots.filter(slot => {
+              if (!slot.startDay || !slot.endDay) return false
+              const slotStart = moment(slot.startDay, "DD-MM-YYYY")
+              const slotEnd = moment(slot.endDay, "DD-MM-YYYY")
+              const productStart = moment(selectedMapping.dateRange.startDate, "DD-MM-YYYY")
+              const productEnd = moment(selectedMapping.dateRange.endDate, "DD-MM-YYYY")
+              // Check if slot overlaps with product date range
+              return (slotStart.isSameOrAfter(productStart, "day") && slotStart.isSameOrBefore(productEnd, "day")) ||
+                     (slotEnd.isSameOrAfter(productStart, "day") && slotEnd.isSameOrBefore(productEnd, "day")) ||
+                     (slotStart.isBefore(productStart, "day") && slotEnd.isAfter(productEnd, "day"))
+            })
+            setSlots(filtered)
+            setFilteredSlotsByProduct(filtered)
+          } else {
+            setSlots(processedSlots)
+            setFilteredSlotsByProduct([])
+          }
+        } else {
+          setSlots(processedSlots)
+          setFilteredSlotsByProduct([])
+        }
       } else {
         setSlots([])
+        setAllSlots([])
+        setFilteredSlotsByProduct([])
       }
     } catch (error) {
       console.error("Error loading slots:", error)
       setSlots([])
+      setAllSlots([])
+      setFilteredSlotsByProduct([])
+    } finally {
+      setSlotsLoading(false)
     }
   }
 
@@ -857,11 +1108,24 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
     return null
   }
 
-  // Helper function to check if a date should be disabled (not in any slot)
+  // Helper function to check if a date should be disabled (not in any slot or outside product date range)
   const isDateDisabled = (date) => {
     if (!date || slots.length === 0) return true
 
     const dateMoment = moment(date)
+
+    // If a product is selected, also check if date is within product's date range
+    if (formData?.productMappingId) {
+      const mapping = plantProductMappings.find(m => m._id === formData.productMappingId)
+      if (mapping) {
+        const productStart = moment(mapping.dateRange.startDate, "DD-MM-YYYY")
+        const productEnd = moment(mapping.dateRange.endDate, "DD-MM-YYYY")
+        // If date is outside product range, disable it
+        if (dateMoment.isBefore(productStart, "day") || dateMoment.isAfter(productEnd, "day")) {
+          return true
+        }
+      }
+    }
 
     for (const slot of slots) {
       if (!slot.startDay || !slot.endDay) continue
@@ -879,12 +1143,155 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
   }
 
   // Helper function to get available quantity for a specific date
-  const getAvailableQuantityForDate = (selectedDate) => {
+  // If productMappingId is selected, use productStock availability; otherwise use general slot availability
+  const getAvailableQuantityForDate = (selectedDate, productMappingId = null, productName = null) => {
     const slotId = getSlotIdForDate(selectedDate)
     if (!slotId) return null
 
     const slot = slots.find((s) => s.value === slotId)
+    if (!slot) return null
+
+    // If productMappingId is selected, check productStock availability
+    if (productMappingId && slot.productStock && slot.productStock.length > 0) {
+      const product = slot.productStock.find(p => 
+        p.productMappingId && p.productMappingId.toString() === productMappingId.toString()
+      )
+      if (product) {
+        // Priority: available (received) first, then poQuantity (pending from PO)
+        const receivedAvailable = (product.available || 0) - (product.booked || 0)
+        const pendingAvailable = product.poQuantity || 0
+        const totalAvailable = receivedAvailable + pendingAvailable
+        return totalAvailable
+      }
+    }
+
+    // Fallback: If productName is provided, check by productName
+    if (productName && slot.productStock && slot.productStock.length > 0) {
+      const product = slot.productStock.find(p => p.productName === productName)
+      if (product) {
+        const receivedAvailable = (product.available || 0) - (product.booked || 0)
+        const pendingAvailable = product.poQuantity || 0
+        const totalAvailable = receivedAvailable + pendingAvailable
+        return totalAvailable
+      }
+    }
+
+    // Default: use general slot availability
     return slot?.availableQuantity || null
+  }
+
+  // Helper function to get available quantity for a product mapping
+  const getAvailableQuantityForProduct = (mapping) => {
+    if (!mapping) return 0
+    
+    // Priority 1: Use mapping's totalQuantity minus allocatedQuantity (source of truth)
+    if (mapping.totalQuantity !== undefined && mapping.allocatedQuantity !== undefined) {
+      const mappingAvailable = Math.max(0, (mapping.totalQuantity || 0) - (mapping.allocatedQuantity || 0))
+      return mappingAvailable
+    }
+    
+    // Priority 2: Use stockInfo from API response if available
+    if (mapping.stockInfo) {
+      if (mapping.stockInfo.mappingAvailableQuantity !== undefined) {
+        return mapping.stockInfo.mappingAvailableQuantity
+      }
+      if (mapping.stockInfo.totalAvailable !== undefined) {
+        return mapping.stockInfo.totalAvailable
+      }
+    }
+    
+    // Fallback: Calculate from slots if stockInfo not available
+    if (!allSlots.length) return 0
+    
+    let totalAvailable = 0
+    allSlots.forEach(slot => {
+      if (!slot.startDay || !slot.endDay) return
+      
+      // Check if slot is within product date range
+      const slotStart = moment(slot.startDay, "DD-MM-YYYY")
+      const slotEnd = moment(slot.endDay, "DD-MM-YYYY")
+      const productStart = moment(mapping.dateRange.startDate, "DD-MM-YYYY")
+      const productEnd = moment(mapping.dateRange.endDate, "DD-MM-YYYY")
+      
+      const isInRange = (slotStart.isSameOrAfter(productStart, "day") && slotStart.isSameOrBefore(productEnd, "day")) ||
+                        (slotEnd.isSameOrAfter(productStart, "day") && slotEnd.isSameOrBefore(productEnd, "day")) ||
+                        (slotStart.isBefore(productStart, "day") && slotEnd.isAfter(productEnd, "day"))
+      
+      if (isInRange && slot.productStock && slot.productStock.length > 0) {
+        const product = slot.productStock.find(p => 
+          p.productMappingId && p.productMappingId.toString() === mapping._id.toString()
+        )
+        if (product) {
+          const receivedAvailable = (product.available || 0) - (product.booked || 0)
+          const pendingAvailable = product.poQuantity || 0
+          totalAvailable += receivedAvailable + pendingAvailable
+        }
+      }
+    })
+    
+    return totalAvailable
+  }
+
+  // Helper function to find nearby slots (±5 days) with availability
+  const findNearbyAvailableSlots = (selectedDate, productMappingId = null, productName = null) => {
+    if (!selectedDate || slots.length === 0) return []
+
+    const selectedMoment = moment(selectedDate)
+    const nearbySlots = []
+
+    slots.forEach((slot) => {
+      if (!slot.startDay || !slot.endDay) return
+
+      const slotStart = moment(slot.startDay, "DD-MM-YYYY")
+      const slotEnd = moment(slot.endDay, "DD-MM-YYYY")
+      
+      // Calculate days difference from selected date to slot
+      const daysDiffStart = Math.abs(selectedMoment.diff(slotStart, "days"))
+      const daysDiffEnd = Math.abs(selectedMoment.diff(slotEnd, "days"))
+      const minDaysDiff = Math.min(daysDiffStart, daysDiffEnd)
+
+      // Check if slot is within ±5 days
+      if (minDaysDiff <= 5) {
+        // Calculate availability for this slot
+        let availableQty = slot.availableQuantity || 0
+
+        // If productMappingId is selected, check productStock availability
+        if (productMappingId && slot.productStock && slot.productStock.length > 0) {
+          const product = slot.productStock.find(p => 
+            p.productMappingId && p.productMappingId.toString() === productMappingId.toString()
+          )
+          if (product) {
+            const receivedAvailable = (product.available || 0) - (product.booked || 0)
+            const pendingAvailable = product.poQuantity || 0
+            availableQty = receivedAvailable + pendingAvailable
+          }
+        } else if (productName && slot.productStock && slot.productStock.length > 0) {
+          // Fallback: check by productName
+          const product = slot.productStock.find(p => p.productName === productName)
+          if (product) {
+            const receivedAvailable = (product.available || 0) - (product.booked || 0)
+            const pendingAvailable = product.poQuantity || 0
+            availableQty = receivedAvailable + pendingAvailable
+          }
+        }
+
+        // Only include slots with positive availability
+        if (availableQty > 0) {
+          const isBefore = slotStart.isBefore(selectedMoment, "day")
+          const isAfter = slotEnd.isAfter(selectedMoment, "day")
+          
+          nearbySlots.push({
+            ...slot,
+            daysDifference: minDaysDiff,
+            direction: isBefore ? "before" : isAfter ? "after" : "overlap",
+            calculatedAvailability: availableQty
+          })
+        }
+      }
+    })
+
+    // Sort by days difference (closest first)
+    return nearbySlots.sort((a, b) => a.daysDifference - b.daysDifference)
   }
 
   const getRemainingQuantity = () => {
@@ -975,7 +1382,10 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
       .reduce((total, entry) => total + (entry.remainingQuantity || 0), 0)
   }
 
-  // Payment Management Functions - Using same flow as FarmerOrdersTable
+  // ============================================================================
+  // PAYMENT FUNCTIONS
+  // ============================================================================
+  
   const handlePaymentInputChange = (field, value) => {
     setNewPayment((prev) => {
       const updatedPayment = { ...prev, [field]: value }
@@ -1119,6 +1529,10 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
   }
 
 
+  // ============================================================================
+  // FORM HANDLER FUNCTIONS
+  // ============================================================================
+  
   const handleInputChange = (field, value) => {
 
     // Handle Order For mobile number validation before setting form data
@@ -1238,7 +1652,48 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
 
     // Set available quantity when order date is selected
     if (field === "orderDate") {
-      const availableQty = getAvailableQuantityForDate(value)
+      const availableQty = getAvailableQuantityForDate(value, formData?.productMappingId, formData?.productName)
+      setAvailable(availableQty)
+      // Reload plant product mappings with date filter (filtering happens in UI)
+      if (formData?.plant && formData?.subtype) {
+        loadPlantProductMappings(formData.plant, formData.subtype)
+      }
+    }
+
+    // Update available quantity when productMappingId changes
+    if (field === "productMappingId") {
+      const mapping = plantProductMappings.find(m => m._id === value)
+      if (mapping) {
+        handleInputChange("productName", mapping.displayTitle || mapping.productName)
+        // Filter slots by product date range
+        const filtered = allSlots.filter(slot => {
+          if (!slot.startDay || !slot.endDay) return false
+          const slotStart = moment(slot.startDay, "DD-MM-YYYY")
+          const slotEnd = moment(slot.endDay, "DD-MM-YYYY")
+          const productStart = moment(mapping.dateRange.startDate, "DD-MM-YYYY")
+          const productEnd = moment(mapping.dateRange.endDate, "DD-MM-YYYY")
+          // Check if slot overlaps with product date range
+          return (slotStart.isSameOrAfter(productStart, "day") && slotStart.isSameOrBefore(productEnd, "day")) ||
+                 (slotEnd.isSameOrAfter(productStart, "day") && slotEnd.isSameOrBefore(productEnd, "day")) ||
+                 (slotStart.isBefore(productStart, "day") && slotEnd.isAfter(productEnd, "day"))
+        })
+        setSlots(filtered)
+        setFilteredSlotsByProduct(filtered)
+        // Reset order date when product changes
+        handleInputChange("orderDate", null)
+        Toast.success(`Showing slots for ${mapping.displayTitle || mapping.productName} (${mapping.dateRange.startDate} to ${mapping.dateRange.endDate})`)
+      } else {
+        // Clear product selection - show all slots
+        handleInputChange("productName", "")
+        setSlots(allSlots)
+        setFilteredSlotsByProduct([])
+        handleInputChange("orderDate", null)
+      }
+    }
+
+    // Update available quantity when productName changes
+    if (field === "productName" && formData?.orderDate) {
+      const availableQty = getAvailableQuantityForDate(formData.orderDate, formData?.productMappingId, value)
       setAvailable(availableQty)
     }
 
@@ -1253,6 +1708,10 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
     }
   }
 
+  // ============================================================================
+  // VALIDATION FUNCTIONS
+  // ============================================================================
+  
   const validateForm = () => {
     const requiredFields = ["noOfPlants", "plant", "subtype", "orderDate", "cavity"]
 
@@ -1331,12 +1790,42 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
       }
     }
 
+    // Validate ready plants product quantity first (if product is selected)
+    if (formData?.productMappingId && formData?.noOfPlants) {
+      const mapping = plantProductMappings.find(m => m._id === formData.productMappingId)
+      if (mapping) {
+        const availableQty = mapping.mappingAvailableQuantity !== undefined 
+          ? mapping.mappingAvailableQuantity 
+          : getAvailableQuantityForProduct(mapping)
+        const requestedQty = parseInt(formData?.noOfPlants) || 0
+        
+        if (requestedQty > availableQty) {
+          Toast.error(
+            `⚠️ Product Stock Exceeded!\n\nOnly ${availableQty} plants available for ${mapping.displayTitle || mapping.productName}.\n\nPlease reduce the order quantity or select a different product.`,
+            {
+              duration: 8000,
+              style: {
+                background: "#fef2f2",
+                color: "#dc2626",
+                border: "2px solid #fecaca",
+                borderRadius: "8px",
+                fontSize: "14px",
+                lineHeight: "1.5",
+                whiteSpace: "pre-line"
+              }
+            }
+          )
+          return false
+        }
+      }
+    }
+
     // Validate slot capacity availability
-    // Skip validation if plant has sowingAllowed (can grow on demand)
+    // Skip validation if plant has sowingAllowed (can grow on demand) AND no ready plants product is selected
     const selectedPlant = plants.find((p) => p.value === formData?.plant)
     const isSowingAllowedPlant = selectedPlant?.sowingAllowed
 
-    if (formData?.orderDate && formData?.noOfPlants && !isSowingAllowedPlant) {
+    if (formData?.orderDate && formData?.noOfPlants && !isSowingAllowedPlant && !formData?.productMappingId) {
       const requestedQuantity = parseInt(formData?.noOfPlants) || 0
 
       // Get slot ID for the selected order date
@@ -1350,10 +1839,55 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
       const selectedSlot = slots.find((s) => s.value === slotId)
       const isDealerQuotaSlot = selectedSlot?.isDealerQuota
 
-      let availableQuantity = available
+      // Update available quantity based on selected product
+      const currentAvailable = getAvailableQuantityForDate(formData?.orderDate, formData?.productMappingId, formData?.productName)
+      let availableQuantity = currentAvailable !== null ? currentAvailable : available
       let slotPeriod = ""
+      let productInfo = ""
 
-      if (isDealerQuotaSlot) {
+      // If productMappingId is selected, use productStock availability
+      if (formData?.productMappingId && selectedSlot?.productStock && selectedSlot.productStock.length > 0) {
+        const product = selectedSlot.productStock.find(p => 
+          p.productMappingId && p.productMappingId.toString() === formData.productMappingId.toString()
+        )
+        if (product) {
+          const receivedAvailable = (product.available || 0) - (product.booked || 0)
+          const pendingAvailable = product.poQuantity || 0
+          availableQuantity = receivedAvailable + pendingAvailable
+          productInfo = ` (Product: ${formData.productName || product.productName})`
+          
+          // Show detailed availability info
+          if (requestedQuantity > availableQuantity) {
+            const receivedText = receivedAvailable > 0 ? `${receivedAvailable} received` : "0 received"
+            const pendingText = pendingAvailable > 0 ? `${pendingAvailable} pending from PO` : "0 pending"
+            Toast.error(
+              `⚠️ Product Stock Exceeded!\n\nOnly ${availableQuantity} plants available for ${formData.productName || product.productName} on ${moment(formData?.orderDate).format("DD/MM/YYYY")}\n(${receivedText}, ${pendingText})\n\nPlease reduce the order quantity or select a different product.`,
+              {
+                duration: 8000,
+                style: {
+                  background: "#fef2f2",
+                  color: "#dc2626",
+                  border: "2px solid #fecaca",
+                  borderRadius: "8px",
+                  fontSize: "14px",
+                  lineHeight: "1.5",
+                  whiteSpace: "pre-line"
+                }
+              }
+            )
+            return false
+          }
+        }
+      } else if (formData?.productName && selectedSlot?.productStock && selectedSlot.productStock.length > 0) {
+        // Fallback: check by productName
+        const product = selectedSlot.productStock.find(p => p.productName === formData.productName)
+        if (product) {
+          const receivedAvailable = (product.available || 0) - (product.booked || 0)
+          const pendingAvailable = product.poQuantity || 0
+          availableQuantity = receivedAvailable + pendingAvailable
+          productInfo = ` (Product: ${formData.productName})`
+        }
+      } else if (isDealerQuotaSlot) {
         // Use dealer quota data
         availableQuantity = selectedSlot.availableQuantity
         slotPeriod = `${selectedSlot.startDay} - ${selectedSlot.endDay} (DEALER QUOTA)`
@@ -1365,7 +1899,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
 
       if (availableQuantity !== null && requestedQuantity > availableQuantity) {
         Toast.error(
-          `⚠️ Slot Capacity Exceeded!\n\nOnly ${availableQuantity} plants available for ${moment(formData?.orderDate).format("DD/MM/YYYY")} (slot: ${slotPeriod})\n\nPlease select a different date or reduce the order quantity.`,
+          `⚠️ Slot Capacity Exceeded!\n\nOnly ${availableQuantity} plants available for ${moment(formData?.orderDate).format("DD/MM/YYYY")} (slot: ${slotPeriod})${productInfo}\n\nPlease select a different date or reduce the order quantity.`,
           {
             duration: 8000,
             style: {
@@ -1424,6 +1958,10 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
     return true
   }
 
+  // ============================================================================
+  // SUBMISSION FUNCTIONS
+  // ============================================================================
+  
   const handleSubmit = async () => {
     if (!validateForm()) return
 
@@ -1460,12 +1998,29 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
     const formDataForUpload = new FormData()
 
     try {
-      // Get slot ID from the selected order date
-      const slotId = getSlotIdForDate(formData?.orderDate)
+      // Get slot ID - use transferred slot if available, otherwise use date-based slot
+      let slotId = formData?.transferredSlotId || getSlotIdForDate(formData?.orderDate)
 
       if (!slotId) {
         throw new Error("Could not determine slot for the selected date")
       }
+
+        // If using transferred slot, log it
+        if (formData?.transferredSlotId) {
+          const transferredSlot = slots.find(s => s.value === formData.transferredSlotId)
+          console.log(`🔄 Booking transferred to nearby slot: ${transferredSlot?.startDay} - ${transferredSlot?.endDay}`)
+        }
+
+        // Log product mapping info if selected
+        if (formData?.productMappingId) {
+          const mapping = plantProductMappings.find(m => m._id === formData.productMappingId)
+          console.log(`📦 Ready Plants Product Selected:`, {
+            productMappingId: formData.productMappingId,
+            productName: formData.productName,
+            displayTitle: mapping?.displayTitle,
+            dateRange: mapping?.dateRange
+          })
+        }
 
       const selectedSlotDetails = slots.find((s) => s.value === slotId)
 
@@ -1521,6 +2076,8 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
           orderBookingDate:
             formData?.date instanceof Date ? formData?.date.toISOString() : formData?.date,
           dealerOrder: true,
+          productName: formData?.productName || undefined, // Product name reference for plant products
+          productMappingId: formData?.productMappingId || undefined, // PlantProductMapping ID for ready plants products
           dealer: formData?.dealer || formData?.sales,
           // If dealer is selected, send dealer ID as salesPerson, otherwise send sales person ID
           salesPerson: formData?.dealer || formData?.sales,
@@ -1568,7 +2125,10 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
           orderBookingDate:
             formData?.date instanceof Date ? formData?.date.toISOString() : formData?.date,
           // Screenshots will be handled separately in FormData
-          screenshots: formData?.screenshots?.map(s => s.file) || []
+          screenshots: formData?.screenshots?.map(s => s.file) || [],
+          productName: formData?.productName || undefined, // Product name reference for plant products
+          productMappingId: formData?.productMappingId || undefined, // PlantProductMapping ID for ready plants products
+          // Ensure productMappingId is included for ready plants orders
         }
 
         // Add dealer field if dealer is selected for normal orders
@@ -1816,9 +2376,12 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
       plant: "",
       subtype: "",
       orderDate: null, // Reset order date instead of selectedSlot
+      transferredSlotId: null, // Reset transferred slot
       cavity: "",
       sales: null,
       dealer: null,
+      productName: "", // Reset product name
+      productMappingId: "", // Reset product mapping ID for ready plants products
       // Reset Order For fields
       orderForEnabled: false,
       orderForName: "",
@@ -1836,6 +2399,9 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
     setShowConfirmation(false)
     setConfirmationData({})
     setRateManuallySet(false)
+    // Reset product-related state
+    setAllSlots([])
+    setFilteredSlotsByProduct([])
     // Reset payment to initial state
     setNewPayment({
       paidAmount: "",
@@ -1850,6 +2416,10 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
     onClose()
   }
 
+  // ============================================================================
+  // RENDER FUNCTIONS
+  // ============================================================================
+  
   const renderOrderTypeSelector = () => {
     if (user?.jobTitle === "DEALER") {
       return (
@@ -2004,6 +2574,36 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
     return null
   }
 
+  // ============================================================================
+  // KEYBOARD SHORTCUTS
+  // ============================================================================
+  
+  useEffect(() => {
+    if (!open) return
+
+    const handleKeyDown = (e) => {
+      // Ctrl/Cmd + S to submit
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault()
+        const completion = getFormCompletionPercentage()
+        if (!loading && completion >= 50) {
+          handleSubmit()
+        }
+      }
+      // Esc to close
+      if (e.key === 'Escape' && !showConfirmation) {
+        handleClose()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [open, loading, showConfirmation])
+
+  // ============================================================================
+  // MAIN RENDER
+  // ============================================================================
+  
   return (
     <Dialog
       open={open}
@@ -2015,13 +2615,39 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
         style: { maxHeight: "75vh", minHeight: "50vh" }
       }}>
       <DialogTitle className={classes.dialogTitle} sx={{ pb: 1 }}>
-        <Box display="flex" alignItems="center" gap={1}>
-          <AddIcon fontSize="small" />
-          <Typography variant="h6">Add New Order</Typography>
+        <Box display="flex" alignItems="center" justifyContent="space-between">
+          <Box display="flex" alignItems="center" gap={1}>
+            <AddIcon fontSize="small" />
+            <Typography variant="h6">Add New Order</Typography>
+            {getFormCompletionPercentage() > 0 && (
+              <Chip
+                label={`${getFormCompletionPercentage()}%`}
+                size="small"
+                sx={{
+                  height: 20,
+                  fontSize: '0.65rem',
+                  bgcolor: 'rgba(255,255,255,0.2)',
+                  color: 'white',
+                  fontWeight: 600
+                }}
+              />
+            )}
+          </Box>
+          <Box display="flex" alignItems="center" gap={0.5}>
+            <Tooltip title="Keyboard Shortcuts: Ctrl+S to submit, Esc to close">
+              <IconButton
+                className={classes.closeButton}
+                size="small"
+                sx={{ mr: 0.5 }}
+              >
+                <InfoIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            <IconButton className={classes.closeButton} onClick={handleClose} size="small">
+              <CloseIcon fontSize="small" />
+            </IconButton>
+          </Box>
         </Box>
-        <IconButton className={classes.closeButton} onClick={handleClose} size="small">
-          <CloseIcon fontSize="small" />
-        </IconButton>
       </DialogTitle>
 
       <DialogContent sx={{ p: 1 }}>
@@ -2031,6 +2657,75 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
               <CircularProgress size={60} />
             </Box>
           )}
+
+          {/* Form Progress Indicator */}
+          <Box sx={{ mb: 2, p: 1.5, bgcolor: '#f8f9fa', borderRadius: 2, border: '1px solid #e0e0e0' }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.75rem', fontWeight: 600 }}>
+                Form Completion
+              </Typography>
+              <Chip
+                label={`${getFormCompletionPercentage()}%`}
+                size="small"
+                color={getFormCompletionStatus().color}
+                sx={{ height: 22, fontSize: '0.75rem', fontWeight: 600 }}
+              />
+            </Box>
+            <Box sx={{ position: 'relative', height: 8, bgcolor: '#e0e0e0', borderRadius: 4, overflow: 'hidden' }}>
+              <Box
+                sx={{
+                  position: 'absolute',
+                  left: 0,
+                  top: 0,
+                  height: '100%',
+                  width: `${getFormCompletionPercentage()}%`,
+                  bgcolor: getFormCompletionPercentage() === 100 ? '#4caf50' : getFormCompletionPercentage() >= 75 ? '#ff9800' : '#2196f3',
+                  transition: 'width 0.3s ease',
+                  borderRadius: 4,
+                  boxShadow: getFormCompletionPercentage() === 100 ? '0 0 8px rgba(76, 175, 80, 0.4)' : 'none'
+                }}
+              />
+            </Box>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
+                {getFormCompletionStatus().text}
+              </Typography>
+              {getFormCompletionPercentage() < 100 && (
+                <Typography variant="caption" color="error" sx={{ fontSize: '0.65rem' }}>
+                  {100 - getFormCompletionPercentage()}% remaining
+                </Typography>
+              )}
+            </Box>
+            {/* Missing Fields Summary */}
+            {getMissingFields().length > 0 && getFormCompletionPercentage() < 100 && (
+              <Box sx={{ mt: 1.5, pt: 1.5, borderTop: '1px solid #e0e0e0' }}>
+                <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem', fontWeight: 600, display: 'block', mb: 0.5 }}>
+                  Missing Required Fields:
+                </Typography>
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                  {getMissingFields().slice(0, 5).map((field, idx) => (
+                    <Chip
+                      key={idx}
+                      label={field}
+                      size="small"
+                      variant="outlined"
+                      color="error"
+                      sx={{ height: 20, fontSize: '0.65rem' }}
+                    />
+                  ))}
+                  {getMissingFields().length > 5 && (
+                    <Chip
+                      label={`+${getMissingFields().length - 5} more`}
+                      size="small"
+                      variant="outlined"
+                      color="error"
+                      sx={{ height: 20, fontSize: '0.65rem' }}
+                    />
+                  )}
+                </Box>
+              </Box>
+            )}
+          </Box>
 
           {/* Stepper */}
           <Paper elevation={0} sx={{ mb: 0.5, p: 0.25, background: "transparent" }}>
@@ -2042,6 +2737,60 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
               ))}
             </Stepper>
           </Paper>
+
+          {/* Quick Actions Bar */}
+          {user?.jobTitle === "SUPERADMIN" || user?.jobTitle === "OFFICE_ADMIN" ? (
+            <Box sx={{ mb: 2, p: 1, bgcolor: '#f5f5f5', borderRadius: 1, display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
+              <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
+                Quick Actions:
+              </Typography>
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={() => {
+                  if (plants.length > 0 && subTypes.length > 0 && slots.length > 0) {
+                    handleInputChange('plant', plants[0].value)
+                    setTimeout(() => {
+                      if (subTypes.length > 0) {
+                        handleInputChange('subtype', subTypes[0].value)
+                        setTimeout(() => {
+                          if (slots.length > 0) {
+                            handleInputChange('orderDate', moment(slots[0].startDay, 'DD-MM-YYYY').toDate())
+                            handleInputChange('noOfPlants', '100')
+                            handleInputChange('rate', subTypes[0]?.rate?.toString() || '10')
+                          }
+                        }, 500)
+                      }
+                    }, 500)
+                    Toast.info('Quick fill applied - please review and adjust')
+                  }
+                }}
+                sx={{ fontSize: '0.7rem', height: 24 }}
+                disabled={!plants.length || loading}
+              >
+                Quick Fill Test Data
+              </Button>
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={() => {
+                  setFormData(prev => ({
+                    ...prev,
+                    mobileNumber: '9876543210',
+                    name: 'Test Farmer',
+                    village: 'Test Village',
+                    taluka: 'Test Taluka',
+                    district: 'Test District'
+                  }))
+                  Toast.info('Test farmer data filled')
+                }}
+                sx={{ fontSize: '0.7rem', height: 24 }}
+                disabled={loading}
+              >
+                Fill Test Farmer
+              </Button>
+            </Box>
+          ) : null}
 
           {renderOrderTypeSelector()}
           {renderQuotaTypeSelector()}
@@ -2097,20 +2846,32 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                       fullWidth
                       label="Mobile Number"
                       value={formData?.mobileNumber}
-                      onChange={(e) => handleInputChange("mobileNumber", e.target.value)}
-                      inputProps={{ maxLength: 10 }}
+                      onChange={(e) => {
+                        const value = e.target.value.replace(/[^0-9]/g, '').slice(0, 10)
+                        handleInputChange("mobileNumber", value)
+                      }}
+                      inputProps={{ maxLength: 10, pattern: "[0-9]*" }}
                       InputProps={{
                         endAdornment: mobileLoading && (
                           <CircularProgress size={20} color="primary" />
+                        ),
+                        startAdornment: formData?.mobileNumber && (
+                          <Box sx={{ mr: 1, color: 'text.secondary', fontSize: '0.875rem' }}>
+                            +91
+                          </Box>
                         )
                       }}
+                      error={formData?.mobileNumber?.length > 0 && formData?.mobileNumber?.length !== 10}
                       helperText={
-                        farmerData?.name
-                          ? "Farmer found in database - location auto-filled"
+                        formData?.mobileNumber?.length > 0 && formData?.mobileNumber?.length !== 10
+                          ? `Enter ${10 - formData.mobileNumber.length} more digits`
+                          : farmerData?.name
+                          ? "✓ Farmer found - location auto-filled"
                           : mobileLoading
-                          ? "Searching for farmer..."
-                          : "Enter 10-digit mobile number to auto-fill farmer details (500ms delay)"
+                          ? "🔍 Searching for farmer..."
+                          : "Enter 10-digit mobile number to auto-fill farmer details"
                       }
+                      placeholder="10-digit mobile number"
                     />
                   </Grid>
 
@@ -2747,6 +3508,254 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                   </FormControl>
                 </Grid>
 
+                {/* Ready Plants Product Selection - Show as compact cards */}
+                {formData?.plant && (
+                  <Grid item xs={12}>
+                    <Box sx={{ mb: 2 }}>
+                      <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600, color: "#2c3e50" }}>
+                        Ready Plants Products (From Other Nursery)
+                      </Typography>
+                      {mappingsLoading ? (
+                        <Box sx={{ display: "flex", alignItems: "center", gap: 1, p: 2 }}>
+                          <CircularProgress size={16} />
+                          <Typography variant="caption" color="text.secondary">
+                            Loading products...
+                          </Typography>
+                        </Box>
+                      ) : plantProductMappings.length > 0 ? (
+                        <>
+                        <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.5 }}>
+                        {/* Compact product cards */}
+                        {plantProductMappings.map((mapping) => {
+                          const availableQty = mapping.mappingAvailableQuantity !== undefined 
+                            ? mapping.mappingAvailableQuantity 
+                            : getAvailableQuantityForProduct(mapping)
+                          const isSelected = formData?.productMappingId === mapping._id
+                          
+                          // Get subtype name using helper function
+                          const plantIdForSubtype = mapping.plantId?._id || mapping.plantId || formData?.plant
+                          const subtypeName = getSubtypeName(mapping.subtypeId, plantIdForSubtype)
+                          
+                          return (
+                            <Box
+                              key={mapping._id}
+                              onClick={() => {
+                                handleInputChange("productMappingId", mapping._id)
+                                handleInputChange("productName", mapping.displayTitle || mapping.productName)
+                                // Auto-select subtype if not selected
+                                if (mapping.subtypeId && !formData?.subtype) {
+                                  handleInputChange("subtype", mapping.subtypeId)
+                                }
+                                // Filter slots based on this mapping's date range
+                                if (formData?.subtype) {
+                                  const filtered = allSlots.filter(slot => {
+                                    if (!slot.startDay || !slot.endDay) return false
+                                    const slotStart = moment(slot.startDay, "DD-MM-YYYY")
+                                    const slotEnd = moment(slot.endDay, "DD-MM-YYYY")
+                                    const productStart = moment(mapping.dateRange.startDate, "DD-MM-YYYY")
+                                    const productEnd = moment(mapping.dateRange.endDate, "DD-MM-YYYY")
+                                    // Check if slot overlaps with product date range
+                                    return (slotStart.isSameOrAfter(productStart, "day") && slotStart.isSameOrBefore(productEnd, "day")) ||
+                                           (slotEnd.isSameOrAfter(productStart, "day") && slotEnd.isSameOrBefore(productEnd, "day")) ||
+                                           (slotStart.isBefore(productStart, "day") && slotEnd.isAfter(productEnd, "day"))
+                                  })
+                                  setFilteredSlotsByProduct(filtered)
+                                  setSlots(filtered)
+                                }
+                                handleInputChange("orderDate", null)
+                              }}
+                              sx={{
+                                p: 1.5,
+                                borderRadius: 1.5,
+                                border: isSelected 
+                                  ? "2px solid #2196f3" 
+                                  : availableQty > 0 
+                                  ? "1.5px solid #4caf50" 
+                                  : "1px solid #e0e0e0",
+                                backgroundColor: isSelected 
+                                  ? "#e3f2fd" 
+                                  : availableQty > 0 
+                                  ? "#f1f8e9" 
+                                  : "#ffffff",
+                                cursor: "pointer",
+                                transition: "all 0.2s",
+                                position: "relative",
+                                "&:hover": {
+                                  backgroundColor: isSelected 
+                                    ? "#bbdefb" 
+                                    : availableQty > 0 
+                                    ? "#e8f5e9" 
+                                    : "#f5f5f5",
+                                  transform: "translateY(-1px)",
+                                  boxShadow: 2
+                                },
+                                minWidth: 160,
+                                maxWidth: 200,
+                                flex: "0 1 auto"
+                              }}
+                            >
+                              {/* Product Name */}
+                              <Typography 
+                                variant="body2" 
+                                fontWeight={600} 
+                                color="#2c3e50"
+                                sx={{ 
+                                  mb: 0.5,
+                                  fontSize: "0.875rem",
+                                  lineHeight: 1.2,
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  display: "-webkit-box",
+                                  WebkitLineClamp: 2,
+                                  WebkitBoxOrient: "vertical"
+                                }}
+                              >
+                                {mapping.displayTitle || mapping.productName}
+                              </Typography>
+                              
+                              {/* Subtype */}
+                              {subtypeName && (
+                                <Typography 
+                                  variant="caption" 
+                                  display="block" 
+                                  color="text.secondary"
+                                  sx={{ 
+                                    mb: 0.5,
+                                    fontSize: "0.7rem"
+                                  }}
+                                >
+                                  {subtypeName}
+                                </Typography>
+                              )}
+                              
+                              {/* Date Range */}
+                              <Typography 
+                                variant="caption" 
+                                display="block" 
+                                color="text.secondary"
+                                sx={{ 
+                                  mb: 0.75,
+                                  fontSize: "0.7rem"
+                                }}
+                              >
+                                {mapping.dateRange.startDate} to {mapping.dateRange.endDate}
+                              </Typography>
+                              
+                              {/* Available Quantity */}
+                              <Box sx={{ 
+                                display: "flex", 
+                                alignItems: "center", 
+                                justifyContent: "space-between",
+                                pt: 0.75,
+                                borderTop: "1px solid #e0e0e0"
+                              }}>
+                                <Typography 
+                                  variant="caption" 
+                                  color="text.secondary"
+                                  sx={{ 
+                                    fontSize: "0.7rem",
+                                    fontWeight: 500
+                                  }}
+                                >
+                                  Available:
+                                </Typography>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                  {availableQty > 0 && (
+                                    <Box
+                                      sx={{
+                                        width: 6,
+                                        height: 6,
+                                        borderRadius: '50%',
+                                        bgcolor: '#4caf50',
+                                        animation: availableQty > 0 ? 'pulse 2s infinite' : 'none',
+                                        '@keyframes pulse': {
+                                          '0%, 100%': { opacity: 1 },
+                                          '50%': { opacity: 0.5 }
+                                        }
+                                      }}
+                                    />
+                                  )}
+                                  <Typography 
+                                    variant="body2" 
+                                    sx={{ 
+                                      fontWeight: 700,
+                                      color: availableQty > 0 ? "#2e7d32" : "#757575",
+                                      fontSize: "0.9rem"
+                                    }}
+                                  >
+                                    {availableQty}
+                                  </Typography>
+                                </Box>
+                              </Box>
+                              
+                              {/* Selected indicator */}
+                              {isSelected && (
+                                <Box sx={{ 
+                                  position: "absolute", 
+                                  top: 4, 
+                                  right: 4 
+                                }}>
+                                  <CheckIcon 
+                                    color="primary" 
+                                    sx={{ 
+                                      fontSize: "18px",
+                                      backgroundColor: "white",
+                                      borderRadius: "50%",
+                                      p: 0.25
+                                    }} 
+                                  />
+                                </Box>
+                              )}
+                            </Box>
+                          )
+                        })}
+                      </Box>
+
+                      {/* Show selected product info */}
+                      {formData?.productMappingId && (() => {
+                        const mapping = plantProductMappings.find(m => m._id === formData.productMappingId)
+                        if (mapping) {
+                          const plantIdForSubtype = mapping.plantId?._id || mapping.plantId || formData?.plant
+                          const subtypeName = getSubtypeName(mapping.subtypeId, plantIdForSubtype)
+                          return (
+                            <Box sx={{ mt: 1.5, p: 1.5, bgcolor: "#e3f2fd", borderRadius: 1, border: "2px solid #2196f3" }}>
+                              <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.5 }}>
+                                <CheckIcon color="primary" sx={{ fontSize: "16px" }} />
+                                <Typography variant="body2" fontWeight={600} color="#1976d2" sx={{ fontSize: "0.875rem" }}>
+                                  Selected: {mapping.displayTitle || mapping.productName}
+                                </Typography>
+                              </Box>
+                              {subtypeName && (
+                                <Typography variant="caption" display="block" color="text.secondary" sx={{ mb: 0.5, fontSize: "0.7rem" }}>
+                                  <strong>Subtype:</strong> {subtypeName}
+                                </Typography>
+                              )}
+                              <Typography variant="caption" display="block" color="text.secondary" sx={{ mb: 0.5, fontSize: "0.7rem" }}>
+                                <strong>Date:</strong> {mapping.dateRange.startDate} to {mapping.dateRange.endDate}
+                              </Typography>
+                              <Typography variant="caption" display="block" color="text.secondary" sx={{ mb: 0.5, fontSize: "0.7rem" }}>
+                                <strong>Available:</strong> {mapping.mappingAvailableQuantity !== undefined ? mapping.mappingAvailableQuantity : getAvailableQuantityForProduct(mapping)} plants
+                              </Typography>
+                            </Box>
+                          )
+                        }
+                        return null
+                      })()}
+                        </>
+                      ) : (
+                        <Alert severity="info" sx={{ mb: 2 }}>
+                          <Typography variant="body2">
+                            No ready plants products available for {plants.find(p => p.value === formData?.plant)?.label || "selected plant"}.
+                          </Typography>
+                          <Typography variant="caption" display="block" sx={{ mt: 1 }}>
+                            You can still place orders using our own stock by selecting a slot below.
+                          </Typography>
+                        </Alert>
+                      )}
+                    </Box>
+                  </Grid>
+                )}
+
                 <Grid item xs={12} md={6}>
                   <FormControl fullWidth>
                     <InputLabel>Select Cavity</InputLabel>
@@ -2840,7 +3849,14 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                     <DatePicker
                       label="Order Date *"
                       value={formData?.orderDate}
-                      onChange={(date) => handleInputChange("orderDate", date)}
+                      onChange={(date) => {
+                        handleInputChange("orderDate", date)
+                        // Clear transferred slot when order date changes
+                        handleInputChange("transferredSlotId", null)
+                        // Update available quantity based on selected product
+                        const availableQty = getAvailableQuantityForDate(date, formData?.productMappingId, formData?.productName)
+                        setAvailable(availableQty)
+                      }}
                       disabled={!formData?.subtype}
                       shouldDisableDate={isDateDisabled}
                       renderInput={(params) => (
@@ -2859,13 +3875,216 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                   </LocalizationProvider>
                 </Grid>
 
+                {/* Nearby Slots Suggestion - Show only if slots have availability */}
+                {formData?.orderDate && (() => {
+                  const selectedDate = formData.orderDate
+                  const slotId = getSlotIdForDate(selectedDate)
+                  const currentAvailability = getAvailableQuantityForDate(selectedDate, formData?.productMappingId, formData?.productName)
+                  
+                  // Check if current slot has insufficient availability
+                  const requestedQty = parseInt(formData?.noOfPlants) || 0
+                  const hasInsufficientAvailability = currentAvailability !== null && currentAvailability < requestedQty
+                  
+                  // Find nearby available slots
+                  const nearbySlots = findNearbyAvailableSlots(selectedDate, formData?.productMappingId, formData?.productName)
+                  
+                  // Only show if there are slots with actual availability (> 0)
+                  const hasAvailableSlots = nearbySlots.length > 0 && nearbySlots.some(slot => slot.calculatedAvailability > 0)
+                  
+                  // Show loading state or available slots
+                  if (slotsLoading) {
+                    return (
+                      <Grid item xs={12}>
+                        <Box
+                          sx={{
+                            p: 1.5,
+                            borderRadius: 1.5,
+                            border: "1px solid #ff9800",
+                            backgroundColor: "#fff3e0",
+                            mt: 1
+                          }}>
+                          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, mb: 1 }}>
+                            <CircularProgress size={14} sx={{ color: "#ff9800" }} />
+                            <Typography variant="caption" fontWeight={600} color="#e65100">
+                              Loading available slots...
+                            </Typography>
+                          </Box>
+                        </Box>
+                      </Grid>
+                    )
+                  }
+                  
+                  if (hasAvailableSlots) {
+                    return (
+                      <Grid item xs={12}>
+                        <Box
+                          sx={{
+                            p: 1.5,
+                            borderRadius: 1.5,
+                            border: "1px solid #ff9800",
+                            backgroundColor: "#fff3e0",
+                            mt: 1
+                          }}>
+                          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, mb: 1 }}>
+                            <InfoIcon sx={{ color: "#ff9800", fontSize: "18px" }} />
+                            <Typography variant="caption" fontWeight={600} color="#e65100">
+                              Other Available Slots
+                            </Typography>
+                          </Box>
+                          
+                          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75 }}>
+                            {nearbySlots.slice(0, 5).map((slot) => {
+                              const slotStart = moment(slot.startDay, "DD-MM-YYYY")
+                              const slotEnd = moment(slot.endDay, "DD-MM-YYYY")
+                              const selectedMoment = moment(selectedDate)
+                              const isBefore = slotStart.isBefore(selectedMoment, "day")
+                              const directionText = isBefore 
+                                ? `-${slot.daysDifference}d` 
+                                : `+${slot.daysDifference}d`
+                              
+                              const isSelected = formData?.transferredSlotId === slot.value
+                              const hasEnoughAvailability = slot.calculatedAvailability >= requestedQty
+                              
+                              return (
+                                <Chip
+                                  key={slot.value}
+                                  label={`${slot.startDay.split('-')[0]}-${slot.endDay.split('-')[0]} ${directionText} (${slot.calculatedAvailability})`}
+                                  onClick={() => {
+                                    handleInputChange("transferredSlotId", slot.value)
+                                    const availableQty = getAvailableQuantityForDate(
+                                      slotStart.toDate(), 
+                                      formData?.productMappingId,
+                                      formData?.productName
+                                    )
+                                    setAvailable(availableQty)
+                                    Toast.success(`Booking transferred to: ${slot.startDay} - ${slot.endDay}`)
+                                  }}
+                                  sx={{
+                                    cursor: "pointer",
+                                    border: isSelected 
+                                      ? "2px solid #ff9800" 
+                                      : hasEnoughAvailability 
+                                      ? "1px solid #4caf50" 
+                                      : "1px solid #ff9800",
+                                    backgroundColor: isSelected 
+                                      ? "#ffe0b2" 
+                                      : hasEnoughAvailability 
+                                      ? "#e8f5e9" 
+                                      : "#fff3e0",
+                                    color: isSelected 
+                                      ? "#e65100" 
+                                      : hasEnoughAvailability 
+                                      ? "#2e7d32" 
+                                      : "#f57c00",
+                                    fontWeight: isSelected ? 700 : 600,
+                                    "&:hover": {
+                                      backgroundColor: isSelected 
+                                        ? "#ffcc80" 
+                                        : hasEnoughAvailability 
+                                        ? "#c8e6c9" 
+                                        : "#ffe0b2",
+                                      transform: "translateY(-1px)",
+                                      boxShadow: "0 2px 4px rgba(0,0,0,0.1)"
+                                    },
+                                    fontSize: "0.75rem",
+                                    height: "28px",
+                                    transition: "all 0.2s ease"
+                                  }}
+                                  size="small"
+                                  icon={isSelected ? <CheckIcon fontSize="small" sx={{ color: "#e65100" }} /> : undefined}
+                                />
+                              )
+                            })}
+                          </Box>
+                          
+                          {formData?.transferredSlotId && (
+                            <Typography variant="caption" sx={{ mt: 0.5, display: "block", color: "#e65100", fontWeight: 600 }}>
+                              ✓ Booking will be transferred to selected slot
+                            </Typography>
+                          )}
+                        </Box>
+                      </Grid>
+                    )
+                  }
+                  return null
+                })()}
+
+
+                {/* Product Name Selection - Show when slot is selected and has productStock */}
+                {formData?.orderDate && (() => {
+                  const slotId = getSlotIdForDate(formData.orderDate)
+                  const selectedSlot = slots.find(s => s.value === slotId)
+                  const hasProductStock = selectedSlot?.productStock && selectedSlot.productStock.length > 0
+                  
+                  if (hasProductStock) {
+                    return (
+                      <Grid item xs={12} md={6}>
+                        <FormControl fullWidth>
+                          <InputLabel>Select Product (From Other Nursery)</InputLabel>
+                          <Select
+                            value={formData?.productName || ""}
+                            onChange={(e) => handleInputChange("productName", e.target.value)}
+                            label="Select Product (From Other Nursery)"
+                          >
+                            <MenuItem value="">
+                              <em>None - Use Our Stock</em>
+                            </MenuItem>
+                            {selectedSlot.productStock.map((product) => {
+                              const receivedAvailable = (product.available || 0) - (product.booked || 0)
+                              const pendingAvailable = product.poQuantity || 0
+                              const totalAvailable = receivedAvailable + pendingAvailable
+                              const statusText = product.received 
+                                ? `${receivedAvailable} available (received)` 
+                                : `${pendingAvailable} pending (GRN not approved)`
+                              
+                              return (
+                                <MenuItem key={product.productName} value={product.productName}>
+                                  {product.productName} - {totalAvailable} available ({statusText})
+                                </MenuItem>
+                              )
+                            })}
+                          </Select>
+                          {formData?.productName && (() => {
+                            const product = selectedSlot.productStock.find(p => p.productName === formData.productName)
+                            if (product) {
+                              const receivedAvailable = (product.available || 0) - (product.booked || 0)
+                              const pendingAvailable = product.poQuantity || 0
+                              const totalAvailable = receivedAvailable + pendingAvailable
+                              
+                              return (
+                                <Box sx={{ mt: 1, p: 1, bgcolor: "#e3f2fd", borderRadius: 1 }}>
+                                  <Typography variant="caption" display="block">
+                                    <strong>{product.productName}:</strong>
+                                  </Typography>
+                                  <Typography variant="caption" display="block">
+                                    Available: {totalAvailable} ({receivedAvailable} received, {pendingAvailable} pending)
+                                  </Typography>
+                                  <Typography variant="caption" display="block">
+                                    Booked: {product.booked || 0}
+                                  </Typography>
+                                </Box>
+                              )
+                            }
+                            return null
+                          })()}
+                        </FormControl>
+                      </Grid>
+                    )
+                  }
+                  return null
+                })()}
+
                 <Grid item xs={12} md={6}>
                   <TextField
                     fullWidth
                     label="Number of Plants"
                     type="number"
                     value={formData?.noOfPlants}
-                    onChange={(e) => handleInputChange("noOfPlants", e.target.value)}
+                    onChange={(e) => {
+                      const value = e.target.value.replace(/[^0-9]/g, '')
+                      handleInputChange("noOfPlants", value)
+                    }}
+                    inputProps={{ min: 1, step: 1 }}
                     error={
                       quotaType === "dealer" &&
                       formData?.plant &&
@@ -2881,10 +4100,13 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                       formData?.orderDate &&
                       formData?.noOfPlants
                         ? parseInt(formData?.noOfPlants) > (getRemainingQuantity() || 0)
-                          ? `Exceeds available dealer quota (${getRemainingQuantity() || 0})`
-                          : `Available dealer quota: ${getRemainingQuantity() || 0}`
+                          ? `⚠️ Exceeds available dealer quota (${getRemainingQuantity() || 0})`
+                          : `✓ Available dealer quota: ${getRemainingQuantity() || 0}`
+                        : formData?.noOfPlants && formData?.rate
+                        ? `Estimated Total: ₹${(parseInt(formData.noOfPlants) || 0) * (parseFloat(formData.rate) || 0)}`
                         : ""
                     }
+                    placeholder="Enter quantity"
                   />
                 </Grid>
 
@@ -2986,8 +4208,70 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                     </Grid>
                   )}
                 
-                {/* Sowing-Allowed Plant Info */}
-                {plants.find((p) => p.value === formData?.plant)?.sowingAllowed && formData?.noOfPlants && (
+                {/* Ready Plants Product Quantity Validation - Show if product is selected */}
+                {formData?.productMappingId && formData?.noOfPlants && (() => {
+                  const mapping = plantProductMappings.find(m => m._id === formData.productMappingId)
+                  if (mapping) {
+                    const availableQty = mapping.mappingAvailableQuantity !== undefined 
+                      ? mapping.mappingAvailableQuantity 
+                      : getAvailableQuantityForProduct(mapping)
+                    const requestedQty = parseInt(formData?.noOfPlants) || 0
+                    
+                    if (requestedQty > availableQty) {
+                      return (
+                        <Grid item xs={12}>
+                          <Box
+                            sx={{
+                              p: 2,
+                              borderRadius: 2,
+                              border: "2px solid #fecaca",
+                              backgroundColor: "#fef2f2",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 2
+                            }}>
+                            <Box
+                              sx={{
+                                width: 24,
+                                height: 24,
+                                borderRadius: "50%",
+                                backgroundColor: "#dc2626",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                color: "white",
+                                fontSize: "14px",
+                                fontWeight: "bold"
+                              }}>
+                              ⚠️
+                            </Box>
+                            <Box sx={{ flex: 1 }}>
+                              <Typography
+                                variant="body2"
+                                fontWeight={600}
+                                color="#dc2626"
+                                sx={{ mb: 0.5 }}>
+                                Product Stock Exceeded!
+                              </Typography>
+                              <Typography variant="body2" color="#7f1d1d">
+                                You&apos;re trying to book {requestedQty} plants, but only {availableQty} are available for {mapping.displayTitle || mapping.productName}.
+                              </Typography>
+                              <Typography variant="body2" color="#7f1d1d" sx={{ mt: 0.5 }}>
+                                Please reduce the order quantity or select a different product.
+                              </Typography>
+                            </Box>
+                          </Box>
+                        </Grid>
+                      )
+                    }
+                  }
+                  return null
+                })()}
+
+                {/* Sowing-Allowed Plant Info - Only show if NO ready plants product is selected */}
+                {plants.find((p) => p.value === formData?.plant)?.sowingAllowed && 
+                 formData?.noOfPlants && 
+                 !formData?.productMappingId && (
                   <Grid item xs={12}>
                     <Box
                       sx={{
@@ -3484,20 +4768,44 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
         </Box>
       </DialogContent>
 
-      <DialogActions sx={{ p: 0.5, background: "#fafafa", borderTop: "1px solid #e0e0e0" }}>
-        <Button onClick={handleClose} color="secondary" variant="outlined" size="small">
-          Cancel
-        </Button>
-        <Button
-          onClick={handleSubmit}
-          variant="contained"
-          color="primary"
-          disabled={loading}
-          className={classes.submitButton}
-          size="small"
-          startIcon={loading ? <CircularProgress size={14} /> : <AddIcon fontSize="small" />}>
-          {loading ? "Adding Order..." : "Add Order"}
-        </Button>
+      <DialogActions sx={{ p: 1, background: "#fafafa", borderTop: "1px solid #e0e0e0", justifyContent: "space-between" }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          {formData?.noOfPlants && formData?.rate && (
+            <Chip
+              label={`Total: ₹${(parseInt(formData.noOfPlants) || 0) * (parseFloat(formData.rate) || 0)}`}
+              color="primary"
+              variant="outlined"
+              size="small"
+              sx={{ fontWeight: 600 }}
+            />
+          )}
+          <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
+            {getFormCompletionPercentage()}% complete
+          </Typography>
+        </Box>
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <Button 
+            onClick={handleClose} 
+            color="secondary" 
+            variant="outlined" 
+            size="small"
+            disabled={loading}
+          >
+            Cancel (Esc)
+          </Button>
+          <Button
+            onClick={handleSubmit}
+            variant="contained"
+            color="primary"
+            disabled={loading || getFormCompletionPercentage() < 50}
+            className={classes.submitButton}
+            size="small"
+            startIcon={loading ? <CircularProgress size={14} /> : <AddIcon fontSize="small" />}
+            title={getFormCompletionPercentage() < 50 ? "Please fill at least 50% of the form" : "Press Ctrl+S to submit"}
+          >
+            {loading ? "Adding Order..." : `Add Order (Ctrl+S)`}
+          </Button>
+        </Box>
       </DialogActions>
 
       {/* Confirmation Dialog */}
@@ -3559,6 +4867,35 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                 <Typography variant="body2" sx={{ mb: 0.5 }}>
                   <strong>Sales Person:</strong> {confirmationData.salesPerson}
                 </Typography>
+                {/* Show product info if explicitly selected */}
+                {confirmationData.isReadyPlantsProduct && confirmationData.productName && (
+                  <Box sx={{ mt: 1.5, p: 1.5, bgcolor: "#e3f2fd", borderRadius: 1, border: "1px solid #2196f3" }}>
+                    <Typography variant="body2" sx={{ mb: 0.5, fontWeight: 600, color: "#1976d2" }}>
+                      📦 Ready Plants Product (Explicitly Selected)
+                    </Typography>
+                    <Typography variant="body2" sx={{ mb: 0.5 }}>
+                      <strong>Product:</strong> {confirmationData.productName}
+                    </Typography>
+                    {confirmationData.productDateRange && (
+                      <Typography variant="body2" sx={{ mb: 0.5 }}>
+                        <strong>Date Range:</strong> {confirmationData.productDateRange}
+                      </Typography>
+                    )}
+                    <Typography variant="caption" color="text.secondary" sx={{ fontStyle: "italic" }}>
+                      This order will be booked against the selected ready plants product from other nursery
+                    </Typography>
+                  </Box>
+                )}
+                {!confirmationData.isReadyPlantsProduct && (
+                  <Box sx={{ mt: 1.5, p: 1.5, bgcolor: "#e8f5e9", borderRadius: 1, border: "1px solid #4caf50" }}>
+                    <Typography variant="body2" sx={{ fontWeight: 600, color: "#2e7d32" }}>
+                      🌱 Using Our Own Stock
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Order will be fulfilled from our nursery&apos;s stock
+                    </Typography>
+                  </Box>
+                )}
               </Box>
 
               {/* Order For Details */}

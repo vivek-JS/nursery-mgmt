@@ -289,6 +289,14 @@ export const API = {
     GET_ALL_ADJUSTMENTS: new APIRouter("/inventory/adjustments", HTTP_METHODS.GET),
     CREATE_ADJUSTMENT: new APIRouter("/inventory/adjustments", HTTP_METHODS.POST),
 
+    // Plant Product Mappings (Ready Plants Products)
+    GET_ALL_PLANT_PRODUCT_MAPPINGS: new APIRouter("/plant-product-mappings", HTTP_METHODS.GET),
+    GET_PLANT_PRODUCT_MAPPING_BY_ID: new APIRouter("/plant-product-mappings", HTTP_METHODS.GET),
+    CREATE_PLANT_PRODUCT_MAPPING: new APIRouter("/plant-product-mappings", HTTP_METHODS.POST),
+    UPDATE_PLANT_PRODUCT_MAPPING: new APIRouter("/plant-product-mappings", HTTP_METHODS.PUT),
+    DELETE_PLANT_PRODUCT_MAPPING: new APIRouter("/plant-product-mappings", HTTP_METHODS.DEL),
+    GET_MAPPINGS_BY_PLANT_SUBTYPE: new APIRouter("/plant-product-mappings/plant/:plantId/subtype/:subtypeId", HTTP_METHODS.GET),
+
     // Legacy endpoints (keeping for backward compatibility)
     ADD_INVENTORY: new APIRouter(
       "api/v2/inventory/createInventory",
@@ -364,6 +372,9 @@ export const API = {
   excel: {
     VALIDATE_EXCEL: new APIRouter("/excel/validate-excel", HTTP_METHODS.POST, OFFLINE.PROFILE),
     IMPORT_EXCEL: new APIRouter("/excel/import-excel", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    IMPORT_ORDERS_WITH_PAYMENT: new APIRouter("/excel/import-orders-with-payment", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    RETRY_ERRORFUL_ORDERS: new APIRouter("/excel/retry-errorful-orders", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    GET_ERRORFUL_ORDERS: new APIRouter("/excel/errorful-orders", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_UNPROCESSED_FILES: new APIRouter("/excel/unprocessed-files", HTTP_METHODS.GET, OFFLINE.PROFILE),
     DOWNLOAD_UNPROCESSED_EXCEL: new APIRouter("/excel/download-unprocessed", HTTP_METHODS.GET, OFFLINE.PROFILE)
   },

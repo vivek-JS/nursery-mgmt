@@ -83,6 +83,7 @@
     "tailwindcss-animate": "^1.0.7",
     "tss-react": "^4.8.8",
     "web-vitals": "^3.1.1",
+    "xlsx-populate": "^1.21.0",
     "yup": "^0.32.11"
   },
   "eslintConfig": {

@@ -61,6 +61,7 @@ const OrderBucketing = React.lazy(() => import("pages/private/OrderBucketing"))
 const FollowUpManagement = React.lazy(() => import("pages/private/followUp"))
 const TaskManagement = React.lazy(() => import("pages/private/tasks"))
 const DispatchOrderList = React.lazy(() => import("pages/private/Dispatch/DispatchOrderList"))
+const DispatchedListPage = React.lazy(() => import("pages/private/Dispatch/DispatchedListPage"))
 
 export const PrivateRoutes = [
   { path: "/u/dashboard", component: Dashboard },
@@ -127,5 +128,5 @@ export const PrivateRoutes = [
   { path: "/u/order-bucketing", component: OrderBucketing },
   { path: "/u/follow-ups", component: FollowUpManagement },
   { path: "/u/tasks", component: TaskManagement },
-  { path: "/u/dispatch-orders", component: DispatchOrderList }
+  { path: "/u/dispatch-orders", component: DispatchedListPage }
 ]

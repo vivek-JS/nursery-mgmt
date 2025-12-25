@@ -199,6 +199,12 @@ const customStyles = `
     color: #0e7490;
   }
 
+  .status-temporary-cancelled {
+    background: linear-gradient(135deg, #fed7aa 0%, #fdba74 100%);
+    border-color: #f97316;
+    color: #9a3412;
+  }
+
   /* Order For highlighting */
   .order-for-highlight {
     background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
@@ -661,7 +667,8 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
     { label: "Completed", value: "COMPLETED" },
     { label: "Partially Completed", value: "PARTIALLY_COMPLETED" },
     { label: "Ready For Dispatch", value: "FARM_READY" },
-    { label: "Loading", value: "DISPATCH_PROCESS" }
+    { label: "Loading", value: "DISPATCH_PROCESS" },
+    { label: "Temporary Cancelled", value: "TEMPORARY_CANCELLED" }
   ]
 
 
@@ -2027,6 +2034,8 @@ const mapSlotForUi = (slotData) => {
       case "REJECTED":
       case "CANCELLED":
         return "bg-red-100 text-red-700"
+      case "TEMPORARY_CANCELLED":
+        return "bg-orange-100 text-orange-700"
       case "DISPATCHED":
       case "PROCESSING":
         return "bg-blue-100 text-blue-700"

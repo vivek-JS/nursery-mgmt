@@ -1,5 +1,5 @@
 import * as React from "react"
-import { useEffect } from "react"
+import { useEffect, useRef } from "react"
 import { styled } from "@mui/material/styles"
 import {
   Box,
@@ -78,17 +78,38 @@ export default function PrivateLayout(props) {
 
   const userType = useSelector((state) => state?.userData?.userData?.jobTitle)
   const userRole = useUserRole()
+  const userData = useSelector((state) => state?.userData?.userData)
+  const primaryRedirectRef = useRef(false)
+  const dispatchRedirectRef = useRef(false)
+  const lastPathRef = useRef(location.pathname)
+  
   console.log("User Type:", userType, "User Role:", userRole)
   
   // Check if user is PRIMARY employee
   const isPrimaryEmployee = userType && (userType.toUpperCase() === "PRIMARY")
   const isSuperAdmin = userRole === "SUPER_ADMIN" || userRole === "SUPERADMIN"
   const isAdmin = userRole === "ADMIN"
-  const isDispatchManager = userRole === "DISPATCH_MANAGER"
+  // Check dispatch manager by both role and jobTitle (since some users have role=FARMER but jobTitle=DISPATCH_MANAGER)
+  const isDispatchManager = userRole === "DISPATCH_MANAGER" || userType === "DISPATCH_MANAGER" || userData?.jobTitle === "DISPATCH_MANAGER"
+  
+  // Reset redirect flags when path changes (user navigated to a different route)
+  useEffect(() => {
+    if (lastPathRef.current !== location.pathname) {
+      primaryRedirectRef.current = false
+      dispatchRedirectRef.current = false
+      lastPathRef.current = location.pathname
+    }
+  }, [location.pathname])
   
   // PRIMARY users can ONLY access /u/primary-sowing-entry route
   // Redirect them immediately if they try to access any other route
   useEffect(() => {
+    // Only run redirect if user data is loaded (to prevent infinite loops)
+    if (!userData) return
+    
+    // Prevent multiple redirects for the same path
+    if (primaryRedirectRef.current) return
+    
     if (isPrimaryEmployee && !isSuperAdmin && !isAdmin) {
       const currentPath = location.pathname
       // With BrowserRouter, pathname is the actual route path
@@ -97,15 +118,22 @@ export default function PrivateLayout(props) {
       if (!isPrimarySowingRoute) {
         // Redirect PRIMARY users to primary sowing entry page
         console.log(`[PrivateLayout] PRIMARY user accessing ${currentPath}, redirecting to /u/primary-sowing-entry`)
+        primaryRedirectRef.current = true
         navigate("/u/primary-sowing-entry", { replace: true })
       }
     }
-  }, [isPrimaryEmployee, isSuperAdmin, isAdmin, location.pathname, navigate])
+  }, [isPrimaryEmployee, isSuperAdmin, isAdmin, location.pathname, navigate, userData])
   
   // DISPATCH_MANAGER users can ONLY access /u/dispatch-orders route
   // Redirect them immediately if they try to access any other route
   // SUPER_ADMIN can access all routes, so don't redirect them
   useEffect(() => {
+    // Only run redirect if user data is loaded (to prevent infinite loops)
+    if (!userData) return
+    
+    // Prevent multiple redirects for the same path
+    if (dispatchRedirectRef.current) return
+    
     if (isDispatchManager && !isSuperAdmin && !isAdmin) {
       const currentPath = location.pathname
       const isDispatchOrdersRoute = currentPath === "/u/dispatch-orders" || currentPath.includes("/u/dispatch-orders")
@@ -113,10 +141,11 @@ export default function PrivateLayout(props) {
       if (!isDispatchOrdersRoute) {
         // Redirect DISPATCH_MANAGER users to dispatch orders page
         console.log(`[PrivateLayout] DISPATCH_MANAGER user accessing ${currentPath}, redirecting to /u/dispatch-orders`)
+        dispatchRedirectRef.current = true
         navigate("/u/dispatch-orders", { replace: true })
       }
     }
-  }, [isDispatchManager, isSuperAdmin, isAdmin, location.pathname, navigate])
+  }, [isDispatchManager, isSuperAdmin, isAdmin, location.pathname, navigate, userData])
   
   // Hide sidebar for primary sowing entry route and dispatch orders route
   // With BrowserRouter, pathname is the actual route path

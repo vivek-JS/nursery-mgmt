@@ -20,6 +20,7 @@ import AccountTreeIcon from "@mui/icons-material/AccountTree"
 import TrendingDownIcon from "@mui/icons-material/TrendingDown"
 import AssignmentIcon from "@mui/icons-material/Assignment"
 import TaskIcon from "@mui/icons-material/Task"
+import CloudUploadIcon from "@mui/icons-material/CloudUpload"
 
 export const DashboardMenus = [
   new MenuPath("Orders", <HomeIcon />, "/u/dashboard"),
@@ -45,7 +46,7 @@ export const DashboardMenus = [
   new MenuPath("Labs", <BiotechIcon />, "/u/labs", ["LABORATORY_MANAGER", "SUPER_ADMIN"]),
   new MenuPath("Order", <ListAltIcon />, "/u/orders"),
   new MenuPath("Order Bucketing", <AccountTreeIcon />, "/u/order-bucketing"),
-  new MenuPath("Orders-upload", <ListAltIcon />, "/u/upload-orders"),
+  new MenuPath("Excel Import", <CloudUploadIcon />, "/u/upload-orders"),
   new MenuPath("Dealers", <ListAltIcon />, "/u/dealers"),
   new MenuPath("Payments", <PaymentIcon />, "/u/payments", ["ACCOUNTANT", "SUPER_ADMIN"]),
   new MenuPath("WhatsApp Management", <WhatsAppIcon />, "/u/whatsapp", ["SUPER_ADMIN"]),

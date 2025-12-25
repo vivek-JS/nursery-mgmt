@@ -12,7 +12,8 @@ import {
   Paper,
   Stepper,
   Step,
-  StepLabel
+  StepLabel,
+  TextField
 } from "@mui/material"
 import {
   UploadCloud,
@@ -35,6 +36,7 @@ import AddVarietyModal from "../Plants/AddVarietyModal"
 
 const ExcelUpload = () => {
   const [file, setFile] = useState(null)
+  const [password, setPassword] = useState("")
   const [validationResult, setValidationResult] = useState(null)
   const [isValid, setIsValid] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -45,6 +47,10 @@ const ExcelUpload = () => {
   const [unprocessedRowsCount, setUnprocessedRowsCount] = useState(0)
   const [unprocessedFilesList, setUnprocessedFilesList] = useState([])
   const [loadingFiles, setLoadingFiles] = useState(false)
+  const [errorfulOrders, setErrorfulOrders] = useState([])
+  const [loadingErrorfulOrders, setLoadingErrorfulOrders] = useState(false)
+  const [retrying, setRetrying] = useState(false)
+  const [rowLimit, setRowLimit] = useState("")
 
   // Employee modal state
   const [isEmployeeModalOpen, setIsEmployeeModalOpen] = useState(false)
@@ -453,39 +459,58 @@ const ExcelUpload = () => {
 
     setLoading(true)
     try {
-      // Always call the import API (it validates internally)
-      const instance = NetworkManager(API.plantCms.IMPORT_EXCEL, true)
-      const response = await instance.request({ file })
+      // Use the new import endpoint that supports password-protected files
+      const instance = NetworkManager(API.excel.IMPORT_ORDERS_WITH_PAYMENT, true)
+      const formData = new FormData()
+      formData.append('file', file)
+      if (password) {
+        formData.append('password', password)
+      }
+      if (rowLimit && !isNaN(rowLimit) && parseInt(rowLimit) > 0) {
+        formData.append('rowLimit', parseInt(rowLimit))
+      }
+      
+      const response = await instance.request(formData)
 
       if (response?.data?.status === "success") {
         const data = response.data.data || {}
         
-        if (data.failedImports && data.failedImports.length > 0) {
-          setFailedImports(data.failedImports)
+        if (data.errors && data.errors.length > 0) {
+          setFailedImports(data.errors.map(err => ({ error: err })))
         }
 
         setImportSummary({
-          total: data.summary?.totalProcessed || 0,
-          success: data.summary?.successfulImports || 0,
-          failed: data.summary?.failedImports || 0
+          total: (data.success || 0) + (data.failed || 0),
+          success: data.success || 0,
+          failed: data.failed || 0
         })
 
-        // Set unprocessed file info if available
-        if (data.unprocessedFileUrl && data.unprocessedRowsCount > 0) {
-          setUnprocessedFileUrl(data.unprocessedFileUrl)
-          setUnprocessedRowsCount(data.unprocessedRowsCount)
-        } else {
-          setUnprocessedFileUrl(null)
-          setUnprocessedRowsCount(0)
+        // Display auto-created entities
+        if (data.autoCreatedFarmers && data.autoCreatedFarmers.length > 0) {
+          Toast.info(`${data.autoCreatedFarmers.length} farmer(s) auto-created`)
+        }
+        if (data.autoCreatedSalesPersons && data.autoCreatedSalesPersons.length > 0) {
+          Toast.info(`${data.autoCreatedSalesPersons.length} sales person(s) auto-created`)
+        }
+        if (data.autoCreatedTrays && data.autoCreatedTrays.length > 0) {
+          Toast.info(`${data.autoCreatedTrays.length} tray(s) auto-created`)
+        }
+        if (data.autoCreatedReferenceUsers && data.autoCreatedReferenceUsers.length > 0) {
+          Toast.info(`${data.autoCreatedReferenceUsers.length} reference user(s) auto-created`)
         }
 
-        const successCount = data.summary?.successfulImports || 0
-        const failedCount = data.summary?.failedImports || 0
+        // Fetch errorful orders if any
+        if (data.errorfulOrdersCount > 0) {
+          fetchErrorfulOrders()
+        }
+
+        const successCount = data.success || 0
+        const failedCount = data.failed || 0
         
         if (failedCount > 0) {
-          Toast.warning(`Import completed: ${successCount} successful, ${failedCount} failed. Download unprocessed rows file to review errors.`)
+          Toast.warning(`Import completed: ${successCount} successful, ${failedCount} failed. Check errorful orders below.`)
         } else {
-          Toast.success(`Import completed successfully: ${successCount} rows imported`)
+          Toast.success(`Import completed successfully: ${successCount} orders imported`)
         }
       } else {
         Toast.error(response?.data?.message || "Import failed")
@@ -499,8 +524,53 @@ const ExcelUpload = () => {
     setLoading(false)
   }
 
+  // Fetch errorful orders
+  const fetchErrorfulOrders = async () => {
+    setLoadingErrorfulOrders(true)
+    try {
+      const instance = NetworkManager(API.excel.GET_ERRORFUL_ORDERS, true)
+      // GET request - NetworkManager handles query params automatically
+      const response = await instance.request()
+      if (response?.data?.status === 'success') {
+        setErrorfulOrders(response.data.data?.orders || [])
+      }
+    } catch (err) {
+      console.error('Error fetching errorful orders:', err)
+    } finally {
+      setLoadingErrorfulOrders(false)
+    }
+  }
+
+  // Retry errorful orders
+  const handleRetryErrorfulOrders = async () => {
+    setRetrying(true)
+    try {
+      const instance = NetworkManager(API.excel.RETRY_ERRORFUL_ORDERS, true)
+      const response = await instance.request({
+        filter: { isResolved: false, successfullyImported: false }
+      })
+
+      if (response?.data?.status === 'success') {
+        const data = response.data.data || {}
+        Toast.success(`Retry completed: ${data.success} successful, ${data.failed} failed`)
+        
+        // Refresh errorful orders list
+        fetchErrorfulOrders()
+      } else {
+        Toast.error(response?.data?.message || "Retry failed")
+      }
+    } catch (err) {
+      console.error('Error retrying orders:', err)
+      Toast.error(err?.data?.message || "Error retrying orders")
+    } finally {
+      setRetrying(false)
+    }
+  }
+
   const resetProcess = () => {
     setFile(null)
+    setPassword("")
+    setRowLimit("")
     setValidationResult(null)
     setIsValid(false)
     setFailedImports(null)
@@ -526,9 +596,10 @@ const ExcelUpload = () => {
     }
   }
   
-  // Fetch files on component mount
+  // Fetch files and errorful orders on component mount
   useEffect(() => {
     fetchUnprocessedFiles()
+    fetchErrorfulOrders()
   }, [])
   
   const handleDownloadUnprocessed = () => {
@@ -585,6 +656,36 @@ const ExcelUpload = () => {
                   onChange={handleFileChange}
                   className="hidden"
                 />
+                <Box className="mt-4 space-y-3">
+                  <TextField
+                    type="password"
+                    label="Excel Password (if password-protected)"
+                    placeholder="Enter password (optional)"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    fullWidth
+                    variant="outlined"
+                    size="small"
+                    helperText="Leave empty if your Excel file is not password-protected"
+                  />
+                  <TextField
+                    type="number"
+                    label="Number of Rows to Import"
+                    placeholder="Enter number (e.g., 10) or leave empty for all rows"
+                    value={rowLimit}
+                    onChange={(e) => {
+                      const value = e.target.value
+                      if (value === "" || (!isNaN(value) && parseInt(value) > 0)) {
+                        setRowLimit(value)
+                      }
+                    }}
+                    fullWidth
+                    variant="outlined"
+                    size="small"
+                    inputProps={{ min: 1 }}
+                    helperText="Enter a number to import only that many rows (e.g., 10 for first 10 rows). Leave empty to import all rows."
+                  />
+                </Box>
               </Box>
             ) : (
               <Box className="mb-4">
@@ -605,6 +706,38 @@ const ExcelUpload = () => {
                     className="ml-auto">
                     Change
                   </Button>
+                </Box>
+
+                {/* Password and Row Limit Fields - Always visible after file selection */}
+                <Box className="mb-4 space-y-3">
+                  <TextField
+                    type="password"
+                    label="Excel Password (if password-protected)"
+                    placeholder="Enter password (optional)"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    fullWidth
+                    variant="outlined"
+                    size="small"
+                    helperText="Leave empty if your Excel file is not password-protected"
+                  />
+                  <TextField
+                    type="number"
+                    label="Number of Rows to Import"
+                    placeholder="Enter number (e.g., 10) or leave empty for all rows"
+                    value={rowLimit}
+                    onChange={(e) => {
+                      const value = e.target.value
+                      if (value === "" || (!isNaN(value) && parseInt(value) > 0)) {
+                        setRowLimit(value)
+                      }
+                    }}
+                    fullWidth
+                    variant="outlined"
+                    size="small"
+                    inputProps={{ min: 1 }}
+                    helperText="Enter a number to import only that many rows (e.g., 10 for first 10 rows). Leave empty to import all rows."
+                  />
                 </Box>
 
                 {activeStep === 1 && (
@@ -1104,6 +1237,67 @@ const ExcelUpload = () => {
               <AlertTriangle size={16} className="text-red-500 mr-2" />
               These orders could not be imported. Please review the errors and try again.
             </Typography>
+          </Box>
+        </Paper>
+      )}
+
+      {/* Errorful Orders Display */}
+      {errorfulOrders.length > 0 && (
+        <Paper elevation={3} className="mb-6 overflow-hidden">
+          <Box className="bg-orange-50 px-6 py-4 border-b border-orange-100">
+            <Box className="flex items-center justify-between">
+              <Typography variant="h6" className="font-bold text-orange-800">
+                <AlertTriangle className="inline mr-2 mb-1" size={18} />
+                Errorful Orders ({errorfulOrders.length})
+              </Typography>
+              <Button
+                variant="contained"
+                color="warning"
+                onClick={handleRetryErrorfulOrders}
+                disabled={retrying || loadingErrorfulOrders}
+                startIcon={<RefreshCw size={16} />}>
+                {retrying ? "Retrying..." : "Retry All"}
+              </Button>
+            </Box>
+          </Box>
+          <Box className="p-6">
+            {loadingErrorfulOrders ? (
+              <LinearProgress className="mb-4" />
+            ) : (
+              <Box className="space-y-3 max-h-96 overflow-y-auto">
+                {errorfulOrders.map((order) => (
+                  <Paper key={order._id} elevation={1} className="p-4">
+                    <Box className="flex items-start justify-between">
+                      <Box className="flex-1">
+                        <Typography variant="subtitle2" className="font-semibold mb-1">
+                          Booking: {order.bookingNumber || "N/A"} (Row {order.rowNumber})
+                        </Typography>
+                        <Typography variant="body2" className="text-gray-600 mb-2">
+                          Error Type: <Chip label={order.errorType} size="small" color="error" className="ml-1" />
+                        </Typography>
+                        <Typography variant="body2" className="text-red-700">
+                          {order.errorMessage}
+                        </Typography>
+                        <Box className="flex flex-wrap gap-2 mt-2">
+                          <Chip
+                            label={order.successfullyImported ? "Imported" : "Pending"}
+                            color={order.successfullyImported ? "success" : "warning"}
+                            size="small"
+                          />
+                          {order.retryAttempts > 0 && (
+                            <Chip
+                              label={`${order.retryAttempts} Retry Attempts`}
+                              variant="outlined"
+                              size="small"
+                            />
+                          )}
+                        </Box>
+                      </Box>
+                    </Box>
+                  </Paper>
+                ))}
+              </Box>
+            )}
           </Box>
         </Paper>
       )}

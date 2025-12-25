@@ -10,9 +10,32 @@ import {
   CheckCircle,
   AlertCircle,
   Info,
+  Calendar,
 } from 'lucide-react';
+import DatePicker from 'react-datepicker';
+import 'react-datepicker/dist/react-datepicker.css';
 import { API, NetworkManager } from '../../../network/core';
 import { formatDecimal, formatCurrency } from '../../../utils/numberUtils';
+
+// Helper functions for date conversion (DD-MM-YYYY <-> Date)
+const parseDateFromDDMMYYYY = (dateString) => {
+  if (!dateString || dateString.trim() === '') return null;
+  const parts = dateString.split('-');
+  if (parts.length !== 3) return null;
+  const day = parseInt(parts[0], 10);
+  const month = parseInt(parts[1], 10) - 1; // Month is 0-indexed
+  const year = parseInt(parts[2], 10);
+  if (isNaN(day) || isNaN(month) || isNaN(year)) return null;
+  return new Date(year, month, day);
+};
+
+const formatDateToDDMMYYYY = (date) => {
+  if (!date || !(date instanceof Date) || isNaN(date.getTime())) return '';
+  const day = String(date.getDate()).padStart(2, '0');
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const year = date.getFullYear();
+  return `${day}-${month}-${year}`;
+};
 
 const PurchaseOrderForm = () => {
   const navigate = useNavigate();
@@ -44,6 +67,9 @@ const PurchaseOrderForm = () => {
   const [orderItems, setOrderItems] = useState([]);
   const [productSlots, setProductSlots] = useState({}); // Store slots for each product
   const [loadingSlots, setLoadingSlots] = useState({}); // Track loading state for each product
+  const [plants, setPlants] = useState([]); // For ready plants product selection
+  const [subtypes, setSubtypes] = useState({}); // Store subtypes by plantId: { plantId: [subtypes] }
+  const [loadingSubtypes, setLoadingSubtypes] = useState({}); // Track loading state for subtypes
   const [formData, setFormData] = useState({
     supplier: {
       name: '',
@@ -62,6 +88,7 @@ const PurchaseOrderForm = () => {
     loadMerchants();
     loadCategories();
     loadUnits();
+    loadPlants(); // Load plants for ready plants product selection
   }, []);
 
   useEffect(() => {
@@ -158,6 +185,51 @@ const PurchaseOrderForm = () => {
     }
   };
 
+  const loadPlants = async () => {
+    try {
+      const instance = NetworkManager(API.slots.GET_PLANTS);
+      const response = await instance.request();
+      if (response?.data) {
+        const plantsData = response.data.map((plant) => ({
+          label: plant.name,
+          value: plant.plantId || plant._id,
+        }));
+        setPlants(plantsData);
+      }
+    } catch (error) {
+      console.error('Error loading plants:', error);
+    }
+  };
+
+  const loadSubtypes = async (plantId, itemIndex) => {
+    if (!plantId) {
+      setSubtypes(prev => ({ ...prev, [itemIndex]: [] }));
+      return;
+    }
+
+    setLoadingSubtypes(prev => ({ ...prev, [itemIndex]: true }));
+    try {
+      const instance = NetworkManager(API.slots.GET_PLANTS_SUBTYPE);
+      const currentYear = new Date().getFullYear();
+      const response = await instance.request(null, { plantId, year: currentYear });
+      
+      if (response?.data?.subtypes) {
+        const subtypesData = response.data.subtypes.map((subtype) => ({
+          label: subtype.subtypeName || subtype.name,
+          value: subtype.subtypeId || subtype._id,
+        }));
+        setSubtypes(prev => ({ ...prev, [itemIndex]: subtypesData }));
+      } else {
+        setSubtypes(prev => ({ ...prev, [itemIndex]: [] }));
+      }
+    } catch (error) {
+      console.error('Error loading subtypes:', error);
+      setSubtypes(prev => ({ ...prev, [itemIndex]: [] }));
+    } finally {
+      setLoadingSubtypes(prev => ({ ...prev, [itemIndex]: false }));
+    }
+  };
+
   const loadUnits = async () => {
     try {
       const instance = NetworkManager(API.INVENTORY.GET_ALL_UNITS);
@@ -202,6 +274,16 @@ const PurchaseOrderForm = () => {
       batchNumber: '', // For auto GRN
       expiryDate: '', // For auto GRN
       slotId: '', // For slot selection when autoGRN is enabled
+      productName: '', // Product name reference for plant products (e.g., "Ghatude")
+      // Ready Plants Product fields
+      isReadyPlantsProduct: false,
+      dateRange: {
+        startDate: '',
+        endDate: '',
+      },
+      displayTitle: '',
+      plantId: '', // For ready plants products
+      subtypeId: '', // For ready plants products
     }]);
   };
 
@@ -312,14 +394,87 @@ const PurchaseOrderForm = () => {
           updatedItems[index].secondaryQuantity = '';
         }
 
-        // If autoGRN is enabled and product has plantId/subtypeId, fetch slots
-        if (formData.autoGRN && product.plantId && product.subtypeId) {
+        // Helper function to check if category is ready plants (handles both 'ready plants' and 'ready_plants')
+        const isReadyPlantsCategory = (category) => {
+          if (!category) return false;
+          const normalized = category.toLowerCase().trim().replace(/_/g, ' ');
+          return normalized === 'ready plants';
+        };
+
+        // Auto-enable ready plants mode if product category is "ready plants" or "ready_plants"
+        if (isReadyPlantsCategory(product.category)) {
+          updatedItems[index].isReadyPlantsProduct = true;
+          // Use product's plantId and subtypeId - handle both populated and unpopulated cases
+          let plantId = null;
+          let subtypeId = null;
+          
+          if (product.plantId) {
+            plantId = typeof product.plantId === 'object' && product.plantId._id 
+              ? product.plantId._id 
+              : (typeof product.plantId === 'string' ? product.plantId : null);
+          }
+          
+          if (product.subtypeId) {
+            subtypeId = typeof product.subtypeId === 'object' && product.subtypeId._id
+              ? product.subtypeId._id
+              : (typeof product.subtypeId === 'string' ? product.subtypeId : null);
+          }
+          
+          updatedItems[index].plantId = plantId || '';
+          updatedItems[index].subtypeId = subtypeId || '';
+          // Use product name as display title
+          updatedItems[index].displayTitle = product.name || '';
+          
+          // Log for debugging
+          if (!plantId || !subtypeId) {
+            console.warn('Ready plants product missing plant/subtype:', {
+              productId: product._id,
+              productName: product.name,
+              productCategory: product.category,
+              plantId: product.plantId,
+              subtypeId: product.subtypeId,
+              extractedPlantId: plantId,
+              extractedSubtypeId: subtypeId
+            });
+          }
+          
+          // Load subtypes for this plant (if needed for display)
+          if (plantId) {
+            loadSubtypes(plantId, index);
+          }
+        } else {
+          // Clear ready plants fields if product is not ready plants category
+          updatedItems[index].isReadyPlantsProduct = false;
+          updatedItems[index].plantId = '';
+          updatedItems[index].subtypeId = '';
+          updatedItems[index].dateRange = { startDate: '', endDate: '' };
+          updatedItems[index].displayTitle = '';
+        }
+
+        // If product has plantId/subtypeId, fetch slots (for productStock tracking)
+        // This works with or without autoGRN - allows tracking products even if GRN happens later
+        if (product.plantId && product.subtypeId) {
           fetchSlotsForProduct(value);
         } else {
-          // Clear slot selection if conditions not met
+          // Clear slot selection if product is not linked to plant/subtype
           updatedItems[index].slotId = '';
+          updatedItems[index].productName = '';
         }
       }
+    }
+    
+    // Handle slotId changes - clear productName when slot is cleared
+    if (field === 'slotId') {
+      if (!value) {
+        // Clear productName when slot is cleared
+        updatedItems[index].productName = '';
+      }
+    }
+    
+    // Clear slot and productName when product is cleared
+    if (field === 'productId' && !value) {
+      updatedItems[index].slotId = '';
+      updatedItems[index].productName = '';
     }
 
 
@@ -383,6 +538,73 @@ const PurchaseOrderForm = () => {
       return;
     }
 
+    // Helper function to check if category is ready plants
+    const isReadyPlantsCategory = (category) => {
+      if (!category) return false;
+      const normalized = category.toLowerCase().trim().replace(/_/g, ' ');
+      return normalized === 'ready plants';
+    };
+
+    // Validate ready plants products
+    for (const item of orderItems) {
+      if (item.isReadyPlantsProduct) {
+        const product = products.find(p => p._id === item.productId);
+        const isReadyPlantsCat = product && isReadyPlantsCategory(product.category);
+        
+        // For ready plants category products, plantId/subtypeId come from product
+        // For manually enabled ready plants, require plant/subtype selection
+        if (!isReadyPlantsCat) {
+          if (!item.plantId) {
+            alert('Plant Type is required for ready plants products');
+            return;
+          }
+          if (!item.subtypeId) {
+            alert('Subtype is required for ready plants products');
+            return;
+          }
+          if (!item.displayTitle || item.displayTitle.trim() === '') {
+            alert('Display title is required for ready plants products');
+            return;
+          }
+        } else {
+          // For ready_plants category products, ensure plantId/subtypeId are set from product
+          // Check both item (which should be set from product) and product itself
+          const productPlantId = typeof product.plantId === 'object' ? product.plantId?._id : product.plantId;
+          const productSubtypeId = product.subtypeId;
+          
+          if (!item.plantId && !productPlantId) {
+            alert(`Product "${product.name}" (${product.code}) is missing plant link. Please edit the product and select a plant.`);
+            return;
+          }
+          
+          if (!item.subtypeId && !productSubtypeId) {
+            alert(`Product "${product.name}" (${product.code}) is missing subtype link. Please edit the product and select a subtype.`);
+            return;
+          }
+          
+          // If product has plantId/subtypeId but item doesn't, set them from product
+          if (!item.plantId && productPlantId) {
+            item.plantId = productPlantId;
+          }
+          if (!item.subtypeId && productSubtypeId) {
+            item.subtypeId = productSubtypeId;
+          }
+        }
+        
+        // Date range is always required
+        if (!item.dateRange?.startDate || !item.dateRange?.endDate) {
+          alert('Date range (start date and end date) is required for ready plants products');
+          return;
+        }
+        // Validate date format (DD-MM-YYYY)
+        const dateRegex = /^\d{2}-\d{2}-\d{4}$/;
+        if (!dateRegex.test(item.dateRange.startDate) || !dateRegex.test(item.dateRange.endDate)) {
+          alert('Invalid date format. Please use DD-MM-YYYY format for ready plants products');
+          return;
+        }
+      }
+    }
+
     try {
       setLoading(true);
       
@@ -415,11 +637,53 @@ const PurchaseOrderForm = () => {
           discount: 0, // Default discount
         };
 
-        // Add batch number, expiry date, and slotId if auto GRN is enabled
+        // Add slotId and productName for plant products (works with or without autoGRN)
+        // This allows tracking products even if GRN happens later
+        if (item.slotId) {
+          itemData.slotId = item.slotId; // Slot ID for productStock tracking
+        }
+        if (item.productName) {
+          itemData.productName = item.productName; // Product name reference for plant products
+        }
+        
+        // Add ready plants product fields
+        if (item.isReadyPlantsProduct) {
+          const product = products.find(p => p._id === item.productId);
+          
+          // Helper function to check if category is ready plants
+          const isReadyPlantsCat = (category) => {
+            if (!category) return false;
+            const normalized = category.toLowerCase().trim().replace(/_/g, ' ');
+            return normalized === 'ready plants';
+          };
+          
+          const isReadyPlantsCatProduct = product && isReadyPlantsCat(product.category);
+          
+          itemData.isReadyPlantsProduct = true;
+          
+          // For ready plants category products, use product's plantId/subtypeId
+          // For manually enabled ready plants, use selected plantId/subtypeId
+          if (isReadyPlantsCatProduct) {
+            const plantId = typeof product.plantId === 'object' ? product.plantId._id : product.plantId;
+            itemData.plantId = plantId || item.plantId;
+            itemData.subtypeId = product.subtypeId || item.subtypeId;
+            itemData.displayTitle = product.name || item.displayTitle; // Use product name as display title
+          } else {
+            itemData.plantId = item.plantId;
+            itemData.subtypeId = item.subtypeId;
+            itemData.displayTitle = item.displayTitle;
+          }
+          
+          itemData.dateRange = {
+            startDate: item.dateRange.startDate,
+            endDate: item.dateRange.endDate,
+          };
+        }
+        
+        // Add batch number and expiry date only if auto GRN is enabled
         if (formData.autoGRN) {
           itemData.batchNumber = item.batchNumber || ''; // Will be auto-generated in backend if empty
           itemData.expiryDate = item.expiryDate || null;
-          itemData.slotId = item.slotId || null; // Slot ID for updating availablePlants
         }
 
         return itemData;
@@ -450,6 +714,27 @@ const PurchaseOrderForm = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Helper function to get plant name from product
+  const getPlantName = (product) => {
+    if (!product || !product.plantId) return null;
+    if (typeof product.plantId === 'object' && product.plantId.name) {
+      return product.plantId.name;
+    }
+    return null;
+  };
+
+  // Helper function to get subtype name from product
+  const getSubtypeName = (product) => {
+    if (!product || !product.plantId || !product.subtypeId) return null;
+    if (typeof product.plantId === 'object' && Array.isArray(product.plantId.subtypes)) {
+      const subtype = product.plantId.subtypes.find(
+        st => (st._id === product.subtypeId || st._id?.toString() === product.subtypeId?.toString())
+      );
+      return subtype?.name || null;
+    }
+    return null;
   };
 
   const filteredProducts = products.filter(product => {
@@ -661,6 +946,15 @@ const PurchaseOrderForm = () => {
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Rate (Optional)
                       </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Slot (Optional)
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Product Name
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Ready Plants
+                      </th>
                       {formData.autoGRN && (
                         <>
                           <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -668,9 +962,6 @@ const PurchaseOrderForm = () => {
                           </th>
                           <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                             Expiry Date
-                          </th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Slot (Optional)
                           </th>
                         </>
                       )}
@@ -693,12 +984,45 @@ const PurchaseOrderForm = () => {
                             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                           >
                             <option value="">Select Product</option>
-                            {filteredProducts.map(product => (
-                              <option key={product._id} value={product._id}>
-                                {product.name} ({product.category})
-                              </option>
-                            ))}
+                            {filteredProducts.map(product => {
+                              const plantName = getPlantName(product);
+                              const subtypeName = getSubtypeName(product);
+                              let displayText = `${product.name} (${product.category})`;
+                              if (plantName && subtypeName) {
+                                displayText += ` - ${plantName} / ${subtypeName}`;
+                              } else if (plantName) {
+                                displayText += ` - ${plantName}`;
+                              }
+                              return (
+                                <option key={product._id} value={product._id}>
+                                  {displayText}
+                                </option>
+                              );
+                            })}
                           </select>
+                          {(() => {
+                            const product = products.find(p => p._id === item.productId);
+                            if (!product) return null;
+                            const plantName = getPlantName(product);
+                            const subtypeName = getSubtypeName(product);
+                            if (plantName || subtypeName) {
+                              return (
+                                <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-xs">
+                                  {plantName && (
+                                    <div className="text-blue-700 font-medium">
+                                      Plant: {plantName}
+                                    </div>
+                                  )}
+                                  {subtypeName && (
+                                    <div className="text-blue-600 mt-1">
+                                      Subtype: {subtypeName}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            }
+                            return null;
+                          })()}
                         </td>
                         <td className="px-4 py-4">
                           <input
@@ -803,6 +1127,346 @@ const PurchaseOrderForm = () => {
                             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                           />
                         </td>
+                        {/* Slot selection - available for all plant products (with or without autoGRN) */}
+                        <td className="px-4 py-4">
+                          {(() => {
+                            const product = products.find(p => p._id === item.productId);
+                            const hasPlantLink = product && product.plantId && product.subtypeId;
+                            const slots = productSlots[item.productId] || [];
+                            const isLoading = loadingSlots[item.productId];
+
+                            if (!hasPlantLink) {
+                              return (
+                                <span className="text-xs text-gray-400">
+                                  Product not linked to plant
+                                </span>
+                              );
+                            }
+
+                            if (isLoading) {
+                              return (
+                                <div className="text-xs text-gray-500">Loading slots...</div>
+                              );
+                            }
+
+                            if (slots.length === 0) {
+                              return (
+                                <span className="text-xs text-gray-400">No slots available</span>
+                              );
+                            }
+
+                            return (
+                              <select
+                                value={item.slotId || ''}
+                                onChange={(e) => updateOrderItem(index, 'slotId', e.target.value)}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                              >
+                                <option value="">Select slot (optional)</option>
+                                {slots.map((slot) => (
+                                  <option key={slot.value} value={slot.value}>
+                                    {slot.label}
+                                  </option>
+                                ))}
+                              </select>
+                            );
+                          })()}
+                        </td>
+                        {/* Product Name - available for plant products with slot */}
+                        <td className="px-4 py-4">
+                          {(() => {
+                            const product = products.find(p => p._id === item.productId);
+                            const isPlantProduct = product && product.category === 'plants';
+                            
+                            if (!isPlantProduct) {
+                              return (
+                                <span className="text-xs text-gray-400">
+                                  Only for plants category
+                                </span>
+                              );
+                            }
+                            
+                            if (!item.slotId) {
+                              return (
+                                <span className="text-xs text-gray-400">
+                                  Select slot first
+                                </span>
+                              );
+                            }
+                            
+                            return (
+                              <input
+                                type="text"
+                                value={item.productName || ''}
+                                onChange={(e) => updateOrderItem(index, 'productName', e.target.value)}
+                                placeholder="e.g., Ghatude, Banana G9"
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                              />
+                            );
+                          })()}
+                        </td>
+                        {/* Ready Plants Product Fields */}
+                        <td className="px-4 py-4">
+                          {(() => {
+                            const product = products.find(p => p._id === item.productId);
+                            
+                            // Helper function to check if category is ready plants
+                            const isReadyPlantsCat = (category) => {
+                              if (!category) return false;
+                              const normalized = category.toLowerCase().trim().replace(/_/g, ' ');
+                              return normalized === 'ready plants';
+                            };
+                            
+                            const isReadyPlantsProduct = product && isReadyPlantsCat(product.category);
+                            
+                            // If product is "ready plants" or "ready_plants" category, auto-enable and show only date range
+                            if (isReadyPlantsProduct) {
+                              const startDateValue = parseDateFromDDMMYYYY(item.dateRange?.startDate);
+                              const endDateValue = parseDateFromDDMMYYYY(item.dateRange?.endDate);
+                              
+                              return (
+                                <div className="space-y-2">
+                                  <div className="flex items-center space-x-1 px-2 py-1 bg-blue-50 rounded border border-blue-200">
+                                    <Calendar className="w-3 h-3 text-blue-600" />
+                                    <span className="text-xs font-medium text-blue-800">Ready Plants</span>
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <div>
+                                      <label className="block text-xs text-gray-600 mb-1">
+                                        Start <span className="text-red-500">*</span>
+                                      </label>
+                                      <DatePicker
+                                        selected={startDateValue}
+                                        onChange={(date) => {
+                                          const formattedDate = formatDateToDDMMYYYY(date);
+                                          updateOrderItem(index, 'dateRange', {
+                                            ...item.dateRange,
+                                            startDate: formattedDate,
+                                          });
+                                        }}
+                                        dateFormat="dd-MM-yyyy"
+                                        placeholderText="Start"
+                                        minDate={new Date()}
+                                        isClearable
+                                        showYearDropdown
+                                        showMonthDropdown
+                                        dropdownMode="select"
+                                        wrapperClassName="w-full"
+                                        className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                                        required={item.isReadyPlantsProduct}
+                                        withPortal
+                                        portalId="root-portal"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-xs text-gray-600 mb-1">
+                                        End <span className="text-red-500">*</span>
+                                      </label>
+                                      <DatePicker
+                                        selected={endDateValue}
+                                        onChange={(date) => {
+                                          const formattedDate = formatDateToDDMMYYYY(date);
+                                          updateOrderItem(index, 'dateRange', {
+                                            ...item.dateRange,
+                                            endDate: formattedDate,
+                                          });
+                                        }}
+                                        dateFormat="dd-MM-yyyy"
+                                        placeholderText="End"
+                                        minDate={startDateValue || new Date()}
+                                        isClearable
+                                        showYearDropdown
+                                        showMonthDropdown
+                                        dropdownMode="select"
+                                        wrapperClassName="w-full"
+                                        className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                                        required={item.isReadyPlantsProduct}
+                                        withPortal
+                                        portalId="root-portal"
+                                      />
+                                    </div>
+                                  </div>
+                                  {item.dateRange?.startDate && item.dateRange?.endDate && (
+                                    <div className="px-2 py-1 bg-green-50 border border-green-200 rounded text-xs text-green-700">
+                                      <CheckCircle className="w-3 h-3 inline mr-1" />
+                                      {item.dateRange.startDate} to {item.dateRange.endDate}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            }
+                            
+                            // For other products, show manual checkbox and full form
+                            return (
+                              <div className="space-y-1.5">
+                                <label className="flex items-center space-x-2 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={item.isReadyPlantsProduct || false}
+                                    onChange={(e) => {
+                                      const isReady = e.target.checked;
+                                      updateOrderItem(index, 'isReadyPlantsProduct', isReady);
+                                      if (!isReady) {
+                                        // Clear ready plants fields when unchecked
+                                        updateOrderItem(index, 'dateRange', { startDate: '', endDate: '' });
+                                        updateOrderItem(index, 'displayTitle', '');
+                                        updateOrderItem(index, 'plantId', '');
+                                        updateOrderItem(index, 'subtypeId', '');
+                                      }
+                                    }}
+                                    className="w-3.5 h-3.5 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                                  />
+                                  <span className="text-xs text-gray-700">Ready Plants</span>
+                                </label>
+                                {item.isReadyPlantsProduct && (
+                                  <div className="space-y-1.5 mt-1.5 p-2 bg-blue-50 rounded border border-blue-200">
+                                    {/* Plant Type Selection */}
+                                    <div>
+                                      <label className="block text-xs text-gray-600 mb-0.5">
+                                        Plant <span className="text-red-500">*</span>
+                                      </label>
+                                      <select
+                                        value={item.plantId || ''}
+                                        onChange={(e) => {
+                                          const selectedPlantId = e.target.value;
+                                          updateOrderItem(index, 'plantId', selectedPlantId);
+                                          updateOrderItem(index, 'subtypeId', ''); // Clear subtype when plant changes
+                                          if (selectedPlantId) {
+                                            loadSubtypes(selectedPlantId, index);
+                                          } else {
+                                            setSubtypes(prev => ({ ...prev, [index]: [] }));
+                                          }
+                                        }}
+                                        className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                        required={item.isReadyPlantsProduct}
+                                      >
+                                        <option value="">Select Plant</option>
+                                        {plants.map(plant => (
+                                          <option key={plant.value} value={plant.value}>
+                                            {plant.label}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                    
+                                    {/* Subtype Selection - Show all subtypes when plant is selected */}
+                                    {item.plantId && (
+                                      <div>
+                                        <label className="block text-xs text-gray-600 mb-0.5">
+                                          Subtype <span className="text-red-500">*</span>
+                                        </label>
+                                        <select
+                                          value={item.subtypeId || ''}
+                                          onChange={(e) => updateOrderItem(index, 'subtypeId', e.target.value)}
+                                          disabled={loadingSubtypes[index]}
+                                          className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                          required={item.isReadyPlantsProduct && item.plantId}
+                                        >
+                                          <option value="">
+                                            {loadingSubtypes[index] ? 'Loading subtypes...' : `Select Subtype (${(subtypes[index] || []).length} available)`}
+                                          </option>
+                                          {(subtypes[index] || []).map(subtype => (
+                                            <option key={subtype.value} value={subtype.value}>
+                                              {subtype.label}
+                                            </option>
+                                          ))}
+                                        </select>
+                                        {!loadingSubtypes[index] && (subtypes[index] || []).length === 0 && item.plantId && (
+                                          <p className="text-xs text-gray-500 mt-0.5">No subtypes found for this plant</p>
+                                        )}
+                                      </div>
+                                    )}
+
+                                    {/* Display Title */}
+                                    {item.plantId && item.subtypeId && (
+                                      <div>
+                                        <label className="block text-xs text-gray-600 mb-0.5">
+                                          Title <span className="text-red-500">*</span>
+                                        </label>
+                                        <input
+                                          type="text"
+                                          value={item.displayTitle || ''}
+                                          onChange={(e) => updateOrderItem(index, 'displayTitle', e.target.value)}
+                                          placeholder="e.g., Banana G9"
+                                          className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                          required={item.isReadyPlantsProduct}
+                                        />
+                                      </div>
+                                    )}
+                                    
+                                    {/* Date Range - Only show when plant and subtype are selected */}
+                                    {item.plantId && item.subtypeId && (
+                                      <div className="mt-2 pt-2 border-t border-blue-200">
+                                        <div className="grid grid-cols-2 gap-2">
+                                          <div>
+                                            <label className="block text-xs text-gray-600 mb-0.5">
+                                              Start <span className="text-red-500">*</span>
+                                            </label>
+                                            <DatePicker
+                                              selected={parseDateFromDDMMYYYY(item.dateRange?.startDate)}
+                                              onChange={(date) => {
+                                                const formattedDate = formatDateToDDMMYYYY(date);
+                                                updateOrderItem(index, 'dateRange', {
+                                                  ...item.dateRange,
+                                                  startDate: formattedDate,
+                                                });
+                                              }}
+                                              dateFormat="dd-MM-yyyy"
+                                              placeholderText="Start"
+                                              minDate={new Date()}
+                                              isClearable
+                                              showYearDropdown
+                                              showMonthDropdown
+                                              dropdownMode="select"
+                                              wrapperClassName="w-full"
+                                              className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                                              required={item.isReadyPlantsProduct}
+                                              withPortal
+                                              portalId="root-portal"
+                                            />
+                                          </div>
+                                          <div>
+                                            <label className="block text-xs text-gray-600 mb-0.5">
+                                              End <span className="text-red-500">*</span>
+                                            </label>
+                                            <DatePicker
+                                              selected={parseDateFromDDMMYYYY(item.dateRange?.endDate)}
+                                              onChange={(date) => {
+                                                const formattedDate = formatDateToDDMMYYYY(date);
+                                                updateOrderItem(index, 'dateRange', {
+                                                  ...item.dateRange,
+                                                  endDate: formattedDate,
+                                                });
+                                              }}
+                                              dateFormat="dd-MM-yyyy"
+                                              placeholderText="End"
+                                              minDate={parseDateFromDDMMYYYY(item.dateRange?.startDate) || new Date()}
+                                              isClearable
+                                              showYearDropdown
+                                              showMonthDropdown
+                                              dropdownMode="select"
+                                              wrapperClassName="w-full"
+                                              className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                                              required={item.isReadyPlantsProduct}
+                                              withPortal
+                                              portalId="root-portal"
+                                            />
+                                          </div>
+                                        </div>
+                                        {item.dateRange?.startDate && item.dateRange?.endDate && (
+                                          <div className="mt-1.5 px-2 py-1 bg-green-50 border border-green-200 rounded text-xs text-green-700">
+                                            <CheckCircle className="w-3 h-3 inline mr-1" />
+                                            {item.dateRange.startDate} to {item.dateRange.endDate}
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
+                        </td>
+                        {/* Batch Number and Expiry Date - only for autoGRN */}
                         {formData.autoGRN && (
                           <>
                             <td className="px-4 py-4">
@@ -822,49 +1486,6 @@ const PurchaseOrderForm = () => {
                                 onChange={(e) => updateOrderItem(index, 'expiryDate', e.target.value)}
                                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                               />
-                            </td>
-                            <td className="px-4 py-4">
-                              {(() => {
-                                const product = products.find(p => p._id === item.productId);
-                                const hasPlantLink = product && product.plantId && product.subtypeId;
-                                const slots = productSlots[item.productId] || [];
-                                const isLoading = loadingSlots[item.productId];
-
-                                if (!hasPlantLink) {
-                                  return (
-                                    <span className="text-xs text-gray-400">
-                                      Product not linked to plant
-                                    </span>
-                                  );
-                                }
-
-                                if (isLoading) {
-                                  return (
-                                    <div className="text-xs text-gray-500">Loading slots...</div>
-                                  );
-                                }
-
-                                if (slots.length === 0) {
-                                  return (
-                                    <span className="text-xs text-gray-400">No slots available</span>
-                                  );
-                                }
-
-                                return (
-                                  <select
-                                    value={item.slotId || ''}
-                                    onChange={(e) => updateOrderItem(index, 'slotId', e.target.value)}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                                  >
-                                    <option value="">Select slot (optional)</option>
-                                    {slots.map((slot) => (
-                                      <option key={slot.value} value={slot.value}>
-                                        {slot.label}
-                                      </option>
-                                    ))}
-                                  </select>
-                                );
-                              })()}
                             </td>
                           </>
                         )}
