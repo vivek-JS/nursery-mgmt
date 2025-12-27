@@ -2,9 +2,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import OrderBucketingTreeComponent from '../../../components/OrderBucketingTree';
 import SalesmenBucketingTreeComponent from '../../../components/SalesmenBucketingTree';
 import InventoryBucketingTreeComponent from '../../../components/InventoryBucketingTree';
+import OrderHeatMap from '../../../components/OrderHeatMap/OrderHeatMap';
 
 const OrderBucketing = () => {
-  const [activeTab, setActiveTab] = useState('orders'); // 'orders', 'salesmen', or 'inventory'
+  const [activeTab, setActiveTab] = useState('orders'); // 'orders', 'salesmen', 'inventory', or 'heatmap'
   const [error, setError] = useState(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const containerRef = useRef(null);
@@ -144,6 +145,16 @@ const OrderBucketing = () => {
           >
             Inventory Decomposition
           </button>
+          <button
+            onClick={() => setActiveTab('heatmap')}
+            className={`px-4 py-2 font-medium transition ${
+              activeTab === 'heatmap'
+                ? 'border-b-2 border-blue-500 text-blue-600'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            Heat Map
+          </button>
         </div>
         
         {/* Filters */}
@@ -210,7 +221,7 @@ const OrderBucketing = () => {
         </div>
       )}
 
-      <div className="flex-1 bg-white overflow-auto p-4">
+      <div className={`flex-1 bg-white ${activeTab === 'heatmap' ? 'overflow-hidden p-0' : 'overflow-auto p-4'}`}>
         {activeTab === 'orders' ? (
           <OrderBucketingTreeComponent
             filters={filters}
@@ -221,11 +232,15 @@ const OrderBucketing = () => {
             filters={filters}
             onOrderNodeClick={handleOrderClick}
           />
-        ) : (
+        ) : activeTab === 'inventory' ? (
           <InventoryBucketingTreeComponent
             filters={filters}
             onOutwardNodeClick={handleOrderClick}
           />
+        ) : (
+          <div className="h-full w-full">
+            <OrderHeatMap filters={filters} />
+          </div>
         )}
       </div>
     </div>
