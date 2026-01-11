@@ -32,6 +32,10 @@ const TransactionList = React.lazy(() => import("pages/private/inventory/Transac
 const InventoryLedger = React.lazy(() => import("pages/private/inventory/InventoryLedger"))
 const SowingRequestsList = React.lazy(() => import("pages/private/inventory/SowingRequestsList"))
 const ReturnRequestList = React.lazy(() => import("pages/private/inventory/ReturnRequestList"))
+const RamAgriInputsProductMaster = React.lazy(() => import("pages/private/inventory/RamAgriInputsProductMaster"))
+const RamAgriInputOrderForm = React.lazy(() => import("pages/private/inventory/RamAgriInputOrderForm"))
+const AgriSalesOrderMobile = React.lazy(() => import("pages/public/agri-sales-order/AgriSalesOrderMobile"))
+const RamAgriSalesDashboard = React.lazy(() => import("pages/private/inventory/RamAgriSalesDashboard"))
 
 const Transactions = React.lazy(() => import("pages/private/transaction"))
 const Patients = React.lazy(() => import("pages/private/employee"))
@@ -82,6 +86,7 @@ export const PrivateRoutes = [
   { path: "/u/inventory/grn/:id", component: GRNDetails },
   { path: "/u/inventory/purchase-orders", component: PurchaseOrderList },
   { path: "/u/inventory/purchase-orders/new", component: PurchaseOrderForm },
+  { path: "/u/inventory/purchase-orders/:id/edit", component: PurchaseOrderForm },
   { path: "/u/inventory/purchase-orders/:id", component: PurchaseOrderDetails },
   { path: "/u/inventory/outward", component: OutwardList },
   { path: "/u/inventory/outward/new", component: OutwardForm },
@@ -100,6 +105,9 @@ export const PrivateRoutes = [
   { path: "/u/inventory/ledger", component: InventoryLedger },
   { path: "/u/inventory/sowing-requests", component: SowingRequestsList },
   { path: "/u/inventory/return-requests", component: ReturnRequestList },
+  { path: "/u/inventory/ram-agri-inputs-master", component: RamAgriInputsProductMaster },
+  { path: "/u/inventory/ram-agri-input-order/new", component: RamAgriInputOrderForm },
+  { path: "/u/inventory/ram-agri-sales-dashboard", component: RamAgriSalesDashboard },
 
   { path: "/u/settings", component: Settings },
 
@@ -128,5 +136,7 @@ export const PrivateRoutes = [
   { path: "/u/order-bucketing", component: OrderBucketing },
   { path: "/u/follow-ups", component: FollowUpManagement },
   { path: "/u/tasks", component: TaskManagement },
-  { path: "/u/dispatch-orders", component: DispatchedListPage }
+  { path: "/u/dispatch-orders", component: DispatchedListPage },
+  // Mobile-friendly Agri Sales Order form (private route, no sidebar)
+  { path: "/u/mobile/agri-sales-order", component: AgriSalesOrderMobile }
 ]

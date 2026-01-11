@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import {
   Package,
   Plus,
@@ -39,7 +39,10 @@ const formatDateToDDMMYYYY = (date) => {
 
 const PurchaseOrderForm = () => {
   const navigate = useNavigate();
+  const { id } = useParams();
+  const isEditMode = !!id;
   const [loading, setLoading] = useState(false);
+  const [loadingData, setLoadingData] = useState(false);
   const [products, setProducts] = useState([]);
   const [units, setUnits] = useState([]);
   const [merchants, setMerchants] = useState([]);
@@ -80,7 +83,7 @@ const PurchaseOrderForm = () => {
     },
     expectedDeliveryDate: '',
     notes: '',
-    autoGRN: false, // Auto GRN toggle
+    autoGRN: true, // Auto GRN toggle - pre-ticked by default
   });
 
   useEffect(() => {
@@ -89,7 +92,10 @@ const PurchaseOrderForm = () => {
     loadCategories();
     loadUnits();
     loadPlants(); // Load plants for ready plants product selection
-  }, []);
+    if (isEditMode && id) {
+      loadPurchaseOrder();
+    }
+  }, [id]);
 
   useEffect(() => {
     loadProducts();
@@ -244,6 +250,104 @@ const PurchaseOrderForm = () => {
       }
     } catch (error) {
       console.error('Error loading units:', error);
+    }
+  };
+
+  const loadPurchaseOrder = async () => {
+    try {
+      setLoadingData(true);
+      // Wait for merchants and products to load first
+      if (merchants.length === 0) {
+        await loadMerchants();
+      }
+      if (products.length === 0) {
+        await loadProducts();
+      }
+      
+      const instance = NetworkManager(API.INVENTORY.GET_PURCHASE_ORDER_BY_ID);
+      const response = await instance.request({}, [id]);
+      
+      if (response?.data) {
+        const apiResponse = response.data;
+        if (apiResponse.success && apiResponse.data) {
+          const poData = apiResponse.data.purchaseOrder || apiResponse.data;
+          
+          // Set supplier
+          if (poData.supplier) {
+            const supplierId = typeof poData.supplier === 'object' ? (poData.supplier._id || poData.supplier) : poData.supplier;
+            // Use useEffect to set supplier once merchants are loaded
+            const supplier = merchants.find(m => m._id === supplierId);
+            if (supplier) {
+              setSelectedSupplier(supplier);
+              setFormData(prev => ({
+                ...prev,
+                supplier: {
+                  name: supplier.name || poData.supplier?.name || '',
+                  contact: supplier.contactPerson || supplier.phone || poData.supplier?.phone || '',
+                  email: supplier.email || poData.supplier?.email || '',
+                  address: typeof supplier.address === 'string' ? supplier.address : 
+                    supplier.address ? `${supplier.address.street || ''} ${supplier.address.city || ''} ${supplier.address.state || ''} ${supplier.address.pincode || ''}`.trim() : '',
+                  gstNumber: supplier.gstin || poData.supplier?.gstin || '',
+                }
+              }));
+            } else {
+              // Supplier not found in merchants, try to find it after merchants load
+              setTimeout(() => {
+                const allMerchants = merchants;
+                const foundSupplier = allMerchants.find(m => m._id === supplierId);
+                if (foundSupplier) {
+                  setSelectedSupplier(foundSupplier);
+                }
+              }, 500);
+            }
+          }
+          
+          // Set form data
+          setFormData(prev => ({
+            ...prev,
+            expectedDeliveryDate: poData.expectedDeliveryDate ? new Date(poData.expectedDeliveryDate).toISOString().split('T')[0] : '',
+            notes: poData.notes || '',
+            autoGRN: poData.autoGRN || false,
+          }));
+          
+          // Set order items
+          if (poData.items && Array.isArray(poData.items)) {
+            const items = poData.items.map(item => {
+              const product = typeof item.product === 'object' ? item.product : products.find(p => p._id === item.product);
+              const productId = typeof item.product === 'object' ? item.product._id : item.product;
+              
+              const itemData = {
+                productId: productId,
+                quantity: item.quantity || 1,
+                secondaryQuantity: '',
+                rate: item.rate || 0,
+                amount: item.amount || (item.quantity || 0) * (item.rate || 0),
+                batchNumber: item.batchNumber || '',
+                expiryDate: item.expiryDate ? new Date(item.expiryDate).toISOString().split('T')[0] : '',
+                slotId: item.slotId || '',
+                productName: item.productName || '',
+                isReadyPlantsProduct: item.isReadyPlantsProduct || false,
+                dateRange: item.dateRange ? {
+                  startDate: item.dateRange.startDate || '',
+                  endDate: item.dateRange.endDate || '',
+                } : { startDate: '', endDate: '' },
+                displayTitle: item.displayTitle || '',
+                plantId: typeof item.plantId === 'object' ? item.plantId._id : item.plantId || '',
+                subtypeId: item.subtypeId || '',
+              };
+              
+              return itemData;
+            });
+            setOrderItems(items);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error loading purchase order:', error);
+      alert('Error loading purchase order: ' + (error.response?.data?.message || error.message));
+      navigate('/u/inventory/purchase-orders');
+    } finally {
+      setLoadingData(false);
     }
   };
 
@@ -477,7 +581,6 @@ const PurchaseOrderForm = () => {
       updatedItems[index].productName = '';
     }
 
-
     // Auto-calculate secondary quantity when primary quantity changes
     // Secondary is dependent on primary: Secondary = Primary * Conversion Factor
     if (field === 'quantity' && value) {
@@ -532,7 +635,7 @@ const PurchaseOrderForm = () => {
       return;
     }
 
-    // Only product and quantity are required in order items
+    // Validate order items - only product and quantity are required
     if (orderItems.some(item => !item.productId || !item.quantity || item.quantity <= 0)) {
       alert('Please select product and enter quantity for all items');
       return;
@@ -689,23 +792,43 @@ const PurchaseOrderForm = () => {
         return itemData;
       });
       
-      // Following FarmerOrdersTable.js pattern - use NetworkManager
-      const instance = NetworkManager(API.INVENTORY.CREATE_PURCHASE_ORDER);
-      const response = await instance.request({
-        supplier: selectedSupplier._id, // Send supplier ObjectId, not object
-        expectedDeliveryDate: formData.expectedDeliveryDate,
-        items: transformedItems,
-        notes: formData.notes,
-        autoGRN: formData.autoGRN || false, // Include auto GRN flag
-      });
+      if (isEditMode) {
+        // Update existing purchase order
+        const instance = NetworkManager(API.INVENTORY.UPDATE_PURCHASE_ORDER);
+        const response = await instance.request({
+          expectedDeliveryDate: formData.expectedDeliveryDate,
+          items: transformedItems,
+          notes: formData.notes,
+        }, [id]);
 
-      if (response?.data) {
-        const apiResponse = response.data;
-        if (apiResponse.success || apiResponse.status === 'Success') {
-          alert('Purchase order created successfully!');
-          navigate('/u/inventory/purchase-orders');
-        } else {
-          alert('Error creating purchase order: ' + (apiResponse.message || 'Unknown error'));
+        if (response?.data) {
+          const apiResponse = response.data;
+          if (apiResponse.success || apiResponse.status === 'Success') {
+            alert('Purchase order updated successfully!');
+            navigate('/u/inventory/purchase-orders');
+          } else {
+            alert('Error updating purchase order: ' + (apiResponse.message || 'Unknown error'));
+          }
+        }
+      } else {
+        // Create new purchase order
+        const instance = NetworkManager(API.INVENTORY.CREATE_PURCHASE_ORDER);
+        const response = await instance.request({
+          supplier: selectedSupplier._id, // Send supplier ObjectId, not object
+          expectedDeliveryDate: formData.expectedDeliveryDate,
+          items: transformedItems,
+          notes: formData.notes,
+          autoGRN: formData.autoGRN || false, // Include auto GRN flag
+        });
+
+        if (response?.data) {
+          const apiResponse = response.data;
+          if (apiResponse.success || apiResponse.status === 'Success') {
+            alert('Purchase order created successfully!');
+            navigate('/u/inventory/purchase-orders');
+          } else {
+            alert('Error creating purchase order: ' + (apiResponse.message || 'Unknown error'));
+          }
         }
       }
     } catch (error) {
@@ -746,6 +869,17 @@ const PurchaseOrderForm = () => {
     return matchesSearch && matchesCategory;
   });
 
+  if (loadingData) {
+    return (
+      <div className="min-h-screen bg-gray-50 p-6 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading purchase order...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 p-6">
       <div className="max-w-6xl mx-auto">
@@ -759,8 +893,8 @@ const PurchaseOrderForm = () => {
               <ArrowLeft className="w-5 h-5" />
             </button>
             <div>
-              <h1 className="text-3xl font-bold text-gray-800">Create Purchase Order</h1>
-              <p className="text-gray-600">Add new purchase order for inventory</p>
+              <h1 className="text-3xl font-bold text-gray-800">{isEditMode ? 'Edit Purchase Order' : 'Create Purchase Order'}</h1>
+              <p className="text-gray-600">{isEditMode ? 'Update purchase order details' : 'Add new purchase order for inventory'}</p>
             </div>
           </div>
         </div>
@@ -782,11 +916,18 @@ const PurchaseOrderForm = () => {
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="">Select a merchant</option>
-                  {allSuppliers.map(supplier => (
-                    <option key={supplier._id} value={supplier._id}>
-                      {supplier.displayName || supplier.name}
-                    </option>
-                  ))}
+                  {allSuppliers.map(supplier => {
+                    const linkedProductsCount = supplier.linkedProducts?.length || 0;
+                    const displayName = supplier.displayName || supplier.name;
+                    const suffix = linkedProductsCount > 0 
+                      ? ` (${linkedProductsCount} Ram Agri ${linkedProductsCount === 1 ? 'Product' : 'Products'})`
+                      : '';
+                    return (
+                      <option key={supplier._id} value={supplier._id}>
+                        {displayName}{suffix}
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
 
@@ -849,6 +990,28 @@ const PurchaseOrderForm = () => {
                 />
               </div>
             </div>
+            
+            {/* Auto GRN Toggle */}
+            <div className="mt-4 pt-4 border-t border-gray-200">
+              <label className="flex items-center space-x-3 cursor-pointer group">
+                <input
+                  type="checkbox"
+                  checked={formData.autoGRN}
+                  onChange={(e) => setFormData(prev => ({ ...prev, autoGRN: e.target.checked }))}
+                  className="w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500 focus:ring-2 cursor-pointer"
+                />
+                <div className="flex-1">
+                  <span className="text-sm font-medium text-gray-700 group-hover:text-gray-900">
+                    Auto GRN (Automatically create GRN when order is approved)
+                  </span>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {formData.autoGRN 
+                      ? 'GRN will be automatically created and approved when the purchase order is approved. Stock will be updated immediately.'
+                      : 'GRN can be created separately later from the purchase order details page. Stock will be updated when GRN is approved.'}
+                  </p>
+                </div>
+              </label>
+            </div>
           </div>
 
           {/* Order Items */}
@@ -894,38 +1057,42 @@ const PurchaseOrderForm = () => {
             </div>
 
             {/* Auto GRN Toggle */}
-            <div className="mb-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
-              <label className="flex items-center space-x-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={formData.autoGRN}
-                  onChange={(e) => {
-                    const newAutoGRN = e.target.checked;
-                    setFormData(prev => ({
-                      ...prev,
-                      autoGRN: newAutoGRN
-                    }));
-                    // When autoGRN is enabled, fetch slots for products that have plantId/subtypeId
-                    if (newAutoGRN) {
-                      orderItems.forEach((item) => {
-                        if (item.productId) {
-                          const product = products.find(p => p._id === item.productId);
-                          if (product && product.plantId && product.subtypeId) {
-                            fetchSlotsForProduct(item.productId);
+            <div className="mb-4">
+              <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+              <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formData.autoGRN}
+                    onChange={(e) => {
+                      const newAutoGRN = e.target.checked;
+                      setFormData(prev => ({
+                        ...prev,
+                        autoGRN: newAutoGRN
+                      }));
+                      // When autoGRN is enabled, fetch slots for products that have plantId/subtypeId
+                      if (newAutoGRN) {
+                        orderItems.forEach((item) => {
+                          if (item.productId) {
+                            const product = products.find(p => p._id === item.productId);
+                            if (product && product.plantId && product.subtypeId) {
+                              fetchSlotsForProduct(item.productId);
+                            }
                           }
-                        }
-                      });
-                    }
-                  }}
-                  className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                />
-                <span className="text-sm font-medium text-gray-700">
-                  Auto-create GRN when order is approved
-                </span>
-              </label>
-              <p className="text-xs text-gray-600 mt-1 ml-6">
-                When enabled, a GRN will be automatically created once this purchase order is approved. You can add batch numbers, expiry dates, and select slots below.
-              </p>
+                        });
+                      }
+                    }}
+                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                  />
+                  <span className="text-sm font-medium text-gray-700">
+                    Auto-create GRN when order is approved
+                  </span>
+                </label>
+                <p className="text-xs text-gray-600 mt-1 ml-6">
+                  When enabled, a GRN will be automatically created once this purchase order is approved. You can add batch numbers, expiry dates, and select slots below.
+                </p>
+              </div>
+              </div>
             </div>
 
             {/* Items Table */}
@@ -935,7 +1102,7 @@ const PurchaseOrderForm = () => {
                   <thead className="bg-gray-50">
                     <tr>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Product <span className="text-red-500">*</span>
+                        Product / Ram Agri Inputs <span className="text-red-500">*</span>
                       </th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Primary Qty <span className="text-red-500">*</span>
@@ -978,7 +1145,7 @@ const PurchaseOrderForm = () => {
                       <tr key={index}>
                         <td className="px-4 py-4">
                           <select
-                            value={item.productId}
+                            value={item.productId || ''}
                             onChange={(e) => updateOrderItem(index, 'productId', e.target.value)}
                             required
                             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"

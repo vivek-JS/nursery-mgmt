@@ -13,11 +13,23 @@ import {
   Toolbar,
   IconButton,
   Alert,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Chip,
+  Tooltip,
 } from "@mui/material";
 import {
   ArrowBack,
   Refresh,
   Logout,
+  Phone,
+  Call,
+  Edit,
+  LocationOn,
 } from "@mui/icons-material";
 import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
@@ -30,9 +42,9 @@ import { useNavigate } from "react-router-dom";
 import { useUserData, useUserRole, useIsDispatchManager } from "utils/roleUtils";
 import { useLogoutModel } from "layout/privateLayout/privateLayout.model";
 import { Loader } from "redux/dispatcher/Loader";
-import OrderCard from "./components/OrderCard";
 import EditOrderModal from "./components/EditOrderModal";
-import { getDefaultDateRange, formatDateForAPI, isDueDatePassed } from "./utils/dateUtils";
+import OrderCard from "./components/OrderCard";
+import { getDefaultDateRange, formatDateForAPI, isDueDatePassed, formatDateForDisplay } from "./utils/dateUtils";
 
 const DispatchOrderList = () => {
   const theme = useTheme();
@@ -168,6 +180,44 @@ const DispatchOrderList = () => {
   // Handle edit success - refresh orders
   const handleEditSuccess = () => {
     fetchOrders();
+  };
+
+  // Helper functions for table display
+  const getStatusColor = (status) => {
+    switch (status?.toUpperCase()) {
+      case "ACCEPTED":
+        return "#4caf50";
+      case "FARM_READY":
+        return "#2196f3";
+      case "DISPATCHED":
+        return "#ff9800";
+      case "DELIVERED":
+        return "#8bc34a";
+      case "CANCELLED":
+        return "#f44336";
+      default:
+        return "#757575";
+    }
+  };
+
+  const getStatusLabel = (status) => {
+    switch (status?.toUpperCase()) {
+      case "FARM_READY":
+        return "Ready to Dispatch";
+      default:
+        return status || "N/A";
+    }
+  };
+
+  // Calculate payment info for an order
+  const getPaymentInfo = (order) => {
+    const totalAmount = order?.totalAmount || order?.rate * (order?.numberOfPlants || 0) || 0;
+    const payments = order?.payment || [];
+    const receivedAmount = payments
+      .filter((p) => p.paymentStatus === "COLLECTED")
+      .reduce((sum, p) => sum + (p.paidAmount || 0), 0);
+    const pendingAmount = Math.max(0, totalAmount - receivedAmount);
+    return { totalAmount, receivedAmount, pendingAmount };
   };
 
   // Show loading while checking access
@@ -430,5 +480,6 @@ const DispatchOrderList = () => {
 };
 
 export default DispatchOrderList;
+
 
 

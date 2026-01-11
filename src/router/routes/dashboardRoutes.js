@@ -21,6 +21,7 @@ import TrendingDownIcon from "@mui/icons-material/TrendingDown"
 import AssignmentIcon from "@mui/icons-material/Assignment"
 import TaskIcon from "@mui/icons-material/Task"
 import CloudUploadIcon from "@mui/icons-material/CloudUpload"
+import DashboardIcon from "@mui/icons-material/Dashboard"
 
 export const DashboardMenus = [
   new MenuPath("Orders", <HomeIcon />, "/u/dashboard"),
@@ -41,6 +42,7 @@ export const DashboardMenus = [
   new MenuPath("Employee Follow-Up", <AssignmentIcon />, "/u/follow-ups"),
   new MenuPath("Task Management", <TaskIcon />, "/u/tasks"),
   new MenuPath("Inventory", <InventoryIcon />, "/u/inventory"),
+  new MenuPath("Ram Agri Sales Dashboard", <DashboardIcon />, "/u/inventory/ram-agri-sales-dashboard"),
   // new MenuPath("Settings", <SettingsSuggestIcon />, "/u/settings"),
   // new MenuPath("Admin", <AdminPanelSettingsIcon />, "/u/admin"),
   new MenuPath("Labs", <BiotechIcon />, "/u/labs", ["LABORATORY_MANAGER", "SUPER_ADMIN"]),

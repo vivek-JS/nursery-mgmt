@@ -3,9 +3,14 @@ import OrderBucketingTreeComponent from '../../../components/OrderBucketingTree'
 import SalesmenBucketingTreeComponent from '../../../components/SalesmenBucketingTree';
 import InventoryBucketingTreeComponent from '../../../components/InventoryBucketingTree';
 import OrderHeatMap from '../../../components/OrderHeatMap/OrderHeatMap';
+import AgriSalesBucketingTreeComponent from '../../../components/AgriSalesBucketingTree';
+import AgriSalesOutstandingTreeComponent from '../../../components/AgriSalesOutstandingTree';
+import NetworkManager from '../../../network/core/networkManager';
+import { API } from '../../../network/config/endpoints';
 
 const OrderBucketing = () => {
-  const [activeTab, setActiveTab] = useState('orders'); // 'orders', 'salesmen', 'inventory', or 'heatmap'
+  const [activeTab, setActiveTab] = useState('orders'); // 'orders', 'salesmen', 'inventory', 'heatmap', or 'agriSales'
+  const [agriSalesSubTab, setAgriSalesSubTab] = useState('sales'); // 'sales' or 'outstanding' (only relevant when activeTab === 'agriSales')
   const [error, setError] = useState(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const containerRef = useRef(null);
@@ -14,6 +19,8 @@ const OrderBucketing = () => {
     endDate: '',
     status: ''
   });
+  const [agriSalesData, setAgriSalesData] = useState(null);
+  const [loadingAgriSales, setLoadingAgriSales] = useState(false);
 
   const handleOrderClick = (orderData) => {
     // Navigate to order details or show order modal
@@ -83,6 +90,73 @@ const OrderBucketing = () => {
       document.removeEventListener('msfullscreenchange', handleFullscreenChange);
     };
   }, []);
+
+  // Fetch Agri Sales data when tab is active
+  useEffect(() => {
+    if (activeTab === 'agriSales') {
+      fetchAgriSalesData();
+    }
+  }, [activeTab, agriSalesSubTab, filters]);
+
+  const fetchAgriSalesData = async () => {
+    setLoadingAgriSales(true);
+    setError(null);
+    try {
+      const params = {};
+      if (filters.startDate) {
+        params.startDate = filters.startDate;
+      }
+      if (filters.endDate) {
+        params.endDate = filters.endDate;
+      }
+
+      if (agriSalesSubTab === 'sales') {
+        // For Sales tab, fetch sales analysis only
+        const endpoint = API.INVENTORY.GET_AGRI_SALES_SALES_ANALYSIS;
+        const instance = NetworkManager(endpoint);
+        const response = await instance.request({}, params);
+
+        if (response?.data?.status === 'Success' || response?.data?.success) {
+          const salesData = response.data.data || response.data;
+          // Keep consistent structure with outstanding tab
+          setAgriSalesData({
+            sales: salesData,
+            outstanding: null
+          });
+        } else {
+          setError('Failed to fetch Agri Sales data');
+          setAgriSalesData(null);
+        }
+      } else {
+        // For Outstanding tab, fetch both sales and outstanding analysis
+        const [salesResponse, outstandingResponse] = await Promise.all([
+          NetworkManager(API.INVENTORY.GET_AGRI_SALES_SALES_ANALYSIS).request({}, params),
+          NetworkManager(API.INVENTORY.GET_AGRI_SALES_OUTSTANDING_ANALYSIS).request({}, params)
+        ]);
+
+        if ((salesResponse?.data?.status === 'Success' || salesResponse?.data?.success) &&
+            (outstandingResponse?.data?.status === 'Success' || outstandingResponse?.data?.success)) {
+          const salesData = salesResponse.data.data || salesResponse.data;
+          const outstandingData = outstandingResponse.data.data || outstandingResponse.data;
+          
+          // Combine sales and outstanding data
+          setAgriSalesData({
+            sales: salesData,
+            outstanding: outstandingData
+          });
+        } else {
+          setError('Failed to fetch Agri Sales data');
+          setAgriSalesData(null);
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching Agri Sales data:', err);
+      setError('Failed to fetch Agri Sales data');
+      setAgriSalesData(null);
+    } finally {
+      setLoadingAgriSales(false);
+    }
+  };
 
 
   return (
@@ -155,7 +229,43 @@ const OrderBucketing = () => {
           >
             Heat Map
           </button>
+          <button
+            onClick={() => setActiveTab('agriSales')}
+            className={`px-4 py-2 font-medium transition ${
+              activeTab === 'agriSales'
+                ? 'border-b-2 border-blue-500 text-blue-600'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            Ram Agri Sales
+          </button>
         </div>
+        
+        {/* Agri Sales Sub-Tabs */}
+        {activeTab === 'agriSales' && (
+          <div className="flex gap-2 mb-4 border-b border-gray-200 mt-2">
+            <button
+              onClick={() => setAgriSalesSubTab('sales')}
+              className={`px-4 py-2 font-medium transition text-sm ${
+                agriSalesSubTab === 'sales'
+                  ? 'border-b-2 border-orange-500 text-orange-600'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              Sales
+            </button>
+            <button
+              onClick={() => setAgriSalesSubTab('outstanding')}
+              className={`px-4 py-2 font-medium transition text-sm ${
+                agriSalesSubTab === 'outstanding'
+                  ? 'border-b-2 border-orange-500 text-orange-600'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              Outstanding
+            </button>
+          </div>
+        )}
         
         {/* Filters */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-2">
@@ -237,11 +347,83 @@ const OrderBucketing = () => {
             filters={filters}
             onOutwardNodeClick={handleOrderClick}
           />
-        ) : (
+        ) : activeTab === 'heatmap' ? (
           <div className="h-full w-full">
             <OrderHeatMap filters={filters} />
           </div>
-        )}
+        ) : activeTab === 'agriSales' ? (
+          <div className="h-full w-full p-4">
+            {loadingAgriSales ? (
+              <div className="text-center py-8">
+                <p className="text-gray-600">Loading Agri Sales data...</p>
+              </div>
+            ) : error ? (
+              <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+                {error}
+              </div>
+            ) : agriSalesData ? (
+              <div className="h-full flex flex-col">
+                <div className="mb-4 p-4 bg-blue-50 rounded-lg flex-shrink-0">
+                  <h3 className="text-lg font-semibold text-gray-800 mb-2">
+                    {agriSalesSubTab === 'sales' ? 'Sales Analysis' : 'Outstanding Analysis'}
+                  </h3>
+                  {agriSalesSubTab === 'sales' && agriSalesData.sales ? (
+                    <div>
+                      <p className="text-sm text-gray-600">
+                        Total Sales: ₹{agriSalesData.sales.total?.totalAmount?.toLocaleString() || 0} 
+                        ({agriSalesData.sales.total?.totalOrders || 0} orders)
+                      </p>
+                      <p className="text-sm text-gray-600 mt-1">
+                        Salesmen: {agriSalesData.sales.bySalesmen?.length || 0} | 
+                        Districts: {agriSalesData.sales.byDistrict?.length || 0} | 
+                        Talukas: {agriSalesData.sales.byTaluka?.length || 0} | 
+                        Villages: {agriSalesData.sales.byVillage?.length || 0}
+                      </p>
+                    </div>
+                  ) : agriSalesSubTab === 'outstanding' && agriSalesData.outstanding ? (
+                    <div>
+                      <p className="text-sm text-gray-600">
+                        Total Outstanding: ₹{agriSalesData.outstanding.total?.totalOutstanding?.toLocaleString() || 0} 
+                        ({agriSalesData.outstanding.total?.totalOrders || 0} orders)
+                      </p>
+                      <p className="text-sm text-gray-600 mt-1">
+                        Salesmen: {agriSalesData.outstanding.bySalesmen?.length || 0} | 
+                        Districts: {agriSalesData.outstanding.byDistrict?.length || 0} | 
+                        Talukas: {agriSalesData.outstanding.byTaluka?.length || 0} | 
+                        Villages: {agriSalesData.outstanding.byVillage?.length || 0}
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-600">No summary data available.</p>
+                  )}
+                </div>
+                <div className="flex-1 min-h-0">
+                  {agriSalesSubTab === 'sales' && agriSalesData.sales ? (
+                    <AgriSalesBucketingTreeComponent
+                      data={agriSalesData.sales}
+                      filters={filters}
+                      onOrderNodeClick={handleOrderClick}
+                    />
+                  ) : agriSalesSubTab === 'outstanding' && agriSalesData.outstanding ? (
+                    <AgriSalesOutstandingTreeComponent
+                      data={agriSalesData}
+                      filters={filters}
+                      onOrderNodeClick={handleOrderClick}
+                    />
+                  ) : (
+                    <div className="text-center py-8">
+                      <p className="text-gray-600">No data available</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-8">
+                <p className="text-gray-600">No data available</p>
+              </div>
+            )}
+          </div>
+        ) : null}
       </div>
     </div>
   );

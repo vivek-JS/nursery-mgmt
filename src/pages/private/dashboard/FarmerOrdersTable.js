@@ -10,6 +10,7 @@ import { MenuItem, Select } from "@mui/material"
 import DownloadPDFButton from "./OrdereRecipt"
 import DispatchForm from "./DispatchedForm"
 import DispatchList from "./DispatchedList"
+import AddAgriSalesOrderForm from "../inventory/AddAgriSalesOrderForm"
 import { Toast } from "helpers/toasts/toastHelper"
 import { faHourglassEmpty } from "@fortawesome/free-solid-svg-icons"
 import { FaUser, FaCreditCard, FaEdit, FaFileAlt } from "react-icons/fa"
@@ -587,6 +588,9 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("")
   const [refresh, setRefresh] = useState(false)
   const [selectedRow, setSelectedRow] = useState(null)
+  const [showAgriSalesOrders, setShowAgriSalesOrders] = useState(false) // Toggle for Ram Agri Sales orders
+  const [showAddAgriSalesOrderForm, setShowAddAgriSalesOrderForm] = useState(false) // Dialog for adding Agri Sales order
+  const [agriSalesPendingCount, setAgriSalesPendingCount] = useState(0) // Pending payments count for badge
 
   // Inject custom CSS for blinking animation and enhanced dropdowns
   useEffect(() => {
@@ -734,6 +738,15 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
       return
     }
 
+    // Check if this is an Agri Sales order
+    const isAgriSalesOrder = selectedOrder?.isAgriSalesOrder || orders.find(o => o.details?.orderid === orderId)?.isAgriSalesOrder
+
+    // For Agri Sales orders, wallet payment is not available (simpler flow)
+    if (isAgriSalesOrder && newPayment.isWalletPayment) {
+      Toast.error("Wallet payment is not available for Agri Sales orders")
+      return
+    }
+
     // Only require modeOfPayment if not using wallet payment
     if (!newPayment.isWalletPayment && !newPayment.modeOfPayment) {
       Toast.error("Please select payment mode")
@@ -806,6 +819,45 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
 
     setLoading(true)
     try {
+      // Handle Agri Sales orders differently
+      if (isAgriSalesOrder) {
+        const instance = NetworkManager(API.INVENTORY.ADD_AGRI_SALES_ORDER_PAYMENT)
+        const payload = {
+          paidAmount: newPayment.paidAmount,
+          paymentDate: newPayment.paymentDate,
+          modeOfPayment: newPayment.isWalletPayment ? "Wallet" : newPayment.modeOfPayment,
+          bankName: newPayment.bankName || "",
+          receiptPhoto: newPayment.receiptPhoto || [],
+          remark: newPayment.remark || "",
+          isWalletPayment: false, // Agri Sales orders don't support wallet payments
+          paymentStatus: "PENDING",
+        }
+
+        const response = await instance.request(payload, [orderId])
+        
+        if (response?.data) {
+          Toast.success("Payment added successfully")
+          setShowPaymentForm(false)
+          resetPaymentForm(false)
+          
+          // Refresh orders
+          await getOrders()
+          refreshComponent()
+          
+          // Update selected order if modal is open
+          if (selectedOrder) {
+            setTimeout(() => {
+              refreshModalData()
+            }, 500)
+          }
+        } else {
+          Toast.error("Failed to add payment")
+        }
+        setLoading(false)
+        return
+      }
+
+      // Handle regular orders (existing flow)
       const instance = NetworkManager(API.ORDER.ADD_PAYMENT)
 
       // Ensure isWalletPayment is a boolean and construct payload explicitly
@@ -1277,7 +1329,8 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
     selectedVillage,
   selectedDistrict,
   selectedPlant,
-  selectedSubtype
+  selectedSubtype,
+  showAgriSalesOrders // Reload when switching between regular and Agri Sales orders
   ])
 
   // Function to fetch sales person data
@@ -1696,7 +1749,134 @@ const mapSlotForUi = (slotData) => {
   const getOrders = async () => {
     setLoading(true)
 
-    // Use appropriate endpoint based on slotId
+    // If showing Agri Sales orders, use different endpoint
+    if (showAgriSalesOrders) {
+      try {
+        const instance = NetworkManager(API.INVENTORY.GET_ALL_AGRI_SALES_ORDERS)
+        const params = {
+          search: debouncedSearchTerm,
+          limit: 10000,
+          page: 1,
+        }
+
+        if (startDate && endDate) {
+          params.startDate = moment(startDate).format("YYYY-MM-DD")
+          params.endDate = moment(endDate).format("YYYY-MM-DD")
+        }
+
+        // Filter by order status based on viewMode for Agri Sales orders
+        if (viewMode === "booking") {
+          params.orderStatus = "PENDING"
+        } else if (viewMode === "dispatched") {
+          params.orderStatus = "ACCEPTED"
+        } else if (viewMode === "farmready") {
+          params.orderStatus = "COMPLETED"
+        }
+        // For other viewModes or "all", don't filter by status (show all)
+
+        if (selectedSalesPerson) {
+          // For Agri Sales, filter by createdBy if salesPerson is selected
+          params.createdBy = selectedSalesPerson
+        }
+
+        const response = await instance.request({}, params)
+        const ordersData = response?.data?.data?.data || response?.data?.data || []
+
+        // Transform Agri Sales orders to match the expected format
+        const transformedOrders = ordersData.map((order) => {
+          const {
+            orderNumber,
+            customerName,
+            customerMobile,
+            customerVillage,
+            customerTaluka,
+            customerDistrict,
+            productName,
+            quantity,
+            unit,
+            rate,
+            totalAmount,
+            orderStatus,
+            payment,
+            totalPaidAmount,
+            balanceAmount,
+            orderDate,
+            deliveryDate,
+            createdAt,
+            notes,
+            createdBy,
+            productId,
+            _id,
+          } = order
+
+          return {
+            order: orderNumber,
+            farmerName: customerName,
+            plantType: productName,
+            quantity: quantity,
+            totalPlants: quantity,
+            additionalPlants: 0,
+            basePlants: quantity,
+            orderDate: moment(orderDate || createdAt).format("DD MMM YYYY"),
+            deliveryDate: deliveryDate ? moment(deliveryDate).format("DD MMM YYYY") : "-",
+            rate: rate,
+            total: `₹ ${Number(totalAmount || 0).toFixed(2)}`,
+            "Paid Amt": `₹ ${Number(totalPaidAmount || 0).toFixed(2)}`,
+            "remaining Amt": `₹ ${Number(balanceAmount || totalAmount - (totalPaidAmount || 0)).toFixed(2)}`,
+            "remaining Plants": quantity, // For Agri Sales, remaining is same as quantity until accepted
+            "returned Plants": 0,
+            orderStatus: orderStatus,
+            Delivery: "-", // Agri Sales orders don't have slots
+            "Farm Ready": "-",
+            isAgriSalesOrder: true, // Flag to identify Agri Sales orders
+            details: {
+              customerName,
+              customerMobile,
+              customerVillage,
+              customerTaluka,
+              customerDistrict,
+              productName,
+              productId,
+              quantity,
+              unit,
+              rate,
+              totalAmount,
+              orderStatus,
+              payment: payment || [],
+              totalPaidAmount: totalPaidAmount || 0,
+              balanceAmount: balanceAmount || totalAmount,
+              orderDate,
+              deliveryDate,
+              notes,
+              createdBy,
+              orderid: _id,
+              orderNumber,
+            },
+          }
+        })
+
+        // Apply additional filters
+        let filteredOrders = transformedOrders
+        if (selectedVillage) {
+          filteredOrders = filteredOrders.filter((o) => o.details.customerVillage === selectedVillage)
+        }
+        if (selectedDistrict) {
+          filteredOrders = filteredOrders.filter((o) => o.details.customerDistrict === selectedDistrict)
+        }
+
+        setOrders(filteredOrders)
+        setLoading(false)
+        return
+      } catch (error) {
+        console.error("Error fetching Agri Sales orders:", error)
+        Toast.error("Failed to load Agri Sales orders")
+        setLoading(false)
+        setOrders([])
+        return
+      }
+    }
+
+    // Use appropriate endpoint based on slotId for regular orders
     const instance = slotId
       ? NetworkManager(API.ORDER.GET_ORDERS_SLOTS)
       : NetworkManager(API.ORDER.GET_ORDERS)
@@ -2089,7 +2269,50 @@ const mapSlotForUi = (slotData) => {
   }
 
   // Status change handler with confirmation
-  const handleStatusChange = (row, newStatus) => {
+  const handleStatusChange = async (row, newStatus) => {
+    // Handle Agri Sales orders differently
+    if (row.isAgriSalesOrder) {
+      setConfirmDialog({
+        open: true,
+        title: newStatus === "ACCEPTED" ? "Accept Order & Deduct Stock" : "Reject Order",
+        description: newStatus === "ACCEPTED" 
+          ? `Accept Order #${row.order}? This will deduct ${row.quantity} ${row.details?.unit || "units"} from inventory stock.`
+          : `Reject Order #${row.order}? This action cannot be undone.`,
+        onConfirm: async () => {
+          setConfirmDialog((d) => ({ ...d, open: false }))
+          setpatchLoading(true)
+          try {
+            const orderId = row?.details?.orderid || row?.details?._id
+            if (newStatus === "ACCEPTED") {
+              const instance = NetworkManager(API.INVENTORY.ACCEPT_AGRI_SALES_ORDER)
+              const response = await instance.request({}, [orderId])
+              if (response?.data) {
+                Toast.success("Order accepted and stock deducted successfully")
+                await getOrders()
+                refreshComponent()
+              }
+            } else if (newStatus === "REJECTED") {
+              const instance = NetworkManager(API.INVENTORY.REJECT_AGRI_SALES_ORDER)
+              const response = await instance.request({ reason: "Rejected by user" }, [orderId])
+              if (response?.data) {
+                Toast.success("Order rejected successfully")
+                await getOrders()
+                refreshComponent()
+              }
+            }
+          } catch (error) {
+            console.error("Error changing Agri Sales order status:", error)
+            const errorMessage = error.response?.data?.message || error.message || "Failed to change order status"
+            Toast.error(errorMessage)
+          } finally {
+            setpatchLoading(false)
+          }
+        }
+      })
+      return
+    }
+
+    // Handle regular orders (existing flow)
     setConfirmDialog({
       open: true,
       title: "Confirm Status Change",
@@ -2237,43 +2460,47 @@ const mapSlotForUi = (slotData) => {
         <div className="bg-white rounded-lg shadow-sm border p-4">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Filters</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-6">
-            {/* Plant Filter */}
-            <SearchableDropdown
-              label="Plant"
-              value={selectedPlant}
-              onChange={(val) => {
-                setSelectedPlant(val)
-                if (val === "") {
-                  setSelectedSubtype("")
-                }
-              }}
-              options={[{ label: "All Plants", value: "" }, ...(plants || [])]}
-              placeholder="Select Plant"
-              showCount={true}
-              maxHeight="500px"
-            />
+            {/* Plant Filter - Hide for Agri Sales orders */}
+            {!showAgriSalesOrders && (
+              <>
+                <SearchableDropdown
+                  label="Plant"
+                  value={selectedPlant}
+                  onChange={(val) => {
+                    setSelectedPlant(val)
+                    if (val === "") {
+                      setSelectedSubtype("")
+                    }
+                  }}
+                  options={[{ label: "All Plants", value: "" }, ...(plants || [])]}
+                  placeholder="Select Plant"
+                  showCount={true}
+                  maxHeight="500px"
+                />
 
-            {/* Plant Subtype Filter */}
-            <SearchableDropdown
-              label="Subtype"
-              value={selectedSubtype}
-              onChange={setSelectedSubtype}
-              options={
-                !selectedPlant
-                  ? []
-                  : [{ label: "All Subtypes", value: "" }, ...(subtypes || [])]
-              }
-              placeholder={
-                !selectedPlant
-                  ? "Select a plant first"
-                  : subtypesLoading
-                  ? "Loading subtypes..."
-                  : "Select Subtype"
-              }
-              showCount={Boolean(selectedPlant && !subtypesLoading)}
-              maxHeight="500px"
-              disabled={!selectedPlant || subtypesLoading}
-            />
+                {/* Plant Subtype Filter */}
+                <SearchableDropdown
+                  label="Subtype"
+                  value={selectedSubtype}
+                  onChange={setSelectedSubtype}
+                  options={
+                    !selectedPlant
+                      ? []
+                      : [{ label: "All Subtypes", value: "" }, ...(subtypes || [])]
+                  }
+                  placeholder={
+                    !selectedPlant
+                      ? "Select a plant first"
+                      : subtypesLoading
+                      ? "Loading subtypes..."
+                      : "Select Subtype"
+                  }
+                  showCount={Boolean(selectedPlant && !subtypesLoading)}
+                  maxHeight="500px"
+                  disabled={!selectedPlant || subtypesLoading}
+                />
+              </>
+            )}
 
             {/* Sales Person/Dealer Filter */}
             <SearchableDropdown
@@ -2350,14 +2577,21 @@ const mapSlotForUi = (slotData) => {
 
 
         {/* View mode info banner */}
-        {viewMode === "farmready" && (
+        {showAgriSalesOrders && (
+          <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 mb-4">
+            <p className="text-sm text-orange-800">
+              <span className="font-semibold">📦 Ram Agri Sales Orders:</span> Showing inventory product orders. When an order is accepted, stock is automatically deducted from inventory.
+            </p>
+          </div>
+        )}
+        {viewMode === "farmready" && !showAgriSalesOrders && (
           <div className="bg-green-50 border border-green-200 rounded-lg p-3 mb-4">
             <p className="text-sm text-green-800">
               <span className="font-semibold">🌱 Farm Ready View:</span> Shows orders marked as farm ready with date filtering applied.
             </p>
           </div>
         )}
-        {viewMode === "ready_for_dispatch" && (
+        {viewMode === "ready_for_dispatch" && !showAgriSalesOrders && (
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
             <p className="text-sm text-blue-800">
               <span className="font-semibold">✅ Ready for Dispatch View:</span> Shows all orders with &ldquo;Ready for Dispatch&rdquo; status, irrespective of date. 
@@ -2471,7 +2705,7 @@ const mapSlotForUi = (slotData) => {
       <div className="bg-white rounded-lg shadow-sm border">
         {/* Header with View Toggle */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-gray-50">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-medium text-gray-700">View:</span>
             <button
               onClick={() => setViewType("table")}
@@ -2491,62 +2725,142 @@ const mapSlotForUi = (slotData) => {
               }`}>
               🎴 Grid
             </button>
+            
+            {/* Ram Agri Sales Toggle */}
+            <div className="ml-4 pl-4 border-l border-gray-300 flex items-center gap-2">
+              <span className="text-sm font-medium text-gray-700">Order Type:</span>
+              <button
+                onClick={() => {
+                  setShowAgriSalesOrders(false)
+                  setViewMode("booking") // Reset to booking view when switching
+                }}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                  !showAgriSalesOrders
+                    ? "bg-green-600 text-white shadow-sm"
+                    : "bg-white text-gray-600 hover:bg-gray-100 border border-gray-300"
+                }`}>
+                🌱 Regular Orders
+              </button>
+              <button
+                onClick={() => {
+                  setShowAgriSalesOrders(true)
+                  setViewMode("booking") // Reset to booking view when switching
+                }}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors relative ${
+                  showAgriSalesOrders
+                    ? "bg-orange-600 text-white shadow-sm"
+                    : "bg-white text-gray-600 hover:bg-gray-100 border border-gray-300"
+                }`}>
+                📦 Ram Agri Sales
+                {agriSalesPendingCount > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center border-2 border-white">
+                    {agriSalesPendingCount > 99 ? "99+" : agriSalesPendingCount}
+                  </span>
+                )}
+              </button>
+              
+              {/* Add Agri Sales Order Button */}
+              {showAgriSalesOrders && (
+                <button
+                  onClick={() => setShowAddAgriSalesOrderForm(true)}
+                  className="px-3 py-1.5 text-xs font-medium rounded-md bg-green-600 text-white shadow-sm hover:bg-green-700 transition-colors flex items-center gap-1">
+                  <span>+</span> Add Order
+                </button>
+              )}
+            </div>
           </div>
           <div className="text-sm text-gray-600">
             {orders.length} {orders.length === 1 ? "order" : "orders"}
           </div>
         </div>
 
-        {/* Tab Navigation */}
-        <div className="border-b border-gray-200 bg-gray-50">
-          <div className="flex overflow-x-auto scrollbar-hide">
-            <button
-              onClick={() => setViewMode("booking")}
-              className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
-                viewMode === "booking"
-                  ? "border-blue-500 text-blue-600 bg-white"
-                  : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-              }`}>
-              <span className="hidden sm:inline">📋 </span>Booking {orders.length > 0 && <span className="ml-1 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
-            </button>
-            <button
-              onClick={() => setViewMode("dispatched")}
-              className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
-                viewMode === "dispatched"
-                  ? "border-blue-500 text-blue-600 bg-white"
-                  : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-              }`}>
-              <span className="hidden sm:inline">🚚 </span>Dispatched {orders.length > 0 && <span className="ml-1 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
-            </button>
-            <button
-              onClick={() => setViewMode("farmready")}
-              className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
-                viewMode === "farmready"
-                  ? "border-blue-500 text-blue-600 bg-white"
-                  : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-              }`}>
-              <span className="hidden sm:inline">🌱 </span>Farm Ready {orders.length > 0 && <span className="ml-1 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
-            </button>
-            <button
-              onClick={() => setViewMode("ready_for_dispatch")}
-              className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
-                viewMode === "ready_for_dispatch"
-                  ? "border-blue-500 text-blue-600 bg-white"
-                  : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-              }`}>
-              <span className="hidden sm:inline">✅ </span>Ready {orders.length > 0 && <span className="ml-1 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
-            </button>
-            <button
-              onClick={() => setViewMode("dispatch_process")}
-              className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
-                viewMode === "dispatch_process"
-                  ? "border-blue-500 text-blue-600 bg-white"
-                  : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-              }`}>
-              <span className="hidden sm:inline">⏳ </span>Loading {orders.length > 0 && <span className="ml-1 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
-            </button>
+        {/* Tab Navigation - Hide or simplify for Agri Sales orders */}
+        {!showAgriSalesOrders && (
+          <div className="border-b border-gray-200 bg-gray-50">
+            <div className="flex overflow-x-auto scrollbar-hide">
+              <button
+                onClick={() => setViewMode("booking")}
+                className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+                  viewMode === "booking"
+                    ? "border-blue-500 text-blue-600 bg-white"
+                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                }`}>
+                <span className="hidden sm:inline">📋 </span>Booking {orders.length > 0 && <span className="ml-1 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
+              </button>
+              <button
+                onClick={() => setViewMode("dispatched")}
+                className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+                  viewMode === "dispatched"
+                    ? "border-blue-500 text-blue-600 bg-white"
+                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                }`}>
+                <span className="hidden sm:inline">🚚 </span>Dispatched {orders.length > 0 && <span className="ml-1 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
+              </button>
+              <button
+                onClick={() => setViewMode("farmready")}
+                className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+                  viewMode === "farmready"
+                    ? "border-blue-500 text-blue-600 bg-white"
+                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                }`}>
+                <span className="hidden sm:inline">🌱 </span>Farm Ready {orders.length > 0 && <span className="ml-1 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
+              </button>
+              <button
+                onClick={() => setViewMode("ready_for_dispatch")}
+                className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+                  viewMode === "ready_for_dispatch"
+                    ? "border-blue-500 text-blue-600 bg-white"
+                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                }`}>
+                <span className="hidden sm:inline">✅ </span>Ready {orders.length > 0 && <span className="ml-1 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
+              </button>
+              <button
+                onClick={() => setViewMode("dispatch_process")}
+                className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+                  viewMode === "dispatch_process"
+                    ? "border-blue-500 text-blue-600 bg-white"
+                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                }`}>
+                <span className="hidden sm:inline">⏳ </span>Loading {orders.length > 0 && <span className="ml-1 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
+              </button>
+            </div>
           </div>
-        </div>
+        )}
+
+        {/* Agri Sales Order Status Tabs */}
+        {showAgriSalesOrders && (
+          <div className="border-b border-gray-200 bg-gray-50">
+            <div className="flex overflow-x-auto scrollbar-hide">
+              <button
+                onClick={() => setViewMode("booking")}
+                className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+                  viewMode === "booking"
+                    ? "border-orange-500 text-orange-600 bg-white"
+                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                }`}>
+                <span className="hidden sm:inline">⏳ </span>Pending {orders.length > 0 && <span className="ml-1 text-xs bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
+              </button>
+              <button
+                onClick={() => setViewMode("dispatched")}
+                className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+                  viewMode === "dispatched"
+                    ? "border-orange-500 text-orange-600 bg-white"
+                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                }`}>
+                <span className="hidden sm:inline">✅ </span>Accepted {orders.length > 0 && <span className="ml-1 text-xs bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
+              </button>
+              <button
+                onClick={() => setViewMode("farmready")}
+                className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+                  viewMode === "farmready"
+                    ? "border-orange-500 text-orange-600 bg-white"
+                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                }`}>
+                <span className="hidden sm:inline">✅ </span>Completed {orders.length > 0 && <span className="ml-1 text-xs bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Table View */}
         {viewType === "table" && (
@@ -5158,6 +5472,16 @@ const mapSlotForUi = (slotData) => {
           </div>
         </div>
       )}
+
+      {/* Add Agri Sales Order Dialog */}
+      <AddAgriSalesOrderForm
+        open={showAddAgriSalesOrderForm}
+        onClose={() => setShowAddAgriSalesOrderForm(false)}
+        onSuccess={() => {
+          setShowAddAgriSalesOrderForm(false)
+          getOrders() // Refresh orders after creating
+        }}
+      />
     </div>
   )
 }

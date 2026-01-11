@@ -109,6 +109,12 @@ const useStyles = makeStyles()((theme) => ({
     "& .MuiOutlinedInput-root": {
       borderRadius: "8px",
       fontSize: "0.75rem"
+    },
+    "& .MuiSelect-select": {
+      zIndex: 1300
+    },
+    "& .MuiMenu-paper": {
+      zIndex: 1300
     }
   },
   disabledStatus: {
@@ -206,6 +212,40 @@ const useStyles = makeStyles()((theme) => ({
     textAlign: "center",
     color: "#666",
     fontSize: "14px"
+  },
+  outstandingCard: {
+    cursor: "pointer",
+    transition: "all 0.3s ease",
+    "&:hover": {
+      transform: "translateY(-4px)",
+      boxShadow: "0 4px 12px rgba(0,0,0,0.15)"
+    }
+  },
+  flowChartContainer: {
+    width: "100%",
+    height: "100%",
+    minHeight: "400px",
+    position: "relative",
+    overflow: "auto",
+    backgroundColor: "#fafafa",
+    padding: theme.spacing(2),
+    [theme.breakpoints.down("md")]: {
+      padding: theme.spacing(1),
+      minHeight: "300px"
+    }
+  },
+  nodeCard: {
+    padding: theme.spacing(2),
+    borderRadius: "12px",
+    boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
+    transition: "all 0.3s ease",
+    "&:hover": {
+      boxShadow: "0 4px 16px rgba(0,0,0,0.2)",
+      transform: "scale(1.02)"
+    },
+    [theme.breakpoints.down("sm")]: {
+      padding: theme.spacing(1.5)
+    }
   }
 }))
 
@@ -222,8 +262,14 @@ const PaymentsPage = () => {
     return [startDate, endDate]
   })
   const [activeTab, setActiveTab] = useState("pending") // "collected", "pending", or "rejected"
-  const [paymentType, setPaymentType] = useState("farmer") // "farmer" or "agri-inputs"
+  const [paymentType, setPaymentType] = useState("farmer") // "farmer", "agri-inputs", or "ram-agri-sales"
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("")
+  const [pendingPaymentsCount, setPendingPaymentsCount] = useState(0)
+  const [showOutstanding, setShowOutstanding] = useState(false) // Toggle for outstanding view
+  const [outstandingView, setOutstandingView] = useState("total") // "total", "salesmen", "district", "taluka", "village", "customer"
+  const [outstandingData, setOutstandingData] = useState(null)
+  const [customerOutstandingData, setCustomerOutstandingData] = useState([])
+  const [employeeOrders, setEmployeeOrders] = useState([]) // Orders booked by employee
 
   // Role-based access control
   const hasPaymentsAccess = useHasPaymentsAccess() // Only Accountants and Super Admins
@@ -386,19 +432,172 @@ const PaymentsPage = () => {
     }
   }
 
+  // Fetch payments function for Ram Agri Sales orders
+  const fetchRamAgriSalesPayments = async () => {
+    setLoading(true)
+    try {
+      const params = {
+        search: debouncedSearchTerm || "",
+        paymentStatus:
+          activeTab === "collected" ? "COLLECTED" : activeTab === "pending" ? "PENDING" : "REJECTED",
+        page: 1,
+        limit: 1000
+      }
+
+      if (
+        startDate &&
+        endDate &&
+        startDate instanceof Date &&
+        endDate instanceof Date &&
+        !isNaN(startDate.getTime()) &&
+        !isNaN(endDate.getTime())
+      ) {
+        params.startDate = moment(startDate).format("DD-MM-YYYY")
+        params.endDate = moment(endDate).format("DD-MM-YYYY")
+      }
+
+      console.log("🔍 Fetching Ram Agri Sales payments with params:", params)
+
+      const instance = NetworkManager(API.INVENTORY.GET_AGRI_SALES_PENDING_PAYMENTS)
+      const response = await instance.request({}, params)
+
+      console.log("📦 Response received:", response?.data)
+
+      // Handle response structure: { status: "Success", message: "...", data: { data: [...], pagination: {...} } }
+      if (response?.data?.status === "Success") {
+        const paymentsData = response.data.data?.data || response.data.data || []
+        console.log("✅ Payments extracted:", paymentsData.length, "payments")
+        setPayments(Array.isArray(paymentsData) ? paymentsData : [])
+      } else {
+        console.warn("⚠️ Unexpected response structure:", response?.data)
+        setPayments([])
+      }
+    } catch (error) {
+      console.error("❌ Error fetching Ram Agri Sales payments:", error)
+      console.error("Error details:", error.response?.data || error.message)
+      Toast.error("Failed to fetch Ram Agri Sales payments")
+      setPayments([])
+    } finally {
+      setLoading(false)
+    }
+  }
+
   // Main fetch function that routes to appropriate API
   const fetchPayments = () => {
     if (paymentType === "agri-inputs") {
       fetchAgriInputsPayments()
+    } else if (paymentType === "ram-agri-sales") {
+      fetchRamAgriSalesPayments()
     } else {
       fetchFarmerPayments()
     }
   }
 
+  // Fetch pending payments count for Ram Agri Sales
+  const fetchPendingPaymentsCount = async () => {
+    if (paymentType === "ram-agri-sales") {
+      try {
+        const instance = NetworkManager(API.INVENTORY.GET_AGRI_SALES_PENDING_PAYMENTS_COUNT)
+        const response = await instance.request({}, {})
+        if (response?.data?.status === "Success") {
+          setPendingPaymentsCount(response.data.data?.count || 0)
+        }
+      } catch (error) {
+        console.error("Error fetching pending payments count:", error)
+      }
+    } else {
+      setPendingPaymentsCount(0)
+    }
+  }
+
+  // Fetch outstanding analysis
+  const fetchOutstandingAnalysis = async () => {
+    try {
+      const params = {}
+      if (startDate && endDate) {
+        params.startDate = moment(startDate).format("YYYY-MM-DD")
+        params.endDate = moment(endDate).format("YYYY-MM-DD")
+      }
+
+      const instance = NetworkManager(API.INVENTORY.GET_AGRI_SALES_OUTSTANDING_ANALYSIS)
+      const response = await instance.request({}, params)
+
+      if (response?.data?.status === "Success") {
+        setOutstandingData(response.data.data)
+      }
+    } catch (error) {
+      console.error("Error fetching outstanding analysis:", error)
+      Toast.error("Failed to fetch outstanding analysis")
+    }
+  }
+
+  // Fetch customer outstanding
+  const fetchCustomerOutstanding = async () => {
+    try {
+      const params = {}
+      if (startDate && endDate) {
+        params.startDate = moment(startDate).format("YYYY-MM-DD")
+        params.endDate = moment(endDate).format("YYYY-MM-DD")
+      }
+
+      const instance = NetworkManager(API.INVENTORY.GET_AGRI_SALES_CUSTOMER_OUTSTANDING)
+      const response = await instance.request({}, params)
+
+      if (response?.data?.status === "Success") {
+        setCustomerOutstandingData(response.data.data?.data || [])
+      }
+    } catch (error) {
+      console.error("Error fetching customer outstanding:", error)
+      Toast.error("Failed to fetch customer outstanding")
+    }
+  }
+
+  // Fetch employee orders (all orders booked by current employee)
+  const fetchEmployeeOrders = async () => {
+    if (paymentType === "ram-agri-sales") {
+      try {
+        const params = {
+          myOrders: "true",
+          page: 1,
+          limit: 1000
+        }
+        if (startDate && endDate) {
+          params.startDate = moment(startDate).format("YYYY-MM-DD")
+          params.endDate = moment(endDate).format("YYYY-MM-DD")
+        }
+
+        const instance = NetworkManager(API.INVENTORY.GET_ALL_AGRI_SALES_ORDERS)
+        const response = await instance.request({}, params)
+
+        if (response?.data?.status === "Success") {
+          setEmployeeOrders(response.data.data?.data || [])
+        }
+      } catch (error) {
+        console.error("Error fetching employee orders:", error)
+      }
+    }
+  }
+
   // Fetch payments when filters change
   useEffect(() => {
-    fetchPayments()
-  }, [debouncedSearchTerm, activeTab, startDateStr, endDateStr, paymentType])
+    if (!showOutstanding && outstandingView !== "orders") {
+      fetchPayments()
+    }
+    fetchPendingPaymentsCount()
+    if (paymentType === "ram-agri-sales") {
+      fetchEmployeeOrders()
+    }
+  }, [debouncedSearchTerm, activeTab, startDateStr, endDateStr, paymentType, showOutstanding, outstandingView])
+
+  // Fetch outstanding data when outstanding view is enabled
+  useEffect(() => {
+    if (showOutstanding && paymentType === "ram-agri-sales") {
+      fetchOutstandingAnalysis()
+      if (outstandingView === "customer") {
+        fetchCustomerOutstanding()
+      }
+    }
+  }, [showOutstanding, paymentType, outstandingView, startDateStr, endDateStr])
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -431,35 +630,113 @@ const PaymentsPage = () => {
   }
 
   const exportToCSV = () => {
-    const headers = [
-      "Order ID",
-      "Farmer Name",
-      "Mobile Number",
-      "Plant Type",
-      "Payment Amount",
-      "Payment Status",
-      "Payment Date",
-      "Mode of Payment",
-      "Bank Name",
-      "Order Status",
-      "Total Order Amount",
-      "Sales Person"
-    ]
+    const headers = paymentType === "ram-agri-sales"
+      ? [
+          "Order Number",
+          "Customer Name",
+          "Mobile Number",
+          "Product Name",
+          "Quantity",
+          "Unit",
+          "Rate",
+          "Payment Amount",
+          "Payment Status",
+          "Payment Date",
+          "Mode of Payment",
+          "Bank Name",
+          "Order Status",
+          "Total Order Amount",
+          "Total Paid Amount",
+          "Balance Amount",
+          "Created By"
+        ]
+      : paymentType === "agri-inputs"
+      ? [
+          "Order Number",
+          "Merchant/Buyer Name",
+          "Phone Number",
+          "Items Count",
+          "Payment Amount",
+          "Payment Status",
+          "Payment Date",
+          "Mode of Payment",
+          "Bank Name",
+          "Order Status",
+          "Total Order Amount",
+          "Paid Amount",
+          "Outstanding Amount",
+          "Created By"
+        ]
+      : [
+          "Order ID",
+          "Farmer Name",
+          "Mobile Number",
+          "Plant Type",
+          "Payment Amount",
+          "Payment Status",
+          "Payment Date",
+          "Mode of Payment",
+          "Bank Name",
+          "Order Status",
+          "Total Order Amount",
+          "Sales Person"
+        ]
 
-    const csvData = payments.map((payment) => [
-      payment.orderId,
-      payment.farmer?.name || "",
-      payment.farmer?.mobileNumber || "",
-      payment.plantType?.name || "",
-      payment.payment?.paidAmount || 0,
-      payment.payment?.paymentStatus || "",
-      moment(payment.payment?.paymentDate).format("DD-MM-YYYY"),
-      payment.payment?.modeOfPayment || "",
-      payment.payment?.bankName || "",
-      payment.orderStatus || "",
-      payment.totalOrderAmount || 0,
-      payment.salesPerson?.name || ""
-    ])
+    const csvData = payments.map((payment) => {
+      if (paymentType === "ram-agri-sales") {
+        return [
+          payment.orderNumber || "",
+          payment.customerName || "",
+          payment.customerMobile || "",
+          payment.productName || "",
+          payment.quantity || 0,
+          payment.unit || "",
+          payment.rate || 0,
+          payment.payment?.paidAmount || 0,
+          payment.payment?.paymentStatus || "",
+          moment(payment.payment?.paymentDate).format("DD-MM-YYYY"),
+          payment.payment?.modeOfPayment || "",
+          payment.payment?.bankName || "",
+          payment.orderStatus || "",
+          payment.totalAmount || 0,
+          payment.totalPaidAmount || 0,
+          payment.balanceAmount || 0,
+          payment.createdBy?.name || ""
+        ]
+      } else if (paymentType === "agri-inputs") {
+        return [
+          payment.orderNumber || "",
+          payment.merchant?.name || payment.buyerName || "",
+          payment.merchant?.phone || "",
+          payment.items?.length || 0,
+          payment.payment?.paidAmount || 0,
+          payment.payment?.paymentStatus || "",
+          moment(payment.payment?.paymentDate).format("DD-MM-YYYY"),
+          payment.payment?.modeOfPayment || "",
+          payment.payment?.bankName || "",
+          payment.status || "",
+          payment.totalAmount || 0,
+          payment.paidAmount || 0,
+          ((payment.totalAmount || 0) - (payment.paidAmount || 0)),
+          payment.createdBy?.name || ""
+        ]
+      } else {
+        return [
+          payment.orderId,
+          payment.farmer?.name || "",
+          payment.farmer?.mobileNumber || "",
+          payment.plantType?.name || "",
+          payment.payment?.paidAmount || 0,
+          payment.payment?.paymentStatus || "",
+          moment(payment.payment?.paymentDate).format("DD-MM-YYYY"),
+          payment.payment?.modeOfPayment || "",
+          payment.payment?.bankName || "",
+          payment.orderStatus || "",
+          payment.totalOrderAmount || 0,
+          payment.salesPerson?.name || ""
+        ]
+      }
+    })
 
     const csvContent = [headers, ...csvData]
       .map((row) => row.map((cell) => `"${cell}"`).join(","))
@@ -489,10 +766,14 @@ const PaymentsPage = () => {
     const currentStatus = payment.payment?.paymentStatus
     if (newStatus === currentStatus) return
 
+    const orderIdentifier = paymentType === "agri-inputs" || paymentType === "ram-agri-sales"
+      ? payment.orderNumber
+      : payment.orderId
+
     setConfirmDialog({
       open: true,
       title: "Confirm Payment Status Change",
-      description: `Change payment status for Order #${payment.orderId} from ${currentStatus} to ${newStatus}?`,
+      description: `Change payment status for Order #${orderIdentifier} from ${currentStatus} to ${newStatus}?`,
       onConfirm: () => {
         setConfirmDialog((d) => ({ ...d, open: false }))
         updatePaymentStatus(payment, newStatus)
@@ -505,10 +786,14 @@ const PaymentsPage = () => {
     const currentStatus = payment.orderStatus
     if (newStatus === currentStatus) return
 
+    const orderIdentifier = paymentType === "agri-inputs" || paymentType === "ram-agri-sales"
+      ? payment.orderNumber
+      : payment.orderId
+
     setConfirmDialog({
       open: true,
       title: "Confirm Order Status Change",
-      description: `Change order status for Order #${payment.orderId} from ${currentStatus} to ${newStatus}?`,
+      description: `Change order status for Order #${orderIdentifier} from ${currentStatus} to ${newStatus}?`,
       onConfirm: () => {
         setConfirmDialog((d) => ({ ...d, open: false }))
         updateOrderStatus(payment, newStatus)
@@ -527,6 +812,22 @@ const PaymentsPage = () => {
         }, [`${payment._id}/payment/${payment.payment?._id}/status`])
 
         if (response?.data?.success) {
+          Toast.success("Payment status updated successfully")
+          fetchPayments()
+        } else {
+          Toast.error(response?.data?.message || "Failed to update payment status")
+        }
+      } else if (paymentType === "ram-agri-sales") {
+        // Update Ram Agri Sales order payment status
+        // Use paymentIndex from aggregation result, or default to 0
+        const paymentIndex = payment.paymentIndex !== undefined ? payment.paymentIndex : 0
+        
+        const instance = NetworkManager(API.INVENTORY.UPDATE_AGRI_SALES_ORDER_PAYMENT_STATUS)
+        const response = await instance.request({
+          paymentStatus: newStatus
+        }, [`${payment._id}/payment/${paymentIndex}/status`])
+
+        if (response?.data?.status === "Success") {
           Toast.success("Payment status updated successfully")
           fetchPayments()
         } else {
@@ -691,6 +992,39 @@ const PaymentsPage = () => {
               Agri Inputs Payments
             </Button>
           </Grid>
+          <Grid item>
+            <Button
+              className={`${classes.tabButton} ${paymentType === "ram-agri-sales" ? "active" : ""}`}
+              onClick={() => {
+                setPaymentType("ram-agri-sales")
+                setShowOutstanding(false)
+              }}
+              sx={{ position: "relative" }}>
+              Ram Agri Sales Payments
+              {pendingPaymentsCount > 0 && (
+                <Box
+                  sx={{
+                    position: "absolute",
+                    top: -8,
+                    right: -8,
+                    backgroundColor: "#f44336",
+                    color: "white",
+                    borderRadius: "50%",
+                    width: 24,
+                    height: 24,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: "0.75rem",
+                    fontWeight: "bold",
+                    border: "2px solid white",
+                    zIndex: 1
+                  }}>
+                  {pendingPaymentsCount > 99 ? "99+" : pendingPaymentsCount}
+                </Box>
+              )}
+            </Button>
+          </Grid>
         </Grid>
       </Box>
 
@@ -753,9 +1087,13 @@ const PaymentsPage = () => {
           <Grid item xs={12} md={4}>
             <TextField
               fullWidth
-              placeholder={paymentType === "agri-inputs" 
-                ? "Search by order number, merchant name, or buyer name..." 
-                : "Search by order ID, farmer name, or mobile..."}
+              placeholder={
+                paymentType === "agri-inputs" 
+                  ? "Search by order number, merchant name, or buyer name..." 
+                  : paymentType === "ram-agri-sales"
+                  ? "Search by order number, customer name, or mobile..."
+                  : "Search by order ID, farmer name, or mobile..."
+              }
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className={classes.searchBox}
@@ -776,8 +1114,290 @@ const PaymentsPage = () => {
         </Grid>
       </Card>
 
+      {/* Employee Orders View */}
+      {outstandingView === "orders" && paymentType === "ram-agri-sales" && (
+        <Box mb={3}>
+          <Card className={classes.paymentCard}>
+            <CardContent>
+              <Typography variant="h5" gutterBottom fontWeight="bold">
+                My Orders ({employeeOrders.length})
+              </Typography>
+              <Grid container spacing={2} sx={{ mt: 1 }}>
+                {employeeOrders.length === 0 ? (
+                  <Grid item xs={12}>
+                    <Typography variant="body1" color="textSecondary" textAlign="center" py={4}>
+                      No orders found for the selected filters
+                    </Typography>
+                  </Grid>
+                ) : (
+                  employeeOrders.map((order) => (
+                    <Grid item xs={12} sm={6} md={4} key={order._id}>
+                      <Card variant="outlined" sx={{ p: 2, height: "100%" }}>
+                        <Typography variant="h6" fontWeight="bold">
+                          {order.orderNumber}
+                        </Typography>
+                        <Typography variant="body2" color="textSecondary">
+                          {order.customerName}
+                        </Typography>
+                        <Typography variant="body2" color="textSecondary">
+                          {order.customerMobile}
+                        </Typography>
+                        <Typography variant="body2" mt={1}>
+                          {order.productName} - {order.quantity} {order.unit}
+                        </Typography>
+                        <Typography variant="body2" color="textSecondary">
+                          Total: ₹{order.totalAmount?.toLocaleString()}
+                        </Typography>
+                        <Typography variant="body2" color="textSecondary">
+                          Paid: ₹{order.totalPaidAmount?.toLocaleString()}
+                        </Typography>
+                        <Typography variant="body2" fontWeight="bold" color="error">
+                          Balance: ₹{order.balanceAmount?.toLocaleString()}
+                        </Typography>
+                        <Chip
+                          label={order.orderStatus}
+                          size="small"
+                          sx={{ mt: 1 }}
+                          color={order.orderStatus === "ACCEPTED" ? "success" : order.orderStatus === "PENDING" ? "warning" : "default"}
+                        />
+                      </Card>
+                    </Grid>
+                  ))
+                )}
+              </Grid>
+            </CardContent>
+          </Card>
+        </Box>
+      )}
+
+      {/* Outstanding Analysis View */}
+      {showOutstanding && paymentType === "ram-agri-sales" && (
+        <Box mb={3}>
+          <Card className={classes.paymentCard}>
+            <CardContent>
+              <Typography variant="h5" gutterBottom fontWeight="bold">
+                Ram Agri Sales Outstanding Analysis
+              </Typography>
+              
+              {/* Outstanding View Tabs */}
+              <Box mb={3} sx={{ borderBottom: 1, borderColor: "divider" }}>
+                <Grid container spacing={1}>
+                  <Grid item>
+                    <Button
+                      size="small"
+                      onClick={() => setOutstandingView("total")}
+                      variant={outstandingView === "total" ? "contained" : "outlined"}>
+                      Total
+                    </Button>
+                  </Grid>
+                  <Grid item>
+                    <Button
+                      size="small"
+                      onClick={() => setOutstandingView("salesmen")}
+                      variant={outstandingView === "salesmen" ? "contained" : "outlined"}>
+                      By Salesmen
+                    </Button>
+                  </Grid>
+                  <Grid item>
+                    <Button
+                      size="small"
+                      onClick={() => setOutstandingView("district")}
+                      variant={outstandingView === "district" ? "contained" : "outlined"}>
+                      By District
+                    </Button>
+                  </Grid>
+                  <Grid item>
+                    <Button
+                      size="small"
+                      onClick={() => setOutstandingView("taluka")}
+                      variant={outstandingView === "taluka" ? "contained" : "outlined"}>
+                      By Taluka
+                    </Button>
+                  </Grid>
+                  <Grid item>
+                    <Button
+                      size="small"
+                      onClick={() => setOutstandingView("village")}
+                      variant={outstandingView === "village" ? "contained" : "outlined"}>
+                      By Village
+                    </Button>
+                  </Grid>
+                  <Grid item>
+                    <Button
+                      size="small"
+                      onClick={() => setOutstandingView("customer")}
+                      variant={outstandingView === "customer" ? "contained" : "outlined"}>
+                      By Customer
+                    </Button>
+                  </Grid>
+                </Grid>
+              </Box>
+
+              {/* Outstanding Content */}
+              {outstandingView === "total" && outstandingData?.total && (
+                <Box>
+                  <Card variant="outlined" sx={{ p: 3, mb: 2, backgroundColor: "#f5f5f5" }}>
+                    <Typography variant="h4" fontWeight="bold" color="primary">
+                      Total Outstanding: ₹{outstandingData.total.totalOutstanding?.toLocaleString() || 0}
+                    </Typography>
+                    <Typography variant="body1" color="textSecondary" mt={1}>
+                      Total Orders: {outstandingData.total.totalOrders || 0}
+                    </Typography>
+                  </Card>
+                </Box>
+              )}
+
+              {outstandingView === "salesmen" && outstandingData?.bySalesmen && (
+                <Grid container spacing={2}>
+                  {outstandingData.bySalesmen.map((item, index) => (
+                    <Grid item xs={12} sm={6} md={4} key={item._id || index}>
+                      <Card variant="outlined" className={classes.outstandingCard} sx={{ p: 2 }}>
+                        <Typography variant="h6" fontWeight="bold">
+                          {item.salesmanName || "Unknown"}
+                        </Typography>
+                        <Typography variant="body2" color="textSecondary">
+                          {item.salesmanPhone || "N/A"}
+                        </Typography>
+                        <Typography variant="h6" color="error" mt={1}>
+                          ₹{item.totalOutstanding?.toLocaleString() || 0}
+                        </Typography>
+                        <Typography variant="body2" color="textSecondary">
+                          {item.totalOrders || 0} orders
+                        </Typography>
+                      </Card>
+                    </Grid>
+                  ))}
+                </Grid>
+              )}
+
+              {outstandingView === "district" && outstandingData?.byDistrict && (
+                <Grid container spacing={2}>
+                  {outstandingData.byDistrict.map((item, index) => (
+                    <Grid item xs={12} sm={6} md={4} key={item._id || index}>
+                      <Card variant="outlined" className={classes.outstandingCard} sx={{ p: 2 }}>
+                        <Typography variant="h6" fontWeight="bold">
+                          {item._id || "Unknown District"}
+                        </Typography>
+                        <Typography variant="h6" color="error" mt={1}>
+                          ₹{item.totalOutstanding?.toLocaleString() || 0}
+                        </Typography>
+                        <Typography variant="body2" color="textSecondary">
+                          {item.totalOrders || 0} orders
+                        </Typography>
+                      </Card>
+                    </Grid>
+                  ))}
+                </Grid>
+              )}
+
+              {outstandingView === "taluka" && outstandingData?.byTaluka && (
+                <Grid container spacing={2}>
+                  {outstandingData.byTaluka.map((item, index) => (
+                    <Grid item xs={12} sm={6} md={4} key={index}>
+                      <Card variant="outlined" className={classes.outstandingCard} sx={{ p: 2 }}>
+                        <Typography variant="body2" color="textSecondary">
+                          {item._id?.district || "Unknown"} District
+                        </Typography>
+                        <Typography variant="h6" fontWeight="bold">
+                          {item._id?.taluka || "Unknown Taluka"}
+                        </Typography>
+                        <Typography variant="h6" color="error" mt={1}>
+                          ₹{item.totalOutstanding?.toLocaleString() || 0}
+                        </Typography>
+                        <Typography variant="body2" color="textSecondary">
+                          {item.totalOrders || 0} orders
+                        </Typography>
+                      </Card>
+                    </Grid>
+                  ))}
+                </Grid>
+              )}
+
+              {outstandingView === "village" && outstandingData?.byVillage && (
+                <Grid container spacing={2}>
+                  {outstandingData.byVillage.map((item, index) => (
+                    <Grid item xs={12} sm={6} md={4} key={index}>
+                      <Card variant="outlined" className={classes.outstandingCard} sx={{ p: 2 }}>
+                        <Typography variant="caption" color="textSecondary" display="block">
+                          {item._id?.district || "Unknown"} → {item._id?.taluka || "Unknown"}
+                        </Typography>
+                        <Typography variant="h6" fontWeight="bold">
+                          {item._id?.village || "Unknown Village"}
+                        </Typography>
+                        <Typography variant="h6" color="error" mt={1}>
+                          ₹{item.totalOutstanding?.toLocaleString() || 0}
+                        </Typography>
+                        <Typography variant="body2" color="textSecondary">
+                          {item.totalOrders || 0} orders
+                        </Typography>
+                      </Card>
+                    </Grid>
+                  ))}
+                </Grid>
+              )}
+
+              {outstandingView === "customer" && customerOutstandingData.length > 0 && (
+                <Grid container spacing={2}>
+                  {customerOutstandingData.map((customer, index) => (
+                    <Grid item xs={12} key={index}>
+                      <Card variant="outlined" sx={{ p: 2 }}>
+                        <Grid container spacing={2} alignItems="center">
+                          <Grid item xs={12} md={3}>
+                            <Typography variant="h6" fontWeight="bold">
+                              {customer._id?.customerName || "Unknown"}
+                            </Typography>
+                            <Typography variant="body2" color="textSecondary">
+                              {customer._id?.customerMobile || "N/A"}
+                            </Typography>
+                            <Typography variant="body2" color="textSecondary">
+                              {customer.customerVillage}, {customer.customerTaluka}, {customer.customerDistrict}
+                            </Typography>
+                          </Grid>
+                          <Grid item xs={12} md={3}>
+                            <Typography variant="h6" color="error">
+                              ₹{customer.totalOutstanding?.toLocaleString() || 0}
+                            </Typography>
+                            <Typography variant="body2" color="textSecondary">
+                              {customer.totalOrders || 0} orders
+                            </Typography>
+                          </Grid>
+                          <Grid item xs={12} md={6}>
+                            <Typography variant="body2" fontWeight="medium" mb={1}>
+                              Orders:
+                            </Typography>
+                            <Box sx={{ maxHeight: 150, overflowY: "auto" }}>
+                              {customer.orders?.map((order, idx) => (
+                                <Box key={idx} sx={{ mb: 1, p: 1, backgroundColor: "#f5f5f5", borderRadius: 1 }}>
+                                  <Typography variant="caption" display="block">
+                                    {order.orderNumber} - ₹{order.balanceAmount?.toLocaleString() || 0} outstanding
+                                  </Typography>
+                                  <Typography variant="caption" color="textSecondary">
+                                    {moment(order.orderDate).format("DD-MM-YYYY")} | Status: {order.orderStatus}
+                                  </Typography>
+                                </Box>
+                              ))}
+                            </Box>
+                          </Grid>
+                        </Grid>
+                      </Card>
+                    </Grid>
+                  ))}
+                </Grid>
+              )}
+
+              {outstandingView === "customer" && customerOutstandingData.length === 0 && (
+                <Typography variant="body1" color="textSecondary" textAlign="center" py={4}>
+                  No customer outstanding data found
+                </Typography>
+              )}
+            </CardContent>
+          </Card>
+        </Box>
+      )}
+
       {/* Payments List */}
-      <Grid container spacing={2}>
+      {!showOutstanding && outstandingView !== "orders" && (
+        <Grid container spacing={2}>
         {payments.length === 0 ? (
           <Grid item xs={12}>
             <Card className={classes.paymentCard}>
@@ -793,6 +1413,8 @@ const PaymentsPage = () => {
             const statusColors = getStatusColor(payment.payment?.paymentStatus)
             const orderStatusColors = paymentType === "agri-inputs" 
               ? getStatusColor(payment.status) 
+              : paymentType === "ram-agri-sales"
+              ? getOrderStatusColor(payment.orderStatus)
               : getOrderStatusColor(payment.orderStatus)
 
             return (
@@ -802,7 +1424,7 @@ const PaymentsPage = () => {
                     <Grid container spacing={2} alignItems="center">
                       <Grid item xs={12} md={2}>
                         <Typography variant="h6" fontWeight="bold">
-                          {paymentType === "agri-inputs" 
+                          {paymentType === "agri-inputs" || paymentType === "ram-agri-sales"
                             ? `Order #${payment.orderNumber}` 
                             : `Order #${payment.orderId}`}
                         </Typography>
@@ -819,6 +1441,20 @@ const PaymentsPage = () => {
                             {payment.merchant?.phone && (
                               <Typography variant="body2" color="textSecondary">
                                 {payment.merchant.phone}
+                              </Typography>
+                            )}
+                          </>
+                        ) : paymentType === "ram-agri-sales" ? (
+                          <>
+                            <Typography variant="body2" color="textSecondary">
+                              {payment.customerName || "N/A"}
+                            </Typography>
+                            <Typography variant="body2" color="textSecondary">
+                              {payment.customerMobile || "N/A"}
+                            </Typography>
+                            {payment.customerVillage && (
+                              <Typography variant="body2" color="textSecondary">
+                                {payment.customerVillage}
                               </Typography>
                             )}
                           </>
@@ -845,6 +1481,18 @@ const PaymentsPage = () => {
                             </Typography>
                             <Typography variant="body2" color="textSecondary">
                               Total: ₹{payment.totalAmount?.toLocaleString() || 0}
+                            </Typography>
+                          </>
+                        ) : paymentType === "ram-agri-sales" ? (
+                          <>
+                            <Typography variant="body1" fontWeight="medium">
+                              {payment.productName || "N/A"}
+                            </Typography>
+                            <Typography variant="body2" color="textSecondary">
+                              {payment.quantity} {payment.unit || ""}
+                            </Typography>
+                            <Typography variant="body2" color="textSecondary">
+                              Rate: ₹{payment.rate?.toLocaleString() || 0}/{payment.unit || ""}
                             </Typography>
                           </>
                         ) : (
@@ -931,6 +1579,26 @@ const PaymentsPage = () => {
                               Outstanding: ₹{((payment.totalAmount || 0) - (payment.paidAmount || 0)).toLocaleString()}
                             </Typography>
                           </>
+                        ) : paymentType === "ram-agri-sales" ? (
+                          <>
+                            <Chip
+                              label={payment.orderStatus?.toUpperCase() || "PENDING"}
+                              className={classes.statusChip}
+                              style={{
+                                backgroundColor: orderStatusColors.bg,
+                                color: orderStatusColors.text
+                              }}
+                            />
+                            <Typography variant="body2" color="textSecondary" mt={1}>
+                              Total: ₹{payment.totalAmount?.toLocaleString() || 0}
+                            </Typography>
+                            <Typography variant="body2" color="textSecondary" mt={1}>
+                              Paid: ₹{payment.totalPaidAmount?.toLocaleString() || 0}
+                            </Typography>
+                            <Typography variant="body2" color="textSecondary">
+                              Balance: ₹{payment.balanceAmount?.toLocaleString() || 0}
+                            </Typography>
+                          </>
                         ) : (
                           <>
                             <FormControl fullWidth size="small" className={classes.statusSelect}>
@@ -967,6 +1635,20 @@ const PaymentsPage = () => {
                               {moment(payment.orderDate).format("DD-MM-YYYY")}
                             </Typography>
                           </>
+                        ) : paymentType === "ram-agri-sales" ? (
+                          <>
+                            <Typography variant="body2" fontWeight="medium">
+                              Created By: {payment.createdBy?.name || "N/A"}
+                            </Typography>
+                            <Typography variant="body2" color="textSecondary">
+                              {moment(payment.orderDate).format("DD-MM-YYYY")}
+                            </Typography>
+                            {payment.createdBy?.phoneNumber && (
+                              <Typography variant="body2" color="textSecondary">
+                                {payment.createdBy.phoneNumber}
+                              </Typography>
+                            )}
+                          </>
                         ) : (
                           <>
                             <Typography variant="body2" fontWeight="medium">
@@ -988,7 +1670,12 @@ const PaymentsPage = () => {
                             <Box display="flex" flexDirection="column" alignItems="center" gap={1}>
                               {hasImages ? (
                                 <IconButton
-                                  onClick={() => openImageModal(allImages, `Order #${payment.orderId} - Images`, 0)}
+                                  onClick={() => {
+                                    const orderIdentifier = paymentType === "agri-inputs" || paymentType === "ram-agri-sales"
+                                      ? payment.orderNumber
+                                      : payment.orderId
+                                    openImageModal(allImages, `Order #${orderIdentifier} - Images`, 0)
+                                  }}
                                   className={classes.imageViewButton}
                                   title="View Images"
                                   size="small"
@@ -1017,6 +1704,7 @@ const PaymentsPage = () => {
           })
         )}
       </Grid>
+      )}
 
       {/* Confirmation Dialog */}
       <Dialog
