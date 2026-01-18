@@ -695,20 +695,6 @@ const AddAgriSalesOrderForm = ({ open = true, onClose, onSuccess, isStandalone =
       }
     }
 
-    // Check variety stock availability
-    const crop = ramAgriCrops.find((c) => c._id === formData.ramAgriCropId);
-    if (crop) {
-      const variety = crop.varieties?.find((v) => v._id === formData.ramAgriVarietyId);
-      if (variety) {
-        const currentStock = variety.currentStock || 0;
-        const requiredQuantity = parseFloat(formData.quantity);
-        if (currentStock < requiredQuantity) {
-          Toast.error(`Insufficient stock. Available: ${currentStock}, Required: ${requiredQuantity}`);
-          return false;
-        }
-      }
-    }
-
     return true;
   };
 
@@ -734,7 +720,7 @@ const AddAgriSalesOrderForm = ({ open = true, onClose, onSuccess, isStandalone =
         ramAgriCropName: formData.ramAgriCropName || crop?.cropName || "",
         ramAgriVarietyName: formData.ramAgriVarietyName || variety?.name || "",
         primaryUnit: variety?.primaryUnit?._id || variety?.primaryUnit || "",
-        secondaryUnit: variety?.secondaryUnit?._id || variety?.secondaryUnit || "",
+        secondaryUnit: variety?.secondaryUnit?._id || variety?.secondaryUnit || null,
         conversionFactor: variety?.conversionFactor || 1,
         quantity: parseFloat(formData.quantity),
         rate: parseFloat(formData.rate),
@@ -1036,7 +1022,7 @@ const AddAgriSalesOrderForm = ({ open = true, onClose, onSuccess, isStandalone =
                   ) : (
                     selectedCrop.varieties.map((variety) => (
                       <MenuItem key={variety._id} value={variety._id}>
-                        {variety.name} - Stock: {variety.currentStock || 0} {getUnitDisplayName(variety.primaryUnit)}
+                        {variety.name}
                       </MenuItem>
                     ))
                   )}
@@ -1049,7 +1035,6 @@ const AddAgriSalesOrderForm = ({ open = true, onClose, onSuccess, isStandalone =
                 <Alert severity="info" sx={{ mt: 0.5, py: 0.5 }}>
                   <Typography variant="caption" sx={{ fontSize: "0.75rem" }}>
                     <strong>Crop:</strong> {formData.ramAgriCropName} | <strong>Variety:</strong> {formData.ramAgriVarietyName} |{" "}
-                    <strong>Stock:</strong> {selectedVariety.currentStock || 0} {getUnitDisplayName(selectedVariety.primaryUnit)} |{" "}
                     <strong>Unit:</strong> {getUnitDisplayName(selectedVariety.primaryUnit)}
                     {selectedVariety.secondaryUnit && ` (1 ${getUnitDisplayName(selectedVariety.primaryUnit)} = ${selectedVariety.conversionFactor || 1} ${getUnitDisplayName(selectedVariety.secondaryUnit)})`}
                     {selectedVariety.defaultRate && ` | Default Rate: ₹${selectedVariety.defaultRate}/${getUnitDisplayName(selectedVariety.primaryUnit)}`}
