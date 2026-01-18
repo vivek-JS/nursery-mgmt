@@ -33,6 +33,9 @@ import {
   Close as CloseIcon,
   CalendarToday as CalendarIcon,
   ArrowForward as ArrowForwardIcon,
+  ZoomIn as ZoomInIcon,
+  Delete as DeleteIcon,
+  TextFields as TextFieldsIcon,
 } from "@mui/icons-material";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
@@ -65,10 +68,14 @@ const AgriSalesOrderMobile = () => {
     paymentDate: moment().format("YYYY-MM-DD"),
     modeOfPayment: "",
     bankName: "",
+    transactionId: "", // Unified field for UTR/Transaction ID/Cheque Number
     remark: "",
     receiptPhoto: [],
   });
   const [uploadingImages, setUploadingImages] = useState(false);
+  const [previewImage, setPreviewImage] = useState(null); // State for image preview popup
+  const [ocrProcessing, setOcrProcessing] = useState({}); // State for OCR processing
+  const [ocrResults, setOcrResults] = useState({}); // State for OCR results
   const [activeTab, setActiveTab] = useState(0); // 0: Orders, 1: Outstanding
   const [outstandingData, setOutstandingData] = useState(null);
   const [outstandingLoading, setOutstandingLoading] = useState(false);
@@ -194,6 +201,7 @@ const AgriSalesOrderMobile = () => {
       paymentDate: moment().format("YYYY-MM-DD"),
       modeOfPayment: "",
       bankName: "",
+      transactionId: "",
       remark: "",
       receiptPhoto: [],
     });
@@ -218,16 +226,258 @@ const AgriSalesOrderMobile = () => {
 
           const instance = NetworkManager(API.MEDIA.UPLOAD);
           const response = await instance.request(formData);
-          return response.data.media_url;
+          
+          // Response structure from API: { success: true, message: "...", data: { media_url: "..." } }
+          // NetworkManager wraps it: response.data = { success: true, message: "...", data: { media_url: "..." } }
+          // So the URL is at: response.data.data.media_url
+          const mediaUrl = response.data?.data?.media_url || response.data?.media_url;
+          
+          if (!mediaUrl) {
+            console.error("Media upload response structure:", response);
+            throw new Error("Failed to get media URL from response");
+          }
+          
+          return mediaUrl;
         })
       );
-      handlePaymentInputChange("receiptPhoto", uploadedUrls);
-      Toast.success("Images uploaded successfully");
+      // Filter out any null/undefined values
+      const validUrls = uploadedUrls.filter(url => url && url.trim() !== "");
+      
+      if (validUrls.length === 0) {
+        Toast.error("No valid image URLs were received from upload");
+        return;
+      }
+
+      const currentPhotoCount = paymentForm.receiptPhoto?.length || 0;
+
+      handlePaymentInputChange("receiptPhoto", [...(paymentForm.receiptPhoto || []), ...validUrls]);
+      Toast.success("Images uploaded successfully. Processing with OCR...");
+
+      // Automatically process each uploaded image with OCR
+      validUrls.forEach((url, index) => {
+        const imageIndex = currentPhotoCount + index;
+        setTimeout(() => {
+          processImageWithOCR(url, imageIndex);
+        }, 800 * (index + 1)); // Stagger OCR processing
+      });
     } catch (error) {
       console.error("Error uploading images:", error);
       Toast.error("Failed to upload images");
     } finally {
       setUploadingImages(false);
+    }
+  };
+
+  // OCR Helper Functions
+  const extractAmount = (text) => {
+    const patterns = [
+      /(?:amount|total|paid|₹|rs\.?)[\s:]*([\d,]+\.?\d*)/i,
+      /₹\s*([\d,]+\.?\d*)/i,
+      /(\d{2,}(?:,\d{2,3})*(?:\.\d{2})?)/g,
+    ];
+
+    const amounts = [];
+    for (const pattern of patterns) {
+      const matches = text.matchAll(pattern);
+      for (const match of matches) {
+        const amount = match[1].replace(/,/g, "");
+        if (amount && parseFloat(amount) > 0) {
+          amounts.push(parseFloat(amount));
+        }
+      }
+    }
+
+    return amounts.length > 0 ? Math.max(...amounts).toString() : null;
+  };
+
+  const extractTransactionId = (text) => {
+    const patterns = [
+      /(?:transaction|txn|id|ref)[\s#:]*([A-Z0-9]{8,20})/i,
+      /(?:upi|upi\s*ref)[\s:]*([A-Z0-9]{8,20})/i,
+      /\b([A-Z0-9]{12,20})\b/g,
+      /(?:ref|reference)[\s:]*([A-Z0-9]{6,20})/i,
+    ];
+
+    for (const pattern of patterns) {
+      const match = text.match(pattern);
+      if (match && match[1]) {
+        return match[1].toUpperCase();
+      }
+    }
+    return null;
+  };
+
+  const extractChequeNumber = (text) => {
+    const patterns = [
+      /(?:cheque|chq|check)[\s#:]*no\.?[\s:]*(\d{6,12})/i,
+      /cheque[\s#:]*(\d{6,12})/i,
+      /^\s*(\d{6,12})\s*$/m,
+    ];
+
+    for (const pattern of patterns) {
+      const match = text.match(pattern);
+      if (match && match[1]) {
+        return match[1];
+      }
+    }
+    return null;
+  };
+
+  const extractDate = (text) => {
+    const patterns = [
+      /(\d{1,2}[-/]\d{1,2}[-/]\d{2,4})/,
+      /(\d{2,4}[-/]\d{1,2}[-/]\d{1,2})/,
+      /(\d{4}[-/]\d{1,2}[-/]\d{1,2})/,
+    ];
+
+    for (const pattern of patterns) {
+      const match = text.match(pattern);
+      if (match && match[1]) {
+        try {
+          const dateStr = match[1];
+          let date;
+          if (dateStr.includes("/")) {
+            const parts = dateStr.split("/");
+            if (parts.length === 3) {
+              if (parts[2].length === 4) {
+                date = new Date(parts[2], parts[1] - 1, parts[0]);
+                if (isNaN(date.getTime())) {
+                  date = new Date(parts[2], parts[0] - 1, parts[1]);
+                }
+              } else {
+                const year = parseInt(parts[2]) < 50 ? 2000 + parseInt(parts[2]) : 1900 + parseInt(parts[2]);
+                date = new Date(year, parts[1] - 1, parts[0]);
+              }
+            }
+          } else if (dateStr.includes("-")) {
+            date = new Date(dateStr);
+          }
+          
+          if (date && !isNaN(date.getTime())) {
+            return moment(date).format("YYYY-MM-DD");
+          }
+        } catch (e) {
+          console.error("Date parsing error:", e);
+        }
+      }
+    }
+    return null;
+  };
+
+  const extractBankName = (text) => {
+    const banks = [
+      "SBI", "State Bank", "HDFC", "ICICI", "Axis", "Kotak", "Punjab National Bank", "PNB",
+      "Bank of Baroda", "Canara Bank", "Union Bank", "Indian Bank", "Bank of India",
+    ];
+
+    const lowerText = text.toLowerCase();
+    for (const bank of banks) {
+      if (lowerText.includes(bank.toLowerCase())) {
+        return bank;
+      }
+    }
+    return null;
+  };
+
+  const processImageWithOCR = async (imageUrl, index) => {
+    setOcrProcessing((prev) => ({ ...prev, [index]: true }));
+    setOcrResults((prev) => ({ ...prev, [index]: null }));
+
+    try {
+      // Call backend OCR API with image URL
+      const instance = NetworkManager(API.MEDIA.OCR_PROCESS);
+      const payload = {
+        imageUrl: imageUrl,
+      };
+      
+      const response = await instance.request(payload);
+      
+      // Handle response structure
+      const ocrData = response.data?.data || response.data;
+      
+      if (!ocrData) {
+        throw new Error("No OCR data received from server");
+      }
+
+      // Extract data from backend response
+      const extractedData = {
+        rawText: ocrData.rawText || ocrData.text || "",
+        amount: ocrData.amount || null,
+        transactionId: ocrData.transactionId || ocrData.transaction_id || null,
+        chequeNumber: ocrData.chequeNumber || ocrData.cheque_number || null,
+        date: ocrData.date || null,
+        bankName: ocrData.bankName || ocrData.bank_name || null,
+        type: ocrData.type || "Receipt",
+      };
+
+      // If backend didn't extract but provided raw text, extract locally as fallback
+      if (!extractedData.amount && extractedData.rawText) {
+        extractedData.amount = extractAmount(extractedData.rawText);
+      }
+      if (!extractedData.date && extractedData.rawText) {
+        extractedData.date = extractDate(extractedData.rawText);
+      }
+      if (!extractedData.transactionId && extractedData.rawText) {
+        extractedData.transactionId = extractTransactionId(extractedData.rawText);
+      }
+      if (!extractedData.chequeNumber && extractedData.rawText) {
+        extractedData.chequeNumber = extractChequeNumber(extractedData.rawText);
+      }
+      if (!extractedData.bankName && extractedData.rawText) {
+        extractedData.bankName = extractBankName(extractedData.rawText);
+      }
+
+      setOcrResults((prev) => ({ ...prev, [index]: extractedData }));
+
+      // Auto-fill form fields if data was extracted (only if fields are empty)
+      let fieldsUpdated = [];
+      
+      if (extractedData.amount && !paymentForm.paidAmount) {
+        handlePaymentInputChange("paidAmount", extractedData.amount);
+        fieldsUpdated.push(`Amount: ₹${extractedData.amount}`);
+      }
+
+      if (extractedData.date && !paymentForm.paymentDate) {
+        handlePaymentInputChange("paymentDate", extractedData.date);
+        fieldsUpdated.push(`Date: ${extractedData.date}`);
+      }
+
+      if (extractedData.chequeNumber && !paymentForm.modeOfPayment) {
+        handlePaymentInputChange("modeOfPayment", "Cheque");
+        fieldsUpdated.push("Payment Mode: Cheque");
+        if (!paymentForm.transactionId) {
+          handlePaymentInputChange("transactionId", extractedData.chequeNumber);
+          fieldsUpdated.push(`Cheque Number: ${extractedData.chequeNumber}`);
+        }
+        if (extractedData.bankName && !paymentForm.bankName) {
+          handlePaymentInputChange("bankName", extractedData.bankName);
+          fieldsUpdated.push(`Bank: ${extractedData.bankName}`);
+        }
+      }
+
+      if (extractedData.transactionId && !extractedData.chequeNumber) {
+        // Only set UPI if it's not a cheque
+        if (!paymentForm.modeOfPayment) {
+          handlePaymentInputChange("modeOfPayment", "UPI");
+          fieldsUpdated.push("Payment Mode: UPI");
+        }
+        if (!paymentForm.transactionId) {
+          handlePaymentInputChange("transactionId", extractedData.transactionId);
+          fieldsUpdated.push(`Transaction ID: ${extractedData.transactionId}`);
+        }
+      }
+
+      if (fieldsUpdated.length > 0) {
+        Toast.success(`OCR completed! Extracted: ${fieldsUpdated.join(", ")}`);
+      } else {
+        Toast.success("OCR processing completed. Data extracted but fields already filled.");
+      }
+    } catch (error) {
+      console.error("OCR processing error:", error);
+      const errorMessage = error.response?.data?.message || error.message || "OCR processing failed";
+      Toast.error(`OCR processing failed: ${errorMessage}`);
+    } finally {
+      setOcrProcessing((prev) => ({ ...prev, [index]: false }));
     }
   };
 
@@ -249,12 +499,19 @@ const AgriSalesOrderMobile = () => {
     try {
       setLoading(true);
       const instance = NetworkManager(API.INVENTORY.ADD_AGRI_SALES_ORDER_PAYMENT);
+      
+      // Filter out null/undefined/empty values from receiptPhoto array
+      const validReceiptPhotos = (paymentForm.receiptPhoto || []).filter(
+        (photo) => photo && photo.trim && photo.trim() !== "" && photo !== null && photo !== undefined
+      );
+      
       const payload = {
         paidAmount: paymentForm.paidAmount,
         paymentDate: paymentForm.paymentDate,
         modeOfPayment: paymentForm.modeOfPayment,
         bankName: paymentForm.bankName || "",
-        receiptPhoto: paymentForm.receiptPhoto || [],
+        transactionId: paymentForm.transactionId || "",
+        receiptPhoto: validReceiptPhotos,
         remark: paymentForm.remark || "",
         paymentStatus: "PENDING",
       };
@@ -999,13 +1256,14 @@ const AgriSalesOrderMobile = () => {
       <Dialog
         open={showForm}
         onClose={handleClose}
-        maxWidth="md"
-        fullWidth
+        maxWidth="sm"
         PaperProps={{
           sx: {
             margin: 1,
             maxHeight: "calc(100% - 16px)",
             borderRadius: "12px",
+            width: "100%",
+            maxWidth: "600px",
           },
         }}>
         <DialogTitle
@@ -1155,6 +1413,30 @@ const AgriSalesOrderMobile = () => {
               />
             )}
 
+            {/* Dynamic Transaction ID field based on payment mode */}
+            {paymentForm.modeOfPayment && paymentForm.modeOfPayment !== "Cash" && (
+              <TextField
+                fullWidth
+                label={
+                  paymentForm.modeOfPayment === "UPI"
+                    ? "UTR/Transaction ID"
+                    : paymentForm.modeOfPayment === "Cheque"
+                    ? "Cheque Number"
+                    : "Transaction ID"
+                }
+                value={paymentForm.transactionId}
+                onChange={(e) => handlePaymentInputChange("transactionId", e.target.value)}
+                size="small"
+                placeholder={
+                  paymentForm.modeOfPayment === "UPI"
+                    ? "Enter UTR/Transaction ID"
+                    : paymentForm.modeOfPayment === "Cheque"
+                    ? "Enter cheque number"
+                    : "Enter transaction ID"
+                }
+              />
+            )}
+
             {paymentForm.modeOfPayment &&
               paymentForm.modeOfPayment !== "Cash" &&
               paymentForm.modeOfPayment !== "NEFT/RTGS" && (
@@ -1173,38 +1455,167 @@ const AgriSalesOrderMobile = () => {
                   )}
                   {paymentForm.receiptPhoto.length > 0 && (
                     <Box sx={{ display: "flex", gap: 1, mt: 1, flexWrap: "wrap" }}>
-                      {paymentForm.receiptPhoto.map((url, index) => (
-                        <Box key={index} sx={{ position: "relative" }}>
-                          <img
-                            src={url}
-                            alt={`Receipt ${index + 1}`}
-                            style={{
-                              width: "60px",
-                              height: "60px",
-                              objectFit: "cover",
-                              borderRadius: "8px",
-                            }}
-                          />
-                          <IconButton
-                            size="small"
-                            onClick={() => {
-                              const updated = paymentForm.receiptPhoto.filter((_, i) => i !== index);
-                              handlePaymentInputChange("receiptPhoto", updated);
-                            }}
-                            sx={{
-                              position: "absolute",
-                              top: -8,
-                              right: -8,
-                              backgroundColor: "#f44336",
-                              color: "white",
-                              width: "20px",
-                              height: "20px",
-                              "&:hover": { backgroundColor: "#d32f2f" },
-                            }}>
-                            <CloseIcon fontSize="small" />
-                          </IconButton>
-                        </Box>
-                      ))}
+                      {paymentForm.receiptPhoto.map((url, index) => {
+                        const ocrResult = ocrResults[index];
+                        const isProcessing = ocrProcessing[index];
+                        return (
+                          <Box key={index} sx={{ position: "relative" }}>
+                            <Box sx={{ position: "relative", cursor: "pointer" }}>
+                              <Box
+                                onClick={() => setPreviewImage(url)}
+                                sx={{
+                                  position: "relative",
+                                  width: 60,
+                                  height: 60,
+                                  borderRadius: 1,
+                                  overflow: "hidden",
+                                  border: "1px solid #e0e0e0",
+                                  "&:hover": {
+                                    borderColor: "primary.main",
+                                    "& .zoom-overlay": {
+                                      opacity: 1,
+                                    },
+                                  },
+                                }}
+                              >
+                                <img
+                                  src={url}
+                                  alt={`Receipt ${index + 1}`}
+                                  style={{
+                                    width: "100%",
+                                    height: "100%",
+                                    objectFit: "cover",
+                                  }}
+                                />
+                                <Box
+                                  className="zoom-overlay"
+                                  sx={{
+                                    position: "absolute",
+                                    top: 0,
+                                    left: 0,
+                                    right: 0,
+                                    bottom: 0,
+                                    backgroundColor: "rgba(0,0,0,0.3)",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    opacity: 0,
+                                    transition: "opacity 0.2s",
+                                  }}
+                                >
+                                  <ZoomInIcon sx={{ color: "white", fontSize: 20 }} />
+                                </Box>
+                                {isProcessing && (
+                                  <Box
+                                    sx={{
+                                      position: "absolute",
+                                      top: 0,
+                                      left: 0,
+                                      right: 0,
+                                      bottom: 0,
+                                      backgroundColor: "rgba(0,0,0,0.5)",
+                                      display: "flex",
+                                      alignItems: "center",
+                                      justifyContent: "center",
+                                    }}
+                                  >
+                                    <CircularProgress size={20} sx={{ color: "white" }} />
+                                  </Box>
+                                )}
+                              </Box>
+                              
+                              {/* OCR Button */}
+                              <IconButton
+                                size="small"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  processImageWithOCR(url, index);
+                                }}
+                                disabled={isProcessing}
+                                sx={{
+                                  position: "absolute",
+                                  bottom: -8,
+                                  left: -8,
+                                  bgcolor: ocrResult ? "success.main" : "primary.main",
+                                  color: "white",
+                                  width: 24,
+                                  height: 24,
+                                  "&:hover": {
+                                    bgcolor: ocrResult ? "success.dark" : "primary.dark",
+                                  },
+                                  "&:disabled": {
+                                    bgcolor: "grey.400",
+                                  },
+                                }}
+                                title={ocrResult ? "OCR Completed - Click to re-process" : "Extract data from image (OCR)"}
+                              >
+                                <TextFieldsIcon fontSize="small" />
+                              </IconButton>
+
+                              {/* Delete Button */}
+                              <IconButton
+                                size="small"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const updated = paymentForm.receiptPhoto.filter((_, i) => i !== index);
+                                  handlePaymentInputChange("receiptPhoto", updated);
+                                  // Also remove OCR results
+                                  setOcrResults((prev) => {
+                                    const newResults = { ...prev };
+                                    delete newResults[index];
+                                    return newResults;
+                                  });
+                                }}
+                                sx={{
+                                  position: "absolute",
+                                  top: -8,
+                                  right: -8,
+                                  bgcolor: "error.main",
+                                  color: "white",
+                                  width: 24,
+                                  height: 24,
+                                  "&:hover": {
+                                    bgcolor: "error.dark",
+                                  },
+                                }}
+                              >
+                                <DeleteIcon fontSize="small" />
+                              </IconButton>
+                            </Box>
+
+                            {/* OCR Results Display */}
+                            {ocrResult && (
+                              <Box
+                                sx={{
+                                  mt: 0.5,
+                                  p: 0.75,
+                                  bgcolor: "#e8f5e9",
+                                  borderRadius: 0.5,
+                                  border: "1px solid #4caf50",
+                                  fontSize: "0.7rem",
+                                  maxWidth: 200,
+                                }}
+                              >
+                                {ocrResult.amount && (
+                                  <Typography variant="caption" sx={{ display: "block", fontWeight: 600, color: "#2e7d32" }}>
+                                    Amount: ₹{ocrResult.amount}
+                                  </Typography>
+                                )}
+                                {ocrResult.chequeNumber && (
+                                  <Typography variant="caption" sx={{ display: "block", fontSize: "0.65rem", color: "#555" }}>
+                                    Cheque: {ocrResult.chequeNumber}
+                                  </Typography>
+                                )}
+                                {ocrResult.transactionId && (
+                                  <Typography variant="caption" sx={{ display: "block", fontSize: "0.65rem", color: "#555" }}>
+                                    Txn ID: {ocrResult.transactionId}
+                                  </Typography>
+                                )}
+                              </Box>
+                            )}
+                          </Box>
+                        );
+                      })}
                     </Box>
                   )}
                 </Box>
@@ -1247,6 +1658,49 @@ const AgriSalesOrderMobile = () => {
             {loading ? "Adding..." : "Add Payment"}
           </Button>
         </DialogActions>
+      </Dialog>
+
+      {/* Image Preview Dialog */}
+      <Dialog
+        open={!!previewImage}
+        onClose={() => setPreviewImage(null)}
+        maxWidth="md"
+        fullWidth
+        PaperProps={{
+          sx: {
+            maxHeight: "90vh",
+            backgroundColor: "rgba(0, 0, 0, 0.9)",
+          },
+        }}
+      >
+        <DialogTitle
+          sx={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            color: "white",
+            padding: "12px 16px",
+          }}
+        >
+          <Typography variant="h6">Receipt Photo Preview</Typography>
+          <IconButton onClick={() => setPreviewImage(null)} sx={{ color: "white" }}>
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ padding: 2, display: "flex", justifyContent: "center", alignItems: "center", backgroundColor: "rgba(0, 0, 0, 0.9)" }}>
+          {previewImage && (
+            <img
+              src={previewImage}
+              alt="Receipt preview"
+              style={{
+                maxWidth: "100%",
+                maxHeight: "75vh",
+                objectFit: "contain",
+                borderRadius: 4,
+              }}
+            />
+          )}
+        </DialogContent>
       </Dialog>
     </Box>
   );

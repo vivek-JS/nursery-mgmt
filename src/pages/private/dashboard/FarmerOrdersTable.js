@@ -2652,55 +2652,6 @@ const mapSlotForUi = (slotData) => {
         );
       })()}
 
-      {/* Summary Cards */}
-      {orders && orders.length > 0 && (
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-4">
-          <div className="bg-white rounded-lg shadow-sm border p-3">
-            <div className="text-xs text-gray-500 mb-1">Total Orders</div>
-            <div className="text-lg font-bold text-gray-900">{orders.length}</div>
-          </div>
-          <div className="bg-white rounded-lg shadow-sm border p-3">
-            <div className="text-xs text-gray-500 mb-1">Total Amount</div>
-            <div className="text-lg font-bold text-gray-900">
-              ₹{orders.reduce((sum, o) => {
-                const total = parseFloat(o.total.replace(/[₹,\s]/g, '')) || 0
-                return sum + total
-              }, 0).toFixed(2)}
-            </div>
-          </div>
-          <div className="bg-white rounded-lg shadow-sm border p-3">
-            <div className="text-xs text-gray-500 mb-1">Paid Amount</div>
-            <div className="text-lg font-bold text-green-600">
-              ₹{orders.reduce((sum, o) => {
-                const paid = parseFloat(o["Paid Amt"].replace(/[₹,\s]/g, '')) || 0
-                return sum + paid
-              }, 0).toFixed(2)}
-            </div>
-          </div>
-          <div className="bg-white rounded-lg shadow-sm border p-3">
-            <div className="text-xs text-gray-500 mb-1">Remaining</div>
-            <div className="text-lg font-bold text-amber-600">
-              ₹{orders.reduce((sum, o) => {
-                const remaining = parseFloat(o["remaining Amt"].replace(/[₹,\s]/g, '')) || 0
-                return sum + remaining
-              }, 0).toFixed(2)}
-            </div>
-          </div>
-          <div className="bg-white rounded-lg shadow-sm border p-3">
-            <div className="text-xs text-gray-500 mb-1">Total Plants</div>
-            <div className="text-lg font-bold text-blue-600">
-              {orders.reduce((sum, o) => sum + (o.totalPlants ?? o.quantity ?? 0), 0).toLocaleString()}
-            </div>
-          </div>
-          <div className="bg-white rounded-lg shadow-sm border p-3">
-            <div className="text-xs text-gray-500 mb-1">Pending Payments</div>
-            <div className="text-lg font-bold text-amber-600">
-              {orders.filter(o => o?.details?.payment?.some(p => p.paymentStatus === "PENDING")).length}
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* View Toggle and Tab Navigation */}
       <div className="bg-white rounded-lg shadow-sm border">
         {/* Header with View Toggle */}

@@ -362,7 +362,8 @@ export const API = {
   },
   MEDIA: {
     // if you want to upload a file with or without data
-    UPLOAD: new APIRouter("/user/media/", HTTP_METHODS.POST)
+    UPLOAD: new APIRouter("/user/media/", HTTP_METHODS.POST),
+    OCR_PROCESS: new APIRouter("/user/media/ocr", HTTP_METHODS.POST)
   },
   ADMIN: {
     ADD_ADMIN: new APIRouter("api/v2/admin/createAdmin", HTTP_METHODS.POST, OFFLINE.PROFILE),
