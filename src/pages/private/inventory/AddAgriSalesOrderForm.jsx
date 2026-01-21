@@ -401,12 +401,7 @@ const AddAgriSalesOrderForm = ({ open = true, onClose, onSuccess, isStandalone =
 
       // Automatically process each uploaded image with OCR
       // Use setTimeout to ensure state is updated and stagger processing
-      validUrls.forEach((url, index) => {
-        const imageIndex = currentPhotoCount + index;
-        setTimeout(() => {
-          processImageWithOCR(url, imageIndex);
-        }, 800 * (index + 1)); // Stagger OCR processing to avoid overwhelming the browser
-      });
+
     } catch (error) {
       console.error("Error uploading images:", error);
       const errorMessage = error.message || "Failed to upload images";

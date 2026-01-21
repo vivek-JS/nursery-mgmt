@@ -310,6 +310,18 @@ export const API = {
     GET_AGRI_SALES_OUTSTANDING_ANALYSIS: new APIRouter("/inventory/agri-sales-outstanding-analysis", HTTP_METHODS.GET),
     GET_AGRI_SALES_SALES_ANALYSIS: new APIRouter("/inventory/agri-sales-sales-analysis", HTTP_METHODS.GET),
     GET_AGRI_SALES_CUSTOMER_OUTSTANDING: new APIRouter("/inventory/agri-sales-customer-outstanding", HTTP_METHODS.GET),
+    // Assignment (Admin assigns to sales person)
+    GET_AGRI_SALES_ASSIGNED_ORDERS: new APIRouter("/inventory/agri-sales-orders/assigned", HTTP_METHODS.GET),
+    ASSIGN_AGRI_SALES_ORDERS: new APIRouter("/inventory/agri-sales-orders/assign", HTTP_METHODS.PATCH),
+    CANCEL_AGRI_SALES_ASSIGNMENT: new APIRouter("/inventory/agri-sales-orders", HTTP_METHODS.PATCH), // /:id/cancel-assignment
+    // Dispatch
+    GET_AGRI_SALES_ORDERS_FOR_DISPATCH: new APIRouter("/inventory/agri-sales-orders/dispatch/pending", HTTP_METHODS.GET),
+    GET_AGRI_SALES_DISPATCHED_ORDERS: new APIRouter("/inventory/agri-sales-orders/dispatch/history", HTTP_METHODS.GET),
+    DISPATCH_AGRI_SALES_ORDERS: new APIRouter("/inventory/agri-sales-orders/dispatch", HTTP_METHODS.PATCH),
+    UPDATE_AGRI_SALES_DISPATCH_STATUS: new APIRouter("/inventory/agri-sales-orders", HTTP_METHODS.PATCH), // /:id/dispatch-status
+    COMPLETE_AGRI_SALES_ORDERS: new APIRouter("/inventory/agri-sales-orders/complete", HTTP_METHODS.PATCH),
+    // Sales Return (for sales person dispatched orders - NO stock impact)
+    PROCESS_SALES_RETURN: new APIRouter("/inventory/agri-sales-orders/:id/sales-return", HTTP_METHODS.PATCH),
 
     // Batches
     GET_ALL_BATCHES: new APIRouter("/inventory/batches", HTTP_METHODS.GET),
