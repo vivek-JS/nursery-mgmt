@@ -101,8 +101,8 @@ export default function networkManager(router, withFile = false) {
       // If token expired, get it refreshed
       const response = result.data
 
-      // Handle both response formats: response.success (boolean) and response.status === "Success"
-      const isSuccess = response.success === true || response.status === "Success"
+      // Handle both response formats: response.success (boolean) and response.status === "success"
+      const isSuccess = response.success === true || response.status?.toLowerCase() === "success"
 
       return new APIResponse(response, isSuccess, result.status, response.data?.message)
     } catch (err) {
