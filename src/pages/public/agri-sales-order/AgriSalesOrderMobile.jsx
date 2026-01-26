@@ -51,6 +51,7 @@ import {
   CheckBox as CheckBoxIcon,
   CheckBoxOutlineBlank as CheckBoxOutlineBlankIcon,
   Inventory2 as InventoryIcon,
+  Logout as LogoutIcon,
 } from "@mui/icons-material";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
@@ -58,6 +59,7 @@ import AddAgriSalesOrderForm from "../../private/inventory/AddAgriSalesOrderForm
 import { Toast } from "helpers/toasts/toastHelper";
 import { useIsLoggedIn } from "hooks/state";
 import { API, NetworkManager } from "network/core";
+import { useLogoutModel } from "layout/privateLayout/privateLayout.model";
 import moment from "moment";
 
 /**
@@ -67,6 +69,7 @@ import moment from "moment";
 const AgriSalesOrderMobile = () => {
   const navigate = useNavigate();
   const isLoggedIn = useIsLoggedIn();
+  const logoutModel = useLogoutModel();
   const [showForm, setShowForm] = useState(false);
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -91,7 +94,7 @@ const AgriSalesOrderMobile = () => {
   const [previewImage, setPreviewImage] = useState(null); // State for image preview popup
   const [ocrProcessing, setOcrProcessing] = useState({}); // State for OCR processing
   const [ocrResults, setOcrResults] = useState({}); // State for OCR results
-  const [activeTab, setActiveTab] = useState(0); // 0: Orders, 1: Assigned, 2: Dispatched, 3: Outstanding, 4: Farmer Outstanding
+  const [activeTab, setActiveTab] = useState(0); // 0: Orders, 1: Assigned, 2: Dispatched, 3: Outstanding, 4: Farmer Outstanding, 5: Rankboard
   const [outstandingData, setOutstandingData] = useState(null);
   const [outstandingLoading, setOutstandingLoading] = useState(false);
   const [outstandingView, setOutstandingView] = useState("total"); // total, district, taluka, village
@@ -143,6 +146,8 @@ const AgriSalesOrderMobile = () => {
     paymentAdjustments: [], // [{ amount: -100, adjustmentType: "REFUND", reason: "...", notes: "..." }]
   });
   const [salesReturnLoading, setSalesReturnLoading] = useState(false);
+  const [rankboardData, setRankboardData] = useState([]);
+  const [rankboardLoading, setRankboardLoading] = useState(false);
 
   useEffect(() => {
     if (isLoggedIn === false) {
@@ -352,6 +357,35 @@ const AgriSalesOrderMobile = () => {
     }
   };
 
+  const fetchRankboard = async () => {
+    if (!isLoggedIn) return;
+
+    setRankboardLoading(true);
+    try {
+      const params = {};
+      const [startDate, endDate] = selectedDateRange;
+      if (startDate && endDate) {
+        params.startDate = moment(startDate).format("YYYY-MM-DD");
+        params.endDate = moment(endDate).format("YYYY-MM-DD");
+      }
+
+      const instance = NetworkManager(API.INVENTORY.GET_RAM_AGRI_SALES_RANKBOARD);
+      const response = await instance.request({}, params);
+
+      if (response?.data?.status === "Success") {
+        setRankboardData(response.data.data?.entries || []);
+      } else {
+        setRankboardData([]);
+      }
+    } catch (error) {
+      console.error("Error fetching rankboard:", error);
+      Toast.error("Failed to load rankboard");
+      setRankboardData([]);
+    } finally {
+      setRankboardLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (isLoggedIn) {
       if (activeTab === 0) {
@@ -374,9 +408,16 @@ const AgriSalesOrderMobile = () => {
       } else if (activeTab === 4) {
         fetchFarmerOutstanding();
         setFilteredFromOutstanding(false);
+      } else if (activeTab === 5) {
+        fetchRankboard();
+        setFilteredFromOutstanding(false);
       }
     }
   }, [isLoggedIn, debouncedSearchTerm, selectedDateRange, activeTab]);
+
+  const rankboardEntries = [...rankboardData].sort(
+    (a, b) => (b.scores?.recommendedScore || 0) - (a.scores?.recommendedScore || 0)
+  );
 
   if (isLoggedIn === undefined || isLoggedIn === false) {
     return null;
@@ -391,8 +432,12 @@ const AgriSalesOrderMobile = () => {
     setShowForm(false);
     if (activeTab === 0) {
       fetchOrders();
-    } else {
+    } else if (activeTab === 3) {
       fetchOutstandingAnalysis();
+    } else if (activeTab === 4) {
+      fetchFarmerOutstanding();
+    } else if (activeTab === 5) {
+      fetchRankboard();
     }
   };
 
@@ -1008,6 +1053,7 @@ const AgriSalesOrderMobile = () => {
           returnNotes: "",
         });
         fetchOrders();
+        if (activeTab === 2) fetchDispatchedOrders();
       } else {
         Toast.error("Failed to complete orders");
       }
@@ -1064,6 +1110,16 @@ const AgriSalesOrderMobile = () => {
         return { bg: "#fee2e2", color: "#991b1b" };
       default:
         return { bg: "#f5f5f5", color: "#666" };
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await logoutModel.logout();
+      navigate("/auth/login");
+    } catch (e) {
+      Toast.error("Logout failed");
+      navigate("/auth/login");
     }
   };
 
@@ -1678,7 +1734,7 @@ const AgriSalesOrderMobile = () => {
                 letterSpacing: "0.5px",
                 textTransform: "uppercase",
               }}>
-              Ram Agri Sales
+              Ram Agri Input
             </Typography>
             <Typography
               variant="h6"
@@ -1700,6 +1756,19 @@ const AgriSalesOrderMobile = () => {
                 : "Farmer Outstanding"}
             </Typography>
           </Box>
+
+          <IconButton
+            onClick={handleLogout}
+            size="small"
+            sx={{
+              color: "white",
+              backgroundColor: "rgba(255, 255, 255, 0.15)",
+              "&:hover": { backgroundColor: "rgba(255, 255, 255, 0.25)" },
+              p: 0.75,
+            }}
+            aria-label="Logout">
+            <LogoutIcon fontSize="small" />
+          </IconButton>
         </Box>
 
         {/* Filters Section */}
@@ -1829,6 +1898,7 @@ const AgriSalesOrderMobile = () => {
             <Tab label={`Dispatched${dispatchedOrders.length > 0 ? ` (${dispatchedOrders.length})` : ""}`} />
             <Tab label="Area" />
             <Tab label="Farmers" />
+            <Tab label="Rankboard" />
           </Tabs>
         </Box>
       </Box>
@@ -2594,64 +2664,171 @@ const AgriSalesOrderMobile = () => {
               </Box>
             ) : (
               <Box sx={{ display: "flex", flexDirection: "column", gap: 1, pb: 10 }}>
-                {/* Info Banner */}
-                <Box sx={{ p: 1.5, backgroundColor: "#e3f2fd", borderRadius: "8px", mb: 1 }}>
-                  <Typography variant="caption" sx={{ color: "#1565c0", fontWeight: 600 }}>
-                    🚚 Orders that have been dispatched
-                  </Typography>
+                {/* Info Banner + Select to Complete */}
+                <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 1, mb: 1 }}>
+                  <Box sx={{ p: 1.5, backgroundColor: "#e3f2fd", borderRadius: "8px", flex: 1 }}>
+                    <Typography variant="caption" sx={{ color: "#1565c0", fontWeight: 600 }}>
+                      🚚 Orders that have been dispatched
+                    </Typography>
+                  </Box>
+                  {!completeSelectionMode && (
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      startIcon={<CheckBoxOutlineBlankIcon />}
+                      onClick={() => {
+                        setCompleteSelectionMode(true);
+                        setSelectedOrdersForComplete([]);
+                      }}
+                      sx={{ fontSize: "0.75rem", textTransform: "none", borderColor: "#2e7d32", color: "#2e7d32" }}>
+                      Select to Complete
+                    </Button>
+                  )}
                 </Box>
+
+                {/* Complete action bar when selection mode */}
+                {completeSelectionMode && activeTab === 2 && (
+                  <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 1, p: 1, backgroundColor: "#e8f5e9", borderRadius: "8px", mb: 1 }}>
+                    <Typography variant="body2" fontWeight="bold" sx={{ color: "#2e7d32" }}>
+                      {selectedOrdersForComplete.length} selected to complete
+                    </Typography>
+                    <Box sx={{ display: "flex", gap: 1 }}>
+                      <Button
+                        size="small"
+                        onClick={() => {
+                          setSelectedOrdersForComplete(dispatchedOrders.map((o) => o._id));
+                          const initial = {};
+                          dispatchedOrders.forEach((o) => { initial[o._id] = 0; });
+                          setCompleteForm((f) => ({ ...f, returnQuantities: initial }));
+                        }}
+                        sx={{ fontSize: "0.7rem", textTransform: "none" }}>
+                        Select All
+                      </Button>
+                      <Button
+                        size="small"
+                        onClick={() => {
+                          setCompleteSelectionMode(false);
+                          setSelectedOrdersForComplete([]);
+                        }}
+                        sx={{ fontSize: "0.7rem", textTransform: "none" }}>
+                        Cancel
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="contained"
+                        color="success"
+                        startIcon={<CheckCircleIcon sx={{ fontSize: "0.9rem" }} />}
+                        onClick={openCompleteModal}
+                        disabled={selectedOrdersForComplete.length === 0}
+                        sx={{ fontSize: "0.7rem", textTransform: "none", backgroundColor: "#2e7d32" }}>
+                        Complete
+                      </Button>
+                    </Box>
+                  </Box>
+                )}
 
                 {dispatchedOrders.map((order) => {
                   const isExpanded = expandedOrderId === order._id;
                   const hasPayments = order.payment && order.payment.length > 0;
-                  
+                  const isSelectedForComplete = selectedOrdersForComplete.includes(order._id);
+                  const canComplete = order.orderStatus === "DISPATCHED" || order.dispatchStatus === "DISPATCHED" || order.dispatchStatus === "IN_TRANSIT";
+                  const productLabel = order.ramAgriVarietyName
+                    ? `${order.ramAgriCropName || ""} – ${order.ramAgriVarietyName}`.trim()
+                    : order.ramAgriCropName || order.productName || "—";
+                  const balance = order.balanceAmount ?? (Number(order.totalAmount || 0) - Number(order.totalPaidAmount || 0));
+
                   return (
                     <Card
                       key={order._id}
                       sx={{
                         transition: "all 0.2s",
-                        backgroundColor: "white",
+                        backgroundColor: isSelectedForComplete ? "#e8f5e9" : "white",
                         borderRadius: "10px",
                         boxShadow: "0 1px 4px rgba(0,0,0,0.1)",
                         overflow: "hidden",
-                        border: "1px solid #e0e0e0",
+                        border: isSelectedForComplete ? "2px solid #2e7d32" : "1px solid #e0e0e0",
                       }}>
                       <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
-                        {/* Same order card structure as Orders tab */}
-                        {/* Reuse the same card structure from Orders tab - we'll need to copy it here */}
-                        {/* For now, I'll add a simple version and we can enhance it */}
                         <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 1 }}>
-                          <Box>
-                            <Typography
-                              variant="subtitle2"
-                              fontWeight="bold"
-                              sx={{
-                                fontSize: "0.9rem",
-                                mb: 0.5,
-                                backgroundColor: "#e3f2fd",
-                                color: "#1565c0",
-                                px: 1,
-                                py: 0.25,
-                                borderRadius: "4px",
-                                display: "inline-block",
-                              }}>
-                              {order.orderNumber}
-                            </Typography>
-                            <Typography variant="body2" fontWeight="medium" sx={{ fontSize: "0.85rem" }}>
-                              {order.customerName}
-                            </Typography>
-                            <Typography variant="caption" color="textSecondary" sx={{ fontSize: "0.7rem" }}>
-                              {order.customerVillage}, {order.customerTaluka}
-                            </Typography>
+                          <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1, flex: 1 }}>
+                            {completeSelectionMode && canComplete && (
+                              <IconButton
+                                size="small"
+                                onClick={() => toggleCompleteOrderSelection(order._id)}
+                                sx={{ p: 0, mt: 0.5 }}>
+                                {isSelectedForComplete ? (
+                                  <CheckBoxIcon sx={{ color: "#2e7d32", fontSize: "1.2rem" }} />
+                                ) : (
+                                  <CheckBoxOutlineBlankIcon sx={{ color: "#9e9e9e", fontSize: "1.2rem" }} />
+                                )}
+                              </IconButton>
+                            )}
+                            <Box>
+                              <Typography
+                                variant="subtitle2"
+                                fontWeight="bold"
+                                sx={{
+                                  fontSize: "0.9rem",
+                                  mb: 0.5,
+                                  backgroundColor: "#e3f2fd",
+                                  color: "#1565c0",
+                                  px: 1,
+                                  py: 0.25,
+                                  borderRadius: "4px",
+                                  display: "inline-block",
+                                }}>
+                                {order.orderNumber}
+                              </Typography>
+                              <Typography variant="body2" fontWeight="medium" sx={{ fontSize: "0.85rem" }}>
+                                {order.customerName}
+                              </Typography>
+                              <Typography variant="caption" color="textSecondary" sx={{ fontSize: "0.7rem" }}>
+                                {order.customerVillage}, {order.customerTaluka}
+                              </Typography>
+                            </Box>
                           </Box>
                           <Box sx={{ textAlign: "right" }}>
                             <Typography variant="body2" fontWeight="bold" sx={{ color: "#2e7d32", fontSize: "0.9rem" }}>
-                              ₹{order.totalAmount?.toLocaleString()}
+                              ₹{Number(order.totalAmount || 0).toLocaleString()}
                             </Typography>
                             <Typography variant="caption" color="textSecondary" sx={{ fontSize: "0.65rem" }}>
                               Qty: {order.quantity}
                             </Typography>
                           </Box>
+                        </Box>
+
+                        {/* Product name – highlight */}
+                        <Box sx={{ mb: 1, p: 1, backgroundColor: "#f0fdfa", borderRadius: "6px", borderLeft: "3px solid #0f766e" }}>
+                          <Typography variant="body2" fontWeight="bold" sx={{ fontSize: "0.85rem", color: "#0f766e" }}>
+                            {productLabel}
+                          </Typography>
+                        </Box>
+
+                        {/* Quantity, Balance, District – highlights */}
+                        <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, mb: 1 }}>
+                          <Chip
+                            label={`Qty: ${order.quantity}`}
+                            size="small"
+                            sx={{ fontSize: "0.7rem", height: "22px", fontWeight: 600, backgroundColor: "#e0f2fe", color: "#0369a1" }}
+                          />
+                          <Chip
+                            label={`Balance: ₹${Number(balance).toLocaleString()}`}
+                            size="small"
+                            sx={{
+                              fontSize: "0.7rem",
+                              height: "22px",
+                              fontWeight: 600,
+                              backgroundColor: balance > 0 ? "#fef3c7" : "#dcfce7",
+                              color: balance > 0 ? "#92400e" : "#166534",
+                            }}
+                          />
+                          {order.customerDistrict && (
+                            <Chip
+                              label={order.customerDistrict}
+                              size="small"
+                              sx={{ fontSize: "0.7rem", height: "22px", fontWeight: 600, backgroundColor: "#ede9fe", color: "#5b21b6" }}
+                            />
+                          )}
                         </Box>
 
                         {/* Dispatch Status */}
@@ -2678,11 +2855,46 @@ const AgriSalesOrderMobile = () => {
                           </Box>
                         )}
 
-                        {/* Product Info */}
-                        <Box sx={{ mb: 1, p: 1, backgroundColor: "#f5f5f5", borderRadius: "6px" }}>
-                          <Typography variant="caption" sx={{ fontSize: "0.7rem", color: "#666" }}>
-                            {order.productName || order.ramAgriCropName}
-                          </Typography>
+                        {/* Actions: Payment, Sales Return, Complete */}
+                        <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+                          {hasPayments && (
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              startIcon={<PaymentIcon sx={{ fontSize: "0.9rem" }} />}
+                              onClick={() => {
+                                setSelectedOrder(order);
+                                setShowPaymentModal(true);
+                              }}
+                              sx={{ fontSize: "0.7rem", textTransform: "none" }}>
+                              Payment
+                            </Button>
+                          )}
+                          {(order.dispatchStatus === "DISPATCHED" || order.dispatchStatus === "IN_TRANSIT") && (
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              startIcon={<InventoryIcon sx={{ fontSize: "0.9rem" }} />}
+                              onClick={() => openSalesReturnModal(order)}
+                              sx={{ fontSize: "0.7rem", textTransform: "none", borderColor: "#7c3aed", color: "#7c3aed" }}>
+                              Sales Return
+                            </Button>
+                          )}
+                          {!completeSelectionMode && canComplete && (
+                            <Button
+                              size="small"
+                              variant="contained"
+                              color="success"
+                              startIcon={<CheckCircleIcon sx={{ fontSize: "0.9rem" }} />}
+                              onClick={() => {
+                                setCompleteSelectionMode(true);
+                                setSelectedOrdersForComplete([order._id]);
+                                setCompleteForm((f) => ({ ...f, returnQuantities: { [order._id]: 0 } }));
+                              }}
+                              sx={{ fontSize: "0.7rem", textTransform: "none", backgroundColor: "#2e7d32" }}>
+                              Complete
+                            </Button>
+                          )}
                         </Box>
                       </CardContent>
                     </Card>
@@ -2694,9 +2906,127 @@ const AgriSalesOrderMobile = () => {
         ) : activeTab === 3 ? (
           // Area Outstanding Tab
           renderOutstandingView()
-        ) : (
+        ) : activeTab === 4 ? (
           // Farmer Outstanding Tab
           renderFarmerOutstandingView()
+        ) : (
+          // Rankboard Tab
+          <Box sx={{ pb: 6 }}>
+            <Box
+              sx={{
+                background: "linear-gradient(135deg, #0f766e 0%, #14b8a6 100%)",
+                color: "white",
+                borderRadius: "12px",
+                p: 1.5,
+                mb: 1.5,
+              }}
+            >
+              <Typography variant="subtitle2" fontWeight={700}>
+                Rankboard (ERP Hybrid)
+              </Typography>
+              <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.85)" }}>
+                Score = Revenue 35% + Qty 25% + Target 25% + Customers 15%
+              </Typography>
+            </Box>
+
+            {rankboardLoading ? (
+              <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
+                <CircularProgress size={28} />
+              </Box>
+            ) : rankboardEntries.length === 0 ? (
+              <Box sx={{ textAlign: "center", py: 4 }}>
+                <Typography variant="body2" color="textSecondary">
+                  No rankboard data found
+                </Typography>
+              </Box>
+            ) : (
+              <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
+                {rankboardEntries.map((entry, index) => {
+                  const userName = entry.user?.name || "Unknown";
+                  const scoreValue = entry.scores?.recommendedScore || 0;
+                  const targetAmount = Number(entry.targetAmount || 0);
+                  const achievementPercent =
+                    targetAmount > 0 ? Math.min((Number(entry.revenue || 0) / targetAmount) * 100, 100) : 0;
+
+                  return (
+                    <Card
+                      key={entry.userId}
+                      sx={{
+                        borderRadius: "12px",
+                        boxShadow: "0 1px 4px rgba(0,0,0,0.08)",
+                        border: "1px solid #e0e0e0",
+                      }}
+                    >
+                      <CardContent sx={{ p: 1.5 }}>
+                        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <Box>
+                            <Typography variant="subtitle2" fontWeight={700}>
+                              #{index + 1} {userName}
+                            </Typography>
+                            <Typography variant="caption" color="textSecondary">
+                              {entry.user?.phoneNumber || entry.user?.phone || ""}
+                            </Typography>
+                          </Box>
+                          <Box sx={{ textAlign: "right" }}>
+                            <Typography variant="caption" color="textSecondary">
+                              Score
+                            </Typography>
+                            <Typography variant="subtitle1" fontWeight={800} color="#0f766e">
+                              {scoreValue.toFixed(2)}
+                            </Typography>
+                          </Box>
+                        </Box>
+
+                        <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, mt: 1 }}>
+                          <Chip
+                            size="small"
+                            label={`₹${Number(entry.revenue || 0).toLocaleString()}`}
+                            sx={{ backgroundColor: "#e8f5e9", color: "#2e7d32", fontWeight: 600 }}
+                          />
+                          <Chip
+                            size="small"
+                            label={`Qty ${Number(entry.quantity || 0).toLocaleString()}`}
+                            sx={{ backgroundColor: "#e3f2fd", color: "#1565c0", fontWeight: 600 }}
+                          />
+                          <Chip
+                            size="small"
+                            label={`Customers ${entry.uniqueCustomers || 0}`}
+                            sx={{ backgroundColor: "#fff3e0", color: "#ef6c00", fontWeight: 600 }}
+                          />
+                          <Chip
+                            size="small"
+                            label={`Target ${Number(entry.targetAchievement || 0).toFixed(1)}%`}
+                            sx={{ backgroundColor: "#ede7f6", color: "#5e35b1", fontWeight: 600 }}
+                          />
+                        </Box>
+
+                        <Box sx={{ mt: 1.2 }}>
+                          <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
+                            <Typography variant="caption" color="textSecondary">
+                              Target Progress
+                            </Typography>
+                            <Typography variant="caption" fontWeight={600} color="#0f766e">
+                              {achievementPercent.toFixed(1)}%
+                            </Typography>
+                          </Box>
+                          <Box sx={{ height: 6, backgroundColor: "#e5e7eb", borderRadius: 999 }}>
+                            <Box
+                              sx={{
+                                height: "100%",
+                                width: `${achievementPercent}%`,
+                                borderRadius: 999,
+                                background: "linear-gradient(90deg, #14b8a6 0%, #0f766e 100%)",
+                              }}
+                            />
+                          </Box>
+                        </Box>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </Box>
+            )}
+          </Box>
         )}
       </Box>
 
@@ -2748,6 +3078,7 @@ const AgriSalesOrderMobile = () => {
           },
         }}>
         <DialogTitle
+          component="div"
           sx={{
             background: "linear-gradient(135deg, #43a047 0%, #2e7d32 100%)",
             color: "white",
@@ -2790,6 +3121,7 @@ const AgriSalesOrderMobile = () => {
           },
         }}>
         <DialogTitle
+          component="div"
           sx={{
             background: "linear-gradient(135deg, #43a047 0%, #2e7d32 100%)",
             color: "white",
@@ -3227,6 +3559,7 @@ const AgriSalesOrderMobile = () => {
         }}
       >
         <DialogTitle
+          component="div"
           sx={{
             display: "flex",
             justifyContent: "space-between",
@@ -3283,6 +3616,7 @@ const AgriSalesOrderMobile = () => {
           },
         }}>
         <DialogTitle
+          component="div"
           sx={{
             background: dispatchForm.dispatchMode === "VEHICLE" 
               ? "linear-gradient(135deg, #1565c0 0%, #0d47a1 100%)"
@@ -3584,6 +3918,7 @@ const AgriSalesOrderMobile = () => {
           },
         }}>
         <DialogTitle
+          component="div"
           sx={{
             background: "linear-gradient(135deg, #2e7d32 0%, #1b5e20 100%)",
             color: "white",
@@ -3624,7 +3959,7 @@ const AgriSalesOrderMobile = () => {
               ORDERS TO COMPLETE (Enter return quantity if any)
             </Typography>
             <Box sx={{ maxHeight: "250px", overflowY: "auto" }}>
-              {orders
+              {(activeTab === 2 ? dispatchedOrders : orders)
                 .filter((o) => selectedOrdersForComplete.includes(o._id))
                 .map((order) => (
                   <Box
@@ -3728,9 +4063,14 @@ const AgriSalesOrderMobile = () => {
               </Typography>
             </Box>
             {Object.values(completeForm.returnQuantities).some((q) => q > 0) && (
-              <Typography variant="caption" sx={{ fontSize: "0.7rem", color: "#e65100", display: "block", mt: 0.5 }}>
-                ⚠️ Returned stock will be added back to inventory
-              </Typography>
+              <>
+                <Typography variant="caption" sx={{ fontSize: "0.7rem", color: "#e65100", display: "block", mt: 0.5 }}>
+                  ⚠️ Returned stock will be added back to inventory (office-dispatched only).
+                </Typography>
+                <Typography variant="caption" sx={{ fontSize: "0.65rem", color: "#0f766e", display: "block", mt: 0.25 }}>
+                  Orders you dispatched: no stock add/subtract.
+                </Typography>
+              </>
             )}
           </Box>
         </DialogContent>
@@ -3787,6 +4127,7 @@ const AgriSalesOrderMobile = () => {
           },
         }}>
         <DialogTitle
+          component="div"
           sx={{
             background: "linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%)",
             color: "white",

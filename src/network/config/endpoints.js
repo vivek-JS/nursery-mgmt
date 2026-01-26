@@ -291,6 +291,9 @@ export const API = {
 
     // Ram Agri Sales Dashboard
     GET_RAM_AGRI_SALES_DASHBOARD: new APIRouter("/inventory/ram-agri-sales-dashboard", HTTP_METHODS.GET),
+    GET_RAM_AGRI_SALES_RANKBOARD: new APIRouter("/inventory/ram-agri-sales-rankboard", HTTP_METHODS.GET),
+    GET_RAM_AGRI_SALES_TARGETS: new APIRouter("/inventory/ram-agri-sales-targets", HTTP_METHODS.GET),
+    SAVE_RAM_AGRI_SALES_TARGET: new APIRouter("/inventory/ram-agri-sales-targets", HTTP_METHODS.POST),
     GET_RAM_AGRI_VARIETY_LEDGER: new APIRouter("/inventory/ram-agri-variety-ledger", HTTP_METHODS.GET),
     GET_RAM_AGRI_CUSTOMER_LEDGER: new APIRouter("/inventory/ram-agri-customer-ledger", HTTP_METHODS.GET),
     GET_RAM_AGRI_MERCHANT_LEDGER: new APIRouter("/inventory/ram-agri-merchant-ledger", HTTP_METHODS.GET),
@@ -415,7 +418,11 @@ export const API = {
     GET_CSV: new APIRouter("order/getCSV", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_SLOTS: new APIRouter("slots/getslots", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_BUCKETING: new APIRouter("/order/bucketing", HTTP_METHODS.GET, OFFLINE.PROFILE),
-    GET_SALESMEN_BUCKETING: new APIRouter("/order/salesmen-bucketing", HTTP_METHODS.GET, OFFLINE.PROFILE)
+    GET_SALESMEN_BUCKETING: new APIRouter("/order/salesmen-bucketing", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    // Payment Activity Logs
+    CREATE_PAYMENT_ACTIVITY: new APIRouter("/order/payment-activity", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    GET_PAYMENT_ACTIVITIES: new APIRouter("/order/payment-activity", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_TODAYS_PAYMENT_ACTIVITIES: new APIRouter("/order/payment-activity/today", HTTP_METHODS.GET, OFFLINE.PROFILE)
   },
   plantCms: {
     POST_NEWPLANT: new APIRouter("/plantcms/plants", HTTP_METHODS.POST, OFFLINE.PROFILE),
@@ -565,6 +572,19 @@ export const API = {
     ADD_TALUKA_TO_DISTRICT: new APIRouter("/state", HTTP_METHODS.POST),
     ADD_VILLAGE_TO_TALUKA: new APIRouter("/state", HTTP_METHODS.POST),
     GET_LOCATION_HIERARCHY: new APIRouter("/state", HTTP_METHODS.GET)
+  },
+  OLD_SALES: {
+    GET_FILTERS: new APIRouter("/old-sales/filters", HTTP_METHODS.GET),
+    GET_ANALYTICS: new APIRouter("/old-sales/analytics", HTTP_METHODS.GET),
+    GET_RECORDS: new APIRouter("/old-sales/records", HTTP_METHODS.GET),
+    EXPORT_CSV: new APIRouter("/old-sales/export", HTTP_METHODS.GET),
+    GET_SUGGESTIONS: new APIRouter("/old-sales/suggestions", HTTP_METHODS.GET),
+    NORMALIZE: new APIRouter("/old-sales/normalize", HTTP_METHODS.PATCH),
+    GET_CHANGES: new APIRouter("/old-sales/changes", HTTP_METHODS.GET),
+    GET_CASE_MISMATCHES: new APIRouter("/old-sales/case-mismatches", HTTP_METHODS.GET),
+    NORMALIZE_CASE: new APIRouter("/old-sales/normalize-case", HTTP_METHODS.PATCH),
+    GET_REPEAT_CUSTOMERS: new APIRouter("/old-sales/repeat-customers", HTTP_METHODS.GET),
+    GET_GEO_SUMMARY: new APIRouter("/old-sales/geo-summary", HTTP_METHODS.GET)
   },
   SLOTS: {
     GET_SLOTS: new APIRouter("slots/getslots", HTTP_METHODS.GET, OFFLINE.PROFILE),

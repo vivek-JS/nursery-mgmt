@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useSelector } from 'react-redux';
 import {
   Package,
   TrendingUp,
@@ -18,6 +19,9 @@ import { CheckCircle, XCircle } from 'lucide-react';
 
 const InventoryDashboard = () => {
   const navigate = useNavigate();
+  const userData = useSelector((state) => state?.userData?.userData) || {};
+  const isRamAgriSalesManager =
+    userData?.jobTitle === 'RAM_AGRI_SALES_MANAGER';
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [sowingRequests, setSowingRequests] = useState([]);
@@ -35,9 +39,11 @@ const InventoryDashboard = () => {
 
   useEffect(() => {
     fetchInventorySummary();
-    fetchPendingSowingRequests();
-    fetchPendingReturnRequests();
-  }, []);
+    if (!isRamAgriSalesManager) {
+      fetchPendingSowingRequests();
+      fetchPendingReturnRequests();
+    }
+  }, [isRamAgriSalesManager]);
 
   const fetchInventorySummary = async () => {
     try {
@@ -347,7 +353,7 @@ const InventoryDashboard = () => {
       bgColor: 'bg-green-50',
     },
     {
-      title: 'Ram Agri Sales Dashboard',
+      title: 'Ram Agri Input',
       description: 'Ram Agri products, stock & sales insights',
       icon: BarChart3,
       path: '/u/inventory/ram-agri-sales-dashboard',
@@ -364,18 +370,69 @@ const InventoryDashboard = () => {
     );
   }
 
+  const ramAgriManagerOnlyActions = [
+    {
+      title: 'Ram Agri Inputs Master',
+      description: 'Manage crops and varieties',
+      icon: Package,
+      path: '/u/inventory/ram-agri-inputs-master',
+      color: 'text-green-600',
+      bgColor: 'bg-green-50',
+    },
+    {
+      title: 'Ram Agri Input Order',
+      description: 'Create order for Ram Agri products',
+      icon: ShoppingCart,
+      path: '/u/inventory/ram-agri-input-order/new',
+      color: 'text-green-600',
+      bgColor: 'bg-green-50',
+    },
+  ];
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-3 sm:p-4 md:p-6">
       {/* Header */}
       <div className="mb-4 sm:mb-6 md:mb-8">
         <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-800 mb-1 sm:mb-2">
-          Inventory Management
+          {isRamAgriSalesManager ? 'Ram Agri Input' : 'Inventory Management'}
         </h1>
         <p className="text-sm sm:text-base text-gray-600">
-          Comprehensive inventory control and tracking system
+          {isRamAgriSalesManager
+            ? 'Ram Agri orders and product master'
+            : 'Comprehensive inventory control and tracking system'}
         </p>
       </div>
 
+      {/* RAM_AGRI_SALES_MANAGER: only 2 options */}
+      {isRamAgriSalesManager && (
+        <div className="mb-4 sm:mb-6 md:mb-8">
+          <h2 className="text-xl sm:text-2xl font-bold text-gray-800 mb-3 sm:mb-4">Quick Actions</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 md:gap-6">
+            {ramAgriManagerOnlyActions.map((item, index) => (
+              <button
+                key={index}
+                onClick={() => navigate(item.path)}
+                className="bg-white rounded-xl sm:rounded-2xl shadow-lg hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1 p-4 sm:p-5 md:p-6 text-left group w-full"
+              >
+                <div className="flex items-start space-x-3 sm:space-x-4">
+                  <div className={`p-2.5 sm:p-3 md:p-4 rounded-lg sm:rounded-xl ${item.bgColor} group-hover:scale-110 transition-transform flex-shrink-0`}>
+                    <item.icon className={`w-6 h-6 sm:w-7 sm:h-7 md:w-8 md:h-8 ${item.color}`} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-base sm:text-lg md:text-xl font-bold text-gray-800 mb-1 sm:mb-2 group-hover:text-blue-600 transition-colors truncate">
+                      {item.title}
+                    </h3>
+                    <p className="text-gray-600 text-xs sm:text-sm line-clamp-2">{item.description}</p>
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {!isRamAgriSalesManager && (
+        <>
       {/* Stats Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-6 mb-4 sm:mb-6 md:mb-8">
         {statsCards.map((stat, index) => (
@@ -452,8 +509,8 @@ const InventoryDashboard = () => {
         </div>
       )}
 
-      {/* Sowing Requests Section */}
-      {sowingRequests.length > 0 && (
+      {/* Sowing Requests Section - hidden for RAM_AGRI_SALES_MANAGER */}
+      {!isRamAgriSalesManager && sowingRequests.length > 0 && (
         <div className="mb-4 sm:mb-6 md:mb-8">
           <div className="flex items-center justify-between mb-3 sm:mb-4">
             <h2 className="text-xl sm:text-2xl font-bold text-gray-800">
@@ -694,6 +751,8 @@ const InventoryDashboard = () => {
           ))}
         </div>
       </div>
+        </>
+      )}
 
       {/* Sowing Request Dialog */}
       <SowingRequestDialog

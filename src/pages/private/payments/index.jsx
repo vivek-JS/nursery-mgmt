@@ -15,32 +15,34 @@ import {
   Select,
   MenuItem,
   FormControl,
-  InputLabel,
   IconButton,
-  ImageList,
-  ImageListItem,
-  ImageListItemBar,
   Modal,
   Backdrop,
   Fade,
-  Box as MuiBox,
-  Pagination
+  Pagination,
+  CircularProgress,
+  Collapse,
+  Zoom,
+  Slide
 } from "@mui/material"
 import { makeStyles } from "tss-react/mui"
 import {
   Download as DownloadIcon,
   Search as SearchIcon,
-  FilterList as FilterIcon,
-  Visibility as ViewIcon,
   Close as CloseIcon,
   ArrowBackIos as PrevIcon,
   ArrowForwardIos as NextIcon,
   Shield,
-  AccountBalance as AccountBalanceIcon,
   TrendingUp as TrendingUpIcon,
-  Assignment as AssignmentIcon
+  Receipt as ReceiptIcon,
+  History as HistoryIcon,
+  CheckCircle as CheckCircleIcon,
+  Cancel as CancelIcon,
+  Pending as PendingIcon,
+  AccessTime as AccessTimeIcon
 } from "@mui/icons-material"
 
+import { colorScheme } from "constants/colorScheme"
 import { API, NetworkManager } from "network/core"
 import { PageLoader } from "components"
 import moment from "moment"
@@ -50,27 +52,29 @@ import {
   useIsAccountant,
   useIsOfficeAdmin,
   useIsSuperAdmin,
-  useHasPaymentsAccess
+  useHasPaymentsAccess,
+  useUserData
 } from "utils/roleUtils"
 
 const useStyles = makeStyles()((theme) => ({
   padding14: {
-    padding: theme.spacing(2),
-    backgroundColor: "#f8f9fa",
+    padding: theme.spacing(2.5),
+    background: "linear-gradient(180deg, #f0f4ff 0%, #e8eeff 40%, #f8fafc 100%)",
     minHeight: "100vh",
     [theme.breakpoints.down("sm")]: {
       padding: theme.spacing(1.5)
     }
   },
   pageHeader: {
-    background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-    borderRadius: "10px",
-    padding: theme.spacing(2, 3),
-    marginBottom: theme.spacing(2),
+    background: colorScheme.gradientHeader,
+    borderRadius: "16px",
+    padding: theme.spacing(2.5, 3),
+    marginBottom: theme.spacing(2.5),
     color: "white",
-    boxShadow: "0 4px 12px rgba(102, 126, 234, 0.25)",
+    boxShadow: colorScheme.shadowHeader,
     [theme.breakpoints.down("sm")]: {
-      padding: theme.spacing(1.5, 2)
+      padding: theme.spacing(1.5, 2),
+      borderRadius: "12px"
     }
   },
   addButton: {
@@ -87,14 +91,26 @@ const useStyles = makeStyles()((theme) => ({
   },
   paymentCard: {
     marginBottom: theme.spacing(1.5),
-    borderRadius: "8px",
-    boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-    transition: "all 0.2s ease",
-    border: "1px solid rgba(0,0,0,0.08)",
+    borderRadius: "14px",
+    boxShadow: "0 2px 12px rgba(0,0,0,0.06)",
+    transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+    border: "1px solid rgba(15, 118, 110, 0.12)",
     overflow: "hidden",
+    animation: "$fadeInUp 0.4s ease-out",
     "&:hover": {
-      boxShadow: "0 4px 12px rgba(0,0,0,0.12)",
-      borderColor: "#667eea"
+      boxShadow: "0 8px 24px rgba(15, 118, 110, 0.15)",
+      borderColor: "rgba(15, 118, 110, 0.3)",
+      transform: "translateY(-2px)"
+    }
+  },
+  "@keyframes fadeInUp": {
+    "0%": {
+      opacity: 0,
+      transform: "translateY(10px)"
+    },
+    "100%": {
+      opacity: 1,
+      transform: "translateY(0)"
     }
   },
   statusChip: {
@@ -107,48 +123,58 @@ const useStyles = makeStyles()((theme) => ({
   filterSection: {
     background: "white",
     padding: theme.spacing(2),
-    borderRadius: "8px",
+    borderRadius: "14px",
     marginBottom: theme.spacing(2),
-    boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
-    border: "1px solid rgba(0,0,0,0.08)",
+    boxShadow: "0 2px 12px rgba(0,0,0,0.06)",
+    border: "1px solid rgba(0,0,0,0.06)",
     [theme.breakpoints.down("sm")]: {
-      padding: theme.spacing(1.5)
+      padding: theme.spacing(1.5),
+      borderRadius: "12px"
     }
   },
   searchBox: {
     "& .MuiOutlinedInput-root": {
       borderRadius: "12px",
-      backgroundColor: "#f8f9fa",
+      backgroundColor: "#f8fafc",
       transition: "all 0.3s ease",
       "&:hover": {
-        backgroundColor: "#f1f3f5"
+        backgroundColor: "#f1f5f9"
       },
       "&.Mui-focused": {
         backgroundColor: "white",
-        boxShadow: "0 0 0 3px rgba(102, 126, 234, 0.1)"
+        boxShadow: "0 0 0 3px rgba(15, 118, 110, 0.15)"
       }
     }
   },
   tabButton: {
-    padding: "8px 16px",
-    borderRadius: "6px",
+    padding: "10px 20px",
+    borderRadius: "10px",
     textTransform: "none",
     fontWeight: 600,
-    fontSize: "13px",
-    transition: "all 0.2s ease",
-    minWidth: "100px",
+    fontSize: "14px",
+    transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+    minWidth: "110px",
+    position: "relative",
+    overflow: "hidden",
     "&.active": {
-      background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+      background: colorScheme.gradientButton,
       color: "white",
-      boxShadow: "0 2px 8px rgba(102, 126, 234, 0.3)"
+      boxShadow: colorScheme.shadowButton,
+      transform: "scale(1.02)",
+      "&:hover": {
+        transform: "scale(1.05)",
+        boxShadow: "0 6px 20px rgba(15, 118, 110, 0.4)"
+      }
     },
     "&:not(.active)": {
       backgroundColor: "white",
       color: "#64748b",
       border: "1px solid #e2e8f0",
       "&:hover": {
-        backgroundColor: "#f8f9fa",
-        borderColor: "#cbd5e1"
+        backgroundColor: "#f0fdfa",
+        borderColor: "#99f6e4",
+        transform: "translateY(-2px)",
+        boxShadow: "0 4px 12px rgba(0,0,0,0.08)"
       }
     }
   },
@@ -171,22 +197,22 @@ const useStyles = makeStyles()((theme) => ({
   },
   dateInput: {
     width: "100%",
-    padding: "8px 12px",
+    padding: "10px 14px",
     border: "1px solid #e2e8f0",
-    borderRadius: "6px",
-    fontSize: "13px",
+    borderRadius: "10px",
+    fontSize: "14px",
     fontFamily: "inherit",
     transition: "all 0.2s ease",
-    backgroundColor: "#f8f9fa",
+    backgroundColor: "#f8fafc",
     "&:focus": {
       outline: "none",
-      borderColor: "#667eea",
+      borderColor: "#0f766e",
       backgroundColor: "white",
-      boxShadow: "0 0 0 2px rgba(102, 126, 234, 0.1)"
+      boxShadow: "0 0 0 2px rgba(15, 118, 110, 0.15)"
     },
     "&:hover": {
-      borderColor: "#cbd5e1",
-      backgroundColor: "#f1f3f5"
+      borderColor: "#99f6e4",
+      backgroundColor: "#f0fdfa"
     }
   },
   imageViewButton: {
@@ -277,10 +303,11 @@ const useStyles = makeStyles()((theme) => ({
   },
   tabContainer: {
     backgroundColor: "white",
-    padding: theme.spacing(1.5),
-    borderRadius: "8px",
+    padding: theme.spacing(2),
+    borderRadius: "14px",
     marginBottom: theme.spacing(2),
-    boxShadow: "0 1px 4px rgba(0,0,0,0.06)"
+    boxShadow: "0 2px 12px rgba(0,0,0,0.06)",
+    border: "1px solid rgba(0,0,0,0.06)"
   },
   paymentCardContent: {
     padding: theme.spacing(2) + "!important",
@@ -293,9 +320,29 @@ const useStyles = makeStyles()((theme) => ({
   },
   infoSection: {
     padding: theme.spacing(1),
-    borderRadius: "6px",
-    backgroundColor: "#f8f9fa",
-    borderLeft: "3px solid #667eea"
+    borderRadius: "8px",
+    backgroundColor: "#f0fdfa",
+    borderLeft: "4px solid #0f766e"
+  },
+  ledgerButton: {
+    borderRadius: "10px",
+    textTransform: "none",
+    fontWeight: 600,
+    fontSize: "13px",
+    background: "linear-gradient(135deg, #0f766e 0%, #14b8a6 100%)",
+    color: "white",
+    "&:hover": {
+      background: "linear-gradient(135deg, #0d9488 0%, #2dd4bf 100%)",
+      boxShadow: "0 4px 12px rgba(15, 118, 110, 0.3)"
+    }
+  },
+  ledgerModal: {
+    "& .MuiDialog-paper": {
+      borderRadius: "16px",
+      boxShadow: "0 24px 48px rgba(0,0,0,0.12)",
+      maxWidth: "min(900px, 95vw)",
+      maxHeight: "90vh"
+    }
   },
   flowChartContainer: {
     width: "100%",
@@ -322,6 +369,82 @@ const useStyles = makeStyles()((theme) => ({
     [theme.breakpoints.down("sm")]: {
       padding: theme.spacing(1.5)
     }
+  },
+  paymentCardAnimating: {
+    opacity: 0,
+    transform: "translateX(-20px) scale(0.95)",
+    transition: "all 0.4s cubic-bezier(0.4, 0, 0.2, 1)",
+    pointerEvents: "none"
+  },
+  paymentCardEntering: {
+    opacity: 0,
+    transform: "translateY(20px) scale(0.95)",
+    animation: "$slideInUp 0.4s cubic-bezier(0.4, 0, 0.2, 1) forwards"
+  },
+  "@keyframes slideInUp": {
+    "0%": {
+      opacity: 0,
+      transform: "translateY(20px) scale(0.95)"
+    },
+    "100%": {
+      opacity: 1,
+      transform: "translateY(0) scale(1)"
+    }
+  },
+  "@keyframes fadeOut": {
+    "0%": {
+      opacity: 1,
+      transform: "scale(1)"
+    },
+    "100%": {
+      opacity: 0,
+      transform: "scale(0.95)",
+      height: 0,
+      marginBottom: 0,
+      padding: 0
+    }
+  },
+  statusUpdating: {
+    position: "relative",
+    "&::after": {
+      content: '""',
+      position: "absolute",
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: "rgba(255, 255, 255, 0.8)",
+      borderRadius: "6px",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      zIndex: 10
+    }
+  },
+  successPulse: {
+    animation: "$pulseSuccess 0.6s ease-in-out"
+  },
+  "@keyframes pulseSuccess": {
+    "0%": {
+      transform: "scale(1)",
+      boxShadow: "0 2px 12px rgba(0,0,0,0.06)"
+    },
+    "50%": {
+      transform: "scale(1.02)",
+      boxShadow: "0 8px 24px rgba(46, 125, 50, 0.3)"
+    },
+    "100%": {
+      transform: "scale(1)",
+      boxShadow: "0 2px 12px rgba(0,0,0,0.06)"
+    }
+  },
+  "@keyframes bounce": {
+    "0%, 100%": {
+      transform: "translateY(0)"
+    },
+    "50%": {
+      transform: "translateY(-10px)"
+    }
   }
 }))
 
@@ -338,7 +461,7 @@ const PaymentsPage = () => {
     return [startDate, endDate]
   })
   const [activeTab, setActiveTab] = useState("pending") // "collected", "pending", or "rejected"
-  const [paymentType, setPaymentType] = useState("farmer") // "farmer", "agri-inputs", or "ram-agri-sales"
+  const [paymentType, setPaymentType] = useState("farmer") // "farmer" or "ram-agri-sales" (Agri Input)
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("")
   const [pendingPaymentsCount, setPendingPaymentsCount] = useState(0)
   const [showOutstanding, setShowOutstanding] = useState(false) // Toggle for outstanding view
@@ -359,6 +482,7 @@ const PaymentsPage = () => {
   const isAccountant = useIsAccountant()
   const isOfficeAdmin = useIsOfficeAdmin()
   const isSuperAdmin = useIsSuperAdmin()
+  const userData = useUserData() // Get current user data for activity logging
 
   // Access control check
   if (!hasPaymentsAccess) {
@@ -397,6 +521,23 @@ const PaymentsPage = () => {
     currentIndex: 0,
     title: ""
   })
+
+  // Customer ledger modal state (Agri Input only)
+  const [showCustomerLedger, setShowCustomerLedger] = useState(false)
+  const [customerLedgerData, setCustomerLedgerData] = useState(null)
+  const [loadingLedger, setLoadingLedger] = useState(false)
+  const [showCustomerLedgerSummaryDetails, setShowCustomerLedgerSummaryDetails] = useState(false)
+
+  // Animation states
+  const [updatingPayments, setUpdatingPayments] = useState(new Set())
+  const [removingPayments, setRemovingPayments] = useState(new Set())
+  const [successPayments, setSuccessPayments] = useState(new Set())
+
+  // Activity log states
+  const [todaysActivities, setTodaysActivities] = useState([])
+  const [showActivityModal, setShowActivityModal] = useState(false)
+  const [allActivities, setAllActivities] = useState([])
+  const [loadingActivities, setLoadingActivities] = useState(false)
 
   const [startDate, endDate] = selectedDateRange
   
@@ -471,10 +612,15 @@ const PaymentsPage = () => {
           setTotalPages(1)
           setTotalCount(response.data.data.length)
         }
+        // Clear animation states
+        setUpdatingPayments(new Set())
+        setRemovingPayments(new Set())
       } else {
         setPayments([])
         setTotalPages(1)
         setTotalCount(0)
+        setUpdatingPayments(new Set())
+        setRemovingPayments(new Set())
       }
     } catch (error) {
       console.error("Error fetching payments:", error)
@@ -487,61 +633,7 @@ const PaymentsPage = () => {
     }
   }
 
-  // Fetch payments function for agri inputs (sell orders)
-  const fetchAgriInputsPayments = async () => {
-    setLoading(true)
-    try {
-      const params = {
-        search: debouncedSearchTerm,
-        paymentStatus:
-          activeTab === "collected" ? "COLLECTED" : activeTab === "pending" ? "PENDING" : "REJECTED",
-        page: page,
-        limit: rowsPerPage
-      }
-
-      if (
-        startDate &&
-        endDate &&
-        startDate instanceof Date &&
-        endDate instanceof Date &&
-        !isNaN(startDate.getTime()) &&
-        !isNaN(endDate.getTime())
-      ) {
-        params.startDate = moment(startDate).format("DD-MM-YYYY")
-        params.endDate = moment(endDate).format("DD-MM-YYYY")
-      }
-
-      const instance = NetworkManager(API.INVENTORY.GET_SELL_ORDER_PENDING_PAYMENTS)
-      const response = await instance.request({}, params)
-
-      if (response?.data?.success && response.data.data) {
-        const data = Array.isArray(response.data.data) ? response.data.data : []
-        setPayments(data)
-        // Handle pagination metadata if available
-        if (response.data.pagination) {
-          setTotalPages(response.data.pagination.totalPages || 1)
-          setTotalCount(response.data.pagination.total || data.length)
-        } else {
-          setTotalPages(1)
-          setTotalCount(data.length)
-        }
-      } else {
-        setPayments([])
-        setTotalPages(1)
-        setTotalCount(0)
-      }
-    } catch (error) {
-      console.error("Error fetching agri inputs payments:", error)
-      Toast.error("Failed to fetch agri inputs payments")
-      setPayments([])
-      setTotalPages(1)
-      setTotalCount(0)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  // Fetch payments function for Ram Agri Sales orders
+  // Fetch payments function for Agri Input (Ram Agri Sales) orders
   const fetchRamAgriSalesPayments = async () => {
     setLoading(true)
     try {
@@ -581,10 +673,15 @@ const PaymentsPage = () => {
           setTotalPages(1)
           setTotalCount(paymentsData.length)
         }
+        // Clear animation states
+        setUpdatingPayments(new Set())
+        setRemovingPayments(new Set())
       } else {
         setPayments([])
         setTotalPages(1)
         setTotalCount(0)
+        setUpdatingPayments(new Set())
+        setRemovingPayments(new Set())
       }
     } catch (error) {
       console.error("Error fetching Ram Agri Sales payments:", error)
@@ -599,9 +696,7 @@ const PaymentsPage = () => {
 
   // Main fetch function that routes to appropriate API
   const fetchPayments = () => {
-    if (paymentType === "agri-inputs") {
-      fetchAgriInputsPayments()
-    } else if (paymentType === "ram-agri-sales") {
+    if (paymentType === "ram-agri-sales") {
       fetchRamAgriSalesPayments()
     } else {
       fetchFarmerPayments()
@@ -693,6 +788,103 @@ const PaymentsPage = () => {
     }
   }
 
+  // Fetch customer ledger (Agri Input – opens in popup)
+  const fetchCustomerLedger = async (customerMobile, customerName, customerId = null) => {
+    try {
+      setLoadingLedger(true)
+      setShowCustomerLedger(true)
+      setCustomerLedgerData(null)
+      const params = {}
+      if (customerMobile) params.customerMobile = customerMobile
+      if (customerName) params.customerName = customerName
+      if (customerId) params.customerId = customerId
+      if (startDate && endDate) {
+        params.startDate = moment(startDate).format("YYYY-MM-DD")
+        params.endDate = moment(endDate).format("YYYY-MM-DD")
+      }
+
+      const instance = NetworkManager(API.INVENTORY.GET_RAM_AGRI_CUSTOMER_LEDGER)
+      const response = await instance.request({}, params)
+
+      if (response?.data) {
+        const apiResponse = response.data
+        if (apiResponse.status === "Success" || apiResponse.success) {
+          setCustomerLedgerData(apiResponse.data)
+        } else {
+          Toast.error(apiResponse.message || "Failed to load ledger")
+        }
+      }
+    } catch (error) {
+      console.error("Error fetching customer ledger:", error)
+      Toast.error("Failed to fetch customer ledger")
+    } finally {
+      setLoadingLedger(false)
+    }
+  }
+
+  const formatCurrency = (amount) =>
+    new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(amount || 0)
+
+  // Log payment activity
+  const logPaymentActivity = async (activityData) => {
+    try {
+      const instance = NetworkManager(API.ORDER.CREATE_PAYMENT_ACTIVITY)
+      await instance.request({
+        ...activityData,
+        timestamp: new Date().toISOString(),
+        paymentType: paymentType,
+        performedBy: {
+          userId: userData?._id,
+          name: userData?.name,
+          email: userData?.email,
+          phoneNumber: userData?.phoneNumber,
+          role: userData?.role || userData?.jobTitle
+        }
+      })
+    } catch (error) {
+      console.error("Error logging payment activity:", error)
+      // Don't show error to user, just log it
+    }
+  }
+
+  // Fetch today's activities
+  const fetchTodaysActivities = async () => {
+    try {
+      const instance = NetworkManager(API.ORDER.GET_TODAYS_PAYMENT_ACTIVITIES)
+      const response = await instance.request({}, {})
+      
+      if (response?.data?.data) {
+        setTodaysActivities(Array.isArray(response.data.data) ? response.data.data : [])
+      }
+    } catch (error) {
+      console.error("Error fetching today's activities:", error)
+    }
+  }
+
+  // Fetch all activities
+  const fetchAllActivities = async () => {
+    setLoadingActivities(true)
+    try {
+      const params = {}
+      if (startDate && endDate) {
+        params.startDate = moment(startDate).format("YYYY-MM-DD")
+        params.endDate = moment(endDate).format("YYYY-MM-DD")
+      }
+
+      const instance = NetworkManager(API.ORDER.GET_PAYMENT_ACTIVITIES)
+      const response = await instance.request({}, params)
+      
+      if (response?.data?.data) {
+        setAllActivities(Array.isArray(response.data.data) ? response.data.data : [])
+      }
+    } catch (error) {
+      console.error("Error fetching activities:", error)
+      Toast.error("Failed to fetch activities")
+    } finally {
+      setLoadingActivities(false)
+    }
+  }
+
   // Track previous filter values to reset page only when filters actually change
   const prevFiltersRef = useRef({ debouncedSearchTerm, activeTab, startDateStr, endDateStr, paymentType, showOutstanding, outstandingView })
 
@@ -736,6 +928,11 @@ const PaymentsPage = () => {
       }
     }
   }, [showOutstanding, paymentType, outstandingView, startDateStr, endDateStr])
+
+  // Fetch today's activities on mount and when payment type changes
+  useEffect(() => {
+    fetchTodaysActivities()
+  }, [paymentType])
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -788,23 +985,6 @@ const PaymentsPage = () => {
           "Balance Amount",
           "Created By"
         ]
-      : paymentType === "agri-inputs"
-      ? [
-          "Order Number",
-          "Merchant/Buyer Name",
-          "Phone Number",
-          "Items Count",
-          "Payment Amount",
-          "Payment Status",
-          "Payment Date",
-          "Mode of Payment",
-          "Bank Name",
-          "Order Status",
-          "Total Order Amount",
-          "Paid Amount",
-          "Outstanding Amount",
-          "Created By"
-        ]
       : [
           "Order ID",
           "Farmer Name",
@@ -841,39 +1021,21 @@ const PaymentsPage = () => {
           payment.balanceAmount || 0,
           payment.createdBy?.name || ""
         ]
-      } else if (paymentType === "agri-inputs") {
-        return [
-          payment.orderNumber || "",
-          payment.merchant?.name || payment.buyerName || "",
-          payment.merchant?.phone || "",
-          payment.items?.length || 0,
-          payment.payment?.paidAmount || 0,
-          payment.payment?.paymentStatus || "",
-          moment(payment.payment?.paymentDate).format("DD-MM-YYYY"),
-          payment.payment?.modeOfPayment || "",
-          payment.payment?.bankName || "",
-          payment.status || "",
-          payment.totalAmount || 0,
-          payment.paidAmount || 0,
-          ((payment.totalAmount || 0) - (payment.paidAmount || 0)),
-          payment.createdBy?.name || ""
-        ]
-      } else {
-        return [
-          payment.orderId,
-          payment.farmer?.name || "",
-          payment.farmer?.mobileNumber || "",
-          payment.plantType?.name || "",
-          payment.payment?.paidAmount || 0,
-          payment.payment?.paymentStatus || "",
-          moment(payment.payment?.paymentDate).format("DD-MM-YYYY"),
-          payment.payment?.modeOfPayment || "",
-          payment.payment?.bankName || "",
-          payment.orderStatus || "",
-          payment.totalOrderAmount || 0,
-          payment.salesPerson?.name || ""
-        ]
       }
+      return [
+        payment.orderId,
+        payment.farmer?.name || "",
+        payment.farmer?.mobileNumber || "",
+        payment.plantType?.name || "",
+        payment.payment?.paidAmount || 0,
+        payment.payment?.paymentStatus || "",
+        moment(payment.payment?.paymentDate).format("DD-MM-YYYY"),
+        payment.payment?.modeOfPayment || "",
+        payment.payment?.bankName || "",
+        payment.orderStatus || "",
+        payment.totalOrderAmount || 0,
+        payment.salesPerson?.name || ""
+      ]
     })
 
     const csvContent = [headers, ...csvData]
@@ -896,7 +1058,9 @@ const PaymentsPage = () => {
   }
 
   const handleTabChange = (tab) => {
-    setActiveTab(tab)
+    if (tab !== activeTab) {
+      setActiveTab(tab)
+    }
   }
 
   // Handle status change with confirmation
@@ -904,9 +1068,7 @@ const PaymentsPage = () => {
     const currentStatus = payment.payment?.paymentStatus
     if (newStatus === currentStatus) return
 
-    const orderIdentifier = paymentType === "agri-inputs" || paymentType === "ram-agri-sales"
-      ? payment.orderNumber
-      : payment.orderId
+    const orderIdentifier = paymentType === "ram-agri-sales" ? payment.orderNumber : payment.orderId
 
     setConfirmDialog({
       open: true,
@@ -924,9 +1086,7 @@ const PaymentsPage = () => {
     const currentStatus = payment.orderStatus
     if (newStatus === currentStatus) return
 
-    const orderIdentifier = paymentType === "agri-inputs" || paymentType === "ram-agri-sales"
-      ? payment.orderNumber
-      : payment.orderId
+    const orderIdentifier = paymentType === "ram-agri-sales" ? payment.orderNumber : payment.orderId
 
     setConfirmDialog({
       open: true,
@@ -940,22 +1100,14 @@ const PaymentsPage = () => {
   }
 
   const updatePaymentStatus = async (payment, newStatus) => {
+    const paymentId = payment._id || payment.orderId || payment.orderNumber
+    const currentStatus = payment.payment?.paymentStatus
+    
+    // Mark payment as updating
+    setUpdatingPayments(prev => new Set(prev).add(paymentId))
+    
     try {
-      if (paymentType === "agri-inputs") {
-        // Update sell order payment status
-        const instance = NetworkManager(API.INVENTORY.UPDATE_SELL_ORDER_PAYMENT_STATUS)
-        const response = await instance.request({
-          paymentId: payment.payment?._id,
-          paymentStatus: newStatus
-        }, [`${payment._id}/payment/${payment.payment?._id}/status`])
-
-        if (response?.data?.success) {
-          Toast.success("Payment status updated successfully")
-          fetchPayments()
-        } else {
-          Toast.error(response?.data?.message || "Failed to update payment status")
-        }
-      } else if (paymentType === "ram-agri-sales") {
+      if (paymentType === "ram-agri-sales") {
         // Update Ram Agri Sales order payment status
         // Use paymentIndex from aggregation result, or default to 0
         const paymentIndex = payment.paymentIndex !== undefined ? payment.paymentIndex : 0
@@ -966,10 +1118,58 @@ const PaymentsPage = () => {
         }, [`${payment._id}/payment/${paymentIndex}/status`])
 
         if (response?.data?.status === "Success") {
+          // Log activity
+          const orderIdentifier = paymentType === "ram-agri-sales" ? payment.orderNumber : payment.orderId
+          logPaymentActivity({
+            action: "PAYMENT_STATUS_CHANGED",
+            orderId: orderIdentifier,
+            orderNumber: payment.orderNumber || payment.orderId,
+            customerName: payment.customerName || payment.farmer?.name,
+            customerMobile: payment.customerMobile || payment.farmer?.mobileNumber,
+            previousStatus: currentStatus,
+            newStatus: newStatus,
+            amount: payment.payment?.paidAmount || 0,
+            description: `Payment status changed from ${currentStatus} to ${newStatus} for Order #${orderIdentifier}`
+          })
+
+          // Show success animation
+          setSuccessPayments(prev => new Set(prev).add(paymentId))
+          setTimeout(() => {
+            setSuccessPayments(prev => {
+              const next = new Set(prev)
+              next.delete(paymentId)
+              return next
+            })
+          }, 600)
+          
+          // If status changed from PENDING to COLLECTED and we're on pending tab, fade out
+          if (currentStatus === "PENDING" && newStatus === "COLLECTED" && activeTab === "pending") {
+            setRemovingPayments(prev => new Set(prev).add(paymentId))
+            setTimeout(() => {
+              fetchPayments()
+              fetchTodaysActivities() // Refresh today's activities
+              setRemovingPayments(prev => {
+                const next = new Set(prev)
+                next.delete(paymentId)
+                return next
+              })
+            }, 400)
+          } else {
+            // Otherwise just refresh after a short delay
+            setTimeout(() => {
+              fetchPayments()
+              fetchTodaysActivities() // Refresh today's activities
+            }, 300)
+          }
+          
           Toast.success("Payment status updated successfully")
-          fetchPayments()
         } else {
           Toast.error(response?.data?.message || "Failed to update payment status")
+          setUpdatingPayments(prev => {
+            const next = new Set(prev)
+            next.delete(paymentId)
+            return next
+          })
         }
       } else {
         // Update farmer order payment status
@@ -981,19 +1181,77 @@ const PaymentsPage = () => {
         })
 
         if (response?.data?.success) {
+          // Log activity
+          const orderIdentifier = payment.orderId
+          logPaymentActivity({
+            action: "PAYMENT_STATUS_CHANGED",
+            orderId: orderIdentifier,
+            orderNumber: payment.orderId,
+            customerName: payment.farmer?.name,
+            customerMobile: payment.farmer?.mobileNumber,
+            previousStatus: currentStatus,
+            newStatus: newStatus,
+            amount: payment.payment?.paidAmount || 0,
+            description: `Payment status changed from ${currentStatus} to ${newStatus} for Order #${orderIdentifier}`
+          })
+
+          // Show success animation
+          setSuccessPayments(prev => new Set(prev).add(paymentId))
+          setTimeout(() => {
+            setSuccessPayments(prev => {
+              const next = new Set(prev)
+              next.delete(paymentId)
+              return next
+            })
+          }, 600)
+          
+          // If status changed from PENDING to COLLECTED and we're on pending tab, fade out
+          if (currentStatus === "PENDING" && newStatus === "COLLECTED" && activeTab === "pending") {
+            setRemovingPayments(prev => new Set(prev).add(paymentId))
+            setTimeout(() => {
+              fetchPayments()
+              fetchTodaysActivities() // Refresh today's activities
+              setRemovingPayments(prev => {
+                const next = new Set(prev)
+                next.delete(paymentId)
+                return next
+              })
+            }, 400)
+          } else {
+            // Otherwise just refresh after a short delay
+            setTimeout(() => {
+              fetchPayments()
+              fetchTodaysActivities() // Refresh today's activities
+            }, 300)
+          }
+          
           Toast.success("Payment status updated successfully")
-          fetchPayments()
         } else {
           Toast.error(response?.data?.message || "Failed to update payment status")
+          setUpdatingPayments(prev => {
+            const next = new Set(prev)
+            next.delete(paymentId)
+            return next
+          })
         }
       }
     } catch (error) {
       console.error("Error updating payment status:", error)
       Toast.error("Failed to update payment status")
+      setUpdatingPayments(prev => {
+        const next = new Set(prev)
+        next.delete(paymentId)
+        return next
+      })
     }
   }
 
   const updateOrderStatus = async (payment, newStatus) => {
+    const paymentId = payment._id || payment.orderId || payment.orderNumber
+    
+    // Mark payment as updating
+    setUpdatingPayments(prev => new Set(prev).add(paymentId))
+    
     try {
       const instance = NetworkManager(API.ORDER.UPDATE_ORDER)
       const response = await instance.request({
@@ -1002,14 +1260,54 @@ const PaymentsPage = () => {
       })
 
       if (response?.data?.status === "Success") {
+        // Log activity
+        const orderIdentifier = payment.orderNumber || payment.orderId
+        const currentOrderStatus = payment.orderStatus
+        logPaymentActivity({
+          action: "ORDER_STATUS_CHANGED",
+          orderId: orderIdentifier,
+          orderNumber: payment.orderNumber || payment.orderId,
+          customerName: payment.customerName || payment.farmer?.name,
+          customerMobile: payment.customerMobile || payment.farmer?.mobileNumber,
+          previousStatus: currentOrderStatus,
+          newStatus: newStatus,
+          amount: payment.payment?.paidAmount || payment.totalAmount || 0,
+          description: `Order status changed from ${currentOrderStatus} to ${newStatus} for Order #${orderIdentifier}`
+        })
+
+        // Show success animation
+        setSuccessPayments(prev => new Set(prev).add(paymentId))
+        setTimeout(() => {
+          setSuccessPayments(prev => {
+            const next = new Set(prev)
+            next.delete(paymentId)
+            return next
+          })
+        }, 600)
+        
+        // Refresh after animation
+        setTimeout(() => {
+          fetchPayments()
+          fetchTodaysActivities() // Refresh today's activities
+        }, 300)
+        
         Toast.success("Order status updated successfully")
-        fetchPayments() // Refresh the list
       } else {
         Toast.error(response?.data?.message || "Failed to update order status")
+        setUpdatingPayments(prev => {
+          const next = new Set(prev)
+          next.delete(paymentId)
+          return next
+        })
       }
     } catch (error) {
       console.error("Error updating order status:", error)
       Toast.error("Failed to update order status")
+      setUpdatingPayments(prev => {
+        const next = new Set(prev)
+        next.delete(paymentId)
+        return next
+      })
     }
   }
 
@@ -1058,41 +1356,16 @@ const PaymentsPage = () => {
   // Get all images for a payment (order screenshots + payment receipt photos)
   const getAllImagesForPayment = (payment) => {
     const images = []
-    
-    if (paymentType === "agri-inputs") {
-      // For agri inputs, only payment receipt photos
-      if (payment.payment?.receiptPhoto && payment.payment.receiptPhoto.length > 0) {
-        payment.payment.receiptPhoto.forEach((photo, index) => {
-          images.push({
-            url: photo,
-            type: 'Payment Receipt',
-            index: index + 1
-          })
-        })
-      }
-    } else {
-      // For farmer orders, order screenshots + payment receipt photos
-      if (payment.screenshots && payment.screenshots.length > 0) {
-        payment.screenshots.forEach((screenshot, index) => {
-          images.push({
-            url: screenshot,
-            type: 'Order Screenshot',
-            index: index + 1
-          })
-        })
-      }
-      
-      if (payment.payment?.receiptPhoto && payment.payment.receiptPhoto.length > 0) {
-        payment.payment.receiptPhoto.forEach((photo, index) => {
-          images.push({
-            url: photo,
-            type: 'Payment Receipt',
-            index: index + 1
-          })
-        })
-      }
+    if (payment.screenshots && payment.screenshots.length > 0) {
+      payment.screenshots.forEach((screenshot, index) => {
+        images.push({ url: screenshot, type: "Order Screenshot", index: index + 1 })
+      })
     }
-    
+    if (payment.payment?.receiptPhoto && payment.payment.receiptPhoto.length > 0) {
+      payment.payment.receiptPhoto.forEach((photo, index) => {
+        images.push({ url: photo, type: "Payment Receipt", index: index + 1 })
+      })
+    }
     return images
   }
 
@@ -1103,31 +1376,130 @@ const PaymentsPage = () => {
       {/* Header Section */}
       <Box className={classes.pageHeader}>
         <Box display="flex" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1.5}>
-          <Typography variant="h5" component="h1" fontWeight="bold">
-            💳 Payments Management
-          </Typography>
-          <Button
-            variant="contained"
-            size="small"
-            startIcon={<DownloadIcon />}
-            onClick={exportToCSV}
-            sx={{
-              backgroundColor: "rgba(255,255,255,0.2)",
-              color: "white",
-              backdropFilter: "blur(10px)",
-              "&:hover": {
-                backgroundColor: "rgba(255,255,255,0.3)"
-              }
-            }}>
-            Export CSV
-          </Button>
+          <Box>
+            <Typography variant="h5" component="h1" fontWeight="bold" sx={{ letterSpacing: "-0.02em" }}>
+              Payments Management
+            </Typography>
+            <Typography variant="body2" sx={{ opacity: 0.9, mt: 0.5 }}>
+              View and manage farmer &amp; Agri Input payments
+            </Typography>
+          </Box>
+          <Box display="flex" gap={1.5} alignItems="center">
+            <Button
+              variant="contained"
+              size="small"
+              startIcon={<HistoryIcon />}
+              onClick={() => {
+                setShowActivityModal(true)
+                fetchAllActivities()
+              }}
+              sx={{
+                backgroundColor: "rgba(255,255,255,0.25)",
+                color: "white",
+                backdropFilter: "blur(8px)",
+                borderRadius: "10px",
+                fontWeight: 600,
+                "&:hover": {
+                  backgroundColor: "rgba(255,255,255,0.35)"
+                }
+              }}>
+              Activity Log
+            </Button>
+            <Button
+              variant="contained"
+              size="small"
+              startIcon={<DownloadIcon />}
+              onClick={exportToCSV}
+              sx={{
+                backgroundColor: "rgba(255,255,255,0.25)",
+                color: "white",
+                backdropFilter: "blur(8px)",
+                borderRadius: "10px",
+                fontWeight: 600,
+                "&:hover": {
+                  backgroundColor: "rgba(255,255,255,0.35)"
+                }
+              }}>
+              Export CSV
+            </Button>
+          </Box>
         </Box>
       </Box>
+
+      {/* Today's Activity Widget */}
+      {todaysActivities.length > 0 && (
+        <Card 
+          sx={{ 
+            mb: 2, 
+            borderRadius: "14px",
+            background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+            color: "white",
+            cursor: "pointer",
+            transition: "all 0.3s ease",
+            "&:hover": {
+              transform: "translateY(-2px)",
+              boxShadow: "0 8px 24px rgba(102, 126, 234, 0.3)"
+            }
+          }}
+          onClick={() => {
+            setShowActivityModal(true)
+            fetchAllActivities()
+          }}
+        >
+          <CardContent sx={{ p: 2 }}>
+            <Box display="flex" justifyContent="space-between" alignItems="center">
+              <Box display="flex" alignItems="center" gap={1.5}>
+                <AccessTimeIcon sx={{ fontSize: 28 }} />
+                <Box>
+                  <Typography variant="h6" fontWeight="bold">
+                    Today&apos;s Activity
+                  </Typography>
+                  <Typography variant="body2" sx={{ opacity: 0.9 }}>
+                    {todaysActivities.length} {todaysActivities.length === 1 ? "activity" : "activities"} recorded
+                  </Typography>
+                </Box>
+              </Box>
+              <Box>
+                <Typography variant="h6" fontWeight="bold" textAlign="right">
+                  {todaysActivities.filter(a => a.action === "PAYMENT_STATUS_CHANGED" && a.newStatus === "COLLECTED").length}
+                </Typography>
+                <Typography variant="caption" sx={{ opacity: 0.9 }}>
+                  Payments Collected
+                </Typography>
+              </Box>
+            </Box>
+            {todaysActivities.slice(0, 3).map((activity, idx) => (
+              <Box 
+                key={idx} 
+                sx={{ 
+                  mt: 1.5, 
+                  p: 1, 
+                  backgroundColor: "rgba(255,255,255,0.15)", 
+                  borderRadius: "8px",
+                  backdropFilter: "blur(10px)"
+                }}
+              >
+                <Typography variant="body2" sx={{ fontSize: "0.75rem" }}>
+                  {activity.description || activity.action}
+                </Typography>
+                <Typography variant="caption" sx={{ opacity: 0.8, fontSize: "0.7rem" }}>
+                  {moment(activity.timestamp || activity.createdAt).format("hh:mm A")}
+                </Typography>
+              </Box>
+            ))}
+            {todaysActivities.length > 3 && (
+              <Typography variant="caption" sx={{ mt: 1, display: "block", opacity: 0.9, textAlign: "center" }}>
+                +{todaysActivities.length - 3} more activities - Click to view all
+              </Typography>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Payment Type & Status Tabs - Combined */}
       <Box className={classes.tabContainer}>
         <Box display="flex" flexWrap="wrap" gap={1.5} alignItems="center">
-          <Typography variant="caption" color="textSecondary" sx={{ fontWeight: 600, mr: 1 }}>
+          <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, mr: 1 }}>
             Type:
           </Typography>
           <Button
@@ -1137,12 +1509,6 @@ const PaymentsPage = () => {
             Farmer
           </Button>
           <Button
-            className={`${classes.tabButton} ${paymentType === "agri-inputs" ? "active" : ""}`}
-            onClick={() => setPaymentType("agri-inputs")}
-            size="small">
-            Agri Inputs
-          </Button>
-          <Button
             className={`${classes.tabButton} ${paymentType === "ram-agri-sales" ? "active" : ""}`}
             onClick={() => {
               setPaymentType("ram-agri-sales")
@@ -1150,14 +1516,15 @@ const PaymentsPage = () => {
             }}
             size="small"
             sx={{ position: "relative" }}>
-            Ram Agri Sales
+            Agri Input
             {pendingPaymentsCount > 0 && (
               <Box
+                component="span"
                 sx={{
                   position: "absolute",
                   top: -6,
                   right: -6,
-                  backgroundColor: "#f44336",
+                  backgroundColor: "#dc2626",
                   color: "white",
                   borderRadius: "50%",
                   width: 20,
@@ -1175,7 +1542,7 @@ const PaymentsPage = () => {
             )}
           </Button>
           <Box sx={{ ml: 2, display: "flex", gap: 1, alignItems: "center" }}>
-            <Typography variant="caption" color="textSecondary" sx={{ fontWeight: 600 }}>
+            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
               Status:
             </Typography>
             <Button
@@ -1230,9 +1597,7 @@ const PaymentsPage = () => {
               fullWidth
               size="small"
               placeholder={
-                paymentType === "agri-inputs" 
-                  ? "Search by order number, merchant name, or buyer name..." 
-                  : paymentType === "ram-agri-sales"
+                paymentType === "ram-agri-sales"
                   ? "Search by order number, customer name, or mobile..."
                   : "Search by order ID, farmer name, or mobile..."
               }
@@ -1554,54 +1919,94 @@ const PaymentsPage = () => {
       {/* Payments List */}
       {!showOutstanding && outstandingView !== "orders" && (
         <>
-        <Grid container spacing={2}>
+        <Fade in={!loading} timeout={300}>
+          <Grid container spacing={2}>
         {payments.length === 0 ? (
           <Grid item xs={12}>
-            <Card className={classes.paymentCard}>
-              <CardContent sx={{ py: 8, textAlign: "center" }}>
-                <Box sx={{ fontSize: 64, mb: 2, opacity: 0.3 }}>📭</Box>
-                <Typography variant="h6" color="textSecondary" gutterBottom>
-                  No {activeTab} payments found
-                </Typography>
-                <Typography variant="body2" color="textSecondary">
-                  Try adjusting your filters or date range
-                </Typography>
-              </CardContent>
-            </Card>
+            <Fade in timeout={400}>
+              <Card className={classes.paymentCard}>
+                <CardContent sx={{ py: 8, textAlign: "center" }}>
+                  <Box 
+                    sx={{ 
+                      fontSize: 64, 
+                      mb: 2, 
+                      opacity: 0.3,
+                      animation: "$bounce 2s infinite"
+                    }}>
+                    📭
+                  </Box>
+                  <Typography variant="h6" color="textSecondary" gutterBottom>
+                    No {activeTab} payments found
+                  </Typography>
+                  <Typography variant="body2" color="textSecondary">
+                    Try adjusting your filters or date range
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Fade>
           </Grid>
         ) : (
           payments.map((payment, index) => {
             const statusColors = getStatusColor(payment.payment?.paymentStatus)
-            const orderStatusColors = paymentType === "agri-inputs" 
-              ? getStatusColor(payment.status) 
-              : paymentType === "ram-agri-sales"
-              ? getOrderStatusColor(payment.orderStatus)
-              : getOrderStatusColor(payment.orderStatus)
+            const orderStatusColors = getOrderStatusColor(payment.orderStatus)
+            const paymentId = payment._id || payment.orderId || payment.orderNumber
+            const isUpdating = updatingPayments.has(paymentId)
+            const isRemoving = removingPayments.has(paymentId)
+            const isSuccess = successPayments.has(paymentId)
 
             return (
-              <Grid item xs={12} key={index}>
-                <Card className={classes.paymentCard}>
+              <Grid item xs={12} key={paymentId || index}>
+                <Collapse in={!isRemoving} timeout={400}>
+                  <Card 
+                    className={`${classes.paymentCard} ${isSuccess ? classes.successPulse : ""}`}
+                    sx={{
+                      opacity: isRemoving ? 0 : 1,
+                      transform: isRemoving ? "translateX(-20px) scale(0.95)" : "translateX(0) scale(1)",
+                      transition: "all 0.4s cubic-bezier(0.4, 0, 0.2, 1)",
+                      position: "relative",
+                      overflow: "hidden",
+                      animationDelay: `${index * 0.05}s`
+                    }}>
+                    {isUpdating && (
+                      <Box
+                        sx={{
+                          position: "absolute",
+                          top: 0,
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          backgroundColor: "rgba(255, 255, 255, 0.85)",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          zIndex: 1000,
+                          borderRadius: "14px"
+                        }}
+                      >
+                        <CircularProgress size={40} sx={{ color: "#0f766e" }} />
+                      </Box>
+                    )}
                   <CardContent className={classes.paymentCardContent}>
                     <Grid container spacing={2} alignItems="center">
                       {/* Payment Amount - Primary Focus */}
                       <Grid item xs={12} sm={12} md={2.5}>
                         <Box sx={{ 
-                          background: "linear-gradient(135deg, #22c55e15 0%, #16a34a15 100%)",
+                          background: "linear-gradient(135deg, #0f766e12 0%, #14b8a612 100%)",
                           padding: "12px",
-                          borderRadius: "8px",
-                          border: "2px solid #22c55e30"
+                          borderRadius: "10px",
+                          border: "2px solid rgba(15, 118, 110, 0.25)"
                         }}>
-                          <Typography variant="caption" color="textSecondary" sx={{ mb: 0.5, display: "block", fontWeight: 600, fontSize: "10px" }}>
+                          <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: "block", fontWeight: 600, fontSize: "10px" }}>
                             PAYMENT AMOUNT
                           </Typography>
-                          <Typography variant="h5" fontWeight="bold" color="#16a34a" sx={{ mb: 0.5 }}>
+                          <Typography variant="h5" fontWeight="bold" color="#0f766e" sx={{ mb: 0.5 }}>
                             ₹{payment.payment?.paidAmount?.toLocaleString() || 0}
                           </Typography>
-                          <Typography variant="caption" color="textSecondary" display="block">
+                          <Typography variant="caption" color="text.secondary" display="block">
                             {payment.payment?.modeOfPayment || "N/A"}
                             {payment.payment?.bankName && ` • ${payment.payment.bankName}`}
                           </Typography>
-                          <Typography variant="caption" color="textSecondary" display="block" mt={0.5}>
+                          <Typography variant="caption" color="text.secondary" display="block" mt={0.5}>
                             {moment(payment.payment?.paymentDate).format("DD-MM-YYYY")}
                           </Typography>
                         </Box>
@@ -1618,6 +2023,7 @@ const PaymentsPage = () => {
                               value={payment.payment?.paymentStatus || ""}
                               onChange={(e) => handleStatusChange(payment, e.target.value)}
                               displayEmpty
+                              disabled={isUpdating}
                               sx={{
                                 backgroundColor: statusColors.bg,
                                 color: statusColors.text,
@@ -1625,8 +2031,13 @@ const PaymentsPage = () => {
                                 borderRadius: "6px",
                                 fontSize: "0.75rem",
                                 height: "32px",
+                                transition: "all 0.3s ease",
                                 "& .MuiOutlinedInput-notchedOutline": {
                                   border: "none"
+                                },
+                                "&:hover": {
+                                  transform: "scale(1.02)",
+                                  boxShadow: "0 2px 8px rgba(0,0,0,0.1)"
                                 }
                               }}>
                               <MenuItem value="COLLECTED">Collected</MenuItem>
@@ -1651,18 +2062,18 @@ const PaymentsPage = () => {
                       <Grid item xs={6} sm={4} md={2.5}>
                         {paymentType === "farmer" ? (
                           <Box sx={{ 
-                            background: "linear-gradient(135deg, #667eea15 0%, #764ba215 100%)",
+                            background: "linear-gradient(135deg, #0f766e12 0%, #14b8a612 100%)",
                             padding: "10px",
-                            borderRadius: "8px",
-                            border: "2px solid #667eea30"
+                            borderRadius: "10px",
+                            border: "2px solid rgba(15, 118, 110, 0.2)"
                           }}>
-                            <Typography variant="caption" color="textSecondary" sx={{ mb: 0.5, display: "block", fontWeight: 600, fontSize: "10px" }}>
+                            <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: "block", fontWeight: 600, fontSize: "10px" }}>
                               FARMER DETAILS
                             </Typography>
-                            <Typography variant="body2" fontWeight="bold" color="#667eea" sx={{ mb: 0.5 }}>
+                            <Typography variant="body2" fontWeight="bold" color="#0f766e" sx={{ mb: 0.5 }}>
                               {payment.farmer?.name || "N/A"}
                             </Typography>
-                            <Typography variant="caption" color="textSecondary" sx={{ fontSize: "10px", display: "block" }}>
+                            <Typography variant="caption" color="text.secondary" sx={{ fontSize: "10px", display: "block" }}>
                               {payment.farmer?.mobileNumber || ""}
                             </Typography>
                             {(payment.farmer?.district || payment.farmer?.taluka || payment.farmer?.village) && (
@@ -1678,24 +2089,24 @@ const PaymentsPage = () => {
                                 )}
                               </Typography>
                             )}
-                            <Typography variant="caption" color="textSecondary" sx={{ fontSize: "9px", display: "block", mt: 1, opacity: 0.7 }}>
+                            <Typography variant="caption" color="text.secondary" sx={{ fontSize: "9px", display: "block", mt: 1, opacity: 0.7 }}>
                               Order ID: #{payment.orderId}
                             </Typography>
                           </Box>
-                        ) : paymentType === "ram-agri-sales" ? (
+                        ) : (
                           <Box sx={{ 
-                            background: "linear-gradient(135deg, #667eea15 0%, #764ba215 100%)",
+                            background: "linear-gradient(135deg, #0f766e12 0%, #14b8a612 100%)",
                             padding: "10px",
-                            borderRadius: "8px",
-                            border: "2px solid #667eea30"
+                            borderRadius: "10px",
+                            border: "2px solid rgba(15, 118, 110, 0.2)"
                           }}>
-                            <Typography variant="caption" color="textSecondary" sx={{ mb: 0.5, display: "block", fontWeight: 600, fontSize: "10px" }}>
+                            <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: "block", fontWeight: 600, fontSize: "10px" }}>
                               CUSTOMER DETAILS
                             </Typography>
-                            <Typography variant="body2" fontWeight="bold" color="#667eea" sx={{ mb: 0.5 }}>
+                            <Typography variant="body2" fontWeight="bold" color="#0f766e" sx={{ mb: 0.5 }}>
                               {payment.customerName || "N/A"}
                             </Typography>
-                            <Typography variant="caption" color="textSecondary" sx={{ fontSize: "10px", display: "block" }}>
+                            <Typography variant="caption" color="text.secondary" sx={{ fontSize: "10px", display: "block" }}>
                               {payment.customerMobile || ""}
                             </Typography>
                             {(payment.customerDistrict || payment.customerTaluka || payment.customerVillage) && (
@@ -1711,43 +2122,24 @@ const PaymentsPage = () => {
                                 )}
                               </Typography>
                             )}
-                            <Typography variant="caption" color="textSecondary" sx={{ fontSize: "9px", display: "block", mt: 1, opacity: 0.7 }}>
+                            <Typography variant="caption" color="text.secondary" sx={{ fontSize: "9px", display: "block", mt: 1, opacity: 0.7 }}>
                               Order ID: #{payment.orderNumber}
                             </Typography>
                           </Box>
-                        ) : (
-                          <>
-                            <Typography variant="caption" color="textSecondary" sx={{ mb: 0.5, display: "block", fontWeight: 600, fontSize: "10px" }}>
-                              ORDER ID
-                            </Typography>
-                            <Typography variant="body1" fontWeight="bold" color="primary" sx={{ mb: 0.5 }}>
-                              #{payment.orderNumber}
-                            </Typography>
-                            <Typography variant="caption" color="textSecondary" sx={{ fontSize: "10px" }}>
-                              {payment.merchant?.name || payment.buyerName || "N/A"}
-                            </Typography>
-                            <Typography variant="caption" color="textSecondary" display="block" sx={{ fontSize: "10px" }}>
-                              {payment.merchant?.phone || ""}
-                            </Typography>
-                          </>
                         )}
                       </Grid>
 
                       {/* Product/Order Info */}
                       <Grid item xs={6} sm={3} md={2}>
-                        <Typography variant="caption" color="textSecondary" sx={{ mb: 0.5, display: "block", fontWeight: 600, fontSize: "10px" }}>
-                          {paymentType === "agri-inputs" ? "ITEMS" : paymentType === "ram-agri-sales" ? "PRODUCT" : "PLANT"}
+                        <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: "block", fontWeight: 600, fontSize: "10px" }}>
+                          {paymentType === "ram-agri-sales" ? "PRODUCT" : "PLANT"}
                         </Typography>
-                        {paymentType === "agri-inputs" ? (
-                          <Typography variant="body2" fontWeight="medium">
-                            {payment.items?.length || 0} items
-                          </Typography>
-                        ) : paymentType === "ram-agri-sales" ? (
+                        {paymentType === "ram-agri-sales" ? (
                           <>
                             <Typography variant="body2" fontWeight="medium" sx={{ fontSize: "0.85rem" }}>
                               {payment.productName || "N/A"}
                             </Typography>
-                            <Typography variant="caption" color="textSecondary" sx={{ fontSize: "10px" }}>
+                            <Typography variant="caption" color="text.secondary" sx={{ fontSize: "10px" }}>
                               {payment.quantity} {payment.unit || ""}
                             </Typography>
                           </>
@@ -1756,7 +2148,7 @@ const PaymentsPage = () => {
                             <Typography variant="body2" fontWeight="medium" sx={{ fontSize: "0.85rem" }}>
                               {payment.plantType?.name}
                             </Typography>
-                            <Typography variant="caption" color="textSecondary" sx={{ fontSize: "10px" }}>
+                            <Typography variant="caption" color="text.secondary" sx={{ fontSize: "10px" }}>
                               {payment.numberOfPlants} plants
                             </Typography>
                           </>
@@ -1765,26 +2157,10 @@ const PaymentsPage = () => {
 
                       {/* Order Status & Amounts */}
                       <Grid item xs={6} sm={3} md={2}>
-                        <Typography variant="caption" color="textSecondary" sx={{ mb: 0.5, display: "block", fontWeight: 600, fontSize: "10px" }}>
+                        <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: "block", fontWeight: 600, fontSize: "10px" }}>
                           ORDER STATUS
                         </Typography>
-                        {paymentType === "agri-inputs" ? (
-                          <>
-                            <Chip
-                              label={payment.status?.toUpperCase() || "DRAFT"}
-                              className={classes.statusChip}
-                              style={{
-                                backgroundColor: orderStatusColors.bg,
-                                color: orderStatusColors.text
-                              }}
-                              size="small"
-                              sx={{ mb: 0.5 }}
-                            />
-                            <Typography variant="caption" color="textSecondary" display="block" sx={{ fontSize: "10px" }}>
-                              Out: ₹{((payment.totalAmount || 0) - (payment.paidAmount || 0)).toLocaleString()}
-                            </Typography>
-                          </>
-                        ) : paymentType === "ram-agri-sales" ? (
+                        {paymentType === "ram-agri-sales" ? (
                           <>
                             <Chip
                               label={payment.orderStatus?.toUpperCase() || "PENDING"}
@@ -1806,6 +2182,7 @@ const PaymentsPage = () => {
                               value={payment.orderStatus || ""}
                               onChange={(e) => handleOrderStatusChange(payment, e.target.value)}
                               displayEmpty
+                              disabled={isUpdating}
                               sx={{
                                 backgroundColor: orderStatusColors.bg,
                                 color: orderStatusColors.text,
@@ -1813,8 +2190,13 @@ const PaymentsPage = () => {
                                 borderRadius: "6px",
                                 fontSize: "0.75rem",
                                 height: "32px",
+                                transition: "all 0.3s ease",
                                 "& .MuiOutlinedInput-notchedOutline": {
                                   border: "none"
+                                },
+                                "&:hover": {
+                                  transform: "scale(1.02)",
+                                  boxShadow: "0 2px 8px rgba(0,0,0,0.1)"
                                 }
                               }}>
                               <MenuItem value="COMPLETED">Completed</MenuItem>
@@ -1828,43 +2210,36 @@ const PaymentsPage = () => {
                       </Grid>
 
                       <Grid item xs={12} md={1.5}>
-                        <Typography variant="caption" color="textSecondary" sx={{ mb: 0.5, display: "block", fontWeight: 600, fontSize: "10px" }}>
+                        <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: "block", fontWeight: 600, fontSize: "10px" }}>
                           {paymentType === "farmer" ? "SALES PERSON" : "CREATED BY"}
                         </Typography>
                         <Typography variant="caption" fontWeight="medium" sx={{ fontSize: "0.8rem" }}>
-                          {paymentType === "agri-inputs" ? payment.createdBy?.name || "N/A"
-                            : paymentType === "ram-agri-sales" ? payment.createdBy?.name || "N/A"
-                            : payment.salesPerson?.name}
+                          {paymentType === "ram-agri-sales" ? payment.createdBy?.name || "N/A" : payment.salesPerson?.name}
                         </Typography>
                         {(() => {
                           const allImages = getAllImagesForPayment(payment)
                           const hasImages = allImages.length > 0
-                          
+                          const orderIdentifier = paymentType === "ram-agri-sales" ? payment.orderNumber : payment.orderId
                           return hasImages ? (
                             <Box sx={{ mt: 1 }}>
-                              <Typography variant="caption" color="textSecondary" sx={{ mb: 0.5, display: "block", fontWeight: 600, fontSize: "10px" }}>
+                              <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: "block", fontWeight: 600, fontSize: "10px" }}>
                                 IMAGES ({allImages.length})
                               </Typography>
                               <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
                                 {allImages.slice(0, 3).map((image, idx) => (
                                   <Box
                                     key={idx}
-                                    onClick={() => {
-                                      const orderIdentifier = paymentType === "agri-inputs" || paymentType === "ram-agri-sales"
-                                        ? payment.orderNumber
-                                        : payment.orderId
-                                      openImageModal(allImages, `Order #${orderIdentifier} - Images`, idx)
-                                    }}
+                                    onClick={() => openImageModal(allImages, `Order #${orderIdentifier} - Images`, idx)}
                                     sx={{
                                       width: "40px",
                                       height: "40px",
-                                      borderRadius: "4px",
+                                      borderRadius: "6px",
                                       overflow: "hidden",
                                       border: "2px solid #e2e8f0",
                                       cursor: "pointer",
                                       "&:hover": {
-                                        borderColor: "#667eea",
-                                        transform: "scale(1.1)",
+                                        borderColor: "#0f766e",
+                                        transform: "scale(1.05)",
                                         zIndex: 1
                                       },
                                       transition: "all 0.2s ease"
@@ -1873,43 +2248,34 @@ const PaymentsPage = () => {
                                     <img
                                       src={image.url}
                                       alt={`Preview ${idx + 1}`}
-                                      style={{
-                                        width: "100%",
-                                        height: "100%",
-                                        objectFit: "cover"
-                                      }}
+                                      style={{ width: "100%", height: "100%", objectFit: "cover" }}
                                       onError={(e) => {
-                                        e.target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHZpZXdCb3g9IjAgMCA0MCA0MCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjQwIiBoZWlnaHQ9IjQwIiBmaWxsPSIjRjVGNUY1Ii8+CjxwYXRoIGQ9Ik0yMCAxMEwyNSAxNUgyMFYyMEgxNVYxNUgxMEwyMCAxMFoiIGZpbGw9IiNDQ0NDQ0Mi8+Cjwvc3ZnPg=='
+                                        e.target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHZpZXdCb3g9IjAgMCA0MCA0MCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjQwIiBoZWlnaHQ9IjQwIiBmaWxsPSIjRjVGNUY1Ii8+CjxwYXRoIGQ9Ik0yMCAxMEwyNSAxNUgyMFYyMEgxNVYxNUgxMEwyMCAxMFoiIGZpbGw9IiNDQ0NDQ0MiLz4KPC9zdmc+'
                                       }}
                                     />
                                   </Box>
                                 ))}
                                 {allImages.length > 3 && (
                                   <Box
-                                    onClick={() => {
-                                      const orderIdentifier = paymentType === "agri-inputs" || paymentType === "ram-agri-sales"
-                                        ? payment.orderNumber
-                                        : payment.orderId
-                                      openImageModal(allImages, `Order #${orderIdentifier} - Images`, 3)
-                                    }}
+                                    onClick={() => openImageModal(allImages, `Order #${orderIdentifier} - Images`, 3)}
                                     sx={{
                                       width: "40px",
                                       height: "40px",
-                                      borderRadius: "4px",
+                                      borderRadius: "6px",
                                       border: "2px dashed #cbd5e1",
                                       display: "flex",
                                       alignItems: "center",
                                       justifyContent: "center",
                                       cursor: "pointer",
-                                      backgroundColor: "#f8f9fa",
+                                      backgroundColor: "#f8fafc",
                                       "&:hover": {
-                                        borderColor: "#667eea",
-                                        backgroundColor: "#e0f2fe"
+                                        borderColor: "#0f766e",
+                                        backgroundColor: "#f0fdfa"
                                       },
                                       transition: "all 0.2s ease"
                                     }}
                                   >
-                                    <Typography variant="caption" fontWeight="bold" color="textSecondary">
+                                    <Typography variant="caption" fontWeight="bold" color="text.secondary">
                                       +{allImages.length - 3}
                                     </Typography>
                                   </Box>
@@ -1918,39 +2284,58 @@ const PaymentsPage = () => {
                             </Box>
                           ) : null
                         })()}
+                        {paymentType === "ram-agri-sales" && (
+                          <Button
+                            size="small"
+                            startIcon={<ReceiptIcon sx={{ fontSize: 16 }} />}
+                            onClick={() => fetchCustomerLedger(payment.customerMobile, payment.customerName, payment.customerMobile)}
+                            className={classes.ledgerButton}
+                            sx={{ mt: 1.5, width: "100%", justifyContent: "flex-start" }}
+                          >
+                            See Ledger
+                          </Button>
+                        )}
                       </Grid>
                     </Grid>
                   </CardContent>
                 </Card>
+                </Collapse>
               </Grid>
             )
           })
         )}
-        </Grid>
+          </Grid>
+        </Fade>
         
         {/* Pagination */}
         {payments.length > 0 && totalPages > 1 && (
-          <Box sx={{ display: "flex", justifyContent: "center", alignItems: "center", mt: 3, mb: 2 }}>
-            <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-              <Typography variant="body2" color="textSecondary">
-                Showing {((page - 1) * rowsPerPage) + 1} - {Math.min(page * rowsPerPage, totalCount)} of {totalCount}
-              </Typography>
-              <Pagination
-                count={totalPages}
-                page={page}
-                onChange={(event, value) => setPage(value)}
-                color="primary"
-                size="small"
-                showFirstButton
-                showLastButton
-                sx={{
-                  "& .MuiPaginationItem-root": {
-                    fontSize: "0.875rem"
-                  }
-                }}
-              />
+          <Fade in timeout={400}>
+            <Box sx={{ display: "flex", justifyContent: "center", alignItems: "center", mt: 3, mb: 2 }}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+                <Typography variant="body2" color="textSecondary">
+                  Showing {((page - 1) * rowsPerPage) + 1} - {Math.min(page * rowsPerPage, totalCount)} of {totalCount}
+                </Typography>
+                <Pagination
+                  count={totalPages}
+                  page={page}
+                  onChange={(event, value) => setPage(value)}
+                  color="primary"
+                  size="small"
+                  showFirstButton
+                  showLastButton
+                  sx={{
+                    "& .MuiPaginationItem-root": {
+                      fontSize: "0.875rem",
+                      transition: "all 0.2s ease",
+                      "&:hover": {
+                        transform: "scale(1.1)"
+                      }
+                    }
+                  }}
+                />
+              </Box>
             </Box>
-          </Box>
+          </Fade>
         )}
         </>
       )}
@@ -1958,14 +2343,47 @@ const PaymentsPage = () => {
       {/* Confirmation Dialog */}
       <Dialog
         open={confirmDialog.open}
-        onClose={() => setConfirmDialog((d) => ({ ...d, open: false }))}>
-        <DialogTitle>{confirmDialog.title}</DialogTitle>
+        onClose={() => setConfirmDialog((d) => ({ ...d, open: false }))}
+        TransitionComponent={Zoom}
+        TransitionProps={{ timeout: 200 }}
+        PaperProps={{
+          sx: {
+            borderRadius: "16px",
+            boxShadow: "0 24px 48px rgba(0,0,0,0.15)"
+          }
+        }}>
+        <DialogTitle sx={{ pb: 1.5, fontWeight: 600 }}>
+          {confirmDialog.title}
+        </DialogTitle>
         <DialogContent>
-          <Typography>{confirmDialog.description}</Typography>
+          <Typography variant="body1" color="text.secondary">
+            {confirmDialog.description}
+          </Typography>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setConfirmDialog((d) => ({ ...d, open: false }))}>Cancel</Button>
-          <Button onClick={confirmDialog.onConfirm} variant="contained" color="primary">
+        <DialogActions sx={{ px: 3, pb: 2.5, gap: 1 }}>
+          <Button 
+            onClick={() => setConfirmDialog((d) => ({ ...d, open: false }))}
+            variant="outlined"
+            sx={{
+              borderRadius: "8px",
+              textTransform: "none",
+              fontWeight: 600
+            }}>
+            Cancel
+          </Button>
+          <Button 
+            onClick={confirmDialog.onConfirm} 
+            variant="contained" 
+            color="primary"
+            sx={{
+              borderRadius: "8px",
+              textTransform: "none",
+              fontWeight: 600,
+              boxShadow: "0 4px 12px rgba(15, 118, 110, 0.3)",
+              "&:hover": {
+                boxShadow: "0 6px 16px rgba(15, 118, 110, 0.4)"
+              }
+            }}>
             Confirm
           </Button>
         </DialogActions>
@@ -2045,6 +2463,320 @@ const PaymentsPage = () => {
           </div>
         </Fade>
       </Modal>
+
+      {/* Activity Log Modal - Non-destructive (no outside click close) */}
+      <Dialog
+        open={showActivityModal}
+        onClose={() => {}} // Prevent closing by clicking outside
+        maxWidth="lg"
+        fullWidth
+        PaperProps={{ 
+          sx: { 
+            borderRadius: "16px",
+            maxHeight: "90vh"
+          } 
+        }}
+        TransitionComponent={Zoom}
+        TransitionProps={{ timeout: 300 }}
+        disableEscapeKeyDown={false} // Allow ESC key to close
+      >
+        <DialogTitle sx={{ 
+          borderBottom: 1, 
+          borderColor: "divider", 
+          py: 2, 
+          display: "flex", 
+          alignItems: "center", 
+          justifyContent: "space-between",
+          background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+          color: "white"
+        }}>
+          <Box display="flex" alignItems="center" gap={1.5}>
+            <HistoryIcon />
+            <Box>
+              <Typography variant="h6" fontWeight="bold">
+                Payment Activity Log
+              </Typography>
+              <Typography variant="caption" sx={{ opacity: 0.9 }}>
+                All payment-related activities
+              </Typography>
+            </Box>
+          </Box>
+          <IconButton
+            onClick={() => setShowActivityModal(false)}
+            size="small"
+            sx={{ 
+              color: "white",
+              "&:hover": { 
+                backgroundColor: "rgba(255,255,255,0.2)" 
+              } 
+            }}
+          >
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ p: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+          {loadingActivities ? (
+            <Box sx={{ display: "flex", justifyContent: "center", alignItems: "center", minHeight: 400, py: 4 }}>
+              <CircularProgress size={48} sx={{ color: "primary.main" }} />
+            </Box>
+          ) : (
+            <Box sx={{ overflow: "auto", flex: 1, p: 3 }}>
+              {allActivities.length === 0 ? (
+                <Box sx={{ py: 8, textAlign: "center" }}>
+                  <HistoryIcon sx={{ fontSize: 64, color: "text.secondary", opacity: 0.3, mb: 2 }} />
+                  <Typography variant="h6" color="text.secondary" gutterBottom>
+                    No activities found
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Activities will appear here when you make changes to payments
+                  </Typography>
+                </Box>
+              ) : (
+                <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                  {allActivities.map((activity, index) => {
+                    const getActivityIcon = () => {
+                      if (activity.action === "PAYMENT_STATUS_CHANGED") {
+                        if (activity.newStatus === "COLLECTED") return <CheckCircleIcon sx={{ color: "#2e7d32" }} />
+                        if (activity.newStatus === "REJECTED") return <CancelIcon sx={{ color: "#d32f2f" }} />
+                        return <PendingIcon sx={{ color: "#f57c00" }} />
+                      }
+                      return <HistoryIcon />
+                    }
+
+                    const getActivityColor = () => {
+                      if (activity.action === "PAYMENT_STATUS_CHANGED") {
+                        if (activity.newStatus === "COLLECTED") return { bg: "#e8f5e8", border: "#2e7d32" }
+                        if (activity.newStatus === "REJECTED") return { bg: "#ffebee", border: "#d32f2f" }
+                        return { bg: "#fff3e0", border: "#f57c00" }
+                      }
+                      return { bg: "#f5f5f5", border: "#757575" }
+                    }
+
+                    const colors = getActivityColor()
+
+                    return (
+                      <Card
+                        key={index}
+                        sx={{
+                          borderLeft: `4px solid ${colors.border}`,
+                          backgroundColor: colors.bg,
+                          transition: "all 0.2s ease",
+                          "&:hover": {
+                            transform: "translateX(4px)",
+                            boxShadow: "0 4px 12px rgba(0,0,0,0.1)"
+                          }
+                        }}
+                      >
+                        <CardContent sx={{ p: 2 }}>
+                          <Box display="flex" gap={2} alignItems="flex-start">
+                            <Box sx={{ mt: 0.5 }}>
+                              {getActivityIcon()}
+                            </Box>
+                            <Box flex={1}>
+                              <Typography variant="body1" fontWeight={600} gutterBottom>
+                                {activity.description || activity.action}
+                              </Typography>
+                              <Box display="flex" flexWrap="wrap" gap={2} mt={1}>
+                                {activity.orderNumber && (
+                                  <Chip
+                                    label={`Order: ${activity.orderNumber}`}
+                                    size="small"
+                                    sx={{ fontSize: "0.7rem" }}
+                                  />
+                                )}
+                                {activity.customerName && (
+                                  <Chip
+                                    label={activity.customerName}
+                                    size="small"
+                                    sx={{ fontSize: "0.7rem" }}
+                                  />
+                                )}
+                                {activity.amount > 0 && (
+                                  <Chip
+                                    label={formatCurrency(activity.amount)}
+                                    size="small"
+                                    color="primary"
+                                    sx={{ fontSize: "0.7rem", fontWeight: 600 }}
+                                  />
+                                )}
+                              </Box>
+                              <Box display="flex" justifyContent="space-between" alignItems="center" mt={1}>
+                                <Typography variant="caption" color="text.secondary">
+                                  {moment(activity.timestamp || activity.createdAt).format("DD MMM YYYY, hh:mm A")}
+                                </Typography>
+                                {activity.performedBy?.name && (
+                                  <Chip
+                                    label={`By: ${activity.performedBy.name}`}
+                                    size="small"
+                                    sx={{ fontSize: "0.65rem", height: "20px" }}
+                                  />
+                                )}
+                              </Box>
+                            </Box>
+                          </Box>
+                        </CardContent>
+                      </Card>
+                    )
+                  })}
+                </Box>
+              )}
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, py: 2, borderTop: 1, borderColor: "divider" }}>
+          <Button
+            onClick={() => setShowActivityModal(false)}
+            variant="outlined"
+            sx={{ borderRadius: "8px", textTransform: "none", fontWeight: 600 }}
+          >
+            Close
+          </Button>
+          <Button
+            onClick={() => {
+              fetchAllActivities()
+              fetchTodaysActivities()
+            }}
+            variant="contained"
+            sx={{ 
+              borderRadius: "8px", 
+              textTransform: "none", 
+              fontWeight: 600,
+              background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)"
+            }}
+          >
+            Refresh
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Customer Ledger Modal (Agri Input) */}
+      <Dialog
+        open={showCustomerLedger}
+        onClose={() => {
+          setShowCustomerLedger(false)
+          setCustomerLedgerData(null)
+          setShowCustomerLedgerSummaryDetails(false)
+        }}
+        maxWidth="md"
+        fullWidth
+        className={classes.ledgerModal}
+        PaperProps={{ sx: { borderRadius: 3 } }}
+      >
+        <DialogTitle sx={{ borderBottom: 1, borderColor: "divider", py: 2, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 1 }}>
+          <Box>
+            <Typography variant="h6" fontWeight="bold" color="text.primary">
+              Customer Ledger
+            </Typography>
+            {customerLedgerData?.customer && (
+              <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 1, mt: 0.5 }}>
+                <Typography variant="body2" color="text.secondary">
+                  {customerLedgerData.customer.name} ({customerLedgerData.customer.mobile})
+                </Typography>
+                <Chip
+                  size="small"
+                  label={`Outstanding ${formatCurrency(customerLedgerData.summary?.outstanding || 0)}`}
+                  sx={{
+                    backgroundColor: "rgba(249, 115, 22, 0.12)",
+                    color: "#c2410c",
+                    fontWeight: 600
+                  }}
+                  onClick={() => setShowCustomerLedgerSummaryDetails((p) => !p)}
+                />
+              </Box>
+            )}
+          </Box>
+          <IconButton
+            onClick={() => {
+              setShowCustomerLedger(false)
+              setCustomerLedgerData(null)
+              setShowCustomerLedgerSummaryDetails(false)
+            }}
+            size="small"
+            sx={{ "&:hover": { backgroundColor: "action.hover" } }}
+          >
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ p: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+          {loadingLedger ? (
+            <Box sx={{ display: "flex", justifyContent: "center", alignItems: "center", minHeight: 280, py: 4 }}>
+              <CircularProgress size={48} sx={{ color: "primary.main" }} />
+            </Box>
+          ) : customerLedgerData ? (
+            <>
+              {showCustomerLedgerSummaryDetails && (
+                <Grid container spacing={2} sx={{ px: 3, pt: 2 }}>
+                  <Grid item xs={6}>
+                    <Box sx={{ p: 2, borderRadius: 2, bgcolor: "error.50", border: "1px solid", borderColor: "error.200" }}>
+                      <Typography variant="caption" color="text.secondary">Total Debit</Typography>
+                      <Typography variant="h6" fontWeight="bold" color="error.main">{formatCurrency(customerLedgerData.summary?.totalDebit || 0)}</Typography>
+                    </Box>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Box sx={{ p: 2, borderRadius: 2, bgcolor: "success.50", border: "1px solid", borderColor: "success.200" }}>
+                      <Typography variant="caption" color="text.secondary">Total Credit</Typography>
+                      <Typography variant="h6" fontWeight="bold" color="success.main">{formatCurrency(customerLedgerData.summary?.totalCredit || 0)}</Typography>
+                    </Box>
+                  </Grid>
+                </Grid>
+              )}
+              <Box sx={{ overflow: "auto", flex: 1, px: 3, pb: 3, pt: 2 }}>
+                <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1.5 }}>Ledger entries</Typography>
+                <Box sx={{ overflow: "auto", maxHeight: 420, border: 1, borderColor: "divider", borderRadius: 2 }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "14px" }}>
+                    <thead>
+                      <tr style={{ backgroundColor: "var(--mui-palette-grey-50)", borderBottom: "1px solid var(--mui-palette-divider)" }}>
+                        <th style={{ textAlign: "left", padding: "12px 16px", fontWeight: 600 }}>Date</th>
+                        <th style={{ textAlign: "left", padding: "12px 16px", fontWeight: 600 }}>Type</th>
+                        <th style={{ textAlign: "left", padding: "12px 16px", fontWeight: 600 }}>Reference</th>
+                        <th style={{ textAlign: "left", padding: "12px 16px", fontWeight: 600 }}>Description</th>
+                        <th style={{ textAlign: "right", padding: "12px 16px", fontWeight: 600 }}>Amount</th>
+                        <th style={{ textAlign: "right", padding: "12px 16px", fontWeight: 600 }}>Balance</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {((customerLedgerData?.entries || []).map((entry) => ({
+                        ...entry,
+                        _displayDate: entry?.date || entry?.details?.entryDate || entry?.createdAt || entry?.date
+                      }))).map((entry, index) => (
+                        <tr key={index} style={{ borderBottom: "1px solid var(--mui-palette-divider)" }}>
+                          <td style={{ padding: "12px 16px", color: "var(--mui-palette-text-secondary)" }}>
+                            {entry._displayDate ? new Date(entry._displayDate).toLocaleString("en-IN") : "—"}
+                          </td>
+                          <td style={{ padding: "12px 16px" }}>
+                            <Chip
+                              size="small"
+                              label={entry.type || "—"}
+                              sx={{
+                                backgroundColor: entry.type === "CREDIT" ? "success.50" : "error.50",
+                                color: entry.type === "CREDIT" ? "success.dark" : "error.dark",
+                                fontWeight: 600
+                              }}
+                            />
+                          </td>
+                          <td style={{ padding: "12px 16px", color: "var(--mui-palette-text-secondary)" }}>{entry.reference || "—"}</td>
+                          <td style={{ padding: "12px 16px" }}>{entry.description || "—"}</td>
+                          <td style={{ padding: "12px 16px", textAlign: "right", fontWeight: 500 }}>{formatCurrency(entry.amount || 0)}</td>
+                          <td style={{ padding: "12px 16px", textAlign: "right", fontWeight: 600 }}>{formatCurrency(entry.balance || 0)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {(!customerLedgerData?.entries || customerLedgerData.entries.length === 0) && (
+                    <Box sx={{ py: 6, textAlign: "center", color: "text.secondary" }}>
+                      <Typography variant="body2">No ledger entries found</Typography>
+                    </Box>
+                  )}
+                </Box>
+              </Box>
+            </>
+          ) : (
+            <Box sx={{ py: 6, textAlign: "center", color: "text.secondary" }}>
+              <Typography variant="body2">No ledger data available</Typography>
+            </Box>
+          )}
+        </DialogContent>
+      </Dialog>
     </Box>
   )
 }
