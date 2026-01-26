@@ -208,7 +208,14 @@ const PublicAddFarmer = () => {
     try {
       setSubmitting(true)
       const instance = NetworkManager(API.PUBLIC_LINKS.CREATE_LEAD)
-      await instance.request(payload)
+      const response = await instance.request(payload)
+      
+      // Check if request was successful (NetworkManager returns APIError with success: false on failure)
+      if (!response.success) {
+        // Error toast is already shown by NetworkManager, so just return
+        return
+      }
+      
       Toast.success("✅ शेतकरी नोंदणी यशस्वी झाली.")
       setSuccessInfo({
         name: form.name,

@@ -15,7 +15,8 @@ const TrayTable = () => {
   const [formData, setFormData] = useState({
     name: "",
     cavity: "",
-    numberPerCrate: ""
+    numberPerCrate: "",
+    aliases: "" // Store as comma-separated string for input
   })
   const [currentPage, setCurrentPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
@@ -67,14 +68,33 @@ const TrayTable = () => {
     setLoading(true)
     try {
       const instance = NetworkManager(editingTray ? API.TRAY.UPDATE_TRAY : API.TRAY.CREATE_TRAY)
-      const payload = editingTray ? { ...formData, id: editingTray._id } : formData
+      
+      // Convert aliases string to array (split by comma, trim, filter empty)
+      const aliasesArray = formData.aliases
+        ? formData.aliases.split(',').map(a => a.trim()).filter(a => a.length > 0)
+        : []
+      
+      const payload = editingTray 
+        ? { 
+            name: formData.name,
+            cavity: formData.cavity,
+            numberPerCrate: formData.numberPerCrate,
+            aliases: aliasesArray,
+            id: editingTray._id 
+          }
+        : { 
+            name: formData.name,
+            cavity: formData.cavity,
+            numberPerCrate: formData.numberPerCrate,
+            aliases: aliasesArray
+          }
 
       const response = await instance.request(payload)
 
       if (response.data) {
         setIsFormOpen(false)
         setEditingTray(null)
-        setFormData({ name: "", cavity: "", numberPerCrate: "" })
+        setFormData({ name: "", cavity: "", numberPerCrate: "", aliases: "" })
         setRefresh(!refresh)
       }
     } catch (error) {
@@ -139,6 +159,9 @@ const TrayTable = () => {
                 Number per Crate
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Aliases
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Status
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -152,6 +175,19 @@ const TrayTable = () => {
                 <td className="px-6 py-4 whitespace-nowrap">{tray.name}</td>
                 <td className="px-6 py-4 whitespace-nowrap">{tray.cavity}</td>
                 <td className="px-6 py-4 whitespace-nowrap">{tray.numberPerCrate}</td>
+                <td className="px-6 py-4 whitespace-nowrap">
+                  {tray.aliases && tray.aliases.length > 0 ? (
+                    <div className="flex flex-wrap gap-1">
+                      {tray.aliases.map((alias, idx) => (
+                        <span key={idx} className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">
+                          {alias}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="text-gray-400 text-sm">None</span>
+                  )}
+                </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <button
                     onClick={() => handleStatusToggle(tray._id, tray.isActive)}
@@ -168,7 +204,8 @@ const TrayTable = () => {
                       setFormData({
                         name: tray.name,
                         cavity: tray.cavity,
-                        numberPerCrate: tray.numberPerCrate
+                        numberPerCrate: tray.numberPerCrate,
+                        aliases: tray.aliases ? tray.aliases.join(', ') : ""
                       })
                       setIsFormOpen(true)
                     }}
@@ -251,7 +288,7 @@ const TrayTable = () => {
         onClose={() => {
           setIsFormOpen(false)
           setEditingTray(null)
-          setFormData({ name: "", cavity: "", numberPerCrate: "" })
+          setFormData({ name: "", cavity: "", numberPerCrate: "", aliases: "" })
         }}
         maxWidth="sm"
         fullWidth>
@@ -296,6 +333,21 @@ const TrayTable = () => {
                   className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2"
                 />
               </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  Aliases (comma-separated)
+                </label>
+                <input
+                  type="text"
+                  value={formData.aliases}
+                  onChange={(e) => setFormData({ ...formData, aliases: e.target.value })}
+                  placeholder="e.g., Elli, Ellie, 10 Cavity"
+                  className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2"
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  Alternative names that map to this tray (e.g., &ldquo;Elli&rdquo; for 10 cavity tray). Separate multiple aliases with commas.
+                </p>
+              </div>
             </div>
           </DialogContent>
           <DialogActions className="p-4 border-t">
@@ -304,7 +356,7 @@ const TrayTable = () => {
               onClick={() => {
                 setIsFormOpen(false)
                 setEditingTray(null)
-                setFormData({ name: "", cavity: "", numberPerCrate: "" })
+                setFormData({ name: "", cavity: "", numberPerCrate: "", aliases: "" })
               }}
               className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 border border-gray-300 rounded-md">
               Cancel

@@ -50,7 +50,8 @@ const EmployeeManagement = () => {
     "DEALER",
     "OFFICE_ADMIN",
     "ACCOUNTANT",
-    "DISPATCH_MANAGER"
+    "DISPATCH_MANAGER",
+    "RAM_AGRI_SALES"
   ]
 
   const getEmployees = async () => {

@@ -203,6 +203,13 @@ const InventoryDashboard = () => {
       hoverColor: 'hover:bg-orange-600',
       path: '/u/inventory/outward/new',
     },
+    {
+      title: 'Ram Agri Input Order',
+      icon: ShoppingCart,
+      color: 'bg-green-500',
+      hoverColor: 'hover:bg-green-600',
+      path: '/u/inventory/ram-agri-input-order/new',
+    },
   ];
 
   const statsCards = [
@@ -322,6 +329,30 @@ const InventoryDashboard = () => {
       path: '/u/inventory/return-requests',
       color: 'text-yellow-600',
       bgColor: 'bg-yellow-50',
+    },
+    {
+      title: 'Ram Agri Inputs Master',
+      description: 'Manage crops and varieties',
+      icon: Package,
+      path: '/u/inventory/ram-agri-inputs-master',
+      color: 'text-green-600',
+      bgColor: 'bg-green-50',
+    },
+    {
+      title: 'Ram Agri Input Order',
+      description: 'Create order for Ram Agri products',
+      icon: ShoppingCart,
+      path: '/u/inventory/ram-agri-input-order/new',
+      color: 'text-green-600',
+      bgColor: 'bg-green-50',
+    },
+    {
+      title: 'Ram Agri Sales Dashboard',
+      description: 'Ram Agri products, stock & sales insights',
+      icon: BarChart3,
+      path: '/u/inventory/ram-agri-sales-dashboard',
+      color: 'text-green-600',
+      bgColor: 'bg-green-50',
     },
   ];
 

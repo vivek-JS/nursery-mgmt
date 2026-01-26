@@ -33,14 +33,23 @@ const ProductForm = () => {
     gst: 0,
     plantId: '',
     subtypeId: '',
+    isRamAgriSales: false,
   });
 
   const [errors, setErrors] = useState({});
 
+  // Helper function to check if category requires plant/subtype
+  // Handles both 'ready plants' and 'ready_plants' formats (with space or underscore)
+  const isPlantCategory = (category) => {
+    if (!category) return false;
+    const normalized = category.toLowerCase().trim().replace(/_/g, ' '); // Replace underscores with spaces
+    return normalized === 'seeds' || normalized === 'plants' || normalized === 'ready plants';
+  };
+
   useEffect(() => {
     fetchUnits();
     fetchCategories();
-    if (formData.category === 'seeds' || formData.category === 'plants') {
+    if (isPlantCategory(formData.category)) {
       fetchPlants();
     }
     if (isEditMode) {
@@ -49,11 +58,11 @@ const ProductForm = () => {
   }, [id]);
 
   useEffect(() => {
-    // Fetch plants when category changes to "seeds" or "plants"
-    if (formData.category === 'seeds' || formData.category === 'plants') {
+    // Fetch plants when category changes to "seeds", "plants", or "ready plants"
+    if (isPlantCategory(formData.category)) {
       fetchPlants();
     } else {
-      // Clear plant and subtype when category is not "seeds" or "plants"
+      // Clear plant and subtype when category is not "seeds", "plants", or "ready plants"
       setSelectedPlant(null);
       setFormData(prev => ({ ...prev, plantId: '', subtypeId: '' }));
     }
@@ -137,10 +146,11 @@ const ProductForm = () => {
             gst: product.gst || 0,
             plantId: product.plantId?._id || product.plantId || '',
             subtypeId: product.subtypeId || '',
+            isRamAgriSales: product.isRamAgriSales || false,
           });
           
-          // If category is seeds or plants and plantId exists, set selected plant
-          if ((product.category === 'seeds' || product.category === 'plants') && product.plantId) {
+          // If category is seeds, plants, or ready plants and plantId exists, set selected plant
+          if (isPlantCategory(product.category) && product.plantId) {
             const plantId = product.plantId._id || product.plantId;
             if (plants.length > 0) {
               const plant = plants.find(p => p._id === plantId);
@@ -292,8 +302,8 @@ const ProductForm = () => {
     if (!formData.category) newErrors.category = 'Category is required';
     if (!formData.primaryUnit) newErrors.primaryUnit = 'Primary unit is required';
 
-    // Validate plant and subtype for seeds or plants category
-    if (formData.category === 'seeds' || formData.category === 'plants') {
+    // Validate plant and subtype for seeds, plants, or ready plants category
+    if (isPlantCategory(formData.category)) {
       if (!formData.plantId) newErrors.plantId = `Plant is required for ${formData.category} products`;
       if (!formData.subtypeId) newErrors.subtypeId = `Subtype is required for ${formData.category} products`;
     }
@@ -333,13 +343,13 @@ const ProductForm = () => {
         secondaryUnit: formData.secondaryUnit || null,
       };
       
-      // Include plantId and subtypeId if category is "seeds" or "plants"
+      // Include plantId and subtypeId if category is "seeds", "plants", or "ready plants"
       // Always include them (even if null) so backend can handle them properly
-      if (formData.category === 'seeds' || formData.category === 'plants') {
+      if (isPlantCategory(formData.category)) {
         payload.plantId = formData.plantId && formData.plantId.trim() !== '' ? formData.plantId : null;
         payload.subtypeId = formData.subtypeId && formData.subtypeId.trim() !== '' ? formData.subtypeId : null;
       } else {
-        // Explicitly set to null for non-seeds/plants products
+        // Explicitly set to null for non-seeds/plants/ready plants products
         payload.plantId = null;
         payload.subtypeId = null;
       }
@@ -530,8 +540,8 @@ const ProductForm = () => {
               {errors.category && <p className="text-red-500 text-xs mt-1">{errors.category}</p>}
             </div>
 
-            {/* Plant and Subtype Selection - Only for Seeds or Plants Category */}
-            {(formData.category === 'seeds' || formData.category === 'plants') && (
+            {/* Plant and Subtype Selection - Only for Seeds, Plants, or Ready Plants Category */}
+            {isPlantCategory(formData.category) && (
               <>
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
@@ -784,6 +794,24 @@ const ProductForm = () => {
                 placeholder="Optional"
               />
             </div>
+          </div>
+
+          <div className="mt-6 pt-6 border-t border-gray-200">
+            <label className="flex items-center space-x-3 cursor-pointer">
+              <input
+                type="checkbox"
+                name="isRamAgriSales"
+                checked={formData.isRamAgriSales}
+                onChange={(e) => setFormData({ ...formData, isRamAgriSales: e.target.checked })}
+                className="w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500 focus:ring-2"
+              />
+              <span className="text-sm font-semibold text-gray-700">
+                Available for Ram Agri Sales
+              </span>
+            </label>
+            <p className="text-xs text-gray-500 mt-2 ml-8">
+              Check this if the product should be available for Ram Agri Sales orders
+            </p>
           </div>
         </div>
 

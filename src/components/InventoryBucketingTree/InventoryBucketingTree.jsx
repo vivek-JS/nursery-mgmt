@@ -17,7 +17,7 @@ const InventoryBucketingTreeComponent = ({ filters = {}, onOutwardNodeClick }) =
   const svgRef = useRef(null);
   const containerRef = useRef(null);
   const [dimensions, setDimensions] = useState({ width: 1500, height: 600 });
-  const [expandedNodes, setExpandedNodes] = useState(new Set(["root"]));
+  const [expandedNodes, setExpandedNodes] = useState(new Set());
   const [searchTerm, setSearchTerm] = useState('');
   const [loadingNodes, setLoadingNodes] = useState(new Set());
   const [treeData, setTreeData] = useState(null);
@@ -196,7 +196,8 @@ const InventoryBucketingTreeComponent = ({ filters = {}, onOutwardNodeClick }) =
   const buildTree = (node, path = "", parentValue = null) => {
     if (!node) return null;
 
-    const currentPath = path ? `${path}.${node.name}` : node.name;
+    // Preserve existing path if it exists, otherwise calculate it
+    const currentPath = node.path || (path ? `${path}.${node.name}` : node.name);
     const processedNode = { ...node, path: currentPath };
 
     processedNode.percentage = parentValue && parentValue > 0 ? (node.value / parentValue) * 100 : 100;
@@ -261,7 +262,7 @@ const InventoryBucketingTreeComponent = ({ filters = {}, onOutwardNodeClick }) =
   };
 
   const collapseAll = () => {
-    setExpandedNodes(new Set(["root"]));
+    setExpandedNodes(new Set());
   };
 
   useEffect(() => {
@@ -539,8 +540,8 @@ const InventoryBucketingTreeComponent = ({ filters = {}, onOutwardNodeClick }) =
   }
 
   return (
-    <div className="w-full">
-      <div className="flex gap-2 mb-4 justify-center items-center flex-wrap">
+    <div className="w-full flex flex-col min-h-0">
+      <div className="flex gap-2 mb-4 justify-center items-center flex-wrap flex-shrink-0">
         <input
           type="text"
           placeholder="Search nodes..."
@@ -562,11 +563,11 @@ const InventoryBucketingTreeComponent = ({ filters = {}, onOutwardNodeClick }) =
         </button>
       </div>
       
-      <div ref={containerRef} className="flex justify-center w-full overflow-auto border border-gray-200 rounded-lg">
+      <div ref={containerRef} className="flex justify-center w-full border border-gray-200 rounded-lg">
         <svg ref={svgRef} className="bg-white" />
       </div>
       
-      <div className="mt-4 text-center">
+      <div className="mt-4 text-center flex-shrink-0">
         <p className="text-sm text-gray-600">
           <b>Controls:</b> Click nodes to expand/load children • Search to highlight • Data loads on demand
         </p>

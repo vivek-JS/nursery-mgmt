@@ -7,7 +7,7 @@ import DeliveryChallanPDF from "./DeliveryChallan"
 import OrderCompleteDialog from "./OrderCompleteDialog"
 import DispatchAccordion from "./DispatchAccordion"
 import { Toast } from "helpers/toasts/toastHelper"
-const DispatchList = ({ setisDispatchtab, viewMode, refresh }) => {
+const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false }) => {
   const [dispatches, setDispatches] = useState([])
   const [loading, setLoading] = useState(true)
   const [selectedDispatch, setSelectedDispatch] = useState(null)
@@ -325,15 +325,17 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh }) => {
   return (
     <>
       {viewMode === "dispatch_process" && (
-        <div className="space-y-4 p-4">
-          <div className="flex justify-between items-center mb-6">
-            <h2 className="text-2xl font-semibold text-gray-800">Dispatch List</h2>
-            <button
-              onClick={fetchDispatches}
-              className="inline-flex items-center px-4 py-2 bg-green-50 text-green-700 rounded-lg hover:bg-green-100">
-              Refresh List
-            </button>
-          </div>
+        <div className="space-y-4 p-2 sm:p-4">
+          {!hideHeader && (
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-semibold text-gray-800">Dispatch List</h2>
+              <button
+                onClick={fetchDispatches}
+                className="inline-flex items-center px-4 py-2 bg-green-50 text-green-700 rounded-lg hover:bg-green-100">
+                Refresh List
+              </button>
+            </div>
+          )}
 
           {dispatches.length === 0 ? (
             <div className="text-center py-8">

@@ -97,16 +97,23 @@ export const useLoginController = () => {
           // Show motivational quote modal first (if not seen today)
           await showMotivationalQuote()
 
-          // Navigate to dashboard if password is already set and no reset required
+          // Check if user is dispatch manager (by role or jobTitle)
+          const isDispatchManager = response.user?.role === "DISPATCH_MANAGER" || 
+                                   response.user?.jobTitle === "DISPATCH_MANAGER"
+          
+          // Determine redirect path based on user role
+          const redirectPath = isDispatchManager ? "/u/dispatch-orders" : "/u/dashboard"
+
+          // Navigate to appropriate page if password is already set and no reset required
           setTimeout(() => {
-            navigate("/u/dashboard", { replace: true })
+            navigate(redirectPath, { replace: true })
           }, 500)
 
           // Fallback: if navigation doesn't work, force a page reload
           setTimeout(() => {
             const currentPath = window.location.pathname
-            if (currentPath !== "/u/dashboard") {
-              window.location.href = "/u/dashboard"
+            if (currentPath !== redirectPath) {
+              window.location.href = redirectPath
             }
           }, 2000)
         }
@@ -119,14 +126,21 @@ export const useLoginController = () => {
   }
 
   const handlePasswordChangeSuccess = async () => {
-    // Close the modal and navigate to dashboard after successful password change
+    // Close the modal and navigate to appropriate page after successful password change
     setShowPasswordChangeModal(false)
     
     // Show motivational quote modal after password change
     await showMotivationalQuote()
     
+    // Check if user is dispatch manager (by role or jobTitle)
+    const isDispatchManager = loginResponse?.user?.role === "DISPATCH_MANAGER" || 
+                             loginResponse?.user?.jobTitle === "DISPATCH_MANAGER"
+    
+    // Determine redirect path based on user role
+    const redirectPath = isDispatchManager ? "/u/dispatch-orders" : "/u/dashboard"
+    
     setTimeout(() => {
-      navigate("/u/dashboard", { replace: true })
+      navigate(redirectPath, { replace: true })
     }, 500)
   }
 
