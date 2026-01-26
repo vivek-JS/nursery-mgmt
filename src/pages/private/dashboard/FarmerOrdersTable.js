@@ -2919,9 +2919,9 @@ const mapSlotForUi = (slotData) => {
         </div>
 
         {/* Filter Dropdowns */}
-        <div className="bg-white rounded-lg shadow-sm border p-4">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Filters</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+        <div className="bg-white rounded-lg shadow-sm border p-3">
+          <h3 className="text-sm font-semibold text-gray-900 mb-2">Filters</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-3">
             {/* Plant Filter - Hide for Agri Sales orders */}
             {!showAgriSalesOrders && (
               <>
@@ -3005,7 +3005,7 @@ const mapSlotForUi = (slotData) => {
           </div>
 
           {/* Clear Filters and Export Buttons */}
-          <div className="mt-4 flex justify-between items-center">
+          <div className="mt-3 flex justify-between items-center">
             <ExcelExport
               title="Export Orders"
               filters={{
@@ -3031,7 +3031,7 @@ const mapSlotForUi = (slotData) => {
                 setSubtypes([])
                 setSelectedDateRange([null, null])
               }}
-              className="px-4 py-2 text-sm font-medium text-gray-700 enhanced-select hover:bg-gray-50 focus:outline-none">
+              className="px-3 py-1.5 text-xs font-medium text-gray-700 enhanced-select hover:bg-gray-50 focus:outline-none">
               Clear Filters
             </button>
           </div>
