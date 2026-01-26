@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { useSelector } from "react-redux";
 import {
   Box,
   IconButton,
@@ -70,6 +71,9 @@ const AgriSalesOrderMobile = () => {
   const navigate = useNavigate();
   const isLoggedIn = useIsLoggedIn();
   const logoutModel = useLogoutModel();
+  // Get user jobTitle from Redux state
+  const userJobTitle = useSelector((state) => state?.userData?.userData?.jobTitle);
+  const isAgriInputDealer = userJobTitle === "AGRI_INPUT_DEALER";
   const [showForm, setShowForm] = useState(false);
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -94,7 +98,9 @@ const AgriSalesOrderMobile = () => {
   const [previewImage, setPreviewImage] = useState(null); // State for image preview popup
   const [ocrProcessing, setOcrProcessing] = useState({}); // State for OCR processing
   const [ocrResults, setOcrResults] = useState({}); // State for OCR results
-  const [activeTab, setActiveTab] = useState(0); // 0: Orders, 1: Assigned, 2: Dispatched, 3: Outstanding, 4: Farmer Outstanding, 5: Rankboard
+  // For AGRI_INPUT_DEALER: 0 = Assigned, 1 = Dispatched
+  // For others: 0 = Orders, 1 = Assigned, 2 = Dispatched, 3 = Outstanding, 4 = Farmer Outstanding, 5 = Rankboard
+  const [activeTab, setActiveTab] = useState(0);
   const [outstandingData, setOutstandingData] = useState(null);
   const [outstandingLoading, setOutstandingLoading] = useState(false);
   const [outstandingView, setOutstandingView] = useState("total"); // total, district, taluka, village
@@ -388,32 +394,42 @@ const AgriSalesOrderMobile = () => {
 
   useEffect(() => {
     if (isLoggedIn) {
-      if (activeTab === 0) {
-        // Only fetch all orders if not filtered from outstanding (to preserve filtered orders)
-        if (!filteredFromOutstanding) {
-          fetchOrders();
+      if (isAgriInputDealer) {
+        // For AGRI_INPUT_DEALER: tab 0 = Assigned, tab 1 = Dispatched
+        if (activeTab === 0) {
+          fetchAssignedOrders();
+        } else if (activeTab === 1) {
+          fetchDispatchedOrders();
         }
-      } else if (activeTab === 1) {
-        // Assigned Orders tab
-        fetchAssignedOrders();
-        setFilteredFromOutstanding(false);
-      } else if (activeTab === 2) {
-        // Dispatched Orders tab
-        fetchDispatchedOrders();
-        setFilteredFromOutstanding(false);
-      } else if (activeTab === 3) {
-        fetchOutstandingAnalysis();
-        setOutstandingView("total");
-        setFilteredFromOutstanding(false); // Reset when switching to outstanding tab
-      } else if (activeTab === 4) {
-        fetchFarmerOutstanding();
-        setFilteredFromOutstanding(false);
-      } else if (activeTab === 5) {
-        fetchRankboard();
-        setFilteredFromOutstanding(false);
+      } else {
+        // For other users: normal tab structure
+        if (activeTab === 0) {
+          // Only fetch all orders if not filtered from outstanding (to preserve filtered orders)
+          if (!filteredFromOutstanding) {
+            fetchOrders();
+          }
+        } else if (activeTab === 1) {
+          // Assigned Orders tab
+          fetchAssignedOrders();
+          setFilteredFromOutstanding(false);
+        } else if (activeTab === 2) {
+          // Dispatched Orders tab
+          fetchDispatchedOrders();
+          setFilteredFromOutstanding(false);
+        } else if (activeTab === 3) {
+          fetchOutstandingAnalysis();
+          setOutstandingView("total");
+          setFilteredFromOutstanding(false); // Reset when switching to outstanding tab
+        } else if (activeTab === 4) {
+          fetchFarmerOutstanding();
+          setFilteredFromOutstanding(false);
+        } else if (activeTab === 5) {
+          fetchRankboard();
+          setFilteredFromOutstanding(false);
+        }
       }
     }
-  }, [isLoggedIn, debouncedSearchTerm, selectedDateRange, activeTab]);
+  }, [isLoggedIn, debouncedSearchTerm, selectedDateRange, activeTab, isAgriInputDealer]);
 
   const rankboardEntries = [...rankboardData].sort(
     (a, b) => (b.scores?.recommendedScore || 0) - (a.scores?.recommendedScore || 0)
@@ -1011,8 +1027,10 @@ const AgriSalesOrderMobile = () => {
           paymentAdjustments: [],
         });
         fetchOrders();
-        if (activeTab === 1) {
-          fetchAssignedOrders();
+        if (isAgriInputDealer) {
+          if (activeTab === 0) fetchAssignedOrders();
+        } else {
+          if (activeTab === 1) fetchAssignedOrders();
         }
       } else {
         Toast.error("Failed to process sales return");
@@ -1053,7 +1071,11 @@ const AgriSalesOrderMobile = () => {
           returnNotes: "",
         });
         fetchOrders();
-        if (activeTab === 2) fetchDispatchedOrders();
+        if (isAgriInputDealer) {
+          if (activeTab === 1) fetchDispatchedOrders();
+        } else {
+          if (activeTab === 2) fetchDispatchedOrders();
+        }
       } else {
         Toast.error("Failed to complete orders");
       }
@@ -1874,10 +1896,20 @@ const AgriSalesOrderMobile = () => {
             onChange={(e, newValue) => {
               setActiveTab(newValue);
               // Fetch data when switching tabs
-              if (newValue === 1) {
-                fetchAssignedOrders();
-              } else if (newValue === 2) {
-                fetchDispatchedOrders();
+              if (isAgriInputDealer) {
+                // For AGRI_INPUT_DEALER: tab 0 = Assigned, tab 1 = Dispatched
+                if (newValue === 0) {
+                  fetchAssignedOrders();
+                } else if (newValue === 1) {
+                  fetchDispatchedOrders();
+                }
+              } else {
+                // For others: tab 1 = Assigned, tab 2 = Dispatched
+                if (newValue === 1) {
+                  fetchAssignedOrders();
+                } else if (newValue === 2) {
+                  fetchDispatchedOrders();
+                }
               }
             }} 
             variant="scrollable"
@@ -1893,12 +1925,22 @@ const AgriSalesOrderMobile = () => {
                 minWidth: "auto",
               },
             }}>
-            <Tab label="Orders" />
-            <Tab label={`Assigned${assignedOrders.length > 0 ? ` (${assignedOrders.length})` : ""}`} />
-            <Tab label={`Dispatched${dispatchedOrders.length > 0 ? ` (${dispatchedOrders.length})` : ""}`} />
-            <Tab label="Area" />
-            <Tab label="Farmers" />
-            <Tab label="Rankboard" />
+            {/* For AGRI_INPUT_DEALER: Only show Assigned tab */}
+            {isAgriInputDealer ? (
+              <>
+                <Tab label={`Assigned${assignedOrders.length > 0 ? ` (${assignedOrders.length})` : ""}`} />
+                <Tab label={`Dispatched${dispatchedOrders.length > 0 ? ` (${dispatchedOrders.length})` : ""}`} />
+              </>
+            ) : (
+              <>
+                <Tab label="Orders" />
+                <Tab label={`Assigned${assignedOrders.length > 0 ? ` (${assignedOrders.length})` : ""}`} />
+                <Tab label={`Dispatched${dispatchedOrders.length > 0 ? ` (${dispatchedOrders.length})` : ""}`} />
+                <Tab label="Area" />
+                <Tab label="Farmers" />
+                <Tab label="Rankboard" />
+              </>
+            )}
           </Tabs>
         </Box>
       </Box>
@@ -1911,7 +1953,456 @@ const AgriSalesOrderMobile = () => {
           px: 1.5,
           py: 1.5,
         }}>
-        {activeTab === 0 ? (
+        {/* Content based on active tab */}
+        {isAgriInputDealer ? (
+          // For AGRI_INPUT_DEALER: Only show Assigned (tab 0) and Dispatched (tab 1)
+          activeTab === 0 ? (
+            // Assigned Tab (tab 0 for AGRI_INPUT_DEALER)
+            <>
+              {assignedOrdersLoading ? (
+                <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
+                  <CircularProgress size={32} />
+                </Box>
+              ) : assignedOrders.length === 0 ? (
+                <Box sx={{ textAlign: "center", py: 4 }}>
+                  <Typography variant="body2" color="textSecondary">
+                    No assigned orders found
+                  </Typography>
+                </Box>
+              ) : (
+                <Box sx={{ display: "flex", flexDirection: "column", gap: 1, pb: 10 }}>
+                  {/* Info Banner */}
+                  <Box sx={{ p: 1.5, backgroundColor: "#e8f5e9", borderRadius: "8px", mb: 1 }}>
+                    <Typography variant="caption" sx={{ color: "#2e7d32", fontWeight: 600 }}>
+                      📋 These orders are assigned to you for dispatch. Select and dispatch when ready.
+                    </Typography>
+                  </Box>
+                  
+                  {/* Selection Mode Header for Assigned Orders */}
+                  {selectionMode && (
+                    <Box
+                      sx={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        mb: 1,
+                        p: 1,
+                        backgroundColor: "#e3f2fd",
+                        borderRadius: "8px",
+                      }}>
+                      <Typography variant="body2" fontWeight="bold" sx={{ color: "#1565c0" }}>
+                        {selectedOrdersForDispatch.length} selected for dispatch
+                      </Typography>
+                      <Box sx={{ display: "flex", gap: 1 }}>
+                        <Button 
+                          size="small" 
+                          onClick={() => setSelectedOrdersForDispatch(assignedOrders.map(o => o._id))} 
+                          sx={{ fontSize: "0.7rem", textTransform: "none" }}>
+                          Select All
+                        </Button>
+                        <Button size="small" onClick={clearAllSelections} sx={{ fontSize: "0.7rem", textTransform: "none" }}>
+                          Cancel
+                        </Button>
+                        <Button
+                          size="small"
+                          variant="contained"
+                          startIcon={<LocalShippingIcon sx={{ fontSize: "0.9rem" }} />}
+                          onClick={openDispatchModal}
+                          disabled={selectedOrdersForDispatch.length === 0}
+                          sx={{ fontSize: "0.7rem", textTransform: "none" }}>
+                          Dispatch
+                        </Button>
+                      </Box>
+                    </Box>
+                  )}
+
+                  {assignedOrders.map((order) => {
+                    const isSelected = selectedOrdersForDispatch.includes(order._id);
+                    return (
+                      <Card
+                        key={order._id}
+                        sx={{
+                          transition: "all 0.2s",
+                          backgroundColor: isSelected ? "#e3f2fd" : "white",
+                          borderRadius: "10px",
+                          boxShadow: "0 1px 4px rgba(0,0,0,0.1)",
+                          overflow: "hidden",
+                          border: isSelected ? "2px solid #1976d2" : "1px solid #e0e0e0",
+                        }}>
+                        <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
+                          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 1 }}>
+                            <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1, flex: 1 }}>
+                              {/* Selection Checkbox */}
+                              {selectionMode && (
+                                <IconButton
+                                  size="small"
+                                  onClick={() => toggleOrderSelection(order._id)}
+                                  sx={{ p: 0, mt: 0.5 }}>
+                                  {isSelected ? (
+                                    <CheckBoxIcon sx={{ color: "#1976d2", fontSize: "1.2rem" }} />
+                                  ) : (
+                                    <CheckBoxOutlineBlankIcon sx={{ color: "#9e9e9e", fontSize: "1.2rem" }} />
+                                  )}
+                                </IconButton>
+                              )}
+                              <Box>
+                                <Typography
+                                  variant="subtitle2"
+                                  fontWeight="bold"
+                                  sx={{
+                                    fontSize: "0.9rem",
+                                    mb: 0.5,
+                                    backgroundColor: "#fff3e0",
+                                    color: "#e65100",
+                                    px: 1,
+                                    py: 0.25,
+                                    borderRadius: "4px",
+                                    display: "inline-block",
+                                  }}>
+                                  {order.orderNumber}
+                                </Typography>
+                                <Typography variant="body2" fontWeight="medium" sx={{ fontSize: "0.85rem" }}>
+                                  {order.customerName}
+                                </Typography>
+                                <Typography variant="caption" color="textSecondary" sx={{ fontSize: "0.7rem" }}>
+                                  {order.customerVillage}, {order.customerTaluka}
+                                </Typography>
+                              </Box>
+                            </Box>
+                            <Box sx={{ textAlign: "right" }}>
+                              <Typography variant="body2" fontWeight="bold" sx={{ color: "#2e7d32", fontSize: "0.9rem" }}>
+                                ₹{order.totalAmount?.toLocaleString()}
+                              </Typography>
+                              <Typography variant="caption" color="textSecondary" sx={{ fontSize: "0.65rem" }}>
+                                Qty: {order.quantity}
+                              </Typography>
+                            </Box>
+                          </Box>
+
+                          {/* Product Info */}
+                          <Box sx={{ mb: 1, p: 1, backgroundColor: "#f5f5f5", borderRadius: "6px" }}>
+                            <Typography variant="caption" sx={{ fontSize: "0.7rem", color: "#666" }}>
+                              {order.productName || order.ramAgriCropName}
+                            </Typography>
+                          </Box>
+
+                          {/* Assigned Info */}
+                          <Box sx={{ mb: 1, p: 1, backgroundColor: "#e8f5e9", borderRadius: "6px" }}>
+                            <Typography variant="caption" sx={{ fontSize: "0.65rem", color: "#2e7d32" }}>
+                              Assigned by: {order.assignedBy?.name || "Admin"} • {order.assignedAt ? moment(order.assignedAt).format("DD MMM, hh:mm A") : ""}
+                            </Typography>
+                            {order.assignmentNotes && (
+                              <Typography variant="caption" sx={{ fontSize: "0.65rem", color: "#666", display: "block", mt: 0.5 }}>
+                                Note: {order.assignmentNotes}
+                              </Typography>
+                            )}
+                          </Box>
+
+                          {/* Action Buttons */}
+                          <Box sx={{ display: "flex", gap: 1, mt: 1 }}>
+                            {!selectionMode && (
+                              <Button
+                                size="small"
+                                variant="contained"
+                                startIcon={<LocalShippingIcon sx={{ fontSize: "0.9rem" }} />}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectionMode(true);
+                                  setSelectedOrdersForDispatch([order._id]);
+                                }}
+                                sx={{
+                                  flex: 1,
+                                  fontSize: "0.7rem",
+                                  textTransform: "none",
+                                  py: 0.5,
+                                  backgroundColor: "#1565c0",
+                                  "&:hover": { backgroundColor: "#0d47a1" },
+                                }}>
+                                Dispatch
+                              </Button>
+                            )}
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              startIcon={<PaymentIcon sx={{ fontSize: "0.9rem" }} />}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleOrderClick(order);
+                              }}
+                              sx={{
+                                flex: 1,
+                                fontSize: "0.7rem",
+                                textTransform: "none",
+                                py: 0.5,
+                                borderColor: "#4caf50",
+                                color: "#4caf50",
+                              }}>
+                              Payment
+                            </Button>
+                          </Box>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </Box>
+              )}
+            </>
+          ) : activeTab === 1 ? (
+            // Dispatched Tab (tab 1 for AGRI_INPUT_DEALER)
+            <>
+              {dispatchedOrdersLoading ? (
+                <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
+                  <CircularProgress size={32} />
+                </Box>
+              ) : dispatchedOrders.length === 0 ? (
+                <Box sx={{ textAlign: "center", py: 4 }}>
+                  <Typography variant="body2" color="textSecondary">
+                    No dispatched orders found
+                  </Typography>
+                </Box>
+              ) : (
+                <Box sx={{ display: "flex", flexDirection: "column", gap: 1, pb: 10 }}>
+                  {/* Info Banner + Select to Complete - Only for AGRI_INPUT_DEALER */}
+                  <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 1, mb: 1 }}>
+                    <Box sx={{ p: 1.5, backgroundColor: "#e3f2fd", borderRadius: "8px", flex: 1 }}>
+                      <Typography variant="caption" sx={{ color: "#1565c0", fontWeight: 600 }}>
+                        🚚 Orders that have been dispatched
+                      </Typography>
+                    </Box>
+                    {!completeSelectionMode && isAgriInputDealer && (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        startIcon={<CheckBoxOutlineBlankIcon />}
+                        onClick={() => {
+                          setCompleteSelectionMode(true);
+                          setSelectedOrdersForComplete([]);
+                        }}
+                        sx={{ fontSize: "0.75rem", textTransform: "none", borderColor: "#2e7d32", color: "#2e7d32" }}>
+                        Select to Complete
+                      </Button>
+                    )}
+                  </Box>
+
+                  {/* Complete action bar when selection mode - Only for AGRI_INPUT_DEALER */}
+                  {completeSelectionMode && isAgriInputDealer && (
+                    <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 1, p: 1, backgroundColor: "#e8f5e9", borderRadius: "8px", mb: 1 }}>
+                      <Typography variant="body2" fontWeight="bold" sx={{ color: "#2e7d32" }}>
+                        {selectedOrdersForComplete.length} selected to complete
+                      </Typography>
+                      <Box sx={{ display: "flex", gap: 1 }}>
+                        <Button
+                          size="small"
+                          onClick={() => {
+                            setSelectedOrdersForComplete(dispatchedOrders.map((o) => o._id));
+                            const initial = {};
+                            dispatchedOrders.forEach((o) => { initial[o._id] = 0; });
+                            setCompleteForm((f) => ({ ...f, returnQuantities: initial }));
+                          }}
+                          sx={{ fontSize: "0.7rem", textTransform: "none" }}>
+                          Select All
+                        </Button>
+                        <Button
+                          size="small"
+                          onClick={() => {
+                            setCompleteSelectionMode(false);
+                            setSelectedOrdersForComplete([]);
+                          }}
+                          sx={{ fontSize: "0.7rem", textTransform: "none" }}>
+                          Cancel
+                        </Button>
+                        <Button
+                          size="small"
+                          variant="contained"
+                          color="success"
+                          startIcon={<CheckCircleIcon sx={{ fontSize: "0.9rem" }} />}
+                          onClick={openCompleteModal}
+                          disabled={selectedOrdersForComplete.length === 0}
+                          sx={{ fontSize: "0.7rem", textTransform: "none", backgroundColor: "#2e7d32" }}>
+                          Complete
+                        </Button>
+                      </Box>
+                    </Box>
+                  )}
+
+                  {dispatchedOrders.map((order) => {
+                    const isExpanded = expandedOrderId === order._id;
+                    const hasPayments = order.payment && order.payment.length > 0;
+                    const isSelectedForComplete = selectedOrdersForComplete.includes(order._id);
+                    const canComplete = order.orderStatus === "DISPATCHED" || order.dispatchStatus === "DISPATCHED" || order.dispatchStatus === "IN_TRANSIT";
+                    const productLabel = order.ramAgriVarietyName
+                      ? `${order.ramAgriCropName || ""} – ${order.ramAgriVarietyName}`.trim()
+                      : order.ramAgriCropName || order.productName || "—";
+                    const balance = order.balanceAmount ?? (Number(order.totalAmount || 0) - Number(order.totalPaidAmount || 0));
+
+                    return (
+                      <Card
+                        key={order._id}
+                        sx={{
+                          transition: "all 0.2s",
+                          backgroundColor: isSelectedForComplete ? "#e8f5e9" : "white",
+                          borderRadius: "10px",
+                          boxShadow: "0 1px 4px rgba(0,0,0,0.1)",
+                          overflow: "hidden",
+                          border: isSelectedForComplete ? "2px solid #2e7d32" : "1px solid #e0e0e0",
+                        }}>
+                        <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
+                          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 1 }}>
+                            <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1, flex: 1 }}>
+                              {completeSelectionMode && canComplete && isAgriInputDealer && (
+                                <IconButton
+                                  size="small"
+                                  onClick={() => toggleCompleteOrderSelection(order._id)}
+                                  sx={{ p: 0, mt: 0.5 }}>
+                                  {isSelectedForComplete ? (
+                                    <CheckBoxIcon sx={{ color: "#2e7d32", fontSize: "1.2rem" }} />
+                                  ) : (
+                                    <CheckBoxOutlineBlankIcon sx={{ color: "#9e9e9e", fontSize: "1.2rem" }} />
+                                  )}
+                                </IconButton>
+                              )}
+                              <Box>
+                                <Typography
+                                  variant="subtitle2"
+                                  fontWeight="bold"
+                                  sx={{
+                                    fontSize: "0.9rem",
+                                    mb: 0.5,
+                                    backgroundColor: "#e3f2fd",
+                                    color: "#1565c0",
+                                    px: 1,
+                                    py: 0.25,
+                                    borderRadius: "4px",
+                                    display: "inline-block",
+                                  }}>
+                                  {order.orderNumber}
+                                </Typography>
+                                <Typography variant="body2" fontWeight="medium" sx={{ fontSize: "0.85rem" }}>
+                                  {order.customerName}
+                                </Typography>
+                                <Typography variant="caption" color="textSecondary" sx={{ fontSize: "0.7rem" }}>
+                                  {order.customerVillage}, {order.customerTaluka}
+                                </Typography>
+                              </Box>
+                            </Box>
+                            <Box sx={{ textAlign: "right" }}>
+                              <Typography variant="body2" fontWeight="bold" sx={{ color: "#2e7d32", fontSize: "0.9rem" }}>
+                                ₹{Number(order.totalAmount || 0).toLocaleString()}
+                              </Typography>
+                              <Typography variant="caption" color="textSecondary" sx={{ fontSize: "0.65rem" }}>
+                                Qty: {order.quantity}
+                              </Typography>
+                            </Box>
+                          </Box>
+
+                          {/* Product name */}
+                          <Box sx={{ mb: 1, p: 1, backgroundColor: "#f0fdfa", borderRadius: "6px", borderLeft: "3px solid #0f766e" }}>
+                            <Typography variant="body2" fontWeight="bold" sx={{ fontSize: "0.85rem", color: "#0f766e" }}>
+                              {productLabel}
+                            </Typography>
+                          </Box>
+
+                          {/* Quantity, Balance, District */}
+                          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, mb: 1 }}>
+                            <Chip
+                              label={`Qty: ${order.quantity}`}
+                              size="small"
+                              sx={{ fontSize: "0.7rem", height: "22px", fontWeight: 600, backgroundColor: "#e0f2fe", color: "#0369a1" }}
+                            />
+                            <Chip
+                              label={`Balance: ₹${Number(balance).toLocaleString()}`}
+                              size="small"
+                              sx={{
+                                fontSize: "0.7rem",
+                                height: "22px",
+                                fontWeight: 600,
+                                backgroundColor: balance > 0 ? "#fef3c7" : "#dcfce7",
+                                color: balance > 0 ? "#92400e" : "#166534",
+                              }}
+                            />
+                            {order.customerDistrict && (
+                              <Chip
+                                label={order.customerDistrict}
+                                size="small"
+                                sx={{ fontSize: "0.7rem", height: "22px", fontWeight: 600, backgroundColor: "#ede9fe", color: "#5b21b6" }}
+                              />
+                            )}
+                          </Box>
+
+                          {/* Dispatch Status */}
+                          {order.dispatchStatus && order.dispatchStatus !== "NOT_DISPATCHED" && (
+                            <Box sx={{ mb: 1, p: 1, backgroundColor: "#e3f2fd", borderRadius: "6px" }}>
+                              <Typography variant="caption" sx={{ fontSize: "0.7rem", color: "#1565c0", fontWeight: 600 }}>
+                                {order.dispatchMode === "COURIER" ? "📦" : "🚚"} Dispatched
+                              </Typography>
+                              {order.dispatchedAt && (
+                                <Typography variant="caption" sx={{ fontSize: "0.65rem", color: "#666", display: "block" }}>
+                                  {moment(order.dispatchedAt).format("DD MMM, hh:mm A")}
+                                </Typography>
+                              )}
+                              {order.dispatchMode === "VEHICLE" && order.vehicleNumber && (
+                                <Typography variant="caption" sx={{ fontSize: "0.65rem", color: "#666", display: "block" }}>
+                                  Vehicle: {order.vehicleNumber}
+                                </Typography>
+                              )}
+                              {order.dispatchMode === "COURIER" && order.courierName && (
+                                <Typography variant="caption" sx={{ fontSize: "0.65rem", color: "#666", display: "block" }}>
+                                  Courier: {order.courierName}
+                                </Typography>
+                              )}
+                            </Box>
+                          )}
+
+                          {/* Actions: Payment, Sales Return, Complete (Complete only for AGRI_INPUT_DEALER) */}
+                          <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+                            {hasPayments && (
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                startIcon={<PaymentIcon sx={{ fontSize: "0.9rem" }} />}
+                                onClick={() => {
+                                  setSelectedOrder(order);
+                                  setShowPaymentModal(true);
+                                }}
+                                sx={{ fontSize: "0.7rem", textTransform: "none" }}>
+                                Payment
+                              </Button>
+                            )}
+                            {(order.dispatchStatus === "DISPATCHED" || order.dispatchStatus === "IN_TRANSIT") && (
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                startIcon={<InventoryIcon sx={{ fontSize: "0.9rem" }} />}
+                                onClick={() => openSalesReturnModal(order)}
+                                sx={{ fontSize: "0.7rem", textTransform: "none", borderColor: "#7c3aed", color: "#7c3aed" }}>
+                                Sales Return
+                              </Button>
+                            )}
+                            {!completeSelectionMode && canComplete && isAgriInputDealer && (
+                              <Button
+                                size="small"
+                                variant="contained"
+                                color="success"
+                                startIcon={<CheckCircleIcon sx={{ fontSize: "0.9rem" }} />}
+                                onClick={() => {
+                                  setCompleteSelectionMode(true);
+                                  setSelectedOrdersForComplete([order._id]);
+                                  setCompleteForm((f) => ({ ...f, returnQuantities: { [order._id]: 0 } }));
+                                }}
+                                sx={{ fontSize: "0.7rem", textTransform: "none", backgroundColor: "#2e7d32" }}>
+                                Complete
+                              </Button>
+                            )}
+                          </Box>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </Box>
+              )}
+            </>
+          ) : null
+        ) : activeTab === 0 ? (
           // Orders Tab
           <>
             {/* Back Button if filtered from Outstanding */}
@@ -2671,7 +3162,7 @@ const AgriSalesOrderMobile = () => {
                       🚚 Orders that have been dispatched
                     </Typography>
                   </Box>
-                  {!completeSelectionMode && (
+                  {!completeSelectionMode && isAgriInputDealer && (
                     <Button
                       size="small"
                       variant="outlined"
@@ -2686,8 +3177,8 @@ const AgriSalesOrderMobile = () => {
                   )}
                 </Box>
 
-                {/* Complete action bar when selection mode */}
-                {completeSelectionMode && activeTab === 2 && (
+                {/* Complete action bar when selection mode - Only for AGRI_INPUT_DEALER */}
+                {completeSelectionMode && activeTab === 2 && isAgriInputDealer && (
                   <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 1, p: 1, backgroundColor: "#e8f5e9", borderRadius: "8px", mb: 1 }}>
                     <Typography variant="body2" fontWeight="bold" sx={{ color: "#2e7d32" }}>
                       {selectedOrdersForComplete.length} selected to complete
@@ -2751,7 +3242,7 @@ const AgriSalesOrderMobile = () => {
                       <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
                         <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 1 }}>
                           <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1, flex: 1 }}>
-                            {completeSelectionMode && canComplete && (
+                            {completeSelectionMode && canComplete && isAgriInputDealer && (
                               <IconButton
                                 size="small"
                                 onClick={() => toggleCompleteOrderSelection(order._id)}
@@ -2880,7 +3371,7 @@ const AgriSalesOrderMobile = () => {
                               Sales Return
                             </Button>
                           )}
-                          {!completeSelectionMode && canComplete && (
+                          {!completeSelectionMode && canComplete && isAgriInputDealer && (
                             <Button
                               size="small"
                               variant="contained"
