@@ -588,11 +588,11 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("")
   const [refresh, setRefresh] = useState(false)
   const [selectedRow, setSelectedRow] = useState(null)
-  const [showAgriSalesOrders, setShowAgriSalesOrders] = useState(true) // Ram Agri Sales only (no regular orders)
+  const [showAgriSalesOrders, setShowAgriSalesOrders] = useState(true) // Ram Agri Inputs only (no regular orders)
   const [showAddAgriSalesOrderForm, setShowAddAgriSalesOrderForm] = useState(false) // Dialog for adding Agri Sales order
   const [agriSalesPendingCount, setAgriSalesPendingCount] = useState(0) // Pending payments count for badge
   
-  // Ram Agri Sales Dispatch State
+  // Ram Agri Inputs Dispatch State
   const [selectedAgriSalesOrders, setSelectedAgriSalesOrders] = useState([]) // Selected orders for dispatch
   const [showAgriDispatchModal, setShowAgriDispatchModal] = useState(false) // Dispatch modal
   const [agriDispatchForm, setAgriDispatchForm] = useState({
@@ -609,7 +609,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   })
   const [agriDispatchLoading, setAgriDispatchLoading] = useState(false)
   const [agriVehicles, setAgriVehicles] = useState([])
-  const [ramAgriSalesUsers, setRamAgriSalesUsers] = useState([]) // Ram Agri Sales users for "Dispatched By" filter
+  const [ramAgriSalesUsers, setRamAgriSalesUsers] = useState([]) // Ram Agri Inputs users for "Dispatched By" filter
   const [selectedDispatchedBy, setSelectedDispatchedBy] = useState("") // Filter by who dispatched
   const [hidePaymentDetails, setHidePaymentDetails] = useState(false) // Toggle to hide payment details
   const [agriDispatchStatusFilter, setAgriDispatchStatusFilter] = useState("ALL") // Filter by order status: ALL, PENDING, ACCEPTED, ASSIGNED, DISPATCHED, IN_TRANSIT, COMPLETED
@@ -1367,8 +1367,8 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
     selectedPlant,
     selectedSubtype,
     showAgriSalesOrders, // Reload when switching between regular and Agri Sales orders
-    selectedDispatchedBy, // Filter by who dispatched (Ram Agri Sales)
-    agriDispatchStatusFilter // Reload when status filter tab changes (Ram Agri Sales)
+    selectedDispatchedBy, // Filter by who dispatched (Ram Agri Inputs)
+    agriDispatchStatusFilter // Reload when status filter tab changes (Ram Agri Inputs)
   ])
 
   // Function to fetch sales person data
@@ -1580,7 +1580,7 @@ const loadFilterOptions = async () => {
     }
   }
 
-  // Load Ram Agri Sales users for "Dispatched By" filter
+  // Load Ram Agri Inputs users for "Dispatched By" filter
   const loadRamAgriSalesUsers = async () => {
     try {
       const instance = NetworkManager(API.USER.GET_USERS)
@@ -1594,7 +1594,7 @@ const loadFilterOptions = async () => {
         setRamAgriSalesUsers(users)
       }
     } catch (error) {
-      console.error("Error loading Ram Agri Sales users:", error)
+      console.error("Error loading Ram Agri Inputs users:", error)
     }
   }
 
@@ -1881,7 +1881,7 @@ const loadFilterOptions = async () => {
     }
   }
 
-  // Load Ram Agri Sales users when component mounts or when showing Agri Sales orders
+  // Load Ram Agri Inputs users when component mounts or when showing Agri Sales orders
   useEffect(() => {
     if (showAgriSalesOrders) {
       loadRamAgriSalesUsers()
@@ -2256,7 +2256,7 @@ const mapSlotForUi = (slotData) => {
         if (selectedDistrict) {
           filteredOrders = filteredOrders.filter((o) => o.details.customerDistrict === selectedDistrict)
         }
-        // Filter by dispatchedBy (Ram Agri Sales user who dispatched)
+        // Filter by dispatchedBy (Ram Agri Inputs user who dispatched)
         if (selectedDispatchedBy) {
           filteredOrders = filteredOrders.filter((o) => {
             const dispatchedById = o.details.dispatchedBy?._id || o.details.dispatchedBy
@@ -2976,7 +2976,7 @@ const mapSlotForUi = (slotData) => {
         </div>
 
 
-        {/* Ram Agri Sales Action Bar */}
+        {/* Ram Agri Inputs Action Bar */}
         {showAgriSalesOrders && (
           <div className="bg-white rounded-lg shadow-sm border mb-4 overflow-hidden">
             {/* Action Bar Header */}
@@ -3193,103 +3193,124 @@ const mapSlotForUi = (slotData) => {
               🎴 Grid
             </button>
             
-            {/* Order Type: Ram Agri Sales only */}
+            {/* Order Type: Toggle between Regular Orders and Ram Agri Inputs */}
             <div className="ml-4 pl-4 border-l border-gray-300 flex items-center gap-2">
               <span className="text-sm font-medium text-gray-700">Order Type:</span>
-              <span className="px-3 py-1.5 text-xs font-medium rounded-md bg-orange-600 text-white shadow-sm flex items-center gap-1 relative">
-                📦 Ram Agri Sales
-                {agriSalesPendingCount > 0 && (
+              <button
+                onClick={() => setShowAgriSalesOrders(false)}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors flex items-center gap-1 ${
+                  !showAgriSalesOrders
+                    ? "bg-brand-600 text-white shadow-sm"
+                    : "bg-white text-gray-600 hover:bg-gray-100 border border-gray-300"
+                }`}>
+                📋 Regular Orders
+              </button>
+              <button
+                onClick={() => setShowAgriSalesOrders(true)}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors flex items-center gap-1 relative ${
+                  showAgriSalesOrders
+                    ? "bg-orange-600 text-white shadow-sm"
+                    : "bg-white text-gray-600 hover:bg-gray-100 border border-gray-300"
+                }`}>
+                📦 Ram Agri Inputs
+                {showAgriSalesOrders && agriSalesPendingCount > 0 && (
                   <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center border-2 border-white">
                     {agriSalesPendingCount > 99 ? "99+" : agriSalesPendingCount}
                   </span>
                 )}
-              </span>
-              <button
-                onClick={() => setShowAddAgriSalesOrderForm(true)}
-                className="px-3 py-1.5 text-xs font-medium rounded-md bg-green-600 text-white shadow-sm hover:bg-green-700 transition-colors flex items-center gap-1">
-                <span>+</span> Add Order
               </button>
-              <div className="ml-2 flex items-center gap-1">
-                <input
-                  type="checkbox"
-                  id="hidePayment"
-                  checked={hidePaymentDetails}
-                  onChange={(e) => setHidePaymentDetails(e.target.checked)}
-                  className="w-3 h-3 text-brand-600 rounded border-gray-300"
-                />
-                <label htmlFor="hidePayment" className="text-xs text-gray-600 cursor-pointer">
-                  Hide Payment
-                </label>
-              </div>
+              {showAgriSalesOrders && (
+                <>
+                  <button
+                    onClick={() => setShowAddAgriSalesOrderForm(true)}
+                    className="px-3 py-1.5 text-xs font-medium rounded-md bg-green-600 text-white shadow-sm hover:bg-green-700 transition-colors flex items-center gap-1">
+                    <span>+</span> Add Order
+                  </button>
+                  <div className="ml-2 flex items-center gap-1">
+                    <input
+                      type="checkbox"
+                      id="hidePayment"
+                      checked={hidePaymentDetails}
+                      onChange={(e) => setHidePaymentDetails(e.target.checked)}
+                      className="w-3 h-3 text-brand-600 rounded border-gray-300"
+                    />
+                    <label htmlFor="hidePayment" className="text-xs text-gray-600 cursor-pointer">
+                      Hide Payment
+                    </label>
+                  </div>
+                </>
+              )}
             </div>
 
-            {/* Status filter (Ram Agri Sales) */}
-            <div className="ml-4 pl-4 border-l border-gray-300 flex items-center gap-1 flex-wrap">
-              <span className="text-sm font-medium text-gray-700 mr-1">Status:</span>
-              <button
-                onClick={() => setAgriDispatchStatusFilter("ALL")}
-                className={`px-2 py-1 text-xs font-medium rounded-full transition-all whitespace-nowrap ${
-                  agriDispatchStatusFilter === "ALL"
-                    ? "bg-gray-800 text-white shadow-sm"
-                    : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                }`}>
-                All ({orders.length})
-              </button>
-              <button
-                onClick={() => setAgriDispatchStatusFilter("PENDING")}
-                className={`px-2 py-1 text-xs font-medium rounded-full transition-all whitespace-nowrap ${
-                  agriDispatchStatusFilter === "PENDING"
-                    ? "bg-yellow-600 text-white shadow-sm"
-                    : "bg-yellow-50 text-yellow-700 hover:bg-yellow-100"
-                }`}>
-                ⏳ Pending ({orders.filter(o => o.orderStatus === "PENDING").length})
-              </button>
-              <button
-                onClick={() => setAgriDispatchStatusFilter("ACCEPTED")}
-                className={`px-2 py-1 text-xs font-medium rounded-full transition-all whitespace-nowrap ${
-                  agriDispatchStatusFilter === "ACCEPTED"
-                    ? "bg-gray-600 text-white shadow-sm"
-                    : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                }`}>
-                ✓ Accepted ({orders.filter(o => o.orderStatus === "ACCEPTED").length})
-              </button>
-              <button
-                onClick={() => setAgriDispatchStatusFilter("ASSIGNED")}
-                className={`px-2 py-1 text-xs font-medium rounded-full transition-all whitespace-nowrap ${
-                  agriDispatchStatusFilter === "ASSIGNED"
-                    ? "bg-purple-600 text-white shadow-sm"
-                    : "bg-purple-50 text-purple-600 hover:bg-purple-100"
-                }`}>
-                👤 Assigned ({orders.filter(o => o.orderStatus === "ASSIGNED").length})
-              </button>
-              <button
-                onClick={() => setAgriDispatchStatusFilter("DISPATCHED")}
-                className={`px-2 py-1 text-xs font-medium rounded-full transition-all whitespace-nowrap ${
-                  agriDispatchStatusFilter === "DISPATCHED"
-                    ? "bg-brand-600 text-white shadow-sm"
-                    : "bg-brand-50 text-brand-600 hover:bg-brand-100"
-                }`}>
-                🚚 Dispatched ({orders.filter(o => o.orderStatus === "DISPATCHED" || o.details?.dispatchStatus === "DISPATCHED").length})
-              </button>
-              <button
-                onClick={() => setAgriDispatchStatusFilter("IN_TRANSIT")}
-                className={`px-2 py-1 text-xs font-medium rounded-full transition-all whitespace-nowrap ${
-                  agriDispatchStatusFilter === "IN_TRANSIT"
-                    ? "bg-orange-600 text-white shadow-sm"
-                    : "bg-orange-50 text-orange-600 hover:bg-orange-100"
-                }`}>
-                🛣️ In Transit ({orders.filter(o => o.details?.dispatchStatus === "IN_TRANSIT").length})
-              </button>
-              <button
-                onClick={() => setAgriDispatchStatusFilter("COMPLETED")}
-                className={`px-2 py-1 text-xs font-medium rounded-full transition-all whitespace-nowrap ${
-                  agriDispatchStatusFilter === "COMPLETED"
-                    ? "bg-green-600 text-white shadow-sm"
-                    : "bg-green-50 text-green-600 hover:bg-green-100"
-                }`}>
-                ✅ Completed ({orders.filter(o => o.orderStatus === "COMPLETED" || o.details?.dispatchStatus === "DELIVERED").length})
-              </button>
-            </div>
+            {/* Status filter (Ram Agri Inputs) */}
+            {showAgriSalesOrders && (
+              <div className="ml-4 pl-4 border-l border-gray-300 flex items-center gap-1 flex-wrap">
+                <span className="text-sm font-medium text-gray-700 mr-1">Status:</span>
+                <button
+                  onClick={() => setAgriDispatchStatusFilter("ALL")}
+                  className={`px-2 py-1 text-xs font-medium rounded-full transition-all whitespace-nowrap ${
+                    agriDispatchStatusFilter === "ALL"
+                      ? "bg-gray-800 text-white shadow-sm"
+                      : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                  }`}>
+                  All ({orders.length})
+                </button>
+                <button
+                  onClick={() => setAgriDispatchStatusFilter("PENDING")}
+                  className={`px-2 py-1 text-xs font-medium rounded-full transition-all whitespace-nowrap ${
+                    agriDispatchStatusFilter === "PENDING"
+                      ? "bg-yellow-600 text-white shadow-sm"
+                      : "bg-yellow-50 text-yellow-700 hover:bg-yellow-100"
+                  }`}>
+                  ⏳ Pending ({orders.filter(o => o.orderStatus === "PENDING").length})
+                </button>
+                <button
+                  onClick={() => setAgriDispatchStatusFilter("ACCEPTED")}
+                  className={`px-2 py-1 text-xs font-medium rounded-full transition-all whitespace-nowrap ${
+                    agriDispatchStatusFilter === "ACCEPTED"
+                      ? "bg-gray-600 text-white shadow-sm"
+                      : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                  }`}>
+                  ✓ Accepted ({orders.filter(o => o.orderStatus === "ACCEPTED").length})
+                </button>
+                <button
+                  onClick={() => setAgriDispatchStatusFilter("ASSIGNED")}
+                  className={`px-2 py-1 text-xs font-medium rounded-full transition-all whitespace-nowrap ${
+                    agriDispatchStatusFilter === "ASSIGNED"
+                      ? "bg-purple-600 text-white shadow-sm"
+                      : "bg-purple-50 text-purple-600 hover:bg-purple-100"
+                  }`}>
+                  👤 Assigned ({orders.filter(o => o.orderStatus === "ASSIGNED").length})
+                </button>
+                <button
+                  onClick={() => setAgriDispatchStatusFilter("DISPATCHED")}
+                  className={`px-2 py-1 text-xs font-medium rounded-full transition-all whitespace-nowrap ${
+                    agriDispatchStatusFilter === "DISPATCHED"
+                      ? "bg-brand-600 text-white shadow-sm"
+                      : "bg-brand-50 text-brand-600 hover:bg-brand-100"
+                  }`}>
+                  🚚 Dispatched ({orders.filter(o => o.orderStatus === "DISPATCHED" || o.details?.dispatchStatus === "DISPATCHED").length})
+                </button>
+                <button
+                  onClick={() => setAgriDispatchStatusFilter("IN_TRANSIT")}
+                  className={`px-2 py-1 text-xs font-medium rounded-full transition-all whitespace-nowrap ${
+                    agriDispatchStatusFilter === "IN_TRANSIT"
+                      ? "bg-orange-600 text-white shadow-sm"
+                      : "bg-orange-50 text-orange-600 hover:bg-orange-100"
+                  }`}>
+                  🛣️ In Transit ({orders.filter(o => o.details?.dispatchStatus === "IN_TRANSIT").length})
+                </button>
+                <button
+                  onClick={() => setAgriDispatchStatusFilter("COMPLETED")}
+                  className={`px-2 py-1 text-xs font-medium rounded-full transition-all whitespace-nowrap ${
+                    agriDispatchStatusFilter === "COMPLETED"
+                      ? "bg-green-600 text-white shadow-sm"
+                      : "bg-green-50 text-green-600 hover:bg-green-100"
+                  }`}>
+                  ✅ Completed ({orders.filter(o => o.orderStatus === "COMPLETED" || o.details?.dispatchStatus === "DELIVERED").length})
+                </button>
+              </div>
+            )}
           </div>
           <div className="text-sm text-gray-600">
             {orders.length} {orders.length === 1 ? "order" : "orders"}
