@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { useSelector } from "react-redux";
 import {
   Box,
   IconButton,
@@ -70,6 +71,11 @@ const AgriSalesOrderMobile = () => {
   const navigate = useNavigate();
   const isLoggedIn = useIsLoggedIn();
   const logoutModel = useLogoutModel();
+  // Get user jobTitle and ID from Redux state
+  const userData = useSelector((state) => state?.userData?.userData);
+  const userJobTitle = userData?.jobTitle;
+  const userId = userData?._id || userData?.id;
+  const isAgriInputDealer = userJobTitle === "AGRI_INPUT_DEALER";
   const [showForm, setShowForm] = useState(false);
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -94,7 +100,9 @@ const AgriSalesOrderMobile = () => {
   const [previewImage, setPreviewImage] = useState(null); // State for image preview popup
   const [ocrProcessing, setOcrProcessing] = useState({}); // State for OCR processing
   const [ocrResults, setOcrResults] = useState({}); // State for OCR results
-  const [activeTab, setActiveTab] = useState(0); // 0: Orders, 1: Assigned, 2: Dispatched, 3: Outstanding, 4: Farmer Outstanding, 5: Rankboard
+  // For AGRI_INPUT_DEALER: 0 = Assigned, 1 = Dispatched
+  // For others: 0 = Orders, 1 = Assigned, 2 = Dispatched, 3 = Outstanding, 4 = Farmer Outstanding, 5 = Rankboard
+  const [activeTab, setActiveTab] = useState(0);
   const [outstandingData, setOutstandingData] = useState(null);
   const [outstandingLoading, setOutstandingLoading] = useState(false);
   const [outstandingView, setOutstandingView] = useState("total"); // total, district, taluka, village
@@ -103,6 +111,7 @@ const AgriSalesOrderMobile = () => {
   const [expandedFarmerId, setExpandedFarmerId] = useState(null); // For farmer outstanding accordion
   const [farmerOutstandingData, setFarmerOutstandingData] = useState([]); // Farmer-wise outstanding data
   const [showActivityLog, setShowActivityLog] = useState(false); // For activity log modal
+  const [expandedTargetId, setExpandedTargetId] = useState(null); // For target orders accordion
   // Dispatch related state
   const [showDispatchModal, setShowDispatchModal] = useState(false);
   const [selectedOrdersForDispatch, setSelectedOrdersForDispatch] = useState([]);
@@ -148,6 +157,15 @@ const AgriSalesOrderMobile = () => {
   const [salesReturnLoading, setSalesReturnLoading] = useState(false);
   const [rankboardData, setRankboardData] = useState([]);
   const [rankboardLoading, setRankboardLoading] = useState(false);
+  // Order status filter for subtabs in Orders tab: 'all', 'pending', 'accepted', 'dispatched'
+  const [orderStatusFilter, setOrderStatusFilter] = useState('all');
+  // Targets state
+  const [salesTargets, setSalesTargets] = useState([]);
+  const [targetsLoading, setTargetsLoading] = useState(false);
+  const [targetDateRange, setTargetDateRange] = useState({
+    startDate: new Date(new Date().setMonth(new Date().getMonth() - 1)).toISOString().split('T')[0],
+    endDate: new Date().toISOString().split('T')[0],
+  });
 
   useEffect(() => {
     if (isLoggedIn === false) {
@@ -386,8 +404,46 @@ const AgriSalesOrderMobile = () => {
     }
   };
 
+  // Fetch sales targets for current user
+  const fetchSalesTargets = async () => {
+    if (!isLoggedIn || !userId) return;
+
+    setTargetsLoading(true);
+    try {
+      const params = {
+        userId: userId,
+        startDate: targetDateRange.startDate,
+        endDate: targetDateRange.endDate,
+      };
+
+      const instance = NetworkManager(API.INVENTORY.GET_RAM_AGRI_SALES_TARGETS);
+      const response = await instance.request({}, params);
+
+      if (response?.data?.status === "Success") {
+        setSalesTargets(response.data.data || []);
+      } else {
+        setSalesTargets([]);
+      }
+    } catch (error) {
+      console.error("Error fetching sales targets:", error);
+      Toast.error("Failed to load targets");
+      setSalesTargets([]);
+    } finally {
+      setTargetsLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (isLoggedIn) {
+      if (isAgriInputDealer) {
+        // For AGRI_INPUT_DEALER: tab 0 = Assigned, tab 1 = Dispatched
+        if (activeTab === 0) {
+          fetchAssignedOrders();
+        } else if (activeTab === 1) {
+          fetchDispatchedOrders();
+        }
+      } else {
+        // For other users: normal tab structure
       if (activeTab === 0) {
         // Only fetch all orders if not filtered from outstanding (to preserve filtered orders)
         if (!filteredFromOutstanding) {
@@ -398,22 +454,26 @@ const AgriSalesOrderMobile = () => {
         fetchAssignedOrders();
         setFilteredFromOutstanding(false);
       } else if (activeTab === 2) {
-        // Dispatched Orders tab
-        fetchDispatchedOrders();
-        setFilteredFromOutstanding(false);
-      } else if (activeTab === 3) {
+        // Outstanding tab (was tab 3, now tab 2)
         fetchOutstandingAnalysis();
         setOutstandingView("total");
-        setFilteredFromOutstanding(false); // Reset when switching to outstanding tab
-      } else if (activeTab === 4) {
+        setFilteredFromOutstanding(false);
+      } else if (activeTab === 3) {
+        // Farmer Outstanding tab (was tab 4, now tab 3)
         fetchFarmerOutstanding();
         setFilteredFromOutstanding(false);
-      } else if (activeTab === 5) {
+      } else if (activeTab === 4) {
+        // Rankboard tab (was tab 5, now tab 4)
         fetchRankboard();
+        setFilteredFromOutstanding(false);
+      } else if (activeTab === 5) {
+        // Targets tab
+        fetchSalesTargets();
         setFilteredFromOutstanding(false);
       }
     }
-  }, [isLoggedIn, debouncedSearchTerm, selectedDateRange, activeTab]);
+    }
+  }, [isLoggedIn, debouncedSearchTerm, selectedDateRange, activeTab, isAgriInputDealer]);
 
   const rankboardEntries = [...rankboardData].sort(
     (a, b) => (b.scores?.recommendedScore || 0) - (a.scores?.recommendedScore || 0)
@@ -1011,8 +1071,10 @@ const AgriSalesOrderMobile = () => {
           paymentAdjustments: [],
         });
         fetchOrders();
-        if (activeTab === 1) {
-          fetchAssignedOrders();
+        if (isAgriInputDealer) {
+          if (activeTab === 0) fetchAssignedOrders();
+        } else {
+          if (activeTab === 1) fetchAssignedOrders();
         }
       } else {
         Toast.error("Failed to process sales return");
@@ -1053,7 +1115,9 @@ const AgriSalesOrderMobile = () => {
           returnNotes: "",
         });
         fetchOrders();
-        if (activeTab === 2) fetchDispatchedOrders();
+        if (isAgriInputDealer) {
+          if (activeTab === 1) fetchDispatchedOrders();
+        }
       } else {
         Toast.error("Failed to complete orders");
       }
@@ -1160,12 +1224,22 @@ const AgriSalesOrderMobile = () => {
               boxShadow: "0 4px 12px rgba(244, 67, 54, 0.3)",
               "&:active": { transform: "scale(0.98)" },
             }}
-            onClick={() => {
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
               if (outstandingData.byDistrict && outstandingData.byDistrict.length > 0) {
                 setOutstandingView("district");
+              } else {
+                Toast.info("No district data available");
               }
             }}>
-            <CardContent sx={{ p: 3, textAlign: "center", position: "relative" }}>
+            <CardContent 
+              sx={{ 
+                p: 3, 
+                textAlign: "center", 
+                position: "relative",
+                pointerEvents: "none", // Allow clicks to pass through to Card
+              }}>
               <Typography variant="h4" fontWeight="bold" gutterBottom>
                 ₹{total.totalOutstanding?.toLocaleString() || 0}
               </Typography>
@@ -1203,9 +1277,10 @@ const AgriSalesOrderMobile = () => {
           </Button>
           <Box
             sx={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))",
-              gap: 1.5,
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 1,
+              justifyContent: "flex-start",
             }}>
             {districts.map((district, index) => (
               <Card
@@ -1217,14 +1292,29 @@ const AgriSalesOrderMobile = () => {
                   borderRadius: "12px",
                   background: "linear-gradient(135deg, #fff 0%, #f5f5f5 100%)",
                   "&:active": { transform: "scale(0.95)", boxShadow: "0 1px 4px rgba(0,0,0,0.15)" },
+                  flex: "0 0 auto",
+                  minWidth: "120px",
+                  maxWidth: "calc(50% - 8px)",
+                  position: "relative",
+                  zIndex: 1,
                 }}
-                onClick={() => {
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
                   const talukas = (outstandingData.byTaluka || []).filter((t) => t._id?.district === district._id);
                   if (talukas.length > 0) {
                     setOutstandingView(`taluka-${district._id}`);
+                  } else {
+                    Toast.info("No talukas available for this district");
                   }
                 }}>
-                <CardContent sx={{ p: 2, textAlign: "center", "&:last-child": { pb: 2 } }}>
+                <CardContent 
+                  sx={{ 
+                    p: 2, 
+                    textAlign: "center", 
+                    "&:last-child": { pb: 2 },
+                    pointerEvents: "none", // Allow clicks to pass through to Card
+                  }}>
                   <Typography
                     variant="caption"
                     sx={{
@@ -1284,9 +1374,10 @@ const AgriSalesOrderMobile = () => {
           </Typography>
           <Box
             sx={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))",
-              gap: 1.5,
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 1,
+              justifyContent: "flex-start",
             }}>
             {talukas.map((taluka, index) => (
               <Card
@@ -1298,16 +1389,31 @@ const AgriSalesOrderMobile = () => {
                   borderRadius: "12px",
                   background: "linear-gradient(135deg, #fff 0%, #f5f5f5 100%)",
                   "&:active": { transform: "scale(0.95)", boxShadow: "0 1px 4px rgba(0,0,0,0.15)" },
+                  flex: "0 0 auto",
+                  minWidth: "120px",
+                  maxWidth: "calc(50% - 8px)",
+                  position: "relative",
+                  zIndex: 1,
                 }}
-                onClick={() => {
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
                   const villages = (outstandingData.byVillage || []).filter(
                     (v) => v._id?.district === districtId && v._id?.taluka === taluka._id?.taluka
                   );
                   if (villages.length > 0) {
                     setOutstandingView(`village-${districtId}-${taluka._id?.taluka}`);
+                  } else {
+                    Toast.info("No villages available for this taluka");
                   }
                 }}>
-                <CardContent sx={{ p: 2, textAlign: "center", "&:last-child": { pb: 2 } }}>
+                <CardContent 
+                  sx={{ 
+                    p: 2, 
+                    textAlign: "center", 
+                    "&:last-child": { pb: 2 },
+                    pointerEvents: "none", // Allow clicks to pass through to Card
+                  }}>
                   <Typography
                     variant="caption"
                     sx={{
@@ -1374,9 +1480,10 @@ const AgriSalesOrderMobile = () => {
           </Typography>
           <Box
             sx={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))",
-              gap: 1.5,
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 1,
+              justifyContent: "flex-start",
             }}>
             {villages.map((village, index) => (
               <Card
@@ -1388,8 +1495,15 @@ const AgriSalesOrderMobile = () => {
                   borderRadius: "12px",
                   background: "linear-gradient(135deg, #fff 0%, #f5f5f5 100%)",
                   "&:active": { transform: "scale(0.95)", boxShadow: "0 1px 4px rgba(0,0,0,0.15)" },
+                  flex: "0 0 auto",
+                  minWidth: "120px",
+                  maxWidth: "calc(50% - 8px)",
+                  position: "relative",
+                  zIndex: 1,
                 }}
-                onClick={async () => {
+                onClick={async (e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
                   // Fetch orders for this specific village
                   setLoading(true);
                   try {
@@ -1425,7 +1539,13 @@ const AgriSalesOrderMobile = () => {
                     setLoading(false);
                   }
                 }}>
-                <CardContent sx={{ p: 2, textAlign: "center", "&:last-child": { pb: 2 } }}>
+                <CardContent 
+                  sx={{ 
+                    p: 2, 
+                    textAlign: "center", 
+                    "&:last-child": { pb: 2 },
+                    pointerEvents: "none", // Allow clicks to pass through to Card
+                  }}>
                   <Typography
                     variant="caption"
                     sx={{
@@ -1601,13 +1721,8 @@ const AgriSalesOrderMobile = () => {
                             <Typography
                               variant="caption"
                               sx={{
-                                fontSize: "0.75rem",
-                                fontWeight: 600,
-                                color: "#1976d2",
-                                backgroundColor: "#e3f2fd",
-                                px: 1,
-                                py: 0.25,
-                                borderRadius: "4px",
+                                fontSize: "0.7rem",
+                                color: "#666",
                               }}>
                               {order.orderNumber}
                             </Typography>
@@ -1623,8 +1738,20 @@ const AgriSalesOrderMobile = () => {
                             />
                           </Box>
                           <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                            <Typography variant="caption" color="textSecondary" sx={{ fontSize: "0.7rem" }}>
-                              {order.productName} • {order.quantity} qty
+                            <Typography 
+                              variant="body2" 
+                              fontWeight="bold" 
+                              sx={{ 
+                                fontSize: "0.85rem",
+                                color: "#0f766e",
+                                backgroundColor: "#f0fdfa",
+                                px: 1.5,
+                                py: 0.5,
+                                borderRadius: "6px",
+                                fontWeight: 700,
+                                wordBreak: "break-word",
+                              }}>
+                              {order.productName || (order.ramAgriVarietyName ? `${order.ramAgriCropName || ""} – ${order.ramAgriVarietyName}`.trim() : order.ramAgriCropName) || "—"} • <strong>{order.quantity}</strong> qty
                             </Typography>
                             <Typography variant="caption" fontWeight="bold" color="error" sx={{ fontSize: "0.75rem" }}>
                               ₹{order.balanceAmount?.toLocaleString() || 0}
@@ -1750,10 +1877,10 @@ const AgriSalesOrderMobile = () => {
                 : activeTab === 1
                 ? `Assigned (${assignedOrders.length})`
                 : activeTab === 2
-                ? `Dispatched (${dispatchedOrders.length})`
-                : activeTab === 3
                 ? "Outstanding"
-                : "Farmer Outstanding"}
+                : activeTab === 3
+                ? "Farmer Outstanding"
+                : "Rankboard"}
             </Typography>
           </Box>
 
@@ -1872,12 +1999,40 @@ const AgriSalesOrderMobile = () => {
           <Tabs 
             value={activeTab} 
             onChange={(e, newValue) => {
+              e.preventDefault();
+              e.stopPropagation();
               setActiveTab(newValue);
               // Fetch data when switching tabs
-              if (newValue === 1) {
-                fetchAssignedOrders();
-              } else if (newValue === 2) {
-                fetchDispatchedOrders();
+              if (isAgriInputDealer) {
+                // For AGRI_INPUT_DEALER: tab 0 = Assigned, tab 1 = Dispatched
+                if (newValue === 0) {
+                  fetchAssignedOrders();
+                } else if (newValue === 1) {
+                  fetchDispatchedOrders();
+                }
+              } else {
+                // For others: tab 0 = Orders, tab 1 = Assigned, tab 2 = Area, tab 3 = Farmers, tab 4 = Rankboard, tab 5 = Targets
+                if (newValue === 0) {
+                  if (!filteredFromOutstanding) {
+                    fetchOrders();
+                  }
+                } else if (newValue === 1) {
+                  fetchAssignedOrders();
+                  setFilteredFromOutstanding(false);
+                } else if (newValue === 2) {
+                  fetchOutstandingAnalysis();
+                  setOutstandingView("total");
+                  setFilteredFromOutstanding(false);
+                } else if (newValue === 3) {
+                  fetchFarmerOutstanding();
+                  setFilteredFromOutstanding(false);
+                } else if (newValue === 4) {
+                  fetchRankboard();
+                  setFilteredFromOutstanding(false);
+                } else if (newValue === 5) {
+                  fetchSalesTargets();
+                  setFilteredFromOutstanding(false);
+                }
               }
             }} 
             variant="scrollable"
@@ -1893,12 +2048,22 @@ const AgriSalesOrderMobile = () => {
                 minWidth: "auto",
               },
             }}>
-            <Tab label="Orders" />
-            <Tab label={`Assigned${assignedOrders.length > 0 ? ` (${assignedOrders.length})` : ""}`} />
-            <Tab label={`Dispatched${dispatchedOrders.length > 0 ? ` (${dispatchedOrders.length})` : ""}`} />
-            <Tab label="Area" />
-            <Tab label="Farmers" />
-            <Tab label="Rankboard" />
+            {/* For AGRI_INPUT_DEALER: Only show Assigned tab */}
+            {isAgriInputDealer ? (
+              [
+                <Tab key="assigned" label={`Assigned${assignedOrders.length > 0 ? ` (${assignedOrders.length})` : ""}`} />,
+                <Tab key="dispatched" label={`Dispatched${dispatchedOrders.length > 0 ? ` (${dispatchedOrders.length})` : ""}`} />
+              ]
+            ) : (
+              [
+                <Tab key="orders" label="Orders" />,
+                <Tab key="assigned" label={`Assigned${assignedOrders.length > 0 ? ` (${assignedOrders.length})` : ""}`} />,
+                <Tab key="area" label="Area" />,
+                <Tab key="farmers" label="Farmers" />,
+                <Tab key="rankboard" label="Rankboard" />,
+                <Tab key="targets" label="Targets" />
+              ]
+            )}
           </Tabs>
         </Box>
       </Box>
@@ -1907,11 +2072,695 @@ const AgriSalesOrderMobile = () => {
       <Box
         sx={{
           flex: 1,
-          overflow: "auto",
+          overflowY: "auto",
+          overflowX: "hidden",
           px: 1.5,
           py: 1.5,
+          width: "100%",
+          maxWidth: "100%",
+          boxSizing: "border-box",
+          WebkitOverflowScrolling: "touch",
+          "&::-webkit-scrollbar": {
+            width: "6px",
+          },
+          "&::-webkit-scrollbar-thumb": {
+            backgroundColor: "#ccc",
+            borderRadius: "3px",
+          },
         }}>
-        {activeTab === 0 ? (
+        {/* Content based on active tab */}
+        {isAgriInputDealer ? (
+          // For AGRI_INPUT_DEALER: Only show Assigned (tab 0) and Dispatched (tab 1)
+          activeTab === 0 ? (
+            // Assigned Tab (tab 0 for AGRI_INPUT_DEALER)
+            <>
+              {assignedOrdersLoading ? (
+                <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
+                  <CircularProgress size={32} />
+                </Box>
+              ) : assignedOrders.length === 0 ? (
+                <Box sx={{ textAlign: "center", py: 4 }}>
+                  <Typography variant="body2" color="textSecondary">
+                    No assigned orders found
+                  </Typography>
+                </Box>
+              ) : (
+                <Box sx={{ display: "flex", flexDirection: "column", gap: 1, pb: 10 }}>
+                  {/* Info Banner */}
+                  <Box sx={{ p: 1.5, backgroundColor: "#e8f5e9", borderRadius: "8px", mb: 1 }}>
+                    <Typography variant="caption" sx={{ color: "#2e7d32", fontWeight: 600 }}>
+                      📋 These orders are assigned to you for dispatch. Select and dispatch when ready.
+                    </Typography>
+                  </Box>
+                  
+                  {/* Selection Mode Header for Assigned Orders */}
+                  {selectionMode && (
+                    <Box
+                      sx={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        mb: 1,
+                        p: 1,
+                        backgroundColor: "#e3f2fd",
+                        borderRadius: "8px",
+                      }}>
+                      <Typography variant="body2" fontWeight="bold" sx={{ color: "#1565c0" }}>
+                        {selectedOrdersForDispatch.length} selected for dispatch
+                      </Typography>
+                      <Box sx={{ display: "flex", gap: 1 }}>
+                        <Button 
+                          size="small" 
+                          onClick={() => setSelectedOrdersForDispatch(assignedOrders.map(o => o._id))} 
+                          sx={{ fontSize: "0.7rem", textTransform: "none" }}>
+                          Select All
+                        </Button>
+                        <Button size="small" onClick={clearAllSelections} sx={{ fontSize: "0.7rem", textTransform: "none" }}>
+                          Cancel
+                        </Button>
+                        <Button
+                          size="small"
+                          variant="contained"
+                          startIcon={<LocalShippingIcon sx={{ fontSize: "0.9rem" }} />}
+                          onClick={openDispatchModal}
+                          disabled={selectedOrdersForDispatch.length === 0}
+                          sx={{ fontSize: "0.7rem", textTransform: "none" }}>
+                          Dispatch
+                        </Button>
+                      </Box>
+                    </Box>
+                  )}
+
+                  {assignedOrders.map((order) => {
+                    const isSelected = selectedOrdersForDispatch.includes(order._id);
+                    const productLabel = order.productName 
+                      || (order.ramAgriVarietyName
+                        ? `${order.ramAgriCropName || ""} – ${order.ramAgriVarietyName}`.trim()
+                        : order.ramAgriCropName || "—");
+                    
+                    // Debug logging for product name
+                    console.log("🔍 Product Name Debug (Assigned):", {
+                      orderId: order._id,
+                      orderNumber: order.orderNumber,
+                      productName: order.productName,
+                      ramAgriCropName: order.ramAgriCropName,
+                      ramAgriVarietyName: order.ramAgriVarietyName,
+                      productLabel: productLabel
+                    });
+                    
+                    return (
+                      <Card
+                        key={order._id}
+                        sx={{
+                          transition: "all 0.2s",
+                          backgroundColor: isSelected ? "#e3f2fd" : "white",
+                          borderRadius: "10px",
+                          boxShadow: "0 1px 4px rgba(0,0,0,0.1)",
+                          overflow: "hidden",
+                          border: isSelected ? "2px solid #1976d2" : "1px solid #e0e0e0",
+                        }}>
+                        <CardContent sx={{ p: 1, "&:last-child": { pb: 1 } }}>
+                          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 0.75 }}>
+                            <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1, flex: 1 }}>
+                              {/* Selection Checkbox */}
+                              {selectionMode && (
+                                <IconButton
+                                  size="small"
+                                  onClick={() => toggleOrderSelection(order._id)}
+                                  sx={{ p: 0, mt: 0.5 }}>
+                                  {isSelected ? (
+                                    <CheckBoxIcon sx={{ color: "#1976d2", fontSize: "1.2rem" }} />
+                                  ) : (
+                                    <CheckBoxOutlineBlankIcon sx={{ color: "#9e9e9e", fontSize: "1.2rem" }} />
+                                  )}
+                                </IconButton>
+                              )}
+                              <Box>
+                                <Typography
+                                  variant="caption"
+                                  sx={{
+                                    fontSize: "0.7rem",
+                                    mb: 0.5,
+                                    color: "#666",
+                                  }}>
+                                  {order.orderNumber}
+                                </Typography>
+                                <Typography 
+                                  variant="body2" 
+                                  fontWeight="bold" 
+                                  sx={{ 
+                                    fontSize: "0.85rem",
+                                    mt: 0.5,
+                                    backgroundColor: "#fff3e0",
+                                    color: "#f57c00",
+                                    px: 1,
+                                    py: 0.5,
+                                    borderRadius: "6px",
+                                    display: "inline-block",
+                                    fontWeight: 700,
+                                    boxShadow: "0 2px 4px rgba(245, 124, 0, 0.2)",
+                                  }}>
+                                  {order.customerName}
+                                </Typography>
+                                <Typography variant="caption" color="textSecondary" sx={{ fontSize: "0.7rem" }}>
+                                  {order.customerVillage}, {order.customerTaluka}
+                                </Typography>
+                              </Box>
+                            </Box>
+                            <Box sx={{ textAlign: "right" }}>
+                              <Typography 
+                                variant="body2" 
+                                fontWeight="bold" 
+                                sx={{ 
+                                  color: "#2e7d32", 
+                                  fontSize: "0.9rem",
+                                  fontWeight: 700,
+                                  backgroundColor: "#e8f5e9",
+                                  px: 1,
+                                  py: 0.4,
+                                  borderRadius: "6px",
+                                  display: "inline-block",
+                                  mb: 0.5,
+                                }}>
+                                ₹{Number(order.totalAmount || 0).toLocaleString()}
+                              </Typography>
+                              <Typography 
+                                variant="caption" 
+                                sx={{ 
+                                  fontSize: "0.7rem",
+                                  fontWeight: 700,
+                                  color: "#0369a1",
+                                  backgroundColor: "#e0f2fe",
+                                  px: 1,
+                                  py: 0.4,
+                                  borderRadius: "6px",
+                                  display: "inline-block",
+                                }}>
+                                Qty: <strong>{order.quantity}</strong>
+                              </Typography>
+                            </Box>
+                          </Box>
+
+                          {/* Product name - Highlighted - Compact */}
+                          {productLabel && productLabel !== "—" ? (
+                            <Box sx={{ 
+                              mb: 0.75, 
+                              p: 1, 
+                              background: "linear-gradient(135deg, #0f766e 0%, #14b8a6 100%)",
+                              borderRadius: "6px", 
+                              borderLeft: "3px solid #065f46",
+                              boxShadow: "0 1px 4px rgba(15, 118, 110, 0.2)",
+                            }}>
+                              <Typography 
+                                variant="body2" 
+                                fontWeight="bold" 
+                                sx={{ 
+                                  fontSize: "0.85rem", 
+                                  color: "white",
+                                  fontWeight: 700,
+                                  textShadow: "0 1px 3px rgba(0,0,0,0.3)",
+                                  lineHeight: 1.4,
+                                  wordBreak: "break-word",
+                                }}>
+                                {productLabel}
+                              </Typography>
+                            </Box>
+                          ) : (
+                            <Box sx={{ 
+                              mb: 0.75, 
+                              p: 1, 
+                              backgroundColor: "#ffebee",
+                              borderRadius: "6px", 
+                              borderLeft: "3px solid #c62828",
+                            }}>
+                              <Typography 
+                                variant="body2" 
+                                sx={{ 
+                                  fontSize: "0.85rem", 
+                                  color: "#c62828",
+                                  fontWeight: 600,
+                                }}>
+                                ⚠️ Product name not available
+                                <br />
+                                <span style={{ fontSize: "0.7rem", color: "#666" }}>
+                                  Debug: productName={String(order.productName)}, 
+                                  crop={String(order.ramAgriCropName)}, 
+                                  variety={String(order.ramAgriVarietyName)}
+                                </span>
+                              </Typography>
+                            </Box>
+                          )}
+
+                          {/* Assigned Info */}
+                          <Box sx={{ mb: 1, p: 1, backgroundColor: "#e8f5e9", borderRadius: "6px" }}>
+                            <Typography variant="caption" sx={{ fontSize: "0.65rem", color: "#2e7d32" }}>
+                              Assigned by: {order.assignedBy?.name || "Admin"} • {order.assignedAt ? moment(order.assignedAt).format("DD MMM, hh:mm A") : ""}
+                            </Typography>
+                            {order.assignmentNotes && (
+                              <Typography variant="caption" sx={{ fontSize: "0.65rem", color: "#666", display: "block", mt: 0.5 }}>
+                                Note: {order.assignmentNotes}
+                              </Typography>
+                            )}
+                          </Box>
+
+                          {/* Action Buttons */}
+                          <Box sx={{ display: "flex", gap: 1, mt: 1 }}>
+                            {!selectionMode && (
+                              <Button
+                                size="small"
+                                variant="contained"
+                                startIcon={<LocalShippingIcon sx={{ fontSize: "0.9rem" }} />}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectionMode(true);
+                                  setSelectedOrdersForDispatch([order._id]);
+                                }}
+                                sx={{
+                                  flex: 1,
+                                  fontSize: "0.7rem",
+                                  textTransform: "none",
+                                  py: 0.5,
+                                  backgroundColor: "#1565c0",
+                                  "&:hover": { backgroundColor: "#0d47a1" },
+                                }}>
+                                Dispatch
+                              </Button>
+                            )}
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              startIcon={<PaymentIcon sx={{ fontSize: "0.9rem" }} />}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleOrderClick(order);
+                              }}
+                              sx={{
+                                flex: 1,
+                                fontSize: "0.7rem",
+                                textTransform: "none",
+                                py: 0.5,
+                                borderColor: "#4caf50",
+                                color: "#4caf50",
+                              }}>
+                              Payment
+                            </Button>
+                          </Box>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </Box>
+              )}
+            </>
+          ) : activeTab === 1 ? (
+            // Dispatched Tab (tab 1 for AGRI_INPUT_DEALER)
+            <>
+              {dispatchedOrdersLoading ? (
+                <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
+                  <CircularProgress size={32} />
+                </Box>
+              ) : dispatchedOrders.length === 0 ? (
+                <Box sx={{ textAlign: "center", py: 4 }}>
+                  <Typography variant="body2" color="textSecondary">
+                    No dispatched orders found
+                  </Typography>
+                </Box>
+              ) : (
+                <Box sx={{ display: "flex", flexDirection: "column", gap: 1, pb: 10 }}>
+                  {/* Info Banner + Select to Complete - Only for AGRI_INPUT_DEALER */}
+                  <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 1, mb: 1 }}>
+                    <Box sx={{ p: 1.5, backgroundColor: "#e3f2fd", borderRadius: "8px", flex: 1 }}>
+                      <Typography variant="caption" sx={{ color: "#1565c0", fontWeight: 600 }}>
+                        🚚 Orders that have been dispatched
+                      </Typography>
+                    </Box>
+                    {!completeSelectionMode && isAgriInputDealer && (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        startIcon={<CheckBoxOutlineBlankIcon />}
+                        onClick={() => {
+                          setCompleteSelectionMode(true);
+                          setSelectedOrdersForComplete([]);
+                        }}
+                        sx={{ fontSize: "0.75rem", textTransform: "none", borderColor: "#2e7d32", color: "#2e7d32" }}>
+                        Select to Complete
+                      </Button>
+                    )}
+                  </Box>
+
+                  {/* Complete action bar when selection mode - Only for AGRI_INPUT_DEALER */}
+                  {completeSelectionMode && isAgriInputDealer && (
+                    <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 1, p: 1, backgroundColor: "#e8f5e9", borderRadius: "8px", mb: 1 }}>
+                      <Typography variant="body2" fontWeight="bold" sx={{ color: "#2e7d32" }}>
+                        {selectedOrdersForComplete.length} selected to complete
+                      </Typography>
+                      <Box sx={{ display: "flex", gap: 1 }}>
+                        <Button
+                          size="small"
+                          onClick={() => {
+                            setSelectedOrdersForComplete(dispatchedOrders.map((o) => o._id));
+                            const initial = {};
+                            dispatchedOrders.forEach((o) => { initial[o._id] = 0; });
+                            setCompleteForm((f) => ({ ...f, returnQuantities: initial }));
+                          }}
+                          sx={{ fontSize: "0.7rem", textTransform: "none" }}>
+                          Select All
+                        </Button>
+                        <Button
+                          size="small"
+                          onClick={() => {
+                            setCompleteSelectionMode(false);
+                            setSelectedOrdersForComplete([]);
+                          }}
+                          sx={{ fontSize: "0.7rem", textTransform: "none" }}>
+                          Cancel
+                        </Button>
+                        <Button
+                          size="small"
+                          variant="contained"
+                          color="success"
+                          startIcon={<CheckCircleIcon sx={{ fontSize: "0.9rem" }} />}
+                          onClick={openCompleteModal}
+                          disabled={selectedOrdersForComplete.length === 0}
+                          sx={{ fontSize: "0.7rem", textTransform: "none", backgroundColor: "#2e7d32" }}>
+                          Complete
+                        </Button>
+                      </Box>
+                    </Box>
+                  )}
+
+                  {dispatchedOrders.map((order) => {
+                    const isExpanded = expandedOrderId === order._id;
+                    const hasPayments = order.payment && order.payment.length > 0;
+                    const isSelectedForComplete = selectedOrdersForComplete.includes(order._id);
+                    const canComplete = order.orderStatus === "DISPATCHED" || order.dispatchStatus === "DISPATCHED" || order.dispatchStatus === "IN_TRANSIT";
+                    const productLabel = order.productName 
+                      || (order.ramAgriVarietyName
+                        ? `${order.ramAgriCropName || ""} – ${order.ramAgriVarietyName}`.trim()
+                        : order.ramAgriCropName || "—");
+                    const balance = order.balanceAmount ?? (Number(order.totalAmount || 0) - Number(order.totalPaidAmount || 0));
+                    
+                    // Debug logging for product name
+                    console.log("🔍 Product Name Debug:", {
+                      orderId: order._id,
+                      orderNumber: order.orderNumber,
+                      productName: order.productName,
+                      ramAgriCropName: order.ramAgriCropName,
+                      ramAgriVarietyName: order.ramAgriVarietyName,
+                      productLabel: productLabel,
+                      fullOrder: order
+                    });
+
+                    return (
+                      <Card
+                        key={order._id}
+                        sx={{
+                          transition: "all 0.2s",
+                          backgroundColor: isSelectedForComplete ? "#e8f5e9" : "white",
+                          borderRadius: "10px",
+                          boxShadow: "0 1px 4px rgba(0,0,0,0.1)",
+                          overflow: "hidden",
+                          border: isSelectedForComplete ? "2px solid #2e7d32" : "1px solid #e0e0e0",
+                        }}>
+                        <CardContent sx={{ p: 1, "&:last-child": { pb: 1 } }}>
+                          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 0.75 }}>
+                            <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1, flex: 1 }}>
+                              {completeSelectionMode && canComplete && isAgriInputDealer && (
+                                <IconButton
+                                  size="small"
+                                  onClick={() => toggleCompleteOrderSelection(order._id)}
+                                  sx={{ p: 0, mt: 0.5 }}>
+                                  {isSelectedForComplete ? (
+                                    <CheckBoxIcon sx={{ color: "#2e7d32", fontSize: "1.2rem" }} />
+                                  ) : (
+                                    <CheckBoxOutlineBlankIcon sx={{ color: "#9e9e9e", fontSize: "1.2rem" }} />
+                                  )}
+                                </IconButton>
+                              )}
+                              <Box>
+                                <Typography
+                                  variant="caption"
+                                  sx={{
+                                    fontSize: "0.7rem",
+                                    mb: 0.5,
+                                    color: "#666",
+                                    display: "inline-block",
+                                  }}>
+                                  {order.orderNumber}
+                                </Typography>
+                                <Typography 
+                                  variant="body2" 
+                                  fontWeight="bold" 
+                                  sx={{ 
+                                    fontSize: "0.85rem",
+                                    mt: 0.5,
+                                    backgroundColor: "#fff3e0",
+                                    color: "#f57c00",
+                                    px: 1,
+                                    py: 0.5,
+                                    borderRadius: "6px",
+                                    display: "inline-block",
+                                    fontWeight: 700,
+                                    boxShadow: "0 2px 4px rgba(245, 124, 0, 0.2)",
+                                  }}>
+                                  {order.customerName}
+                                </Typography>
+                                <Typography variant="caption" color="textSecondary" sx={{ fontSize: "0.7rem" }}>
+                                  {order.customerVillage}, {order.customerTaluka}
+                                </Typography>
+                              </Box>
+                            </Box>
+                            <Box sx={{ textAlign: "right" }}>
+                              <Typography 
+                                variant="body2" 
+                                fontWeight="bold" 
+                                sx={{ 
+                                  color: "#2e7d32", 
+                                  fontSize: "0.9rem",
+                                  fontWeight: 700,
+                                  backgroundColor: "#e8f5e9",
+                                  px: 1,
+                                  py: 0.4,
+                                  borderRadius: "6px",
+                                  display: "inline-block",
+                                  mb: 0.5,
+                                }}>
+                                ₹{Number(order.totalAmount || 0).toLocaleString()}
+                              </Typography>
+                              <Typography 
+                                variant="caption" 
+                                sx={{ 
+                                  fontSize: "0.7rem",
+                                  fontWeight: 700,
+                                  color: "#0369a1",
+                                  backgroundColor: "#e0f2fe",
+                                  px: 1,
+                                  py: 0.4,
+                                  borderRadius: "6px",
+                                  display: "inline-block",
+                                }}>
+                                Qty: <strong>{order.quantity}</strong>
+                              </Typography>
+                            </Box>
+                          </Box>
+
+                          {/* Product name - Highlighted - Compact */}
+                          {productLabel && productLabel !== "—" ? (
+                            <Box sx={{ 
+                              mb: 0.75, 
+                              p: 1, 
+                              background: "linear-gradient(135deg, #0f766e 0%, #14b8a6 100%)",
+                              borderRadius: "6px", 
+                              borderLeft: "3px solid #065f46",
+                              boxShadow: "0 1px 4px rgba(15, 118, 110, 0.2)",
+                            }}>
+                              <Typography 
+                                variant="body2" 
+                                fontWeight="bold" 
+                                sx={{ 
+                                  fontSize: "0.85rem", 
+                                  color: "white",
+                                  fontWeight: 700,
+                                  textShadow: "0 1px 3px rgba(0,0,0,0.3)",
+                                  lineHeight: 1.4,
+                                  wordBreak: "break-word",
+                                }}>
+                                {productLabel}
+                              </Typography>
+                            </Box>
+                          ) : (
+                            <Box sx={{ 
+                              mb: 0.75, 
+                              p: 1, 
+                              backgroundColor: "#ffebee",
+                              borderRadius: "6px", 
+                              borderLeft: "3px solid #c62828",
+                            }}>
+                              <Typography 
+                                variant="body2" 
+                                sx={{ 
+                                  fontSize: "0.85rem", 
+                                  color: "#c62828",
+                                  fontWeight: 600,
+                                }}>
+                                ⚠️ Product name not available
+                                <br />
+                                <span style={{ fontSize: "0.7rem", color: "#666" }}>
+                                  Debug: productName={String(order.productName)}, 
+                                  crop={String(order.ramAgriCropName)}, 
+                                  variety={String(order.ramAgriVarietyName)}
+                                </span>
+                              </Typography>
+                            </Box>
+                          )}
+
+                          {/* Quantity, Balance, District - Compact */}
+                          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, mb: 0.75 }}>
+                            {/* Show final quantity for completed orders, original quantity otherwise */}
+                            {order.orderStatus === "COMPLETED" && order.deliveredQuantity > 0 ? (
+                              <Chip
+                                label={
+                                  <Box component="span">
+                                    Final: <strong style={{ fontSize: "0.8rem", fontWeight: 700 }}>{order.deliveredQuantity}</strong>
+                                    {order.returnQuantity > 0 && (
+                                      <span> (R: <strong style={{ fontSize: "0.8rem", fontWeight: 700 }}>{order.returnQuantity}</strong>)</span>
+                                    )}
+                                  </Box>
+                                }
+                                size="small"
+                                sx={{ fontSize: "0.7rem", height: "20px", fontWeight: 600, backgroundColor: "#dcfce7", color: "#166534" }}
+                              />
+                            ) : (
+                              <Chip
+                                label={
+                                  <Box component="span">
+                                    Qty: <strong style={{ fontSize: "0.8rem", fontWeight: 700 }}>{order.quantity}</strong>
+                                  </Box>
+                                }
+                                size="small"
+                                sx={{ fontSize: "0.7rem", height: "20px", fontWeight: 600, backgroundColor: "#e0f2fe", color: "#0369a1" }}
+                              />
+                            )}
+                            <Chip
+                              label={
+                                <Box component="span">
+                                  Rate: ₹<strong style={{ fontSize: "0.8rem", fontWeight: 700 }}>{Number(order.rate || 0).toLocaleString()}</strong>
+                                </Box>
+                              }
+                              size="small"
+                              sx={{ fontSize: "0.7rem", height: "20px", fontWeight: 600, backgroundColor: "#f3e5f5", color: "#7b1fa2" }}
+                            />
+                            <Chip
+                              label={
+                                <Box component="span">
+                                  Bal: ₹<strong style={{ fontSize: "0.8rem", fontWeight: 700 }}>{Number(balance).toLocaleString()}</strong>
+                                </Box>
+                              }
+                              size="small"
+                              sx={{
+                                fontSize: "0.7rem",
+                                height: "20px",
+                                fontWeight: 700,
+                                backgroundColor: balance > 0 ? "#fef3c7" : "#dcfce7",
+                                color: balance > 0 ? "#92400e" : "#166534",
+                              }}
+                            />
+                            {order.customerDistrict && (
+                              <Chip
+                                label={order.customerDistrict}
+                                size="small"
+                                sx={{ fontSize: "0.65rem", height: "20px", fontWeight: 600, backgroundColor: "#ede9fe", color: "#5b21b6" }}
+                              />
+                            )}
+                          </Box>
+
+                          {/* Dispatch Status */}
+                          {order.dispatchStatus && order.dispatchStatus !== "NOT_DISPATCHED" && (
+                            <Box sx={{ mb: 0.75, p: 0.75, backgroundColor: "#e3f2fd", borderRadius: "6px" }}>
+                              <Typography variant="caption" sx={{ fontSize: "0.7rem", color: "#1565c0", fontWeight: 600 }}>
+                                {order.dispatchMode === "COURIER" ? "📦" : "🚚"} Dispatched
+                              </Typography>
+                              {order.dispatchedAt && (
+                                <Typography variant="caption" sx={{ fontSize: "0.65rem", color: "#666", display: "block" }}>
+                                  {moment(order.dispatchedAt).format("DD MMM, hh:mm A")}
+                                </Typography>
+                              )}
+                              {order.dispatchMode === "VEHICLE" && order.vehicleNumber && (
+                                <>
+                                  <Typography variant="caption" sx={{ fontSize: "0.65rem", color: "#666", display: "block" }}>
+                                    Vehicle: {order.vehicleNumber}
+                                  </Typography>
+                                  {order.driverName && (
+                                    <Typography variant="caption" sx={{ fontSize: "0.65rem", color: "#666", display: "block" }}>
+                                      Driver: {order.driverName}
+                                    </Typography>
+                                  )}
+                                  {order.driverMobile && (
+                                    <Typography variant="caption" sx={{ fontSize: "0.65rem", color: "#666", display: "block" }}>
+                                      📱 {order.driverMobile}
+                                    </Typography>
+                                  )}
+                                </>
+                              )}
+                              {order.dispatchMode === "COURIER" && order.courierName && (
+                                <Typography variant="caption" sx={{ fontSize: "0.65rem", color: "#666", display: "block" }}>
+                                  Courier: {order.courierName}
+                                </Typography>
+                              )}
+                            </Box>
+                          )}
+
+                          {/* Actions: Payment, Sales Return, Complete (Complete only for AGRI_INPUT_DEALER) */}
+                          <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+                            {hasPayments && (
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                startIcon={<PaymentIcon sx={{ fontSize: "0.9rem" }} />}
+                                onClick={() => {
+                                  setSelectedOrder(order);
+                                  setShowPaymentModal(true);
+                                }}
+                                sx={{ fontSize: "0.7rem", textTransform: "none" }}>
+                                Payment
+                              </Button>
+                            )}
+                            {(order.dispatchStatus === "DISPATCHED" || order.dispatchStatus === "IN_TRANSIT") && (
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                startIcon={<InventoryIcon sx={{ fontSize: "0.9rem" }} />}
+                                onClick={() => openSalesReturnModal(order)}
+                                sx={{ fontSize: "0.7rem", textTransform: "none", borderColor: "#7c3aed", color: "#7c3aed" }}>
+                                Sales Return
+                              </Button>
+                            )}
+                            {!completeSelectionMode && canComplete && isAgriInputDealer && (
+                              <Button
+                                size="small"
+                                variant="contained"
+                                color="success"
+                                startIcon={<CheckCircleIcon sx={{ fontSize: "0.9rem" }} />}
+                                onClick={() => {
+                                  setCompleteSelectionMode(true);
+                                  setSelectedOrdersForComplete([order._id]);
+                                  setCompleteForm((f) => ({ ...f, returnQuantities: { [order._id]: 0 } }));
+                                }}
+                                sx={{ fontSize: "0.7rem", textTransform: "none", backgroundColor: "#2e7d32" }}>
+                                Complete
+                              </Button>
+                            )}
+                          </Box>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </Box>
+              )}
+            </>
+          ) : null
+        ) : activeTab === 0 ? (
           // Orders Tab
           <>
             {/* Back Button if filtered from Outstanding */}
@@ -1921,7 +2770,7 @@ const AgriSalesOrderMobile = () => {
                 startIcon={<ArrowBackIcon />}
                 onClick={() => {
                   setFilteredFromOutstanding(false);
-                  setActiveTab(3); // Go back to Outstanding tab (now tab 3)
+                  setActiveTab(2); // Go back to Outstanding tab (now tab 2)
                   fetchOutstandingAnalysis(); // Refresh outstanding data
                 }}
                 sx={{
@@ -1965,6 +2814,80 @@ const AgriSalesOrderMobile = () => {
               </Card>
             ) : (
               <>
+                {/* Order Status Subtabs - Compact */}
+                <Box
+                  sx={{
+                    mb: 1.5,
+                    backgroundColor: "white",
+                    borderRadius: "8px",
+                    p: 0.75,
+                    display: "flex",
+                    gap: 0.5,
+                    overflowX: "hidden",
+                    overflowY: "hidden",
+                    width: "100%",
+                    boxSizing: "border-box",
+                  }}>
+                  {[
+                    { value: "all", label: "All", emoji: "" },
+                    { value: "pending", label: "Pending", emoji: "⏳" },
+                    { value: "accepted", label: "Accepted", emoji: "✓" },
+                    { value: "dispatched", label: "Dispatched", emoji: "🚚" },
+                  ].map((tab) => {
+                    // Calculate count for each status
+                    let count = 0;
+                    if (tab.value === "all") {
+                      count = orders.length;
+                    } else if (tab.value === "pending") {
+                      count = orders.filter((o) => o.orderStatus === "PENDING").length;
+                    } else if (tab.value === "accepted") {
+                      count = orders.filter((o) => o.orderStatus === "ACCEPTED").length;
+                    } else if (tab.value === "dispatched") {
+                      count = orders.filter(
+                        (o) =>
+                          o.orderStatus === "DISPATCHED" ||
+                          o.dispatchStatus === "DISPATCHED" ||
+                          o.dispatchStatus === "IN_TRANSIT"
+                      ).length;
+                    }
+
+                    const isActive = orderStatusFilter === tab.value;
+                    return (
+                      <Chip
+                        key={tab.value}
+                        onClick={() => setOrderStatusFilter(tab.value)}
+                        label={
+                          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                            {tab.emoji && <span style={{ fontSize: "0.7rem" }}>{tab.emoji}</span>}
+                            <span>{tab.label}</span>
+                            <span style={{ fontWeight: 700, fontSize: "0.7rem" }}>({count})</span>
+                          </Box>
+                        }
+                        sx={{
+                          flex: 1,
+                          minWidth: 0,
+                          maxWidth: "25%",
+                          height: "32px",
+                          fontSize: "0.7rem",
+                          fontWeight: isActive ? 600 : 500,
+                          backgroundColor: isActive ? "#43a047" : "#f5f5f5",
+                          color: isActive ? "white" : "#666",
+                          cursor: "pointer",
+                          "&:hover": {
+                            backgroundColor: isActive ? "#388e3c" : "#e0e0e0",
+                          },
+                          "& .MuiChip-label": {
+                            px: 0.75,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          },
+                        }}
+                      />
+                    );
+                  })}
+                </Box>
+
                 {/* Selection Mode Header */}
                 {/* Dispatch Selection Mode Header */}
                 {selectionMode && (
@@ -2052,8 +2975,52 @@ const AgriSalesOrderMobile = () => {
                   </Box>
                 )}
 
-                <Box sx={{ display: "flex", flexDirection: "column", gap: 1, pb: 10 }}>
-                {orders.map((order) => {
+                {/* Filter orders based on selected subtab */}
+                {(() => {
+                  let filteredOrders = orders;
+                  if (orderStatusFilter === "pending") {
+                    filteredOrders = orders.filter((o) => o.orderStatus === "PENDING");
+                  } else if (orderStatusFilter === "accepted") {
+                    filteredOrders = orders.filter((o) => o.orderStatus === "ACCEPTED");
+                  } else if (orderStatusFilter === "dispatched") {
+                    filteredOrders = orders.filter(
+                      (o) =>
+                        o.orderStatus === "DISPATCHED" ||
+                        o.dispatchStatus === "DISPATCHED" ||
+                        o.dispatchStatus === "IN_TRANSIT"
+                    );
+                  }
+
+                  if (filteredOrders.length === 0) {
+                    return (
+                      <Card
+                        sx={{
+                          mt: 2,
+                          textAlign: "center",
+                          py: 4,
+                          backgroundColor: "white",
+                        }}>
+                        <CardContent>
+                          <Typography variant="body2" color="textSecondary">
+                            No {orderStatusFilter !== "all" ? orderStatusFilter : ""} orders found
+                          </Typography>
+                        </CardContent>
+                      </Card>
+                    );
+                  }
+
+                  return (
+                    <Box sx={{ 
+                      display: "flex", 
+                      flexDirection: "column", 
+                      gap: 1, 
+                      pb: 10,
+                      width: "100%",
+                      maxWidth: "100%",
+                      boxSizing: "border-box",
+                      overflowX: "hidden",
+                    }}>
+                      {filteredOrders.map((order) => {
                   const statusColors = getStatusColor(order.orderStatus);
                   const paymentColors = getPaymentStatusColor(order.paymentStatus);
                   const isExpanded = expandedOrderId === order._id;
@@ -2066,6 +3033,23 @@ const AgriSalesOrderMobile = () => {
                     order.dispatchStatus === "NOT_DISPATCHED";
                   const canComplete = 
                     order.orderStatus === "DISPATCHED" || order.dispatchStatus === "DISPATCHED" || order.dispatchStatus === "IN_TRANSIT";
+                  
+                  // Product label calculation
+                  const productLabel = order.productName 
+                    || (order.ramAgriVarietyName
+                      ? `${order.ramAgriCropName || ""} – ${order.ramAgriVarietyName}`.trim()
+                      : order.ramAgriCropName || "—");
+                  const balance = order.balanceAmount ?? (Number(order.totalAmount || 0) - Number(order.totalPaidAmount || 0));
+                  
+                  // Debug logging for product name
+                  console.log("🔍 Product Name Debug (Order Tab):", {
+                    orderId: order._id,
+                    orderNumber: order.orderNumber,
+                    productName: order.productName,
+                    ramAgriCropName: order.ramAgriCropName,
+                    ramAgriVarietyName: order.ramAgriVarietyName,
+                    productLabel: productLabel
+                  });
 
                   return (
                     <Card
@@ -2073,14 +3057,18 @@ const AgriSalesOrderMobile = () => {
                       sx={{
                         transition: "all 0.2s",
                         backgroundColor: isSelected ? "#e3f2fd" : isSelectedForComplete ? "#e8f5e9" : "white",
-                        borderRadius: "10px",
-                        boxShadow: isExpanded ? "0 4px 12px rgba(0,0,0,0.15)" : "0 1px 4px rgba(0,0,0,0.1)",
+                        borderRadius: "12px",
+                        boxShadow: isExpanded ? "0 4px 12px rgba(0,0,0,0.15)" : "0 2px 8px rgba(0,0,0,0.08)",
                         overflow: "hidden",
-                        border: isSelected ? "2px solid #1976d2" : isSelectedForComplete ? "2px solid #2e7d32" : "none",
+                        border: isSelected ? "2px solid #1976d2" : isSelectedForComplete ? "2px solid #2e7d32" : "1px solid #e0e0e0",
+                        width: "100%",
+                        maxWidth: "100%",
+                        boxSizing: "border-box",
+                        mb: 1.5,
                       }}>
                       {/* Order Header */}
-                      <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
-                        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 1 }}>
+                      <CardContent sx={{ p: 1, "&:last-child": { pb: 1 }, overflow: "hidden" }}>
+                        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 0.75, gap: 0.75 }}>
                           <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1, flex: 1 }}>
                             {/* Selection Checkbox for Dispatch */}
                             {selectionMode && canDispatch && (
@@ -2108,46 +3096,43 @@ const AgriSalesOrderMobile = () => {
                                 )}
                               </IconButton>
                             )}
-                            <Box>
-                              <Typography
-                                variant="subtitle2"
-                                fontWeight="bold"
-                                sx={{
-                                  fontSize: "0.9rem",
-                                  mb: 0.5,
-                                  backgroundColor: "#e3f2fd",
-                                  color: "#1976d2",
-                                  px: 1,
-                                  py: 0.25,
-                                  borderRadius: "4px",
-                                  display: "inline-block",
-                                }}>
-                                {order.orderNumber}
-                              </Typography>
-                              <Typography
-                                variant="body2"
-                                fontWeight="bold"
-                                sx={{
-                                  fontSize: "0.85rem",
-                                  mt: 0.5,
-                                  backgroundColor: "#fff3e0",
-                                  color: "#f57c00",
-                                  px: 1,
-                                  py: 0.25,
-                                  borderRadius: "4px",
-                                  display: "inline-block",
-                                }}>
-                                {order.customerName}
-                              </Typography>
+                            <Box sx={{ flex: 1, minWidth: 0 }}>
+                              <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+                                <Typography
+                                  variant="body2"
+                                  fontWeight="bold"
+                                  sx={{
+                                    fontSize: "0.85rem",
+                                    color: "#212121",
+                                    fontWeight: 600,
+                                    wordBreak: "break-word",
+                                  }}>
+                                  {order.customerName}
+                                </Typography>
+                                <Typography
+                                  variant="caption"
+                                  sx={{
+                                    fontSize: "0.65rem",
+                                    color: "#999",
+                                    fontWeight: 500,
+                                  }}>
+                                  {order.orderNumber}
+                                </Typography>
+                              </Box>
+                              {order.customerVillage && (
+                                <Typography variant="caption" color="textSecondary" sx={{ fontSize: "0.65rem", display: "block", mt: 0.25 }}>
+                                  {order.customerVillage}, {order.customerTaluka}
+                                </Typography>
+                              )}
                             </Box>
                           </Box>
-                          <Box sx={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 0.5 }}>
+                          <Box sx={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 0.5, flexShrink: 0 }}>
                             <Chip
                               label={order.orderStatus}
                               size="small"
                               sx={{
-                                fontSize: "0.65rem",
-                                height: "20px",
+                                fontSize: "0.6rem",
+                                height: "18px",
                                 backgroundColor: statusColors.bg,
                                 color: statusColors.color,
                                 fontWeight: 600,
@@ -2157,10 +3142,10 @@ const AgriSalesOrderMobile = () => {
                             {order.dispatchStatus && order.dispatchStatus !== "NOT_DISPATCHED" && (
                               <Chip
                                 icon={order.dispatchMode === "COURIER" 
-                                  ? <InventoryIcon sx={{ fontSize: "0.7rem !important" }} />
-                                  : <LocalShippingIcon sx={{ fontSize: "0.7rem !important" }} />
+                                  ? <InventoryIcon sx={{ fontSize: "0.65rem !important" }} />
+                                  : <LocalShippingIcon sx={{ fontSize: "0.65rem !important" }} />
                                 }
-                                label={`${dispatchInfo.label}${order.dispatchMode === "COURIER" ? " (Courier)" : ""}`}
+                                label={`${dispatchInfo.label}${order.dispatchMode === "COURIER" ? "" : ""}`}
                                 size="small"
                                 sx={{
                                   fontSize: "0.6rem",
@@ -2175,18 +3160,101 @@ const AgriSalesOrderMobile = () => {
                           </Box>
                         </Box>
 
-                        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mt: 1 }}>
-                          <Typography variant="caption" color="textSecondary" sx={{ fontSize: "0.75rem" }}>
-                            ₹{order.totalAmount?.toLocaleString()} • Balance: ₹{order.balanceAmount?.toLocaleString() || 0}
-                          </Typography>
+                        {/* Product name - Compact */}
+                        {productLabel && productLabel !== "—" ? (
+                          <Box sx={{ 
+                            mb: 0.75, 
+                            mt: 0.75,
+                            p: 1, 
+                            backgroundColor: "#f8f9fa",
+                            borderRadius: "8px", 
+                            borderLeft: "4px solid #757575",
+                          }}>
+                            <Typography 
+                              variant="body2" 
+                              fontWeight="bold" 
+                              sx={{ 
+                                fontSize: "0.8rem", 
+                                color: "#212121",
+                                fontWeight: 600,
+                                lineHeight: 1.4,
+                                wordBreak: "break-word",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                display: "-webkit-box",
+                                WebkitLineClamp: 2,
+                                WebkitBoxOrient: "vertical",
+                              }}>
+                              {productLabel}
+                            </Typography>
+                          </Box>
+                        ) : null}
+
+                        {/* Quantity, Rate - Compact */}
+                        <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, mb: 0.5, mt: 0.5 }}>
+                          <Chip
+                            label={
+                              <Box component="span">
+                                Qty: <strong style={{ fontSize: "0.75rem", fontWeight: 700 }}>{order.quantity}</strong>
+                              </Box>
+                            }
+                            size="small"
+                            sx={{ fontSize: "0.65rem", height: "18px", fontWeight: 600, backgroundColor: "#f5f5f5", color: "#424242" }}
+                          />
+                          <Chip
+                            label={
+                              <Box component="span">
+                                Rate: ₹<strong style={{ fontSize: "0.75rem", fontWeight: 700 }}>{Number(order.rate || 0).toLocaleString()}</strong>
+                              </Box>
+                            }
+                            size="small"
+                            sx={{ fontSize: "0.65rem", height: "18px", fontWeight: 600, backgroundColor: "#f5f5f5", color: "#424242" }}
+                          />
+                        </Box>
+
+                        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mt: 0.5, flexWrap: "wrap", gap: 0.5 }}>
+                          <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", alignItems: "center" }}>
+                            <Typography 
+                              variant="body2" 
+                              fontWeight="bold" 
+                              sx={{ 
+                                fontSize: "0.85rem",
+                                color: "#424242",
+                                px: 1,
+                                py: 0.35,
+                                borderRadius: "6px",
+                                fontWeight: 700,
+                              }}>
+                              Total: ₹{Number(order.totalAmount || 0).toLocaleString()}
+                            </Typography>
+                            <Typography 
+                              variant="caption" 
+                              fontWeight="bold" 
+                              sx={{ 
+                                fontSize: "0.75rem",
+                                color: order.balanceAmount > 0 ? "#d32f2f" : "#424242",
+                                px: 1,
+                                py: 0.35,
+                                borderRadius: "6px",
+                                fontWeight: 700,
+                              }}>
+                              Balance: ₹{Number(order.balanceAmount || 0).toLocaleString()}
+                            </Typography>
+                            {/* Show final quantity info for completed orders */}
+                            {order.orderStatus === "COMPLETED" && order.deliveredQuantity > 0 && order.deliveredQuantity !== order.quantity && (
+                              <Typography variant="caption" sx={{ fontSize: "0.65rem", color: "#0f766e", display: "block", mt: 0.5, fontWeight: 600 }}>
+                                Final Amount (Qty: <strong>{order.deliveredQuantity}</strong> × ₹<strong>{order.rate}</strong>)
+                              </Typography>
+                            )}
+                          </Box>
                           <Chip
                             label={order.paymentStatus}
                             size="small"
                             sx={{
                               fontSize: "0.65rem",
                               height: "18px",
-                              backgroundColor: paymentColors.bg,
-                              color: paymentColors.color,
+                              backgroundColor: "#f5f5f5",
+                              color: "#424242",
                               fontWeight: 600,
                             }}
                           />
@@ -2196,13 +3264,13 @@ const AgriSalesOrderMobile = () => {
                         {order.dispatchStatus && order.dispatchStatus !== "NOT_DISPATCHED" && (
                           <Box
                             sx={{
-                              mt: 1,
-                              p: 1,
+                              mt: 0.5,
+                              p: 0.75,
                               backgroundColor: order.dispatchMode === "COURIER" ? "#f3e5f5" : dispatchInfo.bg,
                               borderRadius: "6px",
                               display: "flex",
                               alignItems: "center",
-                              gap: 1,
+                              gap: 0.75,
                             }}>
                             {order.dispatchMode === "COURIER" ? (
                               <InventoryIcon sx={{ fontSize: "1rem", color: "#7b1fa2" }} />
@@ -2223,9 +3291,16 @@ const AgriSalesOrderMobile = () => {
                                   )}
                                 </>
                               ) : (
-                                <Typography variant="caption" sx={{ fontSize: "0.7rem", color: dispatchInfo.color, fontWeight: 600 }}>
-                                  🚚 {order.vehicleNumber} • {order.driverName}
-                                </Typography>
+                                <>
+                                  <Typography variant="caption" sx={{ fontSize: "0.7rem", color: dispatchInfo.color, fontWeight: 600 }}>
+                                    🚚 {order.vehicleNumber} • {order.driverName}
+                                  </Typography>
+                                  {order.driverMobile && (
+                                    <Typography variant="caption" sx={{ fontSize: "0.6rem", color: "#666", display: "block" }}>
+                                      📱 {order.driverMobile}
+                                    </Typography>
+                                  )}
+                                </>
                               )}
                               {order.dispatchedAt && (
                                 <Typography variant="caption" sx={{ fontSize: "0.6rem", color: "#666", display: "block" }}>
@@ -2389,8 +3464,19 @@ const AgriSalesOrderMobile = () => {
                                 {/* Payment Details */}
                                 <Box sx={{ flex: 1 }}>
                                   <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                    <Typography variant="subtitle2" fontWeight="bold" sx={{ fontSize: "0.85rem" }}>
-                                      ₹{payment.paidAmount?.toLocaleString()}
+                                    <Typography 
+                                      variant="subtitle2" 
+                                      fontWeight="bold" 
+                                      sx={{ 
+                                        fontSize: "0.9rem",
+                                        fontWeight: 700,
+                                        color: payment.paymentStatus === "COLLECTED" ? "#2e7d32" : payment.paymentStatus === "PENDING" ? "#f57c00" : "#d32f2f",
+                                        backgroundColor: payment.paymentStatus === "COLLECTED" ? "#e8f5e9" : payment.paymentStatus === "PENDING" ? "#fff3e0" : "#ffebee",
+                                        px: 1.5,
+                                        py: 0.5,
+                                        borderRadius: "6px",
+                                      }}>
+                                      ₹{Number(payment.paidAmount || 0).toLocaleString()}
                                     </Typography>
                                     <Chip
                                       label={payment.paymentStatus}
@@ -2453,8 +3539,10 @@ const AgriSalesOrderMobile = () => {
                       )}
                     </Card>
                   );
-                })}
-                </Box>
+                  })}
+                    </Box>
+                  );
+                })()}
               </>
             )}
           </>
@@ -2531,8 +3619,8 @@ const AgriSalesOrderMobile = () => {
                         overflow: "hidden",
                         border: isSelected ? "2px solid #1976d2" : "1px solid #e0e0e0",
                       }}>
-                      <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
-                        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 1 }}>
+                      <CardContent sx={{ p: 1, "&:last-child": { pb: 1 } }}>
+                        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 0.75 }}>
                           <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1, flex: 1 }}>
                             {/* Selection Checkbox */}
                             {selectionMode && (
@@ -2650,329 +3738,62 @@ const AgriSalesOrderMobile = () => {
             )}
           </>
         ) : activeTab === 2 ? (
-          // Dispatched Orders Tab
+          // Outstanding Tab
           <>
-            {dispatchedOrdersLoading ? (
-              <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
-                <CircularProgress size={32} />
-              </Box>
-            ) : dispatchedOrders.length === 0 ? (
-              <Box sx={{ textAlign: "center", py: 4 }}>
-                <Typography variant="body2" color="textSecondary">
-                  No dispatched orders found
-                </Typography>
-              </Box>
-            ) : (
-              <Box sx={{ display: "flex", flexDirection: "column", gap: 1, pb: 10 }}>
-                {/* Info Banner + Select to Complete */}
-                <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 1, mb: 1 }}>
-                  <Box sx={{ p: 1.5, backgroundColor: "#e3f2fd", borderRadius: "8px", flex: 1 }}>
-                    <Typography variant="caption" sx={{ color: "#1565c0", fontWeight: 600 }}>
-                      🚚 Orders that have been dispatched
-                    </Typography>
-                  </Box>
-                  {!completeSelectionMode && (
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      startIcon={<CheckBoxOutlineBlankIcon />}
-                      onClick={() => {
-                        setCompleteSelectionMode(true);
-                        setSelectedOrdersForComplete([]);
-                      }}
-                      sx={{ fontSize: "0.75rem", textTransform: "none", borderColor: "#2e7d32", color: "#2e7d32" }}>
-                      Select to Complete
-                    </Button>
-                  )}
-                </Box>
-
-                {/* Complete action bar when selection mode */}
-                {completeSelectionMode && activeTab === 2 && (
-                  <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 1, p: 1, backgroundColor: "#e8f5e9", borderRadius: "8px", mb: 1 }}>
-                    <Typography variant="body2" fontWeight="bold" sx={{ color: "#2e7d32" }}>
-                      {selectedOrdersForComplete.length} selected to complete
-                    </Typography>
-                    <Box sx={{ display: "flex", gap: 1 }}>
-                      <Button
-                        size="small"
-                        onClick={() => {
-                          setSelectedOrdersForComplete(dispatchedOrders.map((o) => o._id));
-                          const initial = {};
-                          dispatchedOrders.forEach((o) => { initial[o._id] = 0; });
-                          setCompleteForm((f) => ({ ...f, returnQuantities: initial }));
-                        }}
-                        sx={{ fontSize: "0.7rem", textTransform: "none" }}>
-                        Select All
-                      </Button>
-                      <Button
-                        size="small"
-                        onClick={() => {
-                          setCompleteSelectionMode(false);
-                          setSelectedOrdersForComplete([]);
-                        }}
-                        sx={{ fontSize: "0.7rem", textTransform: "none" }}>
-                        Cancel
-                      </Button>
-                      <Button
-                        size="small"
-                        variant="contained"
-                        color="success"
-                        startIcon={<CheckCircleIcon sx={{ fontSize: "0.9rem" }} />}
-                        onClick={openCompleteModal}
-                        disabled={selectedOrdersForComplete.length === 0}
-                        sx={{ fontSize: "0.7rem", textTransform: "none", backgroundColor: "#2e7d32" }}>
-                        Complete
-                      </Button>
-                    </Box>
-                  </Box>
-                )}
-
-                {dispatchedOrders.map((order) => {
-                  const isExpanded = expandedOrderId === order._id;
-                  const hasPayments = order.payment && order.payment.length > 0;
-                  const isSelectedForComplete = selectedOrdersForComplete.includes(order._id);
-                  const canComplete = order.orderStatus === "DISPATCHED" || order.dispatchStatus === "DISPATCHED" || order.dispatchStatus === "IN_TRANSIT";
-                  const productLabel = order.ramAgriVarietyName
-                    ? `${order.ramAgriCropName || ""} – ${order.ramAgriVarietyName}`.trim()
-                    : order.ramAgriCropName || order.productName || "—";
-                  const balance = order.balanceAmount ?? (Number(order.totalAmount || 0) - Number(order.totalPaidAmount || 0));
-
-                  return (
-                    <Card
-                      key={order._id}
-                      sx={{
-                        transition: "all 0.2s",
-                        backgroundColor: isSelectedForComplete ? "#e8f5e9" : "white",
-                        borderRadius: "10px",
-                        boxShadow: "0 1px 4px rgba(0,0,0,0.1)",
-                        overflow: "hidden",
-                        border: isSelectedForComplete ? "2px solid #2e7d32" : "1px solid #e0e0e0",
-                      }}>
-                      <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
-                        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 1 }}>
-                          <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1, flex: 1 }}>
-                            {completeSelectionMode && canComplete && (
-                              <IconButton
-                                size="small"
-                                onClick={() => toggleCompleteOrderSelection(order._id)}
-                                sx={{ p: 0, mt: 0.5 }}>
-                                {isSelectedForComplete ? (
-                                  <CheckBoxIcon sx={{ color: "#2e7d32", fontSize: "1.2rem" }} />
-                                ) : (
-                                  <CheckBoxOutlineBlankIcon sx={{ color: "#9e9e9e", fontSize: "1.2rem" }} />
-                                )}
-                              </IconButton>
-                            )}
-                            <Box>
-                              <Typography
-                                variant="subtitle2"
-                                fontWeight="bold"
-                                sx={{
-                                  fontSize: "0.9rem",
-                                  mb: 0.5,
-                                  backgroundColor: "#e3f2fd",
-                                  color: "#1565c0",
-                                  px: 1,
-                                  py: 0.25,
-                                  borderRadius: "4px",
-                                  display: "inline-block",
-                                }}>
-                                {order.orderNumber}
-                              </Typography>
-                              <Typography variant="body2" fontWeight="medium" sx={{ fontSize: "0.85rem" }}>
-                                {order.customerName}
-                              </Typography>
-                              <Typography variant="caption" color="textSecondary" sx={{ fontSize: "0.7rem" }}>
-                                {order.customerVillage}, {order.customerTaluka}
-                              </Typography>
-                            </Box>
-                          </Box>
-                          <Box sx={{ textAlign: "right" }}>
-                            <Typography variant="body2" fontWeight="bold" sx={{ color: "#2e7d32", fontSize: "0.9rem" }}>
-                              ₹{Number(order.totalAmount || 0).toLocaleString()}
-                            </Typography>
-                            <Typography variant="caption" color="textSecondary" sx={{ fontSize: "0.65rem" }}>
-                              Qty: {order.quantity}
-                            </Typography>
-                          </Box>
-                        </Box>
-
-                        {/* Product name – highlight */}
-                        <Box sx={{ mb: 1, p: 1, backgroundColor: "#f0fdfa", borderRadius: "6px", borderLeft: "3px solid #0f766e" }}>
-                          <Typography variant="body2" fontWeight="bold" sx={{ fontSize: "0.85rem", color: "#0f766e" }}>
-                            {productLabel}
-                          </Typography>
-                        </Box>
-
-                        {/* Quantity, Balance, District – highlights */}
-                        <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, mb: 1 }}>
-                          <Chip
-                            label={`Qty: ${order.quantity}`}
-                            size="small"
-                            sx={{ fontSize: "0.7rem", height: "22px", fontWeight: 600, backgroundColor: "#e0f2fe", color: "#0369a1" }}
-                          />
-                          <Chip
-                            label={`Balance: ₹${Number(balance).toLocaleString()}`}
-                            size="small"
-                            sx={{
-                              fontSize: "0.7rem",
-                              height: "22px",
-                              fontWeight: 600,
-                              backgroundColor: balance > 0 ? "#fef3c7" : "#dcfce7",
-                              color: balance > 0 ? "#92400e" : "#166534",
-                            }}
-                          />
-                          {order.customerDistrict && (
-                            <Chip
-                              label={order.customerDistrict}
-                              size="small"
-                              sx={{ fontSize: "0.7rem", height: "22px", fontWeight: 600, backgroundColor: "#ede9fe", color: "#5b21b6" }}
-                            />
-                          )}
-                        </Box>
-
-                        {/* Dispatch Status */}
-                        {order.dispatchStatus && order.dispatchStatus !== "NOT_DISPATCHED" && (
-                          <Box sx={{ mb: 1, p: 1, backgroundColor: "#e3f2fd", borderRadius: "6px" }}>
-                            <Typography variant="caption" sx={{ fontSize: "0.7rem", color: "#1565c0", fontWeight: 600 }}>
-                              {order.dispatchMode === "COURIER" ? "📦" : "🚚"} Dispatched
-                            </Typography>
-                            {order.dispatchedAt && (
-                              <Typography variant="caption" sx={{ fontSize: "0.65rem", color: "#666", display: "block" }}>
-                                {moment(order.dispatchedAt).format("DD MMM, hh:mm A")}
-                              </Typography>
-                            )}
-                            {order.dispatchMode === "VEHICLE" && order.vehicleNumber && (
-                              <Typography variant="caption" sx={{ fontSize: "0.65rem", color: "#666", display: "block" }}>
-                                Vehicle: {order.vehicleNumber}
-                              </Typography>
-                            )}
-                            {order.dispatchMode === "COURIER" && order.courierName && (
-                              <Typography variant="caption" sx={{ fontSize: "0.65rem", color: "#666", display: "block" }}>
-                                Courier: {order.courierName}
-                              </Typography>
-                            )}
-                          </Box>
-                        )}
-
-                        {/* Actions: Payment, Sales Return, Complete */}
-                        <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
-                          {hasPayments && (
-                            <Button
-                              size="small"
-                              variant="outlined"
-                              startIcon={<PaymentIcon sx={{ fontSize: "0.9rem" }} />}
-                              onClick={() => {
-                                setSelectedOrder(order);
-                                setShowPaymentModal(true);
-                              }}
-                              sx={{ fontSize: "0.7rem", textTransform: "none" }}>
-                              Payment
-                            </Button>
-                          )}
-                          {(order.dispatchStatus === "DISPATCHED" || order.dispatchStatus === "IN_TRANSIT") && (
-                            <Button
-                              size="small"
-                              variant="outlined"
-                              startIcon={<InventoryIcon sx={{ fontSize: "0.9rem" }} />}
-                              onClick={() => openSalesReturnModal(order)}
-                              sx={{ fontSize: "0.7rem", textTransform: "none", borderColor: "#7c3aed", color: "#7c3aed" }}>
-                              Sales Return
-                            </Button>
-                          )}
-                          {!completeSelectionMode && canComplete && (
-                            <Button
-                              size="small"
-                              variant="contained"
-                              color="success"
-                              startIcon={<CheckCircleIcon sx={{ fontSize: "0.9rem" }} />}
-                              onClick={() => {
-                                setCompleteSelectionMode(true);
-                                setSelectedOrdersForComplete([order._id]);
-                                setCompleteForm((f) => ({ ...f, returnQuantities: { [order._id]: 0 } }));
-                              }}
-                              sx={{ fontSize: "0.7rem", textTransform: "none", backgroundColor: "#2e7d32" }}>
-                              Complete
-                            </Button>
-                          )}
-                        </Box>
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-              </Box>
-            )}
+            {renderOutstandingView()}
           </>
         ) : activeTab === 3 ? (
-          // Area Outstanding Tab
-          renderOutstandingView()
-        ) : activeTab === 4 ? (
           // Farmer Outstanding Tab
-          renderFarmerOutstandingView()
-        ) : (
+          <>
+            {renderFarmerOutstandingView()}
+          </>
+        ) : activeTab === 4 ? (
           // Rankboard Tab
-          <Box sx={{ pb: 6 }}>
-            <Box
-              sx={{
-                background: "linear-gradient(135deg, #0f766e 0%, #14b8a6 100%)",
-                color: "white",
-                borderRadius: "12px",
-                p: 1.5,
-                mb: 1.5,
-              }}
-            >
-              <Typography variant="subtitle2" fontWeight={700}>
-                Rankboard (ERP Hybrid)
-              </Typography>
-              <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.85)" }}>
-                Score = Revenue 35% + Qty 25% + Target 25% + Customers 15%
-              </Typography>
-            </Box>
-
+          <>
             {rankboardLoading ? (
               <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
-                <CircularProgress size={28} />
+                <CircularProgress size={32} />
               </Box>
             ) : rankboardEntries.length === 0 ? (
               <Box sx={{ textAlign: "center", py: 4 }}>
                 <Typography variant="body2" color="textSecondary">
-                  No rankboard data found
+                  No rankboard data available
                 </Typography>
               </Box>
             ) : (
-              <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
+              <Box sx={{ display: "flex", flexDirection: "column", gap: 1, pb: 10 }}>
+                {/* Info Banner */}
+                <Box sx={{ p: 1.5, backgroundColor: "#e8f5e9", borderRadius: "8px", mb: 1 }}>
+                  <Typography variant="caption" sx={{ color: "#2e7d32", fontWeight: 600 }}>
+                    📊 Rankboard based on performance metrics
+                  </Typography>
+                </Box>
                 {rankboardEntries.map((entry, index) => {
-                  const userName = entry.user?.name || "Unknown";
-                  const scoreValue = entry.scores?.recommendedScore || 0;
-                  const targetAmount = Number(entry.targetAmount || 0);
-                  const achievementPercent =
-                    targetAmount > 0 ? Math.min((Number(entry.revenue || 0) / targetAmount) * 100, 100) : 0;
-
+                  const achievementPercent = entry.targetAchievement || 0;
                   return (
                     <Card
-                      key={entry.userId}
+                      key={entry._id || index}
                       sx={{
-                        borderRadius: "12px",
-                        boxShadow: "0 1px 4px rgba(0,0,0,0.08)",
-                        border: "1px solid #e0e0e0",
-                      }}
-                    >
-                      <CardContent sx={{ p: 1.5 }}>
-                        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        borderRadius: "10px",
+                        boxShadow: "0 1px 4px rgba(0,0,0,0.1)",
+                        overflow: "hidden",
+                      }}>
+                      <CardContent sx={{ p: 1, "&:last-child": { pb: 1 } }}>
+                        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 0.75 }}>
                           <Box>
-                            <Typography variant="subtitle2" fontWeight={700}>
-                              #{index + 1} {userName}
+                            <Typography variant="subtitle2" fontWeight="bold" sx={{ fontSize: "0.9rem" }}>
+                              {entry.name || "Unknown"}
                             </Typography>
-                            <Typography variant="caption" color="textSecondary">
-                              {entry.user?.phoneNumber || entry.user?.phone || ""}
+                            <Typography variant="caption" color="textSecondary" sx={{ fontSize: "0.7rem" }}>
+                              Rank #{index + 1}
                             </Typography>
                           </Box>
                           <Box sx={{ textAlign: "right" }}>
-                            <Typography variant="caption" color="textSecondary">
-                              Score
+                            <Typography variant="h6" fontWeight="bold" color="primary" sx={{ fontSize: "1rem" }}>
+                              {entry.scores?.recommendedScore?.toFixed(1) || 0}
                             </Typography>
-                            <Typography variant="subtitle1" fontWeight={800} color="#0f766e">
-                              {scoreValue.toFixed(2)}
+                            <Typography variant="caption" color="textSecondary" sx={{ fontSize: "0.65rem" }}>
+                              Score
                             </Typography>
                           </Box>
                         </Box>
@@ -3026,8 +3847,253 @@ const AgriSalesOrderMobile = () => {
                 })}
               </Box>
             )}
-          </Box>
-        )}
+          </>
+        ) : activeTab === 5 ? (
+          // Targets Tab
+          <>
+            {targetsLoading ? (
+              <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
+                <CircularProgress size={32} />
+              </Box>
+            ) : salesTargets.length === 0 ? (
+              <Box sx={{ textAlign: "center", py: 4, px: 2 }}>
+                <Typography variant="body2" color="textSecondary">
+                  No targets set for this period
+                </Typography>
+                <Box sx={{ mt: 2, display: "flex", gap: 1, justifyContent: "center" }}>
+                  <TextField
+                    type="date"
+                    label="Start Date"
+                    value={targetDateRange.startDate}
+                    onChange={(e) => setTargetDateRange({ ...targetDateRange, startDate: e.target.value })}
+                    size="small"
+                    InputLabelProps={{ shrink: true }}
+                    sx={{ width: "45%" }}
+                  />
+                  <TextField
+                    type="date"
+                    label="End Date"
+                    value={targetDateRange.endDate}
+                    onChange={(e) => setTargetDateRange({ ...targetDateRange, endDate: e.target.value })}
+                    size="small"
+                    InputLabelProps={{ shrink: true }}
+                    sx={{ width: "45%" }}
+                  />
+                </Box>
+                <Button
+                  variant="contained"
+                  onClick={fetchSalesTargets}
+                  sx={{ mt: 2, textTransform: "none" }}>
+                  Refresh
+                </Button>
+              </Box>
+            ) : (
+              <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5, pb: 10, px: 1.5 }}>
+                {/* Date Range Selector */}
+                <Box sx={{ display: "flex", gap: 1, mb: 1, flexWrap: "wrap" }}>
+                  <TextField
+                    type="date"
+                    label="Start Date"
+                    value={targetDateRange.startDate}
+                    onChange={(e) => {
+                      setTargetDateRange({ ...targetDateRange, startDate: e.target.value });
+                      setTimeout(() => fetchSalesTargets(), 100);
+                    }}
+                    size="small"
+                    InputLabelProps={{ shrink: true }}
+                    sx={{ flex: 1, minWidth: "140px" }}
+                  />
+                  <TextField
+                    type="date"
+                    label="End Date"
+                    value={targetDateRange.endDate}
+                    onChange={(e) => {
+                      setTargetDateRange({ ...targetDateRange, endDate: e.target.value });
+                      setTimeout(() => fetchSalesTargets(), 100);
+                    }}
+                    size="small"
+                    InputLabelProps={{ shrink: true }}
+                    sx={{ flex: 1, minWidth: "140px" }}
+                  />
+                </Box>
+
+                {/* Targets List with Progress Bars */}
+                {salesTargets.map((target, index) => {
+                  // Use achieved amounts from API
+                  const targetAmount = target.targetAmount || 0;
+                  const achievedAmount = target.achievedAmount || 0;
+                  const progressPercent = target.progressPercent || (targetAmount > 0 ? Math.min((achievedAmount / targetAmount) * 100, 100) : 0);
+                  const remainingAmount = target.remainingAmount || Math.max(0, targetAmount - achievedAmount);
+                  const orderCount = target.orderCount || 0;
+                  const achievedProducts = target.achievedProducts || [];
+                  const achievedOrders = target.achievedOrders || [];
+                  
+                  return (
+                    <Card
+                      key={target._id || index}
+                      sx={{
+                        borderRadius: "10px",
+                        boxShadow: "0 1px 4px rgba(0,0,0,0.1)",
+                        overflow: "hidden",
+                        mb: 1.5,
+                      }}>
+                      <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
+                        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 1 }}>
+                          <Box sx={{ flex: 1 }}>
+                            <Typography variant="subtitle2" fontWeight="bold" sx={{ fontSize: "0.9rem", mb: 0.5 }}>
+                              {target.cropId?.cropName || "Unknown Crop"}
+                            </Typography>
+                            {achievedProducts.length > 0 && (
+                              <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, mb: 0.5 }}>
+                                {achievedProducts.map((product, idx) => (
+                                  <Chip
+                                    key={idx}
+                                    label={product}
+                                    size="small"
+                                    sx={{
+                                      fontSize: "0.65rem",
+                                      height: "20px",
+                                      backgroundColor: "#e3f2fd",
+                                      color: "#1565c0",
+                                      fontWeight: 500,
+                                    }}
+                                  />
+                                ))}
+                              </Box>
+                            )}
+                            <Typography variant="caption" color="textSecondary" sx={{ fontSize: "0.7rem" }}>
+                              {moment(target.startDate).format("MMM DD")} - {moment(target.endDate).format("MMM DD, YYYY")}
+                            </Typography>
+                          </Box>
+                          <Box sx={{ textAlign: "right" }}>
+                            <Typography variant="h6" fontWeight="bold" color="primary" sx={{ fontSize: "1rem" }}>
+                              ₹{Number(targetAmount).toLocaleString()}
+                            </Typography>
+                            <Typography variant="caption" color="textSecondary" sx={{ fontSize: "0.65rem" }}>
+                              Target
+                            </Typography>
+                          </Box>
+                        </Box>
+
+                        {/* Progress Bar */}
+                        <Box sx={{ mt: 1 }}>
+                          <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
+                            <Typography variant="caption" color="textSecondary" sx={{ fontSize: "0.7rem" }}>
+                              Progress
+                            </Typography>
+                            <Typography variant="caption" fontWeight={600} color={progressPercent >= 100 ? "#2e7d32" : progressPercent >= 50 ? "#f57c00" : "#d32f2f"} sx={{ fontSize: "0.7rem" }}>
+                              {progressPercent.toFixed(1)}%
+                            </Typography>
+                          </Box>
+                          <Box sx={{ height: 10, backgroundColor: "#e5e7eb", borderRadius: 999, overflow: "hidden" }}>
+                            <Box
+                              sx={{
+                                height: "100%",
+                                width: `${progressPercent}%`,
+                                borderRadius: 999,
+                                background: progressPercent >= 100 
+                                  ? "linear-gradient(90deg, #4caf50 0%, #2e7d32 100%)"
+                                  : progressPercent >= 50
+                                  ? "linear-gradient(90deg, #ff9800 0%, #f57c00 100%)"
+                                  : "linear-gradient(90deg, #f44336 0%, #d32f2f 100%)",
+                                transition: "width 0.3s ease",
+                              }}
+                            />
+                          </Box>
+                          <Box sx={{ display: "flex", justifyContent: "space-between", mt: 0.75 }}>
+                            <Box>
+                              <Typography variant="caption" color="textSecondary" sx={{ fontSize: "0.65rem", display: "block" }}>
+                                Achieved: ₹{Number(achievedAmount).toLocaleString()}
+                              </Typography>
+                              <Typography variant="caption" color="textSecondary" sx={{ fontSize: "0.65rem", display: "block" }}>
+                                Remaining: ₹{Number(remainingAmount).toLocaleString()}
+                              </Typography>
+                            </Box>
+                            {orderCount > 0 && (
+                              <Box sx={{ textAlign: "right" }}>
+                                <Typography variant="caption" fontWeight={600} color="primary" sx={{ fontSize: "0.7rem", display: "block" }}>
+                                  {orderCount} Order{orderCount > 1 ? "s" : ""}
+                                </Typography>
+                              </Box>
+                            )}
+                          </Box>
+                        </Box>
+
+                        {/* Achieved Orders List */}
+                        {achievedOrders.length > 0 && (
+                          <Box sx={{ mt: 1.5, pt: 1.5, borderTop: "1px solid #e5e7eb" }}>
+                            <Button
+                              size="small"
+                              onClick={() => setExpandedTargetId(expandedTargetId === target._id ? null : target._id)}
+                              endIcon={expandedTargetId === target._id ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                              sx={{ textTransform: "none", fontSize: "0.75rem", p: 0, minWidth: "auto" }}>
+                              View {achievedOrders.length} Order{achievedOrders.length > 1 ? "s" : ""}
+                            </Button>
+                            {expandedTargetId === target._id && (
+                              <Box sx={{ mt: 1 }}>
+                                {achievedOrders.map((order, orderIdx) => (
+                                  <Card
+                                    key={orderIdx}
+                                    sx={{
+                                      mb: 1,
+                                      backgroundColor: "#fafafa",
+                                      borderRadius: "8px",
+                                      boxShadow: "none",
+                                      border: "1px solid #e0e0e0",
+                                    }}>
+                                    <CardContent sx={{ p: 1, "&:last-child": { pb: 1 } }}>
+                                      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 0.5 }}>
+                                        <Box sx={{ flex: 1 }}>
+                                          <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+                                            <Typography variant="body2" fontWeight="bold" sx={{ fontSize: "0.8rem" }}>
+                                              {order.productName || order.ramAgriCropName || "Product"}
+                                            </Typography>
+                                            <Typography variant="caption" color="textSecondary" sx={{ fontSize: "0.65rem" }}>
+                                              {order.orderNumber}
+                                            </Typography>
+                                          </Box>
+                                          <Typography variant="caption" color="textSecondary" sx={{ fontSize: "0.65rem", display: "block", mt: 0.25 }}>
+                                            {moment(order.orderDate).format("MMM DD, YYYY")}
+                                          </Typography>
+                                        </Box>
+                                        <Chip
+                                          label={order.orderStatus}
+                                          size="small"
+                                          sx={{
+                                            fontSize: "0.6rem",
+                                            height: "18px",
+                                            backgroundColor: order.orderStatus === "COMPLETED" ? "#e8f5e9" : order.orderStatus === "DISPATCHED" ? "#e3f2fd" : "#fff3e0",
+                                            color: order.orderStatus === "COMPLETED" ? "#2e7d32" : order.orderStatus === "DISPATCHED" ? "#1565c0" : "#f57c00",
+                                            fontWeight: 600,
+                                          }}
+                                        />
+                                      </Box>
+                                      <Box sx={{ display: "flex", gap: 1, mt: 0.75, flexWrap: "wrap" }}>
+                                        <Typography variant="caption" sx={{ fontSize: "0.7rem" }}>
+                                          Qty: <strong>{order.quantity}</strong>
+                                        </Typography>
+                                        <Typography variant="caption" sx={{ fontSize: "0.7rem" }}>
+                                          Rate: ₹<strong>{Number(order.rate || 0).toLocaleString()}</strong>
+                                        </Typography>
+                                        <Typography variant="caption" fontWeight="bold" sx={{ fontSize: "0.75rem", color: "#2e7d32" }}>
+                                          Amount: ₹{Number(order.totalAmount || 0).toLocaleString()}
+                                        </Typography>
+                                      </Box>
+                                    </CardContent>
+                                  </Card>
+                                ))}
+                              </Box>
+                            )}
+                          </Box>
+                        )}
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </Box>
+            )}
+          </>
+        ) : null}
       </Box>
 
       {/* FAB Button for Add Order (only on Orders tab) */}
@@ -3184,6 +4250,12 @@ const AgriSalesOrderMobile = () => {
                   <Typography variant="body2" fontWeight="bold" sx={{ fontSize: "0.9rem" }}>
                     ₹{selectedOrder.totalAmount?.toLocaleString()}
                   </Typography>
+                  {/* Show final quantity calculation for completed orders */}
+                  {selectedOrder.orderStatus === "COMPLETED" && selectedOrder.deliveredQuantity > 0 && selectedOrder.deliveredQuantity !== selectedOrder.quantity && (
+                    <Typography variant="caption" sx={{ fontSize: "0.65rem", color: "#0f766e", display: "block", mt: 0.25 }}>
+                      (Final: {selectedOrder.deliveredQuantity} × ₹{selectedOrder.rate})
+                    </Typography>
+                  )}
                 </Grid>
                 <Grid item xs={6}>
                   <Typography variant="caption" color="textSecondary" sx={{ fontSize: "0.7rem" }}>
@@ -3467,37 +4539,6 @@ const AgriSalesOrderMobile = () => {
                                 <DeleteIcon fontSize="small" />
                               </IconButton>
                             </Box>
-
-                            {/* OCR Results Display - Hidden */}
-                            {/* {ocrResult && (
-                              <Box
-                                sx={{
-                                  mt: 0.5,
-                                  p: 0.75,
-                                  bgcolor: "#e8f5e9",
-                                  borderRadius: 0.5,
-                                  border: "1px solid #4caf50",
-                                  fontSize: "0.7rem",
-                                  maxWidth: 200,
-                                }}
-                              >
-                                {ocrResult.amount && (
-                                  <Typography variant="caption" sx={{ display: "block", fontWeight: 600, color: "#2e7d32" }}>
-                                    Amount: ₹{ocrResult.amount}
-                                  </Typography>
-                                )}
-                                {ocrResult.chequeNumber && (
-                                  <Typography variant="caption" sx={{ display: "block", fontSize: "0.65rem", color: "#555" }}>
-                                    Cheque: {ocrResult.chequeNumber}
-                                  </Typography>
-                                )}
-                                {ocrResult.transactionId && (
-                                  <Typography variant="caption" sx={{ display: "block", fontSize: "0.65rem", color: "#555" }}>
-                                    Txn ID: {ocrResult.transactionId}
-                                  </Typography>
-                                )}
-                              </Box>
-                            )} */}
                           </Box>
                         );
                       })}
@@ -3519,75 +4560,61 @@ const AgriSalesOrderMobile = () => {
         </DialogContent>
 
         <DialogActions sx={{ p: 2, pt: 1 }}>
-          <Button
-            onClick={() => {
-              setShowPaymentModal(false);
-              setSelectedOrder(null);
-            }}
-            size="small">
+          <Button onClick={() => {
+            setShowPaymentModal(false);
+            setSelectedOrder(null);
+          }} sx={{ textTransform: "none" }}>
             Cancel
           </Button>
           <Button
             onClick={handleAddPayment}
             variant="contained"
-            size="small"
-            disabled={
-              !paymentForm.paidAmount ||
-              !paymentForm.modeOfPayment ||
-              (paymentForm.modeOfPayment !== "Cash" &&
-                paymentForm.modeOfPayment !== "NEFT/RTGS" &&
-                paymentForm.receiptPhoto.length === 0) ||
-              loading
-            }
-            startIcon={<PaymentIcon />}>
-            {loading ? "Adding..." : "Add Payment"}
+            disabled={!paymentForm.paidAmount || !paymentForm.modeOfPayment || uploadingImages}
+            sx={{ textTransform: "none", backgroundColor: "#43a047", "&:hover": { backgroundColor: "#388e3c" } }}>
+            Add Payment
           </Button>
         </DialogActions>
       </Dialog>
 
-      {/* Image Preview Dialog */}
-      <Dialog
-        open={!!previewImage}
-        onClose={() => setPreviewImage(null)}
-        maxWidth="md"
-        fullWidth
-        PaperProps={{
-          sx: {
-            maxHeight: "90vh",
-            backgroundColor: "rgba(0, 0, 0, 0.9)",
-          },
-        }}
-      >
-        <DialogTitle
-          component="div"
-          sx={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            color: "white",
-            padding: "12px 16px",
-          }}
-        >
-          <Typography variant="h6">Receipt Photo Preview</Typography>
-          <IconButton onClick={() => setPreviewImage(null)} sx={{ color: "white" }}>
-            <CloseIcon />
-          </IconButton>
-        </DialogTitle>
-        <DialogContent sx={{ padding: 2, display: "flex", justifyContent: "center", alignItems: "center", backgroundColor: "rgba(0, 0, 0, 0.9)" }}>
-          {previewImage && (
+      {/* Image Preview Modal */}
+      {previewImage && (
+        <Dialog
+          open={!!previewImage}
+          onClose={() => setPreviewImage(null)}
+          maxWidth="md"
+          fullWidth
+          PaperProps={{
+            sx: {
+              backgroundColor: "transparent",
+              boxShadow: "none",
+            },
+          }}>
+          <Box sx={{ position: "relative", display: "flex", justifyContent: "center", alignItems: "center", p: 2 }}>
+            <IconButton
+              onClick={() => setPreviewImage(null)}
+              sx={{
+                position: "absolute",
+                top: 8,
+                right: 8,
+                backgroundColor: "rgba(0,0,0,0.5)",
+                color: "white",
+                "&:hover": { backgroundColor: "rgba(0,0,0,0.7)" },
+              }}>
+              <CloseIcon />
+            </IconButton>
             <img
               src={previewImage}
-              alt="Receipt preview"
+              alt="Preview"
               style={{
                 maxWidth: "100%",
-                maxHeight: "75vh",
-                objectFit: "contain",
-                borderRadius: 4,
+                maxHeight: "80vh",
+                borderRadius: "8px",
+                boxShadow: "0 4px 20px rgba(0,0,0,0.3)",
               }}
             />
-          )}
-        </DialogContent>
-      </Dialog>
+          </Box>
+        </Dialog>
+      )}
 
       {/* Dispatch Modal */}
       <Dialog
@@ -3618,26 +4645,16 @@ const AgriSalesOrderMobile = () => {
         <DialogTitle
           component="div"
           sx={{
-            background: dispatchForm.dispatchMode === "VEHICLE" 
-              ? "linear-gradient(135deg, #1565c0 0%, #0d47a1 100%)"
-              : "linear-gradient(135deg, #7b1fa2 0%, #4a148c 100%)",
+            background: "linear-gradient(135deg, #1565c0 0%, #0d47a1 100%)",
             color: "white",
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
             py: 1.5,
           }}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-            {dispatchForm.dispatchMode === "VEHICLE" ? <LocalShippingIcon /> : <InventoryIcon />}
-            <Box>
-              <Typography variant="h6" sx={{ fontSize: "1rem", fontWeight: 600 }}>
-                Dispatch Orders
-              </Typography>
-              <Typography variant="caption" sx={{ fontSize: "0.75rem", opacity: 0.9 }}>
-                {selectedOrdersForDispatch.length} order(s) • {dispatchForm.dispatchMode === "VEHICLE" ? "By Vehicle" : "By Courier"}
-              </Typography>
-            </Box>
-          </Box>
+          <Typography variant="h6" sx={{ fontSize: "1rem", fontWeight: 600 }}>
+            Dispatch Orders ({selectedOrdersForDispatch.length})
+          </Typography>
           <IconButton
             onClick={() => {
               setShowDispatchModal(false);
@@ -3659,196 +4676,102 @@ const AgriSalesOrderMobile = () => {
         </DialogTitle>
 
         <DialogContent sx={{ p: 2 }}>
-          {/* Selected Orders Summary */}
-          <Box sx={{ mb: 2, p: 1.5, backgroundColor: "#e3f2fd", borderRadius: "8px" }}>
-            <Typography variant="caption" fontWeight="bold" sx={{ fontSize: "0.75rem", color: "#1565c0", mb: 1, display: "block" }}>
-              SELECTED ORDERS
-            </Typography>
-            <Box sx={{ maxHeight: "100px", overflowY: "auto" }}>
-              {orders
-                .filter((o) => selectedOrdersForDispatch.includes(o._id))
-                .map((order) => (
-                  <Box
-                    key={order._id}
-                    sx={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      py: 0.5,
-                      borderBottom: "1px solid #bbdefb",
-                      "&:last-child": { borderBottom: "none" },
-                    }}>
-                    <Typography variant="caption" sx={{ fontSize: "0.7rem", fontWeight: 600 }}>
-                      {order.orderNumber}
-                    </Typography>
-                    <Typography variant="caption" sx={{ fontSize: "0.7rem", color: "#666" }}>
-                      {order.customerName} • {order.customerVillage}
-                    </Typography>
-                  </Box>
-                ))}
-            </Box>
-          </Box>
-
-          {/* Dispatch Mode Toggle */}
-          <Box sx={{ mb: 2 }}>
-            <Typography variant="caption" fontWeight="bold" sx={{ fontSize: "0.75rem", color: "#666", mb: 1, display: "block" }}>
-              DISPATCH MODE
-            </Typography>
-            <Box sx={{ display: "flex", gap: 1 }}>
-              <Button
-                variant={dispatchForm.dispatchMode === "VEHICLE" ? "contained" : "outlined"}
-                size="small"
-                onClick={() => setDispatchForm((prev) => ({ ...prev, dispatchMode: "VEHICLE" }))}
-                startIcon={<LocalShippingIcon />}
-                sx={{
-                  flex: 1,
-                  backgroundColor: dispatchForm.dispatchMode === "VEHICLE" ? "#1565c0" : "transparent",
-                  borderColor: "#1565c0",
-                  color: dispatchForm.dispatchMode === "VEHICLE" ? "white" : "#1565c0",
-                  "&:hover": {
-                    backgroundColor: dispatchForm.dispatchMode === "VEHICLE" ? "#0d47a1" : "rgba(21, 101, 192, 0.1)",
-                  },
-                }}>
-                Vehicle
-              </Button>
-              <Button
-                variant={dispatchForm.dispatchMode === "COURIER" ? "contained" : "outlined"}
-                size="small"
-                onClick={() => setDispatchForm((prev) => ({ ...prev, dispatchMode: "COURIER" }))}
-                startIcon={<InventoryIcon />}
-                sx={{
-                  flex: 1,
-                  backgroundColor: dispatchForm.dispatchMode === "COURIER" ? "#7b1fa2" : "transparent",
-                  borderColor: "#7b1fa2",
-                  color: dispatchForm.dispatchMode === "COURIER" ? "white" : "#7b1fa2",
-                  "&:hover": {
-                    backgroundColor: dispatchForm.dispatchMode === "COURIER" ? "#4a148c" : "rgba(123, 31, 162, 0.1)",
-                  },
-                }}>
-                Courier
-              </Button>
-            </Box>
-          </Box>
-
           <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-            {/* Vehicle Mode Fields */}
-            {dispatchForm.dispatchMode === "VEHICLE" && (
+            <FormControl fullWidth size="small" required>
+              <InputLabel>Dispatch Mode</InputLabel>
+              <Select
+                value={dispatchForm.dispatchMode}
+                onChange={(e) => {
+                  setDispatchForm({ ...dispatchForm, dispatchMode: e.target.value });
+                }}
+                label="Dispatch Mode">
+                <MenuItem value="VEHICLE">Vehicle</MenuItem>
+                <MenuItem value="COURIER">Courier</MenuItem>
+              </Select>
+            </FormControl>
+
+            {dispatchForm.dispatchMode === "VEHICLE" ? (
               <>
-                {/* Vehicle Selection */}
-                <FormControl fullWidth size="small">
-                  <InputLabel>Select Vehicle</InputLabel>
+                <FormControl fullWidth size="small" required>
+                  <InputLabel>Vehicle</InputLabel>
                   <Select
                     value={dispatchForm.vehicleId}
-                    onChange={(e) => handleVehicleSelect(e.target.value)}
-                    label="Select Vehicle">
-                    <MenuItem value="">
-                      <em>Enter manually</em>
-                    </MenuItem>
-                    {Array.isArray(vehicles) && vehicles.map((vehicle) => (
-                      <MenuItem key={vehicle._id || vehicle.id} value={vehicle._id || vehicle.id}>
-                        <Box sx={{ display: "flex", flexDirection: "column" }}>
-                          <Typography variant="body2" fontWeight="bold">
-                            {vehicle.number} - {vehicle.name}
-                          </Typography>
-                          {vehicle.driverName && (
-                            <Typography variant="caption" color="textSecondary">
-                              Driver: {vehicle.driverName} ({vehicle.driverMobile})
-                            </Typography>
-                          )}
-                        </Box>
+                    onChange={(e) => {
+                      const vehicle = vehicles.find((v) => v._id === e.target.value);
+                      setDispatchForm({
+                        ...dispatchForm,
+                        vehicleId: e.target.value,
+                        vehicleNumber: vehicle?.vehicleNumber || "",
+                        driverName: vehicle?.driverName || "",
+                        driverMobile: vehicle?.driverMobile || "",
+                      });
+                    }}
+                    label="Vehicle">
+                    {vehicles.map((vehicle) => (
+                      <MenuItem key={vehicle._id} value={vehicle._id}>
+                        {vehicle.vehicleNumber} - {vehicle.driverName}
                       </MenuItem>
                     ))}
                   </Select>
                 </FormControl>
 
-                {/* Vehicle Number (manual entry or auto-filled) */}
-                <TextField
-                  fullWidth
-                  label="Vehicle Number"
-                  value={dispatchForm.vehicleNumber}
-                  onChange={(e) => setDispatchForm((prev) => ({ ...prev, vehicleNumber: e.target.value.toUpperCase() }))}
-                  size="small"
-                  required
-                  placeholder="e.g., MH12AB1234"
-                />
-
-                {/* Driver Name */}
                 <TextField
                   fullWidth
                   label="Driver Name"
                   value={dispatchForm.driverName}
-                  onChange={(e) => setDispatchForm((prev) => ({ ...prev, driverName: e.target.value }))}
+                  onChange={(e) => setDispatchForm({ ...dispatchForm, driverName: e.target.value })}
                   size="small"
                   required
                 />
 
-                {/* Driver Mobile */}
                 <TextField
                   fullWidth
                   label="Driver Mobile"
                   value={dispatchForm.driverMobile}
-                  onChange={(e) => {
-                    const value = e.target.value.replace(/\D/g, "").slice(0, 10);
-                    setDispatchForm((prev) => ({ ...prev, driverMobile: value }));
-                  }}
+                  onChange={(e) => setDispatchForm({ ...dispatchForm, driverMobile: e.target.value })}
                   size="small"
                   required
-                  placeholder="10 digit mobile number"
-                  inputProps={{ maxLength: 10 }}
+                  type="tel"
                 />
               </>
-            )}
-
-            {/* Courier Mode Fields */}
-            {dispatchForm.dispatchMode === "COURIER" && (
+            ) : (
               <>
-                {/* Courier Service Name */}
                 <TextField
                   fullWidth
-                  label="Courier Service Name"
+                  label="Courier Name"
                   value={dispatchForm.courierName}
-                  onChange={(e) => setDispatchForm((prev) => ({ ...prev, courierName: e.target.value }))}
+                  onChange={(e) => setDispatchForm({ ...dispatchForm, courierName: e.target.value })}
                   size="small"
                   required
-                  placeholder="e.g., Delhivery, BlueDart, DTDC"
                 />
 
-                {/* Tracking ID */}
                 <TextField
                   fullWidth
-                  label="Tracking ID (Optional)"
+                  label="Tracking ID"
                   value={dispatchForm.courierTrackingId}
-                  onChange={(e) => setDispatchForm((prev) => ({ ...prev, courierTrackingId: e.target.value.toUpperCase() }))}
+                  onChange={(e) => setDispatchForm({ ...dispatchForm, courierTrackingId: e.target.value })}
                   size="small"
-                  placeholder="AWB / Tracking Number"
                 />
 
-                {/* Courier Contact */}
                 <TextField
                   fullWidth
-                  label="Courier Contact (Optional)"
+                  label="Courier Contact"
                   value={dispatchForm.courierContact}
-                  onChange={(e) => {
-                    const value = e.target.value.replace(/\D/g, "").slice(0, 10);
-                    setDispatchForm((prev) => ({ ...prev, courierContact: value }));
-                  }}
+                  onChange={(e) => setDispatchForm({ ...dispatchForm, courierContact: e.target.value })}
                   size="small"
-                  placeholder="Contact number"
-                  inputProps={{ maxLength: 10 }}
+                  type="tel"
                 />
               </>
             )}
 
-            {/* Dispatch Notes */}
             <TextField
               fullWidth
               label="Dispatch Notes (Optional)"
               value={dispatchForm.dispatchNotes}
-              onChange={(e) => setDispatchForm((prev) => ({ ...prev, dispatchNotes: e.target.value }))}
+              onChange={(e) => setDispatchForm({ ...dispatchForm, dispatchNotes: e.target.value })}
               size="small"
               multiline
               rows={2}
-              placeholder="Any special instructions..."
             />
           </Box>
         </DialogContent>
@@ -3869,35 +4792,20 @@ const AgriSalesOrderMobile = () => {
                 dispatchNotes: "",
               });
             }}
-            size="small">
+            sx={{ textTransform: "none" }}>
             Cancel
           </Button>
           <Button
             onClick={handleDispatch}
             variant="contained"
-            size="small"
-            disabled={
-              dispatchLoading ||
-              (dispatchForm.dispatchMode === "VEHICLE" && (
-                !dispatchForm.vehicleNumber ||
-                !dispatchForm.driverName ||
-                dispatchForm.driverMobile.length !== 10
-              )) ||
-              (dispatchForm.dispatchMode === "COURIER" && !dispatchForm.courierName)
-            }
-            startIcon={dispatchForm.dispatchMode === "VEHICLE" ? <LocalShippingIcon /> : <InventoryIcon />}
-            sx={{
-              backgroundColor: dispatchForm.dispatchMode === "VEHICLE" ? "#1565c0" : "#7b1fa2",
-              "&:hover": { 
-                backgroundColor: dispatchForm.dispatchMode === "VEHICLE" ? "#0d47a1" : "#4a148c" 
-              },
-            }}>
-            {dispatchLoading ? "Dispatching..." : `Dispatch ${selectedOrdersForDispatch.length} Order(s)`}
+            disabled={dispatchLoading}
+            sx={{ textTransform: "none", backgroundColor: "#1565c0", "&:hover": { backgroundColor: "#0d47a1" } }}>
+            {dispatchLoading ? <CircularProgress size={20} sx={{ color: "white" }} /> : "Dispatch"}
           </Button>
         </DialogActions>
       </Dialog>
 
-      {/* Complete Order Modal */}
+      {/* Complete Orders Modal */}
       <Dialog
         open={showCompleteModal}
         onClose={() => {
@@ -3927,17 +4835,9 @@ const AgriSalesOrderMobile = () => {
             alignItems: "center",
             py: 1.5,
           }}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-            <CheckCircleIcon />
-            <Box>
-              <Typography variant="h6" sx={{ fontSize: "1rem", fontWeight: 600 }}>
-                Complete Orders
-              </Typography>
-              <Typography variant="caption" sx={{ fontSize: "0.75rem", opacity: 0.9 }}>
-                {selectedOrdersForComplete.length} order(s) • Mark as Delivered
-              </Typography>
-            </Box>
-          </Box>
+          <Typography variant="h6" sx={{ fontSize: "1rem", fontWeight: 600 }}>
+            Complete Orders ({selectedOrdersForComplete.length})
+          </Typography>
           <IconButton
             onClick={() => {
               setShowCompleteModal(false);
@@ -3953,125 +4853,60 @@ const AgriSalesOrderMobile = () => {
         </DialogTitle>
 
         <DialogContent sx={{ p: 2 }}>
-          {/* Selected Orders with Return Quantity Input */}
-          <Box sx={{ mb: 2 }}>
-            <Typography variant="caption" fontWeight="bold" sx={{ fontSize: "0.75rem", color: "#2e7d32", mb: 1, display: "block" }}>
-              ORDERS TO COMPLETE (Enter return quantity if any)
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            <Typography variant="body2" sx={{ fontSize: "0.85rem", color: "#666" }}>
+              Enter return quantities for orders that have partial returns. Leave as 0 for orders delivered completely.
             </Typography>
-            <Box sx={{ maxHeight: "250px", overflowY: "auto" }}>
+
+            <Box sx={{ maxHeight: "300px", overflowY: "auto" }}>
               {(activeTab === 2 ? dispatchedOrders : orders)
                 .filter((o) => selectedOrdersForComplete.includes(o._id))
                 .map((order) => (
-                  <Box
-                    key={order._id}
-                    sx={{
-                      p: 1.5,
-                      mb: 1,
-                      backgroundColor: "#f5f5f5",
-                      borderRadius: "8px",
-                      border: "1px solid #e0e0e0",
-                    }}>
-                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
-                      <Box>
-                        <Typography variant="body2" fontWeight="bold" sx={{ fontSize: "0.8rem" }}>
-                          {order.orderNumber}
-                        </Typography>
-                        <Typography variant="caption" sx={{ fontSize: "0.7rem", color: "#666" }}>
-                          {order.customerName} • {order.customerVillage}
-                        </Typography>
-                      </Box>
-                      <Chip
-                        label={`Qty: ${order.quantity}`}
-                        size="small"
-                        sx={{ fontSize: "0.65rem", height: "20px", backgroundColor: "#e3f2fd", color: "#1565c0" }}
-                      />
-                    </Box>
-                    <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                      <Typography variant="caption" sx={{ fontSize: "0.7rem", color: "#666", minWidth: "80px" }}>
-                        Return Qty:
-                      </Typography>
-                      <TextField
-                        type="number"
-                        size="small"
-                        value={completeForm.returnQuantities[order._id] || 0}
-                        onChange={(e) => {
-                          const value = Math.max(0, Math.min(order.quantity, parseInt(e.target.value) || 0));
-                          setCompleteForm((prev) => ({
-                            ...prev,
-                            returnQuantities: {
-                              ...prev.returnQuantities,
-                              [order._id]: value,
-                            },
-                          }));
-                        }}
-                        inputProps={{ min: 0, max: order.quantity, style: { textAlign: "center" } }}
-                        sx={{ width: "80px" }}
-                      />
-                      <Typography variant="caption" sx={{ fontSize: "0.7rem", color: "#666" }}>
-                        / {order.quantity}
-                      </Typography>
-                      {(completeForm.returnQuantities[order._id] || 0) > 0 && (
-                        <Chip
-                          label={`Delivering: ${order.quantity - (completeForm.returnQuantities[order._id] || 0)}`}
-                          size="small"
-                          sx={{ fontSize: "0.6rem", height: "18px", backgroundColor: "#e8f5e9", color: "#2e7d32" }}
-                        />
-                      )}
-                    </Box>
+                  <Box key={order._id} sx={{ mb: 2, p: 1.5, backgroundColor: "#f5f5f5", borderRadius: "8px" }}>
+                    <Typography variant="subtitle2" fontWeight="bold" sx={{ fontSize: "0.85rem", mb: 1 }}>
+                      {order.orderNumber} - {order.customerName}
+                    </Typography>
+                    <Typography variant="caption" color="textSecondary" sx={{ fontSize: "0.7rem", display: "block", mb: 1 }}>
+                      Original Qty: {order.quantity} • Delivered: {order.deliveredQuantity || order.quantity}
+                    </Typography>
+                    <TextField
+                      fullWidth
+                      label="Return Quantity"
+                      type="number"
+                      value={completeForm.returnQuantities[order._id] || 0}
+                      onChange={(e) => {
+                        setCompleteForm({
+                          ...completeForm,
+                          returnQuantities: {
+                            ...completeForm.returnQuantities,
+                            [order._id]: parseInt(e.target.value) || 0,
+                          },
+                        });
+                      }}
+                      size="small"
+                      inputProps={{ min: 0, max: order.quantity }}
+                    />
                   </Box>
                 ))}
             </Box>
-          </Box>
 
-          {/* Return Reason (shown if any returns) */}
-          {Object.values(completeForm.returnQuantities).some((q) => q > 0) && (
-            <Box sx={{ mb: 2 }}>
-              <TextField
-                fullWidth
-                label="Return Reason"
-                value={completeForm.returnReason}
-                onChange={(e) => setCompleteForm((prev) => ({ ...prev, returnReason: e.target.value }))}
-                size="small"
-                placeholder="e.g., Damaged, Wrong product, Customer refused"
-              />
-            </Box>
-          )}
+            <TextField
+              fullWidth
+              label="Return Reason (Optional)"
+              value={completeForm.returnReason}
+              onChange={(e) => setCompleteForm({ ...completeForm, returnReason: e.target.value })}
+              size="small"
+            />
 
-          {/* Notes */}
-          <TextField
-            fullWidth
-            label="Notes (Optional)"
-            value={completeForm.returnNotes}
-            onChange={(e) => setCompleteForm((prev) => ({ ...prev, returnNotes: e.target.value }))}
-            size="small"
-            multiline
-            rows={2}
-            placeholder="Any additional notes..."
-          />
-
-          {/* Summary */}
-          <Box sx={{ mt: 2, p: 1.5, backgroundColor: "#e8f5e9", borderRadius: "8px" }}>
-            <Typography variant="caption" fontWeight="bold" sx={{ fontSize: "0.75rem", color: "#2e7d32", display: "block", mb: 0.5 }}>
-              SUMMARY
-            </Typography>
-            <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-              <Typography variant="caption" sx={{ fontSize: "0.7rem" }}>
-                Total Orders: {selectedOrdersForComplete.length}
-              </Typography>
-              <Typography variant="caption" sx={{ fontSize: "0.7rem" }}>
-                With Returns: {Object.values(completeForm.returnQuantities).filter((q) => q > 0).length}
-              </Typography>
-            </Box>
-            {Object.values(completeForm.returnQuantities).some((q) => q > 0) && (
-              <>
-                <Typography variant="caption" sx={{ fontSize: "0.7rem", color: "#e65100", display: "block", mt: 0.5 }}>
-                  ⚠️ Returned stock will be added back to inventory (office-dispatched only).
-                </Typography>
-                <Typography variant="caption" sx={{ fontSize: "0.65rem", color: "#0f766e", display: "block", mt: 0.25 }}>
-                  Orders you dispatched: no stock add/subtract.
-                </Typography>
-              </>
-            )}
+            <TextField
+              fullWidth
+              label="Return Notes (Optional)"
+              value={completeForm.returnNotes}
+              onChange={(e) => setCompleteForm({ ...completeForm, returnNotes: e.target.value })}
+              size="small"
+              multiline
+              rows={2}
+            />
           </Box>
         </DialogContent>
 
@@ -4085,21 +4920,16 @@ const AgriSalesOrderMobile = () => {
                 returnNotes: "",
               });
             }}
-            size="small">
+            sx={{ textTransform: "none" }}>
             Cancel
           </Button>
           <Button
             onClick={handleCompleteOrders}
             variant="contained"
-            color="success"
-            size="small"
             disabled={completeLoading}
-            startIcon={<CheckCircleIcon />}
-            sx={{
-              backgroundColor: "#2e7d32",
-              "&:hover": { backgroundColor: "#1b5e20" },
-            }}>
-            {completeLoading ? "Completing..." : `Complete ${selectedOrdersForComplete.length} Order(s)`}
+            color="success"
+            sx={{ textTransform: "none", backgroundColor: "#2e7d32", "&:hover": { backgroundColor: "#1b5e20" } }}>
+            {completeLoading ? <CircularProgress size={20} sx={{ color: "white" }} /> : "Complete"}
           </Button>
         </DialogActions>
       </Dialog>
@@ -4129,24 +4959,16 @@ const AgriSalesOrderMobile = () => {
         <DialogTitle
           component="div"
           sx={{
-            background: "linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%)",
+            background: "linear-gradient(135deg, #f57c00 0%, #e65100 100%)",
             color: "white",
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
             py: 1.5,
           }}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-            <InventoryIcon />
-            <Box>
-              <Typography variant="h6" sx={{ fontSize: "1rem", fontWeight: 600 }}>
-                Process Sales Return
-              </Typography>
-              <Typography variant="caption" sx={{ fontSize: "0.75rem", opacity: 0.9 }}>
-                {selectedOrderForSalesReturn?.orderNumber || ""} • NO Stock Impact
-              </Typography>
-            </Box>
-          </Box>
+          <Typography variant="h6" sx={{ fontSize: "1rem", fontWeight: 600 }}>
+            Sales Return - {selectedOrderForSalesReturn?.orderNumber}
+          </Typography>
           <IconButton
             onClick={() => {
               setShowSalesReturnModal(false);
@@ -4165,186 +4987,123 @@ const AgriSalesOrderMobile = () => {
 
         <DialogContent sx={{ p: 2 }}>
           {selectedOrderForSalesReturn && (
-            <>
-              {/* Order Info */}
-              <Box sx={{ mb: 2, p: 1.5, backgroundColor: "#f5f5f5", borderRadius: "8px" }}>
-                <Typography variant="body2" fontWeight="bold" sx={{ fontSize: "0.85rem", mb: 0.5 }}>
-                  {selectedOrderForSalesReturn.customerName}
-                </Typography>
-                <Typography variant="caption" sx={{ fontSize: "0.7rem", color: "#666", display: "block" }}>
-                  Order: {selectedOrderForSalesReturn.orderNumber}
-                </Typography>
-                <Typography variant="caption" sx={{ fontSize: "0.7rem", color: "#666", display: "block" }}>
-                  Quantity: {selectedOrderForSalesReturn.quantity} | Rate: ₹{selectedOrderForSalesReturn.rate}
-                </Typography>
-                <Typography variant="caption" sx={{ fontSize: "0.7rem", color: "#666", display: "block" }}>
-                  Total: ₹{selectedOrderForSalesReturn.totalAmount}
-                </Typography>
-              </Box>
-
-              {/* Return Quantity */}
-              <Box sx={{ mb: 2 }}>
-                <TextField
-                  fullWidth
-                  label="Return Quantity"
-                  type="number"
-                  value={salesReturnForm.returnQuantity}
-                  onChange={(e) => {
-                    const value = Math.max(0, Math.min(selectedOrderForSalesReturn.quantity, parseFloat(e.target.value) || 0));
-                    setSalesReturnForm((prev) => ({ ...prev, returnQuantity: value }));
-                  }}
-                  inputProps={{ min: 0, max: selectedOrderForSalesReturn.quantity }}
-                  size="small"
-                  helperText={`Max: ${selectedOrderForSalesReturn.quantity} (Delivered: ${selectedOrderForSalesReturn.quantity - (salesReturnForm.returnQuantity || 0)})`}
-                />
-              </Box>
-
-              {/* Return Reason */}
-              <Box sx={{ mb: 2 }}>
-                <TextField
-                  fullWidth
-                  label="Return Reason"
-                  value={salesReturnForm.returnReason}
-                  onChange={(e) => setSalesReturnForm((prev) => ({ ...prev, returnReason: e.target.value }))}
-                  size="small"
-                  placeholder="e.g., Damaged, Wrong product, Customer refused"
-                />
-              </Box>
-
-              {/* Return Notes */}
-              <Box sx={{ mb: 2 }}>
-                <TextField
-                  fullWidth
-                  label="Return Notes (Optional)"
-                  value={salesReturnForm.returnNotes}
-                  onChange={(e) => setSalesReturnForm((prev) => ({ ...prev, returnNotes: e.target.value }))}
-                  size="small"
-                  multiline
-                  rows={2}
-                  placeholder="Any additional notes..."
-                />
-              </Box>
-
-              {/* Payment Adjustments Section */}
-              <Box sx={{ mb: 2, p: 1.5, backgroundColor: "#fff3e0", borderRadius: "8px", border: "1px solid #ffb74d" }}>
-                <Typography variant="caption" fontWeight="bold" sx={{ fontSize: "0.75rem", color: "#e65100", display: "block", mb: 1 }}>
-                  PAYMENT ADJUSTMENTS (Optional)
-                </Typography>
-                <Typography variant="caption" sx={{ fontSize: "0.65rem", color: "#666", display: "block", mb: 1 }}>
-                  Add refunds, credits, or deductions. Negative amounts reduce total paid.
-                </Typography>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  onClick={() => {
-                    setSalesReturnForm((prev) => ({
-                      ...prev,
-                      paymentAdjustments: [
-                        ...prev.paymentAdjustments,
-                        { amount: 0, adjustmentType: "REFUND", reason: "", notes: "" },
-                      ],
-                    }));
-                  }}
-                  sx={{ fontSize: "0.7rem", mt: 0.5 }}>
-                  + Add Payment Adjustment
-                </Button>
-
-                {/* Payment Adjustments List */}
-                {salesReturnForm.paymentAdjustments.length > 0 && (
-                  <Box sx={{ mt: 1 }}>
-                    {salesReturnForm.paymentAdjustments.map((adj, idx) => (
-                      <Box key={idx} sx={{ mb: 1, p: 1, backgroundColor: "white", borderRadius: "4px", border: "1px solid #e0e0e0" }}>
-                        <Box sx={{ display: "flex", gap: 1, mb: 0.5 }}>
-                          <TextField
-                            size="small"
-                            type="number"
-                            label="Amount"
-                            value={adj.amount}
-                            onChange={(e) => {
-                              const newAdjustments = [...salesReturnForm.paymentAdjustments];
-                              newAdjustments[idx].amount = parseFloat(e.target.value) || 0;
-                              setSalesReturnForm((prev) => ({ ...prev, paymentAdjustments: newAdjustments }));
-                            }}
-                            sx={{ flex: 1 }}
-                            helperText="Negative for refunds"
-                          />
-                          <FormControl size="small" sx={{ minWidth: 120 }}>
-                            <InputLabel>Type</InputLabel>
-                            <Select
-                              value={adj.adjustmentType}
-                              label="Type"
-                              onChange={(e) => {
-                                const newAdjustments = [...salesReturnForm.paymentAdjustments];
-                                newAdjustments[idx].adjustmentType = e.target.value;
-                                setSalesReturnForm((prev) => ({ ...prev, paymentAdjustments: newAdjustments }));
-                              }}>
-                              <MenuItem value="REFUND">Refund</MenuItem>
-                              <MenuItem value="CREDIT">Credit</MenuItem>
-                              <MenuItem value="ADJUSTMENT">Adjustment</MenuItem>
-                              <MenuItem value="DEDUCTION">Deduction</MenuItem>
-                            </Select>
-                          </FormControl>
-                          <IconButton
-                            size="small"
-                            onClick={() => {
-                              const newAdjustments = salesReturnForm.paymentAdjustments.filter((_, i) => i !== idx);
-                              setSalesReturnForm((prev) => ({ ...prev, paymentAdjustments: newAdjustments }));
-                            }}
-                            sx={{ color: "#f44336" }}>
-                            <DeleteIcon fontSize="small" />
-                          </IconButton>
-                        </Box>
-                        <TextField
-                          size="small"
-                          fullWidth
-                          label="Reason"
-                          value={adj.reason}
-                          onChange={(e) => {
-                            const newAdjustments = [...salesReturnForm.paymentAdjustments];
-                            newAdjustments[idx].reason = e.target.value;
-                            setSalesReturnForm((prev) => ({ ...prev, paymentAdjustments: newAdjustments }));
-                          }}
-                          sx={{ mb: 0.5 }}
-                        />
-                        <TextField
-                          size="small"
-                          fullWidth
-                          label="Notes"
-                          value={adj.notes}
-                          onChange={(e) => {
-                            const newAdjustments = [...salesReturnForm.paymentAdjustments];
-                            newAdjustments[idx].notes = e.target.value;
-                            setSalesReturnForm((prev) => ({ ...prev, paymentAdjustments: newAdjustments }));
-                          }}
-                        />
-                      </Box>
-                    ))}
-                  </Box>
-                )}
-              </Box>
-
-              {/* Summary */}
-              <Box sx={{ p: 1.5, backgroundColor: "#f3e8ff", borderRadius: "8px", border: "1px solid #b39ddb" }}>
-                <Typography variant="caption" fontWeight="bold" sx={{ fontSize: "0.75rem", color: "#7c3aed", display: "block", mb: 0.5 }}>
-                  SUMMARY
-                </Typography>
-                <Typography variant="caption" sx={{ fontSize: "0.7rem", display: "block" }}>
-                  Return Qty: {salesReturnForm.returnQuantity || 0} / {selectedOrderForSalesReturn.quantity}
-                </Typography>
-                <Typography variant="caption" sx={{ fontSize: "0.7rem", display: "block" }}>
-                  Delivered Qty: {selectedOrderForSalesReturn.quantity - (salesReturnForm.returnQuantity || 0)}
-                </Typography>
-                {salesReturnForm.paymentAdjustments.length > 0 && (
-                  <Typography variant="caption" sx={{ fontSize: "0.7rem", color: "#e65100", display: "block", mt: 0.5 }}>
-                    Payment Adjustments: {salesReturnForm.paymentAdjustments.reduce((sum, adj) => sum + adj.amount, 0).toFixed(2)}
-                  </Typography>
-                )}
-                <Typography variant="caption" sx={{ fontSize: "0.65rem", color: "#7c3aed", display: "block", mt: 0.5, fontStyle: "italic" }}>
-                  ⚠️ Stock will NOT be affected (Sales return)
-                </Typography>
-              </Box>
-            </>
+            <Box sx={{ mb: 2, p: 1.5, backgroundColor: "#fff3e0", borderRadius: "8px" }}>
+              <Typography variant="body2" fontWeight="bold" sx={{ fontSize: "0.85rem", mb: 0.5 }}>
+                {selectedOrderForSalesReturn.customerName}
+              </Typography>
+              <Typography variant="caption" color="textSecondary" sx={{ fontSize: "0.7rem" }}>
+                Original Qty: {selectedOrderForSalesReturn.quantity} • Delivered: {selectedOrderForSalesReturn.deliveredQuantity || selectedOrderForSalesReturn.quantity}
+              </Typography>
+            </Box>
           )}
+
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            <TextField
+              fullWidth
+              label="Return Quantity"
+              type="number"
+              value={salesReturnForm.returnQuantity}
+              onChange={(e) => setSalesReturnForm({ ...salesReturnForm, returnQuantity: parseInt(e.target.value) || 0 })}
+              size="small"
+              required
+              inputProps={{
+                min: 0,
+                max: selectedOrderForSalesReturn?.deliveredQuantity || selectedOrderForSalesReturn?.quantity || 0,
+              }}
+            />
+
+            <TextField
+              fullWidth
+              label="Return Reason"
+              value={salesReturnForm.returnReason}
+              onChange={(e) => setSalesReturnForm({ ...salesReturnForm, returnReason: e.target.value })}
+              size="small"
+              required
+            />
+
+            <TextField
+              fullWidth
+              label="Return Notes (Optional)"
+              value={salesReturnForm.returnNotes}
+              onChange={(e) => setSalesReturnForm({ ...salesReturnForm, returnNotes: e.target.value })}
+              size="small"
+              multiline
+              rows={2}
+            />
+
+            <Box>
+              <Typography variant="body2" sx={{ mb: 1, fontSize: "0.85rem", fontWeight: 600 }}>
+                Payment Adjustments (Optional)
+              </Typography>
+              {salesReturnForm.paymentAdjustments.map((adjustment, index) => (
+                <Box key={index} sx={{ mb: 1, p: 1, backgroundColor: "#f5f5f5", borderRadius: "6px" }}>
+                  <Box sx={{ display: "flex", gap: 1, mb: 1 }}>
+                    <TextField
+                      fullWidth
+                      label="Amount"
+                      type="number"
+                      value={adjustment.amount}
+                      onChange={(e) => {
+                        const updated = [...salesReturnForm.paymentAdjustments];
+                        updated[index].amount = parseFloat(e.target.value) || 0;
+                        setSalesReturnForm({ ...salesReturnForm, paymentAdjustments: updated });
+                      }}
+                      size="small"
+                    />
+                    <FormControl fullWidth size="small">
+                      <InputLabel>Type</InputLabel>
+                      <Select
+                        value={adjustment.adjustmentType}
+                        onChange={(e) => {
+                          const updated = [...salesReturnForm.paymentAdjustments];
+                          updated[index].adjustmentType = e.target.value;
+                          setSalesReturnForm({ ...salesReturnForm, paymentAdjustments: updated });
+                        }}
+                        label="Type">
+                        <MenuItem value="REFUND">Refund</MenuItem>
+                        <MenuItem value="ADJUSTMENT">Adjustment</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Box>
+                  <TextField
+                    fullWidth
+                    label="Reason"
+                    value={adjustment.reason}
+                    onChange={(e) => {
+                      const updated = [...salesReturnForm.paymentAdjustments];
+                      updated[index].reason = e.target.value;
+                      setSalesReturnForm({ ...salesReturnForm, paymentAdjustments: updated });
+                    }}
+                    size="small"
+                    sx={{ mb: 1 }}
+                  />
+                  <Button
+                    size="small"
+                    onClick={() => {
+                      const updated = salesReturnForm.paymentAdjustments.filter((_, i) => i !== index);
+                      setSalesReturnForm({ ...salesReturnForm, paymentAdjustments: updated });
+                    }}
+                    sx={{ fontSize: "0.7rem", textTransform: "none", color: "#f44336" }}>
+                    Remove
+                  </Button>
+                </Box>
+              ))}
+              <Button
+                size="small"
+                onClick={() => {
+                  setSalesReturnForm({
+                    ...salesReturnForm,
+                    paymentAdjustments: [
+                      ...salesReturnForm.paymentAdjustments,
+                      { amount: 0, adjustmentType: "REFUND", reason: "", notes: "" },
+                    ],
+                  });
+                }}
+                sx={{ fontSize: "0.7rem", textTransform: "none" }}>
+                + Add Payment Adjustment
+              </Button>
+            </Box>
+          </Box>
         </DialogContent>
 
         <DialogActions sx={{ p: 2, pt: 1 }}>
@@ -4359,23 +5118,104 @@ const AgriSalesOrderMobile = () => {
                 paymentAdjustments: [],
               });
             }}
-            size="small">
+            sx={{ textTransform: "none" }}>
             Cancel
           </Button>
           <Button
             onClick={handleSalesReturn}
             variant="contained"
-            size="small"
-            disabled={salesReturnLoading || !selectedOrderForSalesReturn}
-            startIcon={<InventoryIcon />}
-            sx={{
-              backgroundColor: "#7c3aed",
-              "&:hover": { backgroundColor: "#5b21b6" },
-            }}>
-            {salesReturnLoading ? "Processing..." : "Process Sales Return"}
+            disabled={salesReturnLoading}
+            sx={{ textTransform: "none", backgroundColor: "#f57c00", "&:hover": { backgroundColor: "#e65100" } }}>
+            {salesReturnLoading ? <CircularProgress size={20} sx={{ color: "white" }} /> : "Process Return"}
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Activity Log Modal */}
+      {selectedOrder && (
+        <Dialog
+          open={showActivityLog}
+          onClose={() => setShowActivityLog(false)}
+          maxWidth="sm"
+          fullWidth
+          PaperProps={{
+            sx: {
+              margin: 1,
+              maxHeight: "calc(100% - 16px)",
+              borderRadius: "12px",
+            },
+          }}>
+          <DialogTitle
+            component="div"
+            sx={{
+              background: "linear-gradient(135deg, #607d8b 0%, #455a64 100%)",
+              color: "white",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              py: 1.5,
+            }}>
+            <Typography variant="h6" sx={{ fontSize: "1rem", fontWeight: 600 }}>
+              Activity Log - {selectedOrder.orderNumber}
+            </Typography>
+            <IconButton onClick={() => setShowActivityLog(false)} sx={{ color: "white", p: 0.5 }}>
+              <CloseIcon fontSize="small" />
+            </IconButton>
+          </DialogTitle>
+
+          <DialogContent sx={{ p: 2 }}>
+            {selectedOrder.activityLog && selectedOrder.activityLog.length > 0 ? (
+              <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                {[...selectedOrder.activityLog].reverse().map((activity, idx) => {
+                  const { icon, color, bg } = getActivityIconAndColor(activity.action);
+                  return (
+                    <Box
+                      key={idx}
+                      sx={{
+                        display: "flex",
+                        gap: 1,
+                        p: 1.5,
+                        backgroundColor: bg,
+                        borderRadius: "8px",
+                        borderLeft: `3px solid ${color}`,
+                      }}>
+                      <Box
+                        sx={{
+                          width: 32,
+                          height: 32,
+                          borderRadius: "50%",
+                          backgroundColor: "white",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          color: color,
+                          flexShrink: 0,
+                        }}>
+                        {icon}
+                      </Box>
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Typography variant="subtitle2" sx={{ fontSize: "0.8rem", fontWeight: 600, color: color, mb: 0.5 }}>
+                          {activity.action.replace(/_/g, " ")}
+                        </Typography>
+                        <Typography variant="body2" sx={{ fontSize: "0.75rem", color: "#333", mb: 0.5 }}>
+                          {activity.description}
+                        </Typography>
+                        <Typography variant="caption" sx={{ fontSize: "0.7rem", color: "#666" }}>
+                          {activity.performedByName || "System"} • {moment(activity.createdAt).format("DD MMM YYYY, hh:mm A")}
+                        </Typography>
+                      </Box>
+                    </Box>
+                  );
+                })}
+              </Box>
+            ) : (
+              <Typography variant="body2" color="textSecondary" sx={{ textAlign: "center", py: 4 }}>
+                No activity log available
+              </Typography>
+            )}
+          </DialogContent>
+        </Dialog>
+      )}
     </Box>
   );
 };

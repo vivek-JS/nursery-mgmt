@@ -83,6 +83,7 @@ export default function PrivateLayout(props) {
   const dispatchRedirectRef = useRef(false)
   const ramAgriSalesRedirectRef = useRef(false)
   const ramAgriSalesManagerRedirectRef = useRef(false)
+  const accountantRedirectRef = useRef(false)
   const lastPathRef = useRef(location.pathname)
   
   console.log("User Type:", userType, "User Role:", userRole)
@@ -105,6 +106,7 @@ export default function PrivateLayout(props) {
       dispatchRedirectRef.current = false
       ramAgriSalesRedirectRef.current = false
       ramAgriSalesManagerRedirectRef.current = false
+      accountantRedirectRef.current = false
       lastPathRef.current = location.pathname
     }
   }, [location.pathname])
@@ -196,6 +198,30 @@ export default function PrivateLayout(props) {
     }
   }, [isRamAgriSalesManager, isSuperAdmin, isAdmin, location.pathname, navigate, userData])
   
+  // ACCOUNTANT can ONLY access: Orders (/u/dashboard or /u/orders), Inventory (/u/inventory), and Payment (/u/payments)
+  useEffect(() => {
+    if (!userData) return
+    if (accountantRedirectRef.current) return
+    // Check both role and jobTitle, prioritizing jobTitle
+    const isAccountant = userData?.jobTitle === "ACCOUNTANT" || userRole === "ACCOUNTANT"
+    if (!isAccountant || isSuperAdmin) return
+    
+    const p = location.pathname
+    const allowed =
+      p === "/u/dashboard" ||
+      p === "/u/orders" ||
+      p === "/u/inventory" ||
+      p.startsWith("/u/inventory/") ||
+      p === "/u/payments" ||
+      p.startsWith("/u/payments/")
+    
+    if (!allowed) {
+      console.log(`[PrivateLayout] ACCOUNTANT user accessing ${p}, redirecting to /u/dashboard`)
+      accountantRedirectRef.current = true
+      navigate("/u/dashboard", { replace: true })
+    }
+  }, [userRole, isSuperAdmin, location.pathname, navigate, userData])
+  
   // Hide sidebar for primary sowing entry route, dispatch orders route, and mobile agri sales order route
   // With BrowserRouter, pathname is the actual route path
   const hideSidebar = location.pathname === "/u/primary-sowing-entry" || location.pathname === "/u/dispatch-orders" || location.pathname === "/u/mobile/agri-sales-order"
@@ -224,13 +250,24 @@ export default function PrivateLayout(props) {
       })
     }
     
-    // If no allowedRoles specified, allow access (backward compatibility)
-    if (!menuItem.allowedRoles) {
+    // SUPER_ADMIN has access to everything
+    if (userRole === "SUPER_ADMIN") {
       return true
     }
     
-    // SUPER_ADMIN has access to everything
-    if (userRole === "SUPER_ADMIN") {
+    // ACCOUNTANT can only see: Orders, Inventory, and Payment tabs
+    // Check both role and jobTitle, prioritizing jobTitle
+    const isAccountant = userData?.jobTitle === "ACCOUNTANT" || userRole === "ACCOUNTANT"
+    if (isAccountant) {
+      const allowedTitles = ["Orders", "Order", "Inventory", "Payments"]
+      const allowedRoutes = ["/u/orders", "/u/dashboard", "/u/inventory", "/u/payments"]
+      // Check both title and route to ensure we catch all variations
+      const hasAccess = allowedTitles.includes(menuItem.title) || allowedRoutes.includes(menuItem.route)
+      return hasAccess
+    }
+    
+    // If no allowedRoles specified, allow access (backward compatibility)
+    if (!menuItem.allowedRoles) {
       return true
     }
     

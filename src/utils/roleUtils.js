@@ -11,28 +11,43 @@ export const useUserData = () => {
 
 /**
  * Hook to get current user role from Redux store
+ * Prioritizes jobTitle over role for all checks
  */
 export const useUserRole = () => {
   const userData = useUserData()
-  return userData?.role || userData?.jobTitle
+  // Always prioritize jobTitle over role
+  return userData?.jobTitle || userData?.role
 }
 
 /**
  * Check if user has payment access (ACCOUNTANT or SUPER_ADMIN)
  * This is for changing payment status only
+ * All checks prioritize jobTitle over role
  */
 export const useHasPaymentAccess = () => {
-  const userRole = useUserRole()
-  return userRole === "ACCOUNTANT" || userRole === "SUPER_ADMIN"
+  const userData = useUserData()
+  const jobTitle = userData?.jobTitle
+  const userRole = userData?.role
+  // Prioritize jobTitle for all checks
+  const isAccountant = jobTitle === "ACCOUNTANT" || userRole === "ACCOUNTANT"
+  const isSuperAdmin = jobTitle === "SUPER_ADMIN" || jobTitle === "SUPERADMIN" || userRole === "SUPER_ADMIN" || userRole === "SUPERADMIN"
+  return isAccountant || isSuperAdmin
 }
 
 /**
  * Check if user can add payments (ACCOUNTANT, SUPER_ADMIN, or OFFICE_ADMIN)
  * Office Admins can add payments but only with PENDING status
+ * All checks prioritize jobTitle over role
  */
 export const useHasPaymentAddAccess = () => {
-  const userRole = useUserRole()
-  return userRole === "ACCOUNTANT" || userRole === "SUPER_ADMIN" || userRole === "OFFICE_ADMIN"
+  const userData = useUserData()
+  const jobTitle = userData?.jobTitle
+  const userRole = userData?.role
+  // Prioritize jobTitle for all checks
+  const isAccountant = jobTitle === "ACCOUNTANT" || userRole === "ACCOUNTANT"
+  const isOfficeAdmin = jobTitle === "OFFICE_ADMIN" || userRole === "OFFICE_ADMIN"
+  const isSuperAdmin = jobTitle === "SUPER_ADMIN" || jobTitle === "SUPERADMIN" || userRole === "SUPER_ADMIN" || userRole === "SUPERADMIN"
+  return isAccountant || isSuperAdmin || isOfficeAdmin
 }
 
 /**
@@ -45,34 +60,50 @@ export const useCanAddPayment = () => {
 
 /**
  * Check if user is accountant
+ * Prioritizes jobTitle over role
  */
 export const useIsAccountant = () => {
-  const userRole = useUserRole()
-  return userRole === "ACCOUNTANT"
+  const userData = useUserData()
+  const jobTitle = userData?.jobTitle
+  const userRole = userData?.role
+  // Prioritize jobTitle
+  return jobTitle === "ACCOUNTANT" || userRole === "ACCOUNTANT"
 }
 
 /**
  * Check if user is office admin
+ * Prioritizes jobTitle over role
  */
 export const useIsOfficeAdmin = () => {
-  const userRole = useUserRole()
-  return userRole === "OFFICE_ADMIN"
+  const userData = useUserData()
+  const jobTitle = userData?.jobTitle
+  const userRole = userData?.role
+  // Prioritize jobTitle
+  return jobTitle === "OFFICE_ADMIN" || userRole === "OFFICE_ADMIN"
 }
 
 /**
  * Check if user is super admin
+ * Checks jobTitle first, then role
  */
 export const useIsSuperAdmin = () => {
-  const userRole = useUserRole()
-  return userRole === "SUPER_ADMIN"
+  const userData = useUserData()
+  const jobTitle = userData?.jobTitle
+  const userRole = userData?.role
+  // Prioritize jobTitle
+  return jobTitle === "SUPER_ADMIN" || jobTitle === "SUPERADMIN" || userRole === "SUPER_ADMIN" || userRole === "SUPERADMIN"
 }
 
 /**
  * Check if user is admin (includes SUPER_ADMIN)
+ * Checks jobTitle first, then role
  */
 export const useIsAdmin = () => {
-  const userRole = useUserRole()
-  return userRole === "ADMIN" || userRole === "SUPER_ADMIN"
+  const userData = useUserData()
+  const jobTitle = userData?.jobTitle
+  const userRole = userData?.role
+  // Prioritize jobTitle
+  return jobTitle === "ADMIN" || jobTitle === "SUPER_ADMIN" || jobTitle === "SUPERADMIN" || userRole === "ADMIN" || userRole === "SUPER_ADMIN" || userRole === "SUPERADMIN"
 }
 
 /**
@@ -88,62 +119,84 @@ export const useHasRole = (allowedRoles) => {
 
 /**
  * Check if user is dealer
+ * Checks jobTitle first, then role
  */
 export const useIsDealer = () => {
-  const userRole = useUserRole()
-  return userRole === "DEALER"
+  const userData = useUserData()
+  const jobTitle = userData?.jobTitle
+  const userRole = userData?.role
+  // Prioritize jobTitle
+  return jobTitle === "DEALER" || userRole === "DEALER"
 }
 
 /**
  * Check if user is dispatch manager
- * Checks both role and jobTitle since some users have role=FARMER but jobTitle=DISPATCH_MANAGER
+ * Checks jobTitle first, then role
  */
 export const useIsDispatchManager = () => {
-  const userRole = useUserRole()
   const userData = useUserData()
-  // Check both role and jobTitle
-  return userRole === "DISPATCH_MANAGER" || userData?.jobTitle === "DISPATCH_MANAGER"
+  const jobTitle = userData?.jobTitle
+  const userRole = userData?.role
+  // Prioritize jobTitle
+  return jobTitle === "DISPATCH_MANAGER" || userRole === "DISPATCH_MANAGER"
 }
 
 /**
  * Check if user has WhatsApp access (SUPER_ADMIN only)
+ * Checks jobTitle first, then role
  */
 export const useHasWhatsAppAccess = () => {
-  const userRole = useUserRole()
-  return userRole === "SUPER_ADMIN"
+  const userData = useUserData()
+  const jobTitle = userData?.jobTitle
+  const userRole = userData?.role
+  // Prioritize jobTitle
+  return jobTitle === "SUPER_ADMIN" || jobTitle === "SUPERADMIN" || userRole === "SUPER_ADMIN" || userRole === "SUPERADMIN"
 }
 
 /**
  * Check if user has Payments access (ACCOUNTANT only, but SUPER_ADMIN has all access)
+ * Prioritizes jobTitle over role
  */
 export const useHasPaymentsAccess = () => {
-  const userRole = useUserRole()
-  return userRole === "ACCOUNTANT" || userRole === "SUPER_ADMIN"
+  const userData = useUserData()
+  const jobTitle = userData?.jobTitle
+  const userRole = userData?.role
+  // Prioritize jobTitle for all checks
+  const isAccountant = jobTitle === "ACCOUNTANT" || userRole === "ACCOUNTANT"
+  const isSuperAdmin = jobTitle === "SUPER_ADMIN" || jobTitle === "SUPERADMIN" || userRole === "SUPER_ADMIN" || userRole === "SUPERADMIN"
+  return isAccountant || isSuperAdmin
 }
 
 /**
  * Check if user has access to a specific menu item based on role
  * @param {string} menuTitle - The title of the menu item
  * @returns {boolean} - True if user has access to the menu item
+ * All checks prioritize jobTitle over role
  */
 export const useHasMenuAccess = (menuTitle) => {
-  const userRole = useUserRole()
+  const userData = useUserData()
+  const jobTitle = userData?.jobTitle
+  const userRole = userData?.role
   
-  // SUPER_ADMIN has access to everything
-  if (userRole === "SUPER_ADMIN") {
+  // SUPER_ADMIN has access to everything - check jobTitle first
+  if (jobTitle === "SUPER_ADMIN" || jobTitle === "SUPERADMIN" || userRole === "SUPER_ADMIN" || userRole === "SUPERADMIN") {
     return true
   }
   
-  // Role-specific access controls
+  // Role-specific access controls - prioritize jobTitle
   switch (menuTitle) {
     case "WhatsApp Management":
-      return userRole === "SUPER_ADMIN"
+      return jobTitle === "SUPER_ADMIN" || jobTitle === "SUPERADMIN" || userRole === "SUPER_ADMIN" || userRole === "SUPERADMIN"
     
-    case "Payments":
-      return userRole === "ACCOUNTANT" || userRole === "SUPER_ADMIN"
+    case "Payments": {
+      // Prioritize jobTitle for all checks
+      const isAccountant = jobTitle === "ACCOUNTANT" || userRole === "ACCOUNTANT"
+      const isSuperAdmin = jobTitle === "SUPER_ADMIN" || jobTitle === "SUPERADMIN" || userRole === "SUPER_ADMIN" || userRole === "SUPERADMIN"
+      return isAccountant || isSuperAdmin
+    }
     
     case "Labs":
-      return userRole === "LABORATORY_MANAGER" || userRole === "SUPER_ADMIN"
+      return jobTitle === "LABORATORY_MANAGER" || userRole === "LABORATORY_MANAGER" || jobTitle === "SUPER_ADMIN" || jobTitle === "SUPERADMIN" || userRole === "SUPER_ADMIN" || userRole === "SUPERADMIN"
     
     default:
       // For all other menu items, allow access (existing logic)

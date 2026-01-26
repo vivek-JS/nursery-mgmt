@@ -31,13 +31,16 @@ import {
   Clock,
   XCircle,
   Phone,
-  Shield
+  Shield,
+  Users,
 } from "lucide-react"
 import { getMessageTemplates, testWatiConnection } from "network/core/wati"
 import FarmerCampaignModal from "./FarmerCampaignModal"
 import SingleSendModal from "./SingleSendModal"
 import SowingReminderModal from "./SowingReminderModal"
+import BroadcastListModal from "./BroadcastListModal"
 import { useHasWhatsAppAccess } from "utils/roleUtils"
+import { API, NetworkManager } from "network/core"
 
 const WhatsAppManagement = () => {
   const hasWhatsAppAccess = useHasWhatsAppAccess()
@@ -50,6 +53,9 @@ const WhatsAppManagement = () => {
   const [searchTerm, setSearchTerm] = useState("")
   const [error, setError] = useState(null)
   const [connectionStatus, setConnectionStatus] = useState(null)
+  const [farmerLists, setFarmerLists] = useState([])
+  const [listsLoading, setListsLoading] = useState(false)
+  const [showBroadcastListModal, setShowBroadcastListModal] = useState(false)
 
   // Access control check
   if (!hasWhatsAppAccess) {
@@ -118,7 +124,23 @@ const WhatsAppManagement = () => {
 
   useEffect(() => {
     fetchTemplates()
+    fetchFarmerLists()
   }, [])
+
+  const fetchFarmerLists = async () => {
+    setListsLoading(true)
+    try {
+      const instance = NetworkManager(API.FARMER_LIST.GET_ALL_LISTS)
+      const response = await instance.request()
+      if (response.data?.data) {
+        setFarmerLists(response.data.data)
+      }
+    } catch (error) {
+      console.error("Error fetching farmer lists:", error)
+    } finally {
+      setListsLoading(false)
+    }
+  }
 
   const filteredTemplates = (templates || []).filter(template => {
     const matchesSearch = 
@@ -210,6 +232,50 @@ const WhatsAppManagement = () => {
         </Card>
       </Box>
 
+      {/* Broadcast Lists Section */}
+      <Card sx={{ mb: 3, boxShadow: 3 }}>
+        <CardContent>
+          <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+            <Typography variant="h6" fontWeight="bold">
+              📋 Broadcast Lists ({farmerLists.length})
+            </Typography>
+            <Button
+              variant="contained"
+              startIcon={<Users size={18} />}
+              onClick={() => setShowBroadcastListModal(true)}
+              sx={{ borderRadius: 2 }}
+            >
+              Create Broadcast List
+            </Button>
+          </Stack>
+          {farmerLists.length > 0 ? (
+            <Stack direction="row" spacing={2} flexWrap="wrap">
+              {farmerLists.map((list) => (
+                <Chip
+                  key={list._id}
+                  label={`${list.name} (${list.farmers?.length || 0})`}
+                  onClick={() => {
+                    // This will be handled in FarmerCampaignModal
+                    console.log("List selected:", list)
+                  }}
+                  sx={{
+                    cursor: "pointer",
+                    "&:hover": {
+                      bgcolor: "primary.main",
+                      color: "white"
+                    }
+                  }}
+                />
+              ))}
+            </Stack>
+          ) : (
+            <Typography variant="body2" color="text.secondary">
+              No broadcast lists yet. Create one to get started!
+            </Typography>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Action Bar */}
       <Card sx={{ mb: 3, boxShadow: 3 }}>
         <CardContent>
@@ -241,8 +307,11 @@ const WhatsAppManagement = () => {
               <Button
                 variant="outlined"
                 startIcon={<RotateCcw size={18} />}
-                onClick={fetchTemplates}
-                disabled={loading}
+                onClick={() => {
+                  fetchTemplates()
+                  fetchFarmerLists()
+                }}
+                disabled={loading || listsLoading}
                 sx={{ borderRadius: 2 }}
               >
                 Refresh
@@ -420,6 +489,8 @@ const WhatsAppManagement = () => {
           setSelectedTemplate(null)
         }}
         template={selectedTemplate}
+        farmerLists={farmerLists}
+        onListUpdate={fetchFarmerLists}
       />
 
       {/* Single Send Modal */}
@@ -436,6 +507,16 @@ const WhatsAppManagement = () => {
       <SowingReminderModal
         open={showSowingReminder}
         onClose={() => setShowSowingReminder(false)}
+      />
+
+      {/* Broadcast List Modal */}
+      <BroadcastListModal
+        open={showBroadcastListModal}
+        onClose={() => setShowBroadcastListModal(false)}
+        onListCreated={() => {
+          fetchFarmerLists()
+          setShowBroadcastListModal(false)
+        }}
       />
     </Box>
   )
