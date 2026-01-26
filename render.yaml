@@ -1,9 +1,9 @@
 services:
   - type: web
-    name: ram-biotek-frontend
+    name: nursery-mgmt
     env: static
-    buildCommand: npm run build:prod
-    staticPublishPath: ./build
+    buildCommand: npm install && npm run build
+    staticPublishPath: build
     routes:
       - type: rewrite
         source: /*

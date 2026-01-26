@@ -18,7 +18,11 @@ const plantSchema = Yup.object().shape({
     .of(
       Yup.object().shape({
         name: Yup.string().required("Subtype name is required"),
-        description: Yup.string()
+        description: Yup.string(),
+        slotDays: Yup.number().required("Slot days is required").min(1, "Must be at least 1 day").integer("Must be a whole number"),
+        slotStartDate: Yup.string().required("Slot start date is required"),
+        slotEndDate: Yup.string().required("Slot end date is required"),
+        slotCapacity: Yup.number().required("Slot capacity is required").min(1, "Must be at least 1").integer("Must be a whole number")
       })
     )
     .min(1, "At least one subtype is required")
@@ -138,13 +142,17 @@ const Slots = () => {
 
   const handleSubmit = async (values, { resetForm }) => {
     try {
+      // Payload includes all plant and subtype fields
+      // Each subtype contains: name, description, rates, buffer, plantReadyDays,
+      // slotDays, slotStartDate, slotEndDate, slotCapacity
       const payload = {
         name: values.name,
         slotSize: values.slotSize,
         dailyDispatchCapacity: values.dailyDispatchCapacity,
         buffer: values.buffer,
+        sowingBuffer: values.sowingBuffer || 0,
         sowingAllowed: values.sowingAllowed || false,
-        subtypes: values.subtypes
+        subtypes: values.subtypes // Contains all slot configuration fields
       }
 
       const instance = editPlant
@@ -181,15 +189,28 @@ const Slots = () => {
   }
 
   const handleDelete = async (plantId) => {
+    // Confirm deletion
+    if (!window.confirm("Are you sure you want to delete this plant? This action cannot be undone.")) {
+      return
+    }
+
     try {
       const instance = NetworkManager(API.plantCms.DELETE_PLANT)
       const response = await instance.request({}, [plantId])
 
       if (response?.data?.message) {
+        alert("Plant deleted successfully!")
         fetchPlants() // Refresh list after deletion
       }
     } catch (error) {
       console.error("Error deleting plant:", error)
+      
+      // Show user-friendly error message
+      const errorMessage = error?.response?.data?.reason || 
+                          error?.response?.data?.message || 
+                          "Failed to delete plant. Please try again."
+      
+      alert(`Cannot delete plant:\n\n${errorMessage}`)
     }
   }
 
@@ -313,9 +334,15 @@ const Slots = () => {
                           </div>
                         </div>
                         
-                        <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl p-4">
-                          <div className="text-sm font-medium text-purple-600 mb-1">Buffer</div>
-                          <div className="text-lg font-bold text-purple-900">{plant.buffer || 0}%</div>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl p-4">
+                            <div className="text-sm font-medium text-purple-600 mb-1">Buffer</div>
+                            <div className="text-lg font-bold text-purple-900">{plant.buffer || 0}%</div>
+                          </div>
+                          <div className="bg-gradient-to-br from-orange-50 to-orange-100 rounded-xl p-4">
+                            <div className="text-sm font-medium text-orange-600 mb-1">Sowing Buffer</div>
+                            <div className="text-lg font-bold text-orange-900">{plant.sowingBuffer || 0}%</div>
+                          </div>
                         </div>
 
                         <div className="rounded-xl border-2 border-gray-100 overflow-hidden">
@@ -381,12 +408,17 @@ const Slots = () => {
                     slotSize: editPlant?.slotSize || "",
                     dailyDispatchCapacity: editPlant?.dailyDispatchCapacity || 2000,
                     buffer: editPlant?.buffer || 0,
+                    sowingBuffer: editPlant?.sowingBuffer || 0,
                     sowingAllowed: editPlant?.sowingAllowed || false,
                     subtypes: editPlant?.subtypes?.map((subtype) => ({
                       ...subtype,
                       buffer: subtype.buffer !== undefined ? subtype.buffer : 0,
-                      plantReadyDays: subtype.plantReadyDays !== undefined ? subtype.plantReadyDays : 0
-                    })) || [{ name: "", description: "", rates: [""], buffer: 0, plantReadyDays: 0 }]
+                      plantReadyDays: subtype.plantReadyDays !== undefined ? subtype.plantReadyDays : 0,
+                      slotDays: subtype.slotDays || "",
+                      slotStartDate: subtype.slotStartDate || "",
+                      slotEndDate: subtype.slotEndDate || "",
+                      slotCapacity: subtype.slotCapacity || ""
+                    })) || [{ name: "", description: "", rates: [""], buffer: 0, plantReadyDays: 0, slotDays: "", slotStartDate: "", slotEndDate: "", slotCapacity: "" }]
                   }}
                   validationSchema={plantSchema}
                   onSubmit={handleSubmit}>
@@ -486,6 +518,31 @@ const Slots = () => {
                             </p>
                           </div>
                         </div>
+
+                        {values.sowingAllowed && (
+                          <div className="space-y-3">
+                            <Label htmlFor="sowingBuffer" className="text-base">Sowing Buffer (%)</Label>
+                            <Input
+                              id="sowingBuffer"
+                              name="sowingBuffer"
+                              type="number"
+                              min="0"
+                              max="100"
+                              step="0.1"
+                              onChange={handleChange}
+                              onBlur={handleBlur}
+                              value={values.sowingBuffer}
+                              error={errors.sowingBuffer}
+                              touched={touched.sowingBuffer}
+                              placeholder="Enter sowing buffer percentage"
+                            />
+                            <div className="bg-orange-50 rounded-xl p-3">
+                              <p className="text-sm text-orange-700 font-medium">
+                                🌱 Sowing buffer percentage applied to sowing counts (e.g., 100 plants + 12% = 112 plants)
+                              </p>
+                            </div>
+                          </div>
+                        )}
                         <div className="space-y-4">
                           <div className="flex items-center justify-between">
                             <Label className="text-lg font-bold">Subtypes</Label>
@@ -574,6 +631,75 @@ const Slots = () => {
                                       )}
                                     </div>
 
+                                    <div className="bg-blue-50 rounded-xl p-4 mb-4">
+                                      <h5 className="text-sm font-bold text-blue-900 mb-3">🎯 Slot Configuration (Mandatory)</h5>
+                                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                                        <div className="space-y-2">
+                                          <Label className="text-sm font-semibold text-blue-700">Slot Days *</Label>
+                                          <Input
+                                            name={`subtypes.${index}.slotDays`}
+                                            placeholder="e.g., 7"
+                                            type="number"
+                                            min="1"
+                                            step="1"
+                                            value={subtype.slotDays}
+                                            onChange={handleChange}
+                                            onBlur={handleBlur}
+                                            error={errors.subtypes?.[index]?.slotDays}
+                                            touched={touched.subtypes?.[index]?.slotDays}
+                                          />
+                                          <p className="text-xs text-blue-600">Days per slot</p>
+                                        </div>
+                                        
+                                        <div className="space-y-2">
+                                          <Label className="text-sm font-semibold text-blue-700">Slot Capacity *</Label>
+                                          <Input
+                                            name={`subtypes.${index}.slotCapacity`}
+                                            placeholder="e.g., 1000"
+                                            type="number"
+                                            min="1"
+                                            step="1"
+                                            value={subtype.slotCapacity}
+                                            onChange={handleChange}
+                                            onBlur={handleBlur}
+                                            error={errors.subtypes?.[index]?.slotCapacity}
+                                            touched={touched.subtypes?.[index]?.slotCapacity}
+                                          />
+                                          <p className="text-xs text-blue-600">Plants per slot</p>
+                                        </div>
+                                      </div>
+                                      
+                                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div className="space-y-2">
+                                          <Label className="text-sm font-semibold text-blue-700">Start Date *</Label>
+                                          <Input
+                                            name={`subtypes.${index}.slotStartDate`}
+                                            type="date"
+                                            value={subtype.slotStartDate}
+                                            onChange={handleChange}
+                                            onBlur={handleBlur}
+                                            error={errors.subtypes?.[index]?.slotStartDate}
+                                            touched={touched.subtypes?.[index]?.slotStartDate}
+                                          />
+                                          <p className="text-xs text-blue-600">Select start date</p>
+                                        </div>
+                                        
+                                        <div className="space-y-2">
+                                          <Label className="text-sm font-semibold text-blue-700">End Date *</Label>
+                                          <Input
+                                            name={`subtypes.${index}.slotEndDate`}
+                                            type="date"
+                                            value={subtype.slotEndDate}
+                                            onChange={handleChange}
+                                            onBlur={handleBlur}
+                                            error={errors.subtypes?.[index]?.slotEndDate}
+                                            touched={touched.subtypes?.[index]?.slotEndDate}
+                                          />
+                                          <p className="text-xs text-blue-600">Select end date</p>
+                                        </div>
+                                      </div>
+                                    </div>
+
                                     <div className="space-y-3">
                                       <Label className="text-sm font-semibold text-gray-700">Rates</Label>
                                       <FieldArray name={`subtypes.${index}.rates`}>
@@ -623,7 +749,7 @@ const Slots = () => {
                                   variant="outline"
                                   size="lg"
                                   onClick={() =>
-                                    push({ name: "", description: "", rates: [""], buffer: 0, plantReadyDays: 0 })
+                                    push({ name: "", description: "", rates: [""], buffer: 0, plantReadyDays: 0, slotDays: "", slotStartDate: "", slotEndDate: "", slotCapacity: "" })
                                   }
                                   className="w-full gap-3 border-2 border-dashed border-gray-300 hover:border-blue-400 hover:bg-blue-50">
                                   <Plus className="h-5 w-5" />

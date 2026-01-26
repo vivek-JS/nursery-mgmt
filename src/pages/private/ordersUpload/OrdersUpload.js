@@ -1,4 +1,4 @@
-import React, { useState } from "react"
+import React, { useState, useEffect } from "react"
 import {
   Card,
   CardContent,
@@ -12,7 +12,8 @@ import {
   Paper,
   Stepper,
   Step,
-  StepLabel
+  StepLabel,
+  TextField
 } from "@mui/material"
 import {
   UploadCloud,
@@ -24,7 +25,8 @@ import {
   Upload,
   RefreshCw,
   UserPlus,
-  Plus
+  Plus,
+  Download
 } from "lucide-react"
 import { API, NetworkManager } from "network/core"
 import AddEmployeeModal from "../employee/addEmployee"
@@ -34,12 +36,21 @@ import AddVarietyModal from "../Plants/AddVarietyModal"
 
 const ExcelUpload = () => {
   const [file, setFile] = useState(null)
+  const [password, setPassword] = useState("")
   const [validationResult, setValidationResult] = useState(null)
   const [isValid, setIsValid] = useState(false)
   const [loading, setLoading] = useState(false)
   const [failedImports, setFailedImports] = useState(null)
   const [importSummary, setImportSummary] = useState(null)
   const [activeStep, setActiveStep] = useState(0)
+  const [unprocessedFileUrl, setUnprocessedFileUrl] = useState(null)
+  const [unprocessedRowsCount, setUnprocessedRowsCount] = useState(0)
+  const [unprocessedFilesList, setUnprocessedFilesList] = useState([])
+  const [loadingFiles, setLoadingFiles] = useState(false)
+  const [errorfulOrders, setErrorfulOrders] = useState([])
+  const [loadingErrorfulOrders, setLoadingErrorfulOrders] = useState(false)
+  const [retrying, setRetrying] = useState(false)
+  const [rowLimit, setRowLimit] = useState("")
 
   // Employee modal state
   const [isEmployeeModalOpen, setIsEmployeeModalOpen] = useState(false)
@@ -90,7 +101,9 @@ const ExcelUpload = () => {
     "DRIVER",
     "LABORATORY_MANAGER",
     "DEALER",
-    "OFFICE_ADMIN"
+    "OFFICE_ADMIN",
+    "RAM_AGRI_SALES",
+    "RAM_AGRI_SALES_MANAGER"
   ]
 
   // Parse error message to extract sales person name
@@ -409,9 +422,17 @@ const ExcelUpload = () => {
         setValidationResult(response.data)
         setIsValid(true)
         setActiveStep(2) // Move to import step
+        
+        // Set unprocessed file info if available
+        if (response.data.data?.unprocessedFileUrl) {
+          setUnprocessedFileUrl(response.data.data.unprocessedFileUrl)
+          setUnprocessedRowsCount(response.data.data.unprocessedRowsCount || 0)
+        }
       } else {
-        setValidationResult(response?.fullError || ["Validation failed"])
+        // Even if validation fails, allow import to proceed
+        setValidationResult(response?.data || response?.fullError || { errors: ["Validation failed"] })
         setIsValid(false)
+        setActiveStep(2) // Still move to import step
       }
     } catch (err) {
       console.log("Caught Error:", err)
@@ -429,6 +450,7 @@ const ExcelUpload = () => {
       }
 
       setIsValid(false)
+      setActiveStep(2) // Still move to import step even on error
     }
 
     setLoading(false)
@@ -439,41 +461,158 @@ const ExcelUpload = () => {
 
     setLoading(true)
     try {
-      const instance = NetworkManager(API.plantCms.IMPORT_EXCEL, true)
-      const response = await instance.request({ file })
+      // Use the new import endpoint that supports password-protected files
+      const instance = NetworkManager(API.excel.IMPORT_ORDERS_WITH_PAYMENT, true)
+      const formData = new FormData()
+      formData.append('file', file)
+      if (password) {
+        formData.append('password', password)
+      }
+      if (rowLimit && !isNaN(rowLimit) && parseInt(rowLimit) > 0) {
+        formData.append('rowLimit', parseInt(rowLimit))
+      }
+      
+      const response = await instance.request(formData)
 
       if (response?.data?.status === "success") {
-        if (response?.data?.data?.failedImports && response.data.data.failedImports.length > 0) {
-          setFailedImports(response.data.data.failedImports)
+        const data = response.data.data || {}
+        
+        if (data.errors && data.errors.length > 0) {
+          setFailedImports(data.errors.map(err => ({ error: err })))
         }
 
         setImportSummary({
-          total: response.data.data.summary?.totalProcessed || 0,
-          success: response.data.data.summary?.successfulImports || 0,
-          failed: response.data.data.summary?.failedImports || 0
+          total: (data.success || 0) + (data.failed || 0),
+          success: data.success || 0,
+          failed: data.failed || 0
         })
 
-        if (!response?.data?.data?.failedImports || response.data.data.failedImports.length === 0) {
-          // Success toast or notification could go here
+        // Display auto-created entities
+        if (data.autoCreatedFarmers && data.autoCreatedFarmers.length > 0) {
+          Toast.info(`${data.autoCreatedFarmers.length} farmer(s) auto-created`)
+        }
+        if (data.autoCreatedSalesPersons && data.autoCreatedSalesPersons.length > 0) {
+          Toast.info(`${data.autoCreatedSalesPersons.length} sales person(s) auto-created`)
+        }
+        if (data.autoCreatedTrays && data.autoCreatedTrays.length > 0) {
+          Toast.info(`${data.autoCreatedTrays.length} tray(s) auto-created`)
+        }
+        if (data.autoCreatedReferenceUsers && data.autoCreatedReferenceUsers.length > 0) {
+          Toast.info(`${data.autoCreatedReferenceUsers.length} reference user(s) auto-created`)
+        }
+
+        // Fetch errorful orders if any
+        if (data.errorfulOrdersCount > 0) {
+          fetchErrorfulOrders()
+        }
+
+        const successCount = data.success || 0
+        const failedCount = data.failed || 0
+        
+        if (failedCount > 0) {
+          Toast.warning(`Import completed: ${successCount} successful, ${failedCount} failed. Check errorful orders below.`)
+        } else {
+          Toast.success(`Import completed successfully: ${successCount} orders imported`)
         }
       } else {
-        // Error toast or notification could go here
+        Toast.error(response?.data?.message || "Import failed")
       }
     } catch (err) {
       console.log(err)
-      // Error toast or notification could go here
+      const errorMessage = err?.data?.message || err?.message || "Error importing data"
+      Toast.error(errorMessage)
     }
 
     setLoading(false)
   }
 
+  // Fetch errorful orders
+  const fetchErrorfulOrders = async () => {
+    setLoadingErrorfulOrders(true)
+    try {
+      const instance = NetworkManager(API.excel.GET_ERRORFUL_ORDERS, true)
+      // GET request - NetworkManager handles query params automatically
+      const response = await instance.request()
+      if (response?.data?.status === 'success') {
+        setErrorfulOrders(response.data.data?.orders || [])
+      }
+    } catch (err) {
+      console.error('Error fetching errorful orders:', err)
+    } finally {
+      setLoadingErrorfulOrders(false)
+    }
+  }
+
+  // Retry errorful orders
+  const handleRetryErrorfulOrders = async () => {
+    setRetrying(true)
+    try {
+      const instance = NetworkManager(API.excel.RETRY_ERRORFUL_ORDERS, true)
+      const response = await instance.request({
+        filter: { isResolved: false, successfullyImported: false }
+      })
+
+      if (response?.data?.status === 'success') {
+        const data = response.data.data || {}
+        Toast.success(`Retry completed: ${data.success} successful, ${data.failed} failed`)
+        
+        // Refresh errorful orders list
+        fetchErrorfulOrders()
+      } else {
+        Toast.error(response?.data?.message || "Retry failed")
+      }
+    } catch (err) {
+      console.error('Error retrying orders:', err)
+      Toast.error(err?.data?.message || "Error retrying orders")
+    } finally {
+      setRetrying(false)
+    }
+  }
+
   const resetProcess = () => {
     setFile(null)
+    setPassword("")
+    setRowLimit("")
     setValidationResult(null)
     setIsValid(false)
     setFailedImports(null)
     setImportSummary(null)
     setActiveStep(0)
+    setUnprocessedFileUrl(null)
+    setUnprocessedRowsCount(0)
+  }
+  
+  // Fetch unprocessed files list
+  const fetchUnprocessedFiles = async () => {
+    setLoadingFiles(true)
+    try {
+      const instance = NetworkManager(API.excel.GET_UNPROCESSED_FILES, true)
+      const response = await instance.request()
+      if (response?.data?.status === 'success') {
+        setUnprocessedFilesList(response.data.data?.files || [])
+      }
+    } catch (err) {
+      console.error('Error fetching unprocessed files:', err)
+    } finally {
+      setLoadingFiles(false)
+    }
+  }
+  
+  // Fetch files and errorful orders on component mount
+  useEffect(() => {
+    fetchUnprocessedFiles()
+    fetchErrorfulOrders()
+  }, [])
+  
+  const handleDownloadUnprocessed = () => {
+    if (unprocessedFileUrl) {
+      // Get base URL from API configuration
+      const apiBaseUrl = API.plantCms.BASE_URL || 'http://localhost:8000'
+      const fullUrl = unprocessedFileUrl.startsWith('http') 
+        ? unprocessedFileUrl 
+        : `${apiBaseUrl}${unprocessedFileUrl}`
+      window.open(fullUrl, '_blank')
+    }
   }
 
   return (
@@ -519,6 +658,36 @@ const ExcelUpload = () => {
                   onChange={handleFileChange}
                   className="hidden"
                 />
+                <Box className="mt-4 space-y-3">
+                  <TextField
+                    type="password"
+                    label="Excel Password (if password-protected)"
+                    placeholder="Enter password (optional)"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    fullWidth
+                    variant="outlined"
+                    size="small"
+                    helperText="Leave empty if your Excel file is not password-protected"
+                  />
+                  <TextField
+                    type="number"
+                    label="Number of Rows to Import"
+                    placeholder="Enter number (e.g., 10) or leave empty for all rows"
+                    value={rowLimit}
+                    onChange={(e) => {
+                      const value = e.target.value
+                      if (value === "" || (!isNaN(value) && parseInt(value) > 0)) {
+                        setRowLimit(value)
+                      }
+                    }}
+                    fullWidth
+                    variant="outlined"
+                    size="small"
+                    inputProps={{ min: 1 }}
+                    helperText="Enter a number to import only that many rows (e.g., 10 for first 10 rows). Leave empty to import all rows."
+                  />
+                </Box>
               </Box>
             ) : (
               <Box className="mb-4">
@@ -541,6 +710,38 @@ const ExcelUpload = () => {
                   </Button>
                 </Box>
 
+                {/* Password and Row Limit Fields - Always visible after file selection */}
+                <Box className="mb-4 space-y-3">
+                  <TextField
+                    type="password"
+                    label="Excel Password (if password-protected)"
+                    placeholder="Enter password (optional)"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    fullWidth
+                    variant="outlined"
+                    size="small"
+                    helperText="Leave empty if your Excel file is not password-protected"
+                  />
+                  <TextField
+                    type="number"
+                    label="Number of Rows to Import"
+                    placeholder="Enter number (e.g., 10) or leave empty for all rows"
+                    value={rowLimit}
+                    onChange={(e) => {
+                      const value = e.target.value
+                      if (value === "" || (!isNaN(value) && parseInt(value) > 0)) {
+                        setRowLimit(value)
+                      }
+                    }}
+                    fullWidth
+                    variant="outlined"
+                    size="small"
+                    inputProps={{ min: 1 }}
+                    helperText="Enter a number to import only that many rows (e.g., 10 for first 10 rows). Leave empty to import all rows."
+                  />
+                </Box>
+
                 {activeStep === 1 && (
                   <Button
                     variant="contained"
@@ -554,21 +755,144 @@ const ExcelUpload = () => {
                   </Button>
                 )}
 
-                {activeStep === 2 && isValid && (
-                  <Button
-                    variant="contained"
-                    color="primary"
-                    onClick={handleImport}
-                    disabled={loading}
-                    className="mt-2"
-                    startIcon={<Upload size={16} />}
-                    fullWidth>
-                    Import Data Now
-                  </Button>
+                {activeStep === 2 && (
+                  <Box>
+                    {unprocessedRowsCount > 0 && unprocessedFileUrl && (
+                      <Paper elevation={1} sx={{ p: 2, mb: 2, bgcolor: '#fff3cd', border: '1px solid #ffc107' }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <Box>
+                            <Typography variant="subtitle2" sx={{ fontWeight: 600, color: '#856404' }}>
+                              ⚠️ {unprocessedRowsCount} Unprocessed Row{unprocessedRowsCount > 1 ? 's' : ''} Found
+                            </Typography>
+                            <Typography variant="body2" sx={{ color: '#856404', mt: 0.5 }}>
+                              Download the file to review and fix issues
+                            </Typography>
+                          </Box>
+                          <Button
+                            variant="contained"
+                            color="warning"
+                            onClick={handleDownloadUnprocessed}
+                            startIcon={<FileSpreadsheet size={16} />}
+                            sx={{ ml: 2 }}>
+                            Download
+                          </Button>
+                        </Box>
+                      </Paper>
+                    )}
+                    
+                    {!isValid && validationResult && (
+                      <Paper elevation={1} sx={{ p: 2, mb: 2, bgcolor: '#ffebee', border: '1px solid #f44336' }}>
+                        <Typography variant="subtitle2" sx={{ fontWeight: 600, color: '#c62828', mb: 1 }}>
+                          ⚠️ Validation Failed
+                        </Typography>
+                        <Typography variant="body2" sx={{ color: '#c62828' }}>
+                          Some rows have validation errors, but you can still proceed with import. Failed rows will be skipped.
+                        </Typography>
+                      </Paper>
+                    )}
+                    
+                    <Button
+                      variant="contained"
+                      color={isValid ? "primary" : "warning"}
+                      onClick={handleImport}
+                      disabled={loading}
+                      className="mt-2"
+                      startIcon={<Upload size={16} />}
+                      fullWidth>
+                      {isValid ? "Import Data Now" : "Import Anyway (Skip Invalid Rows)"}
+                    </Button>
+                  </Box>
                 )}
               </Box>
             )}
           </Box>
+        </Box>
+      </Paper>
+
+      {/* Unprocessed Files List */}
+      <Paper elevation={3} className="mb-6 overflow-hidden">
+        <Box className="bg-blue-50 px-6 py-4 border-b border-blue-100">
+          <Box className="flex items-center justify-between">
+            <Typography variant="h6" className="font-bold text-blue-800">
+              <FileSpreadsheet className="inline mr-2 mb-1" size={22} />
+              Unprocessed Files History
+            </Typography>
+            <Button
+              size="small"
+              startIcon={<RefreshCw size={16} />}
+              onClick={fetchUnprocessedFiles}
+              disabled={loadingFiles}>
+              Refresh
+            </Button>
+          </Box>
+        </Box>
+        <Box className="p-6">
+          {loadingFiles ? (
+            <LinearProgress className="mb-4" />
+          ) : unprocessedFilesList.length === 0 ? (
+            <Typography variant="body2" className="text-gray-500 text-center py-4">
+              No unprocessed files found
+            </Typography>
+          ) : (
+            <Box className="space-y-3">
+              {unprocessedFilesList.map((file) => (
+                <Paper key={file._id} elevation={1} className="p-4">
+                  <Box className="flex items-center justify-between">
+                    <Box className="flex-1">
+                      <Typography variant="subtitle2" className="font-semibold mb-1">
+                        {file.originalFilename}
+                      </Typography>
+                      <Box className="flex flex-wrap gap-2 mt-2">
+                        <Chip
+                          label={`${file.unprocessedRowsCount} Failed Rows`}
+                          color="error"
+                          size="small"
+                        />
+                        <Chip
+                          label={`${file.successfulImports} Successful`}
+                          color="success"
+                          size="small"
+                        />
+                        <Chip
+                          label={`Uploaded: ${new Date(file.createdAt).toLocaleString()}`}
+                          variant="outlined"
+                          size="small"
+                        />
+                        {file.uploadedByName && (
+                          <Chip
+                            label={`By: ${file.uploadedByName}`}
+                            variant="outlined"
+                            size="small"
+                          />
+                        )}
+                        {file.isDownloaded && (
+                          <Chip
+                            label="Downloaded"
+                            color="info"
+                            size="small"
+                          />
+                        )}
+                      </Box>
+                    </Box>
+                    <Button
+                      variant="contained"
+                      color="primary"
+                      size="small"
+                      startIcon={<Download size={16} />}
+                      onClick={() => {
+                        const apiBaseUrl = API.plantCms.BASE_URL || 'http://localhost:8000';
+                        const downloadUrl = `${apiBaseUrl}/api/v1/excel/download-unprocessed/${file.filename}`;
+                        window.open(downloadUrl, '_blank');
+                      }}
+                      target="_blank"
+                      rel="noopener noreferrer">
+                      Download
+                    </Button>
+                  </Box>
+                </Paper>
+              ))}
+            </Box>
+          )}
         </Box>
       </Paper>
 
@@ -647,6 +971,93 @@ const ExcelUpload = () => {
         </Paper>
       )}
 
+      {/* Unprocessed Files List */}
+      <Paper elevation={3} className="mb-6 overflow-hidden">
+        <Box className="bg-blue-50 px-6 py-4 border-b border-blue-100">
+          <Box className="flex items-center justify-between">
+            <Typography variant="h6" className="font-bold text-blue-800">
+              <FileSpreadsheet className="inline mr-2 mb-1" size={22} />
+              Unprocessed Files History
+            </Typography>
+            <Button
+              size="small"
+              startIcon={<RefreshCw size={16} />}
+              onClick={fetchUnprocessedFiles}
+              disabled={loadingFiles}>
+              Refresh
+            </Button>
+          </Box>
+        </Box>
+        <Box className="p-6">
+          {loadingFiles ? (
+            <LinearProgress className="mb-4" />
+          ) : unprocessedFilesList.length === 0 ? (
+            <Typography variant="body2" className="text-gray-500 text-center py-4">
+              No unprocessed files found
+            </Typography>
+          ) : (
+            <Box className="space-y-3">
+              {unprocessedFilesList.map((file) => (
+                <Paper key={file._id} elevation={1} className="p-4">
+                  <Box className="flex items-center justify-between">
+                    <Box className="flex-1">
+                      <Typography variant="subtitle2" className="font-semibold mb-1">
+                        {file.originalFilename}
+                      </Typography>
+                      <Box className="flex flex-wrap gap-2 mt-2">
+                        <Chip
+                          label={`${file.unprocessedRowsCount} Failed Rows`}
+                          color="error"
+                          size="small"
+                        />
+                        <Chip
+                          label={`${file.successfulImports} Successful`}
+                          color="success"
+                          size="small"
+                        />
+                        <Chip
+                          label={`Uploaded: ${new Date(file.createdAt).toLocaleString()}`}
+                          variant="outlined"
+                          size="small"
+                        />
+                        {file.uploadedByName && (
+                          <Chip
+                            label={`By: ${file.uploadedByName}`}
+                            variant="outlined"
+                            size="small"
+                          />
+                        )}
+                        {file.isDownloaded && (
+                          <Chip
+                            label="Downloaded"
+                            color="info"
+                            size="small"
+                          />
+                        )}
+                      </Box>
+                    </Box>
+                    <Button
+                      variant="contained"
+                      color="primary"
+                      size="small"
+                      startIcon={<Download size={16} />}
+                      onClick={() => {
+                        const apiBaseUrl = API.plantCms.BASE_URL || 'http://localhost:8000';
+                        const downloadUrl = `${apiBaseUrl}/api/v1/excel/download-unprocessed/${file.filename}`;
+                        window.open(downloadUrl, '_blank');
+                      }}
+                      target="_blank"
+                      rel="noopener noreferrer">
+                      Download
+                    </Button>
+                  </Box>
+                </Paper>
+              ))}
+            </Box>
+          )}
+        </Box>
+      </Paper>
+
       {/* Import Summary */}
       {importSummary && (
         <Paper elevation={3} className="mb-6 overflow-hidden">
@@ -679,6 +1090,31 @@ const ExcelUpload = () => {
                 className="px-3"
               />
             </Box>
+            
+            {/* Download Unprocessed Rows File */}
+            {unprocessedRowsCount > 0 && unprocessedFileUrl && (
+              <Box className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                <Box className="flex items-center justify-between">
+                  <Box>
+                    <Typography variant="subtitle2" className="font-semibold text-yellow-800 mb-1">
+                      <AlertTriangle className="inline mr-2" size={16} />
+                      {unprocessedRowsCount} Row{unprocessedRowsCount > 1 ? 's' : ''} Could Not Be Processed
+                    </Typography>
+                    <Typography variant="body2" className="text-yellow-700">
+                      Download the file to review errors and fix the issues
+                    </Typography>
+                  </Box>
+                  <Button
+                    variant="contained"
+                    color="warning"
+                    onClick={handleDownloadUnprocessed}
+                    startIcon={<Download size={16} />}
+                    sx={{ ml: 2 }}>
+                    Download Unprocessed Rows
+                  </Button>
+                </Box>
+              </Box>
+            )}
 
             <Box className="bg-gray-50 rounded-lg p-4">
               <Box className="flex items-center">
@@ -803,6 +1239,67 @@ const ExcelUpload = () => {
               <AlertTriangle size={16} className="text-red-500 mr-2" />
               These orders could not be imported. Please review the errors and try again.
             </Typography>
+          </Box>
+        </Paper>
+      )}
+
+      {/* Errorful Orders Display */}
+      {errorfulOrders.length > 0 && (
+        <Paper elevation={3} className="mb-6 overflow-hidden">
+          <Box className="bg-orange-50 px-6 py-4 border-b border-orange-100">
+            <Box className="flex items-center justify-between">
+              <Typography variant="h6" className="font-bold text-orange-800">
+                <AlertTriangle className="inline mr-2 mb-1" size={18} />
+                Errorful Orders ({errorfulOrders.length})
+              </Typography>
+              <Button
+                variant="contained"
+                color="warning"
+                onClick={handleRetryErrorfulOrders}
+                disabled={retrying || loadingErrorfulOrders}
+                startIcon={<RefreshCw size={16} />}>
+                {retrying ? "Retrying..." : "Retry All"}
+              </Button>
+            </Box>
+          </Box>
+          <Box className="p-6">
+            {loadingErrorfulOrders ? (
+              <LinearProgress className="mb-4" />
+            ) : (
+              <Box className="space-y-3 max-h-96 overflow-y-auto">
+                {errorfulOrders.map((order) => (
+                  <Paper key={order._id} elevation={1} className="p-4">
+                    <Box className="flex items-start justify-between">
+                      <Box className="flex-1">
+                        <Typography variant="subtitle2" className="font-semibold mb-1">
+                          Booking: {order.bookingNumber || "N/A"} (Row {order.rowNumber})
+                        </Typography>
+                        <Typography variant="body2" className="text-gray-600 mb-2">
+                          Error Type: <Chip label={order.errorType} size="small" color="error" className="ml-1" />
+                        </Typography>
+                        <Typography variant="body2" className="text-red-700">
+                          {order.errorMessage}
+                        </Typography>
+                        <Box className="flex flex-wrap gap-2 mt-2">
+                          <Chip
+                            label={order.successfullyImported ? "Imported" : "Pending"}
+                            color={order.successfullyImported ? "success" : "warning"}
+                            size="small"
+                          />
+                          {order.retryAttempts > 0 && (
+                            <Chip
+                              label={`${order.retryAttempts} Retry Attempts`}
+                              variant="outlined"
+                              size="small"
+                            />
+                          )}
+                        </Box>
+                      </Box>
+                    </Box>
+                  </Paper>
+                ))}
+              </Box>
+            )}
           </Box>
         </Paper>
       )}

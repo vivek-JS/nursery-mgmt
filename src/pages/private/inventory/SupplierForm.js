@@ -118,22 +118,35 @@ const SupplierForm = () => {
     try {
       const payload = {
         ...formData,
-        creditLimit: Number(formData.creditLimit),
+        creditLimit: Number(formData.creditLimit) || 0,
         rating: formData.rating ? Number(formData.rating) : undefined,
       };
 
+      // Validate rating range if provided
+      if (payload.rating && (payload.rating < 1 || payload.rating > 5)) {
+        setErrors({ ...errors, rating: 'Rating must be between 1 and 5' });
+        setLoading(false);
+        return;
+      }
+
       if (isEditMode) {
-        await axiosInstance.put(`/inventory/suppliers/${id}`, payload);
+        await axiosInstance.put(`/api/v1/inventory/suppliers/${id}`, payload);
         alert('Supplier updated successfully');
       } else {
-        await axiosInstance.post('/inventory/suppliers', payload);
+        await axiosInstance.post('/api/v1/inventory/suppliers', payload);
         alert('Supplier created successfully');
       }
 
       navigate('/u/inventory/suppliers');
     } catch (error) {
       console.error('Error saving supplier:', error);
-      alert(error.response?.data?.message || 'Error saving supplier');
+      const errorMessage = error.response?.data?.message || error.message || 'Error saving supplier';
+      alert(errorMessage);
+      
+      // Set field-specific errors if available
+      if (error.response?.data?.errors) {
+        setErrors(error.response.data.errors);
+      }
     } finally {
       setLoading(false);
     }
@@ -285,6 +298,38 @@ const SupplierForm = () => {
                   className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500"
                   placeholder="PAN Number"
                 />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Credit Limit (₹)</label>
+                <input
+                  type="number"
+                  name="creditLimit"
+                  value={formData.creditLimit}
+                  onChange={handleChange}
+                  min="0"
+                  step="0.01"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500"
+                  placeholder="0.00"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Rating (1-5)</label>
+                <input
+                  type="number"
+                  name="rating"
+                  value={formData.rating}
+                  onChange={handleChange}
+                  min="1"
+                  max="5"
+                  step="0.1"
+                  className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-indigo-500 ${
+                    errors.rating ? 'border-red-500' : 'border-gray-300'
+                  }`}
+                  placeholder="Optional"
+                />
+                {errors.rating && <p className="text-red-500 text-sm mt-1">{errors.rating}</p>}
               </div>
             </div>
           </div>

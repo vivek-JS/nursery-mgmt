@@ -1,5 +1,5 @@
 import React from "react"
-import moment from "moment"
+import { formatDisplayDate } from "../../../utils/dateUtils"
 
 /**
  * Component to display the history of farm ready dates
@@ -35,14 +35,14 @@ const FarmReadyDatesHistory = ({ farmReadyDates }) => {
                 {index === 0 ? "Current Farm Ready Date" : `Previous Date #${index}`}
               </div>
               <div className="text-sm font-medium bg-white px-2 py-1 rounded shadow-sm">
-                {moment(date).format("DD/MM/YYYY")}
+                {formatDisplayDate(date)}
               </div>
             </div>
 
             <div className="text-xs text-gray-500 mt-1">
               {index === 0
-                ? `Set ${moment(date).fromNow()}`
-                : `Updated on ${moment(date).format("DD/MM/YYYY")}`}
+                ? `Set recently`
+                : `Updated on ${formatDisplayDate(date)}`}
             </div>
           </div>
         ))}

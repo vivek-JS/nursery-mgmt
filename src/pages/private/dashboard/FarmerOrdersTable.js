@@ -10,6 +10,7 @@ import { MenuItem, Select } from "@mui/material"
 import DownloadPDFButton from "./OrdereRecipt"
 import DispatchForm from "./DispatchedForm"
 import DispatchList from "./DispatchedList"
+import AddAgriSalesOrderForm from "../inventory/AddAgriSalesOrderForm"
 import { Toast } from "helpers/toasts/toastHelper"
 import { faHourglassEmpty } from "@fortawesome/free-solid-svg-icons"
 import { FaUser, FaCreditCard, FaEdit, FaFileAlt } from "react-icons/fa"
@@ -73,14 +74,14 @@ const customStyles = `
   }
 
   .enhanced-select:hover {
-    border-color: #3b82f6;
-    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
+    border-color: #0f766e;
+    box-shadow: 0 4px 12px rgba(15, 118, 110, 0.15);
     transform: translateY(-1px);
   }
 
   .enhanced-select:focus {
-    border-color: #3b82f6;
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    border-color: #0f766e;
+    box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.1);
   }
 
   .enhanced-select option {
@@ -102,12 +103,12 @@ const customStyles = `
   }
 
   .mui-select-enhanced .MuiOutlinedInput-root:hover {
-    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
+    box-shadow: 0 4px 12px rgba(15, 118, 110, 0.15);
     transform: translateY(-1px);
   }
 
   .mui-select-enhanced .MuiOutlinedInput-root.Mui-focused {
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.1);
   }
 
   .mui-select-enhanced .MuiSelect-select {
@@ -127,7 +128,7 @@ const customStyles = `
   }
 
   .mui-select-enhanced .MuiMenuItem-root.Mui-selected {
-    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+    background: linear-gradient(135deg, #0f766e 0%, #14b8a6 100%);
     color: white;
   }
 
@@ -153,7 +154,7 @@ const customStyles = `
   }
 
   .status-badge-enhanced:focus {
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.1);
   }
 
   /* Status-specific colors */
@@ -176,9 +177,9 @@ const customStyles = `
   }
 
   .status-dispatched {
-    background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
-    border-color: #3b82f6;
-    color: #1e40af;
+    background: linear-gradient(135deg, #ccfbf1 0%, #99f6e4 100%);
+    border-color: #0f766e;
+    color: #0f766e;
   }
 
   .status-completed {
@@ -197,6 +198,12 @@ const customStyles = `
     background: linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%);
     border-color: #06b6d4;
     color: #0e7490;
+  }
+
+  .status-temporary-cancelled {
+    background: linear-gradient(135deg, #fed7aa 0%, #fdba74 100%);
+    border-color: #f97316;
+    color: #9a3412;
   }
 
   /* Order For highlighting */
@@ -393,9 +400,9 @@ const customStyles = `
   }
 
   .searchable-dropdown.status-dropdown .searchable-dropdown-button {
-    padding: 6px 12px;
-    min-height: 32px;
-    font-size: 12px;
+    padding: 4px 10px;
+    min-height: 28px;
+    font-size: 11px;
     font-weight: 600;
   }
 
@@ -409,11 +416,12 @@ const SearchableDropdown = ({
   label,
   value,
   onChange,
-  options,
+  options = [],
   placeholder = "Select an option",
   showCount = false,
   maxHeight = "500px",
-  isStatusDropdown = false
+  isStatusDropdown = false,
+  disabled = false
 }) => {
   const [isOpen, setIsOpen] = useState(false)
   const [isClosing, setIsClosing] = useState(false)
@@ -478,8 +486,10 @@ const SearchableDropdown = ({
           isStatusDropdown
             ? `status-badge-enhanced status-${value?.toLowerCase().replace("_", "-")}`
             : ""
-        }`}
+        } ${disabled ? "opacity-60 cursor-not-allowed" : ""}`}
+        disabled={disabled}
         onClick={(e) => {
+          if (disabled) return
           e.preventDefault()
           e.stopPropagation()
           if (!isOpen) {
@@ -492,6 +502,7 @@ const SearchableDropdown = ({
           }
         }}
         onFocus={() => {
+          if (disabled) return
           if (!isOpen) {
             setTimeout(() => {
               setIsOpen(true)
@@ -577,6 +588,54 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("")
   const [refresh, setRefresh] = useState(false)
   const [selectedRow, setSelectedRow] = useState(null)
+  const [showAgriSalesOrders, setShowAgriSalesOrders] = useState(true) // Ram Agri Inputs only (no regular orders)
+  const [showAddAgriSalesOrderForm, setShowAddAgriSalesOrderForm] = useState(false) // Dialog for adding Agri Sales order
+  const [agriSalesPendingCount, setAgriSalesPendingCount] = useState(0) // Pending payments count for badge
+  const [agriStatusCounts, setAgriStatusCounts] = useState({
+    ALL: 0,
+    PENDING: 0,
+    ACCEPTED: 0,
+    ASSIGNED: 0,
+    DISPATCHED: 0,
+    IN_TRANSIT: 0,
+    COMPLETED: 0
+  }) // Counts for each status tab (consistent with API)
+  
+  // Ram Agri Inputs Dispatch State
+  const [selectedAgriSalesOrders, setSelectedAgriSalesOrders] = useState([]) // Selected orders for dispatch
+  const [showAgriDispatchModal, setShowAgriDispatchModal] = useState(false) // Dispatch modal
+  const [agriDispatchForm, setAgriDispatchForm] = useState({
+    dispatchMode: "VEHICLE", // VEHICLE or COURIER
+    vehicleId: "",
+    vehicleNumber: "",
+    driverName: "",
+    driverMobile: "",
+    // Courier fields
+    courierName: "",
+    courierTrackingId: "",
+    courierContact: "",
+    dispatchNotes: "",
+  })
+  const [agriDispatchLoading, setAgriDispatchLoading] = useState(false)
+  const [agriVehicles, setAgriVehicles] = useState([])
+  const [ramAgriSalesUsers, setRamAgriSalesUsers] = useState([]) // Ram Agri Inputs users for "Dispatched By" filter
+  const [selectedDispatchedBy, setSelectedDispatchedBy] = useState("") // Filter by who dispatched
+  const [hidePaymentDetails, setHidePaymentDetails] = useState(false) // Toggle to hide payment details
+  const [agriDispatchStatusFilter, setAgriDispatchStatusFilter] = useState("ALL") // Filter by order status: ALL, PENDING, ACCEPTED, ASSIGNED, DISPATCHED, IN_TRANSIT, COMPLETED
+  // Complete order state (for marking dispatched orders as delivered)
+  const [selectedAgriOrdersForComplete, setSelectedAgriOrdersForComplete] = useState([])
+  const [showAgriCompleteModal, setShowAgriCompleteModal] = useState(false)
+  const [agriCompleteForm, setAgriCompleteForm] = useState({
+    returnQuantities: {}, // { orderId: returnQty }
+    returnReason: "",
+    returnNotes: "",
+  })
+  const [agriCompleteLoading, setAgriCompleteLoading] = useState(false)
+  // Assignment state (Admin assigns to sales person)
+  const [showAssignModal, setShowAssignModal] = useState(false)
+  const [assignToUser, setAssignToUser] = useState("")
+  const [assignmentNotes, setAssignmentNotes] = useState("")
+  const [assignLoading, setAssignLoading] = useState(false)
 
   // Inject custom CSS for blinking animation and enhanced dropdowns
   useEffect(() => {
@@ -597,6 +656,29 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   const { walletData, loading: walletLoading } = useDealerWallet()
   const user = useUserData() // Get current user data
 
+  const resolvePlantCounts = React.useCallback((order) => {
+    if (!order) {
+      return { base: 0, additional: 0, total: 0 }
+    }
+
+    const base =
+      order.basePlants ??
+      order?.details?.numberOfPlants ??
+      order.quantity ??
+      order?.details?.totalPlants ??
+      0
+
+    const additional =
+      order.additionalPlants ?? order?.details?.additionalPlants ?? 0
+
+    const total =
+      order.totalPlants ??
+      order?.details?.totalPlants ??
+      base + additional
+
+    return { base, additional, total }
+  }, [])
+
   // State to track dealer ID for wallet data
   const [dealerIdForWallet, setDealerIdForWallet] = useState(null)
 
@@ -615,6 +697,11 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   const [selectedSalesPerson, setSelectedSalesPerson] = useState("")
   const [selectedVillage, setSelectedVillage] = useState("")
   const [selectedDistrict, setSelectedDistrict] = useState("")
+const [selectedPlant, setSelectedPlant] = useState("")
+const [selectedSubtype, setSelectedSubtype] = useState("")
+const [plants, setPlants] = useState([])
+const [subtypes, setSubtypes] = useState([])
+const [subtypesLoading, setSubtypesLoading] = useState(false)
 
   // Filter options
   const [salesPeople, setSalesPeople] = useState([])
@@ -629,7 +716,8 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
     { label: "Completed", value: "COMPLETED" },
     { label: "Partially Completed", value: "PARTIALLY_COMPLETED" },
     { label: "Ready For Dispatch", value: "FARM_READY" },
-    { label: "Loading", value: "DISPATCH_PROCESS" }
+    { label: "Loading", value: "DISPATCH_PROCESS" },
+    { label: "Temporary Cancelled", value: "TEMPORARY_CANCELLED" }
   ]
 
 
@@ -637,6 +725,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   const [slotsLoading, setSlotsLoading] = useState(false)
   const [updatedObject, setUpdatedObject] = useState(null)
   const [viewMode, setViewMode] = useState("booking")
+  const [viewType, setViewType] = useState("table") // "table" or "grid"
   const [selectedRows, setSelectedRows] = useState(new Set())
   const [isDispatchFormOpen, setIsDispatchFormOpen] = useState(false)
   const [isDispatchtab, setisDispatchtab] = useState(false)
@@ -655,6 +744,11 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   })
   const [isOrderModalOpen, setIsOrderModalOpen] = useState(false)
   const [selectedOrder, setSelectedOrder] = useState(null)
+
+  const selectedOrderCounts = React.useMemo(
+    () => resolvePlantCounts(selectedOrder),
+    [resolvePlantCounts, selectedOrder]
+  )
   const [activeTab, setActiveTab] = useState("overview")
   const [confirmDialog, setConfirmDialog] = useState({
     open: false,
@@ -686,6 +780,15 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   const handleAddPayment = async (orderId) => {
     if (!newPayment.paidAmount) {
       Toast.error("Please fill in payment amount")
+      return
+    }
+
+    // Check if this is an Agri Sales order
+    const isAgriSalesOrder = selectedOrder?.isAgriSalesOrder || orders.find(o => o.details?.orderid === orderId)?.isAgriSalesOrder
+
+    // For Agri Sales orders, wallet payment is not available (simpler flow)
+    if (isAgriSalesOrder && newPayment.isWalletPayment) {
+      Toast.error("Wallet payment is not available for Agri Sales orders")
       return
     }
 
@@ -761,6 +864,45 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
 
     setLoading(true)
     try {
+      // Handle Agri Sales orders differently
+      if (isAgriSalesOrder) {
+        const instance = NetworkManager(API.INVENTORY.ADD_AGRI_SALES_ORDER_PAYMENT)
+        const payload = {
+          paidAmount: newPayment.paidAmount,
+          paymentDate: newPayment.paymentDate,
+          modeOfPayment: newPayment.isWalletPayment ? "Wallet" : newPayment.modeOfPayment,
+          bankName: newPayment.bankName || "",
+          receiptPhoto: newPayment.receiptPhoto || [],
+          remark: newPayment.remark || "",
+          isWalletPayment: false, // Agri Sales orders don't support wallet payments
+          paymentStatus: "PENDING",
+        }
+
+        const response = await instance.request(payload, [`${orderId}/payment`])
+        
+        if (response?.data) {
+          Toast.success("Payment added successfully")
+          setShowPaymentForm(false)
+          resetPaymentForm(false)
+          
+          // Refresh orders
+          await getOrders()
+          refreshComponent()
+          
+          // Update selected order if modal is open
+          if (selectedOrder) {
+            setTimeout(() => {
+              refreshModalData()
+            }, 500)
+          }
+        } else {
+          Toast.error("Failed to add payment")
+        }
+        setLoading(false)
+        return
+      }
+
+      // Handle regular orders (existing flow)
       const instance = NetworkManager(API.ORDER.ADD_PAYMENT)
 
       // Ensure isWalletPayment is a boolean and construct payload explicitly
@@ -837,6 +979,18 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
           if (selectedDistrict) {
             params.district = selectedDistrict
           }
+  if (selectedPlant) {
+    params.plantId = selectedPlant
+  }
+  if (selectedSubtype) {
+    params.subtypeId = selectedSubtype
+  }
+          if (selectedPlant) {
+            params.plantId = selectedPlant
+          }
+          if (selectedSubtype) {
+            params.subtypeId = selectedSubtype
+          }
 
           if (viewMode === "dispatched") {
             params.status = "ACCEPTED,FARM_READY"
@@ -889,6 +1043,8 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
               const {
                 farmer,
                 numberOfPlants,
+                additionalPlants = 0,
+                totalPlants,
                 rate,
                 salesPerson,
                 createdAt,
@@ -909,7 +1065,15 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                 deliveryDate,
                 orderFor
               } = data || {}
-              const { startDay, endDay } = bookingSlot?.[0] || {}
+              const basePlants = numberOfPlants || 0
+              const extraPlants = additionalPlants || 0
+              const totalPlantCount =
+                typeof totalPlants === "number" ? totalPlants : basePlants + extraPlants
+              const remainingPlantCount =
+                typeof remainingPlants === "number" ? remainingPlants : totalPlantCount
+              const totalOrderAmount = Number(rate * totalPlantCount)
+              const latestSlot = mapSlotForUi(bookingSlot)
+              const { startDay, endDay } = latestSlot || {}
               const start = startDay ? moment(startDay, "DD-MM-YYYY").format("D") : "N/A"
               const end = endDay ? moment(endDay, "DD-MM-YYYY").format("D") : "N/A"
               const monthYear = startDay
@@ -923,16 +1087,17 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                   ? `via ${salesPerson?.name || "Unknown"}`
                   : farmer?.name || "Unknown",
                 plantType: `${plantType?.name || "Unknown"} -> ${plantSubtype?.name || "Unknown"}`,
-                quantity: numberOfPlants,
-                orderDate: moment(orderBookingDate || createdAt).format("DD/MM/YYYY"),
-                deliveryDate: deliveryDate ? moment(deliveryDate).format("DD/MM/YYYY") : "-", // Specific delivery date
+                quantity: basePlants,
+                totalPlants: totalPlantCount,
+                additionalPlants: extraPlants,
+                basePlants,
+                orderDate: moment(orderBookingDate || createdAt).format("DD MMM YYYY"),
+                deliveryDate: deliveryDate ? moment(deliveryDate).format("DD MMM YYYY") : "-", // Specific delivery date
                 rate,
-                total: `₹ ${Number(rate * numberOfPlants)}`,
-                "Paid Amt": `₹ ${Number(getTotalPaidAmount(payment))}`,
-                "remaining Amt": `₹ ${
-                  Number(rate * numberOfPlants) - Number(getTotalPaidAmount(payment))
-                }`,
-                "remaining Plants": remainingPlants || numberOfPlants,
+                total: `₹ ${Number(totalOrderAmount).toFixed(2)}`,
+                "Paid Amt": `₹ ${Number(getTotalPaidAmount(payment)).toFixed(2)}`,
+                "remaining Amt": `₹ ${(totalOrderAmount - Number(getTotalPaidAmount(payment))).toFixed(2)}`,
+                "remaining Plants": remainingPlantCount,
                 "returned Plants": returnedPlants || 0,
                 orderStatus: orderStatus,
                 Delivery: `${start} - ${end} ${monthYear}`,
@@ -952,10 +1117,17 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                 salesPerson,
                 plantID: plantType?.id,
                 plantSubtypeID: plantSubtype?.id,
-                bookingSlot: bookingSlot?.[0] || null,
+                bookingSlot: latestSlot,
+                slotHistory: Array.isArray(bookingSlot)
+                  ? bookingSlot.filter(Boolean)
+                  : bookingSlot
+                  ? [bookingSlot]
+                  : [],
                 rate: rate,
-                numberOfPlants,
-                remainingPlants: remainingPlants || numberOfPlants,
+                numberOfPlants: basePlants,
+                additionalPlants: extraPlants,
+                totalPlants: totalPlantCount,
+                remainingPlants: remainingPlantCount,
                 orderFor: orderFor || null,
                 statusChanges: statusChanges || [],
                 orderRemarks: orderRemarks || [],
@@ -1192,6 +1364,9 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   // Load initial data
   useEffect(() => {
     getOrders()
+    if (showAgriSalesOrders) {
+      fetchAgriStatusCounts()
+    }
   }, [
     debouncedSearchTerm,
     refresh,
@@ -1200,7 +1375,12 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
     viewMode,
     selectedSalesPerson,
     selectedVillage,
-    selectedDistrict
+    selectedDistrict,
+    selectedPlant,
+    selectedSubtype,
+    showAgriSalesOrders, // Reload when switching between regular and Agri Sales orders
+    selectedDispatchedBy, // Filter by who dispatched (Ram Agri Inputs)
+    agriDispatchStatusFilter // Reload when status filter tab changes (Ram Agri Inputs)
   ])
 
   // Function to fetch sales person data
@@ -1245,6 +1425,15 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
     loadFilterOptions()
   }, [])
 
+useEffect(() => {
+  if (!selectedPlant) {
+    setSubtypes([])
+    setSelectedSubtype("")
+    return
+  }
+  loadSubtypeOptions(selectedPlant)
+}, [selectedPlant])
+
   // Listen for dispatch creation events to refresh the list
   useEffect(() => {
     const handleDispatchCreated = () => {
@@ -1275,19 +1464,79 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   // Initialize updatedObject when edit tab is active and selectedOrder changes
   useEffect(() => {
     if (activeTab === "edit" && selectedOrder) {
+      const { base } = resolvePlantCounts(selectedOrder)
       setUpdatedObject({
         rate: selectedOrder.rate,
-        quantity: selectedOrder.quantity,
+        quantity: base,
         bookingSlot: selectedOrder?.details?.bookingSlot?.slotId,
         deliveryDate: selectedOrder?.details?.deliveryDate 
           ? new Date(selectedOrder.details.deliveryDate) 
           : null
       })
     }
-  }, [activeTab, selectedOrder])
+  }, [activeTab, selectedOrder, resolvePlantCounts])
 
-  const loadFilterOptions = async () => {
+const loadPlantOptions = async () => {
+  try {
+    const instance = NetworkManager(API.slots.GET_PLANTS)
+    const response = await instance.request()
+    const rawPlants = response?.data || response?.data?.data || []
+
+    const formattedPlants = (rawPlants || [])
+      .map((plant) => {
+        const id = plant.plantId || plant._id || plant.id || ""
+        return {
+          label: plant.name,
+          value: id ? String(id) : "",
+          sowingAllowed: plant.sowingAllowed || false // Track if sowing is allowed (same as AddOrderForm)
+        }
+      })
+      .filter((plant) => plant.value)
+
+    setPlants(formattedPlants)
+  } catch (error) {
+    console.error("Error loading plants:", error)
+    setPlants([])
+  }
+}
+
+const loadSubtypeOptions = async (plantId) => {
+  if (!plantId) {
+    setSubtypes([])
+    return
+  }
+
+  setSubtypesLoading(true)
+  try {
+    const instance = NetworkManager(API.slots.GET_PLANTS_SUBTYPE)
+    const response = await instance.request(null, {
+      plantId,
+      year: currentYear
+    })
+
+    const rawSubtypes = response?.data?.subtypes || []
+    const formattedSubtypes = rawSubtypes
+      .map((subtype) => {
+        const id = subtype.subtypeId || subtype._id || ""
+        return {
+          label: subtype.subtypeName || subtype.name,
+          value: id ? String(id) : ""
+        }
+      })
+      .filter((subtype) => subtype.value)
+
+    setSubtypes(formattedSubtypes)
+  } catch (error) {
+    console.error("Error loading subtypes:", error)
+    setSubtypes([])
+  } finally {
+    setSubtypesLoading(false)
+  }
+}
+
+const loadFilterOptions = async () => {
     try {
+    await loadPlantOptions()
       // Load all salespeople and dealers in a single list
       const salesInstance = NetworkManager(API.USER.GET_USERS)
       const salesResponse = await salesInstance.request(null, { jobTitle: "SALES" })
@@ -1342,6 +1591,318 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
       console.error("Error loading filter options:", error)
     }
   }
+
+  // Load Ram Agri Inputs users for "Dispatched By" filter
+  const loadRamAgriSalesUsers = async () => {
+    try {
+      const instance = NetworkManager(API.USER.GET_USERS)
+      const response = await instance.request(null, { jobTitle: "RAM_AGRI_SALES" })
+      if (response?.data?.data) {
+        const users = response.data.data.map((user) => ({
+          label: user.name,
+          value: user._id,
+          phoneNumber: user.phoneNumber,
+        }))
+        setRamAgriSalesUsers(users)
+      }
+    } catch (error) {
+      console.error("Error loading Ram Agri Inputs users:", error)
+    }
+  }
+
+  // Fetch vehicles for dispatch
+  const fetchAgriVehicles = async () => {
+    try {
+      const instance = NetworkManager(API.VEHICLE.GET_ACTIVE_VEHICLES)
+      const response = await instance.request()
+      // Ensure we always set an array
+      const vehiclesData = response?.data?.data || response?.data || []
+      setAgriVehicles(Array.isArray(vehiclesData) ? vehiclesData : [])
+    } catch (error) {
+      console.error("Error fetching vehicles:", error)
+      setAgriVehicles([]) // Reset to empty array on error
+    }
+  }
+
+  // Handle vehicle selection for dispatch
+  const handleAgriVehicleSelect = (vehicleId) => {
+    const vehiclesArray = Array.isArray(agriVehicles) ? agriVehicles : []
+    const vehicle = vehiclesArray.find((v) => v._id === vehicleId || v.id === vehicleId)
+    if (vehicle) {
+      setAgriDispatchForm((prev) => ({
+        ...prev,
+        vehicleId: vehicleId,
+        vehicleNumber: vehicle.number || "",
+        driverName: vehicle.driverName || prev.driverName,
+        driverMobile: vehicle.driverMobile || prev.driverMobile,
+      }))
+    } else {
+      setAgriDispatchForm((prev) => ({
+        ...prev,
+        vehicleId: vehicleId,
+      }))
+    }
+  }
+
+  // Toggle order selection for dispatch
+  const toggleAgriOrderSelection = (orderId) => {
+    setSelectedAgriSalesOrders((prev) => {
+      if (prev.includes(orderId)) {
+        return prev.filter((id) => id !== orderId)
+      } else {
+        return [...prev, orderId]
+      }
+    })
+  }
+
+  // Select all dispatchable orders (ACCEPTED orders that can be dispatched or assigned)
+  const selectAllAgriOrders = () => {
+    const dispatchableOrders = orders.filter(
+      (order) =>
+        order.isAgriSalesOrder &&
+        order.orderStatus === "ACCEPTED" // Only ACCEPTED orders can be dispatched/assigned
+    )
+    setSelectedAgriSalesOrders(dispatchableOrders.map((o) => o.details.orderid))
+  }
+
+  // Clear all selections
+  const clearAgriOrderSelections = () => {
+    setSelectedAgriSalesOrders([])
+  }
+
+  // Open dispatch modal
+  const openAgriDispatchModal = () => {
+    if (selectedAgriSalesOrders.length === 0) {
+      Toast.error("Please select at least one order to dispatch")
+      return
+    }
+    fetchAgriVehicles()
+    setShowAgriDispatchModal(true)
+  }
+
+  // Handle dispatch submission
+  const handleAgriDispatch = async () => {
+    // Validate based on dispatch mode
+    if (agriDispatchForm.dispatchMode === "VEHICLE") {
+      if (!agriDispatchForm.driverName || !agriDispatchForm.driverMobile) {
+        Toast.error("Driver name and mobile are required")
+        return
+      }
+      if (!agriDispatchForm.vehicleNumber && !agriDispatchForm.vehicleId) {
+        Toast.error("Please select a vehicle or enter vehicle number")
+        return
+      }
+      if (agriDispatchForm.driverMobile.length !== 10) {
+        Toast.error("Driver mobile must be 10 digits")
+        return
+      }
+    } else if (agriDispatchForm.dispatchMode === "COURIER") {
+      if (!agriDispatchForm.courierName) {
+        Toast.error("Courier service name is required")
+        return
+      }
+    }
+
+    try {
+      setAgriDispatchLoading(true)
+      const instance = NetworkManager(API.INVENTORY.DISPATCH_AGRI_SALES_ORDERS)
+      
+      const payload = {
+        orderIds: selectedAgriSalesOrders,
+        dispatchMode: agriDispatchForm.dispatchMode,
+        dispatchNotes: agriDispatchForm.dispatchNotes || "",
+      }
+
+      // Add mode-specific fields
+      if (agriDispatchForm.dispatchMode === "VEHICLE") {
+        payload.vehicleId = agriDispatchForm.vehicleId || null
+        payload.vehicleNumber = agriDispatchForm.vehicleNumber
+        payload.driverName = agriDispatchForm.driverName
+        payload.driverMobile = agriDispatchForm.driverMobile
+      } else if (agriDispatchForm.dispatchMode === "COURIER") {
+        payload.courierName = agriDispatchForm.courierName
+        payload.courierTrackingId = agriDispatchForm.courierTrackingId || ""
+        payload.courierContact = agriDispatchForm.courierContact || ""
+      }
+
+      const response = await instance.request(payload)
+
+      if (response?.data) {
+        Toast.success(`${selectedAgriSalesOrders.length} order(s) dispatched successfully via ${agriDispatchForm.dispatchMode === "VEHICLE" ? "vehicle" : "courier"}`)
+        setShowAgriDispatchModal(false)
+        setSelectedAgriSalesOrders([])
+        setAgriDispatchForm({
+          dispatchMode: "VEHICLE",
+          vehicleId: "",
+          vehicleNumber: "",
+          driverName: "",
+          driverMobile: "",
+          courierName: "",
+          courierTrackingId: "",
+          courierContact: "",
+          dispatchNotes: "",
+        })
+        getOrders()
+        fetchAgriStatusCounts() // Refresh counts after dispatch
+      } else {
+        Toast.error("Failed to dispatch orders")
+      }
+    } catch (error) {
+      console.error("Error dispatching orders:", error)
+      Toast.error(error?.response?.data?.message || "Failed to dispatch orders")
+    } finally {
+      setAgriDispatchLoading(false)
+    }
+  }
+
+  // ==================== COMPLETE ORDER HANDLERS ====================
+  
+  // Toggle order selection for complete
+  const toggleAgriCompleteOrderSelection = (orderId) => {
+    setSelectedAgriOrdersForComplete((prev) => {
+      if (prev.includes(orderId)) {
+        // Remove from selection and clear return quantity
+        const newReturnQuantities = { ...agriCompleteForm.returnQuantities }
+        delete newReturnQuantities[orderId]
+        setAgriCompleteForm((f) => ({ ...f, returnQuantities: newReturnQuantities }))
+        return prev.filter((id) => id !== orderId)
+      } else {
+        return [...prev, orderId]
+      }
+    })
+  }
+
+  // Select all dispatched orders for complete
+  const selectAllDispatchedOrders = () => {
+    const dispatchedOrders = orders.filter(
+      (o) => o.orderStatus === "DISPATCHED" || o.details?.dispatchStatus === "DISPATCHED" || o.details?.dispatchStatus === "IN_TRANSIT"
+    )
+    setSelectedAgriOrdersForComplete(dispatchedOrders.map((o) => o.details?.orderid || o.id || o._id))
+  }
+
+  // Clear complete selections
+  const clearAgriCompleteSelections = () => {
+    setSelectedAgriOrdersForComplete([])
+    setAgriCompleteForm({
+      returnQuantities: {},
+      returnReason: "",
+      returnNotes: "",
+    })
+  }
+
+  // Open complete modal
+  const openAgriCompleteModal = () => {
+    if (selectedAgriOrdersForComplete.length === 0) {
+      Toast.error("Please select at least one dispatched order to complete")
+      return
+    }
+    // Initialize return quantities to 0 for all selected orders
+    const initialReturnQty = {}
+    selectedAgriOrdersForComplete.forEach((id) => {
+      initialReturnQty[id] = 0
+    })
+    setAgriCompleteForm({
+      returnQuantities: initialReturnQty,
+      returnReason: "",
+      returnNotes: "",
+    })
+    setShowAgriCompleteModal(true)
+  }
+
+  // Handle complete order submission
+  const handleAgriCompleteOrders = async () => {
+    try {
+      setAgriCompleteLoading(true)
+      const instance = NetworkManager(API.INVENTORY.COMPLETE_AGRI_SALES_ORDERS)
+      const payload = {
+        orderIds: selectedAgriOrdersForComplete,
+        returnQuantities: agriCompleteForm.returnQuantities,
+        returnReason: agriCompleteForm.returnReason || "",
+        returnNotes: agriCompleteForm.returnNotes || "",
+      }
+
+      const response = await instance.request(payload)
+
+      if (response?.data) {
+        const totalReturns = Object.values(agriCompleteForm.returnQuantities).filter((q) => q > 0).length
+        Toast.success(
+          `${selectedAgriOrdersForComplete.length} order(s) completed${totalReturns > 0 ? ` (${totalReturns} with returns)` : ""}`
+        )
+        setShowAgriCompleteModal(false)
+        setSelectedAgriOrdersForComplete([])
+        setAgriCompleteForm({
+          returnQuantities: {},
+          returnReason: "",
+          returnNotes: "",
+        })
+        getOrders()
+        fetchAgriStatusCounts() // Refresh counts after complete
+      } else {
+        Toast.error("Failed to complete orders")
+      }
+    } catch (error) {
+      console.error("Error completing orders:", error)
+      Toast.error(error?.response?.data?.message || "Failed to complete orders")
+    } finally {
+      setAgriCompleteLoading(false)
+    }
+  }
+
+  // ==================== ASSIGNMENT HANDLERS ====================
+  
+  // Open assign modal
+  const openAssignModal = () => {
+    if (selectedAgriSalesOrders.length === 0) {
+      Toast.error("Please select at least one order to assign")
+      return
+    }
+    setShowAssignModal(true)
+  }
+
+  // Handle assign to sales person
+  const handleAssignToSalesPerson = async () => {
+    if (!assignToUser) {
+      Toast.error("Please select a sales person")
+      return
+    }
+
+    try {
+      setAssignLoading(true)
+      const instance = NetworkManager(API.INVENTORY.ASSIGN_AGRI_SALES_ORDERS)
+      const payload = {
+        orderIds: selectedAgriSalesOrders,
+        assignToUserId: assignToUser,
+        assignmentNotes: assignmentNotes || "",
+      }
+
+      const response = await instance.request(payload)
+
+      if (response?.data) {
+        Toast.success(response.message || `${selectedAgriSalesOrders.length} order(s) assigned successfully`)
+        setShowAssignModal(false)
+        setSelectedAgriSalesOrders([])
+        setAssignToUser("")
+        setAssignmentNotes("")
+        getOrders()
+        fetchAgriStatusCounts() // Refresh counts after assign
+      } else {
+        Toast.error("Failed to assign orders")
+      }
+    } catch (error) {
+      console.error("Error assigning orders:", error)
+      Toast.error(error?.response?.data?.message || "Failed to assign orders")
+    } finally {
+      setAssignLoading(false)
+    }
+  }
+
+  // Load Ram Agri Inputs users when component mounts or when showing Agri Sales orders
+  useEffect(() => {
+    if (showAgriSalesOrders) {
+      loadRamAgriSalesUsers()
+    }
+  }, [showAgriSalesOrders])
+
   const debouncedSearch = React.useCallback(
     debounce((searchValue) => {
       setDebouncedSearchTerm(searchValue)
@@ -1359,6 +1920,31 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
       0
     )
   }
+
+const currentYear = new Date().getFullYear()
+
+const getLatestSlot = (slotData) => {
+  if (!slotData) return null
+  if (Array.isArray(slotData)) {
+    const filtered = slotData.filter(Boolean)
+    if (!filtered.length) return null
+    return filtered[filtered.length - 1]
+  }
+  return slotData
+}
+
+const mapSlotForUi = (slotData) => {
+  const latestSlot = getLatestSlot(slotData)
+  if (!latestSlot) return null
+  const slotId =
+    latestSlot.slotId ||
+    latestSlot.id ||
+    latestSlot._id ||
+    latestSlot.value ||
+    latestSlot.slot_id ||
+    latestSlot.slotID
+  return { ...latestSlot, slotId }
+}
 
   // Helper function to get slot ID for a specific date
   const getSlotIdForDate = (selectedDate) => {
@@ -1431,71 +2017,83 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   const getSlots = async (plantId, subtypeId) => {
     setSlotsLoading(true)
     try {
-      const instance = NetworkManager(API.ORDER.GET_SLOTS)
-      const response = await instance.request(
-        {},
-        {
-          plantId: plantId,
-          subtypeId: subtypeId,
-          year: new Date().getFullYear().toString()
-        }
+      // Use fast simple slots endpoint (same as AddOrderForm)
+      const instance = NetworkManager(API.slots.GET_SIMPLE_SLOTS)
+      const years = [2025, 2026]
+      
+      // Fetch slots for both years in parallel
+      const responses = await Promise.all(
+        years.map(year => instance.request({}, { plantId, subtypeId, year }))
       )
 
-      if (response?.data?.slots?.[0]?.slots) {
-        const apiSlots = response.data.slots[0].slots
+      // Combine slots from both years
+      let allSlotsData = []
+      
+      responses.forEach((response) => {
+        const rawSlots =
+          response?.data?.data?.slots ||
+          response?.data?.slots ||
+          response?.data?.data ||
+          []
 
-        const processedSlots = apiSlots
-          .filter((slot) => {
-            // Filter out inactive slots
-            if (!slot?.status) return false
+        const slotsData = Array.isArray(rawSlots)
+          ? rawSlots
+          : Array.isArray(rawSlots?.slots)
+          ? rawSlots.slots
+          : []
 
-            // Validate date format
-            const startDateValid = moment(slot.startDay, "DD-MM-YYYY", true).isValid()
-            const endDateValid = moment(slot.endDay, "DD-MM-YYYY", true).isValid()
+        allSlotsData = [...allSlotsData, ...slotsData]
+      })
 
-            if (!startDateValid || !endDateValid) {
-              return false
-            }
+      if (allSlotsData.length > 0) {
+        // Check if this plant has sowing allowed
+        const selectedPlant = plants.find((p) => p.value === plantId)
+        const isSowingAllowedPlant = selectedPlant?.sowingAllowed || false
 
-            return true
-          })
+        const processedSlots = allSlotsData
           .map((slot) => {
             const {
               startDay,
               endDay,
+              month,
               totalBookedPlants,
               totalPlants,
               status,
               _id,
-              effectiveBuffer,
-              availablePlants,
-              bufferAdjustedCapacity
+              availablePlants
             } = slot || {}
+
+            if (!startDay || !endDay) return null
+
+            // Validate date format
+            const startDateValid = moment(startDay, "DD-MM-YYYY", true).isValid()
+            const endDateValid = moment(endDay, "DD-MM-YYYY", true).isValid()
+
+            if (!startDateValid || !endDateValid) return null
 
             const start = moment(startDay, "DD-MM-YYYY").format("D")
             const end = moment(endDay, "DD-MM-YYYY").format("D")
             const monthYear = moment(startDay, "DD-MM-YYYY").format("MMMM, YYYY")
 
-            // Calculate available plants considering buffer
-            const effectiveBufferPercent = effectiveBuffer || 0
-            const bufferAmount = Math.round((totalPlants * effectiveBufferPercent) / 100)
-            const bufferAdjustedCapacityValue = bufferAdjustedCapacity || totalPlants - bufferAmount
-            const availablePlantsValue =
-              availablePlants || Math.max(0, bufferAdjustedCapacityValue - (totalBookedPlants || 0))
+            // Calculate available plants (can be negative for sowing-allowed plants)
+            const available = availablePlants !== undefined ? availablePlants : totalPlants - (totalBookedPlants || 0)
 
             return {
-              label: `${start} - ${end} ${monthYear} (${availablePlantsValue} available)`,
+              label: `${start} - ${end} ${monthYear} (${available} available)`,
               value: _id,
-              available: availablePlantsValue,
+              available: available,
+              availableQuantity: available, // Keep for compatibility
               totalPlants: totalPlants,
               totalBookedPlants: totalBookedPlants || 0,
-              effectiveBuffer: effectiveBufferPercent,
-              bufferAdjustedCapacity: bufferAdjustedCapacityValue,
               startDay: startDay,
               endDay: endDay
             }
           })
-          .filter((slot) => slot.available > 0) // Only show slots with available capacity
+          .filter((slot) => {
+            // For sowing-allowed plants, show all slots (even with negative availability)
+            // For regular plants, only show slots with positive availability
+            return slot !== null && (isSowingAllowedPlant || slot.available > 0)
+          })
 
         setSlots(processedSlots)
       } else {
@@ -1510,10 +2108,235 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
     }
   }
 
+  // Function to fetch counts for all statuses (without status filter)
+  const fetchAgriStatusCounts = async () => {
+    if (!showAgriSalesOrders) return
+    
+    try {
+      const instance = NetworkManager(API.INVENTORY.GET_ALL_AGRI_SALES_ORDERS)
+      const params = {
+        search: debouncedSearchTerm,
+        limit: 10000,
+        page: 1,
+      }
+
+      if (startDate && endDate) {
+        params.startDate = moment(startDate).format("YYYY-MM-DD")
+        params.endDate = moment(endDate).format("YYYY-MM-DD")
+      }
+
+      // Don't apply status filter - fetch all orders to calculate counts
+      if (selectedSalesPerson) {
+        params.createdBy = selectedSalesPerson
+      }
+
+      const response = await instance.request({}, params)
+      const ordersData = response?.data?.data?.data || response?.data?.data || []
+
+      // Calculate counts for each status
+      const counts = {
+        ALL: ordersData.length,
+        PENDING: ordersData.filter(o => o.orderStatus === "PENDING").length,
+        ACCEPTED: ordersData.filter(o => o.orderStatus === "ACCEPTED").length,
+        ASSIGNED: ordersData.filter(o => o.orderStatus === "ASSIGNED").length,
+        DISPATCHED: ordersData.filter(o => o.orderStatus === "DISPATCHED" || o.dispatchStatus === "DISPATCHED").length,
+        IN_TRANSIT: ordersData.filter(o => o.dispatchStatus === "IN_TRANSIT").length,
+        COMPLETED: ordersData.filter(o => o.orderStatus === "COMPLETED" || o.dispatchStatus === "DELIVERED").length
+      }
+
+      setAgriStatusCounts(counts)
+    } catch (error) {
+      console.error("Error fetching status counts:", error)
+    }
+  }
+
   const getOrders = async () => {
     setLoading(true)
 
-    // Use appropriate endpoint based on slotId
+    // If showing Agri Sales orders, use different endpoint
+    if (showAgriSalesOrders) {
+      try {
+        const instance = NetworkManager(API.INVENTORY.GET_ALL_AGRI_SALES_ORDERS)
+        const params = {
+          search: debouncedSearchTerm,
+          limit: 10000,
+          page: 1,
+        }
+
+        if (startDate && endDate) {
+          params.startDate = moment(startDate).format("YYYY-MM-DD")
+          params.endDate = moment(endDate).format("YYYY-MM-DD")
+        }
+
+        // Filter by order status based on agriDispatchStatusFilter (strip status tabs)
+        if (agriDispatchStatusFilter && agriDispatchStatusFilter !== "ALL") {
+          if (agriDispatchStatusFilter === "PENDING") {
+            params.orderStatus = "PENDING"
+          } else if (agriDispatchStatusFilter === "ACCEPTED") {
+            params.orderStatus = "ACCEPTED"
+          } else if (agriDispatchStatusFilter === "ASSIGNED") {
+            params.orderStatus = "ASSIGNED"
+          } else if (agriDispatchStatusFilter === "DISPATCHED") {
+            params.orderStatus = "DISPATCHED"
+            params.dispatchStatus = "DISPATCHED"
+          } else if (agriDispatchStatusFilter === "IN_TRANSIT") {
+            params.dispatchStatus = "IN_TRANSIT"
+          } else if (agriDispatchStatusFilter === "COMPLETED") {
+            params.orderStatus = "COMPLETED"
+          }
+        }
+        // When "ALL": no status filter — fetch all orders
+
+        if (selectedSalesPerson) {
+          // For Agri Sales, filter by createdBy if salesPerson is selected
+          params.createdBy = selectedSalesPerson
+        }
+
+        const response = await instance.request({}, params)
+        const ordersData = response?.data?.data?.data || response?.data?.data || []
+        
+        // Fetch counts in parallel (without blocking)
+        fetchAgriStatusCounts()
+
+        // Transform Agri Sales orders to match the expected format
+        const transformedOrders = ordersData.map((order) => {
+          const {
+            orderNumber,
+            customerName,
+            customerMobile,
+            customerVillage,
+            customerTaluka,
+            customerDistrict,
+            productName,
+            quantity,
+            unit,
+            rate,
+            totalAmount,
+            orderStatus,
+            payment,
+            totalPaidAmount,
+            balanceAmount,
+            orderDate,
+            deliveryDate,
+            createdAt,
+            notes,
+            createdBy,
+            productId,
+            _id,
+            // Dispatch fields
+            dispatchStatus,
+            dispatchMode,
+            vehicleNumber,
+            driverName,
+            driverMobile,
+            dispatchedAt,
+            dispatchedBy,
+            dispatchNotes,
+            // Courier fields
+            courierName,
+            courierTrackingId,
+            courierContact,
+            // Assignment fields
+            assignedTo,
+            assignedAt,
+            assignedBy,
+            assignmentNotes,
+          } = order
+
+          return {
+            order: orderNumber,
+            farmerName: customerName,
+            plantType: productName,
+            quantity: quantity,
+            totalPlants: quantity,
+            additionalPlants: 0,
+            basePlants: quantity,
+            orderDate: moment(orderDate || createdAt).format("DD MMM YYYY"),
+            deliveryDate: deliveryDate ? moment(deliveryDate).format("DD MMM YYYY") : "-",
+            rate: rate,
+            total: `₹ ${Number(totalAmount || 0).toFixed(2)}`,
+            "Paid Amt": `₹ ${Number(totalPaidAmount || 0).toFixed(2)}`,
+            "remaining Amt": `₹ ${Number(balanceAmount || totalAmount - (totalPaidAmount || 0)).toFixed(2)}`,
+            "remaining Plants": quantity, // For Agri Sales, remaining is same as quantity until accepted
+            "returned Plants": 0,
+            orderStatus: orderStatus,
+            dispatchStatus: dispatchStatus || "NOT_DISPATCHED",
+            Delivery: "-", // Agri Sales orders don't have slots
+            "Farm Ready": "-",
+            isAgriSalesOrder: true, // Flag to identify Agri Sales orders
+            details: {
+              customerName,
+              customerMobile,
+              customerVillage,
+              customerTaluka,
+              customerDistrict,
+              productName,
+              productId,
+              quantity,
+              unit,
+              rate,
+              totalAmount,
+              orderStatus,
+              payment: payment || [],
+              totalPaidAmount: totalPaidAmount || 0,
+              balanceAmount: balanceAmount || totalAmount,
+              orderDate,
+              deliveryDate,
+              notes,
+              createdBy,
+              orderid: _id,
+              orderNumber,
+              // Dispatch details
+              dispatchStatus: dispatchStatus || "NOT_DISPATCHED",
+              dispatchMode: dispatchMode || "VEHICLE",
+              vehicleNumber,
+              driverName,
+              driverMobile,
+              dispatchedAt,
+              dispatchedBy,
+              dispatchNotes,
+              // Courier details
+              courierName,
+              courierTrackingId,
+              courierContact,
+              // Assignment details
+              assignedTo,
+              assignedAt,
+              assignedBy,
+              assignmentNotes,
+            },
+          }
+        })
+
+        // Apply additional filters
+        let filteredOrders = transformedOrders
+        if (selectedVillage) {
+          filteredOrders = filteredOrders.filter((o) => o.details.customerVillage === selectedVillage)
+        }
+        if (selectedDistrict) {
+          filteredOrders = filteredOrders.filter((o) => o.details.customerDistrict === selectedDistrict)
+        }
+        // Filter by dispatchedBy (Ram Agri Inputs user who dispatched)
+        if (selectedDispatchedBy) {
+          filteredOrders = filteredOrders.filter((o) => {
+            const dispatchedById = o.details.dispatchedBy?._id || o.details.dispatchedBy
+            return dispatchedById === selectedDispatchedBy
+          })
+        }
+
+        setOrders(filteredOrders)
+        setLoading(false)
+        return
+      } catch (error) {
+        console.error("Error fetching Agri Sales orders:", error)
+        Toast.error("Failed to load Agri Sales orders")
+        setLoading(false)
+        setOrders([])
+        return
+      }
+    }
+
+    // Use appropriate endpoint based on slotId for regular orders
     const instance = slotId
       ? NetworkManager(API.ORDER.GET_ORDERS_SLOTS)
       : NetworkManager(API.ORDER.GET_ORDERS)
@@ -1604,6 +2427,8 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
             farmer,
             //   typeOfPlants,
             numberOfPlants,
+            additionalPlants = 0,
+            totalPlants,
             rate,
             salesPerson,
             createdAt,
@@ -1626,12 +2451,20 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                 orderFor,
                 cavity
               } = data || {}
+          const basePlants = numberOfPlants || 0
+          const extraPlants = additionalPlants || 0
+          const totalPlantCount =
+            typeof totalPlants === "number" ? totalPlants : basePlants + extraPlants
+          const remainingPlantCount =
+            typeof remainingPlants === "number" ? remainingPlants : totalPlantCount
+          const totalOrderAmount = Number(rate * totalPlantCount)
 
-              const { startDay, endDay } = bookingSlot?.[0] || {}
-              const start = startDay ? moment(startDay, "DD-MM-YYYY").format("D") : "N/A"
-              const end = endDay ? moment(endDay, "DD-MM-YYYY").format("D") : "N/A"
-              const monthYear = startDay ? moment(startDay, "DD-MM-YYYY").format("MMMM, YYYY") : "N/A"
-              return {
+          const latestSlot = mapSlotForUi(bookingSlot)
+          const { startDay, endDay } = latestSlot || {}
+          const start = startDay ? moment(startDay, "DD-MM-YYYY").format("D") : "N/A"
+          const end = endDay ? moment(endDay, "DD-MM-YYYY").format("D") : "N/A"
+          const monthYear = startDay ? moment(startDay, "DD-MM-YYYY").format("MMMM, YYYY") : "N/A"
+          return {
                 order: orderId,
                 farmerName: orderFor
                   ? `${farmer?.name || "Unknown"} (Order for: ${orderFor.name})`
@@ -1639,16 +2472,17 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                   ? `via ${salesPerson?.name || "Unknown"}`
                   : farmer?.name || "Unknown",
                 plantType: `${plantType?.name || "Unknown"} -> ${plantSubtype?.name || "Unknown"}`,
-                quantity: numberOfPlants,
-                orderDate: moment(orderBookingDate || createdAt).format("DD/MM/YYYY"),
-                deliveryDate: deliveryDate ? moment(deliveryDate).format("DD/MM/YYYY") : "-", // Specific delivery date
+            quantity: basePlants,
+            totalPlants: totalPlantCount,
+            additionalPlants: extraPlants,
+            basePlants,
+            orderDate: moment(orderBookingDate || createdAt).format("DD MMM YYYY"),
+            deliveryDate: deliveryDate ? moment(deliveryDate).format("DD MMM YYYY") : "-", // Specific delivery date
             rate,
-            total: `₹ ${Number(rate * numberOfPlants)}`,
-            "Paid Amt": `₹ ${Number(getTotalPaidAmount(payment))}`,
-            "remaining Amt": `₹ ${
-              Number(rate * numberOfPlants) - Number(getTotalPaidAmount(payment))
-            }`,
-            "remaining Plants": remainingPlants || numberOfPlants,
+            total: `₹ ${Number(totalOrderAmount).toFixed(2)}`,
+            "Paid Amt": `₹ ${Number(getTotalPaidAmount(payment)).toFixed(2)}`,
+            "remaining Amt": `₹ ${(totalOrderAmount - Number(getTotalPaidAmount(payment))).toFixed(2)}`,
+            "remaining Plants": remainingPlantCount,
             "returned Plants": returnedPlants || 0,
             orderStatus: orderStatus,
             Delivery: `${start} - ${end} ${monthYear}`,
@@ -1665,10 +2499,12 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
               salesPerson,
               plantID: plantType?.id,
               plantSubtypeID: plantSubtype?.id,
-              bookingSlot: bookingSlot?.[0] || null,
+              bookingSlot: latestSlot,
               rate: rate,
-              numberOfPlants,
-              remainingPlants: remainingPlants || numberOfPlants,
+              numberOfPlants: basePlants,
+              additionalPlants: extraPlants,
+              totalPlants: totalPlantCount,
+              remainingPlants: remainingPlantCount,
               orderFor: orderFor || null,
               statusChanges: statusChanges || [],
               orderRemarks: orderRemarks || [],
@@ -1682,7 +2518,12 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
               deliveryDate: deliveryDate || null, // Include deliveryDate in details
               cavity: cavity || null, // Include cavity information
               cavityName: cavity?.name || null,
-              cavityId: cavity?.id || cavity?._id || null
+              cavityId: cavity?.id || cavity?._id || null,
+              slotHistory: Array.isArray(bookingSlot)
+                ? bookingSlot.filter(Boolean)
+                : bookingSlot
+                ? [bookingSlot]
+                : []
             }
           }
         })
@@ -1833,9 +2674,11 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
       case "REJECTED":
       case "CANCELLED":
         return "bg-red-100 text-red-700"
+      case "TEMPORARY_CANCELLED":
+        return "bg-orange-100 text-orange-700"
       case "DISPATCHED":
       case "PROCESSING":
-        return "bg-blue-100 text-blue-700"
+        return "bg-brand-100 text-brand-700"
       case "COMPLETED":
         return "bg-gray-100 text-gray-700"
       case "PARTIALLY_COMPLETED":
@@ -1886,7 +2729,52 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   }
 
   // Status change handler with confirmation
-  const handleStatusChange = (row, newStatus) => {
+  const handleStatusChange = async (row, newStatus) => {
+    // Handle Agri Sales orders differently
+    if (row.isAgriSalesOrder) {
+      setConfirmDialog({
+        open: true,
+        title: newStatus === "ACCEPTED" ? "Accept Order & Deduct Stock" : "Reject Order",
+        description: newStatus === "ACCEPTED" 
+          ? `Accept Order #${row.order}? This will deduct ${row.quantity} ${row.details?.unit || "units"} from inventory stock.`
+          : `Reject Order #${row.order}? This action cannot be undone.`,
+        onConfirm: async () => {
+          setConfirmDialog((d) => ({ ...d, open: false }))
+          setpatchLoading(true)
+          try {
+            const orderId = row?.details?.orderid || row?.details?._id
+            if (newStatus === "ACCEPTED") {
+              const instance = NetworkManager(API.INVENTORY.ACCEPT_AGRI_SALES_ORDER)
+              const response = await instance.request({}, [orderId])
+              if (response?.data) {
+                Toast.success("Order accepted and stock deducted successfully")
+                await getOrders()
+                fetchAgriStatusCounts() // Refresh counts after accept
+                refreshComponent()
+              }
+            } else if (newStatus === "REJECTED") {
+              const instance = NetworkManager(API.INVENTORY.REJECT_AGRI_SALES_ORDER)
+              const response = await instance.request({ reason: "Rejected by user" }, [orderId])
+              if (response?.data) {
+                Toast.success("Order rejected successfully")
+                await getOrders()
+                fetchAgriStatusCounts() // Refresh counts after reject
+                refreshComponent()
+              }
+            }
+          } catch (error) {
+            console.error("Error changing Agri Sales order status:", error)
+            const errorMessage = error.response?.data?.message || error.message || "Failed to change order status"
+            Toast.error(errorMessage)
+          } finally {
+            setpatchLoading(false)
+          }
+        }
+      })
+      return
+    }
+
+    // Handle regular orders (existing flow)
     setConfirmDialog({
       open: true,
       title: "Confirm Status Change",
@@ -1941,7 +2829,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                     onChange={(update) => setSelectedDateRange(update)}
                     isClearable={true}
                     placeholderText="Select date range"
-                    className="w-full p-3 border rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full p-3 border rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
                     calendarClassName="custom-datepicker"
                   />
                 </div>
@@ -1954,7 +2842,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                       const today = new Date()
                       setSelectedDateRange([today, today])
                     }}
-                    className="px-3 py-1 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors whitespace-nowrap">
+                    className="px-3 py-1 text-sm bg-brand-500 text-white rounded hover:bg-brand-600 transition-colors whitespace-nowrap">
                     Today
                   </button>
                   <button
@@ -1964,7 +2852,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                       yesterday.setDate(yesterday.getDate() - 1)
                       setSelectedDateRange([yesterday, yesterday])
                     }}
-                    className="px-3 py-1 text-sm bg-green-500 text-white rounded hover:bg-green-600 transition-colors whitespace-nowrap">
+                    className="px-3 py-1 text-sm bg-brand-400 text-white rounded hover:bg-brand-500 transition-colors whitespace-nowrap">
                     Yesterday
                   </button>
                   <button
@@ -1975,7 +2863,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                       yesterday.setDate(yesterday.getDate() - 1)
                       setSelectedDateRange([yesterday, today])
                     }}
-                    className="px-3 py-1 text-sm bg-purple-500 text-white rounded hover:bg-purple-600 transition-colors whitespace-nowrap">
+                    className="px-3 py-1 text-sm bg-brand-600 text-white rounded hover:bg-brand-700 transition-colors whitespace-nowrap">
                     Last 2 Days
                   </button>
                   <button
@@ -1986,7 +2874,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                       weekAgo.setDate(weekAgo.getDate() - 7)
                       setSelectedDateRange([weekAgo, today])
                     }}
-                    className="px-3 py-1 text-sm bg-orange-500 text-white rounded hover:bg-orange-600 transition-colors whitespace-nowrap">
+                    className="px-3 py-1 text-sm bg-brand-700 text-white rounded hover:bg-brand-800 transition-colors whitespace-nowrap">
                     Last 7 Days
                   </button>
                   <button
@@ -2011,11 +2899,11 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
 
               {/* Status Indicators */}
               {viewMode === "farmready" && startDate && endDate && (
-                <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded-lg">
-                  <p className="text-sm text-blue-800">
+                <div className="mt-2 p-2 bg-brand-50 border border-brand-200 rounded-lg">
+                  <p className="text-sm text-brand-800">
                     📅 Filtering farm ready orders from{" "}
-                    <span className="font-semibold">{moment(startDate).format("DD-MM-YYYY")}</span>{" "}
-                    to <span className="font-semibold">{moment(endDate).format("DD-MM-YYYY")}</span>
+                    <span className="font-semibold">{moment(startDate).format("DD MMM YYYY")}</span>{" "}
+                    to <span className="font-semibold">{moment(endDate).format("DD MMM YYYY")}</span>
                   </p>
                 </div>
               )}
@@ -2033,7 +2921,49 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
         {/* Filter Dropdowns */}
         <div className="bg-white rounded-lg shadow-sm border p-4">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Filters</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+            {/* Plant Filter - Hide for Agri Sales orders */}
+            {!showAgriSalesOrders && (
+              <>
+                <SearchableDropdown
+                  label="Plant"
+                  value={selectedPlant}
+                  onChange={(val) => {
+                    setSelectedPlant(val)
+                    if (val === "") {
+                      setSelectedSubtype("")
+                    }
+                  }}
+                  options={[{ label: "All Plants", value: "" }, ...(plants || [])]}
+                  placeholder="Select Plant"
+                  showCount={true}
+                  maxHeight="500px"
+                />
+
+                {/* Plant Subtype Filter */}
+                <SearchableDropdown
+                  label="Subtype"
+                  value={selectedSubtype}
+                  onChange={setSelectedSubtype}
+                  options={
+                    !selectedPlant
+                      ? []
+                      : [{ label: "All Subtypes", value: "" }, ...(subtypes || [])]
+                  }
+                  placeholder={
+                    !selectedPlant
+                      ? "Select a plant first"
+                      : subtypesLoading
+                      ? "Loading subtypes..."
+                      : "Select Subtype"
+                  }
+                  showCount={Boolean(selectedPlant && !subtypesLoading)}
+                  maxHeight="500px"
+                  disabled={!selectedPlant || subtypesLoading}
+                />
+              </>
+            )}
+
             {/* Sales Person/Dealer Filter */}
             <SearchableDropdown
               label="Sales Person / Dealer"
@@ -2080,7 +3010,12 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
               title="Export Orders"
               filters={{
                 startDate: startDate ? moment(startDate).format("YYYY-MM-DD") : "",
-                endDate: endDate ? moment(endDate).format("YYYY-MM-DD") : ""
+                endDate: endDate ? moment(endDate).format("YYYY-MM-DD") : "",
+                plantId: selectedPlant || "",
+                subtypeId: selectedSubtype || "",
+                salesPerson: selectedSalesPerson || "",
+                village: selectedVillage || "",
+                district: selectedDistrict || ""
               }}
               onExportComplete={() => {
                 Toast.success("Orders exported successfully!")
@@ -2091,6 +3026,9 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                 setSelectedSalesPerson("")
                 setSelectedVillage("")
                 setSelectedDistrict("")
+                setSelectedPlant("")
+                setSelectedSubtype("")
+                setSubtypes([])
                 setSelectedDateRange([null, null])
               }}
               className="px-4 py-2 text-sm font-medium text-gray-700 enhanced-select hover:bg-gray-50 focus:outline-none">
@@ -2100,350 +3038,1146 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
         </div>
 
 
-        {/* View mode toggle buttons */}
-        <div className="space-y-3">
-          <div className="flex flex-wrap gap-3">
-            <button
-              onClick={() => setViewMode("booking")}
-              className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all duration-300 transform hover:scale-105 ${
-                viewMode === "booking"
-                  ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg"
-                  : "bg-gradient-to-r from-gray-50 to-gray-100 text-gray-700 hover:from-gray-100 hover:to-gray-200 border border-gray-200"
-              }`}>
-              📋 Booking Orders
-            </button>
-            <button
-              onClick={() => setViewMode("dispatched")}
-              className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all duration-300 transform hover:scale-105 ${
-                viewMode === "dispatched"
-                  ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg"
-                  : "bg-gradient-to-r from-gray-50 to-gray-100 text-gray-700 hover:from-gray-100 hover:to-gray-200 border border-gray-200"
-              }`}>
-              🚚 Dispatched Orders
-            </button>
-            <button
-              onClick={() => setViewMode("farmready")}
-              className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all duration-300 transform hover:scale-105 ${
-                viewMode === "farmready"
-                  ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg"
-                  : "bg-gradient-to-r from-gray-50 to-gray-100 text-gray-700 hover:from-gray-100 hover:to-gray-200 border border-gray-200"
-              }`}>
-              🌱 Farm Ready
-            </button>
-            <button
-              onClick={() => setViewMode("ready_for_dispatch")}
-              className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all duration-300 transform hover:scale-105 ${
-                viewMode === "ready_for_dispatch"
-                  ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg"
-                  : "bg-gradient-to-r from-gray-50 to-gray-100 text-gray-700 hover:from-gray-100 hover:to-gray-200 border border-gray-200"
-              }`}>
-              ✅ Ready for Dispatch
-            </button>
-            <button
-              onClick={() => setViewMode("dispatch_process")}
-              className={`px-6 py-3 rounded-xl text-sm font-semibold transition-all duration-300 transform hover:scale-105 ${
-                viewMode === "dispatch_process"
-                  ? "bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg"
-                  : "bg-gradient-to-r from-gray-50 to-gray-100 text-gray-700 hover:from-gray-100 hover:to-gray-200 border border-gray-200"
-              }`}>
-              ⏳ Loading
-            </button>
+        {/* Ram Agri Inputs Action Bar - Only show when orders are selected */}
+        {showAgriSalesOrders && (selectedAgriSalesOrders.length > 0 || selectedAgriOrdersForComplete.length > 0) && (
+          <div className="bg-white rounded-lg shadow-sm border mb-4 overflow-hidden">
+            {/* Action Bar Header */}
+            <div className="bg-gradient-to-r from-orange-500 to-amber-500 px-4 py-3">
+              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+                <div className="flex items-center gap-2 md:gap-4 overflow-x-auto pb-2 lg:pb-0">
+                  {/* Dispatch Button - Only show when orders are selected */}
+                  {selectedAgriSalesOrders.length > 0 && (
+                    <button
+                      onClick={openAgriDispatchModal}
+                      className="px-3 md:px-4 py-2 text-xs md:text-sm font-medium rounded-lg transition-all flex items-center gap-1 md:gap-2 whitespace-nowrap bg-orange-100 text-orange-700 hover:bg-orange-200 shadow-sm border border-orange-300">
+                      🚚 Dispatch
+                      <span className="bg-orange-600 text-white text-xs px-2 py-0.5 rounded-full">
+                        {selectedAgriSalesOrders.length}
+                      </span>
+                    </button>
+                  )}
+
+                  {/* Assign to Sales Person Button */}
+                  {selectedAgriSalesOrders.length > 0 && (
+                    <button
+                      onClick={openAssignModal}
+                      className="px-3 md:px-4 py-2 text-xs md:text-sm font-medium rounded-lg transition-all flex items-center gap-1 md:gap-2 whitespace-nowrap bg-purple-100 text-purple-700 hover:bg-purple-200 shadow-sm border border-purple-300">
+                      👤 Assign
+                      <span className="bg-purple-600 text-white text-xs px-2 py-0.5 rounded-full">
+                        {selectedAgriSalesOrders.length}
+                      </span>
+                    </button>
+                  )}
+
+                  {/* Complete Button */}
+                  {selectedAgriOrdersForComplete.length > 0 && (
+                    <button
+                      onClick={openAgriCompleteModal}
+                      className="px-3 md:px-4 py-2 text-xs md:text-sm font-medium rounded-lg transition-all flex items-center gap-1 md:gap-2 whitespace-nowrap bg-green-100 text-green-700 hover:bg-green-200 shadow-sm border border-green-300">
+                      ✅ Complete
+                      <span className="bg-green-600 text-white text-xs px-2 py-0.5 rounded-full">
+                        {selectedAgriOrdersForComplete.length}
+                      </span>
+                    </button>
+                  )}
+
+                  {/* Dispatched By Filter */}
+                  <div className="flex items-center gap-2 whitespace-nowrap">
+                    <span className="text-white text-xs md:text-sm font-medium hidden sm:inline">👤 Dispatched By:</span>
+                    <select
+                      value={selectedDispatchedBy}
+                      onChange={(e) => setSelectedDispatchedBy(e.target.value)}
+                      className="px-2 md:px-3 py-2 text-xs md:text-sm border-0 rounded-lg bg-white/90 text-gray-700 focus:ring-2 focus:ring-white min-w-[120px] md:min-w-[180px]">
+                      <option value="">All Employees</option>
+                      {ramAgriSalesUsers.map((user) => (
+                        <option key={user.value} value={user.value}>
+                          {user.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Selection Controls */}
+                <div className="flex items-center gap-2 md:gap-3 flex-wrap">
+                  {/* Dispatch Selection */}
+                  {selectedAgriSalesOrders.length > 0 && (
+                    <>
+                      <span className="text-white text-xs md:text-sm">
+                        <span className="font-bold">{selectedAgriSalesOrders.length}</span> for dispatch
+                      </span>
+                      <button
+                        onClick={clearAgriOrderSelections}
+                        className="px-2 md:px-3 py-1.5 text-xs md:text-sm font-medium rounded-lg bg-white/20 text-white hover:bg-white/30 transition-colors">
+                        Clear
+                      </button>
+                    </>
+                  )}
+                  {/* Complete Selection */}
+                  {selectedAgriOrdersForComplete.length > 0 && (
+                    <>
+                      <span className="text-green-100 text-xs md:text-sm">
+                        <span className="font-bold">{selectedAgriOrdersForComplete.length}</span> for complete
+                      </span>
+                      <button
+                        onClick={clearAgriCompleteSelections}
+                        className="px-2 md:px-3 py-1.5 text-xs md:text-sm font-medium rounded-lg bg-green-700 text-white hover:bg-green-800 transition-colors">
+                        Clear
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+
           </div>
-          
-          {/* View mode descriptions */}
-          {viewMode === "farmready" && (
-            <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-              <p className="text-sm text-green-800">
-                <span className="font-semibold">🌱 Farm Ready View:</span> Shows orders marked as farm ready with date filtering applied.
-              </p>
-            </div>
-          )}
-          {viewMode === "ready_for_dispatch" && (
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-              <p className="text-sm text-blue-800">
-                <span className="font-semibold">✅ Ready for Dispatch View:</span> Shows all orders with &ldquo;Ready for Dispatch&rdquo; status, irrespective of date. 
-                {isDispatchManager && <span className="ml-1 font-medium">You can change status and delivery date.</span>}
-              </p>
-            </div>
-          )}
-        </div>
+        )}
+        {viewMode === "farmready" && !showAgriSalesOrders && (
+          <div className="bg-green-50 border border-green-200 rounded-lg p-3 mb-4">
+            <p className="text-sm text-green-800">
+              <span className="font-semibold">🌱 Farm Ready View:</span> Shows orders marked as farm ready with date filtering applied.
+            </p>
+          </div>
+        )}
+        {viewMode === "ready_for_dispatch" && !showAgriSalesOrders && (
+          <div className="bg-brand-50 border border-brand-200 rounded-lg p-3 mb-4">
+            <p className="text-sm text-brand-800">
+              <span className="font-semibold">✅ Ready for Dispatch View:</span> Shows all orders with &ldquo;Ready for Dispatch&rdquo; status, irrespective of date. 
+              {isDispatchManager && <span className="ml-1 font-medium">You can change status and delivery date.</span>}
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Dispatch list component */}
       <DispatchList setisDispatchtab={setisDispatchtab} viewMode={viewMode} refresh={refresh} />
 
-      {/* Orders Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
-        {orders && orders.length > 0 ? (
-          orders.map((row, index) => (
-            <div
-              key={index}
-              className={`bg-white rounded-lg shadow-sm border hover:shadow-md transition-all duration-200 cursor-pointer ${
-                row?.details?.payment.some((payment) => payment.paymentStatus === "PENDING")
-                  ? "payment-blink"
-                  : ""
-              } ${row?.details?.dealerOrder ? "border-sky-200 bg-sky-50" : ""}`}
-              onClick={() => {
-                setSelectedOrder(row)
-                setIsOrderModalOpen(true)
-              }}>
-              {/* Card Header */}
-              <div className="p-4 border-b border-gray-100">
-                <div className="flex items-start justify-between mb-2">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-semibold text-gray-900 text-sm">Order #{row.order}</h3>
-                    </div>
-                    <div className="flex items-center gap-1 mt-1">
-                      {row.details?.orderFor ? (
-                        <>
-                          <span className="text-xs text-gray-500">Farmer:</span>
-                          <span className={`text-xs font-medium farmer-name-highlight`}>
-                            {row.details.farmer?.name || "Unknown"}
-                          </span>
-                          <span className="text-xs text-gray-500">| Order For:</span>
-                          <span className={`text-xs font-medium order-for-highlight`}>
-                            {row.details.orderFor.name}
-                          </span>
-                        </>
-                      ) : (
-                        <span className={`text-xs font-medium farmer-name-highlight`}>
-                          {row.farmerName}
-                        </span>
-                      )}
-                    </div>
-                    {/* Show who booked the order */}
-                    {row.details?.salesPerson && (
-                      <p className="text-xs text-blue-600 mt-1 font-medium">
-                        Booked by: {row.details.salesPerson.name}
-                        {row.details.salesPerson.jobTitle === "DEALER" && " (Dealer)"}
-                      </p>
-                    )}
+      {/* Plant/Subtype Summary Cards for Ready for Dispatch */}
+      {viewMode === "ready_for_dispatch" && orders && orders.length > 0 && (() => {
+        // Group orders by plant type and subtype
+        const plantSummary = new Map();
+        
+        orders.forEach(order => {
+          const plantType = order.plantType || "Unknown";
+          const key = plantType;
+          
+          if (!plantSummary.has(key)) {
+            plantSummary.set(key, {
+              plantType: plantType,
+              totalQuantity: 0,
+              orderCount: 0
+            });
+          }
+          
+          const summary = plantSummary.get(key);
+          summary.totalQuantity += order.totalPlants ?? order.quantity ?? 0;
+          summary.orderCount += 1;
+        });
+        
+        const summaryArray = Array.from(plantSummary.values()).sort((a, b) => 
+          b.totalQuantity - a.totalQuantity
+        );
+        
+        return (
+          <div className="mb-4">
+            <h3 className="text-sm font-semibold text-gray-700 mb-3">📦 Delivery Summary by Plant Type</h3>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+              {summaryArray.map((summary, index) => (
+                <div key={index} className="bg-gradient-to-br from-brand-50 to-brand-100 rounded-lg shadow-sm border border-brand-200 p-3 hover:shadow-md transition-shadow">
+                  <div className="text-xs text-gray-600 mb-1 truncate" title={summary.plantType}>
+                    {summary.plantType}
                   </div>
-                  <div className="flex items-center space-x-2">
-                    {viewMode !== "booking" && (
-                      <input
-                        type="checkbox"
-                        onChange={(e) => {
-                          e.stopPropagation()
-                          toggleRowSelection(row.details.orderid, row)
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                        checked={selectedRows.has(row.details.orderid)}
-                        className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                      />
-                    )}
-                    <DownloadPDFButton order={row} />
+                  <div className="text-lg font-bold text-brand-700">
+                    {summary.totalQuantity.toLocaleString()}
+                  </div>
+                  <div className="text-[10px] text-gray-500 mt-1">
+                    {summary.orderCount} {summary.orderCount === 1 ? 'order' : 'orders'}
                   </div>
                 </div>
-
-                {/* Status Badge */}
-                <div className="flex items-center justify-between">
-                  {row.orderStatus !== "COMPLETED" && row.orderStatus !== "DISPATCHED" ? (
-                    <div className="relative" onClick={(e) => e.stopPropagation()}>
-                      <SearchableDropdown
-                        label=""
-                        value={row.orderStatus}
-                        onChange={(newStatus) => handleStatusChange(row, newStatus)}
-                        options={orderStatusOptions || []}
-                        placeholder="Select Status"
-                        maxHeight="200px"
-                        isStatusDropdown={true}
-                      />
-                    </div>
-                  ) : (
-                    <span
-                      className={`status-badge-enhanced status-${row.orderStatus
-                        .toLowerCase()
-                        .replace("_", "-")} flex items-center gap-1`}>
-                      {row.orderStatus === "FARM_READY" && "🌱"}
-                      {row.orderStatus === "DISPATCH_PROCESS" ? "Loading" : row.orderStatus}
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              {/* Card Body */}
-              <div className="p-4 space-y-3">
-                {/* Plant Info */}
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-gray-500">Plant Type</span>
-                  <span className="text-sm font-medium text-gray-900">{row.plantType}</span>
-                </div>
-
-                {/* Quantity & Rate */}
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <span className="text-xs text-gray-500">Quantity</span>
-                    <div className="text-sm font-medium text-gray-900">{row.quantity}</div>
-                    {row["remaining Plants"] < row.quantity && (
-                      <div className="text-xs text-orange-600 mt-1">
-                        Remaining: {row["remaining Plants"]}
-                      </div>
-                    )}
-                  </div>
-                  <div>
-                    <span className="text-xs text-gray-500">Rate</span>
-                    <div className="text-sm font-medium text-gray-900">₹{row.rate}</div>
-                  </div>
-                </div>
-
-                {/* Financial Info */}
-                <div className="bg-gray-50 rounded-md p-3 space-y-2">
-                  <div className="flex justify-between">
-                    <span className="text-xs text-gray-500">Total</span>
-                    <span className="text-sm font-semibold text-gray-900">{row.total}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-xs text-gray-500">Paid</span>
-                    <span className="text-sm text-green-600">{row["Paid Amt"]}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-xs text-gray-500">Remaining</span>
-                    <span className="text-sm text-amber-600">{row["remaining Amt"]}</span>
-                  </div>
-                </div>
-
-                {/* Delivery Info */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-gray-500">Delivery Period</span>
-                    <span className="text-sm font-medium text-blue-600">{row.Delivery}</span>
-                  </div>
-                  {row.deliveryDate && row.deliveryDate !== "-" && (
-                    <div className="bg-blue-50 rounded-md p-2 border border-blue-200">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs text-blue-700 font-medium flex items-center">
-                          📅 Delivery Date
-                        </span>
-                        <span className="text-sm font-semibold text-blue-800">
-                          {row.deliveryDate}
-                        </span>
-                      </div>
-                      {/* Delivery Date Changes Indicator */}
-                      {row.details?.deliveryChanges && row.details.deliveryChanges.length > 0 && (
-                        <div className="mt-2 pt-2 border-t border-blue-200">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setSelectedOrder(row)
-                              setIsOrderModalOpen(true)
-                              setActiveTab("overview")
-                            }}
-                            className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 transition-colors">
-                            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                            </svg>
-                            <span>{row.details.deliveryChanges.length} date change{row.details.deliveryChanges.length > 1 ? 's' : ''}</span>
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* Farm Ready Date Display - Shows when order has been marked as farm ready */}
-                {row["Farm Ready"] !== "-" && (
-                  <div className="flex items-center justify-between bg-green-50 rounded-md p-2 border border-green-200">
-                    <span className="text-xs text-green-700 font-medium flex items-center">
-                      🌱 Farm Ready Date
-                    </span>
-                    <span className="text-sm font-semibold text-green-800">
-                      {row["Farm Ready"]}
-                    </span>
-                  </div>
-                )}
-
-                {/* Dispatch Details - Shows driver and vehicle for dispatched orders */}
-                {(row.orderStatus === "DISPATCHED" || row.orderStatus === "DISPATCH_PROCESS") && row.details?.dispatchHistory && row.details.dispatchHistory.length > 0 && row.details.dispatchHistory[0].dispatch && (
-                  <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-3 border-l-4 border-blue-500 shadow-sm">
-                    <div className="flex items-center gap-2 text-sm">
-                      <span className="text-base">🚚</span>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-bold text-blue-900">
-                          {row.details.dispatchHistory[0].dispatch.driverName || 'N/A'}
-                        </span>
-                        {row.details.dispatchHistory[0].dispatch.driverPhone && (
-                          <span className="text-gray-600">
-                            ({row.details.dispatchHistory[0].dispatch.driverPhone})
-                          </span>
-                        )}
-                        <span className="text-blue-600 font-bold">→</span>
-                        <span className="font-semibold text-gray-800">
-                          🚗 {row.details.dispatchHistory[0].dispatch.vehicleName || 'N/A'}
-                        </span>
-                        {row.details.dispatchHistory[0].dispatch.transportId && (
-                          <>
-                            <span className="text-blue-600 font-bold">→</span>
-                            <span className="text-xs font-mono font-bold text-white bg-blue-600 px-2 py-1 rounded">
-                              #{row.details.dispatchHistory[0].dispatch.transportId}
-                            </span>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Action Buttons */}
-                {viewMode !== "dispatch_process" &&
-                  row?.orderStatus !== "COMPLETED" &&
-                  row?.orderStatus !== "DISPATCH_PROCESS" &&
-                  row?.orderStatus !== "DISPATCHED" && (
-                    <div className="flex items-center justify-between pt-2 border-t border-gray-100">
-                      {/* Dispatch Manager indicator */}
-                      {isDispatchManager && (
-                        <span className="text-xs text-blue-600 font-medium">
-                          🚚 DM Access
-                        </span>
-                      )}
-                      <div className="flex items-center space-x-2 ml-auto">
-                        {editingRows.has(index) ? (
-                          <>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                saveEditedRow(index, row)
-                              }}
-                              className="text-green-500 hover:text-green-700">
-                              <CheckIcon size={16} />
-                            </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                cancelEditing(index)
-                              }}
-                              className="text-red-500 hover:text-red-700">
-                              <XIcon size={16} />
-                            </button>
-                          </>
-                        ) : (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              toggleEditing(index, row)
-                            }}
-                            className="text-gray-500 hover:text-gray-700">
-                            <Edit2Icon size={16} />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  )}
-              </div>
+              ))}
             </div>
-          ))
-        ) : (
-          <div className="col-span-full flex items-center justify-center py-12">
-            <div className="text-center">
-              <div className="text-gray-400 text-6xl mb-4">📋</div>
-              <h3 className="text-lg font-medium text-gray-900 mb-2">No Orders Found</h3>
-              <p className="text-gray-500">
-                {loading ? "Loading orders..." : "No orders match your current filters."}
-              </p>
+          </div>
+        );
+      })()}
+
+      {/* View Toggle and Tab Navigation */}
+      <div className="bg-white rounded-lg shadow-sm border">
+        {/* Header with View Toggle */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-gray-50">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm font-medium text-gray-700">View:</span>
+            <button
+              onClick={() => setViewType("table")}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                viewType === "table"
+                  ? "bg-brand-600 text-white shadow-sm"
+                  : "bg-white text-gray-600 hover:bg-gray-100 border border-gray-300"
+              }`}>
+              📊 Table
+            </button>
+            <button
+              onClick={() => setViewType("grid")}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                viewType === "grid"
+                  ? "bg-brand-600 text-white shadow-sm"
+                  : "bg-white text-gray-600 hover:bg-gray-100 border border-gray-300"
+              }`}>
+              🎴 Grid
+            </button>
+            
+            {/* Order Type: Toggle between Regular Orders and Ram Agri Inputs */}
+            <div className="ml-4 pl-4 border-l border-gray-300 flex items-center gap-2">
+              <span className="text-sm font-medium text-gray-700">Order Type:</span>
+              <button
+                onClick={() => setShowAgriSalesOrders(false)}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors flex items-center gap-1 ${
+                  !showAgriSalesOrders
+                    ? "bg-brand-600 text-white shadow-sm"
+                    : "bg-white text-gray-600 hover:bg-gray-100 border border-gray-300"
+                }`}>
+                📋 Regular Orders
+              </button>
+              <button
+                onClick={() => setShowAgriSalesOrders(true)}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors flex items-center gap-1 relative ${
+                  showAgriSalesOrders
+                    ? "bg-orange-600 text-white shadow-sm"
+                    : "bg-white text-gray-600 hover:bg-gray-100 border border-gray-300"
+                }`}>
+                📦 Ram Agri Inputs
+                {showAgriSalesOrders && agriSalesPendingCount > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center border-2 border-white">
+                    {agriSalesPendingCount > 99 ? "99+" : agriSalesPendingCount}
+                  </span>
+                )}
+              </button>
+              {showAgriSalesOrders && (
+                <>
+                  <button
+                    onClick={() => setShowAddAgriSalesOrderForm(true)}
+                    className="px-3 py-1.5 text-xs font-medium rounded-md bg-green-600 text-white shadow-sm hover:bg-green-700 transition-colors flex items-center gap-1">
+                    <span>+</span> Add Order
+                  </button>
+                  <div className="ml-2 flex items-center gap-1">
+                    <input
+                      type="checkbox"
+                      id="hidePayment"
+                      checked={hidePaymentDetails}
+                      onChange={(e) => setHidePaymentDetails(e.target.checked)}
+                      className="w-3 h-3 text-brand-600 rounded border-gray-300"
+                    />
+                    <label htmlFor="hidePayment" className="text-xs text-gray-600 cursor-pointer">
+                      Hide Payment
+                    </label>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Status filter (Ram Agri Inputs) - Tab Style */}
+            {showAgriSalesOrders && (
+              <div className="ml-4 pl-4 border-l border-gray-300">
+                <div className="flex items-center gap-1 overflow-x-auto scrollbar-hide pb-1">
+                  <button
+                    onClick={() => setAgriDispatchStatusFilter("ALL")}
+                    className={`px-3 py-2 text-xs font-medium whitespace-nowrap transition-all border-b-2 ${
+                      agriDispatchStatusFilter === "ALL"
+                        ? "border-brand-600 text-brand-600 bg-brand-50"
+                        : "border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300"
+                    }`}>
+                    All <span className="ml-1 text-xs font-semibold">({agriStatusCounts.ALL})</span>
+                  </button>
+                  <button
+                    onClick={() => setAgriDispatchStatusFilter("PENDING")}
+                    className={`px-3 py-2 text-xs font-medium whitespace-nowrap transition-all border-b-2 ${
+                      agriDispatchStatusFilter === "PENDING"
+                        ? "border-yellow-600 text-yellow-600 bg-yellow-50"
+                        : "border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300"
+                    }`}>
+                    ⏳ Pending <span className="ml-1 text-xs font-semibold">({agriStatusCounts.PENDING})</span>
+                  </button>
+                  <button
+                    onClick={() => setAgriDispatchStatusFilter("ACCEPTED")}
+                    className={`px-3 py-2 text-xs font-medium whitespace-nowrap transition-all border-b-2 ${
+                      agriDispatchStatusFilter === "ACCEPTED"
+                        ? "border-gray-600 text-gray-600 bg-gray-50"
+                        : "border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300"
+                    }`}>
+                    ✓ Accepted <span className="ml-1 text-xs font-semibold">({agriStatusCounts.ACCEPTED})</span>
+                  </button>
+                  <button
+                    onClick={() => setAgriDispatchStatusFilter("ASSIGNED")}
+                    className={`px-3 py-2 text-xs font-medium whitespace-nowrap transition-all border-b-2 ${
+                      agriDispatchStatusFilter === "ASSIGNED"
+                        ? "border-purple-600 text-purple-600 bg-purple-50"
+                        : "border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300"
+                    }`}>
+                    👤 Assigned <span className="ml-1 text-xs font-semibold">({agriStatusCounts.ASSIGNED})</span>
+                  </button>
+                  <button
+                    onClick={() => setAgriDispatchStatusFilter("DISPATCHED")}
+                    className={`px-3 py-2 text-xs font-medium whitespace-nowrap transition-all border-b-2 ${
+                      agriDispatchStatusFilter === "DISPATCHED"
+                        ? "border-brand-600 text-brand-600 bg-brand-50"
+                        : "border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300"
+                    }`}>
+                    🚚 Dispatched <span className="ml-1 text-xs font-semibold">({agriStatusCounts.DISPATCHED})</span>
+                  </button>
+                  <button
+                    onClick={() => setAgriDispatchStatusFilter("IN_TRANSIT")}
+                    className={`px-3 py-2 text-xs font-medium whitespace-nowrap transition-all border-b-2 ${
+                      agriDispatchStatusFilter === "IN_TRANSIT"
+                        ? "border-orange-600 text-orange-600 bg-orange-50"
+                        : "border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300"
+                    }`}>
+                    🛣️ In Transit <span className="ml-1 text-xs font-semibold">({agriStatusCounts.IN_TRANSIT})</span>
+                  </button>
+                  <button
+                    onClick={() => setAgriDispatchStatusFilter("COMPLETED")}
+                    className={`px-3 py-2 text-xs font-medium whitespace-nowrap transition-all border-b-2 ${
+                      agriDispatchStatusFilter === "COMPLETED"
+                        ? "border-green-600 text-green-600 bg-green-50"
+                        : "border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300"
+                    }`}>
+                    ✅ Completed <span className="ml-1 text-xs font-semibold">({agriStatusCounts.COMPLETED})</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+          <div className="text-sm text-gray-600">
+            {orders.length} {orders.length === 1 ? "order" : "orders"}
+          </div>
+        </div>
+
+        {/* Tab Navigation - Hide or simplify for Agri Sales orders */}
+        {!showAgriSalesOrders && (
+          <div className="border-b border-gray-200 bg-gray-50">
+            <div className="flex overflow-x-auto scrollbar-hide">
+              <button
+                onClick={() => setViewMode("booking")}
+                className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+                  viewMode === "booking"
+                    ? "border-brand-500 text-brand-600 bg-white"
+                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                }`}>
+                <span className="hidden sm:inline">📋 </span>Booking {orders.length > 0 && <span className="ml-1 text-xs bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
+              </button>
+              <button
+                onClick={() => setViewMode("dispatched")}
+                className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+                  viewMode === "dispatched"
+                    ? "border-brand-500 text-brand-600 bg-white"
+                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                }`}>
+                <span className="hidden sm:inline">🚚 </span>Dispatched {orders.length > 0 && <span className="ml-1 text-xs bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
+              </button>
+              <button
+                onClick={() => setViewMode("farmready")}
+                className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+                  viewMode === "farmready"
+                    ? "border-brand-500 text-brand-600 bg-white"
+                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                }`}>
+                <span className="hidden sm:inline">🌱 </span>Farm Ready {orders.length > 0 && <span className="ml-1 text-xs bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
+              </button>
+              <button
+                onClick={() => setViewMode("ready_for_dispatch")}
+                className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+                  viewMode === "ready_for_dispatch"
+                    ? "border-brand-500 text-brand-600 bg-white"
+                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                }`}>
+                <span className="hidden sm:inline">✅ </span>Ready {orders.length > 0 && <span className="ml-1 text-xs bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
+              </button>
+              <button
+                onClick={() => setViewMode("dispatch_process")}
+                className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+                  viewMode === "dispatch_process"
+                    ? "border-brand-500 text-brand-600 bg-white"
+                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                }`}>
+                <span className="hidden sm:inline">⏳ </span>Loading {orders.length > 0 && <span className="ml-1 text-xs bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
+              </button>
             </div>
           </div>
         )}
+
+        {/* Filter orders based on order status for Agri Sales */}
+        {(() => {
+          // Apply order status filter for Agri Sales orders
+          const filteredOrders = showAgriSalesOrders && agriDispatchStatusFilter !== "ALL"
+            ? orders.filter(o => {
+                const orderStatus = o.orderStatus || "PENDING"
+                const dispatchStatus = o.details?.dispatchStatus || "NOT_DISPATCHED"
+                
+                if (agriDispatchStatusFilter === "PENDING") {
+                  return orderStatus === "PENDING"
+                } else if (agriDispatchStatusFilter === "ACCEPTED") {
+                  return orderStatus === "ACCEPTED"
+                } else if (agriDispatchStatusFilter === "ASSIGNED") {
+                  return orderStatus === "ASSIGNED"
+                } else if (agriDispatchStatusFilter === "DISPATCHED") {
+                  return orderStatus === "DISPATCHED" || dispatchStatus === "DISPATCHED"
+                } else if (agriDispatchStatusFilter === "IN_TRANSIT") {
+                  return dispatchStatus === "IN_TRANSIT"
+                } else if (agriDispatchStatusFilter === "COMPLETED") {
+                  return orderStatus === "COMPLETED" || dispatchStatus === "DELIVERED"
+                }
+                return true
+              })
+            : orders
+
+          return (
+            <>
+        {/* Table View */}
+        {viewType === "table" && (
+          <div className="overflow-x-auto max-h-[calc(100vh-400px)]">
+            {filteredOrders && filteredOrders.length > 0 ? (
+              <table className="w-full text-sm">
+                <thead className="bg-gradient-to-r from-gray-50 to-gray-100 border-b-2 border-gray-300 sticky top-0 z-10">
+                  <tr>
+                    {/* Dispatch Selection Checkbox for Agri Sales */}
+                    {showAgriSalesOrders && (
+                      <th className="px-2 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider w-10 bg-gray-50">
+                        <input
+                          type="checkbox"
+                          onChange={() => {
+                            if (selectedAgriSalesOrders.length > 0) {
+                              clearAgriOrderSelections()
+                            } else {
+                              selectAllAgriOrders()
+                            }
+                          }}
+                          checked={selectedAgriSalesOrders.length > 0 && selectedAgriSalesOrders.length === orders.filter(o => 
+                            o.isAgriSalesOrder && 
+                            o.orderStatus === "ACCEPTED" // Only ACCEPTED orders can be dispatched/assigned
+                          ).length}
+                          className="w-3.5 h-3.5 rounded border-gray-300 text-brand-600 focus:ring-brand-500 cursor-pointer"
+                          title="Select all accepted orders"
+                        />
+                      </th>
+                    )}
+                    {viewMode !== "booking" && !showAgriSalesOrders && (
+                      <th className="px-2 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider w-10 bg-gray-50">
+                        <input
+                          type="checkbox"
+                          onChange={toggleSelectAll}
+                          checked={selectedRows.size === orders.length && orders.length > 0}
+                          className="w-3.5 h-3.5 rounded border-gray-300 text-brand-600 focus:ring-brand-500 cursor-pointer"
+                        />
+                      </th>
+                    )}
+                    <th className="px-2 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider min-w-[100px] bg-gray-50">
+                      Order #
+                    </th>
+                    <th className="px-2 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider min-w-[160px] bg-gray-50">
+                      Farmer / Customer
+                    </th>
+                    <th className="px-2 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider min-w-[140px] bg-gray-50">
+                      Plant Type
+                    </th>
+                    <th className="px-2 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider min-w-[90px] bg-gray-50">
+                      Qty
+                    </th>
+                    <th className="px-2 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider min-w-[70px] bg-gray-50">
+                      Rate
+                    </th>
+                    <th className="px-2 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider min-w-[110px] bg-gray-50">
+                      Amount
+                    </th>
+                    {!(showAgriSalesOrders && hidePaymentDetails) && (
+                      <th className="px-2 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider min-w-[110px] bg-gray-50">
+                        Payment
+                      </th>
+                    )}
+                    {/* Dispatch Info Column for Agri Sales */}
+                    {showAgriSalesOrders && (
+                      <th className="px-2 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider min-w-[120px] bg-gray-50">
+                        Dispatch
+                      </th>
+                    )}
+                    <th className="px-2 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider min-w-[140px] bg-gray-50">
+                      Delivery
+                    </th>
+                    <th className="px-2 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider min-w-[110px] bg-gray-50">
+                      Status
+                    </th>
+                    <th className="px-2 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider min-w-[80px] bg-gray-50">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                {filteredOrders.map((row, index) => {
+                  const farmerDetails = row?.details?.farmer
+                  const farmerLocation = farmerDetails
+                    ? [farmerDetails.district, farmerDetails.village].filter(Boolean).join(" → ")
+                    : null
+                  const hasPendingPayment = row?.details?.payment?.some((payment) => payment.paymentStatus === "PENDING")
+
+                  // Determine row styling based on dispatch status for Agri Sales
+                  const getAgriRowStyle = () => {
+                    if (!showAgriSalesOrders) return ""
+                    const dispatchStatus = row.details?.dispatchStatus
+                    if (dispatchStatus === "DISPATCHED") return "bg-brand-50 border-l-brand-500"
+                    if (dispatchStatus === "IN_TRANSIT") return "bg-orange-50 border-l-orange-500"
+                    if (dispatchStatus === "DELIVERED") return "bg-green-50 border-l-green-500"
+                    if (selectedAgriSalesOrders.includes(row.details?.orderid)) return "bg-amber-50 border-l-amber-500"
+                    return ""
+                  }
+
+                  return (
+                    <tr
+                      key={index}
+                      className={`hover:bg-brand-50 transition-all duration-150 cursor-pointer border-l-4 ${
+                        hasPendingPayment && !showAgriSalesOrders ? "payment-blink border-l-amber-400" : "border-l-transparent"
+                      } ${row?.details?.dealerOrder ? "bg-sky-50" : ""} ${
+                        selectedRows.has(row.details.orderid) && !showAgriSalesOrders ? "bg-brand-100 border-l-brand-500" : ""
+                      } ${getAgriRowStyle()}`}
+                      onClick={() => {
+                        setSelectedOrder(row)
+                        setIsOrderModalOpen(true)
+                      }}>
+                      {/* Dispatch Selection Checkbox for Agri Sales */}
+                      {showAgriSalesOrders && (
+                        <td className="px-2 py-2 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                          {/* ACCEPTED orders - can be dispatched or assigned */}
+                          {row.isAgriSalesOrder && row.orderStatus === "ACCEPTED" ? (
+                            <div className="flex items-center justify-center">
+                              <input
+                                type="checkbox"
+                                onChange={(e) => {
+                                  e.stopPropagation()
+                                  toggleAgriOrderSelection(row.details.orderid)
+                                }}
+                                checked={selectedAgriSalesOrders.includes(row.details.orderid)}
+                                className="w-4 h-4 rounded border-2 border-orange-400 text-orange-600 focus:ring-orange-500 cursor-pointer"
+                                title="Select for dispatch/assign"
+                              />
+                            </div>
+                          ) : row.orderStatus === "ASSIGNED" ? (
+                            /* ASSIGNED orders - show purple icon */
+                            <div className="flex items-center justify-center">
+                              <span className="text-lg" title="Assigned to sales person">👤</span>
+                            </div>
+                          ) : row.orderStatus === "DISPATCHED" || row.details?.dispatchStatus === "DISPATCHED" || row.details?.dispatchStatus === "IN_TRANSIT" ? (
+                            /* DISPATCHED orders - can be completed */
+                            <div className="flex items-center justify-center gap-1">
+                              <input
+                                type="checkbox"
+                                onChange={(e) => {
+                                  e.stopPropagation()
+                                  toggleAgriCompleteOrderSelection(row.details.orderid)
+                                }}
+                                checked={selectedAgriOrdersForComplete.includes(row.details.orderid)}
+                                className="w-4 h-4 rounded border-2 border-green-400 text-green-600 focus:ring-green-500 cursor-pointer"
+                                title="Select for complete"
+                              />
+                              <span className="text-sm">
+                                {row.details.dispatchMode === "COURIER" ? "📦" : "🚚"}
+                              </span>
+                            </div>
+                          ) : row.orderStatus === "COMPLETED" || row.details?.dispatchStatus === "DELIVERED" ? (
+                            /* COMPLETED orders */
+                            <div className="flex items-center justify-center">
+                              <span className="text-lg">✅</span>
+                            </div>
+                          ) : row.orderStatus === "PENDING" ? (
+                            /* PENDING orders - show yellow icon */
+                            <div className="flex items-center justify-center">
+                              <span className="text-yellow-500 text-lg" title="Pending acceptance">⏳</span>
+                            </div>
+                          ) : (
+                            <div className="flex items-center justify-center">
+                              <span className="text-gray-300 text-lg">○</span>
+                            </div>
+                          )}
+                        </td>
+                      )}
+                      {viewMode !== "booking" && !showAgriSalesOrders && (
+                        <td className="px-2 py-2 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            onChange={(e) => {
+                              e.stopPropagation()
+                              toggleRowSelection(row.details.orderid, row)
+                            }}
+                            checked={selectedRows.has(row.details.orderid)}
+                            className="w-3.5 h-3.5 rounded border-gray-300 text-brand-600 focus:ring-brand-500 cursor-pointer"
+                          />
+                        </td>
+                      )}
+                      <td className="px-2 py-2 whitespace-nowrap">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-bold text-gray-900">#{row.order}</span>
+                          <DownloadPDFButton order={row} />
+                        </div>
+                        <div className="text-[10px] text-gray-500 mt-0.5">{row.orderDate}</div>
+                      </td>
+                      <td className="px-2 py-2">
+                        <div className="text-xs font-medium text-gray-900 leading-tight">
+                          {row.details?.orderFor ? (
+                            <div className="space-y-0.5">
+                              <div className="farmer-name-highlight inline-block px-1.5 py-0.5 rounded text-[10px]">
+                                {row.details.farmer?.name || "Unknown"}
+                              </div>
+                              <div className="order-for-highlight inline-block px-1.5 py-0.5 rounded text-[10px] ml-1">
+                                For: {row.details.orderFor.name}
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="farmer-name-highlight inline-block px-1.5 py-0.5 rounded text-[10px]">
+                              {row.farmerName}
+                            </span>
+                          )}
+                        </div>
+                        {row.details?.salesPerson && (
+                          <div className="text-[10px] text-brand-600 mt-0.5">
+                            By: {row.details.salesPerson.name}
+                            {row.details.salesPerson.jobTitle === "DEALER" && " (D)"}
+                          </div>
+                        )}
+                        {farmerLocation && (
+                          <div className="text-[10px] text-gray-500 mt-0.5 truncate max-w-[150px]">{farmerLocation}</div>
+                        )}
+                      </td>
+                      <td className="px-2 py-2">
+                        <div className="text-xs text-gray-900 font-medium leading-tight">{row.plantType}</div>
+                      </td>
+                      <td className="px-2 py-2">
+                        <div className="text-xs font-bold text-gray-900">
+                          {(row.totalPlants ?? row.quantity)?.toLocaleString()}
+                        </div>
+                        {row.additionalPlants > 0 && (
+                          <div className="text-[10px] text-brand-600 mt-0.5">
+                            B:{row.basePlants?.toLocaleString()} +{row.additionalPlants?.toLocaleString()}
+                          </div>
+                        )}
+                        {row["remaining Plants"] < (row.totalPlants ?? row.quantity) && (
+                          <div className="text-[10px] text-orange-600 mt-0.5 font-medium">
+                            Rem: {row["remaining Plants"]?.toLocaleString()}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-2 py-2 whitespace-nowrap">
+                        <div className="text-xs font-bold text-gray-900">₹{Number(row.rate).toFixed(2)}</div>
+                      </td>
+                      <td className="px-2 py-2">
+                        <div className="text-xs font-bold text-gray-900">{row.total}</div>
+                        <div className="text-[10px] text-green-600 mt-0.5 font-medium">{row["Paid Amt"]}</div>
+                        <div className="text-[10px] text-amber-600 mt-0.5 font-medium">{row["remaining Amt"]}</div>
+                      </td>
+                      {!(showAgriSalesOrders && hidePaymentDetails) && (
+                        <td className="px-2 py-2">
+                          <div className="flex flex-col gap-0.5">
+                            <div className="text-xs font-semibold text-green-600">{row["Paid Amt"]}</div>
+                            <div className="text-[10px] text-amber-600 font-medium">{row["remaining Amt"]}</div>
+                            {hasPendingPayment && (
+                              <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full inline-block w-fit font-medium">
+                                Pending
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                      )}
+                      {/* Dispatch Info Cell for Agri Sales */}
+                      {showAgriSalesOrders && (
+                        <td className="px-2 py-2">
+                          {row.details?.dispatchStatus && row.details?.dispatchStatus !== "NOT_DISPATCHED" ? (
+                            <div className="flex flex-col gap-0.5">
+                              {/* Dispatch Status Badge */}
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium inline-block w-fit ${
+                                row.details.dispatchStatus === "DISPATCHED" 
+                                  ? row.details.dispatchMode === "COURIER" ? "bg-purple-100 text-purple-700" : "bg-brand-100 text-brand-700"
+                                  : row.details.dispatchStatus === "IN_TRANSIT" ? "bg-orange-100 text-orange-700" 
+                                  : row.details.dispatchStatus === "DELIVERED" ? "bg-green-100 text-green-700" 
+                                  : "bg-gray-100 text-gray-700"
+                              }`}>
+                                {row.details.dispatchMode === "COURIER" ? "📦 " : "🚚 "}
+                                {row.details.dispatchStatus}
+                              </span>
+                              
+                              {/* Vehicle Mode Info */}
+                              {row.details?.dispatchMode === "VEHICLE" && (
+                                <>
+                                  {row.details?.vehicleNumber && (
+                                    <div className="text-[10px] text-gray-600">🚗 {row.details.vehicleNumber}</div>
+                                  )}
+                                  {row.details?.driverName && (
+                                    <div className="text-[10px] text-gray-600">👤 {row.details.driverName}</div>
+                                  )}
+                                </>
+                              )}
+                              
+                              {/* Courier Mode Info */}
+                              {row.details?.dispatchMode === "COURIER" && (
+                                <>
+                                  {row.details?.courierName && (
+                                    <div className="text-[10px] text-purple-600">📦 {row.details.courierName}</div>
+                                  )}
+                                  {row.details?.courierTrackingId && (
+                                    <div className="text-[10px] text-gray-600">🔍 {row.details.courierTrackingId}</div>
+                                  )}
+                                </>
+                              )}
+                              
+                              {/* Fallback for old data without dispatchMode */}
+                              {!row.details?.dispatchMode && row.details?.vehicleNumber && (
+                                <>
+                                  <div className="text-[10px] text-gray-600">🚗 {row.details.vehicleNumber}</div>
+                                  {row.details?.driverName && (
+                                    <div className="text-[10px] text-gray-600">👤 {row.details.driverName}</div>
+                                  )}
+                                </>
+                              )}
+                              
+                              {/* Dispatched By Info */}
+                              {row.details?.dispatchedBy && (
+                                <div className="text-[10px] text-brand-600 font-medium">
+                                  By: {row.details.dispatchedBy?.name || "Unknown"}
+                                </div>
+                              )}
+                              
+                              {row.details?.dispatchedAt && (
+                                <div className="text-[10px] text-gray-500">
+                                  {moment(row.details.dispatchedAt).format("DD MMM, hh:mm A")}
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="flex flex-col items-start gap-1">
+                              <span className="text-[10px] px-2 py-1 rounded bg-gray-100 text-gray-500 font-medium">
+                                ⏳ Pending Dispatch
+                              </span>
+                            </div>
+                          )}
+                        </td>
+                      )}
+                      <td className="px-2 py-2">
+                        <div className="text-xs text-brand-600 font-semibold leading-tight">{row.Delivery}</div>
+                        {row.deliveryDate && row.deliveryDate !== "-" && (
+                          <div className="text-[10px] text-brand-700 mt-0.5 font-medium">📅 {row.deliveryDate}</div>
+                        )}
+                        {row["Farm Ready"] !== "-" && (
+                          <div className="text-[10px] text-green-700 mt-0.5 font-medium">🌱 {row["Farm Ready"]}</div>
+                        )}
+                      </td>
+                      <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
+                        {row.orderStatus !== "COMPLETED" && row.orderStatus !== "DISPATCHED" ? (
+                          <SearchableDropdown
+                            label=""
+                            value={row.orderStatus}
+                            onChange={(newStatus) => handleStatusChange(row, newStatus)}
+                            options={orderStatusOptions || []}
+                            placeholder="Select Status"
+                            maxHeight="200px"
+                            isStatusDropdown={true}
+                          />
+                        ) : (
+                          <span
+                            className={`status-badge-enhanced status-${row.orderStatus
+                              .toLowerCase()
+                              .replace("_", "-")} inline-flex items-center gap-1 text-[10px] px-2 py-0.5`}>
+                            {row.orderStatus === "FARM_READY" && "🌱"}
+                            {row.orderStatus === "DISPATCH_PROCESS" ? "Loading" : row.orderStatus}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-2 py-2 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                        {viewMode !== "dispatch_process" &&
+                          row?.orderStatus !== "COMPLETED" &&
+                          row?.orderStatus !== "DISPATCH_PROCESS" &&
+                          row?.orderStatus !== "DISPATCHED" && (
+                            <div className="flex items-center space-x-2">
+                              {editingRows.has(index) ? (
+                                <>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      saveEditedRow(index, row)
+                                    }}
+                                    className="text-green-500 hover:text-green-700 p-1 rounded hover:bg-green-50"
+                                    title="Save">
+                                    <CheckIcon size={18} />
+                                  </button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      cancelEditing(index)
+                                    }}
+                                    className="text-red-500 hover:text-red-700 p-1 rounded hover:bg-red-50"
+                                    title="Cancel">
+                                    <XIcon size={18} />
+                                  </button>
+                                </>
+                              ) : (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    toggleEditing(index, row)
+                                  }}
+                                  className="text-gray-500 hover:text-gray-700 p-1 rounded hover:bg-gray-100"
+                                  title="Edit">
+                                  <Edit2Icon size={18} />
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        {(row.orderStatus === "DISPATCHED" || row.orderStatus === "DISPATCH_PROCESS") && 
+                         row.details?.dispatchHistory && 
+                         row.details.dispatchHistory.length > 0 && (() => {
+                          const latestDispatch = row.details.dispatchHistory[row.details.dispatchHistory.length - 1];
+                          const driverName = latestDispatch?.dispatch?.driverName || latestDispatch?.driverName || 'N/A';
+                          const vehicleName = latestDispatch?.dispatch?.vehicleName || latestDispatch?.vehicleName || 'N/A';
+                          
+                          if (driverName === 'N/A' && vehicleName === 'N/A') return null;
+                          
+                          return (
+                            <div className="text-xs text-brand-600">
+                              <div>🚚 {driverName}</div>
+                              <div>🚗 {vehicleName}</div>
+                            </div>
+                          );
+                        })()}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          ) : (
+            <div className="flex items-center justify-center py-12">
+              <div className="text-center">
+                <div className="text-gray-400 text-6xl mb-4">📋</div>
+                <h3 className="text-lg font-medium text-gray-900 mb-2">No Orders Found</h3>
+                <p className="text-gray-500">
+                  {loading ? "Loading orders..." : "No orders match your current filters."}
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+        )}
+
+        {/* Table Footer with Summary */}
+        {viewType === "table" && filteredOrders && filteredOrders.length > 0 && (
+          <div className="bg-gray-50 border-t border-gray-200 px-4 py-2">
+            <div className="flex items-center justify-between text-xs">
+              <div className="text-gray-600">
+                Showing <span className="font-semibold">{filteredOrders.length}</span> order{filteredOrders.length !== 1 ? 's' : ''}
+                {showAgriSalesOrders && agriDispatchStatusFilter !== "ALL" && (
+                  <span className="text-gray-400 ml-1">(filtered from {orders.length} total)</span>
+                )}
+              </div>
+              <div className="flex items-center gap-3 text-gray-600">
+                <div>
+                  Total: <span className="font-semibold text-gray-900">
+                    ₹{filteredOrders.reduce((sum, o) => {
+                      const total = parseFloat(o.total.replace(/[₹,\s]/g, '')) || 0
+                      return sum + total
+                    }, 0).toLocaleString()}
+                  </span>
+                </div>
+                <div>
+                  Paid: <span className="font-semibold text-green-600">
+                    ₹{filteredOrders.reduce((sum, o) => {
+                      const paid = parseFloat(o["Paid Amt"].replace(/[₹,\s]/g, '')) || 0
+                      return sum + paid
+                    }, 0).toLocaleString()}
+                  </span>
+                </div>
+                <div>
+                  Remaining: <span className="font-semibold text-amber-600">
+                    ₹{filteredOrders.reduce((sum, o) => {
+                      const remaining = parseFloat(o["remaining Amt"].replace(/[₹,\s]/g, '')) || 0
+                      return sum + remaining
+                    }, 0).toLocaleString()}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Grid View */}
+        {viewType === "grid" && (
+          <div className="p-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3">
+              {filteredOrders && filteredOrders.length > 0 ? (
+                filteredOrders.map((row, index) => {
+                  const farmerDetails = row?.details?.farmer
+                  const farmerLocation = farmerDetails
+                    ? [farmerDetails.district, farmerDetails.village].filter(Boolean).join(" → ")
+                    : null
+
+                  return (
+                    <div
+                      key={index}
+                      className={`bg-white rounded-lg shadow-sm border hover:shadow-md transition-all duration-200 cursor-pointer ${
+                        row?.details?.payment.some((payment) => payment.paymentStatus === "PENDING")
+                          ? "payment-blink"
+                          : ""
+                      } ${row?.details?.dealerOrder ? "border-sky-200 bg-sky-50" : ""}`}
+                      onClick={() => {
+                        setSelectedOrder(row)
+                        setIsOrderModalOpen(true)
+                      }}>
+                      {/* Card Header */}
+                      <div className="p-3 border-b border-gray-100">
+                        <div className="flex items-start justify-between mb-2">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <h3 className="font-semibold text-gray-900 text-sm">Order #{row.order}</h3>
+                            </div>
+                            <div className="flex items-center gap-1 mt-1 flex-wrap">
+                              {row.details?.orderFor ? (
+                                <>
+                                  <span className="text-xs text-gray-500">Farmer:</span>
+                                  <span className={`text-xs font-medium farmer-name-highlight`}>
+                                    {row.details.farmer?.name || "Unknown"}
+                                  </span>
+                                  <span className="text-xs text-gray-500">| Order For:</span>
+                                  <span className={`text-xs font-medium order-for-highlight`}>
+                                    {row.details.orderFor.name}
+                                  </span>
+                                </>
+                              ) : (
+                                <span className={`text-xs font-medium farmer-name-highlight`}>
+                                  {row.farmerName}
+                                </span>
+                              )}
+                            </div>
+                            {row.details?.salesPerson && (
+                              <p className="text-xs text-brand-600 mt-1 font-medium">
+                                Booked by: {row.details.salesPerson.name}
+                                {row.details.salesPerson.jobTitle === "DEALER" && " (Dealer)"}
+                              </p>
+                            )}
+                            {farmerLocation && (
+                              <p className="text-xs text-gray-500 mt-1 font-medium truncate">{farmerLocation}</p>
+                            )}
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            {viewMode !== "booking" && (
+                              <input
+                                type="checkbox"
+                                onChange={(e) => {
+                                  e.stopPropagation()
+                                  toggleRowSelection(row.details.orderid, row)
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                                checked={selectedRows.has(row.details.orderid)}
+                                className="w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                              />
+                            )}
+                            <DownloadPDFButton order={row} />
+                          </div>
+                        </div>
+
+                        {/* Status Badge */}
+                        <div className="flex items-center justify-between mt-2">
+                          {row.orderStatus !== "COMPLETED" && row.orderStatus !== "DISPATCHED" ? (
+                            <div className="relative" onClick={(e) => e.stopPropagation()}>
+                              <SearchableDropdown
+                                label=""
+                                value={row.orderStatus}
+                                onChange={(newStatus) => handleStatusChange(row, newStatus)}
+                                options={orderStatusOptions || []}
+                                placeholder="Select Status"
+                                maxHeight="200px"
+                                isStatusDropdown={true}
+                              />
+                            </div>
+                          ) : (
+                            <span
+                              className={`status-badge-enhanced status-${row.orderStatus
+                                .toLowerCase()
+                                .replace("_", "-")} flex items-center gap-1`}>
+                              {row.orderStatus === "FARM_READY" && "🌱"}
+                              {row.orderStatus === "DISPATCH_PROCESS" ? "Loading" : row.orderStatus}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Card Body */}
+                      <div className="p-3 space-y-2">
+                        {/* Plant Info */}
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs text-gray-500">Plant Type</span>
+                          <span className="text-xs font-medium text-gray-900 truncate ml-2">{row.plantType}</span>
+                        </div>
+
+                        {/* Quantity & Rate */}
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <span className="text-xs text-gray-500">Total Plants</span>
+                            <div className="text-sm font-medium text-gray-900">
+                              {(row.totalPlants ?? row.quantity)?.toLocaleString()}
+                            </div>
+                            {row.additionalPlants > 0 && (
+                              <div className="text-xs text-brand-600 mt-0.5">
+                                Base: {row.basePlants?.toLocaleString()} &middot; Extra: +
+                                {row.additionalPlants?.toLocaleString()}
+                              </div>
+                            )}
+                            {row["remaining Plants"] < (row.totalPlants ?? row.quantity) && (
+                              <div className="text-xs text-orange-600 mt-0.5">
+                                Remaining: {row["remaining Plants"]?.toLocaleString()}
+                              </div>
+                            )}
+                          </div>
+                          <div>
+                            <span className="text-xs text-gray-500">Rate</span>
+                            <div className="text-sm font-medium text-gray-900">₹{row.rate}</div>
+                          </div>
+                        </div>
+
+                        {/* Financial Info */}
+                        <div className="bg-gray-50 rounded-md p-2 space-y-1">
+                          <div className="flex justify-between">
+                            <span className="text-xs text-gray-500">Total</span>
+                            <span className="text-xs font-semibold text-gray-900">{row.total}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-xs text-gray-500">Paid</span>
+                            <span className="text-xs text-green-600">{row["Paid Amt"]}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-xs text-gray-500">Remaining</span>
+                            <span className="text-xs text-amber-600">{row["remaining Amt"]}</span>
+                          </div>
+                        </div>
+
+                        {/* Delivery Info */}
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs text-gray-500">Delivery Period</span>
+                            <span className="text-xs font-medium text-brand-600">{row.Delivery}</span>
+                          </div>
+                          {row.deliveryDate && row.deliveryDate !== "-" && (
+                            <div className="bg-brand-50 rounded-md p-1.5 border border-brand-200">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs text-brand-700 font-medium flex items-center">
+                                  📅 Delivery Date
+                                </span>
+                                <span className="text-xs font-semibold text-brand-800">
+                                  {row.deliveryDate}
+                                </span>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Farm Ready Date Display */}
+                        {row["Farm Ready"] !== "-" && (
+                          <div className="flex items-center justify-between bg-green-50 rounded-md p-1.5 border border-green-200">
+                            <span className="text-xs text-green-700 font-medium flex items-center">
+                              🌱 Farm Ready Date
+                            </span>
+                            <span className="text-xs font-semibold text-green-800">
+                              {row["Farm Ready"]}
+                            </span>
+                          </div>
+                        )}
+
+                        {/* Dispatch Details */}
+                        {(row.orderStatus === "DISPATCHED" || row.orderStatus === "DISPATCH_PROCESS") && row.details?.dispatchHistory && row.details.dispatchHistory.length > 0 && (() => {
+                          const latestDispatch = row.details.dispatchHistory[row.details.dispatchHistory.length - 1];
+                          const driverName = latestDispatch?.dispatch?.driverName || latestDispatch?.driverName || 'N/A';
+                          const vehicleName = latestDispatch?.dispatch?.vehicleName || latestDispatch?.vehicleName || 'N/A';
+                          const transportId = latestDispatch?.dispatch?.transportId || latestDispatch?.transportId;
+                          const driverPhone = latestDispatch?.dispatch?.driverPhone || latestDispatch?.driverPhone;
+                          
+                          if (driverName === 'N/A' && vehicleName === 'N/A') return null;
+                          
+                          return (
+                            <div className="bg-gradient-to-r from-brand-50 to-brand-100 rounded-lg p-2 border-l-4 border-brand-500 shadow-sm">
+                              <div className="flex items-center gap-2 text-xs">
+                                <span className="text-sm">🚚</span>
+                                <div className="flex items-center gap-1 flex-wrap">
+                                  <span className="font-bold text-brand-900">{driverName}</span>
+                                  {driverPhone && <span className="text-gray-600">({driverPhone})</span>}
+                                  <span className="text-brand-600 font-bold">→</span>
+                                  <span className="font-semibold text-gray-800">🚗 {vehicleName}</span>
+                                  {transportId && (
+                                    <>
+                                      <span className="text-brand-600 font-bold">→</span>
+                                      <span className="text-[10px] font-mono font-bold text-white bg-brand-600 px-1.5 py-0.5 rounded">
+                                        #{transportId}
+                                      </span>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })()}
+
+                        {/* Action Buttons */}
+                        {viewMode !== "dispatch_process" &&
+                          row?.orderStatus !== "COMPLETED" &&
+                          row?.orderStatus !== "DISPATCH_PROCESS" &&
+                          row?.orderStatus !== "DISPATCHED" && (
+                            <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+                              {isDispatchManager && (
+                                <span className="text-xs text-brand-600 font-medium">🚚 DM Access</span>
+                              )}
+                              <div className="flex items-center space-x-2 ml-auto">
+                                {editingRows.has(index) ? (
+                                  <>
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        saveEditedRow(index, row)
+                                      }}
+                                      className="text-green-500 hover:text-green-700">
+                                      <CheckIcon size={16} />
+                                    </button>
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        cancelEditing(index)
+                                      }}
+                                      className="text-red-500 hover:text-red-700">
+                                      <XIcon size={16} />
+                                    </button>
+                                  </>
+                                ) : (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      toggleEditing(index, row)
+                                    }}
+                                    className="text-gray-500 hover:text-gray-700">
+                                    <Edit2Icon size={16} />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                      </div>
+                    </div>
+                  )
+                })
+              ) : (
+                <div className="col-span-full flex items-center justify-center py-12">
+                  <div className="text-center">
+                    <div className="text-gray-400 text-6xl mb-4">📋</div>
+                    <h3 className="text-lg font-medium text-gray-900 mb-2">No Orders Found</h3>
+                    <p className="text-gray-500">
+                      {loading ? "Loading orders..." : "No orders match your current filters."}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+            </>
+          )
+        })()}
       </div>
 
       {/* Fixed bottom bar for batch actions */}
@@ -2457,7 +4191,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
             </div>
             <button
               onClick={() => setIsDispatchFormOpen(true)}
-              className="bg-blue-600 text-white px-4 py-2 rounded-md shadow hover:bg-blue-700 transition-colors flex items-center space-x-2">
+              className="bg-brand-600 text-white px-4 py-2 rounded-md shadow hover:bg-brand-700 transition-colors flex items-center space-x-2">
               <span>Proceed to Dispatch</span>
             </button>
           </div>
@@ -2483,18 +4217,18 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2">
           <div className="bg-white rounded-xl w-full max-w-5xl max-h-[90vh] overflow-hidden shadow-2xl">
             {/* Modal Header */}
-            <div className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white p-4">
+            <div className="bg-gradient-to-r from-brand-600 to-brand-500 text-white p-4">
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className="text-xl font-bold">Order #{selectedOrder.order}</h2>
-                  <p className="text-blue-100 text-sm mt-1">
+                  <p className="text-brand-100 text-sm mt-1">
                     {selectedOrder.farmerName} • {selectedOrder.plantType}
                   </p>
                 </div>
                 <div className="flex items-center space-x-2">
                   <button
                     onClick={refreshModalData}
-                    className="text-white hover:text-blue-100 transition-colors p-1 rounded hover:bg-white hover:bg-opacity-10">
+                    className="text-white hover:text-brand-100 transition-colors p-1 rounded hover:bg-white hover:bg-opacity-10">
                     <RefreshCw size={18} />
                   </button>
                   <button
@@ -2506,7 +4240,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                       setSlots([])
                       resetPaymentForm(false)
                     }}
-                    className="text-white hover:text-blue-100 transition-colors">
+                    className="text-white hover:text-brand-100 transition-colors">
                     <XIcon size={24} />
                   </button>
                 </div>
@@ -2518,10 +4252,10 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
               <div className="p-4">
                 {/* Order Summary Cards */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-                  <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
-                    <div className="text-blue-600 text-xs font-medium">Total Value</div>
-                    <div className="text-lg font-bold text-blue-900">
-                      ₹{(selectedOrder.rate * selectedOrder.quantity).toLocaleString()}
+                  <div className="bg-brand-50 rounded-lg p-3 border border-brand-200">
+                    <div className="text-brand-600 text-xs font-medium">Total Value</div>
+                    <div className="text-lg font-bold text-brand-900">
+                      ₹{(selectedOrder.rate * selectedOrderCounts.total).toLocaleString()}
                     </div>
                   </div>
                   <div className="bg-green-50 rounded-lg p-3 border border-green-200">
@@ -2535,7 +4269,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                     <div className="text-lg font-bold text-amber-900">
                       ₹
                       {(
-                        selectedOrder.rate * selectedOrder.quantity -
+                        selectedOrder.rate * selectedOrderCounts.total -
                         getTotalPaidAmount(selectedOrder?.details?.payment)
                       ).toLocaleString()}
                     </div>
@@ -2557,7 +4291,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                         onClick={() => setActiveTab("overview")}
                         className={`inline-flex items-center py-3 px-1 border-b-2 font-medium text-sm transition-colors ${
                           activeTab === "overview"
-                            ? "border-blue-500 text-blue-600"
+                            ? "border-brand-500 text-brand-600"
                             : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
                         }`}>
                         <FaUser size={14} className="mr-1" />
@@ -2567,7 +4301,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                         onClick={() => setActiveTab("payments")}
                         className={`inline-flex items-center py-3 px-1 border-b-2 font-medium text-sm transition-colors ${
                           activeTab === "payments"
-                            ? "border-blue-500 text-blue-600"
+                            ? "border-brand-500 text-brand-600"
                             : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
                         }`}>
                         <FaCreditCard size={14} className="mr-1" />
@@ -2580,7 +4314,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                           if (selectedOrder) {
                             setUpdatedObject({
                               rate: selectedOrder.rate,
-                              quantity: selectedOrder.quantity,
+                                quantity: selectedOrderCounts.base,
                               bookingSlot: selectedOrder?.details?.bookingSlot?.slotId,
                               deliveryDate: selectedOrder?.details?.deliveryDate 
                                 ? new Date(selectedOrder.details.deliveryDate) 
@@ -2590,7 +4324,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                         }}
                         className={`inline-flex items-center py-3 px-1 border-b-2 font-medium text-sm transition-colors ${
                           activeTab === "edit"
-                            ? "border-blue-500 text-blue-600"
+                            ? "border-brand-500 text-brand-600"
                             : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
                         }`}>
                         <FaEdit size={14} className="mr-1" />
@@ -2600,7 +4334,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                         onClick={() => setActiveTab("remarks")}
                         className={`inline-flex items-center py-3 px-1 border-b-2 font-medium text-sm transition-colors ${
                           activeTab === "remarks"
-                            ? "border-blue-500 text-blue-600"
+                            ? "border-brand-500 text-brand-600"
                             : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
                         }`}>
                         <FaFileAlt size={14} className="mr-1" />
@@ -2610,7 +4344,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                         onClick={() => setActiveTab("dispatchTrail")}
                         className={`inline-flex items-center py-3 px-1 border-b-2 font-medium text-sm transition-colors ${
                           activeTab === "dispatchTrail"
-                            ? "border-blue-500 text-blue-600"
+                            ? "border-brand-500 text-brand-600"
                             : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
                         }`}>
                         <span className="mr-1">🚚</span>
@@ -2620,7 +4354,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                         onClick={() => setActiveTab("editHistory")}
                         className={`inline-flex items-center py-3 px-1 border-b-2 font-medium text-sm transition-colors ${
                           activeTab === "editHistory"
-                            ? "border-blue-500 text-blue-600"
+                            ? "border-brand-500 text-brand-600"
                             : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
                         }`}>
                         <span className="mr-1">📝</span>
@@ -2699,36 +4433,91 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                         
                         {/* Show farmer information if orderFor is present but farmer also exists */}
                         {selectedOrder?.details?.orderFor && selectedOrder?.details?.farmer && (
-                          <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
-                            <h3 className="font-medium text-gray-900 mb-3 text-sm flex items-center">
-                              <span className="mr-2">🌾</span>
-                              Farmer Information
-                            </h3>
-                            <div className="space-y-3">
-                              <div className="flex flex-col space-y-1">
-                                <span className="text-xs text-gray-500 font-medium">Farmer Name</span>
-                                <span className="font-medium text-sm text-gray-900">
-                                  {selectedOrder?.details?.farmer?.name}
-                                </span>
-                              </div>
-                              <div className="flex flex-col space-y-1">
-                                <span className="text-xs text-gray-500 font-medium">Mobile Number</span>
-                                <span className="font-medium text-sm text-gray-900">
-                                  {selectedOrder?.details?.farmer?.mobileNumber}
-                                </span>
-                              </div>
-                              <div className="flex flex-col space-y-1">
-                                <span className="text-xs text-gray-500 font-medium">Village</span>
-                                <span className="font-medium text-sm text-gray-900">
-                                  {selectedOrder?.details?.farmer?.village}
-                                </span>
-                              </div>
-                              <div className="flex flex-col space-y-1">
-                                <span className="text-xs text-gray-500 font-medium">District</span>
-                                <span className="font-medium text-sm text-gray-900">
-                                  {selectedOrder?.details?.farmer?.district}
-                                </span>
-                              </div>
+                          <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+                            <div className="bg-gradient-to-r from-green-50 to-emerald-50 px-4 py-3 border-b border-gray-200">
+                              <h3 className="font-semibold text-gray-900 text-sm flex items-center">
+                                <span className="mr-2 text-green-600">🌾</span>
+                                Farmer Details
+                              </h3>
+                            </div>
+                            <div className="overflow-x-auto">
+                              <table className="w-full">
+                                <tbody className="divide-y divide-gray-200">
+                                  <tr className="hover:bg-gray-50 transition-colors">
+                                    <td className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider w-1/3 bg-gray-50">
+                                      Farmer Name
+                                    </td>
+                                    <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                                      {selectedOrder?.details?.farmer?.name || "-"}
+                                    </td>
+                                  </tr>
+                                  <tr className="hover:bg-gray-50 transition-colors">
+                                    <td className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider bg-gray-50">
+                                      Booking Date | Mobile Number | Placed For
+                                    </td>
+                                    <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                                      <div className="flex flex-wrap items-center gap-3">
+                                        <span className="inline-flex items-center gap-1.5">
+                                          <span className="text-gray-500 text-xs">📅</span>
+                                          <span>{selectedOrder?.orderDate || (selectedOrder?.details?.orderBookingDate ? moment(selectedOrder.details.orderBookingDate).format("DD MMM YYYY") : (selectedOrder?.details?.createdAt ? moment(selectedOrder.details.createdAt).format("DD MMM YYYY") : "-"))}</span>
+                                        </span>
+                                        <span className="text-gray-300">|</span>
+                                        <span className="inline-flex items-center gap-1.5">
+                                          <span className="text-gray-500 text-xs">📱</span>
+                                          <span>{selectedOrder?.details?.farmer?.mobileNumber || "-"}</span>
+                                        </span>
+                                        {selectedOrder?.details?.orderFor && (
+                                          <>
+                                            <span className="text-gray-300">|</span>
+                                            <span className="inline-flex items-center gap-1.5">
+                                              <span className="text-gray-500 text-xs">👤</span>
+                                              <span className="bg-orange-100 text-orange-700 px-2 py-0.5 rounded text-xs font-medium">
+                                                {selectedOrder?.details?.orderFor?.name}
+                                              </span>
+                                            </span>
+                                          </>
+                                        )}
+                                      </div>
+                                    </td>
+                                  </tr>
+                                  {selectedOrder?.details?.farmer?.taluka && (
+                                    <tr className="hover:bg-gray-50 transition-colors">
+                                      <td className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider bg-gray-50">
+                                        Taluka
+                                      </td>
+                                      <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                                        {selectedOrder?.details?.farmer?.taluka}
+                                      </td>
+                                    </tr>
+                                  )}
+                                  <tr className="hover:bg-gray-50 transition-colors">
+                                    <td className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider bg-gray-50">
+                                      Village
+                                    </td>
+                                    <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                                      {selectedOrder?.details?.farmer?.village || "-"}
+                                    </td>
+                                  </tr>
+                                  <tr className="hover:bg-gray-50 transition-colors">
+                                    <td className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider bg-gray-50">
+                                      District
+                                    </td>
+                                    <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                                      {selectedOrder?.details?.farmer?.district || "-"}
+                                    </td>
+                                  </tr>
+                                  {selectedOrder?.details?.farmer?.state && (
+                                    <tr className="hover:bg-gray-50 transition-colors">
+                                      <td className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider bg-gray-50">
+                                        State
+                                      </td>
+                                      <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                                        {selectedOrder?.details?.farmer?.state}
+                                      </td>
+                                    </tr>
+                                  )}
+                                </tbody>
+                              </table>
                             </div>
                           </div>
                         )}
@@ -2745,14 +4534,14 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                             <div className="flex flex-col space-y-1">
                               <span className="text-xs text-gray-500 font-medium">Total Quantity</span>
                               <span className="font-medium text-sm text-gray-900">
-                                {selectedOrder.quantity}
+                                {selectedOrderCounts.total?.toLocaleString()}
                               </span>
                             </div>
-                            {selectedOrder["remaining Plants"] < selectedOrder.quantity && (
+                            {selectedOrder["remaining Plants"] < selectedOrderCounts.total && (
                               <div className="flex flex-col space-y-1 bg-orange-50 p-2 rounded border border-orange-200">
                                 <span className="text-xs text-orange-700 font-medium">📦 Remaining to Dispatch</span>
                                 <span className="font-bold text-sm text-orange-900">
-                                  {selectedOrder["remaining Plants"]} plants
+                                  {selectedOrder["remaining Plants"]?.toLocaleString()} plants
                                 </span>
                               </div>
                             )}
@@ -2779,26 +4568,27 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                               </span>
                             </div>
                             {selectedOrder.deliveryDate && selectedOrder.deliveryDate !== "-" && (
-                              <div className="flex flex-col space-y-1 bg-blue-50 p-2 rounded border border-blue-200">
+                              <div className="flex flex-col space-y-1 bg-brand-50 p-2 rounded border border-brand-200">
                                 <div className="flex items-center justify-between">
-                                  <span className="text-xs text-blue-700 font-medium">📅 Delivery Date</span>
+                                  <span className="text-xs text-brand-700 font-medium">📅 Delivery Date</span>
                                   <button
                                     onClick={() => {
                                       setActiveTab("edit")
+                                      const { base } = resolvePlantCounts(selectedOrder)
                                       setUpdatedObject({
                                         rate: selectedOrder.rate,
-                                        quantity: selectedOrder.quantity,
+                                        quantity: base,
                                         bookingSlot: selectedOrder?.details?.bookingSlot?.slotId,
                                         deliveryDate: selectedOrder?.details?.deliveryDate 
                                           ? new Date(selectedOrder.details.deliveryDate) 
                                           : null
                                       })
                                     }}
-                                    className="text-xs text-blue-600 hover:text-blue-800 underline">
+                                    className="text-xs text-brand-600 hover:text-brand-800 underline">
                                     Change
                                   </button>
                                 </div>
-                                <span className="font-bold text-sm text-blue-900">
+                                <span className="font-bold text-sm text-brand-900">
                                   {selectedOrder.deliveryDate}
                                 </span>
                               </div>
@@ -2864,7 +4654,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                         )}
                                         <div className="text-xs text-amber-500 mt-1">
                                           {change.createdAt
-                                            ? moment(change.createdAt).format("DD/MM/YYYY HH:mm")
+                                            ? moment(change.createdAt).format("DD MMM YYYY HH:mm")
                                             : ""}
                                         </div>
                                       </div>
@@ -2878,8 +4668,8 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                         {/* Status History */}
                         {selectedOrder?.details?.statusChanges &&
                           selectedOrder?.details?.statusChanges.length > 0 && (
-                            <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
-                              <h3 className="font-medium text-blue-900 mb-2 flex items-center text-sm">
+                            <div className="bg-brand-50 rounded-lg p-3 border border-brand-200">
+                              <h3 className="font-medium text-brand-900 mb-2 flex items-center text-sm">
                                 <span className="mr-1">📊</span>
                                 Status Change History
                               </h3>
@@ -2894,7 +4684,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                           {change.previousStatus} → {change.newStatus}
                                         </span>
                                         <span className="text-xs text-gray-500">
-                                          {moment(change.changedAt).format("DD/MM/YYYY HH:mm")}
+                                          {moment(change.changedAt).format("DD MMM YYYY HH:mm")}
                                         </span>
                                       </div>
                                       {change.changedBy && (
@@ -2937,7 +4727,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                             Delivery Changed
                                           </span>
                                           <span className="text-xs text-gray-500">
-                                            {moment(change.changedAt).format("DD/MM/YYYY")}
+                                            {moment(change.changedAt).format("DD MMM YYYY")}
                                           </span>
                                         </div>
                                         <div className="grid grid-cols-1 md:grid-cols-3 gap-2 items-center">
@@ -2972,8 +4762,8 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                         {/* Dispatch History */}
                         {selectedOrder?.details?.dispatchHistory &&
                           selectedOrder?.details?.dispatchHistory.length > 0 && (
-                            <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
-                              <h3 className="font-medium text-blue-900 mb-3 flex items-center">
+                            <div className="bg-brand-50 rounded-lg p-4 border border-brand-200">
+                              <h3 className="font-medium text-brand-900 mb-3 flex items-center">
                                 <span className="mr-2">🚚</span>
                                 Dispatch History
                               </h3>
@@ -2981,19 +4771,19 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                 <div className="text-center">
                                   <div className="text-sm text-gray-500">Total Plants</div>
                                   <div className="text-xl font-bold text-gray-900">
-                                    {selectedOrder.quantity}
+                                    {selectedOrderCounts.total?.toLocaleString()}
                                   </div>
                                 </div>
                                 <div className="text-center">
                                   <div className="text-sm text-gray-500">Dispatched Plants</div>
-                                  <div className="text-xl font-bold text-blue-600">
-                                    {selectedOrder.quantity - selectedOrder["remaining Plants"]}
+                                  <div className="text-xl font-bold text-brand-600">
+                                    {(selectedOrderCounts.total - (selectedOrder["remaining Plants"] || 0))?.toLocaleString()}
                                   </div>
                                 </div>
                                 <div className="text-center">
                                   <div className="text-sm text-gray-500">Remaining to Dispatch</div>
                                   <div className="text-xl font-bold text-orange-600">
-                                    {selectedOrder["remaining Plants"]}
+                                    {selectedOrder["remaining Plants"]?.toLocaleString()}
                                   </div>
                                 </div>
                               </div>
@@ -3002,12 +4792,12 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                   (dispatchItem, dispatchIndex) => (
                                     <div key={dispatchIndex} className="bg-white p-3 rounded border">
                                       <div className="flex items-center justify-between mb-1">
-                                        <span className="text-sm font-medium text-blue-600">
+                                        <span className="text-sm font-medium text-brand-600">
                                           {dispatchItem.quantity} plants dispatched
                                         </span>
                                         <span className="text-xs text-gray-500">
                                           {dispatchItem.date
-                                            ? moment(dispatchItem.date).format("DD/MM/YYYY HH:mm")
+                                            ? moment(dispatchItem.date).format("DD MMM YYYY HH:mm")
                                             : "N/A"}
                                         </span>
                                       </div>
@@ -3046,19 +4836,19 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                 <div className="text-center">
                                   <div className="text-sm text-gray-500">Total Plants</div>
                                   <div className="text-xl font-bold text-gray-900">
-                                    {selectedOrder.quantity}
+                                    {selectedOrderCounts.total?.toLocaleString()}
                                   </div>
                                 </div>
                                 <div className="text-center">
                                   <div className="text-sm text-gray-500">Returned Plants</div>
                                   <div className="text-xl font-bold text-red-600">
-                                    {selectedOrder["returned Plants"]}
+                                    {selectedOrder["returned Plants"]?.toLocaleString()}
                                   </div>
                                 </div>
                                 <div className="text-center">
                                   <div className="text-sm text-gray-500">Remaining Plants</div>
                                   <div className="text-xl font-bold text-green-600">
-                                    {selectedOrder["remaining Plants"]}
+                                    {selectedOrder["remaining Plants"]?.toLocaleString()}
                                   </div>
                                 </div>
                               </div>
@@ -3072,7 +4862,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                         </span>
                                         <span className="text-xs text-gray-500">
                                           {returnItem.date
-                                            ? moment(returnItem.date).format("DD/MM/YYYY")
+                                            ? moment(returnItem.date).format("DD MMM YYYY")
                                             : "N/A"}
                                         </span>
                                       </div>
@@ -3142,7 +4932,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                   onChange={(e) =>
                                     handlePaymentInputChange("paidAmount", e.target.value)
                                   }
-                                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 mt-1"
+                                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 mt-1"
                                   placeholder="Enter amount"
                                 />
                               </div>
@@ -3156,7 +4946,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                   onChange={(e) =>
                                     handlePaymentInputChange("paymentDate", e.target.value)
                                   }
-                                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 mt-1"
+                                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 mt-1"
                                 />
                               </div>
                               <div>
@@ -3168,7 +4958,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                   onChange={(e) =>
                                     handlePaymentInputChange("modeOfPayment", e.target.value)
                                   }
-                                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 mt-1">
+                                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 mt-1">
                                   <option value="">Select Mode</option>
                                   <option value="Cash">Cash</option>
                                   <option value="UPI">UPI</option>
@@ -3202,7 +4992,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                   onChange={(e) =>
                                     handlePaymentInputChange("bankName", e.target.value)
                                   }
-                                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 mt-1"
+                                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 mt-1"
                                   placeholder={
                                     newPayment.modeOfPayment === "Cheque" ||
                                     newPayment.modeOfPayment === "NEFT/RTGS"
@@ -3222,7 +5012,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                 type="text"
                                 value={newPayment.remark}
                                 onChange={(e) => handlePaymentInputChange("remark", e.target.value)}
-                                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 mt-1"
+                                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 mt-1"
                                 placeholder="Optional remark"
                               />
                             </div>
@@ -3237,11 +5027,35 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                   type="file"
                                   accept="image/*"
                                   multiple
-                                  onChange={(e) => {
+                                  onChange={async (e) => {
                                     const files = Array.from(e.target.files)
-                                    handlePaymentInputChange("receiptPhoto", files)
+                                    if (files.length > 0) {
+                                      try {
+                                        setLoading(true)
+                                        // Upload each file to the media endpoint and get URLs
+                                        const uploadedUrls = await Promise.all(
+                                          files.map(async (file) => {
+                                            const formData = new FormData()
+                                            formData.append("media_key", file)
+                                            formData.append("media_type", "IMAGE")
+                                            formData.append("content_type", "multipart/form-data")
+                                            
+                                            const instance = NetworkManager(API.MEDIA.UPLOAD)
+                                            const response = await instance.request(formData)
+                                            return response.data.media_url
+                                          })
+                                        )
+                                        handlePaymentInputChange("receiptPhoto", uploadedUrls)
+                                        Toast.success("Images uploaded successfully")
+                                      } catch (error) {
+                                        console.error("Error uploading images:", error)
+                                        Toast.error("Failed to upload images")
+                                      } finally {
+                                        setLoading(false)
+                                      }
+                                    }
                                   }}
-                                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
                                 />
                                 {newPayment.modeOfPayment && newPayment.modeOfPayment !== "Cash" && newPayment.modeOfPayment !== "NEFT/RTGS" && (
                                   <p className="text-xs text-red-600 mt-1">
@@ -3251,6 +5065,28 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                 <p className="text-xs text-gray-500 mt-1">
                                   Upload payment confirmation screenshots or photos
                                 </p>
+                                {/* Show preview of uploaded images */}
+                                {newPayment.receiptPhoto && newPayment.receiptPhoto.length > 0 && (
+                                  <div className="mt-2 flex flex-wrap gap-2">
+                                    {newPayment.receiptPhoto.map((photo, index) => (
+                                      <div key={index} className="relative">
+                                        <img
+                                          src={photo}
+                                          alt={`Receipt ${index + 1}`}
+                                          className="w-16 h-16 object-cover rounded border"
+                                        />
+                                        <button
+                                          onClick={() => {
+                                            const updatedPhotos = newPayment.receiptPhoto.filter((_, i) => i !== index)
+                                            handlePaymentInputChange("receiptPhoto", updatedPhotos)
+                                          }}
+                                          className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-xs">
+                                          ×
+                                        </button>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
                               </div>
                             </div>
 
@@ -3299,21 +5135,21 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                 {/* Dealer Wallet Information */}
                                 {selectedOrder?.details?.salesPerson?.jobTitle === "DEALER" &&
                                   dealerWalletData && (
-                                    <div className="mb-4 bg-blue-50 p-4 rounded-lg border border-blue-200">
+                                    <div className="mb-4 bg-brand-50 p-4 rounded-lg border border-brand-200">
                                       <div className="flex items-center justify-between mb-2">
-                                        <h5 className="text-sm font-medium text-blue-900">
+                                        <h5 className="text-sm font-medium text-brand-900">
                                           Dealer Wallet: {selectedOrder?.details?.salesPerson?.name}
                                         </h5>
                                         {dealerWalletLoading && (
-                                          <div className="text-xs text-blue-600">Loading...</div>
+                                          <div className="text-xs text-brand-600">Loading...</div>
                                         )}
                                       </div>
                                       <div className="grid grid-cols-2 gap-4 text-sm">
                                         <div>
-                                          <div className="text-blue-600 font-medium">
+                                          <div className="text-brand-600 font-medium">
                                             Available Balance
                                           </div>
-                                          <div className="text-lg font-bold text-blue-900">
+                                          <div className="text-lg font-bold text-brand-900">
                                             ₹
                                             {(
                                               dealerWalletData?.financial?.availableAmount ?? 0
@@ -3321,10 +5157,10 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                           </div>
                                         </div>
                                         <div>
-                                          <div className="text-blue-600 font-medium">
+                                          <div className="text-brand-600 font-medium">
                                             Total Orders
                                           </div>
-                                          <div className="text-lg font-bold text-blue-900">
+                                          <div className="text-lg font-bold text-brand-900">
                                             ₹
                                             {(
                                               dealerWalletData?.financial?.totalOrderAmount ?? 0
@@ -3429,27 +5265,27 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                               !isDealer &&
                               selectedOrder?.details?.salesPerson?.jobTitle === "DEALER" && (
                                 <div className="mt-4">
-                                  <div className="bg-blue-50 p-4 rounded-xl border border-blue-200">
+                                  <div className="bg-brand-50 p-4 rounded-xl border border-brand-200">
                                     <div className="flex items-center justify-between mb-3">
                                       <div className="flex items-center">
-                                        <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center mr-3">
-                                          <FaCreditCard className="text-blue-600 text-sm" />
+                                        <div className="w-8 h-8 bg-brand-100 rounded-full flex items-center justify-center mr-3">
+                                          <FaCreditCard className="text-brand-600 text-sm" />
                                         </div>
                                         <div>
-                                          <div className="text-sm font-medium text-blue-900">
+                                          <div className="text-sm font-medium text-brand-900">
                                             Dealer Wallet Payment
                                           </div>
-                                          <div className="text-xs text-blue-600">
+                                          <div className="text-xs text-brand-600">
                                             Sales Person:{" "}
                                             {selectedOrder?.details?.salesPerson?.name}
                                           </div>
                                         </div>
                                       </div>
                                       <div className="text-right">
-                                        <div className="text-xs text-blue-600">
+                                        <div className="text-xs text-brand-600">
                                           Available Balance
                                         </div>
-                                        <div className="text-lg font-bold text-blue-900">
+                                        <div className="text-lg font-bold text-brand-900">
                                           ₹
                                           {(
                                             dealerWalletData?.financial?.availableAmount ?? 0
@@ -3469,11 +5305,11 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                             e.target.checked
                                           )
                                         }
-                                        className="mr-3 w-4 h-4 text-blue-600 bg-blue-100 border-blue-300 rounded focus:ring-blue-500"
+                                        className="mr-3 w-4 h-4 text-brand-600 bg-brand-100 border-brand-300 rounded focus:ring-brand-500"
                                       />
                                       <label
                                         htmlFor="dealerWalletPayment"
-                                        className="text-blue-800 font-medium">
+                                        className="text-brand-800 font-medium">
                                         Pay from Dealer&apos;s Wallet
                                       </label>
                                     </div>
@@ -3594,13 +5430,13 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                           {payment.paymentStatus}
                                         </span>
                                         {payment.isWalletPayment && (
-                                          <span className="px-2 py-1 text-xs rounded-full bg-blue-100 text-blue-700">
+                                          <span className="px-2 py-1 text-xs rounded-full bg-brand-100 text-brand-700">
                                             Wallet
                                           </span>
                                         )}
                                       </div>
-                                      <div className="text-xs text-gray-500">
-                                        {moment(payment.paymentDate).format("DD/MM/YYYY")}
+                  <div className="text-xs text-gray-500">
+                    {moment(payment.paymentDate).format("DD MMM YYYY")}
                                       </div>
                                     </div>
                                     {payment.remark && (
@@ -3621,14 +5457,14 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                         <div className="flex items-center justify-between">
                           <h3 className="text-lg font-medium text-gray-900">Edit Order Details</h3>
                           {isDispatchManager && (
-                            <span className="text-sm bg-blue-100 text-blue-800 px-3 py-1 rounded-full font-medium">
+                            <span className="text-sm bg-brand-100 text-brand-800 px-3 py-1 rounded-full font-medium">
                               🚚 Dispatch Manager Access
                             </span>
                           )}
                         </div>
                         {isDispatchManager && (
-                          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                            <p className="text-sm text-blue-800">
+                          <div className="bg-brand-50 border border-brand-200 rounded-lg p-4">
+                            <p className="text-sm text-brand-800">
                               <span className="font-semibold">🔑 Dispatch Manager Permissions:</span> You can change order status, delivery date, rate, and quantity for dispatch management.
                             </p>
                           </div>
@@ -3636,23 +5472,29 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                         <div className="bg-gray-50 rounded-lg p-6">
                           {/* Current Order Information */}
                           {selectedOrder?.details?.bookingSlot && (
-                            <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
-                              <h4 className="text-sm font-medium text-blue-900 mb-2">
+                            <div className="mb-4 p-3 bg-brand-50 rounded-lg border border-brand-200">
+                              <h4 className="text-sm font-medium text-brand-900 mb-2">
                                 Current Order Information
                               </h4>
                               <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-sm">
                                 <div>
-                                  <span className="text-blue-700">Current Delivery Period:</span>{" "}
+                                  <span className="text-brand-700">Current Delivery Period:</span>{" "}
                                   {selectedOrder.details.bookingSlot.startDay} -{" "}
                                   {selectedOrder.details.bookingSlot.endDay}
                                 </div>
                                 <div>
-                                  <span className="text-blue-700">Current Delivery Date:</span>{" "}
+                                  <span className="text-brand-700">Current Delivery Date:</span>{" "}
                                   {selectedOrder.deliveryDate || "Not set"}
                                 </div>
                                 <div>
-                                  <span className="text-blue-700">Current Quantity:</span>{" "}
-                                  {selectedOrder.quantity}
+                                  <span className="text-brand-700">Current Quantity:</span>{" "}
+                                  {selectedOrderCounts.base?.toLocaleString()}
+                                  {selectedOrderCounts.additional > 0 && (
+                                    <span className="ml-2 text-sm text-brand-600">
+                                      (+{selectedOrderCounts.additional?.toLocaleString()} extra, total{" "}
+                                      {selectedOrderCounts.total?.toLocaleString()})
+                                    </span>
+                                  )}
                                 </div>
                               </div>
                             </div>
@@ -3669,7 +5511,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                     : selectedOrder?.rate
                                 }
                                 onChange={(e) => handleInputChange(0, "rate", e.target.value)}
-                                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 mt-1"
+                                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 mt-1"
                               />
                             </div>
                             <div>
@@ -3679,21 +5521,21 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                 value={
                                   updatedObject?.quantity !== undefined
                                     ? updatedObject.quantity
-                                    : selectedOrder?.quantity
+                                    : selectedOrderCounts.base
                                 }
                                 onChange={(e) => handleInputChange(0, "quantity", e.target.value)}
-                                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 mt-1"
+                                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 mt-1"
                               />
                               {updatedObject?.quantity && (
                                 <div className="mt-1">
                                   {Number(updatedObject.quantity) >
-                                    Number(selectedOrder?.quantity) && (
+                                    Number(selectedOrderCounts.base) && (
                                     <div className="text-xs text-amber-600">
                                       ⚠️ Increasing quantity may affect slot capacity
                                     </div>
                                   )}
                                   {Number(updatedObject.quantity) <
-                                    Number(selectedOrder?.quantity) && (
+                                    Number(selectedOrderCounts.base) && (
                                     <div className="text-xs text-green-600">
                                       ✅ Reducing quantity will free up slot capacity
                                     </div>
@@ -3719,11 +5561,11 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                       Toast.info('No available slots found. Please select a different plant/subtype.')
                                     }
                                   }}
-                                  className="w-full px-3 py-2 border rounded-lg mt-1 text-left hover:border-blue-500 focus:ring-2 focus:ring-blue-500 transition-colors bg-white"
+                                  className="w-full px-3 py-2 border rounded-lg mt-1 text-left hover:border-brand-500 focus:ring-2 focus:ring-brand-500 transition-colors bg-white"
                                   disabled={slots.length === 0}>
                                   <span className={updatedObject?.deliveryDate ? "text-gray-900" : "text-gray-400"}>
                                     {updatedObject?.deliveryDate 
-                                      ? moment(updatedObject.deliveryDate).format("DD/MM/YYYY")
+                                      ? moment(updatedObject.deliveryDate).format("DD MMM YYYY")
                                       : "Click to select delivery date"}
                                   </span>
                                 </button>
@@ -3753,9 +5595,9 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                       slotDetails.available + currentQuantity
 
                                     return (
-                                      <div className="mt-2 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                                      <div className="mt-2 p-3 bg-brand-50 rounded-lg border border-brand-200">
                                         <div className="text-xs text-gray-700 space-y-2">
-                                          <div className="font-medium text-blue-900">
+                                          <div className="font-medium text-brand-900">
                                             📅 Delivery Period: {slotDetails.startDay} - {slotDetails.endDay}
                                           </div>
                                           <div className="grid grid-cols-2 gap-2">
@@ -3839,17 +5681,17 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                     `Rate: ₹${selectedOrder.rate} → ₹${updatedObject.rate}`
                                   )
                                 }
-                                if (updatedObject.quantity !== selectedOrder.quantity) {
+                                if (updatedObject.quantity !== selectedOrderCounts.base) {
                                   changes.push(
-                                    `Quantity: ${selectedOrder.quantity} → ${updatedObject.quantity}`
+                                    `Quantity: ${selectedOrderCounts.base} → ${updatedObject.quantity}`
                                   )
                                 }
                                 // Check if delivery date has changed
                                 if (updatedObject.deliveryDate) {
                                   const currentDate = selectedOrder?.details?.deliveryDate 
-                                    ? moment(selectedOrder.details.deliveryDate).format("DD/MM/YYYY")
+                                    ? moment(selectedOrder.details.deliveryDate).format("DD MMM YYYY")
                                     : "Not set"
-                                  const newDate = moment(updatedObject.deliveryDate).format("DD/MM/YYYY")
+                                  const newDate = moment(updatedObject.deliveryDate).format("DD MMM YYYY")
                                   
                                   if (currentDate !== newDate) {
                                     const slotDetails = getSlotDetailsForDate(updatedObject.deliveryDate)
@@ -3904,7 +5746,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                 }
                               }}
                               disabled={!updatedObject || Object.keys(updatedObject).length === 0}
-                              className="px-4 py-2 text-white bg-blue-500 rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed">
+                              className="px-4 py-2 text-white bg-brand-500 rounded-lg hover:bg-brand-600 disabled:opacity-50 disabled:cursor-not-allowed">
                               Save Changes
                             </button>
                           </div>
@@ -3940,12 +5782,12 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                               placeholder="Enter a new remark..."
                               value={newRemark}
                               onChange={(e) => setNewRemark(e.target.value)}
-                              className="flex-grow px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                              className="flex-grow px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
                             />
                             <button
                               onClick={() => handleAddRemark(selectedOrder.details.orderid)}
                               disabled={!newRemark.trim()}
-                              className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed">
+                              className="px-4 py-2 bg-brand-500 text-white rounded-lg hover:bg-brand-600 disabled:opacity-50 disabled:cursor-not-allowed">
                               Add Remark
                             </button>
                           </div>
@@ -3968,15 +5810,15 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                               <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
                                 <div className="text-sm text-gray-500 mb-1">Total Order Plants</div>
                                 <div className="text-2xl font-bold text-gray-900">
-                                  {selectedOrder.quantity?.toLocaleString()}
+                                  {selectedOrderCounts.total?.toLocaleString()}
                                 </div>
                               </div>
-                              <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
-                                <div className="text-sm text-blue-600 mb-1">Total Dispatched</div>
-                                <div className="text-2xl font-bold text-blue-900">
-                                  {(selectedOrder.quantity - selectedOrder["remaining Plants"])?.toLocaleString()}
+                              <div className="bg-brand-50 rounded-lg p-4 border border-brand-200">
+                                <div className="text-sm text-brand-600 mb-1">Total Dispatched</div>
+                                <div className="text-2xl font-bold text-brand-900">
+                                  {(selectedOrderCounts.total - (selectedOrder["remaining Plants"] || 0))?.toLocaleString()}
                                 </div>
-                                <div className="text-xs text-blue-600 mt-1">
+                                <div className="text-xs text-brand-600 mt-1">
                                   in {selectedOrder.details.dispatchHistory.length} dispatch{selectedOrder.details.dispatchHistory.length > 1 ? 'es' : ''}
                                 </div>
                               </div>
@@ -3993,25 +5835,25 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
 
                             {/* Dispatch Timeline */}
                             <div className="bg-white rounded-lg border">
-                              <div className="p-3 border-b bg-blue-50">
-                                <h4 className="font-medium text-blue-900 text-sm">Dispatch Timeline</h4>
+                              <div className="p-3 border-b bg-brand-50">
+                                <h4 className="font-medium text-brand-900 text-sm">Dispatch Timeline</h4>
                               </div>
                               <div className="p-4 space-y-4">
                                 {(selectedOrder.details.dispatchHistory || []).map(
                                   (dispatchItem, dispatchIndex) => (
                                     <div 
                                       key={dispatchIndex} 
-                                      className="relative pl-8 pb-6 border-l-2 border-blue-300 last:border-l-0 last:pb-0">
+                                      className="relative pl-8 pb-6 border-l-2 border-brand-300 last:border-l-0 last:pb-0">
                                       {/* Timeline dot */}
-                                      <div className="absolute left-0 top-0 -ml-2 w-4 h-4 bg-blue-600 rounded-full border-2 border-white"></div>
+                                      <div className="absolute left-0 top-0 -ml-2 w-4 h-4 bg-brand-600 rounded-full border-2 border-white"></div>
                                       
-                                      <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                                      <div className="bg-brand-50 p-4 rounded-lg border border-brand-200">
                                         <div className="flex items-center justify-between mb-3">
                                           <div className="flex items-center gap-2">
-                                            <span className="text-sm font-semibold text-blue-900">
+                                            <span className="text-sm font-semibold text-brand-900">
                                               Dispatch #{dispatchIndex + 1}
                                             </span>
-                                            <span className="px-2 py-1 bg-blue-200 text-blue-800 rounded text-xs font-medium">
+                                            <span className="px-2 py-1 bg-brand-200 text-brand-800 rounded text-xs font-medium">
                                               {dispatchItem.quantity?.toLocaleString()} plants
                                             </span>
                                           </div>
@@ -4024,7 +5866,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
 
                                         {/* Dispatch Details */}
                                         {dispatchItem.dispatch && (
-                                          <div className="bg-white p-3 rounded border border-blue-100 mb-3">
+                                          <div className="bg-white p-3 rounded border border-brand-100 mb-3">
                                             <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
                                               <div>
                                                 <span className="text-gray-500">Transport ID:</span>
@@ -4052,7 +5894,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                         <div className="grid grid-cols-2 gap-3 text-sm">
                                           <div className="bg-white p-2 rounded border border-gray-200">
                                             <span className="text-gray-500">Dispatched Quantity:</span>
-                                            <div className="font-bold text-blue-600">
+                                            <div className="font-bold text-brand-600">
                                               {dispatchItem.quantity?.toLocaleString()} plants
                                             </div>
                                           </div>
@@ -4066,7 +5908,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
 
                                         {/* Processed By */}
                                         {dispatchItem.processedBy && (
-                                          <div className="mt-3 pt-3 border-t border-blue-100">
+                                          <div className="mt-3 pt-3 border-t border-brand-100">
                                             <div className="text-xs text-gray-600">
                                               <span className="font-medium">Processed by:</span>{" "}
                                               {dispatchItem.processedBy.name}
@@ -4249,14 +6091,14 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
           <div className="bg-white rounded-2xl w-full max-w-4xl max-h-[85vh] overflow-hidden shadow-2xl">
             {/* Modal Header */}
-            <div className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white p-4 flex items-center justify-between">
+            <div className="bg-gradient-to-r from-brand-600 to-brand-500 text-white p-4 flex items-center justify-between">
               <div className="flex items-center">
                 <span className="text-2xl mr-3">📅</span>
                 <h2 className="text-xl font-bold">Select Delivery Date</h2>
               </div>
               <button
                 onClick={() => setShowDeliveryDateModal(false)}
-                className="text-white hover:text-blue-100 transition-colors p-2 rounded-full hover:bg-white hover:bg-opacity-20">
+                className="text-white hover:text-brand-100 transition-colors p-2 rounded-full hover:bg-white hover:bg-opacity-20">
                 <XIcon size={24} />
               </button>
             </div>
@@ -4293,10 +6135,10 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                     return (
                       <div key={slot.value} className="border-b border-gray-200 pb-6 last:border-b-0">
                         {/* Slot Header */}
-                        <div className="flex items-center mb-4 pb-3 border-b-2 border-blue-100">
-                          <div className="w-2 h-2 rounded-full bg-blue-600 mr-3"></div>
+                        <div className="flex items-center mb-4 pb-3 border-b-2 border-brand-100">
+                          <div className="w-2 h-2 rounded-full bg-brand-600 mr-3"></div>
                           <div className="flex-1">
-                            <h3 className="text-base font-bold text-blue-600">
+                            <h3 className="text-base font-bold text-brand-600">
                               {slot.label}
                             </h3>
                             <p className="text-sm text-gray-600 mt-1">
@@ -4328,20 +6170,20 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                 className={`
                                   relative p-3 rounded-2xl border-2 transition-all duration-200
                                   ${isSelected 
-                                    ? 'bg-blue-600 border-blue-600 text-white shadow-lg scale-105' 
+                                    ? 'bg-brand-600 border-brand-600 text-white shadow-lg scale-105' 
                                     : isToday
                                       ? 'border-amber-400 bg-amber-50 text-gray-900 hover:bg-amber-100'
-                                      : 'border-gray-200 bg-white text-gray-900 hover:border-blue-400 hover:bg-blue-50'
+                                      : 'border-gray-200 bg-white text-gray-900 hover:border-brand-400 hover:bg-brand-50'
                                   }
                                 `}>
                                 <div className="flex flex-col items-center">
-                                  <span className={`text-xs font-semibold uppercase ${isSelected ? 'text-blue-100' : 'text-gray-500'}`}>
+                                  <span className={`text-xs font-semibold uppercase ${isSelected ? 'text-brand-100' : 'text-gray-500'}`}>
                                     {date.format('ddd')}
                                   </span>
                                   <span className={`text-xl font-bold my-1 ${isSelected ? 'text-white' : 'text-gray-900'}`}>
                                     {date.format('DD')}
                                   </span>
-                                  <span className={`text-xs font-semibold uppercase ${isSelected ? 'text-blue-100' : 'text-gray-600'}`}>
+                                  <span className={`text-xs font-semibold uppercase ${isSelected ? 'text-brand-100' : 'text-gray-600'}`}>
                                     {date.format('MMM')}
                                   </span>
                                 </div>
@@ -4351,7 +6193,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                                   </div>
                                 )}
                                 {isSelected && (
-                                  <div className="absolute top-1 right-1 bg-white text-blue-600 rounded-full w-5 h-5 flex items-center justify-center">
+                                  <div className="absolute top-1 right-1 bg-white text-brand-600 rounded-full w-5 h-5 flex items-center justify-center">
                                     <CheckIcon size={12} />
                                   </div>
                                 )}
@@ -4364,13 +6206,554 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
                   })}
 
                   {/* Helper Text */}
-                  <div className="bg-blue-50 border-l-4 border-blue-600 p-4 rounded-r-lg">
-                    <p className="text-sm text-blue-800">
+                  <div className="bg-brand-50 border-l-4 border-brand-600 p-4 rounded-r-lg">
+                    <p className="text-sm text-brand-800">
                       💡 <span className="font-semibold">Tip:</span> Click on any date to select it as the delivery date. Only dates within available slots are shown.
                     </p>
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Agri Sales Order Dialog */}
+      <AddAgriSalesOrderForm
+        open={showAddAgriSalesOrderForm}
+        onClose={() => setShowAddAgriSalesOrderForm(false)}
+        onSuccess={() => {
+          setShowAddAgriSalesOrderForm(false)
+          getOrders() // Refresh orders after creating
+        }}
+      />
+
+      {/* Agri Sales Dispatch Modal */}
+      {showAgriDispatchModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg max-h-[85vh] overflow-hidden shadow-2xl">
+            {/* Modal Header */}
+            <div className="bg-gradient-to-r from-brand-600 to-brand-500 text-white p-4 flex items-center justify-between">
+              <div className="flex items-center">
+                <span className="text-2xl mr-3">{agriDispatchForm.dispatchMode === "VEHICLE" ? "🚚" : "📦"}</span>
+                <div>
+                  <h2 className="text-lg font-bold">Dispatch Orders</h2>
+                  <p className="text-sm text-brand-100">{selectedAgriSalesOrders.length} order(s) selected</p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setShowAgriDispatchModal(false)
+                  setAgriDispatchForm({
+                    dispatchMode: "VEHICLE",
+                    vehicleId: "",
+                    vehicleNumber: "",
+                    driverName: "",
+                    driverMobile: "",
+                    courierName: "",
+                    courierTrackingId: "",
+                    courierContact: "",
+                    dispatchNotes: "",
+                  })
+                }}
+                className="text-white hover:text-brand-100 transition-colors p-2 rounded-full hover:bg-white hover:bg-opacity-20">
+                <XIcon size={24} />
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="overflow-y-auto max-h-[calc(85vh-160px)] p-6">
+              {/* Selected Orders Summary */}
+              <div className="mb-4 p-3 bg-brand-50 rounded-lg border border-brand-200">
+                <h4 className="text-sm font-semibold text-brand-800 mb-2">Selected Orders</h4>
+                <div className="max-h-24 overflow-y-auto space-y-1">
+                  {orders
+                    .filter((o) => selectedAgriSalesOrders.includes(o.details?.orderid))
+                    .map((order) => (
+                      <div key={order.details?.orderid} className="text-xs text-brand-700 flex justify-between">
+                        <span className="font-medium">{order.order}</span>
+                        <span>{order.farmerName} • {order.details?.customerVillage}</span>
+                      </div>
+                    ))}
+                </div>
+              </div>
+
+              {/* Dispatch Mode Selection */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">Dispatch Mode *</label>
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setAgriDispatchForm((prev) => ({ ...prev, dispatchMode: "VEHICLE" }))}
+                    className={`flex-1 py-3 px-4 rounded-lg border-2 transition-all flex items-center justify-center gap-2 ${
+                      agriDispatchForm.dispatchMode === "VEHICLE"
+                        ? "border-brand-500 bg-brand-50 text-brand-700"
+                        : "border-gray-300 bg-white text-gray-600 hover:border-gray-400"
+                    }`}>
+                    <span className="text-xl">🚚</span>
+                    <span className="font-medium">By Vehicle</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAgriDispatchForm((prev) => ({ ...prev, dispatchMode: "COURIER" }))}
+                    className={`flex-1 py-3 px-4 rounded-lg border-2 transition-all flex items-center justify-center gap-2 ${
+                      agriDispatchForm.dispatchMode === "COURIER"
+                        ? "border-purple-500 bg-purple-50 text-purple-700"
+                        : "border-gray-300 bg-white text-gray-600 hover:border-gray-400"
+                    }`}>
+                    <span className="text-xl">📦</span>
+                    <span className="font-medium">By Courier</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Vehicle Mode Fields */}
+              {agriDispatchForm.dispatchMode === "VEHICLE" && (
+                <>
+                  {/* Vehicle Selection */}
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Select Vehicle</label>
+                    <select
+                      value={agriDispatchForm.vehicleId}
+                      onChange={(e) => handleAgriVehicleSelect(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-brand-500 focus:border-brand-500">
+                      <option value="">-- Select or enter manually --</option>
+                      {Array.isArray(agriVehicles) && agriVehicles.map((vehicle) => (
+                        <option key={vehicle._id || vehicle.id} value={vehicle._id || vehicle.id}>
+                          {vehicle.number} - {vehicle.name}
+                          {vehicle.driverName && ` (${vehicle.driverName})`}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Vehicle Number */}
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Vehicle Number *</label>
+                    <input
+                      type="text"
+                      value={agriDispatchForm.vehicleNumber}
+                      onChange={(e) => setAgriDispatchForm((prev) => ({ ...prev, vehicleNumber: e.target.value.toUpperCase() }))}
+                      placeholder="e.g., MH12AB1234"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-brand-500 focus:border-brand-500"
+                    />
+                  </div>
+
+                  {/* Driver Name */}
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Driver Name *</label>
+                    <input
+                      type="text"
+                      value={agriDispatchForm.driverName}
+                      onChange={(e) => setAgriDispatchForm((prev) => ({ ...prev, driverName: e.target.value }))}
+                      placeholder="Enter driver name"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-brand-500 focus:border-brand-500"
+                    />
+                  </div>
+
+                  {/* Driver Mobile */}
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Driver Mobile *</label>
+                    <input
+                      type="text"
+                      value={agriDispatchForm.driverMobile}
+                      onChange={(e) => {
+                        const value = e.target.value.replace(/\D/g, "").slice(0, 10)
+                        setAgriDispatchForm((prev) => ({ ...prev, driverMobile: value }))
+                      }}
+                      placeholder="10 digit mobile number"
+                      maxLength={10}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-brand-500 focus:border-brand-500"
+                    />
+                  </div>
+                </>
+              )}
+
+              {/* Courier Mode Fields */}
+              {agriDispatchForm.dispatchMode === "COURIER" && (
+                <>
+                  {/* Courier Name */}
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Courier Service Name *</label>
+                    <input
+                      type="text"
+                      value={agriDispatchForm.courierName}
+                      onChange={(e) => setAgriDispatchForm((prev) => ({ ...prev, courierName: e.target.value }))}
+                      placeholder="e.g., DTDC, Blue Dart, Delhivery"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-purple-500 focus:border-purple-500"
+                    />
+                  </div>
+
+                  {/* Tracking ID */}
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Tracking ID / AWB Number</label>
+                    <input
+                      type="text"
+                      value={agriDispatchForm.courierTrackingId}
+                      onChange={(e) => setAgriDispatchForm((prev) => ({ ...prev, courierTrackingId: e.target.value.toUpperCase() }))}
+                      placeholder="Enter tracking ID (optional)"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-purple-500 focus:border-purple-500"
+                    />
+                  </div>
+
+                  {/* Courier Contact */}
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Courier Contact Number</label>
+                    <input
+                      type="text"
+                      value={agriDispatchForm.courierContact}
+                      onChange={(e) => {
+                        const value = e.target.value.replace(/\D/g, "").slice(0, 10)
+                        setAgriDispatchForm((prev) => ({ ...prev, courierContact: value }))
+                      }}
+                      placeholder="10 digit contact number (optional)"
+                      maxLength={10}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-purple-500 focus:border-purple-500"
+                    />
+                  </div>
+                </>
+              )}
+
+              {/* Dispatch Notes */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Remarks / Notes (Optional)</label>
+                <textarea
+                  value={agriDispatchForm.dispatchNotes}
+                  onChange={(e) => setAgriDispatchForm((prev) => ({ ...prev, dispatchNotes: e.target.value }))}
+                  placeholder="Any special instructions, delivery notes..."
+                  rows={2}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-brand-500 focus:border-brand-500"
+                />
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="border-t border-gray-200 p-4 bg-gray-50 flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  setShowAgriDispatchModal(false)
+                  setAgriDispatchForm({
+                    dispatchMode: "VEHICLE",
+                    vehicleId: "",
+                    vehicleNumber: "",
+                    driverName: "",
+                    driverMobile: "",
+                    courierName: "",
+                    courierTrackingId: "",
+                    courierContact: "",
+                    dispatchNotes: "",
+                  })
+                }}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
+                Cancel
+              </button>
+              <button
+                onClick={handleAgriDispatch}
+                disabled={
+                  (agriDispatchForm.dispatchMode === "VEHICLE" && (
+                    !agriDispatchForm.vehicleNumber ||
+                    !agriDispatchForm.driverName ||
+                    agriDispatchForm.driverMobile.length !== 10
+                  )) ||
+                  (agriDispatchForm.dispatchMode === "COURIER" && !agriDispatchForm.courierName) ||
+                  agriDispatchLoading
+                }
+                className={`px-4 py-2 text-sm font-medium text-white rounded-lg disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-2 ${
+                  agriDispatchForm.dispatchMode === "VEHICLE" 
+                    ? "bg-brand-600 hover:bg-brand-700" 
+                    : "bg-purple-600 hover:bg-purple-700"
+                }`}>
+                {agriDispatchLoading ? (
+                  <>
+                    <RefreshCw size={16} className="animate-spin" />
+                    Dispatching...
+                  </>
+                ) : (
+                  <>
+                    {agriDispatchForm.dispatchMode === "VEHICLE" ? "🚚" : "📦"} Dispatch {selectedAgriSalesOrders.length} Order(s)
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Agri Sales Complete Order Modal */}
+      {showAgriCompleteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 max-h-[90vh] overflow-hidden flex flex-col">
+            {/* Modal Header */}
+            <div className="bg-gradient-to-r from-green-600 to-green-700 px-6 py-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
+                  <span className="text-2xl">✅</span>
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-white">Complete Orders</h3>
+                  <p className="text-green-100 text-sm">{selectedAgriOrdersForComplete.length} order(s) • Mark as Delivered</p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setShowAgriCompleteModal(false)
+                  setAgriCompleteForm({
+                    returnQuantities: {},
+                    returnReason: "",
+                    returnNotes: "",
+                  })
+                }}
+                className="text-white/80 hover:text-white transition-colors">
+                <X size={24} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 overflow-y-auto flex-1">
+              {/* Selected Orders with Return Quantity Input */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-green-700 mb-2">
+                  ORDERS TO COMPLETE (Enter return quantity if any)
+                </label>
+                <div className="max-h-[200px] overflow-y-auto space-y-2">
+                  {orders
+                    .filter((o) => selectedAgriOrdersForComplete.includes(o.id || o._id || o.details?.orderid))
+                    .map((order) => {
+                      const orderId = order.id || order._id || order.details?.orderid
+                      const orderQty = order.details?.quantity || order.quantity || 0
+                      const returnQty = agriCompleteForm.returnQuantities[orderId] || 0
+                      return (
+                        <div
+                          key={orderId}
+                          className="p-3 bg-gray-50 rounded-lg border border-gray-200">
+                          <div className="flex justify-between items-center mb-2">
+                            <div>
+                              <span className="text-sm font-bold text-gray-900">{order.order || order.orderNumber}</span>
+                              <span className="text-xs text-gray-500 ml-2">
+                                {order.details?.farmer?.name || order.customerName} • {order.details?.farmer?.village || order.customerVillage}
+                              </span>
+                            </div>
+                            <span className="px-2 py-0.5 bg-brand-100 text-brand-700 text-xs font-medium rounded">
+                              Qty: {orderQty}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-gray-600 min-w-[80px]">Return Qty:</span>
+                            <input
+                              type="number"
+                              min="0"
+                              max={orderQty}
+                              value={returnQty}
+                              onChange={(e) => {
+                                const value = Math.max(0, Math.min(orderQty, parseInt(e.target.value) || 0))
+                                setAgriCompleteForm((prev) => ({
+                                  ...prev,
+                                  returnQuantities: {
+                                    ...prev.returnQuantities,
+                                    [orderId]: value,
+                                  },
+                                }))
+                              }}
+                              className="w-20 px-2 py-1 text-center border border-gray-300 rounded focus:ring-green-500 focus:border-green-500"
+                            />
+                            <span className="text-xs text-gray-500">/ {orderQty}</span>
+                            {returnQty > 0 && (
+                              <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs font-medium rounded">
+                                Delivering: {orderQty - returnQty}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                </div>
+              </div>
+
+              {/* Return Reason (shown if any returns) */}
+              {Object.values(agriCompleteForm.returnQuantities).some((q) => q > 0) && (
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Return Reason</label>
+                  <input
+                    type="text"
+                    value={agriCompleteForm.returnReason}
+                    onChange={(e) => setAgriCompleteForm((prev) => ({ ...prev, returnReason: e.target.value }))}
+                    placeholder="e.g., Damaged, Wrong product, Customer refused"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-green-500 focus:border-green-500"
+                  />
+                </div>
+              )}
+
+              {/* Notes */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Notes (Optional)</label>
+                <textarea
+                  value={agriCompleteForm.returnNotes}
+                  onChange={(e) => setAgriCompleteForm((prev) => ({ ...prev, returnNotes: e.target.value }))}
+                  placeholder="Any additional notes..."
+                  rows={2}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-green-500 focus:border-green-500"
+                />
+              </div>
+
+              {/* Summary */}
+              <div className="p-3 bg-green-50 rounded-lg border border-green-200">
+                <span className="text-xs font-medium text-green-700 block mb-1">SUMMARY</span>
+                <div className="flex justify-between text-xs text-gray-600">
+                  <span>Total Orders: {selectedAgriOrdersForComplete.length}</span>
+                  <span>With Returns: {Object.values(agriCompleteForm.returnQuantities).filter((q) => q > 0).length}</span>
+                </div>
+                {Object.values(agriCompleteForm.returnQuantities).some((q) => q > 0) && (
+                  <p className="text-xs text-orange-600 mt-1">
+                    ⚠️ Returned stock will be added back to inventory
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="border-t border-gray-200 p-4 bg-gray-50 flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  setShowAgriCompleteModal(false)
+                  setAgriCompleteForm({
+                    returnQuantities: {},
+                    returnReason: "",
+                    returnNotes: "",
+                  })
+                }}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
+                Cancel
+              </button>
+              <button
+                onClick={handleAgriCompleteOrders}
+                disabled={agriCompleteLoading}
+                className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-2">
+                {agriCompleteLoading ? (
+                  <>
+                    <RefreshCw size={16} className="animate-spin" />
+                    Completing...
+                  </>
+                ) : (
+                  <>
+                    ✅ Complete {selectedAgriOrdersForComplete.length} Order(s)
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Assign to Sales Person Modal */}
+      {showAssignModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 max-h-[90vh] overflow-hidden flex flex-col">
+            {/* Modal Header */}
+            <div className="bg-gradient-to-r from-purple-600 to-purple-700 px-6 py-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
+                  <span className="text-2xl">👤</span>
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-white">Assign to Sales Person</h3>
+                  <p className="text-purple-100 text-sm">{selectedAgriSalesOrders.length} order(s) selected</p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setShowAssignModal(false)
+                  setAssignToUser("")
+                  setAssignmentNotes("")
+                }}
+                className="text-white/80 hover:text-white transition-colors">
+                <X size={24} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 overflow-y-auto flex-1">
+              {/* Info Banner */}
+              <div className="mb-4 p-3 bg-purple-50 rounded-lg border border-purple-200">
+                <p className="text-xs text-purple-700">
+                  <strong>Note:</strong> Assigned orders will appear in the sales person&apos;s dispatch queue. 
+                  Stock will be deducted when they dispatch the order.
+                </p>
+              </div>
+
+              {/* Selected Orders Summary */}
+              <div className="mb-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                <span className="text-xs font-medium text-gray-600 block mb-2">SELECTED ORDERS</span>
+                <div className="max-h-[120px] overflow-y-auto space-y-1">
+                  {orders
+                    .filter((o) => selectedAgriSalesOrders.includes(o.id || o._id || o.details?.orderid))
+                    .map((order) => (
+                      <div key={order.id || order._id || order.details?.orderid} className="flex justify-between text-xs">
+                        <span className="font-medium">{order.order || order.orderNumber}</span>
+                        <span className="text-gray-500">
+                          {order.details?.farmer?.name || order.customerName} • ₹{(order.details?.totalAmount || order.totalAmount)?.toLocaleString()}
+                        </span>
+                      </div>
+                    ))}
+                </div>
+              </div>
+
+              {/* Select Sales Person */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Select Sales Person <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={assignToUser}
+                  onChange={(e) => setAssignToUser(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-purple-500 focus:border-purple-500">
+                  <option value="">-- Select Sales Person --</option>
+                  {ramAgriSalesUsers.map((user) => (
+                    <option key={user.value} value={user.value}>
+                      {user.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Assignment Notes */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Notes (Optional)</label>
+                <textarea
+                  value={assignmentNotes}
+                  onChange={(e) => setAssignmentNotes(e.target.value)}
+                  placeholder="Any instructions for the sales person..."
+                  rows={2}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-purple-500 focus:border-purple-500"
+                />
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="border-t border-gray-200 p-4 bg-gray-50 flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  setShowAssignModal(false)
+                  setAssignToUser("")
+                  setAssignmentNotes("")
+                }}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
+                Cancel
+              </button>
+              <button
+                onClick={handleAssignToSalesPerson}
+                disabled={!assignToUser || assignLoading}
+                className="px-4 py-2 text-sm font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-2">
+                {assignLoading ? (
+                  <>
+                    <RefreshCw size={16} className="animate-spin" />
+                    Assigning...
+                  </>
+                ) : (
+                  <>
+                    👤 Assign {selectedAgriSalesOrders.length} Order(s)
+                  </>
+                )}
+              </button>
             </div>
           </div>
         </div>

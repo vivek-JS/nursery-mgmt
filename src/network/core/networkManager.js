@@ -31,11 +31,11 @@ import { UserState } from "redux/dispatcher/UserState"
 
 export default function networkManager(router, withFile = false) {
   const { TIMEOUT, API_AUTH_HEADER, AUTH_TYPE, CONTENT_TYPE } = APIConfig
-  const REQ_CONTENT_TYPE = withFile ? CONTENT_TYPE.MULTIPART : CONTENT_TYPE.JSON
-
+  
   axios.defaults.baseURL = router.baseURL
   axios.defaults.timeout = TIMEOUT
-  axios.defaults.headers.common["Content-Type"] = REQ_CONTENT_TYPE
+  // Don't set default Content-Type - let each request determine it based on body type
+  // FormData will be auto-detected and axios will set Content-Type with boundary automatically
   axios.defaults.headers.common["Accept-Language"] = "en"
 
   // Use localStorage instead of cookies for authentication
@@ -51,33 +51,70 @@ export default function networkManager(router, withFile = false) {
   const AppEnvIsDev = process.env.REACT_APP_APP_ENV === "dev"
   let refreshCount = 0
 
+  // Public endpoints (must NEVER trigger auth refresh / require tokens)
+  const isCompletelyPublicEndpoint =
+    typeof router?.endpoint === "string" &&
+    (router.endpoint.startsWith("/public-links") ||
+      router.endpoint.startsWith("/location") ||
+      router.endpoint.startsWith("/state"))
+
   async function request(body = {}, params = {} || []) {
     const url = urlBuilder(router, params)
     const getHttpMethod = router.method !== HTTP_METHODS.GET
     const getArrayParams = !Array.isArray(params) && Object.keys(params).length
-    const httpBody = httpBodyBuilder(body, withFile)
+    
+    // Auto-detect FormData - if body is FormData instance, treat as file upload
+    const isFormData = body instanceof FormData
+    const actualWithFile = withFile || isFormData
+    const httpBody = httpBodyBuilder(body, actualWithFile)
+
+    // Get fresh token for each request to ensure it's up to date
+    const currentAuthToken = localStorage.getItem(CookieKeys.Auth)
+    const requestHeaders = {}
+    
+    // ⛔ For completely public endpoints, NEVER send Authorization header
+    // This ensures public links work even with expired/invalid tokens in localStorage
+    if (!isCompletelyPublicEndpoint && currentAuthToken && currentAuthToken !== "undefined" && currentAuthToken !== "null") {
+      requestHeaders[API_AUTH_HEADER] = `${AUTH_TYPE} ${currentAuthToken}`
+    }
+    
+    // Handle Content-Type for FormData vs JSON
+    // Check if httpBody is FormData after httpBodyBuilder
+    const isFormDataBody = httpBody instanceof FormData
+    
+    // For FormData, don't set Content-Type - axios will automatically detect and set it with boundary
+    // Axios automatically detects FormData and sets Content-Type: multipart/form-data; boundary=...
+    // Only set Content-Type for non-FormData requests
+    if (!isFormDataBody && !actualWithFile && !isFormData) {
+      requestHeaders["Content-Type"] = CONTENT_TYPE.JSON
+    }
 
     try {
       const result = await axios.request({
         signal: APIAborter.initiate().signal,
         url: url,
         method: router.method,
+        headers: requestHeaders,
         ...(getHttpMethod && { data: httpBody }),
         ...(getArrayParams && { params: params })
       })
       // If token expired, get it refreshed
       const response = result.data
 
-      // Handle both response formats: response.success (boolean) and response.status === "Success"
-      const isSuccess = response.success === true || response.status === "Success"
+      // Handle both response formats: response.success (boolean) and response.status === "success"
+      const isSuccess = response.success === true || response.status?.toLowerCase() === "success"
 
       return new APIResponse(response, isSuccess, result.status, response.data?.message)
     } catch (err) {
       console.log(err?.response?.data?.message)
       const fullError = err?.response?.data?.rowErrors
       const colError = err?.response?.data?.errors
-
-      apiError(fullError?.message || "Unknown error")
+      
+      // Extract error message from response
+      const errorMessage = err?.response?.data?.message || fullError?.message || "Unknown error"
+      
+      // Show toast notification for the error
+      apiError(errorMessage)
 
       const isNetworkError = err.code === HTTP_STATUS.NETWORK_ERR
 
@@ -86,7 +123,8 @@ export default function networkManager(router, withFile = false) {
         return offlineManager(router.offlineJson)
       }
 
-      if (err.response?.status === 401) {
+      // ⛔ For completely public endpoints, NEVER attempt auth refresh
+      if (err.response?.status === 401 && !isCompletelyPublicEndpoint) {
         if (refreshCount < APIConfig.MAX_REFRESH_ATTEMPTS) {
           const refreshToken = localStorage.getItem(CookieKeys.REFRESH_TOKEN)
           await refreshAuthToken(refreshToken)
@@ -145,6 +183,11 @@ function urlBuilder(router, params) {
 
 // Prepare endpoint body for no GET requests
 function httpBodyBuilder(body, withFile) {
+  // If body is already FormData, return it as-is
+  if (body instanceof FormData) {
+    return body
+  }
+  
   if (withFile) {
     const formData = new FormData()
     for (let key in body) {
@@ -152,6 +195,8 @@ function httpBodyBuilder(body, withFile) {
         for (let file of body[key]) {
           formData.append(key, file)
         }
+      } else if (body[key] instanceof File || body[key] instanceof Blob) {
+        formData.append(key, body[key])
       } else {
         formData.append(key, body[key])
       }

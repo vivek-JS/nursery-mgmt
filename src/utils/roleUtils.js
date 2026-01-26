@@ -96,10 +96,13 @@ export const useIsDealer = () => {
 
 /**
  * Check if user is dispatch manager
+ * Checks both role and jobTitle since some users have role=FARMER but jobTitle=DISPATCH_MANAGER
  */
 export const useIsDispatchManager = () => {
   const userRole = useUserRole()
-  return userRole === "DISPATCH_MANAGER"
+  const userData = useUserData()
+  // Check both role and jobTitle
+  return userRole === "DISPATCH_MANAGER" || userData?.jobTitle === "DISPATCH_MANAGER"
 }
 
 /**

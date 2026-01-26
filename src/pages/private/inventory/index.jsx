@@ -19,6 +19,8 @@ import {
   MenuItem,
   IconButton,
   Chip,
+  Checkbox,
+  FormControlLabel,
   Table,
   TableBody,
   TableCell,
@@ -41,6 +43,7 @@ import {
   BatchPrediction as BatchIcon
 } from "@mui/icons-material"
 import { makeStyles } from "tss-react/mui"
+import { colorScheme } from "constants/colorScheme"
 import UperStrip from "pages/private/UpperStrip"
 import { Toast } from "helpers/toasts/toastHelper"
 import { NetworkManager, API } from "network/core"
@@ -50,17 +53,16 @@ import { useDebounce } from "hooks/utils"
 const useStyles = makeStyles()((theme) => ({
   container: {
     padding: theme.spacing(3),
-    backgroundColor: "#f8fafc",
+    backgroundColor: colorScheme.surfaceMuted,
     minHeight: "100vh",
-    background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)"
+    background: colorScheme.gradientBg
   },
   card: {
     marginBottom: theme.spacing(3),
     borderRadius: 16,
-    boxShadow: "0 8px 32px rgba(0,0,0,0.1)",
-    backdropFilter: "blur(10px)",
-    border: "1px solid rgba(255,255,255,0.2)",
-    background: "rgba(255,255,255,0.95)"
+    boxShadow: colorScheme.shadowCard,
+    border: `1px solid ${colorScheme.borderCard}`,
+    background: colorScheme.surface
   },
   tabPanel: {
     padding: theme.spacing(3)
@@ -71,16 +73,16 @@ const useStyles = makeStyles()((theme) => ({
     padding: "12px 24px",
     fontWeight: 600,
     textTransform: "none",
-    boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+    boxShadow: colorScheme.shadowButton,
     transition: "all 0.3s ease",
     "&:hover": {
       transform: "translateY(-2px)",
-      boxShadow: "0 6px 20px rgba(0,0,0,0.2)"
+      boxShadow: colorScheme.shadowCardHover
     }
   },
   tableContainer: {
     borderRadius: 12,
-    boxShadow: "0 4px 16px rgba(0,0,0,0.1)",
+    boxShadow: colorScheme.shadowCard,
     overflow: "hidden"
   },
   statusChip: {
@@ -99,21 +101,20 @@ const useStyles = makeStyles()((theme) => ({
     textAlign: "center",
     padding: theme.spacing(4),
     borderRadius: 16,
-    boxShadow: "0 8px 32px rgba(0,0,0,0.1)",
-    backdropFilter: "blur(10px)",
-    border: "1px solid rgba(255,255,255,0.2)",
-    background: "rgba(255,255,255,0.95)",
+    boxShadow: colorScheme.shadowCard,
+    border: `1px solid ${colorScheme.borderCard}`,
+    background: colorScheme.surface,
     transition: "all 0.3s ease",
     "&:hover": {
       transform: "translateY(-4px)",
-      boxShadow: "0 12px 40px rgba(0,0,0,0.15)"
+      boxShadow: colorScheme.shadowCardHover
     }
   },
   dashboardValue: {
     fontSize: "2.5rem",
     fontWeight: "bold",
     marginBottom: theme.spacing(2),
-    background: "linear-gradient(45deg, #667eea, #764ba2)",
+    background: colorScheme.gradientButton,
     WebkitBackgroundClip: "text",
     WebkitTextFillColor: "transparent"
   },
@@ -121,14 +122,13 @@ const useStyles = makeStyles()((theme) => ({
     marginBottom: theme.spacing(3),
     "& .MuiOutlinedInput-root": {
       borderRadius: 12,
-      backgroundColor: "rgba(255,255,255,0.9)",
-      "&:hover": {
-        backgroundColor: "rgba(255,255,255,1)"
-      }
+      backgroundColor: colorScheme.surfaceInput,
+      "&:hover": { backgroundColor: colorScheme.surfaceHover },
+      "&.Mui-focused": { boxShadow: `0 0 0 3px ${colorScheme.borderFocus}` }
     }
   },
   tabIndicator: {
-    backgroundColor: "#667eea",
+    backgroundColor: colorScheme.primary,
     height: 3,
     borderRadius: 2
   },
@@ -140,39 +140,35 @@ const useStyles = makeStyles()((theme) => ({
     borderRadius: 12,
     margin: "0 4px",
     transition: "all 0.3s ease",
-    "&:hover": {
-      backgroundColor: "rgba(102, 126, 234, 0.1)"
-    }
+    "&:hover": { backgroundColor: colorScheme.accentMuted }
   },
   tableHeader: {
-    backgroundColor: "#f8fafc",
+    backgroundColor: colorScheme.surfaceMuted,
     "& .MuiTableCell-head": {
       fontWeight: 700,
       fontSize: "0.9rem",
-      color: "#374151"
+      color: colorScheme.textPrimary
     }
   },
   tableRow: {
     transition: "all 0.2s ease",
-    "&:hover": {
-      backgroundColor: "rgba(102, 126, 234, 0.05)"
-    }
+    "&:hover": { backgroundColor: colorScheme.accentMuted }
   },
   productCard: {
     padding: theme.spacing(2),
     borderRadius: 12,
-    border: "1px solid #e5e7eb",
+    border: `1px solid ${colorScheme.border}`,
     transition: "all 0.3s ease",
     cursor: "pointer",
     "&:hover": {
-      borderColor: "#667eea",
-      boxShadow: "0 4px 12px rgba(102, 126, 234, 0.15)"
+      borderColor: colorScheme.primary,
+      boxShadow: `0 4px 12px ${colorScheme.borderFocus}`
     }
   },
   selectField: {
     "& .MuiOutlinedInput-root": {
       borderRadius: 12,
-      backgroundColor: "rgba(255,255,255,0.9)"
+      backgroundColor: colorScheme.surfaceInput
     }
   }
 }))
@@ -219,7 +215,8 @@ function Inventory() {
     costPrice: 0,
     sellingPrice: 0,
     supplier: { name: "", contact: "", email: "" },
-    tags: []
+    tags: [],
+    isAgriSales: false
   })
 
   const [batchForm, setBatchForm] = useState({
@@ -390,7 +387,8 @@ function Inventory() {
       costPrice: 0,
       sellingPrice: 0,
       supplier: { name: "", contact: "", email: "" },
-      tags: []
+      tags: [],
+      isAgriSales: false
     })
     setBatchForm({
       productId: "",
@@ -986,6 +984,23 @@ function Inventory() {
                   }
                   className={classes.formField}
                 />
+              </Grid>
+              <Grid item xs={12}>
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={productForm.isAgriSales || false}
+                      onChange={(e) =>
+                        setProductForm({ ...productForm, isAgriSales: e.target.checked })
+                      }
+                      color="primary"
+                    />
+                  }
+                  label="Available for Ram Agri Sales"
+                />
+                <Typography variant="caption" color="textSecondary" display="block" sx={{ ml: 4, mt: 0.5 }}>
+                  Check this if the product should be available for Ram Agri Sales orders
+                </Typography>
               </Grid>
             </Grid>
           )

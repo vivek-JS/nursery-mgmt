@@ -35,6 +35,9 @@ export const API = {
     VERIFYOTP: new APIWithOfflineRouter("/auth/login", HTTP_METHODS.POST, OFFLINE.LOGIN),
     REFRESH_TOKEN: new APIRouter("user/refresh-token", HTTP_METHODS.POST)
   },
+  MOTIVATIONAL_QUOTE: {
+    GET_TODAY: new APIRouter("/motivational-quote/today", HTTP_METHODS.GET)
+  },
   HOSPITAL: {
     LOGIN_HOSPITAL: new APIWithOfflineRouter("user/login", HTTP_METHODS.POST, OFFLINE.LOGIN),
     CREATE_HOSPITAL: new APIRouter(
@@ -154,11 +157,29 @@ export const API = {
       HTTP_METHODS.POST,
       OFFLINE.PROFILE
     ),
-    GET_FOLLOW_UP: new APIRouter("api/v2/followup/getFollowup", HTTP_METHODS.GET, OFFLINE.PROFILE)
+    GET_FOLLOW_UP: new APIRouter("api/v2/followup/getFollowup", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    CREATE: new APIRouter("/employees/:employeeId/follow-ups", HTTP_METHODS.POST),
+    GET_ALL: new APIRouter("/employees/:employeeId/follow-ups", HTTP_METHODS.GET),
+    GET_ALL_FOLLOW_UPS: new APIRouter("/employees/follow-ups/all", HTTP_METHODS.GET),
+    UPDATE: new APIRouter("/employees/:employeeId/follow-ups/:followUpId", HTTP_METHODS.PUT),
+    DELETE: new APIRouter("/employees/:employeeId/follow-ups/:followUpId", HTTP_METHODS.DEL),
+    GET_PUBLIC: new APIRouter("/public/follow-up/:token", HTTP_METHODS.GET),
+    ADD_COMMENT: new APIRouter("/public/follow-up/:token/comment", HTTP_METHODS.POST)
+  },
+  TASK: {
+    CREATE: new APIRouter("/tasks", HTTP_METHODS.POST),
+    GET_ALL: new APIRouter("/tasks", HTTP_METHODS.GET),
+    GET_BY_ID: new APIRouter("/tasks/:taskId", HTTP_METHODS.GET),
+    UPDATE: new APIRouter("/tasks/:taskId", HTTP_METHODS.PUT),
+    DELETE: new APIRouter("/tasks/:taskId", HTTP_METHODS.DEL),
+    ADD_COMMENT: new APIRouter("/tasks/:taskId/comment", HTTP_METHODS.POST),
+    GET_PUBLIC_BY_EMPLOYEE: new APIRouter("/tasks/public/employee/:employeeId", HTTP_METHODS.GET),
+    ADD_PUBLIC_COMMENT: new APIRouter("/tasks/public/:taskId/comment", HTTP_METHODS.POST),
   },
   INVENTORY: {
     // Dashboard
     GET_DASHBOARD: new APIRouter("/inventory/dashboard", HTTP_METHODS.GET),
+    GET_PRODUCTS_SUMMARY: new APIRouter("/inventory/products/summary", HTTP_METHODS.GET),
 
     // Products
     GET_ALL_PRODUCTS: new APIRouter("/inventory/products", HTTP_METHODS.GET),
@@ -166,6 +187,144 @@ export const API = {
     CREATE_PRODUCT: new APIRouter("/inventory/products", HTTP_METHODS.POST),
     UPDATE_PRODUCT: new APIRouter("/inventory/products", HTTP_METHODS.PUT),
     DELETE_PRODUCT: new APIRouter("/inventory/products", HTTP_METHODS.DEL),
+    GET_LOW_STOCK_PRODUCTS: new APIRouter("/inventory/products/low-stock", HTTP_METHODS.GET),
+
+    // Categories
+    GET_ALL_CATEGORIES: new APIRouter("/inventory/categories", HTTP_METHODS.GET),
+    GET_CATEGORY_BY_ID: new APIRouter("/inventory/categories", HTTP_METHODS.GET),
+    CREATE_CATEGORY: new APIRouter("/inventory/categories", HTTP_METHODS.POST),
+    UPDATE_CATEGORY: new APIRouter("/inventory/categories", HTTP_METHODS.PUT),
+    DELETE_CATEGORY: new APIRouter("/inventory/categories", HTTP_METHODS.DEL),
+
+    // Ram Agri Inputs Product Master
+    GET_ALL_RAM_AGRI_INPUTS: new APIRouter("/inventory/ram-agri-inputs", HTTP_METHODS.GET),
+    GET_RAM_AGRI_INPUT_BY_ID: new APIRouter("/inventory/ram-agri-inputs/:id", HTTP_METHODS.GET),
+    CREATE_RAM_AGRI_INPUT: new APIRouter("/inventory/ram-agri-inputs", HTTP_METHODS.POST),
+    UPDATE_RAM_AGRI_INPUT: new APIRouter("/inventory/ram-agri-inputs/:id", HTTP_METHODS.PATCH),
+    DELETE_RAM_AGRI_INPUT: new APIRouter("/inventory/ram-agri-inputs/:id", HTTP_METHODS.DEL),
+    ADD_VARIETY: new APIRouter("/inventory/ram-agri-inputs/:id/varieties", HTTP_METHODS.POST),
+    UPDATE_VARIETY: new APIRouter("/inventory/ram-agri-inputs/:id/varieties/:varietyId", HTTP_METHODS.PATCH),
+    DELETE_VARIETY: new APIRouter("/inventory/ram-agri-inputs/:id/varieties/:varietyId", HTTP_METHODS.DEL),
+    ADD_RATE: new APIRouter("/inventory/ram-agri-inputs/:id/varieties/:varietyId/rates", HTTP_METHODS.POST),
+    UPDATE_RATE: new APIRouter("/inventory/ram-agri-inputs/:id/varieties/:varietyId/rates/:rateId", HTTP_METHODS.PATCH),
+    DELETE_RATE: new APIRouter("/inventory/ram-agri-inputs/:id/varieties/:varietyId/rates/:rateId", HTTP_METHODS.DEL),
+
+    // Change Logs
+    GET_ALL_CHANGE_LOGS: new APIRouter("/inventory/change-logs", HTTP_METHODS.GET),
+    GET_CHANGE_LOG_STATS: new APIRouter("/inventory/change-logs/stats", HTTP_METHODS.GET),
+    GET_CHANGE_LOGS_BY_ENTITY: new APIRouter("/inventory/change-logs", HTTP_METHODS.GET), // /:entityType/:entityId
+
+    // Measurement Units
+    GET_ALL_UNITS: new APIRouter("/inventory/units", HTTP_METHODS.GET),
+    GET_UNIT_BY_ID: new APIRouter("/inventory/units", HTTP_METHODS.GET),
+    CREATE_UNIT: new APIRouter("/inventory/units", HTTP_METHODS.POST),
+    UPDATE_UNIT: new APIRouter("/inventory/units", HTTP_METHODS.PUT),
+    DELETE_UNIT: new APIRouter("/inventory/units", HTTP_METHODS.DEL),
+
+    // Suppliers
+    GET_ALL_SUPPLIERS: new APIRouter("/inventory/suppliers", HTTP_METHODS.GET),
+    GET_ALL_SUPPLIERS_SIMPLE: new APIRouter("/inventory/suppliers/all", HTTP_METHODS.GET),
+    GET_SUPPLIER_BY_ID: new APIRouter("/inventory/suppliers", HTTP_METHODS.GET),
+    CREATE_SUPPLIER: new APIRouter("/inventory/suppliers", HTTP_METHODS.POST),
+    UPDATE_SUPPLIER: new APIRouter("/inventory/suppliers", HTTP_METHODS.PUT),
+    DELETE_SUPPLIER: new APIRouter("/inventory/suppliers", HTTP_METHODS.DEL),
+
+    // Merchants
+    GET_ALL_MERCHANTS: new APIRouter("/inventory/merchants", HTTP_METHODS.GET),
+    GET_ALL_MERCHANTS_SIMPLE: new APIRouter("/inventory/merchants/all", HTTP_METHODS.GET),
+    GET_MERCHANT_BY_ID: new APIRouter("/inventory/merchants/:id", HTTP_METHODS.GET),
+    GET_MERCHANT_LEDGER: new APIRouter("/inventory/merchants/:id/ledger", HTTP_METHODS.GET),
+    CREATE_MERCHANT: new APIRouter("/inventory/merchants", HTTP_METHODS.POST),
+    UPDATE_MERCHANT: new APIRouter("/inventory/merchants/:id", HTTP_METHODS.PUT),
+    DELETE_MERCHANT: new APIRouter("/inventory/merchants/:id", HTTP_METHODS.DEL),
+
+    // Purchase Orders
+    GET_ALL_PURCHASE_ORDERS: new APIRouter("/inventory/purchase-orders", HTTP_METHODS.GET),
+    GET_PURCHASE_ORDER_BY_ID: new APIRouter("/inventory/purchase-orders", HTTP_METHODS.GET),
+    CREATE_PURCHASE_ORDER: new APIRouter("/inventory/purchase-orders", HTTP_METHODS.POST),
+    UPDATE_PURCHASE_ORDER: new APIRouter("/inventory/purchase-orders", HTTP_METHODS.PUT),
+    DELETE_PURCHASE_ORDER: new APIRouter("/inventory/purchase-orders", HTTP_METHODS.DEL),
+    APPROVE_PURCHASE_ORDER: new APIRouter("/inventory/purchase-orders", HTTP_METHODS.POST), // /:id/approve
+    CANCEL_PURCHASE_ORDER: new APIRouter("/inventory/purchase-orders", HTTP_METHODS.POST), // /:id/cancel
+
+    // GRN (Goods Received Note)
+    GET_ALL_GRN: new APIRouter("/inventory/grn", HTTP_METHODS.GET),
+    GET_GRN_BY_ID: new APIRouter("/inventory/grn", HTTP_METHODS.GET),
+    CREATE_GRN: new APIRouter("/inventory/grn", HTTP_METHODS.POST),
+    UPDATE_GRN: new APIRouter("/inventory/grn", HTTP_METHODS.PUT),
+    DELETE_GRN: new APIRouter("/inventory/grn", HTTP_METHODS.DEL),
+    APPROVE_GRN: new APIRouter("/inventory/grn", HTTP_METHODS.POST), // /:id/approve
+
+    // Sell Orders
+    GET_ALL_SELL_ORDERS: new APIRouter("/inventory/sell-orders", HTTP_METHODS.GET),
+    GET_SELL_ORDER_BY_ID: new APIRouter("/inventory/sell-orders", HTTP_METHODS.GET),
+    CREATE_SELL_ORDER: new APIRouter("/inventory/sell-orders", HTTP_METHODS.POST),
+    UPDATE_SELL_ORDER: new APIRouter("/inventory/sell-orders", HTTP_METHODS.PUT),
+    DELETE_SELL_ORDER: new APIRouter("/inventory/sell-orders", HTTP_METHODS.DEL),
+    APPROVE_SELL_ORDER: new APIRouter("/inventory/sell-orders", HTTP_METHODS.POST), // /:id/approve
+    ADD_SELL_ORDER_PAYMENT: new APIRouter("/inventory/sell-orders", HTTP_METHODS.POST), // /:id/payment
+    GET_SELL_ORDER_PENDING_PAYMENTS: new APIRouter("/inventory/sell-orders/pending-payments", HTTP_METHODS.GET),
+    UPDATE_SELL_ORDER_PAYMENT_STATUS: new APIRouter("/inventory/sell-orders", HTTP_METHODS.PATCH), // /:id/payment/:paymentId/status
+    GET_FARMER_LEDGER: new APIRouter("/inventory/sell-orders/farmer-ledger", HTTP_METHODS.GET),
+
+    // Inventory Outward
+    GET_ALL_OUTWARD: new APIRouter("/inventory/outward", HTTP_METHODS.GET),
+    GET_OUTWARD_BY_ID: new APIRouter("/inventory/outward", HTTP_METHODS.GET),
+    CREATE_OUTWARD: new APIRouter("/inventory/outward", HTTP_METHODS.POST),
+    UPDATE_OUTWARD: new APIRouter("/inventory/outward", HTTP_METHODS.PUT),
+    DELETE_OUTWARD: new APIRouter("/inventory/outward", HTTP_METHODS.DEL),
+    ISSUE_OUTWARD: new APIRouter("/inventory/outward/:id/issue", HTTP_METHODS.POST),
+    GET_AVAILABLE_BATCHES_FOR_OUTWARD: new APIRouter("/inventory/outward/batches/:productId", HTTP_METHODS.GET),
+    GET_AVAILABLE_PACKETS_FOR_SOWING: new APIRouter("/inventory/outward/packets-for-sowing/:productId", HTTP_METHODS.GET),
+    GET_ALL_AVAILABLE_PACKETS_FOR_SOWING: new APIRouter("/inventory/outward/packets-for-sowing", HTTP_METHODS.GET),
+
+    // Inventory Transactions
+    GET_ALL_TRANSACTIONS: new APIRouter("/inventory/transactions", HTTP_METHODS.GET),
+    GET_TRANSACTION_BY_ID: new APIRouter("/inventory/transactions", HTTP_METHODS.GET),
+
+    // Return Requests
+    GET_RETURN_REQUESTS: new APIRouter("/inventory/return-requests", HTTP_METHODS.GET),
+    GET_RETURN_REQUEST_BY_ID: new APIRouter("/inventory/return-requests", HTTP_METHODS.GET),
+    GET_PENDING_RETURN_REQUESTS_COUNT: new APIRouter("/inventory/return-requests/pending/count", HTTP_METHODS.GET),
+    APPROVE_RETURN_REQUEST: new APIRouter("/inventory/return-requests", HTTP_METHODS.PATCH), // /:id/approve
+    REJECT_RETURN_REQUEST: new APIRouter("/inventory/return-requests", HTTP_METHODS.PATCH), // /:id/reject
+
+    // Ram Agri Sales Dashboard
+    GET_RAM_AGRI_SALES_DASHBOARD: new APIRouter("/inventory/ram-agri-sales-dashboard", HTTP_METHODS.GET),
+    GET_RAM_AGRI_SALES_RANKBOARD: new APIRouter("/inventory/ram-agri-sales-rankboard", HTTP_METHODS.GET),
+    GET_RAM_AGRI_SALES_TARGETS: new APIRouter("/inventory/ram-agri-sales-targets", HTTP_METHODS.GET),
+    SAVE_RAM_AGRI_SALES_TARGET: new APIRouter("/inventory/ram-agri-sales-targets", HTTP_METHODS.POST),
+    GET_RAM_AGRI_VARIETY_LEDGER: new APIRouter("/inventory/ram-agri-variety-ledger", HTTP_METHODS.GET),
+    GET_RAM_AGRI_CUSTOMER_LEDGER: new APIRouter("/inventory/ram-agri-customer-ledger", HTTP_METHODS.GET),
+    GET_RAM_AGRI_MERCHANT_LEDGER: new APIRouter("/inventory/ram-agri-merchant-ledger", HTTP_METHODS.GET),
+
+    // Agri Sales Orders (Ram Agri Sales)
+    GET_ALL_AGRI_SALES_ORDERS: new APIRouter("/inventory/agri-sales-orders", HTTP_METHODS.GET),
+    GET_AGRI_SALES_ORDER_BY_ID: new APIRouter("/inventory/agri-sales-orders", HTTP_METHODS.GET),
+    CREATE_AGRI_SALES_ORDER: new APIRouter("/inventory/agri-sales-orders/create", HTTP_METHODS.POST),
+    ACCEPT_AGRI_SALES_ORDER: new APIRouter("/inventory/agri-sales-orders/:id/accept", HTTP_METHODS.PATCH),
+    REJECT_AGRI_SALES_ORDER: new APIRouter("/inventory/agri-sales-orders/:id/reject", HTTP_METHODS.PATCH),
+    CANCEL_AGRI_SALES_ORDER: new APIRouter("/inventory/agri-sales-orders/:id/cancel", HTTP_METHODS.PATCH),
+    ADD_AGRI_SALES_ORDER_PAYMENT: new APIRouter("/inventory/agri-sales-orders", HTTP_METHODS.PATCH), // /:id/payment
+    UPDATE_AGRI_SALES_ORDER_PAYMENT_STATUS: new APIRouter("/inventory/agri-sales-orders", HTTP_METHODS.PATCH), // /:id/payment/:paymentIndex/status
+    GET_AGRI_SALES_CUSTOMER_BY_MOBILE: new APIRouter("/inventory/agri-sales-orders/customer/:mobileNumber", HTTP_METHODS.GET),
+    GET_AGRI_SALES_PENDING_PAYMENTS: new APIRouter("/inventory/agri-sales-pending-payments", HTTP_METHODS.GET),
+    GET_AGRI_SALES_PENDING_PAYMENTS_COUNT: new APIRouter("/inventory/agri-sales-pending-payments/count", HTTP_METHODS.GET),
+    GET_AGRI_SALES_OUTSTANDING_ANALYSIS: new APIRouter("/inventory/agri-sales-outstanding-analysis", HTTP_METHODS.GET),
+    GET_AGRI_SALES_SALES_ANALYSIS: new APIRouter("/inventory/agri-sales-sales-analysis", HTTP_METHODS.GET),
+    GET_AGRI_SALES_CUSTOMER_OUTSTANDING: new APIRouter("/inventory/agri-sales-customer-outstanding", HTTP_METHODS.GET),
+    // Assignment (Admin assigns to sales person)
+    GET_AGRI_SALES_ASSIGNED_ORDERS: new APIRouter("/inventory/agri-sales-orders/assigned", HTTP_METHODS.GET),
+    ASSIGN_AGRI_SALES_ORDERS: new APIRouter("/inventory/agri-sales-orders/assign", HTTP_METHODS.PATCH),
+    CANCEL_AGRI_SALES_ASSIGNMENT: new APIRouter("/inventory/agri-sales-orders", HTTP_METHODS.PATCH), // /:id/cancel-assignment
+    // Dispatch
+    GET_AGRI_SALES_ORDERS_FOR_DISPATCH: new APIRouter("/inventory/agri-sales-orders/dispatch/pending", HTTP_METHODS.GET),
+    GET_AGRI_SALES_DISPATCHED_ORDERS: new APIRouter("/inventory/agri-sales-orders/dispatch/history", HTTP_METHODS.GET),
+    DISPATCH_AGRI_SALES_ORDERS: new APIRouter("/inventory/agri-sales-orders/dispatch", HTTP_METHODS.PATCH),
+    UPDATE_AGRI_SALES_DISPATCH_STATUS: new APIRouter("/inventory/agri-sales-orders", HTTP_METHODS.PATCH), // /:id/dispatch-status
+    COMPLETE_AGRI_SALES_ORDERS: new APIRouter("/inventory/agri-sales-orders/complete", HTTP_METHODS.PATCH),
+    // Sales Return (for sales person dispatched orders - NO stock impact)
+    PROCESS_SALES_RETURN: new APIRouter("/inventory/agri-sales-orders/:id/sales-return", HTTP_METHODS.PATCH),
 
     // Batches
     GET_ALL_BATCHES: new APIRouter("/inventory/batches", HTTP_METHODS.GET),
@@ -181,16 +340,17 @@ export const API = {
     UPDATE_INWARD: new APIRouter("/inventory/inwards", HTTP_METHODS.PUT),
     DELETE_INWARD: new APIRouter("/inventory/inwards", HTTP_METHODS.DEL),
 
-    // Outwards
-    GET_ALL_OUTWARDS: new APIRouter("/inventory/outwards", HTTP_METHODS.GET),
-    GET_OUTWARD_BY_ID: new APIRouter("/inventory/outwards", HTTP_METHODS.GET),
-    CREATE_OUTWARD: new APIRouter("/inventory/outwards", HTTP_METHODS.POST),
-    UPDATE_OUTWARD: new APIRouter("/inventory/outwards", HTTP_METHODS.PUT),
-    DELETE_OUTWARD: new APIRouter("/inventory/outwards", HTTP_METHODS.DEL),
-
     // Stock Adjustments
     GET_ALL_ADJUSTMENTS: new APIRouter("/inventory/adjustments", HTTP_METHODS.GET),
     CREATE_ADJUSTMENT: new APIRouter("/inventory/adjustments", HTTP_METHODS.POST),
+
+    // Plant Product Mappings (Ready Plants Products)
+    GET_ALL_PLANT_PRODUCT_MAPPINGS: new APIRouter("/plant-product-mappings", HTTP_METHODS.GET),
+    GET_PLANT_PRODUCT_MAPPING_BY_ID: new APIRouter("/plant-product-mappings", HTTP_METHODS.GET),
+    CREATE_PLANT_PRODUCT_MAPPING: new APIRouter("/plant-product-mappings", HTTP_METHODS.POST),
+    UPDATE_PLANT_PRODUCT_MAPPING: new APIRouter("/plant-product-mappings", HTTP_METHODS.PUT),
+    DELETE_PLANT_PRODUCT_MAPPING: new APIRouter("/plant-product-mappings", HTTP_METHODS.DEL),
+    GET_MAPPINGS_BY_PLANT_SUBTYPE: new APIRouter("/plant-product-mappings/plant/:plantId/subtype/:subtypeId", HTTP_METHODS.GET),
 
     // Legacy endpoints (keeping for backward compatibility)
     ADD_INVENTORY: new APIRouter(
@@ -207,14 +367,18 @@ export const API = {
       "api/v2/inventory/deleteInventory",
       HTTP_METHODS.DEL,
       OFFLINE.PROFILE
-    )
+    ),
+
+    // Bucketing
+    GET_BUCKETING: new APIRouter("/inventory/bucketing", HTTP_METHODS.GET)
   },
   STATS: {
     DASHBOARD_STATS: new APIRouter("api/v2/stats/dashboard", HTTP_METHODS.GET, OFFLINE.PROFILE)
   },
   MEDIA: {
     // if you want to upload a file with or without data
-    UPLOAD: new APIRouter("/user/media/", HTTP_METHODS.POST)
+    UPLOAD: new APIRouter("/user/media/", HTTP_METHODS.POST),
+    OCR_PROCESS: new APIRouter("/user/media/ocr", HTTP_METHODS.POST)
   },
   ADMIN: {
     ADD_ADMIN: new APIRouter("api/v2/admin/createAdmin", HTTP_METHODS.POST, OFFLINE.PROFILE),
@@ -224,6 +388,9 @@ export const API = {
   THIRD_PARTY: {
     // If the base url is different from default
     CHECK: new APICustomRouter("https://example.com", "/test", HTTP_METHODS.GET)
+  },
+  MAPS: {
+    GET_DIRECTIONS: new APIRouter("/maps/directions", HTTP_METHODS.POST, OFFLINE.PROFILE),
   },
   EMPLOYEE: {
     ADD_EMPLOYEE: new APIRouter("/employee/createEmployee", HTTP_METHODS.POST, OFFLINE.PROFILE),
@@ -249,7 +416,13 @@ export const API = {
     ),
     ADD_PAYMENT: new APIRouter("order/payment/:orderId", HTTP_METHODS.PATCH, OFFLINE.PROFILE),
     GET_CSV: new APIRouter("order/getCSV", HTTP_METHODS.GET, OFFLINE.PROFILE),
-    GET_SLOTS: new APIRouter("slots/getslots", HTTP_METHODS.GET, OFFLINE.PROFILE)
+    GET_SLOTS: new APIRouter("slots/getslots", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_BUCKETING: new APIRouter("/order/bucketing", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_SALESMEN_BUCKETING: new APIRouter("/order/salesmen-bucketing", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    // Payment Activity Logs
+    CREATE_PAYMENT_ACTIVITY: new APIRouter("/order/payment-activity", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    GET_PAYMENT_ACTIVITIES: new APIRouter("/order/payment-activity", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_TODAYS_PAYMENT_ACTIVITIES: new APIRouter("/order/payment-activity/today", HTTP_METHODS.GET, OFFLINE.PROFILE)
   },
   plantCms: {
     POST_NEWPLANT: new APIRouter("/plantcms/plants", HTTP_METHODS.POST, OFFLINE.PROFILE),
@@ -259,14 +432,29 @@ export const API = {
     UPDATE_PLANT: new APIRouter("/plantcms/plants", HTTP_METHODS.PUT, OFFLINE.PROFILE),
     DELETE_PLANT: new APIRouter("/plantcms/plants", HTTP_METHODS.DEL, OFFLINE.PROFILE)
   },
+  excel: {
+    VALIDATE_EXCEL: new APIRouter("/excel/validate-excel", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    IMPORT_EXCEL: new APIRouter("/excel/import-excel", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    IMPORT_ORDERS_WITH_PAYMENT: new APIRouter("/excel/import-orders-with-payment", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    RETRY_ERRORFUL_ORDERS: new APIRouter("/excel/retry-errorful-orders", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    GET_ERRORFUL_ORDERS: new APIRouter("/excel/errorful-orders", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_UNPROCESSED_FILES: new APIRouter("/excel/unprocessed-files", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    DOWNLOAD_UNPROCESSED_EXCEL: new APIRouter("/excel/download-unprocessed", HTTP_METHODS.GET, OFFLINE.PROFILE)
+  },
 
   slots: {
     GET_PLANTS: new APIRouter("/slots/get-plants", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_PLANTS_SUBTYPE: new APIRouter("/slots/subtyps", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_PLANTS_SLOTS: new APIRouter("/slots/getslots", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_SIMPLE_SLOTS: new APIRouter("/slots/simple", HTTP_METHODS.GET, OFFLINE.PROFILE), // Fast endpoint for sowing
+    GET_TRANSFER_OPTIONS: new APIRouter(
+      "/slots/transfer-options",
+      HTTP_METHODS.GET,
+      OFFLINE.PROFILE
+    ),
     GET_SLOT_DETAILS: new APIRouter("/slots/:slotId/details", HTTP_METHODS.GET, OFFLINE.PROFILE),
     UPDATE_SLOT: new APIRouter("/slots", HTTP_METHODS.PUT, OFFLINE.PROFILE),
+    TRANSFER_PLANTS: new APIRouter("/slots/transfer", HTTP_METHODS.POST, OFFLINE.PROFILE),
     ADD_MANUAL_SLOT: new APIRouter("/slots/manual", HTTP_METHODS.POST, OFFLINE.PROFILE),
     DELETE_MANUAL_SLOT: new APIRouter("/slots/manual", HTTP_METHODS.DEL, OFFLINE.PROFILE),
     GET_STATS_SLOSTS: new APIRouter("/slots/farmreadyStats", HTTP_METHODS.GET, OFFLINE.PROFILE),
@@ -299,6 +487,14 @@ export const API = {
     UPDATE_VEHICLE: new APIRouter("vehicles/update", HTTP_METHODS.PATCH),
     DELETE_VEHICLE: new APIRouter("vehicles/delete", HTTP_METHODS.DEL),
     BULK_UPDATE_VEHICLES: new APIRouter("vehicles/bulk-update", HTTP_METHODS.PATCH)
+  },
+  TRIP: {
+    CREATE_TRIP: new APIRouter("trips/create", HTTP_METHODS.POST),
+    GET_TRIPS: new APIRouter("trips/all", HTTP_METHODS.GET),
+    GET_TRIP_BY_ID: new APIRouter("trips/:id", HTTP_METHODS.GET),
+    GET_TRIPS_BY_VEHICLE: new APIRouter("trips/vehicle/:vehicleId", HTTP_METHODS.GET),
+    UPDATE_TRIP: new APIRouter("trips/update/:id", HTTP_METHODS.PATCH),
+    DELETE_TRIP: new APIRouter("trips/:id", HTTP_METHODS.DEL)
   },
   SHADE: {
     CREATE_SHADE: new APIRouter("shade/create", HTTP_METHODS.POST),
@@ -341,6 +537,7 @@ export const API = {
   },
   DATA: {
     CREATE_BACKUP: new APIRouter("backup/generateBackup", HTTP_METHODS.GET),
+    SAVE_BACKUP: new APIRouter("backup/saveBackup", HTTP_METHODS.POST),
     IMPORT_BACKUP: new APIRouter("backup/importBackup", HTTP_METHODS.POST)
   },
   FARMER: {
@@ -376,6 +573,19 @@ export const API = {
     ADD_VILLAGE_TO_TALUKA: new APIRouter("/state", HTTP_METHODS.POST),
     GET_LOCATION_HIERARCHY: new APIRouter("/state", HTTP_METHODS.GET)
   },
+  OLD_SALES: {
+    GET_FILTERS: new APIRouter("/old-sales/filters", HTTP_METHODS.GET),
+    GET_ANALYTICS: new APIRouter("/old-sales/analytics", HTTP_METHODS.GET),
+    GET_RECORDS: new APIRouter("/old-sales/records", HTTP_METHODS.GET),
+    EXPORT_CSV: new APIRouter("/old-sales/export", HTTP_METHODS.GET),
+    GET_SUGGESTIONS: new APIRouter("/old-sales/suggestions", HTTP_METHODS.GET),
+    NORMALIZE: new APIRouter("/old-sales/normalize", HTTP_METHODS.PATCH),
+    GET_CHANGES: new APIRouter("/old-sales/changes", HTTP_METHODS.GET),
+    GET_CASE_MISMATCHES: new APIRouter("/old-sales/case-mismatches", HTTP_METHODS.GET),
+    NORMALIZE_CASE: new APIRouter("/old-sales/normalize-case", HTTP_METHODS.PATCH),
+    GET_REPEAT_CUSTOMERS: new APIRouter("/old-sales/repeat-customers", HTTP_METHODS.GET),
+    GET_GEO_SUMMARY: new APIRouter("/old-sales/geo-summary", HTTP_METHODS.GET)
+  },
   SLOTS: {
     GET_SLOTS: new APIRouter("slots/getslots", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_PLANT_NAMES: new APIRouter("slots/plant-names", HTTP_METHODS.GET, OFFLINE.PROFILE),
@@ -403,15 +613,52 @@ export const API = {
   },
   sowing: {
     CREATE_SOWING: new APIRouter("/sowing", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    CREATE_MULTIPLE_SOWINGS: new APIRouter("/sowing/multiple", HTTP_METHODS.POST, OFFLINE.PROFILE),
     GET_SOWINGS: new APIRouter("/sowing", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_SOWING_BY_ID: new APIRouter("/sowing/:id", HTTP_METHODS.GET, OFFLINE.PROFILE),
     UPDATE_OFFICE_SOWED: new APIRouter("/sowing/:id/office-sowed", HTTP_METHODS.POST, OFFLINE.PROFILE),
     UPDATE_PRIMARY_SOWED: new APIRouter("/sowing/:id/primary-sowed", HTTP_METHODS.POST, OFFLINE.PROFILE),
     UPDATE_HARVEST: new APIRouter("/sowing/:id/harvest", HTTP_METHODS.POST, OFFLINE.PROFILE),
-    GET_REMINDERS: new APIRouter("/sowing/reminders", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    // NEW APIs with plant selection (mandatory)
+    GET_PLANT_REMINDERS: new APIRouter("/sowing/plant-reminders", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_PLANT_ALERTS: new APIRouter("/sowing/plant-alerts", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_PLANT_AVAILABILITY: new APIRouter("/sowing/plant-availability", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_ALL_PLANTS_AVAILABILITY: new APIRouter("/sowing/all-plants-availability", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_PLANTS_GAP_SUMMARY: new APIRouter("/sowing/plants-gap-summary", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_SLOT_ORDERS_SUMMARY: new APIRouter("/sowing/slot-orders/:slotId", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_TODAY_SOWING_CARDS: new APIRouter("/sowing/today-sowing-cards", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    SEND_SOWING_REMINDERS_WHATSAPP: new APIRouter("/sowing/whatsapp/reminders", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    // Sowing Request APIs
+    CREATE_SOWING_REQUEST: new APIRouter("/sowing/request/create", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    CHECK_REQUEST_EXISTS: new APIRouter("/sowing/request/check", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_ALL_SOWING_REQUESTS: new APIRouter("/sowing/request/all", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_PENDING_SOWING_REQUESTS: new APIRouter("/sowing/request/pending", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_ACTIVE_SOWING_REQUESTS: new APIRouter("/sowing/request/active", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_SOWING_REQUEST_BY_ID: new APIRouter("/sowing/request/:id", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_SOWING_REQUEST_STATUS: new APIRouter("/sowing/request/:requestId/status", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    UPDATE_SOWING_REQUEST: new APIRouter("/sowing/request/:id", HTTP_METHODS.PUT, OFFLINE.PROFILE),
+    ISSUE_STOCK_FROM_REQUEST: new APIRouter("/sowing/request/:id/issue", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    MARK_REQUEST_ISSUED: new APIRouter("/sowing/request/:requestId/mark-issued", HTTP_METHODS.PUT, OFFLINE.PROFILE),
+    UPDATE_SOWING_PROGRESS: new APIRouter("/sowing/request/:requestId/update-progress", HTTP_METHODS.PUT, OFFLINE.PROFILE),
+    RECALCULATE_SOWING_REMAINING: new APIRouter("/sowing/request/:requestId/recalculate", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    REJECT_SOWING_REQUEST: new APIRouter("/sowing/request/:id/reject", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    CANCEL_SOWING_REQUEST: new APIRouter("/sowing/request/:id/cancel", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    CANCEL_SOWING_AND_REVERT: new APIRouter("/sowing/request/:requestId/cancel-and-revert", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    CANCEL_ALL_SOWING_REQUESTS: new APIRouter("/sowing/request/cancel-all", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    // Excessive Sowing APIs
+    CREATE_EXCESSIVE_REQUEST: new APIRouter("/sowing/excessive/create-request", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    GET_EXCESSIVE_AVAILABLE_PLANTS: new APIRouter("/sowing/excessive/available-plants", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    CHECK_EXCESSIVE_CARD: new APIRouter("/sowing/excessive/check-card/:plantId/:subtypeId", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_EXCESSIVE_DIAGNOSTIC: new APIRouter("/sowing/excessive/diagnostic", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    // OLD APIs - DEPRECATED (will be removed)
+    // GET_REMINDERS: new APIRouter("/sowing/reminders", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    // GET_ALERTS: new APIRouter("/sowing/alerts", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    // GET_SOWING_ALERTS_BY_START: new APIRouter("/sowing/sowing-alerts", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    // GET_TODAY_SOWING_SUMMARY: new APIRouter("/sowing/sowing-alerts/today", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_STATS: new APIRouter("/sowing/stats", HTTP_METHODS.GET, OFFLINE.PROFILE),
     UPDATE_SOWING: new APIRouter("/sowing/:id", HTTP_METHODS.PUT, OFFLINE.PROFILE),
-    DELETE_SOWING: new APIRouter("/sowing/:id", HTTP_METHODS.DEL, OFFLINE.PROFILE)
+    DELETE_SOWING: new APIRouter("/sowing/:id", HTTP_METHODS.DEL, OFFLINE.PROFILE),
+    DELETE_ALL_SOWINGS: new APIRouter("/sowing", HTTP_METHODS.DEL, OFFLINE.PROFILE)
   },
   WHATSAPP: {
     GET_MESSAGE_TEMPLATES: new APIRouter("/{tenantId}/api/v1/getMessageTemplates", HTTP_METHODS.GET),
@@ -419,5 +666,14 @@ export const API = {
     CREATE_TEMPLATE: new APIRouter("/{tenantId}/api/v1/createTemplate", HTTP_METHODS.POST),
     UPDATE_TEMPLATE: new APIRouter("/{tenantId}/api/v1/updateTemplate", HTTP_METHODS.PUT),
     DELETE_TEMPLATE: new APIRouter("/{tenantId}/api/v1/deleteTemplate", HTTP_METHODS.DELETE)
+  },
+  PUBLIC_LINKS: {
+    CREATE_LINK: new APIRouter("/public-links/links", HTTP_METHODS.POST),
+    GET_LINKS: new APIRouter("/public-links/links", HTTP_METHODS.GET),
+    GET_LINK_BY_ID: new APIRouter("/public-links/links", HTTP_METHODS.GET),
+    UPDATE_LINK: new APIRouter("/public-links/links", HTTP_METHODS.PATCH),
+    GET_PUBLIC_CONFIG: new APIRouter("/public-links/config", HTTP_METHODS.GET),
+    CREATE_LEAD: new APIRouter("/public-links/leads", HTTP_METHODS.POST),
+    GET_LEADS: new APIRouter("/public-links/links/leads", HTTP_METHODS.GET)
   }
 }

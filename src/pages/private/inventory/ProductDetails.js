@@ -11,6 +11,8 @@ import {
   Box,
 } from 'lucide-react';
 import axiosInstance from '../../../services/axiosConfig';
+import { formatDisplayDate } from '../../../utils/dateUtils';
+import { formatDecimal, formatCurrency } from '../../../utils/numberUtils';
 
 const ProductDetails = () => {
   const navigate = useNavigate();
@@ -141,7 +143,7 @@ const ProductDetails = () => {
             <DollarSign className="w-5 h-5 text-green-600" />
           </div>
           <p className="text-3xl font-bold text-gray-800">
-            ₹{product.averagePrice?.toFixed(2) || '0.00'}
+            {formatCurrency(formatDecimal(product.averagePrice) || 0)}
           </p>
         </div>
 
@@ -151,7 +153,7 @@ const ProductDetails = () => {
             <TrendingUp className="w-5 h-5 text-purple-600" />
           </div>
           <p className="text-3xl font-bold text-gray-800">
-            ₹{product.stockValue?.toLocaleString('en-IN') || '0'}
+            {formatCurrency(formatDecimal(product.stockValue) || 0)}
           </p>
         </div>
 
@@ -281,14 +283,14 @@ const ProductDetails = () => {
                       <div>
                         <p className="text-xs text-gray-500">Received Date</p>
                         <p className="font-semibold">
-                          {new Date(batch.receivedDate).toLocaleDateString()}
+                          {formatDisplayDate(batch.receivedDate)}
                         </p>
                       </div>
                       {batch.expiryDate && (
                         <div>
                           <p className="text-xs text-gray-500">Expiry Date</p>
                           <p className="font-semibold">
-                            {new Date(batch.expiryDate).toLocaleDateString()}
+                            {formatDisplayDate(batch.expiryDate)}
                           </p>
                         </div>
                       )}
@@ -337,7 +339,7 @@ const ProductDetails = () => {
                           <div>
                             <p className="text-xs text-gray-500">Date</p>
                             <p className="font-semibold">
-                              {new Date(txn.transactionDate).toLocaleDateString()}
+                              {formatDisplayDate(txn.transactionDate)}
                             </p>
                           </div>
                         </div>

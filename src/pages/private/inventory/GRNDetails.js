@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, CheckCircle, FileText, Package, Truck } from 'lucide-react';
-import axiosInstance from '../../../services/axiosConfig';
+import { ArrowLeft, CheckCircle, FileText, Package, Truck, Image as ImageIcon } from 'lucide-react';
+import { API, NetworkManager } from '../../../network/core';
+import { formatDisplayDate } from '../../../utils/dateUtils';
+import { formatDecimal, formatCurrency } from '../../../utils/numberUtils';
 
 const GRNDetails = () => {
   const navigate = useNavigate();
@@ -17,9 +19,15 @@ const GRNDetails = () => {
 
   const fetchGRN = async () => {
     try {
-      const response = await axiosInstance.get(`/inventory/grn/${id}`);
-      if (response.data.success) {
-        setGrn(response.data.data);
+      const instance = NetworkManager(API.INVENTORY.GET_GRN_BY_ID);
+      const response = await instance.request({}, [id]);
+      if (response?.data) {
+        const apiResponse = response.data;
+        if (apiResponse.success && apiResponse.data) {
+          setGrn(apiResponse.data);
+        } else if (apiResponse.data) {
+          setGrn(apiResponse.data);
+        }
       }
     } catch (error) {
       console.error('Error fetching GRN:', error);
@@ -34,11 +42,20 @@ const GRNDetails = () => {
 
     setApproving(true);
     try {
-      await axiosInstance.post(`/inventory/grn/${id}/approve`, {
+      const instance = NetworkManager(API.INVENTORY.APPROVE_GRN || '/inventory/grn');
+      const response = await instance.request({
         qualityCheckRemarks: qualityRemarks || 'Approved',
-      });
-      alert('GRN approved successfully! Stock has been updated.');
-      fetchGRN();
+      }, [id, 'approve']);
+      
+      if (response?.data) {
+        const apiResponse = response.data;
+        if (apiResponse.success || apiResponse.status === 'Success') {
+          alert('GRN approved successfully! Stock has been updated.');
+          fetchGRN();
+        } else {
+          alert(apiResponse.message || 'Error approving GRN');
+        }
+      }
     } catch (error) {
       console.error('Error approving GRN:', error);
       alert(error.response?.data?.message || 'Error approving GRN');
@@ -102,7 +119,7 @@ const GRNDetails = () => {
                       {grn.status.replace('_', ' ').toUpperCase()}
                     </span>
                     <span className="text-gray-600">
-                      {new Date(grn.grnDate).toLocaleDateString()}
+                      {formatDisplayDate(grn.grnDate)}
                     </span>
                   </div>
                 </div>
@@ -197,34 +214,86 @@ const GRNDetails = () => {
           </div>
           <div className="space-y-3">
             {grn.items?.map((item, index) => (
-              <div key={index} className="border border-gray-200 rounded-xl p-4">
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+              <div key={index} className="border border-gray-200 rounded-xl p-4 hover:border-purple-300 transition-colors">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-3">
                   <div className="md:col-span-2">
-                    <p className="text-sm text-gray-500">Product</p>
-                    <p className="font-semibold text-gray-800">{item.product?.name || 'N/A'}</p>
-                    <p className="text-xs text-gray-500">Batch: {item.batchNumber}</p>
+                    <p className="text-sm text-gray-500 mb-1">Product</p>
+                    <p className="font-semibold text-gray-800 text-lg">{item.product?.name || 'N/A'}</p>
+                    {item.product?.code && (
+                      <p className="text-xs text-gray-500">Code: {item.product.code}</p>
+                    )}
                   </div>
                   <div>
-                    <p className="text-sm text-gray-500">Ordered</p>
-                    <p className="font-semibold text-gray-800">{item.quantity} {item.unit?.abbreviation}</p>
+                    <p className="text-sm text-gray-500 mb-1">Quantity</p>
+                    <div className="space-y-1">
+                      <p className="text-sm text-gray-600">
+                        Ordered: <span className="font-semibold">{item.quantity}</span> {item.unit?.abbreviation || ''}
+                      </p>
+                      <p className="text-sm text-green-700">
+                        Accepted: <span className="font-semibold">{item.acceptedQuantity || item.quantity}</span> {item.unit?.abbreviation || ''}
+                      </p>
+                      {item.rejectedQuantity > 0 && (
+                        <p className="text-sm text-red-600">
+                          Rejected: <span className="font-semibold">{item.rejectedQuantity}</span> {item.unit?.abbreviation || ''}
+                        </p>
+                      )}
+                      {item.damageQuantity > 0 && (
+                        <p className="text-sm text-orange-600">
+                          Damaged: <span className="font-semibold">{item.damageQuantity}</span> {item.unit?.abbreviation || ''}
+                        </p>
+                      )}
+                    </div>
                   </div>
                   <div>
-                    <p className="text-sm text-gray-500">Accepted</p>
-                    <p className="font-semibold text-green-700">{item.acceptedQuantity} {item.unit?.abbreviation}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-500">Amount</p>
-                    <p className="font-semibold text-gray-800">₹{item.amount?.toLocaleString('en-IN')}</p>
+                    <p className="text-sm text-gray-500 mb-1">Amount</p>
+                    <p className="font-semibold text-gray-800 text-lg">{formatCurrency(formatDecimal(item.amount) || 0)}</p>
+                    {item.rate && (
+                      <p className="text-xs text-gray-500">Rate: {formatCurrency(formatDecimal(item.rate) || 0)}</p>
+                    )}
                   </div>
                 </div>
-                {(item.rejectedQuantity > 0 || item.damageQuantity > 0) && (
-                  <div className="mt-2 flex space-x-4 text-sm">
-                    {item.rejectedQuantity > 0 && (
-                      <span className="text-red-600">Rejected: {item.rejectedQuantity}</span>
-                    )}
-                    {item.damageQuantity > 0 && (
-                      <span className="text-orange-600">Damaged: {item.damageQuantity}</span>
-                    )}
+                
+                {/* Batch Number and Expiry Date Section */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-3 border-t border-gray-200">
+                  <div className="bg-blue-50 rounded-lg p-3">
+                    <p className="text-xs text-gray-500 mb-1">Batch / Lot Number</p>
+                    <p className="font-semibold text-blue-800 text-sm">
+                      {item.batchNumber || item.lotNumber || 'N/A'}
+                    </p>
+                  </div>
+                  <div className="bg-orange-50 rounded-lg p-3">
+                    <p className="text-xs text-gray-500 mb-1">Expiry Date</p>
+                    <p className="font-semibold text-orange-800 text-sm">
+                      {item.expiryDate ? formatDisplayDate(item.expiryDate) : 'N/A'}
+                    </p>
+                    {item.expiryDate && (() => {
+                      const expiryDate = new Date(item.expiryDate);
+                      const today = new Date();
+                      const daysUntilExpiry = Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24));
+                      if (daysUntilExpiry < 0) {
+                        return <p className="text-xs text-red-600 mt-1">⚠️ Expired</p>;
+                      } else if (daysUntilExpiry < 30) {
+                        return <p className="text-xs text-orange-600 mt-1">⚠️ Expires in {daysUntilExpiry} days</p>;
+                      } else if (daysUntilExpiry < 90) {
+                        return <p className="text-xs text-yellow-600 mt-1">⚠️ Expires in {daysUntilExpiry} days</p>;
+                      }
+                      return null;
+                    })()}
+                  </div>
+                  {item.manufactureDate && (
+                    <div className="bg-green-50 rounded-lg p-3">
+                      <p className="text-xs text-gray-500 mb-1">Manufacturing Date</p>
+                      <p className="font-semibold text-green-800 text-sm">
+                        {formatDisplayDate(item.manufactureDate)}
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {item.notes && (
+                  <div className="mt-3 pt-3 border-t border-gray-200">
+                    <p className="text-xs text-gray-500 mb-1">Notes</p>
+                    <p className="text-sm text-gray-700">{item.notes}</p>
                   </div>
                 )}
               </div>
@@ -238,29 +307,29 @@ const GRNDetails = () => {
           <div className="space-y-2">
             <div className="flex justify-between">
               <span className="text-gray-600">Subtotal</span>
-              <span className="font-semibold">₹{grn.subtotal?.toLocaleString('en-IN')}</span>
+              <span className="font-semibold">{formatCurrency(formatDecimal(grn.subtotal) || 0)}</span>
             </div>
             {grn.gstAmount > 0 && (
               <div className="flex justify-between">
                 <span className="text-gray-600">GST</span>
-                <span className="font-semibold">₹{grn.gstAmount?.toLocaleString('en-IN')}</span>
+                <span className="font-semibold">{formatCurrency(formatDecimal(grn.gstAmount) || 0)}</span>
               </div>
             )}
             {grn.freightCharges > 0 && (
               <div className="flex justify-between">
                 <span className="text-gray-600">Freight Charges</span>
-                <span className="font-semibold">₹{grn.freightCharges?.toLocaleString('en-IN')}</span>
+                <span className="font-semibold">{formatCurrency(formatDecimal(grn.freightCharges) || 0)}</span>
               </div>
             )}
             {grn.otherCharges > 0 && (
               <div className="flex justify-between">
                 <span className="text-gray-600">Other Charges</span>
-                <span className="font-semibold">₹{grn.otherCharges?.toLocaleString('en-IN')}</span>
+                <span className="font-semibold">{formatCurrency(formatDecimal(grn.otherCharges) || 0)}</span>
               </div>
             )}
             <div className="flex justify-between pt-2 border-t border-gray-300 text-xl font-bold text-gray-900">
               <span>Total Amount</span>
-              <span>₹{grn.totalAmount?.toLocaleString('en-IN')}</span>
+              <span>{formatCurrency(formatDecimal(grn.totalAmount) || 0)}</span>
             </div>
           </div>
         </div>
@@ -294,9 +363,37 @@ const GRNDetails = () => {
             {grn.qualityCheckBy && (
               <p className="text-sm text-gray-500 mt-2">
                 Checked by: {grn.qualityCheckBy.name} on{' '}
-                {new Date(grn.qualityCheckDate).toLocaleString()}
+                {formatDisplayDate(grn.qualityCheckDate)}
               </p>
             )}
+          </div>
+        )}
+
+        {/* GRN Images */}
+        {grn.attachments && grn.attachments.length > 0 && (
+          <div className="bg-white rounded-2xl shadow-lg p-6">
+            <div className="flex items-center space-x-2 mb-4">
+              <ImageIcon className="w-6 h-6 text-purple-600" />
+              <h2 className="text-xl font-bold text-gray-800">GRN Images ({grn.attachments.length})</h2>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {grn.attachments.map((attachment, idx) => (
+                <div key={idx} className="relative group">
+                  <img
+                    src={attachment.url || attachment}
+                    alt={attachment.name || `GRN Image ${idx + 1}`}
+                    className="w-full h-32 object-cover rounded-lg border border-gray-300 cursor-pointer hover:border-purple-400 transition-colors"
+                    onClick={() => window.open(attachment.url || attachment, '_blank')}
+                    onError={(e) => {
+                      e.target.src = 'https://via.placeholder.com/300x200?text=Image+Not+Found';
+                    }}
+                  />
+                  {attachment.name && (
+                    <p className="text-xs text-gray-500 mt-1 truncate">{attachment.name}</p>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>

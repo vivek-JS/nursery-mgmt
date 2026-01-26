@@ -5,7 +5,6 @@ import jsPDF from "jspdf"
 
 const CollectSlipPDF = ({ open, onClose, dispatchData }) => {
   const printRef = useRef()
-
   if (!dispatchData) return null
 
   const generatePDF = async () => {
@@ -13,35 +12,34 @@ const CollectSlipPDF = ({ open, onClose, dispatchData }) => {
     if (!element) return
 
     try {
-      // Create canvas from HTML element
+      // Create canvas from HTML element - optimized for thermal printing
       const canvas = await html2canvas(element, {
-        scale: 2,
+        scale: 3, // Higher scale for better quality on thermal printers
         useCORS: true,
         allowTaint: true,
-        backgroundColor: "#ffffff"
+        backgroundColor: "#ffffff",
+        logging: false,
+        width: element.scrollWidth,
+        height: element.scrollHeight
       })
 
       const imgData = canvas.toDataURL("image/png")
 
-      // Create PDF for small printer - one slip per page
+      // Thermal printer standard width: 80mm (most common) or 58mm
+      // Using 80mm width for better readability
+      const thermalWidth = 80 // mm
+      const imgWidth = thermalWidth - 2 // Small margin
+      const imgHeight = (canvas.height * imgWidth) / canvas.width
+
+      // Create PDF with custom dimensions for thermal printer
       const pdf = new jsPDF({
         orientation: "portrait",
         unit: "mm",
-        format: "a4"
+        format: [thermalWidth, imgHeight + 10] // Dynamic height based on content
       })
 
-      const pageWidth = 210
-      const pageHeight = 297
-
-      // Calculate dimensions to fit nicely on A4 for small printer
-      const imgWidth = 180 // Leave margins
-      const imgHeight = (canvas.height * imgWidth) / canvas.width
-
-      // Add single slip centered on page
-      const xOffset = (pageWidth - imgWidth) / 2
-      const yOffset = (pageHeight - imgHeight) / 2
-
-      pdf.addImage(imgData, "PNG", xOffset, yOffset, imgWidth, imgHeight)
+      // Add image to PDF (no centering needed, full width)
+      pdf.addImage(imgData, "PNG", 1, 5, imgWidth, imgHeight)
 
       // Open PDF in new window
       window.open(pdf.output("bloburl"), "_blank")
@@ -141,193 +139,282 @@ const CollectSlipPDF = ({ open, onClose, dispatchData }) => {
         </div>
       </div>
 
-      {/* Hidden printable content - Compact black and white format */}
+      {/* Hidden printable content - Thermal printer format (80mm width) */}
       <div style={{ position: "absolute", left: "-9999px", top: "-9999px" }}>
         <div
           ref={printRef}
-          className="bg-white p-4 border border-black"
           style={{
-            width: "160mm",
-            height: "200mm",
-            fontFamily: "Arial, sans-serif",
-            fontSize: "10px"
+            width: "78mm", // 80mm - 2mm margin
+            maxWidth: "78mm",
+            fontFamily: "'Courier New', monospace", // Monospace for thermal printers
+            fontSize: "10px",
+            lineHeight: "1.4",
+            color: "#000000",
+            backgroundColor: "#ffffff",
+            padding: "4mm",
+            boxSizing: "border-box"
           }}>
           {/* Header */}
-          <div className="text-center border-b-2 border-black pb-2 mb-3">
-            <h1 className="text-lg font-bold mb-1">Collection Slip</h1>
-            <div className="flex justify-between text-xs">
-              <span>तारीख: {new Date().toLocaleDateString()}</span>
-              <span>वेळ: {new Date().toLocaleTimeString()}</span>
+          <div style={{ textAlign: "center", borderBottom: "1px solid #000", paddingBottom: "3px", marginBottom: "5px" }}>
+            <div style={{ fontSize: "14px", fontWeight: "bold", marginBottom: "3px" }}>संग्रह पर्ची</div>
+            <div style={{ fontSize: "8px", display: "flex", justifyContent: "space-between" }}>
+              <span>तारीख: {new Date().toLocaleDateString("hi-IN")}</span>
+              <span>वेळ: {new Date().toLocaleTimeString("hi-IN", { hour: "2-digit", minute: "2-digit" })}</span>
             </div>
           </div>
 
-          {/* Driver and Vehicle Info */}
-          <div className="mb-3 border border-gray-300 p-2">
-            <h3 className="font-semibold mb-2 text-xs border-b border-gray-300 pb-1">
-              वाहतूक माहिती
-            </h3>
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              <div>
-                <span className="text-gray-600">चालक:</span>
-                <p className="font-semibold">{dispatchData?.driverName || ""}</p>
+          {/* Transport ID */}
+          <div style={{ marginBottom: "5px", padding: "3px 0", borderBottom: "1px dashed #000" }}>
+            <div style={{ fontSize: "9px", fontWeight: "bold" }}>
+              वाहतूक ID: {dispatchData?.transportId || "N/A"}
+            </div>
+          </div>
+
+          {/* Driver Info */}
+          <div style={{ marginBottom: "5px", padding: "3px 0", borderBottom: "1px dashed #000" }}>
+            <div style={{ fontSize: "9px" }}>
+              <div style={{ fontWeight: "bold", marginBottom: "2px" }}>
+                चालक: {dispatchData?.driverName || "N/A"}
               </div>
-              <div>
-                <span className="text-gray-600">वाहन:</span>
-                <p className="font-semibold">{dispatchData?.vehicleName || ""}</p>
+              <div style={{ marginBottom: "2px", fontSize: "8px" }}>
+                मोबाइल: {dispatchData?.driverMobile || "N/A"}
+              </div>
+              <div style={{ fontWeight: "bold", fontSize: "9px" }}>
+                वाहन: {dispatchData?.vehicleName || "N/A"}
               </div>
             </div>
           </div>
 
-          {/* Plants Details */}
-          {dispatchData?.plants?.map((plant, plantIndex) => (
-            <div key={plantIndex} className="mb-3">
-              <h3 className="text-xs font-semibold mb-2 border-b border-gray-300 pb-1">
-                {plant.name}
-              </h3>
+          {/* Summary - Total Plants */}
+          {(() => {
+            const totalPlants = dispatchData?.plants?.reduce((sum, plant) => {
+              return (
+                sum +
+                plant.crates?.reduce(
+                  (plantSum, crate) => {
+                    if (crate.crateDetails && crate.crateDetails.length > 0) {
+                      return plantSum + crate.crateDetails.reduce((cdSum, cd) => cdSum + (cd.plantCount || 0), 0)
+                    }
+                    return plantSum + (crate.plantCount || crate.quantity || 0)
+                  },
+                  0
+                )
+              )
+            }, 0) || 0
 
-              {/* Process crates by cavity */}
+            return (
+              <div style={{ marginBottom: "5px", padding: "3px 0", borderBottom: "1px solid #000" }}>
+                <div style={{ fontSize: "10px", fontWeight: "bold", textAlign: "center" }}>
+                  एकूण रोपे: {totalPlants}
+                </div>
+              </div>
+            )
+          })()}
+
+          {/* Crates by Plant and Cavity */}
+          {dispatchData?.plants?.map((plant, plantIndex) => {
+            // Clean plant name to display properly
+            const cleanPlantName = plant.name?.replace(/&gt;/g, ">").replace(/\s*-\s*>\s*/g, "-")
+            
+            return (
+            <div key={plantIndex} style={{ marginBottom: "5px" }}>
+              {/* Plant Name */}
+              <div style={{ 
+                fontSize: "10px", 
+                fontWeight: "bold", 
+                marginBottom: "3px", 
+                borderBottom: "1px solid #000", 
+                paddingBottom: "2px",
+                textAlign: "center"
+              }}>
+                {cleanPlantName}
+              </div>
+
+              {/* Group by cavity and show shade-wise */}
               {(() => {
-                const cavityGroups = []
+                // Group pickupDetails by cavity for shade information
+                const cavityShades = new Map()
+                
+                plant.pickupDetails?.forEach((pickup) => {
+                  if (!cavityShades.has(pickup.cavityName)) {
+                    cavityShades.set(pickup.cavityName, [])
+                  }
+                  cavityShades.get(pickup.cavityName).push(pickup)
+                })
 
-                if (plant.cavityGroups && Array.isArray(plant.cavityGroups)) {
-                  cavityGroups.push(...plant.cavityGroups)
-                } else {
-                  const cavityMap = new Map()
+                return plant.crates?.map((crate, crateIndex) => {
+                  const shades = cavityShades.get(crate.cavityName) || []
+                  
+                  // Calculate totals
+                  let totalCrates = 0
+                  let totalPlants = 0
+                  if (crate.crateDetails && crate.crateDetails.length > 0) {
+                    totalCrates = crate.crateDetails.reduce((sum, cd) => sum + (cd.crateCount || 0), 0)
+                    totalPlants = crate.crateDetails.reduce((sum, cd) => sum + (cd.plantCount || 0), 0)
+                  } else {
+                    totalCrates = crate.crateCount || crate.numberOfCrates || 0
+                    totalPlants = crate.plantCount || crate.quantity || 0
+                  }
 
-                  plant.pickupDetails?.forEach((pickup) => {
-                    if (!cavityMap.has(pickup.cavityName)) {
-                      cavityMap.set(pickup.cavityName, {
-                        cavityName: pickup.cavityName,
-                        pickupDetails: [],
-                        crates: []
-                      })
-                    }
-                    cavityMap.get(pickup.cavityName).pickupDetails.push(pickup)
-                  })
-
-                  plant.crates?.forEach((crate) => {
-                    if (cavityMap.has(crate.cavityName)) {
-                      cavityMap.get(crate.cavityName).crates.push(crate)
-                    } else {
-                      cavityMap.set(crate.cavityName, {
-                        cavityName: crate.cavityName,
-                        pickupDetails: [],
-                        crates: [crate]
-                      })
-                    }
-                  })
-
-                  cavityGroups.push(...cavityMap.values())
-                }
-
-                return cavityGroups.map((cavityGroup, cavityIndex) => (
-                  <div key={cavityIndex} className="mb-2 border border-gray-300 p-2">
-                    <h4 className="font-semibold mb-1 text-xs border-b border-gray-200 pb-1">
-                      कॅव्हिटी: {cavityGroup.cavityName || "N/A"}
-                    </h4>
-
-                    {/* Pickup Details Table */}
-                    {cavityGroup.pickupDetails && cavityGroup.pickupDetails.length > 0 && (
-                      <div className="mb-2">
-                        <table className="w-full border-collapse border border-gray-400 text-xs">
-                          <thead>
-                            <tr className="bg-gray-100">
-                              <th className="border border-gray-400 p-1 text-left">शेड</th>
-                              <th className="border border-gray-400 p-1 text-center">प्रमाण</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {cavityGroup.pickupDetails.map((pickup, idx) => (
-                              <tr key={idx}>
-                                <td className="border border-gray-400 p-1">{pickup.shadeName}</td>
-                                <td className="border border-gray-400 p-1 text-center font-medium">
-                                  {pickup.quantity}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                  return (
+                    <div key={crateIndex} style={{ marginBottom: "5px", padding: "3px 0" }}>
+                      {/* Cavity Header */}
+                      <div style={{ 
+                        fontSize: "9px", 
+                        fontWeight: "bold", 
+                        marginBottom: "3px",
+                        textAlign: "center",
+                        padding: "2px 0",
+                        borderTop: "1px solid #000",
+                        borderBottom: "1px solid #000"
+                      }}>
+                        कॅव्हिटी: {crate.cavityName}
                       </div>
-                    )}
-
-                    {/* Crates Table */}
-                    {cavityGroup.crates && cavityGroup.crates.length > 0 && (
-                      <div className="mb-2">
-                        <table className="w-full border-collapse border border-gray-400 text-xs">
-                          <thead>
-                            <tr className="bg-gray-100">
-                              <th className="border border-gray-400 p-1 text-center">क्रेट</th>
-                              <th className="border border-gray-400 p-1 text-center">रोपे</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {cavityGroup.crates.map((crate, idx) => (
-                              <tr key={idx}>
-                                <td className="border border-gray-400 p-1 text-center font-medium">
-                                  {crate.numberOfCrates || 0}
-                                </td>
-                                <td className="border border-gray-400 p-1 text-center font-medium">
-                                  {crate.quantity || 0}
-                                </td>
-                              </tr>
+                      
+                      {/* Shade Section - Highlighted */}
+                      {shades.length > 0 && (
+                        <div style={{ 
+                          marginBottom: "4px", 
+                          padding: "3px",
+                          border: "1px solid #000",
+                          backgroundColor: "#f5f5f5"
+                        }}>
+                          <div style={{ 
+                            fontSize: "9px", 
+                            fontWeight: "bold", 
+                            marginBottom: "3px",
+                            textAlign: "center",
+                            borderBottom: "1px dashed #000",
+                            paddingBottom: "2px"
+                          }}>
+                            === शेड माहिती ===
+                          </div>
+                          <div style={{ fontSize: "8px", lineHeight: "1.5" }}>
+                            {shades.map((shade, shadeIdx) => (
+                              <div 
+                                key={shadeIdx} 
+                                style={{ 
+                                  display: "flex", 
+                                  justifyContent: "space-between", 
+                                  marginBottom: "2px",
+                                  padding: "1px 2px",
+                                  borderBottom: shadeIdx < shades.length - 1 ? "1px dotted #666" : "none"
+                                }}
+                              >
+                                <span style={{ fontWeight: "normal" }}>• {shade.shadeName || "-"}</span>
+                                <span style={{ fontWeight: "bold", fontSize: "9px" }}>{shade.quantity || 0} रोपे</span>
+                              </div>
                             ))}
-                          </tbody>
-                        </table>
+                            {/* Shade Total */}
+                            <div style={{ 
+                              display: "flex", 
+                              justifyContent: "space-between", 
+                              marginTop: "3px", 
+                              paddingTop: "2px",
+                              borderTop: "1px solid #000",
+                              fontWeight: "bold",
+                              fontSize: "9px"
+                            }}>
+                              <span>एकूण शेड रोपे:</span>
+                              <span>{shades.reduce((sum, s) => sum + (s.quantity || 0), 0)}</span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      
+                      {/* Crate Section - Highlighted */}
+                      <div style={{ 
+                        padding: "3px",
+                        border: "1px solid #000",
+                        backgroundColor: "#f9f9f9"
+                      }}>
+                        <div style={{ 
+                          fontSize: "9px", 
+                          fontWeight: "bold", 
+                          marginBottom: "3px",
+                          textAlign: "center",
+                          borderBottom: "1px dashed #000",
+                          paddingBottom: "2px"
+                        }}>
+                          === क्रेट माहिती ===
+                        </div>
+                        {crate.crateDetails && crate.crateDetails.length > 0 ? (
+                          <div style={{ fontSize: "8px", lineHeight: "1.5" }}>
+                            {crate.crateDetails.map((crateDetail, cdIdx) => (
+                              <div 
+                                key={cdIdx} 
+                                style={{ 
+                                  display: "flex", 
+                                  justifyContent: "space-between", 
+                                  marginBottom: "2px",
+                                  padding: "1px 2px",
+                                  borderBottom: cdIdx < crate.crateDetails.length - 1 ? "1px dotted #666" : "none"
+                                }}
+                              >
+                                <span style={{ fontWeight: "normal" }}>• क्रेट: {crateDetail.crateCount || 0}</span>
+                                <span style={{ fontWeight: "bold", fontSize: "9px" }}>{crateDetail.plantCount || 0} रोपे</span>
+                              </div>
+                            ))}
+                            {/* Crate Total - Prominent */}
+                            <div style={{ 
+                              display: "flex", 
+                              justifyContent: "space-between", 
+                              marginTop: "4px", 
+                              paddingTop: "3px",
+                              paddingBottom: "2px",
+                              borderTop: "2px solid #000",
+                              borderBottom: "1px solid #000",
+                              fontWeight: "bold",
+                              fontSize: "10px",
+                              backgroundColor: "#e8e8e8"
+                            }}>
+                              <span>=== एकूण ===</span>
+                            </div>
+                            <div style={{ 
+                              display: "flex", 
+                              justifyContent: "space-between", 
+                              marginTop: "2px",
+                              fontWeight: "bold",
+                              fontSize: "9px"
+                            }}>
+                              <span>क्रेट: {totalCrates}</span>
+                              <span>रोपे: {totalPlants}</span>
+                            </div>
+                          </div>
+                        ) : (
+                          <div style={{ 
+                            fontSize: "9px", 
+                            display: "flex", 
+                            justifyContent: "space-between",
+                            padding: "2px",
+                            fontWeight: "bold"
+                          }}>
+                            <span>क्रेट: {totalCrates}</span>
+                            <span>रोपे: {totalPlants}</span>
+                          </div>
+                        )}
                       </div>
-                    )}
-
-                    {/* Summary */}
-                    <div className="flex justify-between text-xs font-semibold bg-gray-50 p-1 border border-gray-300">
-                      <span>
-                        एकूण क्रेट:{" "}
-                        <span className="font-bold">
-                          {cavityGroup.crates?.reduce(
-                            (sum, crate) => sum + (crate.numberOfCrates || 0),
-                            0
-                          ) || 0}
-                        </span>
-                      </span>
-                      <span>
-                        एकूण रोपे:{" "}
-                        <span className="font-bold">
-                          {cavityGroup.crates?.reduce(
-                            (sum, crate) => sum + (crate.quantity || 0),
-                            0
-                          ) || 0}
-                        </span>
-                      </span>
                     </div>
-
-                    {cavityIndex < cavityGroups.length - 1 && (
-                      <div className="border-b border-gray-200 mt-2 mb-2"></div>
-                    )}
-                  </div>
-                ))
+                  )
+                })
               })()}
-
-              {plantIndex < dispatchData.plants.length - 1 && (
-                <div className="border-b border-gray-300 mt-2 mb-2"></div>
-              )}
             </div>
-          ))}
-
-          {/* Signature Section */}
-          <div className="mt-4 pt-3 border-t border-gray-400">
-            <div className="flex justify-between">
-              <div className="text-center">
-                <div className="border-b border-black w-20 h-10 mb-1 bg-gray-50"></div>
-                <p className="text-xs text-gray-600">पर्यवेक्षक स्वाक्षरी</p>
-              </div>
-              <div className="text-center">
-                <div className="border-b border-black w-20 h-10 mb-1 bg-gray-50"></div>
-                <p className="text-xs text-gray-600">चालक स्वाक्षरी</p>
-              </div>
-            </div>
-          </div>
+          )
+          })}
 
           {/* Footer */}
-          <div className="mt-3 text-center border-t border-gray-300 pt-2">
-            <p className="text-xs text-gray-600">आपल्या सेवेबद्दल धन्यवाद</p>
+          <div style={{ 
+            marginTop: "8px", 
+            paddingTop: "5px", 
+            borderTop: "2px solid #000",
+            textAlign: "center",
+            fontSize: "8px"
+          }}>
+            <div style={{ marginBottom: "2px" }}>--------------------------------</div>
+            <div style={{ fontWeight: "bold" }}>धन्यवाद!</div>
+            <div style={{ marginTop: "3px", fontSize: "7px" }}>
+              {new Date().toLocaleString("hi-IN")}
+            </div>
           </div>
         </div>
       </div>

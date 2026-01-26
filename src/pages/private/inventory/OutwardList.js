@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Search, Filter, Eye, Send } from 'lucide-react';
 import axiosInstance from '../../../services/axiosConfig';
+import { formatDisplayDate } from '../../../utils/dateUtils';
 
 const OutwardList = () => {
   const navigate = useNavigate();
@@ -160,7 +161,7 @@ const OutwardList = () => {
                         <div>
                           <p className="text-xs text-gray-500 uppercase">Date</p>
                           <p className="font-semibold text-gray-800">
-                            {new Date(outward.outwardDate).toLocaleDateString()}
+                            {formatDisplayDate(outward.outwardDate)}
                           </p>
                         </div>
                         <div>

@@ -1,4 +1,4 @@
-import React, { useState } from "react"
+import React, { useState, useEffect, useRef } from "react"
 import {
   Button,
   Dialog,
@@ -36,6 +36,25 @@ const ExcelExport = ({
     paymentStatus: "",
     ...filters
   })
+
+  const prevFiltersRef = useRef(filters)
+
+  useEffect(() => {
+    // Deep comparison to check if filters actually changed
+    // Only update if the filter values have actually changed
+    const prevFilters = prevFiltersRef.current || {}
+    const currentFilters = filters || {}
+    
+    const filtersChanged = JSON.stringify(prevFilters) !== JSON.stringify(currentFilters)
+    
+    if (filtersChanged) {
+      setExportFilters((prev) => ({
+        ...prev,
+        ...currentFilters
+      }))
+      prevFiltersRef.current = currentFilters
+    }
+  }, [filters])
 
   const orderStatusOptions = [
     { value: "", label: "All Statuses" },
@@ -79,18 +98,17 @@ const ExcelExport = ({
       // Build query parameters
       const params = new URLSearchParams()
 
-      if (exportFilters.startDate) {
-        params.append("startDate", exportFilters.startDate)
-      }
-      if (exportFilters.endDate) {
-        params.append("endDate", exportFilters.endDate)
-      }
-      if (exportFilters.orderStatus) {
-        params.append("orderStatus", exportFilters.orderStatus)
-      }
-      if (exportFilters.paymentStatus) {
-        params.append("paymentStatus", exportFilters.paymentStatus)
-      }
+      Object.entries(exportFilters).forEach(([key, value]) => {
+        const isValuePresent =
+          value !== undefined &&
+          value !== null &&
+          value !== "" &&
+          !(typeof value === "object" && Object.keys(value).length === 0)
+
+        if (isValuePresent) {
+          params.append(key, value)
+        }
+      })
 
       // Make direct axios call for CSV endpoint to handle raw CSV response
       const baseURL = process.env.REACT_APP_BASE_URL || "http://localhost:8000/api/v1"
@@ -150,7 +168,9 @@ const ExcelExport = ({
   }
 
   const getActiveFiltersCount = () => {
-    return Object.values(exportFilters).filter((value) => value !== "").length
+    return Object.values(exportFilters).filter(
+      (value) => value !== undefined && value !== null && value !== ""
+    ).length
   }
 
   return (

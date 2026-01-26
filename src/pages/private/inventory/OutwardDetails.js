@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Send, Package } from 'lucide-react';
 import axiosInstance from '../../../services/axiosConfig';
+import { formatDisplayDate } from '../../../utils/dateUtils';
 
 const OutwardDetails = () => {
   const navigate = useNavigate();
@@ -99,7 +100,7 @@ const OutwardDetails = () => {
                       {outward.status.toUpperCase()}
                     </span>
                     <span className="text-gray-600">
-                      {new Date(outward.outwardDate).toLocaleDateString()}
+                      {formatDisplayDate(outward.outwardDate)}
                     </span>
                   </div>
                 </div>
@@ -209,7 +210,7 @@ const OutwardDetails = () => {
             <h2 className="text-xl font-bold text-gray-800 mb-2">Issue Information</h2>
             <p className="text-gray-700">
               Issued by: {outward.issuedBy.name} on{' '}
-              {new Date(outward.issuedDate).toLocaleString()}
+              {formatDisplayDate(outward.issuedDate)}
             </p>
           </div>
         )}

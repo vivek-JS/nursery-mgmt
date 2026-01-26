@@ -20,7 +20,7 @@ const SupplierList = () => {
       const params = { page: pagination.page, limit: pagination.limit };
       if (searchTerm) params.search = searchTerm;
 
-      const response = await axiosInstance.get('/inventory/suppliers', { params });
+      const response = await axiosInstance.get('/api/v1/inventory/suppliers', { params });
       if (response.data.success) {
         setSuppliers(response.data.data);
         setPagination(response.data.pagination);

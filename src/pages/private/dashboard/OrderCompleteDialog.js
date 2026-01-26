@@ -15,18 +15,24 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData }) => {
   const [isLoading, setIsLoading] = useState(false)
   // Actions for each order row
   const [orderActions, setOrderActions] = useState({})
+  const [additionalPlantInputs, setAdditionalPlantInputs] = useState({})
 
   // Initialize default actions for each order
   React.useEffect(() => {
     if (dispatchData?.orderIds) {
       const initialActions = {}
+      const initialAdditionalPlants = {}
       dispatchData.orderIds.forEach((order) => {
         initialActions[order.details.orderid] = {
           addToInventory: false, // Default to false
           completeOrder: true // Default to true
         }
+        const existingAdditional =
+          Number(order.details?.additionalPlants ?? order.additionalPlants ?? 0) || 0
+        initialAdditionalPlants[order.details.orderid] = existingAdditional
       })
       setOrderActions(initialActions)
+      setAdditionalPlantInputs(initialAdditionalPlants)
     }
   }, [dispatchData])
 
@@ -51,6 +57,16 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData }) => {
         ...prev[orderId],
         [action]: checked
       }
+    }))
+  }
+
+  const handleAdditionalPlantsChange = (orderId, value) => {
+    const sanitizedValue =
+      value === "" ? "" : Math.max(0, Number.isNaN(Number(value)) ? 0 : Number(value))
+
+    setAdditionalPlantInputs((prev) => ({
+      ...prev,
+      [orderId]: sanitizedValue
     }))
   }
 
@@ -106,6 +122,41 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData }) => {
     }
   }
 
+  const getPlantQuantities = React.useCallback(
+    (order) => {
+      const orderId = order.details?.orderid
+      const basePlants =
+        Number(order.details?.numberOfPlants ?? order.numberOfPlants ?? order.quantity ?? 0)
+      const additionalFromData =
+        Number(order.details?.additionalPlants ?? order.additionalPlants ?? 0) || 0
+      const hasStateValue = Object.prototype.hasOwnProperty.call(
+        additionalPlantInputs,
+        orderId
+      )
+      const stateValue = hasStateValue ? additionalPlantInputs[orderId] : undefined
+
+      let additionalValue = additionalFromData
+
+      if (hasStateValue) {
+        if (stateValue === "" || stateValue === null || stateValue === undefined) {
+          additionalValue = 0
+        } else {
+          const parsed = Number(stateValue)
+          additionalValue = Number.isNaN(parsed) ? 0 : parsed
+        }
+      }
+
+      const totalPlants = basePlants + additionalValue
+
+      return {
+        basePlants,
+        additionalPlants: additionalValue,
+        totalPlants
+      }
+    },
+    [additionalPlantInputs]
+  )
+
   // Process returned plants function
   const processReturnedPlants = (dispatchData, returnedPlants, returnReasons, orderActions) => {
     // Validate inputs
@@ -119,29 +170,44 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData }) => {
     // Process each order
     dispatchData.orderIds.forEach((order) => {
       const orderId = order.details.orderid
-      const returnedQuantity = Number(returnedPlants[orderId] || 0)
-      const totalQuantity = Number(order.quantity || 0)
+      const rawReturned = returnedPlants[orderId]
+      const returnedQuantity = Math.max(0, Number.isNaN(Number(rawReturned)) ? 0 : Number(rawReturned))
+      const { basePlants, additionalPlants: additionalPlantCount, totalPlants } = getPlantQuantities(order)
       const actions = orderActions[orderId] || { addToInventory: false, completeOrder: true }
 
       // Calculate remaining plants after return
-      const remainingPlants = totalQuantity - returnedQuantity
+      const remainingPlants = totalPlants - returnedQuantity
+
+      if (remainingPlants < 0) {
+        throw new Error(
+          `Returned plants cannot exceed total plants for Order #${order.order}`
+        )
+      }
 
       // Determine the appropriate status based on remaining plants
-      let finalStatus = "COMPLETED" // Default to completed
-      
+      const isCompleteChecked = actions.completeOrder !== false
+      let finalStatus = "COMPLETED"
+
       if (remainingPlants > 0) {
-        // If there are remaining plants, set status to READY_FOR_DISPATCH instead of COMPLETED
         finalStatus = "READY_FOR_DISPATCH"
+      } else if (!isCompleteChecked) {
+        finalStatus = "PARTIALLY_COMPLETED"
       }
+
+      const finalCompleteAction =
+        remainingPlants > 0 ? false : actions.completeOrder !== false
 
       // Add order to updates
       orderUpdates.push({
         orderId: orderId,
         returnedPlants: returnedQuantity,
         returnReason: returnReasons[orderId] || "",
+        additionalPlants: additionalPlantCount,
+        basePlants,
+        totalPlants,
         actions: {
           addToInventory: actions.addToInventory,
-          completeOrder: actions.completeOrder,
+          completeOrder: finalCompleteAction,
           finalStatus: finalStatus // Include the calculated final status
         }
       })
@@ -226,6 +292,12 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData }) => {
                       Plant Details
                     </th>
                     <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">
+                      Base Plants
+                    </th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">
+                      Additional Plants
+                    </th>
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">
                       Total Plants
                     </th>
                     <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">
@@ -240,8 +312,14 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData }) => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
-                  {dispatchData.orderIds?.map((order, index) => (
-                    <React.Fragment key={order.details.orderid}>
+                  {dispatchData.orderIds?.map((order, index) => {
+                    const { basePlants, additionalPlants: additionalPlantCount, totalPlants } =
+                      getPlantQuantities(order)
+                    const returnedQuantity = Number(returnedPlants[order.details.orderid] || 0)
+                    const remainingPlants = totalPlants - returnedQuantity
+
+                    return (
+                      <React.Fragment key={order.details.orderid}>
                       <tr className="hover:bg-gray-50">
                         <td className="px-4 py-4 text-center">
                           <button
@@ -270,15 +348,38 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData }) => {
                           </div>
                           <div className="text-sm text-gray-500">Rate: ₹{order.rate}</div>
                         </td>
-                        <td className="px-4 py-4 text-sm text-gray-900">{order.quantity}</td>
+                        <>
+                          <td className="px-4 py-4 text-sm text-gray-900">{basePlants}</td>
+                          <td className="px-4 py-4 text-sm text-gray-900">
+                            <input
+                              type="number"
+                              min="0"
+                              className="w-24 px-2 py-1 border rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                              value={
+                                Object.prototype.hasOwnProperty.call(
+                                  additionalPlantInputs,
+                                  order.details.orderid
+                                )
+                                  ? additionalPlantInputs[order.details.orderid]
+                                  : additionalPlantCount > 0
+                                    ? additionalPlantCount
+                                    : ""
+                              }
+                              onChange={(e) =>
+                                handleAdditionalPlantsChange(order.details.orderid, e.target.value)
+                              }
+                            />
+                          </td>
+                          <td className="px-4 py-4 text-sm text-gray-900">{totalPlants}</td>
+                        </>
                         <td className="px-4 py-4">
                           <input
                             type="number"
                             min="0"
-                            max={order.quantity}
+                            max={totalPlants}
                             className="w-24 px-2 py-1 border rounded focus:ring-2 focus:ring-green-500 focus:border-green-500"
                             placeholder="0"
-                            value={returnedPlants[order.details.orderid] || ""}
+                            value={returnedQuantity || ""}
                             onChange={(e) =>
                               handleReturnedPlantsChange(order.details.orderid, e.target.value)
                             }
@@ -383,24 +484,34 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData }) => {
                                 </h4>
                                 <div className="text-sm">
                                   <p className="text-gray-700">
-                                    <span className="font-medium">Total Plants:</span> {order.quantity}
+                                    <span className="font-medium">Base Plants:</span> {basePlants}
                                   </p>
                                   <p className="text-gray-700">
-                                    <span className="font-medium">Returned Plants:</span> {returnedPlants[order.details.orderid] || 0}
+                                    <span className="font-medium">Additional Plants:</span>{" "}
+                                    {additionalPlantCount}
                                   </p>
                                   <p className="text-gray-700">
-                                    <span className="font-medium">Remaining Plants:</span> {order.quantity - (returnedPlants[order.details.orderid] || 0)}
+                                    <span className="font-medium">Total Plants:</span>{" "}
+                                    {totalPlants}
+                                  </p>
+                                  <p className="text-gray-700">
+                                    <span className="font-medium">Returned Plants:</span>{" "}
+                                    {returnedQuantity}
+                                  </p>
+                                  <p className="text-gray-700">
+                                    <span className="font-medium">Remaining Plants:</span>{" "}
+                                    {remainingPlants}
                                   </p>
                                   <div className="mt-2 p-2 bg-white rounded border">
                                     <p className="text-sm">
                                       <span className="font-medium">Final Status:</span>{" "}
                                       <span className={`font-bold ${
-                                        (order.quantity - (returnedPlants[order.details.orderid] || 0)) > 0 
+                                        remainingPlants > 0 
                                           ? "text-orange-600" 
                                           : "text-green-600"
                                       }`}>
-                                        {(order.quantity - (returnedPlants[order.details.orderid] || 0)) > 0 
-                                          ? "READY_FOR_DISPATCH (Plants remaining)" 
+                                        {remainingPlants > 0
+                                          ? "READY_FOR_DISPATCH (Plants remaining)"
                                           : "COMPLETED (All plants returned)"}
                                       </span>
                                     </p>
@@ -411,8 +522,9 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData }) => {
                           </td>
                         </tr>
                       )}
-                    </React.Fragment>
-                  ))}
+                      </React.Fragment>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>

@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Search, Filter, Eye, ShoppingCart } from 'lucide-react';
-import axiosInstance from '../../../services/axiosConfig';
+import { API, NetworkManager } from '../../../network/core';
+import { formatDisplayDate } from '../../../utils/dateUtils';
+import { formatDecimal, formatCurrency } from '../../../utils/numberUtils';
 
 const PurchaseOrderList = () => {
   const navigate = useNavigate();
@@ -23,10 +25,28 @@ const PurchaseOrderList = () => {
       if (searchTerm) params.search = searchTerm;
       if (filterStatus) params.status = filterStatus;
 
-      const response = await axiosInstance.get('/inventory/purchase-orders', { params });
-      if (response.data.success) {
-        setPos(response.data.data);
-        setPagination(response.data.pagination);
+      // Following FarmerOrdersTable.js pattern - use NetworkManager with params
+      const instance = NetworkManager(API.INVENTORY.GET_ALL_PURCHASE_ORDERS);
+      const response = await instance.request({}, params);
+      
+      if (response?.data) {
+        const apiResponse = response.data;
+        // Handle both response formats: {success: true, data: [...], pagination: {...}} or {status: "Success", data: {data: [...], pagination: {...}}}
+        if (apiResponse.success && apiResponse.data) {
+          const posData = Array.isArray(apiResponse.data) 
+            ? apiResponse.data 
+            : [];
+          setPos(posData);
+          setPagination(apiResponse.pagination || {});
+        } else if (apiResponse.status === 'Success' && apiResponse.data) {
+          const posData = Array.isArray(apiResponse.data.data) 
+            ? apiResponse.data.data 
+            : Array.isArray(apiResponse.data) 
+            ? apiResponse.data 
+            : [];
+          setPos(posData);
+          setPagination(apiResponse.data.pagination || {});
+        }
       }
     } catch (error) {
       console.error('Error fetching POs:', error);
@@ -150,26 +170,26 @@ const PurchaseOrderList = () => {
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
                         <div>
                           <p className="text-xs text-gray-500 uppercase">Supplier</p>
-                          <p className="font-semibold text-gray-800">{po.supplier?.name || 'N/A'}</p>
+                          <p className="font-semibold text-gray-800">{po.supplier?.name || po.supplier?.displayName || 'N/A'}</p>
                         </div>
                         <div>
                           <p className="text-xs text-gray-500 uppercase">PO Date</p>
                           <p className="font-semibold text-gray-800">
-                            {new Date(po.poDate).toLocaleDateString()}
+                            {formatDisplayDate(po.poDate)}
                           </p>
                         </div>
                         <div>
                           <p className="text-xs text-gray-500 uppercase">Expected Delivery</p>
                           <p className="font-semibold text-gray-800">
                             {po.expectedDeliveryDate
-                              ? new Date(po.expectedDeliveryDate).toLocaleDateString()
+                              ? formatDisplayDate(po.expectedDeliveryDate)
                               : '-'}
                           </p>
                         </div>
                         <div>
                           <p className="text-xs text-gray-500 uppercase">Total Amount</p>
                           <p className="font-semibold text-gray-800">
-                            ₹{po.totalAmount?.toLocaleString('en-IN') || '0'}
+                            {formatCurrency(formatDecimal(po.totalAmount) || 0)}
                           </p>
                         </div>
                       </div>

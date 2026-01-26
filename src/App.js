@@ -12,6 +12,7 @@ import "react-toastify/dist/ReactToastify.css"
 import { SessionObserver } from "auth/Observer"
 import { persistor, store } from "redux/store"
 import { PersistGate } from "redux-persist/integration/react"
+import { LanguageProvider } from "contexts/LanguageContext"
 
 // Test environment variables
 console.log("=== App.js Environment Test ===")
@@ -41,13 +42,15 @@ function App() {
     <CookiesProvider>
       <Provider store={store}>
         <PersistGate loading={null} persistor={persistor}>
-          <ThemeProvider theme={currentTheme}>
-            <AppLoader />
+          <LanguageProvider>
+            <ThemeProvider theme={currentTheme}>
+              <AppLoader />
 
-            <AppRouter />
-            <ToastContainer />
-            <SessionObserver />
-          </ThemeProvider>
+              <AppRouter />
+              <ToastContainer />
+              <SessionObserver />
+            </ThemeProvider>
+          </LanguageProvider>
         </PersistGate>
       </Provider>
     </CookiesProvider>

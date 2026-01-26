@@ -14,11 +14,5 @@ export const RPValidator = {
     password: "",
     confirmPassword: ""
   },
-  validationSchema: Yup.object().shape({
-    password: Yup.string().required("Password is Required").min(8),
-    confirmPassword: Yup.string()
-      .required("Confirm Password is Required")
-      .min(8)
-      .oneOf([Yup.ref("password")], "Password and Confirm Password must match")
-  })
+  validationSchema: Yup.object().shape({})
 }

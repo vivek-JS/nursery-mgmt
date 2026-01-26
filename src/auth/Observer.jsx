@@ -51,7 +51,9 @@ export function SessionObserver() {
       UserState.login({})
 
       // If we're on the login page and have a valid session, redirect to dashboard
-      if (window.location.pathname === "/auth/login") {
+      // With BrowserRouter, check pathname directly
+      const currentPath = window.location.pathname
+      if (currentPath === "/auth/login" || currentPath === "" || currentPath === "/") {
         window.location.href = "/u/dashboard"
       }
     } catch (error) {

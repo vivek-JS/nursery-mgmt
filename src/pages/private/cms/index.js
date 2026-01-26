@@ -5,6 +5,7 @@ import ShadeTable from "./ShadeTable"
 import TrayTable from "./Traytable"
 import BatchTable from "./BatchTable"
 import PollyHouseTable from "./PollyHouseTable"
+import SlotConfigurationTable from "./SlotConfigurationTable"
 // import DriverTable from "./tables/DriverTable"
 const DispatchManagement = () => {
   const [activeTab, setActiveTab] = useState(0)
@@ -26,6 +27,7 @@ const DispatchManagement = () => {
           <Tab label="Tray" />
           <Tab label="Batch" />
           <Tab label="Pollyhouse" />
+          <Tab label="Slot Configuration" />
         </Tabs>
       </Box>
 
@@ -35,6 +37,7 @@ const DispatchManagement = () => {
         {activeTab === 2 && <TrayTable />}
         {activeTab === 3 && <BatchTable />}
         {activeTab === 4 && <PollyHouseTable />}
+        {activeTab === 5 && <SlotConfigurationTable />}
       </div>
     </div>
   )
