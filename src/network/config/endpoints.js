@@ -297,11 +297,14 @@ export const API = {
     GET_RAM_AGRI_VARIETY_LEDGER: new APIRouter("/inventory/ram-agri-variety-ledger", HTTP_METHODS.GET),
     GET_RAM_AGRI_CUSTOMER_LEDGER: new APIRouter("/inventory/ram-agri-customer-ledger", HTTP_METHODS.GET),
     GET_RAM_AGRI_MERCHANT_LEDGER: new APIRouter("/inventory/ram-agri-merchant-ledger", HTTP_METHODS.GET),
+    GET_RAM_AGRI_VIDEO_SUMMARY: new APIRouter("/inventory/ram-agri-video-summary", HTTP_METHODS.GET),
 
     // Agri Sales Orders (Ram Agri Sales)
     GET_ALL_AGRI_SALES_ORDERS: new APIRouter("/inventory/agri-sales-orders", HTTP_METHODS.GET),
+    GET_OUTSTANDING_AGRI_SALES_ORDERS: new APIRouter("/inventory/agri-sales-orders/outstanding", HTTP_METHODS.GET),
     GET_AGRI_SALES_ORDER_BY_ID: new APIRouter("/inventory/agri-sales-orders", HTTP_METHODS.GET),
     CREATE_AGRI_SALES_ORDER: new APIRouter("/inventory/agri-sales-orders/create", HTTP_METHODS.POST),
+    UPDATE_AGRI_SALES_ORDER: new APIRouter("/inventory/agri-sales-orders/:id", HTTP_METHODS.PATCH),
     ACCEPT_AGRI_SALES_ORDER: new APIRouter("/inventory/agri-sales-orders/:id/accept", HTTP_METHODS.PATCH),
     REJECT_AGRI_SALES_ORDER: new APIRouter("/inventory/agri-sales-orders/:id/reject", HTTP_METHODS.PATCH),
     CANCEL_AGRI_SALES_ORDER: new APIRouter("/inventory/agri-sales-orders/:id/cancel", HTTP_METHODS.PATCH),
@@ -548,6 +551,15 @@ export const API = {
     GET_INVALID_PHONE_FARMERS: new APIRouter("farmer/invalid-phones", HTTP_METHODS.GET),
     UPDATE_FARMER_PHONE: new APIRouter("farmer", HTTP_METHODS.PUT)
   },
+  FARMER_LIST: {
+    GET_ALL_LISTS: new APIRouter("farmer-list", HTTP_METHODS.GET),
+    GET_LIST_BY_ID: new APIRouter("farmer-list", HTTP_METHODS.GET),
+    CREATE_LIST: new APIRouter("farmer-list", HTTP_METHODS.POST),
+    UPDATE_LIST: new APIRouter("farmer-list", HTTP_METHODS.PATCH),
+    ADD_FARMERS_TO_LIST: new APIRouter("farmer-list", HTTP_METHODS.POST),
+    REMOVE_FARMERS_FROM_LIST: new APIRouter("farmer-list", HTTP_METHODS.POST),
+    DELETE_LIST: new APIRouter("farmer-list", HTTP_METHODS.DELETE)
+  },
   LOCATION: {
     GET_ALL_LOCATIONS: new APIRouter("/location/all", HTTP_METHODS.GET),
     GET_STATES_ONLY: new APIRouter("/location/states-only", HTTP_METHODS.GET),
@@ -583,8 +595,8 @@ export const API = {
     GET_CHANGES: new APIRouter("/old-sales/changes", HTTP_METHODS.GET),
     GET_CASE_MISMATCHES: new APIRouter("/old-sales/case-mismatches", HTTP_METHODS.GET),
     NORMALIZE_CASE: new APIRouter("/old-sales/normalize-case", HTTP_METHODS.PATCH),
-    GET_REPEAT_CUSTOMERS: new APIRouter("/old-sales/repeat-customers", HTTP_METHODS.GET),
-    GET_GEO_SUMMARY: new APIRouter("/old-sales/geo-summary", HTTP_METHODS.GET)
+    GET_GEO_SUMMARY: new APIRouter("/old-sales/geo-summary", HTTP_METHODS.GET),
+    GET_REPEAT_CUSTOMERS: new APIRouter("/old-sales/repeat-customers", HTTP_METHODS.GET)
   },
   SLOTS: {
     GET_SLOTS: new APIRouter("slots/getslots", HTTP_METHODS.GET, OFFLINE.PROFILE),

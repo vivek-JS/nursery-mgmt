@@ -24,9 +24,13 @@ import {
   InputAdornment,
   DialogTitle,
   DialogContent,
-  DialogActions
+  DialogActions,
+  Checkbox,
+  Alert,
+  Divider,
+  Stack
 } from "@mui/material"
-import { Pencil, Plus, Loader, User, MapPin, Calendar, Search, FilterX } from "lucide-react"
+import { Pencil, Plus, Loader, User, MapPin, Calendar, Search, FilterX, List, CheckCircle } from "lucide-react"
 import { API, NetworkManager } from "network/core"
 import LocationSelector from "components/LocationSelector"
 
@@ -65,6 +69,16 @@ const FarmerComponent = () => {
     village: ""
   })
 
+  // Selection and list management
+  const [selectedFarmers, setSelectedFarmers] = useState([])
+  const [showListModal, setShowListModal] = useState(false)
+  const [farmerLists, setFarmerLists] = useState([])
+  const [listModalMode, setListModalMode] = useState("create") // "create" or "add"
+  const [newListName, setNewListName] = useState("")
+  const [selectedListId, setSelectedListId] = useState("")
+  const [listLoading, setListLoading] = useState(false)
+  const [listError, setListError] = useState(null)
+
   const getFarmers = async () => {
     setLoading(true)
     try {
@@ -94,7 +108,20 @@ const FarmerComponent = () => {
 
   useEffect(() => {
     getFarmers()
+    fetchFarmerLists()
   }, [])
+
+  const fetchFarmerLists = async () => {
+    try {
+      const instance = NetworkManager(API.FARMER_LIST.GET_ALL_LISTS)
+      const response = await instance.request()
+      if (response.data?.data) {
+        setFarmerLists(response.data.data)
+      }
+    } catch (error) {
+      console.error("Error fetching farmer lists:", error)
+    }
+  }
 
   // Apply filters whenever filters or search term changes
   useEffect(() => {
@@ -206,6 +233,97 @@ const FarmerComponent = () => {
       village: ""
     })
     setEditingFarmer(null)
+  }
+
+  const handleSelectFarmer = (farmerId) => {
+    setSelectedFarmers((prev) =>
+      prev.includes(farmerId)
+        ? prev.filter((id) => id !== farmerId)
+        : [...prev, farmerId]
+    )
+  }
+
+  const handleSelectAll = () => {
+    if (selectedFarmers.length === filteredFarmers.length) {
+      setSelectedFarmers([])
+    } else {
+      setSelectedFarmers(filteredFarmers.map((f) => f._id || f.id))
+    }
+  }
+
+  const handleAddToList = () => {
+    if (selectedFarmers.length === 0) {
+      setListError("Please select at least one farmer")
+      return
+    }
+    setListModalMode("add")
+    setShowListModal(true)
+    setListError(null)
+  }
+
+  const handleCreateList = () => {
+    if (selectedFarmers.length === 0) {
+      setListError("Please select at least one farmer")
+      return
+    }
+    setListModalMode("create")
+    setShowListModal(true)
+    setListError(null)
+  }
+
+  const handleSaveToList = async () => {
+    setListLoading(true)
+    setListError(null)
+
+    try {
+      const farmerIds = selectedFarmers
+
+      if (listModalMode === "create") {
+        if (!newListName.trim()) {
+          setListError("Please enter a list name")
+          setListLoading(false)
+          return
+        }
+
+        const instance = NetworkManager(API.FARMER_LIST.CREATE_LIST)
+        await instance.request({
+          name: newListName.trim(),
+          farmerIds: farmerIds
+        })
+
+        alert(`✅ List "${newListName}" created with ${farmerIds.length} farmers!`)
+      } else {
+        if (!selectedListId) {
+          setListError("Please select a list")
+          setListLoading(false)
+          return
+        }
+
+        // Use the endpoint with the list ID
+        const addEndpoint = {
+          ...API.FARMER_LIST.ADD_FARMERS_TO_LIST,
+          endpoint: `farmer-list/${selectedListId}/add-farmers`
+        }
+        const addInstance = NetworkManager(addEndpoint)
+        await addInstance.request({
+          farmerIds: farmerIds
+        })
+
+        const selectedList = farmerLists.find((l) => l._id === selectedListId)
+        alert(`✅ ${farmerIds.length} farmers added to "${selectedList?.name}"!`)
+      }
+
+      setShowListModal(false)
+      setSelectedFarmers([])
+      setNewListName("")
+      setSelectedListId("")
+      await fetchFarmerLists()
+    } catch (error) {
+      console.error("Error saving to list:", error)
+      setListError(error.response?.data?.message || "Failed to save to list")
+    } finally {
+      setListLoading(false)
+    }
   }
 
   const cardStyle = {
@@ -359,6 +477,49 @@ const FarmerComponent = () => {
               Clear Filters
             </Button>
           </Box>
+
+          {/* Selection Actions */}
+          {selectedFarmers.length > 0 && (
+            <Box sx={{ mt: 2, display: "flex", gap: 2, alignItems: "center" }}>
+              <Chip
+                icon={<CheckCircle size={16} />}
+                label={`${selectedFarmers.length} farmers selected`}
+                color="primary"
+                variant="outlined"
+              />
+              <Button
+                variant="contained"
+                startIcon={<List size={18} />}
+                onClick={handleAddToList}
+                sx={{
+                  borderRadius: "8px",
+                  textTransform: "none",
+                  fontWeight: 500
+                }}>
+                Add to Existing List
+              </Button>
+              <Button
+                variant="outlined"
+                startIcon={<Plus size={18} />}
+                onClick={handleCreateList}
+                sx={{
+                  borderRadius: "8px",
+                  textTransform: "none",
+                  fontWeight: 500
+                }}>
+                Create New List
+              </Button>
+              <Button
+                variant="text"
+                onClick={() => setSelectedFarmers([])}
+                sx={{
+                  borderRadius: "8px",
+                  textTransform: "none"
+                }}>
+                Clear Selection
+              </Button>
+            </Box>
+          )}
         </CardContent>
       </Card>
 
@@ -382,6 +543,13 @@ const FarmerComponent = () => {
             <Table>
               <TableHead>
                 <TableRow>
+                  <TableCell padding="checkbox">
+                    <Checkbox
+                      checked={selectedFarmers.length === filteredFarmers.length && filteredFarmers.length > 0}
+                      indeterminate={selectedFarmers.length > 0 && selectedFarmers.length < filteredFarmers.length}
+                      onChange={handleSelectAll}
+                    />
+                  </TableCell>
                   <TableCell sx={{ fontWeight: 600 }}>Farmer Name</TableCell>
                   <TableCell sx={{ fontWeight: 600 }}>Location Details</TableCell>
                   <TableCell sx={{ fontWeight: 600 }}>Birthdate</TableCell>
@@ -390,7 +558,13 @@ const FarmerComponent = () => {
               </TableHead>
               <TableBody>
                 {filteredFarmers.map((farmer) => (
-                  <TableRow key={farmer.id} sx={{ "&:hover": { backgroundColor: "#f5f7fa" } }}>
+                  <TableRow key={farmer.id || farmer._id} sx={{ "&:hover": { backgroundColor: "#f5f7fa" } }}>
+                    <TableCell padding="checkbox">
+                      <Checkbox
+                        checked={selectedFarmers.includes(farmer._id || farmer.id)}
+                        onChange={() => handleSelectFarmer(farmer._id || farmer.id)}
+                      />
+                    </TableCell>
                     <TableCell>
                       <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                         <User size={18} />
@@ -441,7 +615,7 @@ const FarmerComponent = () => {
                 ))}
                 {!filteredFarmers.length && (
                   <TableRow>
-                    <TableCell colSpan={4}>
+                    <TableCell colSpan={5}>
                       <Box
                         sx={{
                           display: "flex",
@@ -571,6 +745,97 @@ const FarmerComponent = () => {
             </Button>
           </DialogActions>
         </form>{" "}
+      </Dialog>
+
+      {/* List Management Modal */}
+      <Dialog
+        open={showListModal}
+        onClose={() => {
+          setShowListModal(false)
+          setListError(null)
+          setNewListName("")
+          setSelectedListId("")
+        }}
+        maxWidth="sm"
+        fullWidth>
+        <DialogTitle sx={{ pb: 1 }}>
+          <Stack direction="row" spacing={2} alignItems="center">
+            <List size={24} color="#10b981" />
+            <Box>
+              <Typography variant="h6" fontWeight="bold">
+                {listModalMode === "create" ? "Create New List" : "Add to Existing List"}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                {selectedFarmers.length} farmers selected
+              </Typography>
+            </Box>
+          </Stack>
+        </DialogTitle>
+        <Divider />
+        <DialogContent sx={{ pt: 3 }}>
+          {listError && (
+            <Alert severity="error" sx={{ mb: 2 }} onClose={() => setListError(null)}>
+              {listError}
+            </Alert>
+          )}
+
+          {listModalMode === "create" ? (
+            <TextField
+              fullWidth
+              label="List Name"
+              placeholder="e.g., Papa List, Old Sales Analytics"
+              value={newListName}
+              onChange={(e) => setNewListName(e.target.value)}
+              required
+              sx={{ mb: 2 }}
+            />
+          ) : (
+            <FormControl fullWidth sx={{ mb: 2 }}>
+              <InputLabel>Select List</InputLabel>
+              <Select
+                value={selectedListId}
+                onChange={(e) => setSelectedListId(e.target.value)}
+                label="Select List">
+                {farmerLists.map((list) => (
+                  <MenuItem key={list._id} value={list._id}>
+                    {list.name} ({list.farmers?.length || 0} farmers)
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          )}
+
+          <Typography variant="body2" color="text.secondary">
+            {selectedFarmers.length} farmer{selectedFarmers.length !== 1 ? "s" : ""} will be{" "}
+            {listModalMode === "create" ? "added to the new list" : "added to the selected list"}
+          </Typography>
+        </DialogContent>
+        <Divider />
+        <DialogActions sx={{ p: 2.5 }}>
+          <Button
+            onClick={() => {
+              setShowListModal(false)
+              setListError(null)
+              setNewListName("")
+              setSelectedListId("")
+            }}
+            disabled={listLoading}
+            sx={{ borderRadius: 2 }}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleSaveToList}
+            disabled={listLoading || (listModalMode === "create" && !newListName.trim()) || (listModalMode === "add" && !selectedListId)}
+            startIcon={listLoading ? <Loader size={18} className="animate-spin" /> : <CheckCircle size={18} />}
+            sx={{
+              borderRadius: 2,
+              bgcolor: "#10b981",
+              "&:hover": { bgcolor: "#059669" }
+            }}>
+            {listLoading ? "Saving..." : listModalMode === "create" ? "Create List" : "Add to List"}
+          </Button>
+        </DialogActions>
       </Dialog>
     </Box>
   )

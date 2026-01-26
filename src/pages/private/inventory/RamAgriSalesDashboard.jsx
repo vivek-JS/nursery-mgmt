@@ -23,6 +23,11 @@ import {
   ArrowDownCircle,
   Receipt,
   CreditCard,
+  Download,
+  MessageCircle,
+  Share2,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { API, NetworkManager } from '../../../network/core';
@@ -47,7 +52,13 @@ import {
 
 const RamAgriSalesDashboard = () => {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState('overview'); // 'overview', 'stock', 'sales'
+  const [activeTab, setActiveTab] = useState('overview'); // 'overview', 'stock', 'sales', 'targets', 'orders'
+  const [orderStatusTab, setOrderStatusTab] = useState('pending'); // 'pending', 'accepted', 'dispatched', 'completed', 'outstanding'
+  const [outstandingOrders, setOutstandingOrders] = useState([]);
+  const [outstandingOrdersLoading, setOutstandingOrdersLoading] = useState(false);
+  const [outstandingOrdersPage, setOutstandingOrdersPage] = useState(1);
+  const [outstandingOrdersTotal, setOutstandingOrdersTotal] = useState(0);
+  const outstandingOrdersPerPage = 20;
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [dashboardData, setDashboardData] = useState(null);
@@ -76,13 +87,27 @@ const RamAgriSalesDashboard = () => {
   const [targetModalLoading, setTargetModalLoading] = useState(false);
   const [targetSaveLoading, setTargetSaveLoading] = useState(false);
   const [targetUserId, setTargetUserId] = useState("");
-  const [orderStatusFilter, setOrderStatusFilter] = useState([]);
-  const [paymentStatusFilter, setPaymentStatusFilter] = useState([]);
+  const [targetModalDateRange, setTargetModalDateRange] = useState({
+    startDate: new Date(new Date().setMonth(new Date().getMonth() - 1)).toISOString().split('T')[0],
+    endDate: new Date().toISOString().split('T')[0],
+  });
+  const [videoSummary, setVideoSummary] = useState(null);
+  const [videoLoading, setVideoLoading] = useState(false);
+  const [showVideoModal, setShowVideoModal] = useState(false);
+  const [videoPeriod, setVideoPeriod] = useState('day'); // 'day' or 'week'
+  const [exporting, setExporting] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     fetchData();
     fetchSalesTargets();
-  }, [dateRange, orderStatusFilter, paymentStatusFilter]);
+  }, [dateRange]);
+
+  useEffect(() => {
+    if (activeTab === 'orders' && orderStatusTab === 'outstanding') {
+      fetchOutstandingOrders();
+    }
+  }, [activeTab, orderStatusTab, outstandingOrdersPage]);
 
   useEffect(() => {
     fetchSalesUsers();
@@ -100,8 +125,6 @@ const RamAgriSalesDashboard = () => {
       const params = {};
       if (dateRange.startDate) params.startDate = dateRange.startDate;
       if (dateRange.endDate) params.endDate = dateRange.endDate;
-      if (orderStatusFilter.length > 0) params.orderStatus = orderStatusFilter.join(',');
-      if (paymentStatusFilter.length > 0) params.paymentStatus = paymentStatusFilter.join(',');
 
       const instance = NetworkManager(API.INVENTORY.GET_RAM_AGRI_SALES_DASHBOARD);
       const response = await instance.request({}, params);
@@ -224,15 +247,25 @@ const RamAgriSalesDashboard = () => {
 
     try {
       setTargetSaveLoading(true);
-      const targets = Object.entries(targetMap).map(([key, amount]) => {
-        const [cropId, varietyId] = key.split("_");
-        return { cropId, varietyId, targetAmount: Number(amount || 0) };
-      });
+      // Filter out zero amounts and validate
+      const targets = Object.entries(targetMap)
+        .map(([key, amount]) => {
+          const [cropId, varietyId] = key.split("_");
+          const targetAmount = Number(amount || 0);
+          return { cropId, varietyId, targetAmount };
+        })
+        .filter((target) => target.targetAmount > 0 && target.cropId && target.varietyId);
+
+      if (targets.length === 0) {
+        Toast.error("Please set at least one target with amount greater than 0");
+        setTargetSaveLoading(false);
+        return;
+      }
 
       const payload = {
         userId: targetUserId,
-        startDate: dateRange.startDate,
-        endDate: dateRange.endDate,
+        startDate: targetModalDateRange.startDate,
+        endDate: targetModalDateRange.endDate,
         targets,
       };
 
@@ -257,6 +290,32 @@ const RamAgriSalesDashboard = () => {
     setRefreshing(true);
     await fetchData();
     setTimeout(() => setRefreshing(false), 500);
+  };
+
+  const generateVideoSummary = async (period = 'day') => {
+    try {
+      setVideoLoading(true);
+      setVideoPeriod(period);
+      const params = { period };
+      
+      const instance = NetworkManager(API.INVENTORY.GET_RAM_AGRI_VIDEO_SUMMARY);
+      const response = await instance.request({}, params);
+
+      if (response?.data) {
+        const apiResponse = response.data;
+        if (apiResponse.status === 'Success' || apiResponse.success) {
+          setVideoSummary(apiResponse.data);
+          setShowVideoModal(true);
+        } else {
+          Toast.error(apiResponse.message || 'Failed to generate video summary');
+        }
+      }
+    } catch (error) {
+      console.error('Error generating video summary:', error);
+      Toast.error('Failed to generate video summary');
+    } finally {
+      setVideoLoading(false);
+    }
   };
 
   const handleVarietyClick = (crop, variety) => {
@@ -361,6 +420,231 @@ const RamAgriSalesDashboard = () => {
     return new Intl.NumberFormat('en-IN', {
       maximumFractionDigits: 2,
     }).format(num || 0);
+  };
+
+  // Export stock data to CSV (table format: Crop, Variety, Stock)
+  const exportStockToCSV = (crops, type) => {
+    try {
+      setExporting(true);
+      const allVarieties = [];
+      
+      crops.forEach((crop) => {
+        if (crop.varieties && crop.varieties.length > 0) {
+          crop.varieties.forEach((variety) => {
+            const unitLabel = variety.primaryUnit?.abbreviation || variety.primaryUnit?.name || 'N/A';
+            allVarieties.push({
+              'Crop': crop.cropName,
+              'Variety': variety.name,
+              'Stock': `${formatNumber(variety.currentStock || 0)} ${unitLabel}`,
+            });
+          });
+        }
+      });
+
+      // Create CSV content in table format
+      const headers = ['Crop', 'Variety', 'Stock'];
+      const csvContent = [
+        headers.join(','),
+        ...allVarieties.map(row => 
+          headers.map(header => {
+            const value = row[header] || '';
+            return typeof value === 'string' && (value.includes(',') || value.includes('"'))
+              ? `"${value.replace(/"/g, '""')}"`
+              : value;
+          }).join(',')
+        )
+      ].join('\n');
+
+      // Download file
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      link.setAttribute('href', url);
+      link.setAttribute('download', `ram-agri-stock-${type}-${new Date().toISOString().split('T')[0]}.csv`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      Toast.success('Stock data exported successfully');
+    } catch (error) {
+      console.error('Export error:', error);
+      Toast.error('Failed to export stock data');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  // Fetch outstanding orders
+  const fetchOutstandingOrders = async () => {
+    setOutstandingOrdersLoading(true);
+    try {
+      const instance = NetworkManager(API.INVENTORY.GET_ALL_AGRI_SALES_ORDERS);
+      // Fetch all orders and filter client-side for outstanding
+      // No date filter as per requirement
+      const response = await instance.request(
+        {},
+        {
+          orderStatus: 'COMPLETED',
+          limit: 1000, // Fetch more to filter client-side
+        }
+      );
+      if (response?.data?.success) {
+        const allOrders = response.data.data?.data || [];
+        // Filter orders with outstanding balance > 0
+        const outstanding = allOrders
+          .filter(order => (order.balanceAmount || 0) > 0)
+          .sort((a, b) => (b.balanceAmount || 0) - (a.balanceAmount || 0)); // Sort by highest outstanding first
+        
+        // Apply pagination
+        const startIndex = (outstandingOrdersPage - 1) * outstandingOrdersPerPage;
+        const endIndex = startIndex + outstandingOrdersPerPage;
+        setOutstandingOrders(outstanding.slice(startIndex, endIndex));
+        setOutstandingOrdersTotal(outstanding.length);
+      }
+    } catch (error) {
+      console.error('Error fetching outstanding orders:', error);
+      Toast.error('Failed to fetch outstanding orders');
+    } finally {
+      setOutstandingOrdersLoading(false);
+    }
+  };
+
+  // Helper function to calculate days remaining for delivery date
+  const getDaysRemaining = (deliveryDate) => {
+    if (!deliveryDate) return null;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const delivery = new Date(deliveryDate);
+    delivery.setHours(0, 0, 0, 0);
+    const diffTime = delivery - today;
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays;
+  };
+
+  // Helper function to format days remaining chip
+  const renderDeliveryDateChip = (deliveryDate) => {
+    const daysRemaining = getDaysRemaining(deliveryDate);
+    if (daysRemaining === null) return null;
+
+    let chipText = '';
+    let chipColor = 'bg-gray-100 text-gray-800';
+    
+    if (daysRemaining < 0) {
+      chipText = `Overdue ${Math.abs(daysRemaining)} day${Math.abs(daysRemaining) !== 1 ? 's' : ''}`;
+      chipColor = 'bg-red-100 text-red-800';
+    } else if (daysRemaining === 0) {
+      chipText = 'Today';
+      chipColor = 'bg-orange-100 text-orange-800';
+    } else if (daysRemaining === 1) {
+      chipText = 'Tomorrow';
+      chipColor = 'bg-yellow-100 text-yellow-800';
+    } else {
+      chipText = `${daysRemaining} days`;
+      chipColor = daysRemaining <= 7 ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800';
+    }
+
+    return (
+      <span className={`absolute top-2 right-2 px-2 py-1 rounded-full text-xs font-semibold ${chipColor}`}>
+        {chipText}
+      </span>
+    );
+  };
+
+  // Copy all stock data to clipboard
+  const copyAllStockData = (varieties) => {
+    try {
+      const data = varieties.map(v => {
+        const unitLabel = v.primaryUnit?.abbreviation || v.primaryUnit?.name || 'N/A';
+        return {
+          crop: v.cropName,
+          variety: v.name,
+          stock: `${formatNumber(v.currentStock || 0)} ${unitLabel}`,
+        };
+      });
+
+      const text = [
+        'Crop\tVariety\tStock',
+        ...data.map(d => `${d.crop}\t${d.variety}\t${d.stock}`)
+      ].join('\n');
+
+      navigator.clipboard.writeText(text).then(() => {
+        setCopied(true);
+        Toast.success('Stock data copied to clipboard');
+        setTimeout(() => setCopied(false), 2000);
+      });
+    } catch (error) {
+      console.error('Copy error:', error);
+      Toast.error('Failed to copy data');
+    }
+  };
+
+  // Generate WhatsApp message for crop-wise (all varieties of a crop)
+  const generateCropWhatsAppMessage = (crop) => {
+    if (!crop.varieties || crop.varieties.length === 0) {
+      return null;
+    }
+
+    let message = `🌾 *Ram Agri Input - Stock Information*\n\n`;
+    message += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+    message += `📦 *Crop:* ${crop.cropName}\n`;
+    message += `📊 *Total Varieties:* ${crop.varieties.length}\n\n`;
+    message += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+    message += `*Stock Details:*\n\n`;
+
+    crop.varieties.forEach((variety, index) => {
+      const stockQty = variety.currentStock || 0;
+      const unitLabel = variety.primaryUnit?.abbreviation || variety.primaryUnit?.name || 'N/A';
+      const isOut = stockQty === 0;
+      const isLow = !isOut && stockQty < 100;
+      const status = isOut ? '❌ Out of Stock' : isLow ? '⚠️ Low Stock' : '✅ Available';
+      
+      // Better alignment with fixed width formatting
+      const varietyName = `${index + 1}. ${variety.name}`;
+      const stockInfo = `Stock: *${formatNumber(stockQty)} ${unitLabel}*`;
+      const statusInfo = `Status: ${status}`;
+      
+      message += `*${varietyName}*\n`;
+      message += `${stockInfo}\n`;
+      message += `${statusInfo}\n`;
+      
+      if (index < crop.varieties.length - 1) {
+        message += `\n────────────────────────\n\n`;
+      }
+    });
+
+    message += `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+    message += `📅 *Date:* ${new Date().toLocaleDateString('en-IN')}\n\n`;
+    message += `📞 *For inquiries, please contact the office.*`;
+    
+    return message;
+  };
+
+  // Share crop-wise to WhatsApp
+  const shareCropToWhatsApp = (crop) => {
+    const message = generateCropWhatsAppMessage(crop);
+    if (!message) {
+      Toast.error('No varieties found for this crop');
+      return;
+    }
+    
+    const encodedMessage = encodeURIComponent(message);
+    const whatsappUrl = `https://wa.me/?text=${encodedMessage}`;
+    
+    // Try to use Web Share API first
+    if (navigator.share) {
+      navigator.share({
+        title: `${crop.cropName} Stock`,
+        text: message,
+        url: whatsappUrl,
+      }).catch(() => {
+        // Fallback: open WhatsApp
+        window.open(whatsappUrl, '_blank');
+      });
+    } else {
+      // Fallback: open WhatsApp
+      window.open(whatsappUrl, '_blank');
+    }
   };
 
   // Overview Tab Content
@@ -620,168 +904,34 @@ const RamAgriSalesDashboard = () => {
     const seedSummary = calculateSummary(cropsByType.seed);
     const chemicalSummary = calculateSummary(cropsByType.chemical);
 
-    const renderCropGroup = (title, crops, accentColor) => {
-      const summary = calculateSummary(crops);
-      const accentText = 'text-brand-600';
-      const accentBorder = 'border-brand-500';
-      const emptyLabel = title.toLowerCase().includes('chemical') ? 'chemicals' : 'crops';
-
-      return (
-        <div className="space-y-4">
-          <div className={`bg-white rounded-xl shadow-lg p-6 border-l-4 ${accentBorder}`}>
-            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-              <div>
-                <h3 className="text-xl font-bold text-gray-800">{title}</h3>
-                <p className="text-sm text-gray-500">
-                  {summary.crops} {summary.crops === 1 ? 'crop' : 'crops'} · {summary.varieties} varieties
-                </p>
-              </div>
-              <div className="flex items-center space-x-6">
-                <div className="text-right">
-                  <p className="text-sm text-gray-500">Total Stock</p>
-                  <p className={`text-lg font-semibold ${accentText}`}>{formatNumber(summary.stock)}</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-sm text-gray-500">Total Value</p>
-                  <p className={`text-lg font-semibold ${accentText}`}>{formatCurrency(summary.value)}</p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {crops.length === 0 ? (
-            <div className="text-center py-10 text-gray-500 bg-white rounded-xl shadow-lg">
-              <Package className="w-10 h-10 mx-auto mb-3 text-gray-400" />
-              <p className="text-lg font-medium">No {emptyLabel} found</p>
-              <p className="text-sm mt-2">Add {emptyLabel} to start tracking stock</p>
-            </div>
-          ) : (
-            crops.map((crop) => (
-              <div key={crop.cropId} className="bg-white rounded-xl shadow-lg p-6 transform transition-all duration-300 hover:shadow-xl">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center space-x-3">
-                    <button
-                      onClick={() => toggleCropExpansion(crop.cropId)}
-                      className="p-1 hover:bg-gray-100 rounded transition-colors"
-                    >
-                      {expandedCrops[crop.cropId] ? (
-                        <ChevronDown className="w-5 h-5 text-gray-600" />
-                      ) : (
-                        <ChevronRight className="w-5 h-5 text-gray-600" />
-                      )}
-                    </button>
-                    <div>
-                      <h4 className="text-lg font-bold text-gray-800">{crop.cropName}</h4>
-                      <p className="text-xs text-gray-500">{crop.varietiesCount || 0} varieties</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center space-x-6">
-                    <div className="text-right">
-                      <p className="text-sm text-gray-500">Total Stock</p>
-                      <p className="text-lg font-semibold text-brand-600">{formatNumber(crop.totalStock)}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm text-gray-500">Total Value</p>
-                      <p className="text-lg font-semibold text-brand-600">{formatCurrency(crop.totalValue)}</p>
-                    </div>
-                  </div>
-                </div>
-
-                {expandedCrops[crop.cropId] && (
-                  <div className="mt-4 pt-4 border-t border-gray-200">
-                    {crop.varieties && crop.varieties.length > 0 ? (
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
-                          <thead className="bg-gray-50">
-                            <tr>
-                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Variety</th>
-                              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Stock</th>
-                              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Value</th>
-                              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Avg Price</th>
-                              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Purchase</th>
-                              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Unit</th>
-                              <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-gray-200">
-                            {crop.varieties.map((variety) => {
-                              const stockQty = variety.currentStock || 0;
-                              const isOut = stockQty === 0;
-                              const isLow = !isOut && stockQty < 100;
-                              const unitLabel = variety.primaryUnit?.abbreviation || variety.primaryUnit?.name || 'N/A';
-                              const secondaryLabel = variety.secondaryUnit?.abbreviation || variety.secondaryUnit?.name;
-                              const statusBadge = isOut ? 'bg-red-100 text-red-800' : isLow ? 'bg-yellow-100 text-yellow-800' : 'bg-brand-100 text-brand-800';
-                              const statusLabel = isOut ? 'Out of stock' : isLow ? 'Low stock' : 'Healthy';
-
-                              return (
-                                <tr
-                                  key={variety.varietyId}
-                                  className={`hover:bg-gray-50 ${isOut ? 'bg-red-50/40' : isLow ? 'bg-yellow-50/40' : ''}`}
-                                >
-                                  <td className="px-4 py-3">
-                                    <div className="flex items-center justify-between">
-                                      <div>
-                                        <p className="font-medium text-gray-900">{variety.name}</p>
-                                        {secondaryLabel && (
-                                          <p className="text-xs text-gray-500">
-                                            Secondary: {secondaryLabel} • 1 {unitLabel} = {formatNumber(variety.conversionFactor || 1)} {secondaryLabel}
-                                          </p>
-                                        )}
-                                      </div>
-                                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${statusBadge}`}>
-                                        {statusLabel}
-                                      </span>
-                                    </div>
-                                  </td>
-                                  <td className={`px-4 py-3 text-right font-medium ${isOut ? 'text-red-600' : 'text-gray-700'}`}>
-                                    {formatNumber(stockQty)}
-                                  </td>
-                                  <td className="px-4 py-3 text-right font-semibold text-gray-900">
-                                    {formatCurrency(variety.stockValue)}
-                                  </td>
-                                  <td className="px-4 py-3 text-right text-gray-700">
-                                    {formatCurrency(variety.averagePrice)}
-                                  </td>
-                                  <td className="px-4 py-3 text-right text-gray-700">
-                                    {variety.purchasePrice ? formatCurrency(variety.purchasePrice) : '-'}
-                                  </td>
-                                  <td className="px-4 py-3 text-right text-gray-700">{unitLabel}</td>
-                                  <td className="px-4 py-3 text-right">
-                                    <button
-                                      onClick={() => handleVarietyClick(crop, variety)}
-                                      className="inline-flex items-center space-x-1 px-3 py-1 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors text-xs"
-                                    >
-                                      <Eye className="w-3 h-3" />
-                                      <span>View</span>
-                                    </button>
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    ) : (
-                      <div className="text-center py-6 text-gray-500 bg-gray-50 rounded-lg">
-                        <p className="text-sm">No varieties available for this crop.</p>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            ))
-          )}
-        </div>
-      );
+    // Flatten all varieties for card view
+    const getAllVarieties = (crops) => {
+      const allVarieties = [];
+      crops.forEach((crop) => {
+        if (crop.varieties && crop.varieties.length > 0) {
+          crop.varieties.forEach((variety) => {
+            allVarieties.push({
+              ...variety,
+              cropId: crop.cropId,
+              cropName: crop.cropName,
+              crop: crop,
+            });
+          });
+        }
+      });
+      return allVarieties;
     };
 
+    const activeVarieties = getAllVarieties(
+      stockTypeTab === 'chemical' ? cropsByType.chemical : cropsByType.seed
+    );
     const activeSummary = stockTypeTab === 'chemical' ? chemicalSummary : seedSummary;
     const activeLabel = stockTypeTab === 'chemical' ? 'Chemicals' : 'Crops (Seeds)';
-    const activeAccent = stockTypeTab === 'chemical' ? 'purple' : 'green';
+    const activeCrops = stockTypeTab === 'chemical' ? cropsByType.chemical : cropsByType.seed;
 
     return (
-      <div className="space-y-8">
-        {/* Stock Type Tabs + Summary Card */}
+      <div className="space-y-6">
+        {/* Stock Type Tabs + Summary Card + Actions */}
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
           <div className="inline-flex rounded-xl bg-white shadow-sm border border-gray-200 p-1">
             <button
@@ -808,41 +958,117 @@ const RamAgriSalesDashboard = () => {
             </button>
           </div>
 
-          <div className="bg-white rounded-xl shadow-lg p-4 border-l-4 border-gray-200 w-full lg:w-[420px]">
-            <h3 className="text-base font-semibold text-gray-800 mb-2">{activeLabel} Summary</h3>
-            <div className="grid grid-cols-2 gap-3 text-sm text-gray-600">
-              <div>
-                <p>{stockTypeTab === 'chemical' ? 'Total Chemicals' : 'Total Crops'}</p>
-                <p className={`text-lg font-semibold ${'text-brand-600'}`}>
-                  {activeSummary.crops}
-                </p>
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="bg-white rounded-xl shadow-lg p-4 border-l-4 border-brand-500 w-full lg:w-[280px]">
+              <h3 className="text-base font-semibold text-gray-800 mb-2">{activeLabel} Summary</h3>
+              <div className="grid grid-cols-2 gap-3 text-sm text-gray-600">
+                <div>
+                  <p>{stockTypeTab === 'chemical' ? 'Total Chemicals' : 'Total Crops'}</p>
+                  <p className="text-lg font-semibold text-brand-600">{activeSummary.crops}</p>
+                </div>
+                <div>
+                  <p>Varieties</p>
+                  <p className="text-lg font-semibold text-brand-600">{activeSummary.varieties}</p>
+                </div>
+                <div>
+                  <p>Stock</p>
+                  <p className="text-lg font-semibold text-brand-600">{formatNumber(activeSummary.stock)}</p>
+                </div>
+                <div>
+                  <p>Value</p>
+                  <p className="text-lg font-semibold text-brand-600">{formatCurrency(activeSummary.value)}</p>
+                </div>
               </div>
-              <div>
-                <p>Varieties</p>
-                <p className={`text-lg font-semibold ${'text-brand-600'}`}>
-                  {activeSummary.varieties}
-                </p>
-              </div>
-              <div>
-                <p>Stock</p>
-                <p className={`text-lg font-semibold ${'text-brand-600'}`}>
-                  {formatNumber(activeSummary.stock)}
-                </p>
-              </div>
-              <div>
-                <p>Value</p>
-                <p className={`text-lg font-semibold ${'text-brand-600'}`}>
-                  {formatCurrency(activeSummary.value)}
-                </p>
-              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => copyAllStockData(activeVarieties)}
+                disabled={activeVarieties.length === 0}
+                className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors whitespace-nowrap"
+              >
+                {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                <span>{copied ? 'Copied!' : 'Copy All'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => exportStockToCSV(activeCrops, stockTypeTab)}
+                disabled={exporting || activeVarieties.length === 0}
+                className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors whitespace-nowrap"
+              >
+                <Download className={`w-4 h-4 ${exporting ? 'animate-spin' : ''}`} />
+                <span>{exporting ? 'Exporting...' : 'Export CSV'}</span>
+              </button>
             </div>
           </div>
         </div>
 
-        {/* Active Stock Group */}
-        {stockTypeTab === 'chemical'
-          ? renderCropGroup('Chemicals', cropsByType.chemical, 'purple')
-          : renderCropGroup('Crops (Seeds)', cropsByType.seed, 'green')}
+        {/* Compact Card Grid View - Only Crop, Variety, Stock */}
+        {activeVarieties.length === 0 ? (
+          <div className="text-center py-10 text-gray-500 bg-white rounded-xl shadow-lg">
+            <Package className="w-10 h-10 mx-auto mb-3 text-gray-400" />
+            <p className="text-lg font-medium">No {activeLabel.toLowerCase()} found</p>
+            <p className="text-sm mt-2">Add {activeLabel.toLowerCase()} to start tracking stock</p>
+          </div>
+        ) : (
+          <div>
+            {/* Group by Crop */}
+            {activeCrops.map((crop) => {
+              if (!crop.varieties || crop.varieties.length === 0) return null;
+              
+              return (
+                <div key={crop.cropId} className="mb-6">
+                  {/* Crop Header with WhatsApp Button */}
+                  <div className="flex items-center justify-between mb-3 px-2">
+                    <h3 className="text-lg font-bold text-gray-800">{crop.cropName}</h3>
+                    <button
+                      onClick={() => shareCropToWhatsApp(crop)}
+                      className="flex items-center space-x-2 px-3 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
+                      title="Share crop stock on WhatsApp"
+                    >
+                      <MessageCircle className="w-4 h-4" />
+                      <span>WhatsApp</span>
+                    </button>
+                  </div>
+
+                  {/* Varieties Grid */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3">
+                    {crop.varieties.map((variety) => {
+                      const stockQty = variety.currentStock || 0;
+                      const isOut = stockQty === 0;
+                      const isLow = !isOut && stockQty < 100;
+                      const cardBorder = isOut 
+                        ? 'border-red-300 bg-red-50/30' 
+                        : isLow 
+                        ? 'border-yellow-300 bg-yellow-50/30' 
+                        : 'border-gray-200';
+
+                      return (
+                        <div
+                          key={`${crop.cropId}_${variety.varietyId}`}
+                          className={`bg-white rounded-lg shadow-sm p-3 border ${cardBorder} transform transition-all duration-200 hover:shadow-md`}
+                        >
+                          {/* Compact Info - Only Crop, Variety, Stock */}
+                          <div className="space-y-1.5">
+                            <p className="text-xs font-medium text-gray-500 truncate">{crop.cropName}</p>
+                            <p className="text-sm font-bold text-gray-900 truncate">{variety.name}</p>
+                            <div className="pt-1 border-t border-gray-100">
+                              <p className="text-xs text-gray-600">Stock</p>
+                              <p className={`text-base font-bold ${isOut ? 'text-red-600' : 'text-brand-600'}`}>
+                                {formatNumber(stockQty)} {variety.primaryUnit?.abbreviation || variety.primaryUnit?.name || 'N/A'}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         {/* Low Stock Alert */}
         {stock.lowStockVarieties && stock.lowStockVarieties.length > 0 && (
@@ -861,6 +1087,233 @@ const RamAgriSalesDashboard = () => {
                 </div>
               ))}
             </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // Targets Tab Content
+  const renderTargetsTab = () => {
+    // Helper function to get variety name
+    const getVarietyName = (cropId, varietyId) => {
+      if (!cropId || !varietyId) return 'N/A';
+      const cropIdStr = cropId._id || cropId;
+      const varietyIdStr = varietyId._id || varietyId;
+      
+      // Try to find in targetCrops first (if loaded)
+      const crop = targetCrops.find(c => (c._id || c.cropId) === cropIdStr);
+      if (crop && crop.varieties) {
+        const variety = crop.varieties.find(v => (v._id || v.varietyId) === varietyIdStr);
+        if (variety) return variety.name;
+      }
+      
+      // Try to find in dashboardData stock
+      if (dashboardData?.stock?.stockByCrop) {
+        const stockCrop = dashboardData.stock.stockByCrop.find(c => c.cropId === cropIdStr);
+        if (stockCrop && stockCrop.varieties) {
+          const variety = stockCrop.varieties.find(v => v.varietyId === varietyIdStr);
+          if (variety) return variety.name;
+        }
+      }
+      
+      return varietyIdStr.toString().substring(0, 8) + '...';
+    };
+
+    // Group targets by user
+    const targetsByUser = salesTargets.reduce((acc, target) => {
+      const userId = target.userId?._id || target.userId;
+      const userName = target.userId?.name || 'Unknown User';
+      const userPhone = target.userId?.phoneNumber || target.userId?.phone || 'N/A';
+      const cropId = target.cropId?._id || target.cropId;
+      const varietyId = target.varietyId;
+      
+      if (!acc[userId]) {
+        acc[userId] = {
+          userId,
+          userName,
+          userPhone,
+          targets: [],
+          totalTarget: 0,
+        };
+      }
+      
+      // Add variety name to target
+      const targetWithVarietyName = {
+        ...target,
+        varietyName: getVarietyName(cropId, varietyId),
+      };
+      
+      acc[userId].targets.push(targetWithVarietyName);
+      acc[userId].totalTarget += target.targetAmount || 0;
+      
+      return acc;
+    }, {});
+
+    const userTargetsList = Object.values(targetsByUser);
+
+    return (
+      <div className="space-y-6">
+        {/* Header with Set Targets Button */}
+        <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-100">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+              <h2 className="text-2xl font-bold text-gray-800">Sales Targets</h2>
+              <p className="text-sm text-gray-500 mt-1">
+                Period: {dateRange.startDate} → {dateRange.endDate}
+              </p>
+              <p className="text-xs text-gray-400 mt-1">
+                {userTargetsList.length} user(s) with targets set
+              </p>
+            </div>
+            <button
+              onClick={openTargetModal}
+              className="w-full md:w-auto bg-brand-600 text-white px-6 py-3 rounded-lg text-sm font-semibold hover:bg-brand-700 transition-colors flex items-center justify-center space-x-2"
+            >
+              <TrendingUp className="w-5 h-5" />
+              <span>Set Targets</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Targets List */}
+        {salesTargetsLoading ? (
+          <div className="flex items-center justify-center h-96 bg-white rounded-xl shadow-lg">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-600"></div>
+          </div>
+        ) : userTargetsList.length === 0 ? (
+          <div className="bg-white rounded-xl shadow-lg p-12 text-center">
+            <TrendingUp className="w-16 h-16 mx-auto mb-4 text-gray-400" />
+            <h3 className="text-lg font-semibold text-gray-800 mb-2">No Targets Set</h3>
+            <p className="text-sm text-gray-500 mb-4">
+              Set sales targets for users to track their performance
+            </p>
+            <button
+              onClick={openTargetModal}
+              className="bg-brand-600 text-white px-6 py-2 rounded-lg text-sm font-semibold hover:bg-brand-700 transition-colors"
+            >
+              Set Targets Now
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {userTargetsList.map((userTarget) => (
+              <div key={userTarget.userId} className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
+                {/* User Header */}
+                <div className="bg-gradient-to-r from-brand-50 to-brand-100 p-4 border-b border-gray-200">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-800">{userTarget.userName}</h3>
+                      <p className="text-sm text-gray-600">{userTarget.userPhone}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs text-gray-500">Total Target</p>
+                      <p className="text-xl font-bold text-brand-600">{formatCurrency(userTarget.totalTarget)}</p>
+                      <p className="text-xs text-gray-500 mt-1">{userTarget.targets.length} crop/variety target(s)</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Targets Table */}
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Crop</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Variety</th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Target</th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Achieved</th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Progress</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date Range</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Updated</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                      {userTarget.targets.map((target, index) => {
+                        const targetAmount = target.targetAmount || 0;
+                        const achievedAmount = target.achievedAmount || 0;
+                        const progressPercent = target.progressPercent || (targetAmount > 0 ? Math.min((achievedAmount / targetAmount) * 100, 100) : 0);
+                        const orderCount = target.orderCount || 0;
+                        
+                        return (
+                          <tr key={index} className="hover:bg-gray-50">
+                            <td className="px-4 py-3">
+                              <div className="flex items-center">
+                                <span className="text-sm font-medium text-gray-800">
+                                  {target.cropId?.cropName || 'Unknown Crop'}
+                                </span>
+                                {target.cropId?.productType && (
+                                  <span className="ml-2 px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-600">
+                                    {target.cropId.productType.toUpperCase()}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-600">
+                              <span className="font-medium">{target.varietyName || 'N/A'}</span>
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <span className="text-sm font-semibold text-brand-600">
+                                {formatCurrency(targetAmount)}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <div>
+                                <span className={`text-sm font-semibold ${achievedAmount >= targetAmount ? 'text-green-600' : achievedAmount > 0 ? 'text-orange-600' : 'text-gray-600'}`}>
+                                  {formatCurrency(achievedAmount)}
+                                </span>
+                                {orderCount > 0 && (
+                                  <span className="block text-xs text-gray-500 mt-0.5">
+                                    {orderCount} order{orderCount !== 1 ? 's' : ''}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="flex flex-col items-end">
+                                <span className={`text-sm font-semibold ${
+                                  progressPercent >= 100 ? 'text-green-600' : 
+                                  progressPercent >= 50 ? 'text-orange-600' : 
+                                  'text-red-600'
+                                }`}>
+                                  {progressPercent.toFixed(1)}%
+                                </span>
+                                <div className="w-20 h-1.5 bg-gray-200 rounded-full mt-1">
+                                  <div
+                                    className={`h-full rounded-full ${
+                                      progressPercent >= 100 ? 'bg-green-500' : 
+                                      progressPercent >= 50 ? 'bg-orange-500' : 
+                                      'bg-red-500'
+                                    }`}
+                                    style={{ width: `${Math.min(progressPercent, 100)}%` }}
+                                  />
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-600">
+                              {target.startDate && target.endDate ? (
+                                <span>
+                                  {new Date(target.startDate).toLocaleDateString('en-IN')} → {new Date(target.endDate).toLocaleDateString('en-IN')}
+                                </span>
+                              ) : (
+                                'N/A'
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-500">
+                              {target.updatedAt ? (
+                                <span>{new Date(target.updatedAt).toLocaleDateString('en-IN')}</span>
+                              ) : (
+                                'N/A'
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>
@@ -1022,8 +1475,12 @@ const RamAgriSalesDashboard = () => {
                     <td className="px-4 py-3">
                       <div>
                         <p className="font-medium text-gray-900">{customer.customerName}</p>
-                        {customer.customerVillage && (
-                          <p className="text-xs text-gray-500">{customer.customerVillage}</p>
+                        {(customer.customerTaluka || customer.customerVillage) && (
+                          <p className="text-xs text-gray-500">
+                            {customer.customerTaluka && customer.customerVillage 
+                              ? `${customer.customerTaluka} → ${customer.customerVillage}`
+                              : customer.customerTaluka || customer.customerVillage}
+                          </p>
                         )}
                       </div>
                     </td>
@@ -1046,6 +1503,205 @@ const RamAgriSalesDashboard = () => {
               </tbody>
             </table>
           </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Orders Tab Content
+  const renderOrdersTab = () => {
+    const fetchOrdersByStatus = async (status) => {
+      // This will be called when switching tabs
+      // For now, we only fetch outstanding orders
+      if (status === 'outstanding') {
+        await fetchOutstandingOrders();
+      }
+    };
+
+    return (
+      <div className="space-y-6">
+        {/* Order Status Tabs */}
+        <div className="bg-white rounded-xl shadow-lg border-b border-gray-200">
+          <div className="overflow-x-auto">
+            <div className="flex space-x-1 px-4 min-w-max">
+            <button
+              onClick={() => {
+                setOrderStatusTab('pending');
+                fetchOrdersByStatus('pending');
+              }}
+              className={`py-3 px-4 border-b-2 font-medium text-sm transition-colors whitespace-nowrap ${
+                orderStatusTab === 'pending'
+                  ? 'border-brand-600 text-brand-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Pending
+            </button>
+            <button
+              onClick={() => {
+                setOrderStatusTab('accepted');
+                fetchOrdersByStatus('accepted');
+              }}
+              className={`py-3 px-4 border-b-2 font-medium text-sm transition-colors whitespace-nowrap ${
+                orderStatusTab === 'accepted'
+                  ? 'border-brand-600 text-brand-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Accepted
+            </button>
+            <button
+              onClick={() => {
+                setOrderStatusTab('dispatched');
+                fetchOrdersByStatus('dispatched');
+              }}
+              className={`py-3 px-4 border-b-2 font-medium text-sm transition-colors whitespace-nowrap ${
+                orderStatusTab === 'dispatched'
+                  ? 'border-brand-600 text-brand-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Dispatched
+            </button>
+            <button
+              onClick={() => {
+                setOrderStatusTab('completed');
+                fetchOrdersByStatus('completed');
+              }}
+              className={`py-3 px-4 border-b-2 font-medium text-sm transition-colors whitespace-nowrap ${
+                orderStatusTab === 'completed'
+                  ? 'border-brand-600 text-brand-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Completed
+            </button>
+            <button
+              onClick={() => {
+                setOrderStatusTab('outstanding');
+                fetchOrdersByStatus('outstanding');
+              }}
+              className={`py-3 px-4 border-b-2 font-medium text-sm transition-colors whitespace-nowrap ${
+                orderStatusTab === 'outstanding'
+                  ? 'border-brand-600 text-brand-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Outstanding
+            </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Orders Content */}
+        <div className="bg-white rounded-xl shadow-lg p-6">
+          {orderStatusTab === 'outstanding' ? (
+            <>
+              <h3 className="text-lg font-semibold text-gray-800 mb-4">Outstanding Orders</h3>
+              {outstandingOrdersLoading ? (
+                <div className="flex items-center justify-center h-64">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-600"></div>
+                </div>
+              ) : outstandingOrders.length === 0 ? (
+                <div className="text-center py-12 text-gray-500">
+                  <ShoppingCart className="w-12 h-12 mx-auto mb-4 text-gray-400" />
+                  <p className="text-lg font-medium">No outstanding orders found</p>
+                </div>
+              ) : (
+                <>
+                  <div className="space-y-4">
+                    {outstandingOrders.map((order) => (
+                      <div
+                        key={order._id}
+                        className="bg-gray-50 rounded-lg p-4 border border-gray-200 hover:border-brand-500 hover:shadow-md transition-all relative"
+                      >
+                        {renderDeliveryDateChip(order.deliveryDate)}
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center space-x-3 mb-2">
+                              <p className="font-semibold text-gray-900">{order.orderNumber}</p>
+                              <span className={`px-2 py-1 rounded text-xs font-medium ${
+                                order.orderStatus === 'COMPLETED' ? 'bg-green-100 text-green-800' :
+                                order.orderStatus === 'DISPATCHED' ? 'bg-blue-100 text-blue-800' :
+                                order.orderStatus === 'ACCEPTED' ? 'bg-yellow-100 text-yellow-800' :
+                                'bg-gray-100 text-gray-800'
+                              }`}>
+                                {order.orderStatus}
+                              </span>
+                            </div>
+                            <p className="text-sm font-medium text-gray-800 mb-1">{order.customerName}</p>
+                            {(order.customerTaluka || order.customerVillage) && (
+                              <p className="text-xs text-gray-500 mb-1">
+                                {order.customerTaluka && order.customerVillage 
+                                  ? `${order.customerTaluka} → ${order.customerVillage}`
+                                  : order.customerTaluka || order.customerVillage}
+                              </p>
+                            )}
+                            <p className="text-xs text-gray-600 mb-2">{order.customerMobile}</p>
+                            <p className="text-sm text-gray-700 mb-2">{order.productName}</p>
+                            <div className="flex items-center space-x-4 text-sm">
+                              <span className="text-gray-600">Qty: <span className="font-semibold">{order.quantity}</span></span>
+                              <span className="text-gray-600">Rate: <span className="font-semibold">{formatCurrency(order.rate)}</span></span>
+                              <span className="text-gray-600">Total: <span className="font-semibold">{formatCurrency(order.totalAmount)}</span></span>
+                            </div>
+                            <div className="flex items-center space-x-4 mt-2 text-sm">
+                              <span className="text-brand-600">Paid: <span className="font-semibold">{formatCurrency(order.totalPaidAmount || 0)}</span></span>
+                              <span className="text-orange-600 font-semibold">Outstanding: {formatCurrency(order.balanceAmount || 0)}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  
+                  {/* Pagination */}
+                  {outstandingOrdersTotal > outstandingOrdersPerPage && (() => {
+                    const startIndex = (outstandingOrdersPage - 1) * outstandingOrdersPerPage + 1;
+                    const endIndex = Math.min(outstandingOrdersPage * outstandingOrdersPerPage, outstandingOrdersTotal);
+                    const isFirstPage = outstandingOrdersPage === 1;
+                    const isLastPage = outstandingOrdersPage * outstandingOrdersPerPage >= outstandingOrdersTotal;
+                    
+                    return (
+                      <div className="flex items-center justify-between mt-6 pt-4 border-t border-gray-200">
+                        <p className="text-sm text-gray-600">
+                          Showing {startIndex} to {endIndex} of {outstandingOrdersTotal} orders
+                        </p>
+                        <div className="flex items-center space-x-2">
+                          <button
+                            onClick={() => setOutstandingOrdersPage(prev => Math.max(1, prev - 1))}
+                            disabled={isFirstPage}
+                            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                              isFirstPage
+                                ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                                : 'bg-brand-600 text-white hover:bg-brand-700'
+                            }`}
+                          >
+                            Previous
+                          </button>
+                          <button
+                            onClick={() => setOutstandingOrdersPage(prev => prev + 1)}
+                            disabled={isLastPage}
+                            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                              isLastPage
+                                ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                                : 'bg-brand-600 text-white hover:bg-brand-700'
+                            }`}
+                          >
+                            Next
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </>
+              )}
+            </>
+          ) : (
+            <div className="text-center py-12 text-gray-500">
+              <p className="text-lg font-medium">Orders for {orderStatusTab} status will be displayed here</p>
+              <p className="text-sm mt-2">This feature is coming soon</p>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -1145,6 +1801,13 @@ const RamAgriSalesDashboard = () => {
                           <div key={idx} className="bg-white rounded p-2 border border-gray-200 text-xs">
                             <p className="font-medium text-gray-800">{order.orderNumber}</p>
                             <p className="text-gray-600">{order.customerName}</p>
+                            {(order.customerTaluka || order.customerVillage) && (
+                              <p className="text-gray-500 text-xs mt-0.5">
+                                {order.customerTaluka && order.customerVillage 
+                                  ? `${order.customerTaluka} → ${order.customerVillage}`
+                                  : order.customerTaluka || order.customerVillage}
+                              </p>
+                            )}
                             <div className="flex justify-between mt-1">
                               <span>{formatCurrency(order.amount)}</span>
                               <span className={order.outstanding > 0 ? 'text-orange-600' : 'text-green-600'}>
@@ -1161,45 +1824,6 @@ const RamAgriSalesDashboard = () => {
             </div>
           )}
 
-          {/* Recent Transactions */}
-          <div>
-            <h4 className="font-semibold text-gray-800 mb-3">Recent Transactions</h4>
-            <div className="space-y-2 max-h-96 overflow-y-auto">
-              {transactions && transactions.slice(0, 20).map((transaction, index) => (
-                <div
-                  key={index}
-                  onClick={() => {
-                    const crop = stock.stockByCrop.find(c => c.cropId === transaction.cropId);
-                    const variety = crop?.varieties.find(v => v.varietyId === transaction.varietyId);
-                    if (crop && variety) {
-                      handleVarietyClick(crop, variety);
-                    }
-                  }}
-                  className="bg-gray-50 rounded-lg p-3 border border-gray-200 hover:border-brand-500 hover:shadow-md transition-all cursor-pointer"
-                >
-                  <div className="flex items-center justify-between mb-1">
-                    <p className="text-xs font-medium text-gray-600">{transaction.orderNumber}</p>
-                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                      transaction.orderStatus === 'ACCEPTED' ? 'bg-green-100 text-green-800' :
-                      transaction.orderStatus === 'PENDING' ? 'bg-yellow-100 text-yellow-800' :
-                      'bg-gray-100 text-gray-800'
-                    }`}>
-                      {transaction.orderStatus}
-                    </span>
-                  </div>
-                  <p className="text-sm font-semibold text-gray-800">{transaction.cropName} - {transaction.varietyName}</p>
-                  <p className="text-xs text-gray-600 mt-1">{transaction.customerName} ({transaction.customerMobile})</p>
-                  <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-200">
-                    <span className="text-xs text-gray-600">Qty: {formatNumber(transaction.quantity)}</span>
-                    <span className="text-xs font-semibold text-brand-600">{formatCurrency(transaction.totalAmount)}</span>
-                  </div>
-                  {transaction.outstanding > 0 && (
-                    <p className="text-xs text-orange-600 mt-1">Outstanding: {formatCurrency(transaction.outstanding)}</p>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
 
           {/* Recent Payments */}
           <div>
@@ -1218,6 +1842,13 @@ const RamAgriSalesDashboard = () => {
                     </span>
                   </div>
                   <p className="text-sm font-semibold text-gray-800">{payment.customerName}</p>
+                  {(payment.customerTaluka || payment.customerVillage) && (
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      {payment.customerTaluka && payment.customerVillage 
+                        ? `${payment.customerTaluka} → ${payment.customerVillage}`
+                        : payment.customerTaluka || payment.customerVillage}
+                    </p>
+                  )}
                   {payment.cropName && (
                     <p className="text-xs text-gray-600 mt-1">{payment.cropName} - {payment.varietyName}</p>
                   )}
@@ -1297,6 +1928,24 @@ const RamAgriSalesDashboard = () => {
                 </div>
               </div>
               <div className="flex items-center space-x-3">
+                <div className="flex items-center space-x-2 border-r border-gray-300 pr-3">
+                  <button
+                    onClick={() => generateVideoSummary('day')}
+                    disabled={videoLoading}
+                    className="flex items-center space-x-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 transition-colors"
+                  >
+                    <BarChart3 className={`w-4 h-4 ${videoLoading ? 'animate-spin' : ''}`} />
+                    <span>Video (Day)</span>
+                  </button>
+                  <button
+                    onClick={() => generateVideoSummary('week')}
+                    disabled={videoLoading}
+                    className="flex items-center space-x-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 transition-colors"
+                  >
+                    <BarChart3 className={`w-4 h-4 ${videoLoading ? 'animate-spin' : ''}`} />
+                    <span>Video (Week)</span>
+                  </button>
+                </div>
                 {!showSidebar && (
                   <button
                     onClick={() => setShowSidebar(true)}
@@ -1341,69 +1990,6 @@ const RamAgriSalesDashboard = () => {
           </div>
         </div>
 
-        {/* Status Filter – counts from API, easy chip selection */}
-        <div className="bg-white border-b border-gray-200">
-          <div className="max-w-full mx-auto px-6 py-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm font-semibold text-gray-600 mr-1">Status:</span>
-              <button
-                onClick={() => {
-                  setOrderStatusFilter([]);
-                  setPaymentStatusFilter([]);
-                }}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                  orderStatusFilter.length === 0 && paymentStatusFilter.length === 0
-                    ? 'bg-brand-600 text-white'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                }`}
-              >
-                All
-              </button>
-              <span className="text-gray-400 mx-1">|</span>
-              <span className="text-xs font-medium text-gray-500">Order:</span>
-              {['PENDING', 'ACCEPTED', 'ASSIGNED', 'DISPATCHED', 'COMPLETED', 'REJECTED', 'CANCELLED'].map((s) => {
-                const count = dashboardData?.statusCounts?.orderStatus?.[s] ?? 0;
-                const active = orderStatusFilter.includes(s);
-                return (
-                  <button
-                    key={s}
-                    onClick={() => {
-                      setOrderStatusFilter((prev) =>
-                        prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]
-                      );
-                    }}
-                    className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                      active ? 'bg-brand-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                    }`}
-                  >
-                    {s} ({count})
-                  </button>
-                );
-              })}
-              <span className="text-gray-400 mx-1">|</span>
-              <span className="text-xs font-medium text-gray-500">Payment:</span>
-              {['COLLECTED', 'PENDING', 'REJECTED'].map((s) => {
-                const count = dashboardData?.statusCounts?.paymentStatus?.[s] ?? 0;
-                const active = paymentStatusFilter.includes(s);
-                return (
-                  <button
-                    key={s}
-                    onClick={() => {
-                      setPaymentStatusFilter((prev) =>
-                        prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]
-                      );
-                    }}
-                    className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                      active ? 'bg-brand-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                    }`}
-                  >
-                    {s} ({count})
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </div>
 
         {/* Tabs */}
         <div className="bg-white border-b border-gray-200">
@@ -1448,6 +2034,32 @@ const RamAgriSalesDashboard = () => {
                   <span>Sales</span>
                 </div>
               </button>
+              <button
+                onClick={() => setActiveTab('targets')}
+                className={`py-4 px-2 border-b-2 font-medium text-sm transition-colors ${
+                  activeTab === 'targets'
+                    ? 'border-brand-600 text-brand-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <div className="flex items-center space-x-2">
+                  <TrendingUp className="w-5 h-5" />
+                  <span>Targets</span>
+                </div>
+              </button>
+              <button
+                onClick={() => setActiveTab('orders')}
+                className={`py-4 px-2 border-b-2 font-medium text-sm transition-colors ${
+                  activeTab === 'orders'
+                    ? 'border-brand-600 text-brand-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <div className="flex items-center space-x-2">
+                  <ShoppingCart className="w-5 h-5" />
+                  <span>Orders</span>
+                </div>
+              </button>
             </div>
           </div>
         </div>
@@ -1457,6 +2069,8 @@ const RamAgriSalesDashboard = () => {
           {activeTab === 'overview' && renderOverviewTab()}
           {activeTab === 'stock' && renderStockTab()}
           {activeTab === 'sales' && renderSalesTab()}
+          {activeTab === 'targets' && renderTargetsTab()}
+          {activeTab === 'orders' && renderOrdersTab()}
         </div>
       </div>
 
@@ -1746,11 +2360,104 @@ const RamAgriSalesDashboard = () => {
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-5xl w-full max-h-[90vh] overflow-hidden flex flex-col">
             <div className="p-6 border-b border-gray-200 flex items-center justify-between sticky top-0 bg-white z-10">
-              <div>
+              <div className="flex-1">
                 <h2 className="text-2xl font-bold text-gray-800">Set Sales Targets</h2>
-                <p className="text-gray-600 mt-1">
-                  {dateRange.startDate} → {dateRange.endDate}
-                </p>
+                <div className="mt-2 space-y-2">
+                  {/* Quick Day Selection */}
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const endDate = new Date();
+                        const startDate = new Date();
+                        startDate.setDate(endDate.getDate() - 7);
+                        setTargetModalDateRange({
+                          startDate: startDate.toISOString().split('T')[0],
+                          endDate: endDate.toISOString().split('T')[0],
+                        });
+                      }}
+                      className="px-3 py-1 text-xs rounded-lg border border-gray-300 hover:bg-gray-100"
+                    >
+                      7 Days
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const endDate = new Date();
+                        const startDate = new Date();
+                        startDate.setDate(endDate.getDate() - 15);
+                        setTargetModalDateRange({
+                          startDate: startDate.toISOString().split('T')[0],
+                          endDate: endDate.toISOString().split('T')[0],
+                        });
+                      }}
+                      className="px-3 py-1 text-xs rounded-lg border border-gray-300 hover:bg-gray-100"
+                    >
+                      15 Days
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const endDate = new Date();
+                        const startDate = new Date();
+                        startDate.setDate(endDate.getDate() - 30);
+                        setTargetModalDateRange({
+                          startDate: startDate.toISOString().split('T')[0],
+                          endDate: endDate.toISOString().split('T')[0],
+                        });
+                      }}
+                      className="px-3 py-1 text-xs rounded-lg border border-gray-300 hover:bg-gray-100"
+                    >
+                      30 Days
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const endDate = new Date();
+                        const startDate = new Date();
+                        startDate.setMonth(endDate.getMonth() - 1);
+                        setTargetModalDateRange({
+                          startDate: startDate.toISOString().split('T')[0],
+                          endDate: endDate.toISOString().split('T')[0],
+                        });
+                      }}
+                      className="px-3 py-1 text-xs rounded-lg border border-gray-300 hover:bg-gray-100"
+                    >
+                      1 Month
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const endDate = new Date();
+                        const startDate = new Date();
+                        startDate.setMonth(endDate.getMonth() - 3);
+                        setTargetModalDateRange({
+                          startDate: startDate.toISOString().split('T')[0],
+                          endDate: endDate.toISOString().split('T')[0],
+                        });
+                      }}
+                      className="px-3 py-1 text-xs rounded-lg border border-gray-300 hover:bg-gray-100"
+                    >
+                      3 Months
+                    </button>
+                  </div>
+                  {/* Date Range Inputs */}
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="date"
+                      value={targetModalDateRange.startDate}
+                      onChange={(e) => setTargetModalDateRange({ ...targetModalDateRange, startDate: e.target.value })}
+                      className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm"
+                    />
+                    <span className="text-gray-500">→</span>
+                    <input
+                      type="date"
+                      value={targetModalDateRange.endDate}
+                      onChange={(e) => setTargetModalDateRange({ ...targetModalDateRange, endDate: e.target.value })}
+                      className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm"
+                    />
+                  </div>
+                </div>
               </div>
               <button
                 onClick={() => {
@@ -1854,6 +2561,194 @@ const RamAgriSalesDashboard = () => {
               >
                 {targetSaveLoading ? "Saving..." : "Save Targets"}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Video Summary Modal */}
+      {showVideoModal && videoSummary && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="p-6 border-b border-gray-200 flex items-center justify-between sticky top-0 bg-white z-10">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-800">Video Summary ({videoPeriod === 'day' ? 'Daily' : 'Weekly'})</h2>
+                <p className="text-gray-600 mt-1">
+                  {new Date(videoSummary.currentPeriod.start).toLocaleDateString('en-IN')} - {new Date(videoSummary.currentPeriod.end).toLocaleDateString('en-IN')}
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setShowVideoModal(false);
+                  setVideoSummary(null);
+                }}
+                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5 text-gray-600" />
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto flex-1">
+              {/* Video Player */}
+              {videoSummary.video?.videoUrl ? (
+                <div className="mb-6">
+                  <video
+                    src={videoSummary.video.videoUrl.startsWith('http') 
+                      ? videoSummary.video.videoUrl 
+                      : `${window.location.origin}${videoSummary.video.videoUrl}`}
+                    controls
+                    className="w-full rounded-lg shadow-lg"
+                    autoPlay
+                    crossOrigin="anonymous"
+                  >
+                    Your browser does not support the video tag.
+                  </video>
+                  {videoSummary.video.method === 'google-tts-ffmpeg' && (
+                    <p className="text-xs text-gray-500 mt-2 text-center">
+                      🆓 Generated using Google Cloud TTS (FREE)
+                    </p>
+                  )}
+                  {videoSummary.video.method === 'd-id' && (
+                    <p className="text-xs text-gray-500 mt-2 text-center">
+                      Generated using D-ID API
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div className="mb-6 bg-gray-100 rounded-lg p-8 text-center">
+                  <p className="text-gray-600 mb-2 font-semibold">Video generation not available</p>
+                  {videoSummary.videoError ? (
+                    <div className="mt-2">
+                      <p className="text-sm text-red-600 mb-2">Error: {videoSummary.videoError}</p>
+                      <p className="text-xs text-gray-500">
+                        Please check D_ID_API_KEY configuration in backend .env file.
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-500">
+                      Please check D_ID_API_KEY configuration in backend .env file.
+                    </p>
+                  )}
+                  <p className="text-xs text-gray-400 mt-2">
+                    The Hindi text summary is still available below.
+                  </p>
+                </div>
+              )}
+
+              {/* Summary Text */}
+              <div className="bg-gradient-to-br from-purple-50 to-blue-50 rounded-lg p-6 mb-6">
+                <h3 className="text-lg font-semibold text-gray-800 mb-4">Hindi Summary</h3>
+                <div className="bg-white rounded-lg p-4 border border-purple-200">
+                  <p className="text-gray-800 whitespace-pre-line leading-relaxed" style={{ fontFamily: 'Arial, sans-serif', direction: 'ltr' }}>
+                    {videoSummary.hindiSummary}
+                  </p>
+                </div>
+              </div>
+
+              {/* Comparison Stats */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                <div className="bg-white rounded-lg p-4 border border-gray-200">
+                  <h4 className="font-semibold text-gray-800 mb-3">Orders Comparison</h4>
+                  <div className="space-y-2">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Current Period:</span>
+                      <span className="font-semibold">{videoSummary.currentPeriod.totalOrders}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Previous Period:</span>
+                      <span className="font-semibold">{videoSummary.previousPeriod.totalOrders}</span>
+                    </div>
+                    <div className="flex justify-between pt-2 border-t">
+                      <span className="text-gray-600">Change:</span>
+                      <span className={`font-semibold ${videoSummary.comparison.orderChange >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        {videoSummary.comparison.orderChange >= 0 ? '+' : ''}{videoSummary.comparison.orderChange} ({videoSummary.comparison.orderChangePercent}%)
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-lg p-4 border border-gray-200">
+                  <h4 className="font-semibold text-gray-800 mb-3">Sales Comparison</h4>
+                  <div className="space-y-2">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Current Period:</span>
+                      <span className="font-semibold">{formatCurrency(videoSummary.currentPeriod.totalSales)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Previous Period:</span>
+                      <span className="font-semibold">{formatCurrency(videoSummary.previousPeriod.totalSales)}</span>
+                    </div>
+                    <div className="flex justify-between pt-2 border-t">
+                      <span className="text-gray-600">Change:</span>
+                      <span className={`font-semibold ${videoSummary.comparison.salesChange >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        {videoSummary.comparison.salesChange >= 0 ? '+' : ''}{formatCurrency(videoSummary.comparison.salesChange)} ({videoSummary.comparison.salesChangePercent}%)
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-lg p-4 border border-gray-200">
+                  <h4 className="font-semibold text-gray-800 mb-3">Dispatched Orders</h4>
+                  <div className="space-y-2">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Current Period:</span>
+                      <span className="font-semibold">{videoSummary.currentPeriod.dispatchedOrders}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Previous Period:</span>
+                      <span className="font-semibold">{videoSummary.previousPeriod.dispatchedOrders}</span>
+                    </div>
+                    <div className="flex justify-between pt-2 border-t">
+                      <span className="text-gray-600">Change:</span>
+                      <span className={`font-semibold ${videoSummary.comparison.dispatchedChange >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        {videoSummary.comparison.dispatchedChange >= 0 ? '+' : ''}{videoSummary.comparison.dispatchedChange}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {videoSummary.currentPeriod.topSalesman && (
+                  <div className="bg-gradient-to-br from-yellow-50 to-orange-50 rounded-lg p-4 border border-yellow-200">
+                    <h4 className="font-semibold text-gray-800 mb-3">🏆 Top Salesman</h4>
+                    <div className="space-y-2">
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Name:</span>
+                        <span className="font-semibold">{videoSummary.currentPeriod.topSalesman.name}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Sales:</span>
+                        <span className="font-semibold text-brand-600">{formatCurrency(videoSummary.currentPeriod.topSalesman.sales)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Orders:</span>
+                        <span className="font-semibold">{videoSummary.currentPeriod.topSalesman.orders}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-gray-200 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowVideoModal(false);
+                  setVideoSummary(null);
+                }}
+                className="px-4 py-2 rounded-lg text-sm font-semibold text-gray-700 border border-gray-300 hover:bg-gray-100"
+              >
+                Close
+              </button>
+              {videoSummary.video?.videoUrl && (
+                <a
+                  href={videoSummary.video.videoUrl}
+                  download
+                  className="px-4 py-2 rounded-lg text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700"
+                >
+                  Download Video
+                </a>
+              )}
             </div>
           </div>
         </div>
