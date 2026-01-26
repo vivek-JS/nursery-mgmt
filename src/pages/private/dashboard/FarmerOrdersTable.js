@@ -170,6 +170,12 @@ const customStyles = `
     color: #92400e;
   }
 
+  .status-assigned {
+    background: linear-gradient(135deg, #f3e8ff 0%, #e9d5ff 100%);
+    border-color: #a855f7;
+    color: #6b21a8;
+  }
+
   .status-rejected {
     background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
     border-color: #ef4444;
@@ -597,8 +603,8 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
     ACCEPTED: 0,
     ASSIGNED: 0,
     DISPATCHED: 0,
-    IN_TRANSIT: 0,
-    COMPLETED: 0
+    COMPLETED: 0,
+    OUTSTANDING: 0
   }) // Counts for each status tab (consistent with API)
   
   // Ram Agri Inputs Dispatch State
@@ -621,7 +627,11 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   const [ramAgriSalesUsers, setRamAgriSalesUsers] = useState([]) // Ram Agri Inputs users for "Dispatched By" filter
   const [selectedDispatchedBy, setSelectedDispatchedBy] = useState("") // Filter by who dispatched
   const [hidePaymentDetails, setHidePaymentDetails] = useState(false) // Toggle to hide payment details
-  const [agriDispatchStatusFilter, setAgriDispatchStatusFilter] = useState("ALL") // Filter by order status: ALL, PENDING, ACCEPTED, ASSIGNED, DISPATCHED, IN_TRANSIT, COMPLETED
+  const [agriDispatchStatusFilter, setAgriDispatchStatusFilter] = useState("ALL") // Filter by order status: ALL, PENDING, ACCEPTED, ASSIGNED, DISPATCHED, COMPLETED, OUTSTANDING
+  // Outstanding orders pagination
+  const [outstandingPage, setOutstandingPage] = useState(1)
+  const [outstandingTotal, setOutstandingTotal] = useState(0)
+  const outstandingPerPage = 20
   // Complete order state (for marking dispatched orders as delivered)
   const [selectedAgriOrdersForComplete, setSelectedAgriOrdersForComplete] = useState([])
   const [showAgriCompleteModal, setShowAgriCompleteModal] = useState(false)
@@ -709,15 +719,11 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
   const [districts, setDistricts] = useState([])
 
   const orderStatusOptions = [
-    { label: "Accepted", value: "ACCEPTED" },
     { label: "Pending", value: "PENDING" },
-    { label: "Rejected", value: "REJECTED" },
+    { label: "Accepted", value: "ACCEPTED" },
+    { label: "Assigned", value: "ASSIGNED" },
     { label: "Dispatched", value: "DISPATCHED" },
-    { label: "Completed", value: "COMPLETED" },
-    { label: "Partially Completed", value: "PARTIALLY_COMPLETED" },
-    { label: "Ready For Dispatch", value: "FARM_READY" },
-    { label: "Loading", value: "DISPATCH_PROCESS" },
-    { label: "Temporary Cancelled", value: "TEMPORARY_CANCELLED" }
+    { label: "Completed", value: "COMPLETED" }
   ]
 
 
@@ -1380,7 +1386,8 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
     selectedSubtype,
     showAgriSalesOrders, // Reload when switching between regular and Agri Sales orders
     selectedDispatchedBy, // Filter by who dispatched (Ram Agri Inputs)
-    agriDispatchStatusFilter // Reload when status filter tab changes (Ram Agri Inputs)
+    agriDispatchStatusFilter, // Reload when status filter tab changes (Ram Agri Inputs)
+    outstandingPage // Reload when outstanding page changes
   ])
 
   // Function to fetch sales person data
@@ -1775,7 +1782,7 @@ const loadFilterOptions = async () => {
   // Select all dispatched orders for complete
   const selectAllDispatchedOrders = () => {
     const dispatchedOrders = orders.filter(
-      (o) => o.orderStatus === "DISPATCHED" || o.details?.dispatchStatus === "DISPATCHED" || o.details?.dispatchStatus === "IN_TRANSIT"
+      (o) => o.orderStatus === "DISPATCHED" || o.details?.dispatchStatus === "DISPATCHED"
     )
     setSelectedAgriOrdersForComplete(dispatchedOrders.map((o) => o.details?.orderid || o.id || o._id))
   }
@@ -2113,6 +2120,7 @@ const mapSlotForUi = (slotData) => {
     if (!showAgriSalesOrders) return
     
     try {
+      // Fetch all orders for status counts (except outstanding)
       const instance = NetworkManager(API.INVENTORY.GET_ALL_AGRI_SALES_ORDERS)
       const params = {
         search: debouncedSearchTerm,
@@ -2133,6 +2141,24 @@ const mapSlotForUi = (slotData) => {
       const response = await instance.request({}, params)
       const ordersData = response?.data?.data?.data || response?.data?.data || []
 
+      // Fetch outstanding count from outstanding API (backend filters for COMPLETED + outstanding)
+      let outstandingCount = 0
+      try {
+        const outstandingInstance = NetworkManager(API.INVENTORY.GET_OUTSTANDING_AGRI_SALES_ORDERS)
+        const outstandingParams = {
+          search: debouncedSearchTerm,
+          limit: 1, // Just need the total count
+          page: 1,
+        }
+        if (selectedSalesPerson) {
+          outstandingParams.createdBy = selectedSalesPerson
+        }
+        const outstandingResponse = await outstandingInstance.request({}, outstandingParams)
+        outstandingCount = outstandingResponse?.data?.data?.total || outstandingResponse?.data?.data?.pagination?.total || 0
+      } catch (error) {
+        console.error("Error fetching outstanding count:", error)
+      }
+
       // Calculate counts for each status
       const counts = {
         ALL: ordersData.length,
@@ -2140,8 +2166,8 @@ const mapSlotForUi = (slotData) => {
         ACCEPTED: ordersData.filter(o => o.orderStatus === "ACCEPTED").length,
         ASSIGNED: ordersData.filter(o => o.orderStatus === "ASSIGNED").length,
         DISPATCHED: ordersData.filter(o => o.orderStatus === "DISPATCHED" || o.dispatchStatus === "DISPATCHED").length,
-        IN_TRANSIT: ordersData.filter(o => o.dispatchStatus === "IN_TRANSIT").length,
-        COMPLETED: ordersData.filter(o => o.orderStatus === "COMPLETED" || o.dispatchStatus === "DELIVERED").length
+        COMPLETED: ordersData.filter(o => o.orderStatus === "COMPLETED" || o.dispatchStatus === "DELIVERED").length,
+        OUTSTANDING: outstandingCount // Use backend-filtered count
       }
 
       setAgriStatusCounts(counts)
@@ -2157,32 +2183,215 @@ const mapSlotForUi = (slotData) => {
     if (showAgriSalesOrders) {
       try {
         const instance = NetworkManager(API.INVENTORY.GET_ALL_AGRI_SALES_ORDERS)
-        const params = {
-          search: debouncedSearchTerm,
-          limit: 10000,
-          page: 1,
-        }
+        
+        // Handle outstanding separately - use new outstanding API endpoint
+        let params = {}
+        
+        if (agriDispatchStatusFilter === "OUTSTANDING") {
+          // Use new outstanding endpoint
+          const instance = NetworkManager(API.INVENTORY.GET_OUTSTANDING_AGRI_SALES_ORDERS)
+          params = {
+            search: debouncedSearchTerm || "",
+            page: outstandingPage,
+            limit: outstandingPerPage,
+            sortBy: "balanceAmount",
+            sortOrder: "desc"
+          }
+          
+          if (selectedSalesPerson) {
+            params.createdBy = selectedSalesPerson
+          }
 
-        if (startDate && endDate) {
-          params.startDate = moment(startDate).format("YYYY-MM-DD")
-          params.endDate = moment(endDate).format("YYYY-MM-DD")
-        }
+          const response = await instance.request({}, params)
+          // Handle response structure: { status: "Success", data: { data: [...], total: X, pagination: {...} } }
+          // NetworkManager wraps response in response.data, so: response.data = { status: "Success", message: "...", data: { data: [...], total: X } }
+          // So: response.data.data = { data: [...], total: 173, pagination: {...} }
+          // And: response.data.data.data = array of orders
+          const responseData = response?.data?.data || {}
+          const ordersData = Array.isArray(responseData?.data) ? responseData.data : []
+          const totalCount = responseData?.total || responseData?.pagination?.total || 0
+          
+          console.log("Outstanding API Response Debug:", {
+            fullResponse: response,
+            responseData,
+            ordersDataLength: ordersData.length,
+            totalCount,
+            firstOrder: ordersData[0]
+          })
+          
+          if (!ordersData || ordersData.length === 0) {
+            console.warn("No orders found in outstanding API response")
+            setOrders([])
+            setOutstandingTotal(0)
+            setLoading(false)
+            return
+          }
+          
+          setOutstandingTotal(totalCount)
+          
+          // Transform Agri Sales orders to match the expected format
+          const transformedOrders = ordersData.map((order) => {
+            const {
+              orderNumber,
+              customerName,
+              customerMobile,
+              customerVillage,
+              customerTaluka,
+              customerDistrict,
+              productName,
+              quantity,
+              unit,
+              rate,
+              totalAmount,
+              orderStatus,
+              payment,
+              totalPaidAmount,
+              balanceAmount,
+              orderDate,
+              deliveryDate,
+              createdAt,
+              notes,
+              createdBy,
+              productId,
+              _id,
+              dispatchStatus,
+              dispatchMode,
+              vehicleNumber,
+              driverName,
+              driverMobile,
+              dispatchedAt,
+              dispatchedBy,
+              dispatchNotes,
+              courierName,
+              courierTrackingId,
+              courierContact,
+              assignedTo,
+              assignedAt,
+              assignedBy,
+              assignmentNotes,
+              returnQuantity,
+              deliveredQuantity,
+              returnReason,
+              returnNotes,
+            } = order
 
-        // Filter by order status based on agriDispatchStatusFilter (strip status tabs)
-        if (agriDispatchStatusFilter && agriDispatchStatusFilter !== "ALL") {
-          if (agriDispatchStatusFilter === "PENDING") {
-            params.orderStatus = "PENDING"
-          } else if (agriDispatchStatusFilter === "ACCEPTED") {
-            params.orderStatus = "ACCEPTED"
-          } else if (agriDispatchStatusFilter === "ASSIGNED") {
-            params.orderStatus = "ASSIGNED"
-          } else if (agriDispatchStatusFilter === "DISPATCHED") {
-            params.orderStatus = "DISPATCHED"
-            params.dispatchStatus = "DISPATCHED"
-          } else if (agriDispatchStatusFilter === "IN_TRANSIT") {
-            params.dispatchStatus = "IN_TRANSIT"
-          } else if (agriDispatchStatusFilter === "COMPLETED") {
-            params.orderStatus = "COMPLETED"
+            // Handle productId as object (populated) or string
+            const productIdValue = productId?._id || productId || null
+            const productNameValue = productName || productId?.name || ""
+            
+            // Handle createdBy as object (populated) or string
+            const createdByValue = createdBy?._id || createdBy || null
+            const createdByName = createdBy?.name || ""
+            
+            // Handle assignedTo as object (populated) or string
+            const assignedToValue = assignedTo?._id || assignedTo || null
+            const assignedToName = assignedTo?.name || ""
+
+            const displayQuantity = (orderStatus === "COMPLETED" && deliveredQuantity > 0) ? deliveredQuantity : quantity
+
+            return {
+              order: orderNumber,
+              farmerName: customerName,
+              plantType: productNameValue,
+              quantity: quantity,
+              deliveredQuantity: deliveredQuantity || quantity,
+              totalPlants: displayQuantity,
+              additionalPlants: 0,
+              basePlants: quantity,
+              orderDate: moment(orderDate || createdAt).format("DD MMM YYYY"),
+              deliveryDate: deliveryDate ? moment(deliveryDate).format("DD MMM YYYY") : "-",
+              rate: rate,
+              total: `₹ ${Number(totalAmount || 0).toFixed(2)}`,
+              "Paid Amt": `₹ ${Number(totalPaidAmount || 0).toFixed(2)}`,
+              "remaining Amt": `₹ ${Number(balanceAmount || totalAmount - (totalPaidAmount || 0)).toFixed(2)}`,
+              "remaining Plants": displayQuantity,
+              "returned Plants": returnQuantity || 0,
+              orderStatus: orderStatus,
+              dispatchStatus: dispatchStatus || "NOT_DISPATCHED",
+              Delivery: "-",
+              "Farm Ready": "-",
+              isAgriSalesOrder: true,
+              details: {
+                customerName,
+                customerMobile,
+                customerVillage,
+                customerTaluka,
+                customerDistrict,
+                productName: productNameValue,
+                productId: productIdValue,
+                quantity,
+                deliveredQuantity: deliveredQuantity || quantity,
+                returnQuantity: returnQuantity || 0,
+                unit,
+                rate,
+                totalAmount,
+                orderStatus,
+                payment: payment || [],
+                totalPaidAmount: totalPaidAmount || 0,
+                balanceAmount: balanceAmount || totalAmount,
+                orderDate,
+                deliveryDate,
+                notes,
+                createdBy: createdByValue,
+                createdByName: createdByName,
+                orderid: _id,
+                orderNumber,
+                dispatchStatus: dispatchStatus || "NOT_DISPATCHED",
+                dispatchMode: dispatchMode || "VEHICLE",
+                vehicleNumber,
+                driverName,
+                driverMobile,
+                dispatchedAt,
+                dispatchedBy,
+                dispatchNotes,
+                courierName,
+                courierTrackingId,
+                courierContact,
+                assignedTo: assignedToValue,
+                assignedToName: assignedToName,
+                assignedAt,
+                assignedBy,
+                assignmentNotes,
+              },
+            }
+          })
+
+          console.log("Outstanding transformed orders:", transformedOrders.length, transformedOrders)
+          
+          if (transformedOrders.length === 0) {
+            console.warn("No outstanding orders found after transformation")
+          }
+          
+          setOrders(transformedOrders)
+          setLoading(false)
+          return
+        } else {
+          // For other statuses, use default pagination and date filters
+          params = {
+            search: debouncedSearchTerm || "",
+            limit: 10000,
+            page: 1
+          }
+          
+          if (startDate && endDate) {
+            params.startDate = moment(startDate).format("YYYY-MM-DD")
+            params.endDate = moment(endDate).format("YYYY-MM-DD")
+          }
+
+          // Filter by order status based on agriDispatchStatusFilter
+          if (agriDispatchStatusFilter && agriDispatchStatusFilter !== "ALL") {
+            if (agriDispatchStatusFilter === "PENDING") {
+              params.orderStatus = "PENDING"
+            } else if (agriDispatchStatusFilter === "ACCEPTED") {
+              params.orderStatus = "ACCEPTED"
+            } else if (agriDispatchStatusFilter === "ASSIGNED") {
+              params.orderStatus = "ASSIGNED"
+            } else if (agriDispatchStatusFilter === "DISPATCHED") {
+              params.orderStatus = "DISPATCHED"
+              params.dispatchStatus = "DISPATCHED"
+            } else if (agriDispatchStatusFilter === "COMPLETED") {
+              params.orderStatus = "COMPLETED"
+            }
           }
         }
         // When "ALL": no status filter — fetch all orders
@@ -2193,7 +2402,7 @@ const mapSlotForUi = (slotData) => {
         }
 
         const response = await instance.request({}, params)
-        const ordersData = response?.data?.data?.data || response?.data?.data || []
+        let ordersData = response?.data?.data?.data || response?.data?.data || []
         
         // Fetch counts in parallel (without blocking)
         fetchAgriStatusCounts()
@@ -2241,14 +2450,31 @@ const mapSlotForUi = (slotData) => {
             assignedAt,
             assignedBy,
             assignmentNotes,
+            // Return and delivery fields
+            returnQuantity,
+            deliveredQuantity,
+            returnReason,
+            returnNotes,
           } = order
+
+          // Handle populated fields (productId, createdBy, assignedTo can be objects)
+          const productIdValue = productId?._id || productId || null
+          const productNameValue = productName || productId?.name || ""
+          const createdByValue = createdBy?._id || createdBy || null
+          const createdByName = createdBy?.name || ""
+          const assignedToValue = assignedTo?._id || assignedTo || null
+          const assignedToName = assignedTo?.name || ""
+
+          // For completed orders, use deliveredQuantity for display; otherwise use quantity
+          const displayQuantity = (orderStatus === "COMPLETED" && deliveredQuantity > 0) ? deliveredQuantity : quantity
 
           return {
             order: orderNumber,
             farmerName: customerName,
-            plantType: productName,
-            quantity: quantity,
-            totalPlants: quantity,
+            plantType: productNameValue,
+            quantity: quantity, // Original quantity
+            deliveredQuantity: deliveredQuantity || quantity, // Final delivered quantity
+            totalPlants: displayQuantity, // Display quantity (final for completed orders)
             additionalPlants: 0,
             basePlants: quantity,
             orderDate: moment(orderDate || createdAt).format("DD MMM YYYY"),
@@ -2257,8 +2483,8 @@ const mapSlotForUi = (slotData) => {
             total: `₹ ${Number(totalAmount || 0).toFixed(2)}`,
             "Paid Amt": `₹ ${Number(totalPaidAmount || 0).toFixed(2)}`,
             "remaining Amt": `₹ ${Number(balanceAmount || totalAmount - (totalPaidAmount || 0)).toFixed(2)}`,
-            "remaining Plants": quantity, // For Agri Sales, remaining is same as quantity until accepted
-            "returned Plants": 0,
+            "remaining Plants": displayQuantity, // For Agri Sales, remaining is same as quantity until accepted
+            "returned Plants": returnQuantity || 0,
             orderStatus: orderStatus,
             dispatchStatus: dispatchStatus || "NOT_DISPATCHED",
             Delivery: "-", // Agri Sales orders don't have slots
@@ -2268,11 +2494,13 @@ const mapSlotForUi = (slotData) => {
               customerName,
               customerMobile,
               customerVillage,
-              customerTaluka,
-              customerDistrict,
-              productName,
-              productId,
+                customerTaluka,
+                customerDistrict,
+                productName: productNameValue,
+                productId: productIdValue,
               quantity,
+              deliveredQuantity: deliveredQuantity || quantity,
+              returnQuantity: returnQuantity || 0,
               unit,
               rate,
               totalAmount,
@@ -2282,9 +2510,10 @@ const mapSlotForUi = (slotData) => {
               balanceAmount: balanceAmount || totalAmount,
               orderDate,
               deliveryDate,
-              notes,
-              createdBy,
-              orderid: _id,
+                notes,
+                createdBy: createdByValue,
+                createdByName: createdByName,
+                orderid: _id,
               orderNumber,
               // Dispatch details
               dispatchStatus: dispatchStatus || "NOT_DISPATCHED",
@@ -2300,10 +2529,14 @@ const mapSlotForUi = (slotData) => {
               courierTrackingId,
               courierContact,
               // Assignment details
-              assignedTo,
+              assignedTo: assignedToValue,
+              assignedToName: assignedToName,
               assignedAt,
               assignedBy,
               assignmentNotes,
+              // Return details
+              returnReason,
+              returnNotes,
             },
           }
         })
@@ -2537,6 +2770,9 @@ const mapSlotForUi = (slotData) => {
     setpatchLoading(true)
 
     try {
+      // Check if this is an agri sales order
+      const isAgriSalesOrder = row?.isAgriSalesOrder || row?.details?.isRamAgriProduct || false
+      
       // Handle Date objects for farmReadyDate and deliveryDate
       const dataToSend = { ...patchObj }
 
@@ -2547,66 +2783,100 @@ const mapSlotForUi = (slotData) => {
       }
 
       console.log("=== PATCH ORDER PAYLOAD DEBUG ===")
+      console.log("Is Agri Sales Order:", isAgriSalesOrder)
       console.log("Full dataToSend:", dataToSend)
       console.log("deliveryDate in payload:", dataToSend.deliveryDate)
       console.log("bookingSlot in payload:", dataToSend.bookingSlot)
 
-      // Validate slot capacity if booking slot is being changed
-      if (dataToSend.bookingSlot && dataToSend.quantity) {
-        const selectedSlot = slots.find((slot) => slot.value === dataToSend.bookingSlot)
-        if (selectedSlot) {
-          const requestedQuantity = Number(dataToSend.quantity)
-          const availableCapacity = selectedSlot.available
+      // For agri sales orders, skip slot validation (they don't use slots)
+      if (!isAgriSalesOrder) {
+        // Validate slot capacity if booking slot is being changed (only for regular orders)
+        if (dataToSend.bookingSlot && dataToSend.quantity) {
+          const selectedSlot = slots.find((slot) => slot.value === dataToSend.bookingSlot)
+          if (selectedSlot) {
+            const requestedQuantity = Number(dataToSend.quantity)
+            const availableCapacity = selectedSlot.available
 
-          // If this is the same order, add back its current quantity to available capacity
-          const currentOrderQuantity = row?.quantity || 0
-          const adjustedAvailableCapacity = availableCapacity + currentOrderQuantity
+            // If this is the same order, add back its current quantity to available capacity
+            const currentOrderQuantity = row?.quantity || 0
+            const adjustedAvailableCapacity = availableCapacity + currentOrderQuantity
 
-          if (requestedQuantity > adjustedAvailableCapacity) {
-            Toast.error(
-              `Insufficient slot capacity. Available: ${adjustedAvailableCapacity}, Requested: ${requestedQuantity}`
-            )
+            if (requestedQuantity > adjustedAvailableCapacity) {
+              Toast.error(
+                `Insufficient slot capacity. Available: ${adjustedAvailableCapacity}, Requested: ${requestedQuantity}`
+              )
+              setpatchLoading(false)
+              return
+            }
+          }
+        }
+
+        // Validate quantity changes (only for regular orders)
+        if (dataToSend.quantity) {
+          const newQuantity = Number(dataToSend.quantity)
+          const currentQuantity = Number(row?.quantity || 0)
+
+          if (newQuantity <= 0) {
+            Toast.error("Quantity must be greater than 0")
+            setpatchLoading(false)
+            return
+          }
+
+          // If quantity is being increased, check slot capacity
+          if (newQuantity > currentQuantity) {
+            const slotId = dataToSend.bookingSlot || row?.details?.bookingSlot?.slotId
+            if (slotId) {
+              const selectedSlot = slots.find((slot) => slot.value === slotId)
+              if (selectedSlot) {
+                const quantityIncrease = newQuantity - currentQuantity
+                if (quantityIncrease > selectedSlot.available) {
+                  Toast.error(
+                    `Cannot increase quantity. Available capacity: ${selectedSlot.available}`
+                  )
+                  setpatchLoading(false)
+                  return
+                }
+              }
+            }
+          }
+        }
+      } else {
+        // For agri sales orders, validate quantity
+        if (dataToSend.quantity) {
+          const newQuantity = Number(dataToSend.quantity)
+          if (newQuantity <= 0) {
+            Toast.error("Quantity must be greater than 0")
             setpatchLoading(false)
             return
           }
         }
       }
 
-      // Validate quantity changes
-      if (dataToSend.quantity) {
-        const newQuantity = Number(dataToSend.quantity)
-        const currentQuantity = Number(row?.quantity || 0)
-
-        if (newQuantity <= 0) {
-          Toast.error("Quantity must be greater than 0")
-          setpatchLoading(false)
-          return
-        }
-
-        // If quantity is being increased, check slot capacity
-        if (newQuantity > currentQuantity) {
-          const slotId = dataToSend.bookingSlot || row?.details?.bookingSlot?.slotId
-          if (slotId) {
-            const selectedSlot = slots.find((slot) => slot.value === slotId)
-            if (selectedSlot) {
-              const quantityIncrease = newQuantity - currentQuantity
-              if (quantityIncrease > selectedSlot.available) {
-                Toast.error(
-                  `Cannot increase quantity. Available capacity: ${selectedSlot.available}`
-                )
-                setpatchLoading(false)
-                return
-              }
-            }
-          }
+      // Use appropriate endpoint based on order type
+      let instance
+      let payload
+      let urlParams = null
+      
+      if (isAgriSalesOrder) {
+        // Agri Sales Order update - use PATCH /inventory/agri-sales-orders/:id
+        instance = NetworkManager(API.INVENTORY.UPDATE_AGRI_SALES_ORDER)
+        // Remove fields that don't apply to agri sales orders
+        const { numberOfPlants, bookingSlot, id, ...agriPayload } = dataToSend
+        // For agri sales orders, id goes in URL params as array
+        urlParams = [dataToSend.id]
+        payload = agriPayload
+      } else {
+        // Regular Order update
+        instance = NetworkManager(API.ORDER.UPDATE_ORDER)
+        payload = {
+          ...dataToSend,
+          numberOfPlants: dataToSend?.quantity
         }
       }
 
-      const instance = NetworkManager(API.ORDER.UPDATE_ORDER)
-      const emps = await instance.request({
-        ...dataToSend,
-        numberOfPlants: dataToSend?.quantity
-      })
+      const emps = urlParams 
+        ? await instance.request(payload, urlParams)
+        : await instance.request(payload)
 
       refreshComponent()
 
@@ -2637,8 +2907,8 @@ const mapSlotForUi = (slotData) => {
           }, 500)
         }
 
-        // Refresh slots to get updated capacity
-        if (dataToSend.bookingSlot || dataToSend.quantity) {
+        // Refresh slots to get updated capacity (only for regular orders, not agri sales orders)
+        if (!isAgriSalesOrder && (dataToSend.bookingSlot || dataToSend.quantity)) {
           const plantId = row?.details?.plantID || selectedOrder?.details?.plantID
           const subtypeId = row?.details?.plantSubtypeID || selectedOrder?.details?.plantSubtypeID
           if (plantId && subtypeId) {
@@ -2671,6 +2941,8 @@ const mapSlotForUi = (slotData) => {
         return "bg-green-100 text-green-700"
       case "PENDING":
         return "bg-yellow-100 text-yellow-700"
+      case "ASSIGNED":
+        return "bg-purple-100 text-purple-700"
       case "REJECTED":
       case "CANCELLED":
         return "bg-red-100 text-red-700"
@@ -2732,12 +3004,18 @@ const mapSlotForUi = (slotData) => {
   const handleStatusChange = async (row, newStatus) => {
     // Handle Agri Sales orders differently
     if (row.isAgriSalesOrder) {
+      // Don't allow status change for COMPLETED orders
+      if (row.orderStatus === "COMPLETED") {
+        Toast.error("Cannot change status of completed orders")
+        return
+      }
+
       setConfirmDialog({
         open: true,
-        title: newStatus === "ACCEPTED" ? "Accept Order & Deduct Stock" : "Reject Order",
+        title: newStatus === "ACCEPTED" ? "Accept Order & Deduct Stock" : `Change Status to ${newStatus}`,
         description: newStatus === "ACCEPTED" 
           ? `Accept Order #${row.order}? This will deduct ${row.quantity} ${row.details?.unit || "units"} from inventory stock.`
-          : `Reject Order #${row.order}? This action cannot be undone.`,
+          : `Change status of Order #${row.order} from ${row.orderStatus} to ${newStatus}?`,
         onConfirm: async () => {
           setConfirmDialog((d) => ({ ...d, open: false }))
           setpatchLoading(true)
@@ -2759,6 +3037,16 @@ const mapSlotForUi = (slotData) => {
                 Toast.success("Order rejected successfully")
                 await getOrders()
                 fetchAgriStatusCounts() // Refresh counts after reject
+                refreshComponent()
+              }
+            } else {
+              // Handle other status changes (PENDING, ASSIGNED, DISPATCHED, etc.)
+              const instance = NetworkManager(API.INVENTORY.UPDATE_AGRI_SALES_ORDER)
+              const response = await instance.request({ orderStatus: newStatus }, [orderId])
+              if (response?.data) {
+                Toast.success(`Order status changed to ${newStatus} successfully`)
+                await getOrders()
+                fetchAgriStatusCounts() // Refresh counts after status change
                 refreshComponent()
               }
             }
@@ -3279,16 +3567,10 @@ const mapSlotForUi = (slotData) => {
               <div className="ml-4 pl-4 border-l border-gray-300">
                 <div className="flex items-center gap-1 overflow-x-auto scrollbar-hide pb-1">
                   <button
-                    onClick={() => setAgriDispatchStatusFilter("ALL")}
-                    className={`px-3 py-2 text-xs font-medium whitespace-nowrap transition-all border-b-2 ${
-                      agriDispatchStatusFilter === "ALL"
-                        ? "border-brand-600 text-brand-600 bg-brand-50"
-                        : "border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300"
-                    }`}>
-                    All <span className="ml-1 text-xs font-semibold">({agriStatusCounts.ALL})</span>
-                  </button>
-                  <button
-                    onClick={() => setAgriDispatchStatusFilter("PENDING")}
+                    onClick={() => {
+                      setAgriDispatchStatusFilter("PENDING")
+                      setOutstandingPage(1) // Reset pagination when switching away from outstanding
+                    }}
                     className={`px-3 py-2 text-xs font-medium whitespace-nowrap transition-all border-b-2 ${
                       agriDispatchStatusFilter === "PENDING"
                         ? "border-yellow-600 text-yellow-600 bg-yellow-50"
@@ -3297,7 +3579,10 @@ const mapSlotForUi = (slotData) => {
                     ⏳ Pending <span className="ml-1 text-xs font-semibold">({agriStatusCounts.PENDING})</span>
                   </button>
                   <button
-                    onClick={() => setAgriDispatchStatusFilter("ACCEPTED")}
+                    onClick={() => {
+                      setAgriDispatchStatusFilter("ACCEPTED")
+                      setOutstandingPage(1) // Reset pagination when switching away from outstanding
+                    }}
                     className={`px-3 py-2 text-xs font-medium whitespace-nowrap transition-all border-b-2 ${
                       agriDispatchStatusFilter === "ACCEPTED"
                         ? "border-gray-600 text-gray-600 bg-gray-50"
@@ -3306,7 +3591,10 @@ const mapSlotForUi = (slotData) => {
                     ✓ Accepted <span className="ml-1 text-xs font-semibold">({agriStatusCounts.ACCEPTED})</span>
                   </button>
                   <button
-                    onClick={() => setAgriDispatchStatusFilter("ASSIGNED")}
+                    onClick={() => {
+                      setAgriDispatchStatusFilter("ASSIGNED")
+                      setOutstandingPage(1) // Reset pagination when switching away from outstanding
+                    }}
                     className={`px-3 py-2 text-xs font-medium whitespace-nowrap transition-all border-b-2 ${
                       agriDispatchStatusFilter === "ASSIGNED"
                         ? "border-purple-600 text-purple-600 bg-purple-50"
@@ -3315,7 +3603,10 @@ const mapSlotForUi = (slotData) => {
                     👤 Assigned <span className="ml-1 text-xs font-semibold">({agriStatusCounts.ASSIGNED})</span>
                   </button>
                   <button
-                    onClick={() => setAgriDispatchStatusFilter("DISPATCHED")}
+                    onClick={() => {
+                      setAgriDispatchStatusFilter("DISPATCHED")
+                      setOutstandingPage(1) // Reset pagination when switching away from outstanding
+                    }}
                     className={`px-3 py-2 text-xs font-medium whitespace-nowrap transition-all border-b-2 ${
                       agriDispatchStatusFilter === "DISPATCHED"
                         ? "border-brand-600 text-brand-600 bg-brand-50"
@@ -3324,22 +3615,28 @@ const mapSlotForUi = (slotData) => {
                     🚚 Dispatched <span className="ml-1 text-xs font-semibold">({agriStatusCounts.DISPATCHED})</span>
                   </button>
                   <button
-                    onClick={() => setAgriDispatchStatusFilter("IN_TRANSIT")}
-                    className={`px-3 py-2 text-xs font-medium whitespace-nowrap transition-all border-b-2 ${
-                      agriDispatchStatusFilter === "IN_TRANSIT"
-                        ? "border-orange-600 text-orange-600 bg-orange-50"
-                        : "border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300"
-                    }`}>
-                    🛣️ In Transit <span className="ml-1 text-xs font-semibold">({agriStatusCounts.IN_TRANSIT})</span>
-                  </button>
-                  <button
-                    onClick={() => setAgriDispatchStatusFilter("COMPLETED")}
+                    onClick={() => {
+                      setAgriDispatchStatusFilter("COMPLETED")
+                      setOutstandingPage(1) // Reset pagination when switching away from outstanding
+                    }}
                     className={`px-3 py-2 text-xs font-medium whitespace-nowrap transition-all border-b-2 ${
                       agriDispatchStatusFilter === "COMPLETED"
                         ? "border-green-600 text-green-600 bg-green-50"
                         : "border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300"
                     }`}>
                     ✅ Completed <span className="ml-1 text-xs font-semibold">({agriStatusCounts.COMPLETED})</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setAgriDispatchStatusFilter("OUTSTANDING")
+                      setOutstandingPage(1) // Reset to first page when switching to outstanding
+                    }}
+                    className={`px-3 py-2 text-xs font-medium whitespace-nowrap transition-all border-b-2 ${
+                      agriDispatchStatusFilter === "OUTSTANDING"
+                        ? "border-orange-600 text-orange-600 bg-orange-50"
+                        : "border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300"
+                    }`}>
+                    💰 Outstanding <span className="ml-1 text-xs font-semibold">({agriStatusCounts.OUTSTANDING})</span>
                   </button>
                 </div>
               </div>
@@ -3405,8 +3702,11 @@ const mapSlotForUi = (slotData) => {
 
         {/* Filter orders based on order status for Agri Sales */}
         {(() => {
-          // Apply order status filter for Agri Sales orders
-          const filteredOrders = showAgriSalesOrders && agriDispatchStatusFilter !== "ALL"
+          // For outstanding, orders are already filtered by API, so don't filter again
+          // Just use orders directly as filteredOrders
+          const filteredOrders = showAgriSalesOrders && agriDispatchStatusFilter === "OUTSTANDING"
+            ? orders // Already filtered by API
+            : showAgriSalesOrders && agriDispatchStatusFilter !== "ALL"
             ? orders.filter(o => {
                 const orderStatus = o.orderStatus || "PENDING"
                 const dispatchStatus = o.details?.dispatchStatus || "NOT_DISPATCHED"
@@ -3419,8 +3719,6 @@ const mapSlotForUi = (slotData) => {
                   return orderStatus === "ASSIGNED"
                 } else if (agriDispatchStatusFilter === "DISPATCHED") {
                   return orderStatus === "DISPATCHED" || dispatchStatus === "DISPATCHED"
-                } else if (agriDispatchStatusFilter === "IN_TRANSIT") {
-                  return dispatchStatus === "IN_TRANSIT"
                 } else if (agriDispatchStatusFilter === "COMPLETED") {
                   return orderStatus === "COMPLETED" || dispatchStatus === "DELIVERED"
                 }
@@ -3493,13 +3791,10 @@ const mapSlotForUi = (slotData) => {
                     )}
                     {/* Dispatch Info Column for Agri Sales */}
                     {showAgriSalesOrders && (
-                      <th className="px-2 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider min-w-[120px] bg-gray-50">
+                      <th className="px-2 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider min-w-[100px] bg-gray-50">
                         Dispatch
                       </th>
                     )}
-                    <th className="px-2 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider min-w-[140px] bg-gray-50">
-                      Delivery
-                    </th>
                     <th className="px-2 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider min-w-[110px] bg-gray-50">
                       Status
                     </th>
@@ -3511,9 +3806,14 @@ const mapSlotForUi = (slotData) => {
                 <tbody className="bg-white divide-y divide-gray-200">
                 {filteredOrders.map((row, index) => {
                   const farmerDetails = row?.details?.farmer
-                  const farmerLocation = farmerDetails
-                    ? [farmerDetails.district, farmerDetails.village].filter(Boolean).join(" → ")
-                    : null
+                  // For Ram Agri sales orders, use customerTaluka and customerVillage
+                  const farmerLocation = row.isAgriSalesOrder || row.details?.isRamAgriProduct
+                    ? (row.details?.customerTaluka && row.details?.customerVillage
+                        ? `${row.details.customerTaluka} → ${row.details.customerVillage}`
+                        : row.details?.customerTaluka || row.details?.customerVillage || null)
+                    : (farmerDetails
+                        ? [farmerDetails.district, farmerDetails.village].filter(Boolean).join(" → ")
+                        : null)
                   const hasPendingPayment = row?.details?.payment?.some((payment) => payment.paymentStatus === "PENDING")
 
                   // Determine row styling based on dispatch status for Agri Sales
@@ -3521,7 +3821,6 @@ const mapSlotForUi = (slotData) => {
                     if (!showAgriSalesOrders) return ""
                     const dispatchStatus = row.details?.dispatchStatus
                     if (dispatchStatus === "DISPATCHED") return "bg-brand-50 border-l-brand-500"
-                    if (dispatchStatus === "IN_TRANSIT") return "bg-orange-50 border-l-orange-500"
                     if (dispatchStatus === "DELIVERED") return "bg-green-50 border-l-green-500"
                     if (selectedAgriSalesOrders.includes(row.details?.orderid)) return "bg-amber-50 border-l-amber-500"
                     return ""
@@ -3561,7 +3860,7 @@ const mapSlotForUi = (slotData) => {
                             <div className="flex items-center justify-center">
                               <span className="text-lg" title="Assigned to sales person">👤</span>
                             </div>
-                          ) : row.orderStatus === "DISPATCHED" || row.details?.dispatchStatus === "DISPATCHED" || row.details?.dispatchStatus === "IN_TRANSIT" ? (
+                          ) : row.orderStatus === "DISPATCHED" || row.details?.dispatchStatus === "DISPATCHED" ? (
                             /* DISPATCHED orders - can be completed */
                             <div className="flex items-center justify-center gap-1">
                               <input
@@ -3610,8 +3909,10 @@ const mapSlotForUi = (slotData) => {
                       )}
                       <td className="px-2 py-2 whitespace-nowrap">
                         <div className="flex items-center gap-1.5">
-                          <span className="text-xs font-bold text-gray-900">#{row.order}</span>
-                          <DownloadPDFButton order={row} />
+                          <span className="text-xs font-bold text-gray-900">#{(row.isAgriSalesOrder || row.details?.isRamAgriProduct) ? String(row.order).padStart(5, '0') : row.order}</span>
+                          {!(row.isAgriSalesOrder || row.details?.isRamAgriProduct) && (
+                            <DownloadPDFButton order={row} />
+                          )}
                         </div>
                         <div className="text-[10px] text-gray-500 mt-0.5">{row.orderDate}</div>
                       </td>
@@ -3646,18 +3947,37 @@ const mapSlotForUi = (slotData) => {
                         <div className="text-xs text-gray-900 font-medium leading-tight">{row.plantType}</div>
                       </td>
                       <td className="px-2 py-2">
-                        <div className="text-xs font-bold text-gray-900">
-                          {(row.totalPlants ?? row.quantity)?.toLocaleString()}
-                        </div>
-                        {row.additionalPlants > 0 && (
-                          <div className="text-[10px] text-brand-600 mt-0.5">
-                            B:{row.basePlants?.toLocaleString()} +{row.additionalPlants?.toLocaleString()}
-                          </div>
-                        )}
-                        {row["remaining Plants"] < (row.totalPlants ?? row.quantity) && (
-                          <div className="text-[10px] text-orange-600 mt-0.5 font-medium">
-                            Rem: {row["remaining Plants"]?.toLocaleString()}
-                          </div>
+                        {/* Show final quantity for completed Agri Sales orders */}
+                        {row.isAgriSalesOrder && row.orderStatus === "COMPLETED" && row.details?.deliveredQuantity > 0 ? (
+                          <>
+                            <div className="text-xs font-bold text-green-700">
+                              Final: {row.details.deliveredQuantity?.toLocaleString()}
+                            </div>
+                            {row.details.returnQuantity > 0 && (
+                              <div className="text-[10px] text-red-600 mt-0.5">
+                                Returned: {row.details.returnQuantity?.toLocaleString()}
+                              </div>
+                            )}
+                            <div className="text-[10px] text-gray-500 mt-0.5">
+                              Original: {row.quantity?.toLocaleString()}
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div className="text-xs font-bold text-gray-900">
+                              {(row.totalPlants ?? row.quantity)?.toLocaleString()}
+                            </div>
+                            {row.additionalPlants > 0 && (
+                              <div className="text-[10px] text-brand-600 mt-0.5">
+                                B:{row.basePlants?.toLocaleString()} +{row.additionalPlants?.toLocaleString()}
+                              </div>
+                            )}
+                            {row["remaining Plants"] < (row.totalPlants ?? row.quantity) && (
+                              <div className="text-[10px] text-orange-600 mt-0.5 font-medium">
+                                Rem: {row["remaining Plants"]?.toLocaleString()}
+                              </div>
+                            )}
+                          </>
                         )}
                       </td>
                       <td className="px-2 py-2 whitespace-nowrap">
@@ -3683,88 +4003,65 @@ const mapSlotForUi = (slotData) => {
                       )}
                       {/* Dispatch Info Cell for Agri Sales */}
                       {showAgriSalesOrders && (
-                        <td className="px-2 py-2">
+                        <td className="px-2 py-1">
                           {row.details?.dispatchStatus && row.details?.dispatchStatus !== "NOT_DISPATCHED" ? (
                             <div className="flex flex-col gap-0.5">
-                              {/* Dispatch Status Badge */}
                               <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium inline-block w-fit ${
                                 row.details.dispatchStatus === "DISPATCHED" 
                                   ? row.details.dispatchMode === "COURIER" ? "bg-purple-100 text-purple-700" : "bg-brand-100 text-brand-700"
-                                  : row.details.dispatchStatus === "IN_TRANSIT" ? "bg-orange-100 text-orange-700" 
                                   : row.details.dispatchStatus === "DELIVERED" ? "bg-green-100 text-green-700" 
                                   : "bg-gray-100 text-gray-700"
                               }`}>
                                 {row.details.dispatchMode === "COURIER" ? "📦 " : "🚚 "}
                                 {row.details.dispatchStatus}
                               </span>
-                              
-                              {/* Vehicle Mode Info */}
-                              {row.details?.dispatchMode === "VEHICLE" && (
-                                <>
-                                  {row.details?.vehicleNumber && (
-                                    <div className="text-[10px] text-gray-600">🚗 {row.details.vehicleNumber}</div>
-                                  )}
-                                  {row.details?.driverName && (
-                                    <div className="text-[10px] text-gray-600">👤 {row.details.driverName}</div>
-                                  )}
-                                </>
-                              )}
-                              
-                              {/* Courier Mode Info */}
-                              {row.details?.dispatchMode === "COURIER" && (
-                                <>
-                                  {row.details?.courierName && (
-                                    <div className="text-[10px] text-purple-600">📦 {row.details.courierName}</div>
-                                  )}
-                                  {row.details?.courierTrackingId && (
-                                    <div className="text-[10px] text-gray-600">🔍 {row.details.courierTrackingId}</div>
-                                  )}
-                                </>
-                              )}
-                              
-                              {/* Fallback for old data without dispatchMode */}
-                              {!row.details?.dispatchMode && row.details?.vehicleNumber && (
-                                <>
-                                  <div className="text-[10px] text-gray-600">🚗 {row.details.vehicleNumber}</div>
-                                  {row.details?.driverName && (
-                                    <div className="text-[10px] text-gray-600">👤 {row.details.driverName}</div>
-                                  )}
-                                </>
-                              )}
-                              
-                              {/* Dispatched By Info */}
-                              {row.details?.dispatchedBy && (
-                                <div className="text-[10px] text-brand-600 font-medium">
-                                  By: {row.details.dispatchedBy?.name || "Unknown"}
-                                </div>
-                              )}
-                              
-                              {row.details?.dispatchedAt && (
-                                <div className="text-[10px] text-gray-500">
-                                  {moment(row.details.dispatchedAt).format("DD MMM, hh:mm A")}
+                              {(row.details?.vehicleNumber || row.details?.courierName) && (
+                                <div className="text-[9px] text-gray-600 truncate">
+                                  {row.details.dispatchMode === "COURIER" 
+                                    ? row.details.courierName || row.details.courierTrackingId || ""
+                                    : row.details.vehicleNumber || ""
+                                  }
                                 </div>
                               )}
                             </div>
                           ) : (
-                            <div className="flex flex-col items-start gap-1">
-                              <span className="text-[10px] px-2 py-1 rounded bg-gray-100 text-gray-500 font-medium">
-                                ⏳ Pending Dispatch
-                              </span>
-                            </div>
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 font-medium">
+                              ⏳ Pending
+                            </span>
                           )}
                         </td>
                       )}
-                      <td className="px-2 py-2">
-                        <div className="text-xs text-brand-600 font-semibold leading-tight">{row.Delivery}</div>
-                        {row.deliveryDate && row.deliveryDate !== "-" && (
-                          <div className="text-[10px] text-brand-700 mt-0.5 font-medium">📅 {row.deliveryDate}</div>
-                        )}
-                        {row["Farm Ready"] !== "-" && (
-                          <div className="text-[10px] text-green-700 mt-0.5 font-medium">🌱 {row["Farm Ready"]}</div>
-                        )}
-                      </td>
                       <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
-                        {row.orderStatus !== "COMPLETED" && row.orderStatus !== "DISPATCHED" ? (
+                        {/* Show dropdown for non-COMPLETED Agri Sales orders, static badge for COMPLETED */}
+                        {showAgriSalesOrders ? (
+                          row.orderStatus === "COMPLETED" ? (
+                            <div className="flex flex-col gap-0.5">
+                              <span
+                                className={`status-badge-enhanced status-${row.orderStatus
+                                  .toLowerCase()
+                                  .replace("_", "-")} inline-flex items-center gap-1 text-[10px] px-2 py-0.5`}>
+                                {row.orderStatus === "FARM_READY" && "🌱"}
+                                {row.orderStatus === "DISPATCH_PROCESS" ? "Loading" : row.orderStatus}
+                              </span>
+                              {/* Show outstanding indicator for COMPLETED orders with balance */}
+                              {agriDispatchStatusFilter === "OUTSTANDING" && (
+                                <span className="text-[9px] text-orange-600 font-medium bg-orange-50 px-1.5 py-0.5 rounded">
+                                  💰 Outstanding
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <SearchableDropdown
+                              label=""
+                              value={row.orderStatus}
+                              onChange={(newStatus) => handleStatusChange(row, newStatus)}
+                              options={orderStatusOptions || []}
+                              placeholder="Select Status"
+                              maxHeight="200px"
+                              isStatusDropdown={true}
+                            />
+                          )
+                        ) : row.orderStatus !== "COMPLETED" && row.orderStatus !== "DISPATCHED" ? (
                           <SearchableDropdown
                             label=""
                             value={row.orderStatus}
@@ -3865,9 +4162,19 @@ const mapSlotForUi = (slotData) => {
           <div className="bg-gray-50 border-t border-gray-200 px-4 py-2">
             <div className="flex items-center justify-between text-xs">
               <div className="text-gray-600">
-                Showing <span className="font-semibold">{filteredOrders.length}</span> order{filteredOrders.length !== 1 ? 's' : ''}
-                {showAgriSalesOrders && agriDispatchStatusFilter !== "ALL" && (
-                  <span className="text-gray-400 ml-1">(filtered from {orders.length} total)</span>
+                {agriDispatchStatusFilter === "OUTSTANDING" ? (
+                  <>
+                    Showing <span className="font-semibold">{((outstandingPage - 1) * outstandingPerPage) + 1}</span> to{' '}
+                    <span className="font-semibold">{Math.min(outstandingPage * outstandingPerPage, outstandingTotal)}</span> of{' '}
+                    <span className="font-semibold">{outstandingTotal}</span> outstanding orders
+                  </>
+                ) : (
+                  <>
+                    Showing <span className="font-semibold">{filteredOrders.length}</span> order{filteredOrders.length !== 1 ? 's' : ''}
+                    {showAgriSalesOrders && agriDispatchStatusFilter !== "ALL" && (
+                      <span className="text-gray-400 ml-1">(filtered from {orders.length} total)</span>
+                    )}
+                  </>
                 )}
               </div>
               <div className="flex items-center gap-3 text-gray-600">
@@ -3897,6 +4204,34 @@ const mapSlotForUi = (slotData) => {
                 </div>
               </div>
             </div>
+            {/* Pagination for Outstanding Orders */}
+            {agriDispatchStatusFilter === "OUTSTANDING" && outstandingTotal > outstandingPerPage && (
+              <div className="flex items-center justify-center gap-2 mt-3 pt-3 border-t border-gray-300">
+                <button
+                  onClick={() => setOutstandingPage(prev => Math.max(1, prev - 1))}
+                  disabled={outstandingPage === 1}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                    outstandingPage === 1
+                      ? "bg-gray-100 text-gray-400 cursor-not-allowed"
+                      : "bg-white text-gray-700 hover:bg-gray-50 border border-gray-300"
+                  }`}>
+                  Previous
+                </button>
+                <span className="text-xs text-gray-600 px-3">
+                  Page {outstandingPage} of {Math.ceil(outstandingTotal / outstandingPerPage)}
+                </span>
+                <button
+                  onClick={() => setOutstandingPage(prev => prev + 1)}
+                  disabled={outstandingPage * outstandingPerPage >= outstandingTotal}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                    outstandingPage * outstandingPerPage >= outstandingTotal
+                      ? "bg-gray-100 text-gray-400 cursor-not-allowed"
+                      : "bg-white text-gray-700 hover:bg-gray-50 border border-gray-300"
+                  }`}>
+                  Next
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -3907,9 +4242,14 @@ const mapSlotForUi = (slotData) => {
               {filteredOrders && filteredOrders.length > 0 ? (
                 filteredOrders.map((row, index) => {
                   const farmerDetails = row?.details?.farmer
-                  const farmerLocation = farmerDetails
-                    ? [farmerDetails.district, farmerDetails.village].filter(Boolean).join(" → ")
-                    : null
+                  // For Ram Agri sales orders, use customerTaluka and customerVillage
+                  const farmerLocation = row.isAgriSalesOrder || row.details?.isRamAgriProduct
+                    ? (row.details?.customerTaluka && row.details?.customerVillage
+                        ? `${row.details.customerTaluka} → ${row.details.customerVillage}`
+                        : row.details?.customerTaluka || row.details?.customerVillage || null)
+                    : (farmerDetails
+                        ? [farmerDetails.district, farmerDetails.village].filter(Boolean).join(" → ")
+                        : null)
 
                   return (
                     <div
@@ -3928,7 +4268,7 @@ const mapSlotForUi = (slotData) => {
                         <div className="flex items-start justify-between mb-2">
                           <div className="flex-1">
                             <div className="flex items-center gap-2">
-                              <h3 className="font-semibold text-gray-900 text-sm">Order #{row.order}</h3>
+                              <h3 className="font-semibold text-gray-900 text-sm">Order #{(row.isAgriSalesOrder || row.details?.isRamAgriProduct) ? String(row.order).padStart(5, '0') : row.order}</h3>
                             </div>
                             <div className="flex items-center gap-1 mt-1 flex-wrap">
                               {row.details?.orderFor ? (
@@ -3971,13 +4311,46 @@ const mapSlotForUi = (slotData) => {
                                 className="w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
                               />
                             )}
-                            <DownloadPDFButton order={row} />
+                            {!(row.isAgriSalesOrder || row.details?.isRamAgriProduct) && (
+                              <DownloadPDFButton order={row} />
+                            )}
                           </div>
                         </div>
 
                         {/* Status Badge */}
                         <div className="flex items-center justify-between mt-2">
-                          {row.orderStatus !== "COMPLETED" && row.orderStatus !== "DISPATCHED" ? (
+                          {/* Show dropdown for non-COMPLETED Agri Sales orders, static badge for COMPLETED */}
+                          {showAgriSalesOrders ? (
+                            row.orderStatus === "COMPLETED" ? (
+                              <div className="flex flex-col gap-1">
+                                <span
+                                  className={`status-badge-enhanced status-${row.orderStatus
+                                    .toLowerCase()
+                                    .replace("_", "-")} flex items-center gap-1`}>
+                                  {row.orderStatus === "FARM_READY" && "🌱"}
+                                  {row.orderStatus === "DISPATCH_PROCESS" ? "Loading" : row.orderStatus}
+                                </span>
+                                {/* Show outstanding indicator for COMPLETED orders with balance */}
+                                {agriDispatchStatusFilter === "OUTSTANDING" && (
+                                  <span className="text-[9px] text-orange-600 font-medium bg-orange-50 px-1.5 py-0.5 rounded inline-block w-fit">
+                                    💰 Outstanding
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="relative" onClick={(e) => e.stopPropagation()}>
+                                <SearchableDropdown
+                                  label=""
+                                  value={row.orderStatus}
+                                  onChange={(newStatus) => handleStatusChange(row, newStatus)}
+                                  options={orderStatusOptions || []}
+                                  placeholder="Select Status"
+                                  maxHeight="200px"
+                                  isStatusDropdown={true}
+                                />
+                              </div>
+                            )
+                          ) : row.orderStatus !== "COMPLETED" && row.orderStatus !== "DISPATCHED" ? (
                             <div className="relative" onClick={(e) => e.stopPropagation()}>
                               <SearchableDropdown
                                 label=""
@@ -3990,13 +4363,21 @@ const mapSlotForUi = (slotData) => {
                               />
                             </div>
                           ) : (
-                            <span
-                              className={`status-badge-enhanced status-${row.orderStatus
-                                .toLowerCase()
-                                .replace("_", "-")} flex items-center gap-1`}>
-                              {row.orderStatus === "FARM_READY" && "🌱"}
-                              {row.orderStatus === "DISPATCH_PROCESS" ? "Loading" : row.orderStatus}
-                            </span>
+                            <div className="flex flex-col gap-1">
+                              <span
+                                className={`status-badge-enhanced status-${row.orderStatus
+                                  .toLowerCase()
+                                  .replace("_", "-")} flex items-center gap-1`}>
+                                {row.orderStatus === "FARM_READY" && "🌱"}
+                                {row.orderStatus === "DISPATCH_PROCESS" ? "Loading" : row.orderStatus}
+                              </span>
+                              {/* Show outstanding indicator for COMPLETED orders with balance */}
+                              {row.orderStatus === "COMPLETED" && agriDispatchStatusFilter === "OUTSTANDING" && (
+                                <span className="text-[9px] text-orange-600 font-medium bg-orange-50 px-1.5 py-0.5 rounded inline-block w-fit">
+                                  💰 Outstanding
+                                </span>
+                              )}
+                            </div>
                           )}
                         </div>
                       </div>
@@ -4013,19 +4394,38 @@ const mapSlotForUi = (slotData) => {
                         <div className="grid grid-cols-2 gap-3">
                           <div>
                             <span className="text-xs text-gray-500">Total Plants</span>
-                            <div className="text-sm font-medium text-gray-900">
-                              {(row.totalPlants ?? row.quantity)?.toLocaleString()}
-                            </div>
-                            {row.additionalPlants > 0 && (
-                              <div className="text-xs text-brand-600 mt-0.5">
-                                Base: {row.basePlants?.toLocaleString()} &middot; Extra: +
-                                {row.additionalPlants?.toLocaleString()}
-                              </div>
-                            )}
-                            {row["remaining Plants"] < (row.totalPlants ?? row.quantity) && (
-                              <div className="text-xs text-orange-600 mt-0.5">
-                                Remaining: {row["remaining Plants"]?.toLocaleString()}
-                              </div>
+                            {/* Show final quantity for completed Agri Sales orders */}
+                            {row.isAgriSalesOrder && row.orderStatus === "COMPLETED" && row.details?.deliveredQuantity > 0 ? (
+                              <>
+                                <div className="text-sm font-medium text-green-700">
+                                  Final: {row.details.deliveredQuantity?.toLocaleString()}
+                                </div>
+                                {row.details.returnQuantity > 0 && (
+                                  <div className="text-xs text-red-600 mt-0.5">
+                                    Returned: {row.details.returnQuantity?.toLocaleString()}
+                                  </div>
+                                )}
+                                <div className="text-xs text-gray-500 mt-0.5">
+                                  Original: {row.quantity?.toLocaleString()}
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                <div className="text-sm font-medium text-gray-900">
+                                  {(row.totalPlants ?? row.quantity)?.toLocaleString()}
+                                </div>
+                                {row.additionalPlants > 0 && (
+                                  <div className="text-xs text-brand-600 mt-0.5">
+                                    Base: {row.basePlants?.toLocaleString()} &middot; Extra: +
+                                    {row.additionalPlants?.toLocaleString()}
+                                  </div>
+                                )}
+                                {row["remaining Plants"] < (row.totalPlants ?? row.quantity) && (
+                                  <div className="text-xs text-orange-600 mt-0.5">
+                                    Remaining: {row["remaining Plants"]?.toLocaleString()}
+                                  </div>
+                                )}
+                              </>
                             )}
                           </div>
                           <div>
@@ -4370,10 +4770,47 @@ const mapSlotForUi = (slotData) => {
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <div className="bg-gray-50 rounded-lg p-3">
                             <h3 className="font-medium text-gray-900 mb-3 text-sm">
-                              {selectedOrder?.details?.orderFor ? "Order For Information" : "Farmer Information"}
+                              {selectedOrder?.isAgriSalesOrder || selectedOrder?.details?.isRamAgriProduct
+                                ? "Customer Information"
+                                : selectedOrder?.details?.orderFor 
+                                ? "Order For Information" 
+                                : "Farmer Information"}
                             </h3>
                             <div className="space-y-3">
-                              {selectedOrder?.details?.orderFor ? (
+                              {selectedOrder?.isAgriSalesOrder || selectedOrder?.details?.isRamAgriProduct ? (
+                                <>
+                                  <div className="flex flex-col space-y-1">
+                                    <span className="text-xs text-gray-500 font-medium">Customer Name</span>
+                                    <span className="font-medium text-sm text-gray-900">
+                                      {selectedOrder?.details?.customerName || selectedOrder?.farmerName}
+                                    </span>
+                                  </div>
+                                  <div className="flex flex-col space-y-1">
+                                    <span className="text-xs text-gray-500 font-medium">Mobile Number</span>
+                                    <span className="font-medium text-sm text-gray-900">
+                                      {selectedOrder?.details?.customerMobile || "-"}
+                                    </span>
+                                  </div>
+                                  {(selectedOrder?.details?.customerTaluka || selectedOrder?.details?.customerVillage) && (
+                                    <div className="flex flex-col space-y-1">
+                                      <span className="text-xs text-gray-500 font-medium">Location</span>
+                                      <span className="font-medium text-sm text-gray-900">
+                                        {selectedOrder?.details?.customerTaluka && selectedOrder?.details?.customerVillage
+                                          ? `${selectedOrder.details.customerTaluka} → ${selectedOrder.details.customerVillage}`
+                                          : selectedOrder?.details?.customerTaluka || selectedOrder?.details?.customerVillage || "-"}
+                                      </span>
+                                    </div>
+                                  )}
+                                  {selectedOrder?.details?.customerDistrict && (
+                                    <div className="flex flex-col space-y-1">
+                                      <span className="text-xs text-gray-500 font-medium">District</span>
+                                      <span className="font-medium text-sm text-gray-900">
+                                        {selectedOrder?.details?.customerDistrict}
+                                      </span>
+                                    </div>
+                                  )}
+                                </>
+                              ) : selectedOrder?.details?.orderFor ? (
                                 <>
                                   <div className="flex flex-col space-y-1">
                                     <span className="text-xs text-gray-500 font-medium">Customer Name</span>
@@ -6272,7 +6709,15 @@ const mapSlotForUi = (slotData) => {
                     .map((order) => (
                       <div key={order.details?.orderid} className="text-xs text-brand-700 flex justify-between">
                         <span className="font-medium">{order.order}</span>
-                        <span>{order.farmerName} • {order.details?.customerVillage}</span>
+                        <span>
+                          {order.farmerName || order.details?.customerName}
+                          {(order.details?.customerTaluka || order.details?.customerVillage) && (
+                            <> • {order.details?.customerTaluka && order.details?.customerVillage
+                              ? `${order.details.customerTaluka} → ${order.details.customerVillage}`
+                              : order.details?.customerTaluka || order.details?.customerVillage}
+                            </>
+                          )}
+                        </span>
                       </div>
                     ))}
                 </div>
@@ -6522,6 +6967,10 @@ const mapSlotForUi = (slotData) => {
                       const orderId = order.id || order._id || order.details?.orderid
                       const orderQty = order.details?.quantity || order.quantity || 0
                       const returnQty = agriCompleteForm.returnQuantities[orderId] || 0
+                      // For completed orders, show final quantity
+                      const displayQty = (order.orderStatus === "COMPLETED" && order.details?.deliveredQuantity > 0) 
+                        ? order.details.deliveredQuantity 
+                        : orderQty
                       return (
                         <div
                           key={orderId}
@@ -6530,11 +6979,25 @@ const mapSlotForUi = (slotData) => {
                             <div>
                               <span className="text-sm font-bold text-gray-900">{order.order || order.orderNumber}</span>
                               <span className="text-xs text-gray-500 ml-2">
-                                {order.details?.farmer?.name || order.customerName} • {order.details?.farmer?.village || order.customerVillage}
+                                {order.details?.farmer?.name || order.customerName || order.farmerName}
+                                {(order.isAgriSalesOrder || order.details?.isRamAgriProduct)
+                                  ? (order.details?.customerTaluka && order.details?.customerVillage
+                                      ? ` • ${order.details.customerTaluka} → ${order.details.customerVillage}`
+                                      : order.details?.customerTaluka || order.details?.customerVillage
+                                        ? ` • ${order.details.customerTaluka || order.details.customerVillage}`
+                                        : '')
+                                  : (order.details?.farmer?.village ? ` • ${order.details.farmer.village}` : '')}
                               </span>
                             </div>
-                            <span className="px-2 py-0.5 bg-brand-100 text-brand-700 text-xs font-medium rounded">
-                              Qty: {orderQty}
+                            <span className={`px-2 py-0.5 text-xs font-medium rounded ${
+                              order.orderStatus === "COMPLETED" && order.details?.deliveredQuantity > 0
+                                ? "bg-green-100 text-green-700"
+                                : "bg-brand-100 text-brand-700"
+                            }`}>
+                              {order.orderStatus === "COMPLETED" && order.details?.deliveredQuantity > 0 
+                                ? `Final Qty: ${displayQty}${order.details?.returnQuantity > 0 ? ` (Ret: ${order.details.returnQuantity})` : ""}`
+                                : `Qty: ${orderQty}`
+                              }
                             </span>
                           </div>
                           <div className="flex items-center gap-2">
@@ -6607,6 +7070,9 @@ const mapSlotForUi = (slotData) => {
                     ⚠️ Returned stock will be added back to inventory
                   </p>
                 )}
+                <p className="text-xs text-blue-600 mt-1 font-medium">
+                  💰 Payment will be adjusted based on final delivered quantity (original - returns).
+                </p>
               </div>
             </div>
 
@@ -6690,7 +7156,7 @@ const mapSlotForUi = (slotData) => {
                       <div key={order.id || order._id || order.details?.orderid} className="flex justify-between text-xs">
                         <span className="font-medium">{order.order || order.orderNumber}</span>
                         <span className="text-gray-500">
-                          {order.details?.farmer?.name || order.customerName} • ₹{(order.details?.totalAmount || order.totalAmount)?.toLocaleString()}
+                          {order.details?.farmer?.name || order.customerName || order.farmerName} • ₹{(order.details?.totalAmount || order.totalAmount)?.toLocaleString()}
                         </span>
                       </div>
                     ))}
