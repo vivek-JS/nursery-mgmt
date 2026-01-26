@@ -82,6 +82,7 @@ export default function PrivateLayout(props) {
   const primaryRedirectRef = useRef(false)
   const dispatchRedirectRef = useRef(false)
   const ramAgriSalesRedirectRef = useRef(false)
+  const ramAgriSalesManagerRedirectRef = useRef(false)
   const lastPathRef = useRef(location.pathname)
   
   console.log("User Type:", userType, "User Role:", userRole)
@@ -94,6 +95,8 @@ export default function PrivateLayout(props) {
   const isDispatchManager = userRole === "DISPATCH_MANAGER" || userType === "DISPATCH_MANAGER" || userData?.jobTitle === "DISPATCH_MANAGER"
   // Check RAM_AGRI_SALES by jobTitle
   const isRamAgriSales = userType === "RAM_AGRI_SALES" || userData?.jobTitle === "RAM_AGRI_SALES"
+  // Check RAM_AGRI_SALES_MANAGER by jobTitle (sidebar + restricted routes, not mobile-only)
+  const isRamAgriSalesManager = userType === "RAM_AGRI_SALES_MANAGER" || userData?.jobTitle === "RAM_AGRI_SALES_MANAGER"
   
   // Reset redirect flags when path changes (user navigated to a different route)
   useEffect(() => {
@@ -101,6 +104,7 @@ export default function PrivateLayout(props) {
       primaryRedirectRef.current = false
       dispatchRedirectRef.current = false
       ramAgriSalesRedirectRef.current = false
+      ramAgriSalesManagerRedirectRef.current = false
       lastPathRef.current = location.pathname
     }
   }, [location.pathname])
@@ -173,6 +177,24 @@ export default function PrivateLayout(props) {
       }
     }
   }, [isRamAgriSales, isSuperAdmin, isAdmin, location.pathname, navigate, userData])
+  
+  // RAM_AGRI_SALES_MANAGER can ONLY access: Dashboard, Ram Agri Input dashboard, Inventory, Ram Agri Input Order, Ram Agri Inputs Master
+  useEffect(() => {
+    if (!userData) return
+    if (ramAgriSalesManagerRedirectRef.current) return
+    if (!isRamAgriSalesManager || isSuperAdmin || isAdmin) return
+    const p = location.pathname
+    const allowed =
+      p === "/u/dashboard" ||
+      p === "/u/inventory" ||
+      p.startsWith("/u/inventory/ram-agri-sales-dashboard") ||
+      p.startsWith("/u/inventory/ram-agri-input-order") ||
+      p.startsWith("/u/inventory/ram-agri-inputs-master")
+    if (!allowed) {
+      ramAgriSalesManagerRedirectRef.current = true
+      navigate("/u/inventory/ram-agri-sales-dashboard", { replace: true })
+    }
+  }, [isRamAgriSalesManager, isSuperAdmin, isAdmin, location.pathname, navigate, userData])
   
   // Hide sidebar for primary sowing entry route, dispatch orders route, and mobile agri sales order route
   // With BrowserRouter, pathname is the actual route path
@@ -287,6 +309,15 @@ export default function PrivateLayout(props) {
                   return false
                 }
                 
+                // RAM_AGRI_SALES_MANAGER: only Dashboard, Ram Agri Input + Inventory
+                if (isRamAgriSalesManager && !isSuperAdmin && !isAdmin) {
+                  return (
+                    item.route === "/u/dashboard" ||
+                    item.route === "/u/inventory/ram-agri-sales-dashboard" ||
+                    item.route === "/u/inventory"
+                  )
+                }
+                
                 // Apply role-based access control
                 return hasMenuAccess(item)
               }).map((item, index) => {
@@ -295,7 +326,7 @@ export default function PrivateLayout(props) {
                     sx={activeMenu(item) ? styles.activeListItem : styles.listItem}
                     key={`${item.alias}-${item.route}-${index}`}
                     onClick={() => navigate(item.route)}>
-                    <ListItemIcon sx={activeMenu(item) ? styles.iconActive : styles.icon}>
+                    <ListItemIcon sx={{ color: "inherit" }}>
                       {item.icon}
                     </ListItemIcon>
                     <ListItemText>
@@ -311,12 +342,9 @@ export default function PrivateLayout(props) {
           <Box sx={{ flexShrink: 0 }}>
             <Divider sx={styles.divider} />
             <List>
-              <ListItemButton
-                style={{ paddingLeft: 10 }}
-                sx={{ paddingLeft: "10px !important" }}
-                onClick={handleLogout}>
-                <ListItemIcon sx={{ paddingLeft: 10 }}>
-                  <LogoutIcon color="secondary" />
+              <ListItemButton sx={styles.logoutButton} onClick={handleLogout}>
+                <ListItemIcon>
+                  <LogoutIcon />
                 </ListItemIcon>
                 <ListItemText>
                   <Typography sx={styles.listItemText}>Logout</Typography>

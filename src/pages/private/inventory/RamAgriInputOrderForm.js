@@ -31,6 +31,12 @@ const RamAgriInputOrderForm = () => {
     autoGRN: true, // Auto GRN toggle - pre-ticked by default
   });
 
+  const preventNumberScroll = (event) => {
+    if (event?.target) {
+      event.target.blur();
+    }
+  };
+
   useEffect(() => {
     loadMerchants();
     loadRamAgriCrops();
@@ -700,6 +706,7 @@ const RamAgriInputOrderForm = () => {
                             step="0.01"
                             value={item.quantity}
                             onChange={(e) => updateOrderItem(index, 'quantity', parseFloat(e.target.value) || 0)}
+                            onWheel={preventNumberScroll}
                             required
                             disabled={!item.ramAgriCropId || !item.ramAgriVarietyId}
                             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
@@ -718,6 +725,7 @@ const RamAgriInputOrderForm = () => {
                             step="0.01"
                             value={item.rate || ''}
                             onChange={(e) => updateOrderItem(index, 'rate', parseFloat(e.target.value) || 0)}
+                            onWheel={preventNumberScroll}
                             required
                             disabled={!item.ramAgriCropId || !item.ramAgriVarietyId}
                             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 disabled:bg-gray-100 disabled:cursor-not-allowed text-sm"

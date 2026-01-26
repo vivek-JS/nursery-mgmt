@@ -24,6 +24,7 @@ const RamAgriInputsProductMaster = () => {
   const [loading, setLoading] = useState(true);
   const [crops, setCrops] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [productType, setProductType] = useState('seed');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [varietyDialogOpen, setVarietyDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -63,6 +64,9 @@ const RamAgriInputsProductMaster = () => {
   const [errors, setErrors] = useState({});
   const [rateErrors, setRateErrors] = useState({});
 
+  const productTypeLabel = productType === 'chemical' ? 'Chemical' : 'Seed';
+  const productTypeLabelPlural = productType === 'chemical' ? 'Chemicals' : 'Seeds';
+
   useEffect(() => {
     fetchCrops();
     fetchUnits();
@@ -89,14 +93,14 @@ const RamAgriInputsProductMaster = () => {
     try {
       setLoading(true);
       const instance = NetworkManager(API.INVENTORY.GET_ALL_RAM_AGRI_INPUTS);
-      const response = await instance.request({ search: searchTerm });
+      const response = await instance.request({}, { search: searchTerm, productType });
       if (response?.data?.success || response?.data?.status === 'Success') {
         const data = response.data.data?.data || response.data.data || [];
         setCrops(data);
       }
     } catch (error) {
       console.error('Error fetching crops:', error);
-      Toast.error('Error loading crops');
+      Toast.error(`Error loading ${productTypeLabelPlural.toLowerCase()}`);
     } finally {
       setLoading(false);
     }
@@ -116,7 +120,7 @@ const RamAgriInputsProductMaster = () => {
     }, 300);
 
     return () => clearTimeout(timeoutId);
-  }, [searchTerm]);
+  }, [searchTerm, productType]);
 
   const openCreateDialog = () => {
     setEditingCrop(null);
@@ -218,7 +222,7 @@ const RamAgriInputsProductMaster = () => {
   const validateForm = () => {
     const newErrors = {};
     if (!formData.cropName.trim()) {
-      newErrors.cropName = 'Crop name is required';
+      newErrors.cropName = `${productTypeLabel} name is required`;
     }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -246,7 +250,7 @@ const RamAgriInputsProductMaster = () => {
       if (editingCrop) {
         const instance = NetworkManager(API.INVENTORY.UPDATE_RAM_AGRI_INPUT);
         response = await instance.request(
-          { cropName: formData.cropName.trim(), description: formData.description.trim() },
+          { cropName: formData.cropName.trim(), description: formData.description.trim(), productType },
           [editingCrop._id]
         );
       } else {
@@ -255,11 +259,12 @@ const RamAgriInputsProductMaster = () => {
           cropName: formData.cropName.trim(),
           description: formData.description.trim(),
           varieties: [],
+          productType,
         });
       }
 
       if (response?.data?.success || response?.data?.status === 'Success') {
-        Toast.success(`Crop ${editingCrop ? 'updated' : 'created'} successfully`);
+        Toast.success(`${productTypeLabel} ${editingCrop ? 'updated' : 'created'} successfully`);
         closeDialog();
         fetchCrops();
       } else {
@@ -267,7 +272,7 @@ const RamAgriInputsProductMaster = () => {
       }
     } catch (error) {
       console.error('Error saving crop:', error);
-      Toast.error(error?.response?.data?.message || 'Error saving crop');
+      Toast.error(error?.response?.data?.message || `Error saving ${productTypeLabel.toLowerCase()}`);
     } finally {
       setLoading(false);
     }
@@ -334,16 +339,16 @@ const RamAgriInputsProductMaster = () => {
       const response = await instance.request({}, [deleteTarget._id]);
 
       if (response?.data?.success || response?.data?.status === 'Success') {
-        Toast.success('Crop deleted successfully');
+        Toast.success(`${productTypeLabel} deleted successfully`);
         setDeleteDialogOpen(false);
         setDeleteTarget(null);
         fetchCrops();
       } else {
-        Toast.error(response?.data?.message || 'Failed to delete crop');
+        Toast.error(response?.data?.message || `Failed to delete ${productTypeLabel.toLowerCase()}`);
       }
     } catch (error) {
       console.error('Error deleting crop:', error);
-      Toast.error(error?.response?.data?.message || 'Error deleting crop');
+      Toast.error(error?.response?.data?.message || `Error deleting ${productTypeLabel.toLowerCase()}`);
     } finally {
       setLoading(false);
     }
@@ -598,7 +603,9 @@ const RamAgriInputsProductMaster = () => {
               <h1 className="text-3xl md:text-4xl font-bold text-gray-800">
                 Ram Agri Inputs Product Master
               </h1>
-              <p className="text-gray-600">Manage crops and their varieties</p>
+              <p className="text-gray-600">
+                Manage {productTypeLabelPlural.toLowerCase()} and their varieties
+              </p>
             </div>
           </div>
           <button
@@ -606,8 +613,40 @@ const RamAgriInputsProductMaster = () => {
             className="flex items-center space-x-2 bg-gradient-to-r from-green-500 to-emerald-600 text-white px-6 py-3 rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 transform hover:-translate-y-0.5 font-semibold"
           >
             <Plus className="w-5 h-5" />
-            <span>Add Crop</span>
+            <span>Add {productTypeLabel}</span>
           </button>
+        </div>
+      </div>
+
+      {/* Product Type Toggle */}
+      <div className="mb-6 flex flex-wrap items-center gap-4">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 px-4 py-2 flex items-center space-x-4">
+          <span className="text-sm font-semibold text-gray-700">Type:</span>
+          <label className="flex items-center space-x-2 text-sm text-gray-700 cursor-pointer">
+            <input
+              type="radio"
+              name="productType"
+              value="seed"
+              checked={productType === 'seed'}
+              onChange={() => setProductType('seed')}
+              className="text-green-600 focus:ring-green-500"
+            />
+            <span>Seeds</span>
+          </label>
+          <label className="flex items-center space-x-2 text-sm text-gray-700 cursor-pointer">
+            <input
+              type="radio"
+              name="productType"
+              value="chemical"
+              checked={productType === 'chemical'}
+              onChange={() => setProductType('chemical')}
+              className="text-green-600 focus:ring-green-500"
+            />
+            <span>Chemicals</span>
+          </label>
+        </div>
+        <div className="text-sm text-gray-600">
+          Showing <span className="font-semibold">{productTypeLabelPlural}</span>
         </div>
       </div>
 
@@ -616,7 +655,9 @@ const RamAgriInputsProductMaster = () => {
         <div className="bg-white rounded-xl shadow-lg p-6 border-l-4 border-green-500">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-600 mb-1">Total Crops</p>
+              <p className="text-sm font-medium text-gray-600 mb-1">
+                Total {productTypeLabelPlural}
+              </p>
               <p className="text-3xl font-bold text-gray-800">{crops.length}</p>
             </div>
             <div className="p-3 bg-green-100 rounded-full">
@@ -640,7 +681,9 @@ const RamAgriInputsProductMaster = () => {
         <div className="bg-white rounded-xl shadow-lg p-6 border-l-4 border-purple-500">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-600 mb-1">Avg Varieties/Crop</p>
+              <p className="text-sm font-medium text-gray-600 mb-1">
+                Avg Varieties/{productTypeLabel}
+              </p>
               <p className="text-3xl font-bold text-gray-800">
                 {crops.length > 0
                   ? (
@@ -662,7 +705,7 @@ const RamAgriInputsProductMaster = () => {
           <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
           <input
             type="text"
-            placeholder="Search crops or varieties..."
+            placeholder={`Search ${productTypeLabelPlural.toLowerCase()} or varieties...`}
             value={searchTerm}
             onChange={handleSearch}
             className="w-full pl-12 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all bg-white shadow-sm"
@@ -725,7 +768,7 @@ const RamAgriInputsProductMaster = () => {
                             openEditDialog(crop);
                           }}
                           className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                          title="Edit Crop"
+                          title={`Edit ${productTypeLabel}`}
                         >
                           <Edit2 className="w-4 h-4" />
                         </button>
@@ -735,7 +778,7 @@ const RamAgriInputsProductMaster = () => {
                             openDeleteDialog(crop);
                           }}
                           className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                          title="Delete Crop"
+                          title={`Delete ${productTypeLabel}`}
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -925,9 +968,11 @@ const RamAgriInputsProductMaster = () => {
           {filteredCrops.length === 0 && (
             <div className="text-center py-20">
               <Crop className="w-20 h-20 mx-auto text-gray-300 mb-4" />
-              <p className="text-xl text-gray-500 mb-2">No crops found</p>
+              <p className="text-xl text-gray-500 mb-2">No {productTypeLabelPlural.toLowerCase()} found</p>
               <p className="text-gray-400 mb-6">
-                {searchTerm ? 'Try a different search term' : 'Get started by adding your first crop'}
+                {searchTerm
+                  ? 'Try a different search term'
+                  : `Get started by adding your first ${productTypeLabel.toLowerCase()}`}
               </p>
               {!searchTerm && (
                 <button
@@ -935,7 +980,7 @@ const RamAgriInputsProductMaster = () => {
                   className="inline-flex items-center space-x-2 bg-gradient-to-r from-green-500 to-emerald-600 text-white px-6 py-3 rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 transform hover:-translate-y-0.5 font-semibold"
                 >
                   <Plus className="w-5 h-5" />
-                  <span>Add Crop</span>
+                  <span>Add {productTypeLabel}</span>
                 </button>
               )}
             </div>
@@ -949,7 +994,7 @@ const RamAgriInputsProductMaster = () => {
           <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto">
             <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between rounded-t-2xl">
               <h2 className="text-2xl font-bold text-gray-800">
-                {editingCrop ? 'Edit Crop' : 'Add New Crop'}
+                {editingCrop ? `Edit ${productTypeLabel}` : `Add New ${productTypeLabel}`}
               </h2>
               <button
                 onClick={closeDialog}
@@ -962,7 +1007,7 @@ const RamAgriInputsProductMaster = () => {
             <form onSubmit={handleSubmit} className="p-6 space-y-4">
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Crop Name <span className="text-red-500">*</span>
+                  {productTypeLabel} Name <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
@@ -971,7 +1016,7 @@ const RamAgriInputsProductMaster = () => {
                   className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all ${
                     errors.cropName ? 'border-red-500' : 'border-gray-300'
                   }`}
-                  placeholder="e.g., Watermelon"
+                  placeholder={`e.g., ${productTypeLabel === 'Chemical' ? 'Herbicide X' : 'Watermelon'}`}
                 />
                 {errors.cropName && (
                   <p className="text-red-500 text-sm mt-1">{errors.cropName}</p>
@@ -1279,7 +1324,7 @@ const RamAgriInputsProductMaster = () => {
                   <AlertCircle className="w-6 h-6 text-red-600" />
                 </div>
                 <div>
-                  <h2 className="text-xl font-bold text-gray-800">Delete Crop</h2>
+                  <h2 className="text-xl font-bold text-gray-800">Delete {productTypeLabel}</h2>
                   <p className="text-gray-600">This action cannot be undone</p>
                 </div>
               </div>
@@ -1287,7 +1332,7 @@ const RamAgriInputsProductMaster = () => {
                 Are you sure you want to delete <span className="font-semibold">{deleteTarget.cropName}</span>?
                 {deleteTarget.varieties?.length > 0 && (
                   <span className="block mt-2 text-sm text-orange-600">
-                    This will also delete all {deleteTarget.varieties.length} variety(ies) associated with this crop.
+                    This will also delete all {deleteTarget.varieties.length} variety(ies) associated with this {productTypeLabel.toLowerCase()}.
                   </span>
                 )}
               </p>

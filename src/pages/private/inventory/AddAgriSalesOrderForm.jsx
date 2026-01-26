@@ -10,6 +10,9 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  Radio,
+  RadioGroup,
+  FormControlLabel,
   Box,
   Typography,
   Grid,
@@ -115,6 +118,10 @@ const AddAgriSalesOrderForm = ({ open = true, onClose, onSuccess, isStandalone =
   const [ramAgriCrops, setRamAgriCrops] = useState([]);
   const [units, setUnits] = useState([]);
   const [customerData, setCustomerData] = useState({});
+  const [productType, setProductType] = useState("seed");
+
+  const productTypeLabel = productType === "chemical" ? "Chemical" : "Seed";
+  const productTypeLabelPlural = productType === "chemical" ? "Chemicals" : "Seeds";
 
   const [formData, setFormData] = useState({
     customerName: "",
@@ -168,7 +175,12 @@ const AddAgriSalesOrderForm = ({ open = true, onClose, onSuccess, isStandalone =
   // Load Ram Agri crops and units
   useEffect(() => {
     if (open) {
-      loadRamAgriCrops();
+      loadRamAgriCrops(productType);
+    }
+  }, [open, productType]);
+
+  useEffect(() => {
+    if (open) {
       loadUnits();
     }
   }, [open]);
@@ -208,11 +220,11 @@ const AddAgriSalesOrderForm = ({ open = true, onClose, onSuccess, isStandalone =
     }
   }, [formData?.ramAgriCropId, formData?.ramAgriVarietyId, ramAgriCrops]);
 
-  const loadRamAgriCrops = async () => {
+  const loadRamAgriCrops = async (type = productType) => {
     try {
       setLoading(true);
       const instance = NetworkManager(API.INVENTORY.GET_ALL_RAM_AGRI_INPUTS);
-      const response = await instance.request();
+      const response = await instance.request({}, { productType: type });
       
       if (response?.data) {
         const apiResponse = response.data;
@@ -226,27 +238,28 @@ const AddAgriSalesOrderForm = ({ open = true, onClose, onSuccess, isStandalone =
           cropsData = apiResponse;
         }
         
-        // Filter only active crops with active varieties
+        // Filter only active crops with active varieties (keep crops even if no varieties)
         const activeCrops = cropsData
           .filter((crop) => crop.isActive !== false)
           .map((crop) => ({
             ...crop,
             varieties: (crop.varieties || []).filter((v) => v.isActive !== false),
-          }))
-          .filter((crop) => crop.varieties.length > 0);
+          }));
         
         setRamAgriCrops(activeCrops);
         
         if (activeCrops.length === 0) {
-          Toast.warning("No Ram Agri crops with active varieties found.");
+          Toast.warn(`No Ram Agri ${productTypeLabelPlural.toLowerCase()} found.`);
+        } else if (activeCrops.every((crop) => !crop.varieties || crop.varieties.length === 0)) {
+          Toast.warn(`No active varieties found for ${productTypeLabelPlural.toLowerCase()}. Add varieties to place orders.`);
         }
       } else {
         setRamAgriCrops([]);
-        Toast.error("No crops data received from server");
+        Toast.error(`No ${productTypeLabelPlural.toLowerCase()} data received from server`);
       }
     } catch (error) {
       console.error("Error loading Ram Agri crops:", error);
-      Toast.error(`Failed to load crops: ${error.response?.data?.message || error.message}`);
+      Toast.error(`Failed to load ${productTypeLabelPlural.toLowerCase()}: ${error.response?.data?.message || error.message}`);
       setRamAgriCrops([]);
     } finally {
       setLoading(false);
@@ -325,6 +338,18 @@ const AddAgriSalesOrderForm = ({ open = true, onClose, onSuccess, isStandalone =
       
       return newData;
     });
+  };
+
+  const handleProductTypeChange = (event) => {
+    const nextType = event.target.value;
+    setProductType(nextType);
+    setFormData((prev) => ({
+      ...prev,
+      ramAgriCropId: "",
+      ramAgriVarietyId: "",
+      ramAgriCropName: "",
+      ramAgriVarietyName: "",
+    }));
   };
 
   const handlePaymentInputChange = (field, value) => {
@@ -656,7 +681,7 @@ const AddAgriSalesOrderForm = ({ open = true, onClose, onSuccess, isStandalone =
       return false;
     }
     if (!formData.ramAgriCropId) {
-      Toast.error("Please select a crop");
+      Toast.error(`Please select a ${productTypeLabel.toLowerCase()}`);
       return false;
     }
     if (!formData.ramAgriVarietyId) {
@@ -961,33 +986,46 @@ const AddAgriSalesOrderForm = ({ open = true, onClose, onSuccess, isStandalone =
 
           {/* Product Information */}
           <Typography className={classes.sectionTitle}>
-            <PackageIcon /> Ram Agri Product Information
+            <PackageIcon /> Ram Agri {productTypeLabel} Information
           </Typography>
 
           <Grid container spacing={1.5}>
+            <Grid item xs={12}>
+              <FormControl component="fieldset">
+                <RadioGroup
+                  row
+                  name="ramAgriProductType"
+                  value={productType}
+                  onChange={handleProductTypeChange}
+                >
+                  <FormControlLabel value="seed" control={<Radio />} label="Seeds" />
+                  <FormControlLabel value="chemical" control={<Radio />} label="Chemicals" />
+                </RadioGroup>
+              </FormControl>
+            </Grid>
             <Grid item xs={12} sm={6}>
               <FormControl fullWidth size="small">
-                <InputLabel>Select Crop *</InputLabel>
+                <InputLabel>Select {productTypeLabel} *</InputLabel>
                 <Select
                   value={formData.ramAgriCropId}
                   onChange={(e) => {
                     handleInputChange("ramAgriCropId", e.target.value);
                     handleInputChange("ramAgriVarietyId", ""); // Reset variety when crop changes
                   }}
-                  label="Select Crop *"
+                  label={`Select ${productTypeLabel} *`}
                   disabled={loading || ramAgriCrops.length === 0}
                 >
                   {loading ? (
                     <MenuItem disabled>
                       <Box display="flex" alignItems="center" gap={1}>
                         <CircularProgress size={16} />
-                        <span>Loading crops...</span>
+                        <span>Loading {productTypeLabelPlural.toLowerCase()}...</span>
                       </Box>
                     </MenuItem>
                   ) : ramAgriCrops.length === 0 ? (
                     <MenuItem disabled>
                       <Typography variant="body2" color="text.secondary">
-                        No Ram Agri crops available.
+                        No Ram Agri {productTypeLabelPlural.toLowerCase()} available.
                       </Typography>
                     </MenuItem>
                   ) : (
@@ -1011,9 +1049,9 @@ const AddAgriSalesOrderForm = ({ open = true, onClose, onSuccess, isStandalone =
                   disabled={loading || !formData.ramAgriCropId || !selectedCrop?.varieties?.length}
                 >
                   {!formData.ramAgriCropId ? (
-                    <MenuItem disabled>Select a crop first</MenuItem>
+                    <MenuItem disabled>Select a {productTypeLabel.toLowerCase()} first</MenuItem>
                   ) : !selectedCrop?.varieties?.length ? (
-                    <MenuItem disabled>No varieties available for this crop</MenuItem>
+                    <MenuItem disabled>No varieties available for this {productTypeLabel.toLowerCase()}</MenuItem>
                   ) : (
                     selectedCrop.varieties.map((variety) => (
                       <MenuItem key={variety._id} value={variety._id}>
@@ -1029,7 +1067,7 @@ const AddAgriSalesOrderForm = ({ open = true, onClose, onSuccess, isStandalone =
               <Grid item xs={12}>
                 <Alert severity="info" sx={{ mt: 0.5, py: 0.5 }}>
                   <Typography variant="caption" sx={{ fontSize: "0.75rem" }}>
-                    <strong>Crop:</strong> {formData.ramAgriCropName} | <strong>Variety:</strong> {formData.ramAgriVarietyName} |{" "}
+                    <strong>{productTypeLabel}:</strong> {formData.ramAgriCropName} | <strong>Variety:</strong> {formData.ramAgriVarietyName} |{" "}
                     <strong>Unit:</strong> {getUnitDisplayName(selectedVariety.primaryUnit)}
                     {selectedVariety.secondaryUnit && ` (1 ${getUnitDisplayName(selectedVariety.primaryUnit)} = ${selectedVariety.conversionFactor || 1} ${getUnitDisplayName(selectedVariety.secondaryUnit)})`}
                     {selectedVariety.defaultRate && ` | Default Rate: ₹${selectedVariety.defaultRate}/${getUnitDisplayName(selectedVariety.primaryUnit)}`}
@@ -1411,10 +1449,23 @@ const AddAgriSalesOrderForm = ({ open = true, onClose, onSuccess, isStandalone =
   // Action buttons (shared between Dialog and standalone modes)
   const actionButtons = (
     <Box sx={{ p: { xs: 2, sm: 3 }, borderTop: "1px solid #e0e0e0", display: "flex", gap: 2, justifyContent: "flex-end", flexWrap: "wrap" }}>
-      <Button onClick={handleClose} color="secondary" disabled={loading} variant={isStandalone ? "outlined" : "text"} fullWidth={isStandalone ? { xs: true, sm: false } : false}>
+      <Button
+        onClick={handleClose}
+        color="secondary"
+        disabled={loading}
+        variant={isStandalone ? "outlined" : "text"}
+        sx={isStandalone ? { width: { xs: "100%", sm: "auto" } } : undefined}
+      >
         Cancel
       </Button>
-      <Button onClick={handleSubmit} variant="contained" color="primary" disabled={loading} startIcon={loading ? <CircularProgress size={16} /> : <AddIcon />} fullWidth={isStandalone ? { xs: true, sm: false } : false}>
+      <Button
+        onClick={handleSubmit}
+        variant="contained"
+        color="primary"
+        disabled={loading}
+        startIcon={loading ? <CircularProgress size={16} /> : <AddIcon />}
+        sx={isStandalone ? { width: { xs: "100%", sm: "auto" } } : undefined}
+      >
         {loading ? "Creating..." : "Create Order"}
       </Button>
     </Box>
@@ -1442,7 +1493,8 @@ const AddAgriSalesOrderForm = ({ open = true, onClose, onSuccess, isStandalone =
             },
           }}
         >
-          <DialogTitle
+      <DialogTitle
+        component="div"
             sx={{
               display: "flex",
               justifyContent: "space-between",
@@ -1479,11 +1531,11 @@ const AddAgriSalesOrderForm = ({ open = true, onClose, onSuccess, isStandalone =
   return (
     <>
       <Dialog open={open} onClose={handleClose} className={classes.dialog} maxWidth="sm">
-        <DialogTitle className={classes.dialogTitle}>
+        <DialogTitle component="div" className={classes.dialogTitle}>
           <Box display="flex" alignItems="center" justifyContent="space-between">
             <Box display="flex" alignItems="center" gap={1}>
               <AddIcon />
-              <Typography variant="h6">Ram Agri Sales - New Order</Typography>
+              <Typography variant="h6">Ram Agri Input - New Order</Typography>
             </Box>
             <IconButton className={classes.closeButton} onClick={handleClose} size="small">
               <CloseIcon />
@@ -1515,6 +1567,7 @@ const AddAgriSalesOrderForm = ({ open = true, onClose, onSuccess, isStandalone =
         }}
       >
         <DialogTitle
+          component="div"
           sx={{
             display: "flex",
             justifyContent: "space-between",

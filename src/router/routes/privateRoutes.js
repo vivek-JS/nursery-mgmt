@@ -36,6 +36,7 @@ const RamAgriInputsProductMaster = React.lazy(() => import("pages/private/invent
 const RamAgriInputOrderForm = React.lazy(() => import("pages/private/inventory/RamAgriInputOrderForm"))
 const AgriSalesOrderMobile = React.lazy(() => import("pages/public/agri-sales-order/AgriSalesOrderMobile"))
 const RamAgriSalesDashboard = React.lazy(() => import("pages/private/inventory/RamAgriSalesDashboard"))
+const OldSalesAnalytics = React.lazy(() => import("pages/private/inventory/OldSalesAnalytics"))
 
 const Transactions = React.lazy(() => import("pages/private/transaction"))
 const Patients = React.lazy(() => import("pages/private/employee"))
@@ -108,6 +109,7 @@ export const PrivateRoutes = [
   { path: "/u/inventory/ram-agri-inputs-master", component: RamAgriInputsProductMaster },
   { path: "/u/inventory/ram-agri-input-order/new", component: RamAgriInputOrderForm },
   { path: "/u/inventory/ram-agri-sales-dashboard", component: RamAgriSalesDashboard },
+  { path: "/u/inventory/old-sales-analytics", component: OldSalesAnalytics },
 
   { path: "/u/settings", component: Settings },
 

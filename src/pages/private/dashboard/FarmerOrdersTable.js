@@ -74,14 +74,14 @@ const customStyles = `
   }
 
   .enhanced-select:hover {
-    border-color: #3b82f6;
-    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
+    border-color: #0f766e;
+    box-shadow: 0 4px 12px rgba(15, 118, 110, 0.15);
     transform: translateY(-1px);
   }
 
   .enhanced-select:focus {
-    border-color: #3b82f6;
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    border-color: #0f766e;
+    box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.1);
   }
 
   .enhanced-select option {
@@ -103,12 +103,12 @@ const customStyles = `
   }
 
   .mui-select-enhanced .MuiOutlinedInput-root:hover {
-    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
+    box-shadow: 0 4px 12px rgba(15, 118, 110, 0.15);
     transform: translateY(-1px);
   }
 
   .mui-select-enhanced .MuiOutlinedInput-root.Mui-focused {
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.1);
   }
 
   .mui-select-enhanced .MuiSelect-select {
@@ -128,7 +128,7 @@ const customStyles = `
   }
 
   .mui-select-enhanced .MuiMenuItem-root.Mui-selected {
-    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+    background: linear-gradient(135deg, #0f766e 0%, #14b8a6 100%);
     color: white;
   }
 
@@ -154,7 +154,7 @@ const customStyles = `
   }
 
   .status-badge-enhanced:focus {
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.1);
   }
 
   /* Status-specific colors */
@@ -177,9 +177,9 @@ const customStyles = `
   }
 
   .status-dispatched {
-    background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
-    border-color: #3b82f6;
-    color: #1e40af;
+    background: linear-gradient(135deg, #ccfbf1 0%, #99f6e4 100%);
+    border-color: #0f766e;
+    color: #0f766e;
   }
 
   .status-completed {
@@ -588,7 +588,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("")
   const [refresh, setRefresh] = useState(false)
   const [selectedRow, setSelectedRow] = useState(null)
-  const [showAgriSalesOrders, setShowAgriSalesOrders] = useState(false) // Toggle for Ram Agri Sales orders
+  const [showAgriSalesOrders, setShowAgriSalesOrders] = useState(true) // Ram Agri Sales only (no regular orders)
   const [showAddAgriSalesOrderForm, setShowAddAgriSalesOrderForm] = useState(false) // Dialog for adding Agri Sales order
   const [agriSalesPendingCount, setAgriSalesPendingCount] = useState(0) // Pending payments count for badge
   
@@ -2111,7 +2111,7 @@ const mapSlotForUi = (slotData) => {
           params.endDate = moment(endDate).format("YYYY-MM-DD")
         }
 
-        // Filter by order status based on agriDispatchStatusFilter tabs (Ram Agri Sales)
+        // Filter by order status based on agriDispatchStatusFilter (strip status tabs)
         if (agriDispatchStatusFilter && agriDispatchStatusFilter !== "ALL") {
           if (agriDispatchStatusFilter === "PENDING") {
             params.orderStatus = "PENDING"
@@ -2127,15 +2127,8 @@ const mapSlotForUi = (slotData) => {
           } else if (agriDispatchStatusFilter === "COMPLETED") {
             params.orderStatus = "COMPLETED"
           }
-        } else if (viewMode === "booking") {
-          // Fallback to viewMode filtering if no status filter selected
-          params.orderStatus = "PENDING"
-        } else if (viewMode === "dispatched") {
-          params.orderStatus = "ACCEPTED"
-        } else if (viewMode === "farmready") {
-          params.orderStatus = "COMPLETED"
         }
-        // For "ALL" or other viewModes, don't filter by status (show all)
+        // When "ALL": no status filter — fetch all orders
 
         if (selectedSalesPerson) {
           // For Agri Sales, filter by createdBy if salesPerson is selected
@@ -2625,7 +2618,7 @@ const mapSlotForUi = (slotData) => {
         return "bg-orange-100 text-orange-700"
       case "DISPATCHED":
       case "PROCESSING":
-        return "bg-blue-100 text-blue-700"
+        return "bg-brand-100 text-brand-700"
       case "COMPLETED":
         return "bg-gray-100 text-gray-700"
       case "PARTIALLY_COMPLETED":
@@ -2774,7 +2767,7 @@ const mapSlotForUi = (slotData) => {
                     onChange={(update) => setSelectedDateRange(update)}
                     isClearable={true}
                     placeholderText="Select date range"
-                    className="w-full p-3 border rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full p-3 border rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
                     calendarClassName="custom-datepicker"
                   />
                 </div>
@@ -2787,7 +2780,7 @@ const mapSlotForUi = (slotData) => {
                       const today = new Date()
                       setSelectedDateRange([today, today])
                     }}
-                    className="px-3 py-1 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors whitespace-nowrap">
+                    className="px-3 py-1 text-sm bg-brand-500 text-white rounded hover:bg-brand-600 transition-colors whitespace-nowrap">
                     Today
                   </button>
                   <button
@@ -2797,7 +2790,7 @@ const mapSlotForUi = (slotData) => {
                       yesterday.setDate(yesterday.getDate() - 1)
                       setSelectedDateRange([yesterday, yesterday])
                     }}
-                    className="px-3 py-1 text-sm bg-green-500 text-white rounded hover:bg-green-600 transition-colors whitespace-nowrap">
+                    className="px-3 py-1 text-sm bg-brand-400 text-white rounded hover:bg-brand-500 transition-colors whitespace-nowrap">
                     Yesterday
                   </button>
                   <button
@@ -2808,7 +2801,7 @@ const mapSlotForUi = (slotData) => {
                       yesterday.setDate(yesterday.getDate() - 1)
                       setSelectedDateRange([yesterday, today])
                     }}
-                    className="px-3 py-1 text-sm bg-purple-500 text-white rounded hover:bg-purple-600 transition-colors whitespace-nowrap">
+                    className="px-3 py-1 text-sm bg-brand-600 text-white rounded hover:bg-brand-700 transition-colors whitespace-nowrap">
                     Last 2 Days
                   </button>
                   <button
@@ -2819,7 +2812,7 @@ const mapSlotForUi = (slotData) => {
                       weekAgo.setDate(weekAgo.getDate() - 7)
                       setSelectedDateRange([weekAgo, today])
                     }}
-                    className="px-3 py-1 text-sm bg-orange-500 text-white rounded hover:bg-orange-600 transition-colors whitespace-nowrap">
+                    className="px-3 py-1 text-sm bg-brand-700 text-white rounded hover:bg-brand-800 transition-colors whitespace-nowrap">
                     Last 7 Days
                   </button>
                   <button
@@ -2844,8 +2837,8 @@ const mapSlotForUi = (slotData) => {
 
               {/* Status Indicators */}
               {viewMode === "farmready" && startDate && endDate && (
-                <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded-lg">
-                  <p className="text-sm text-blue-800">
+                <div className="mt-2 p-2 bg-brand-50 border border-brand-200 rounded-lg">
+                  <p className="text-sm text-brand-800">
                     📅 Filtering farm ready orders from{" "}
                     <span className="font-semibold">{moment(startDate).format("DD MMM YYYY")}</span>{" "}
                     to <span className="font-semibold">{moment(endDate).format("DD MMM YYYY")}</span>
@@ -2983,15 +2976,6 @@ const mapSlotForUi = (slotData) => {
         </div>
 
 
-        {/* View mode info banner */}
-        {showAgriSalesOrders && (
-          <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 mb-4">
-            <p className="text-sm text-orange-800">
-              <span className="font-semibold">📦 Ram Agri Sales Orders:</span> Showing inventory product orders. When an order is accepted, stock is automatically deducted from inventory.
-            </p>
-          </div>
-        )}
-
         {/* Ram Agri Sales Action Bar */}
         {showAgriSalesOrders && (
           <div className="bg-white rounded-lg shadow-sm border mb-4 overflow-hidden">
@@ -3114,87 +3098,6 @@ const mapSlotForUi = (slotData) => {
               </div>
             </div>
 
-            {/* Order Status Filter Tabs */}
-            <div className="px-2 md:px-4 py-2 bg-white border-t flex items-center gap-1 md:gap-2 overflow-x-auto">
-              <span className="text-xs font-medium text-gray-500 mr-1 md:mr-2 whitespace-nowrap">Status:</span>
-              <button
-                onClick={() => setAgriDispatchStatusFilter("ALL")}
-                className={`px-2 md:px-3 py-1 md:py-1.5 text-xs font-medium rounded-full transition-all whitespace-nowrap ${
-                  agriDispatchStatusFilter === "ALL"
-                    ? "bg-gray-800 text-white shadow-sm"
-                    : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                }`}>
-                All ({orders.length})
-              </button>
-              <button
-                onClick={() => setAgriDispatchStatusFilter("PENDING")}
-                className={`px-2 md:px-3 py-1 md:py-1.5 text-xs font-medium rounded-full transition-all flex items-center gap-1 whitespace-nowrap ${
-                  agriDispatchStatusFilter === "PENDING"
-                    ? "bg-yellow-600 text-white shadow-sm"
-                    : "bg-yellow-50 text-yellow-700 hover:bg-yellow-100"
-                }`}>
-                ⏳ Pending ({orders.filter(o => o.orderStatus === "PENDING").length})
-              </button>
-              <button
-                onClick={() => setAgriDispatchStatusFilter("ACCEPTED")}
-                className={`px-2 md:px-3 py-1 md:py-1.5 text-xs font-medium rounded-full transition-all flex items-center gap-1 whitespace-nowrap ${
-                  agriDispatchStatusFilter === "ACCEPTED"
-                    ? "bg-gray-600 text-white shadow-sm"
-                    : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                }`}>
-                ✓ Accepted ({orders.filter(o => o.orderStatus === "ACCEPTED").length})
-              </button>
-              <button
-                onClick={() => setAgriDispatchStatusFilter("ASSIGNED")}
-                className={`px-2 md:px-3 py-1 md:py-1.5 text-xs font-medium rounded-full transition-all flex items-center gap-1 whitespace-nowrap ${
-                  agriDispatchStatusFilter === "ASSIGNED"
-                    ? "bg-purple-600 text-white shadow-sm"
-                    : "bg-purple-50 text-purple-600 hover:bg-purple-100"
-                }`}>
-                👤 Assigned ({orders.filter(o => o.orderStatus === "ASSIGNED").length})
-              </button>
-              <button
-                onClick={() => setAgriDispatchStatusFilter("IN_TRANSIT")}
-                className={`px-2 md:px-3 py-1 md:py-1.5 text-xs font-medium rounded-full transition-all flex items-center gap-1 whitespace-nowrap ${
-                  agriDispatchStatusFilter === "IN_TRANSIT"
-                    ? "bg-orange-600 text-white shadow-sm"
-                    : "bg-orange-50 text-orange-600 hover:bg-orange-100"
-                }`}>
-                🛣️ In Transit ({orders.filter(o => o.details?.dispatchStatus === "IN_TRANSIT").length})
-              </button>
-              <button
-                onClick={() => setAgriDispatchStatusFilter("COMPLETED")}
-                className={`px-2 md:px-3 py-1 md:py-1.5 text-xs font-medium rounded-full transition-all flex items-center gap-1 whitespace-nowrap ${
-                  agriDispatchStatusFilter === "COMPLETED"
-                    ? "bg-green-600 text-white shadow-sm"
-                    : "bg-green-50 text-green-600 hover:bg-green-100"
-                }`}>
-                ✅ Completed ({orders.filter(o => o.orderStatus === "COMPLETED" || o.details?.dispatchStatus === "DELIVERED").length})
-              </button>
-              <button
-                onClick={() => setAgriDispatchStatusFilter("DISPATCHED")}
-                className={`px-2 md:px-3 py-1 md:py-1.5 text-xs font-medium rounded-full transition-all flex items-center gap-1 whitespace-nowrap ${
-                  agriDispatchStatusFilter === "DISPATCHED"
-                    ? "bg-blue-600 text-white shadow-sm"
-                    : "bg-blue-50 text-blue-600 hover:bg-blue-100"
-                }`}>
-                🚚 Dispatched ({orders.filter(o => o.orderStatus === "DISPATCHED" || o.details?.dispatchStatus === "DISPATCHED").length})
-              </button>
-
-              {/* Selected Employee Info */}
-              {selectedDispatchedBy && (
-                <div className="ml-auto flex items-center gap-2 px-3 py-1 bg-orange-100 rounded-lg">
-                  <span className="text-orange-700 text-xs">
-                    By: <span className="font-bold">{ramAgriSalesUsers.find(u => u.value === selectedDispatchedBy)?.label || "Unknown"}</span>
-                  </span>
-                  <button
-                    onClick={() => setSelectedDispatchedBy("")}
-                    className="text-orange-600 hover:text-orange-800 font-bold text-sm">
-                    ×
-                  </button>
-                </div>
-              )}
-            </div>
           </div>
         )}
         {viewMode === "farmready" && !showAgriSalesOrders && (
@@ -3205,8 +3108,8 @@ const mapSlotForUi = (slotData) => {
           </div>
         )}
         {viewMode === "ready_for_dispatch" && !showAgriSalesOrders && (
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
-            <p className="text-sm text-blue-800">
+          <div className="bg-brand-50 border border-brand-200 rounded-lg p-3 mb-4">
+            <p className="text-sm text-brand-800">
               <span className="font-semibold">✅ Ready for Dispatch View:</span> Shows all orders with &ldquo;Ready for Dispatch&rdquo; status, irrespective of date. 
               {isDispatchManager && <span className="ml-1 font-medium">You can change status and delivery date.</span>}
             </p>
@@ -3248,11 +3151,11 @@ const mapSlotForUi = (slotData) => {
             <h3 className="text-sm font-semibold text-gray-700 mb-3">📦 Delivery Summary by Plant Type</h3>
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
               {summaryArray.map((summary, index) => (
-                <div key={index} className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg shadow-sm border border-blue-200 p-3 hover:shadow-md transition-shadow">
+                <div key={index} className="bg-gradient-to-br from-brand-50 to-brand-100 rounded-lg shadow-sm border border-brand-200 p-3 hover:shadow-md transition-shadow">
                   <div className="text-xs text-gray-600 mb-1 truncate" title={summary.plantType}>
                     {summary.plantType}
                   </div>
-                  <div className="text-lg font-bold text-blue-700">
+                  <div className="text-lg font-bold text-brand-700">
                     {summary.totalQuantity.toLocaleString()}
                   </div>
                   <div className="text-[10px] text-gray-500 mt-1">
@@ -3275,7 +3178,7 @@ const mapSlotForUi = (slotData) => {
               onClick={() => setViewType("table")}
               className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
                 viewType === "table"
-                  ? "bg-blue-600 text-white shadow-sm"
+                  ? "bg-brand-600 text-white shadow-sm"
                   : "bg-white text-gray-600 hover:bg-gray-100 border border-gray-300"
               }`}>
               📊 Table
@@ -3284,72 +3187,108 @@ const mapSlotForUi = (slotData) => {
               onClick={() => setViewType("grid")}
               className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
                 viewType === "grid"
-                  ? "bg-blue-600 text-white shadow-sm"
+                  ? "bg-brand-600 text-white shadow-sm"
                   : "bg-white text-gray-600 hover:bg-gray-100 border border-gray-300"
               }`}>
               🎴 Grid
             </button>
             
-            {/* Ram Agri Sales Toggle */}
+            {/* Order Type: Ram Agri Sales only */}
             <div className="ml-4 pl-4 border-l border-gray-300 flex items-center gap-2">
               <span className="text-sm font-medium text-gray-700">Order Type:</span>
-              <button
-                onClick={() => {
-                  setShowAgriSalesOrders(false)
-                  setViewMode("booking") // Reset to booking view when switching
-                  setSelectedAgriSalesOrders([]) // Clear dispatch selections
-                  setSelectedDispatchedBy("") // Clear dispatched by filter
-                  setAgriDispatchStatusFilter("ALL") // Reset dispatch status filter
-                }}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                  !showAgriSalesOrders
-                    ? "bg-green-600 text-white shadow-sm"
-                    : "bg-white text-gray-600 hover:bg-gray-100 border border-gray-300"
-                }`}>
-                🌱 Regular Orders
-              </button>
-              <button
-                onClick={() => {
-                  setShowAgriSalesOrders(true)
-                  setViewMode("booking") // Reset to booking view when switching
-                }}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors relative ${
-                  showAgriSalesOrders
-                    ? "bg-orange-600 text-white shadow-sm"
-                    : "bg-white text-gray-600 hover:bg-gray-100 border border-gray-300"
-                }`}>
+              <span className="px-3 py-1.5 text-xs font-medium rounded-md bg-orange-600 text-white shadow-sm flex items-center gap-1 relative">
                 📦 Ram Agri Sales
                 {agriSalesPendingCount > 0 && (
                   <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center border-2 border-white">
                     {agriSalesPendingCount > 99 ? "99+" : agriSalesPendingCount}
                   </span>
                 )}
+              </span>
+              <button
+                onClick={() => setShowAddAgriSalesOrderForm(true)}
+                className="px-3 py-1.5 text-xs font-medium rounded-md bg-green-600 text-white shadow-sm hover:bg-green-700 transition-colors flex items-center gap-1">
+                <span>+</span> Add Order
               </button>
-              
-              {/* Add Agri Sales Order Button */}
-              {showAgriSalesOrders && (
-                <button
-                  onClick={() => setShowAddAgriSalesOrderForm(true)}
-                  className="px-3 py-1.5 text-xs font-medium rounded-md bg-green-600 text-white shadow-sm hover:bg-green-700 transition-colors flex items-center gap-1">
-                  <span>+</span> Add Order
-                </button>
-              )}
+              <div className="ml-2 flex items-center gap-1">
+                <input
+                  type="checkbox"
+                  id="hidePayment"
+                  checked={hidePaymentDetails}
+                  onChange={(e) => setHidePaymentDetails(e.target.checked)}
+                  className="w-3 h-3 text-brand-600 rounded border-gray-300"
+                />
+                <label htmlFor="hidePayment" className="text-xs text-gray-600 cursor-pointer">
+                  Hide Payment
+                </label>
+              </div>
+            </div>
 
-              {/* Hide Payment Toggle for Agri Sales */}
-              {showAgriSalesOrders && (
-                <div className="ml-2 flex items-center gap-1">
-                  <input
-                    type="checkbox"
-                    id="hidePayment"
-                    checked={hidePaymentDetails}
-                    onChange={(e) => setHidePaymentDetails(e.target.checked)}
-                    className="w-3 h-3 text-blue-600 rounded border-gray-300"
-                  />
-                  <label htmlFor="hidePayment" className="text-xs text-gray-600 cursor-pointer">
-                    Hide Payment
-                  </label>
-                </div>
-              )}
+            {/* Status filter (Ram Agri Sales) */}
+            <div className="ml-4 pl-4 border-l border-gray-300 flex items-center gap-1 flex-wrap">
+              <span className="text-sm font-medium text-gray-700 mr-1">Status:</span>
+              <button
+                onClick={() => setAgriDispatchStatusFilter("ALL")}
+                className={`px-2 py-1 text-xs font-medium rounded-full transition-all whitespace-nowrap ${
+                  agriDispatchStatusFilter === "ALL"
+                    ? "bg-gray-800 text-white shadow-sm"
+                    : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                }`}>
+                All ({orders.length})
+              </button>
+              <button
+                onClick={() => setAgriDispatchStatusFilter("PENDING")}
+                className={`px-2 py-1 text-xs font-medium rounded-full transition-all whitespace-nowrap ${
+                  agriDispatchStatusFilter === "PENDING"
+                    ? "bg-yellow-600 text-white shadow-sm"
+                    : "bg-yellow-50 text-yellow-700 hover:bg-yellow-100"
+                }`}>
+                ⏳ Pending ({orders.filter(o => o.orderStatus === "PENDING").length})
+              </button>
+              <button
+                onClick={() => setAgriDispatchStatusFilter("ACCEPTED")}
+                className={`px-2 py-1 text-xs font-medium rounded-full transition-all whitespace-nowrap ${
+                  agriDispatchStatusFilter === "ACCEPTED"
+                    ? "bg-gray-600 text-white shadow-sm"
+                    : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                }`}>
+                ✓ Accepted ({orders.filter(o => o.orderStatus === "ACCEPTED").length})
+              </button>
+              <button
+                onClick={() => setAgriDispatchStatusFilter("ASSIGNED")}
+                className={`px-2 py-1 text-xs font-medium rounded-full transition-all whitespace-nowrap ${
+                  agriDispatchStatusFilter === "ASSIGNED"
+                    ? "bg-purple-600 text-white shadow-sm"
+                    : "bg-purple-50 text-purple-600 hover:bg-purple-100"
+                }`}>
+                👤 Assigned ({orders.filter(o => o.orderStatus === "ASSIGNED").length})
+              </button>
+              <button
+                onClick={() => setAgriDispatchStatusFilter("DISPATCHED")}
+                className={`px-2 py-1 text-xs font-medium rounded-full transition-all whitespace-nowrap ${
+                  agriDispatchStatusFilter === "DISPATCHED"
+                    ? "bg-brand-600 text-white shadow-sm"
+                    : "bg-brand-50 text-brand-600 hover:bg-brand-100"
+                }`}>
+                🚚 Dispatched ({orders.filter(o => o.orderStatus === "DISPATCHED" || o.details?.dispatchStatus === "DISPATCHED").length})
+              </button>
+              <button
+                onClick={() => setAgriDispatchStatusFilter("IN_TRANSIT")}
+                className={`px-2 py-1 text-xs font-medium rounded-full transition-all whitespace-nowrap ${
+                  agriDispatchStatusFilter === "IN_TRANSIT"
+                    ? "bg-orange-600 text-white shadow-sm"
+                    : "bg-orange-50 text-orange-600 hover:bg-orange-100"
+                }`}>
+                🛣️ In Transit ({orders.filter(o => o.details?.dispatchStatus === "IN_TRANSIT").length})
+              </button>
+              <button
+                onClick={() => setAgriDispatchStatusFilter("COMPLETED")}
+                className={`px-2 py-1 text-xs font-medium rounded-full transition-all whitespace-nowrap ${
+                  agriDispatchStatusFilter === "COMPLETED"
+                    ? "bg-green-600 text-white shadow-sm"
+                    : "bg-green-50 text-green-600 hover:bg-green-100"
+                }`}>
+                ✅ Completed ({orders.filter(o => o.orderStatus === "COMPLETED" || o.details?.dispatchStatus === "DELIVERED").length})
+              </button>
             </div>
           </div>
           <div className="text-sm text-gray-600">
@@ -3365,81 +3304,46 @@ const mapSlotForUi = (slotData) => {
                 onClick={() => setViewMode("booking")}
                 className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
                   viewMode === "booking"
-                    ? "border-blue-500 text-blue-600 bg-white"
+                    ? "border-brand-500 text-brand-600 bg-white"
                     : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
                 }`}>
-                <span className="hidden sm:inline">📋 </span>Booking {orders.length > 0 && <span className="ml-1 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
+                <span className="hidden sm:inline">📋 </span>Booking {orders.length > 0 && <span className="ml-1 text-xs bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
               </button>
               <button
                 onClick={() => setViewMode("dispatched")}
                 className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
                   viewMode === "dispatched"
-                    ? "border-blue-500 text-blue-600 bg-white"
+                    ? "border-brand-500 text-brand-600 bg-white"
                     : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
                 }`}>
-                <span className="hidden sm:inline">🚚 </span>Dispatched {orders.length > 0 && <span className="ml-1 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
+                <span className="hidden sm:inline">🚚 </span>Dispatched {orders.length > 0 && <span className="ml-1 text-xs bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
               </button>
               <button
                 onClick={() => setViewMode("farmready")}
                 className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
                   viewMode === "farmready"
-                    ? "border-blue-500 text-blue-600 bg-white"
+                    ? "border-brand-500 text-brand-600 bg-white"
                     : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
                 }`}>
-                <span className="hidden sm:inline">🌱 </span>Farm Ready {orders.length > 0 && <span className="ml-1 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
+                <span className="hidden sm:inline">🌱 </span>Farm Ready {orders.length > 0 && <span className="ml-1 text-xs bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
               </button>
               <button
                 onClick={() => setViewMode("ready_for_dispatch")}
                 className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
                   viewMode === "ready_for_dispatch"
-                    ? "border-blue-500 text-blue-600 bg-white"
+                    ? "border-brand-500 text-brand-600 bg-white"
                     : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
                 }`}>
-                <span className="hidden sm:inline">✅ </span>Ready {orders.length > 0 && <span className="ml-1 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
+                <span className="hidden sm:inline">✅ </span>Ready {orders.length > 0 && <span className="ml-1 text-xs bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
               </button>
               <button
                 onClick={() => setViewMode("dispatch_process")}
                 className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
                   viewMode === "dispatch_process"
-                    ? "border-blue-500 text-blue-600 bg-white"
+                    ? "border-brand-500 text-brand-600 bg-white"
                     : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
                 }`}>
-                <span className="hidden sm:inline">⏳ </span>Loading {orders.length > 0 && <span className="ml-1 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Agri Sales Order Status Tabs */}
-        {showAgriSalesOrders && (
-          <div className="border-b border-gray-200 bg-gray-50">
-            <div className="flex overflow-x-auto scrollbar-hide">
-              <button
-                onClick={() => setViewMode("booking")}
-                className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
-                  viewMode === "booking"
-                    ? "border-orange-500 text-orange-600 bg-white"
-                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-                }`}>
-                <span className="hidden sm:inline">⏳ </span>Pending {orders.length > 0 && <span className="ml-1 text-xs bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
-              </button>
-              <button
-                onClick={() => setViewMode("dispatched")}
-                className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
-                  viewMode === "dispatched"
-                    ? "border-orange-500 text-orange-600 bg-white"
-                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-                }`}>
-                <span className="hidden sm:inline">✅ </span>Accepted {orders.length > 0 && <span className="ml-1 text-xs bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
-              </button>
-              <button
-                onClick={() => setViewMode("farmready")}
-                className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
-                  viewMode === "farmready"
-                    ? "border-orange-500 text-orange-600 bg-white"
-                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-                }`}>
-                <span className="hidden sm:inline">✅ </span>Completed {orders.length > 0 && <span className="ml-1 text-xs bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
+                <span className="hidden sm:inline">⏳ </span>Loading {orders.length > 0 && <span className="ml-1 text-xs bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
               </button>
             </div>
           </div>
@@ -3495,7 +3399,7 @@ const mapSlotForUi = (slotData) => {
                             o.isAgriSalesOrder && 
                             o.orderStatus === "ACCEPTED" // Only ACCEPTED orders can be dispatched/assigned
                           ).length}
-                          className="w-3.5 h-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                          className="w-3.5 h-3.5 rounded border-gray-300 text-brand-600 focus:ring-brand-500 cursor-pointer"
                           title="Select all accepted orders"
                         />
                       </th>
@@ -3506,7 +3410,7 @@ const mapSlotForUi = (slotData) => {
                           type="checkbox"
                           onChange={toggleSelectAll}
                           checked={selectedRows.size === orders.length && orders.length > 0}
-                          className="w-3.5 h-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                          className="w-3.5 h-3.5 rounded border-gray-300 text-brand-600 focus:ring-brand-500 cursor-pointer"
                         />
                       </th>
                     )}
@@ -3562,7 +3466,7 @@ const mapSlotForUi = (slotData) => {
                   const getAgriRowStyle = () => {
                     if (!showAgriSalesOrders) return ""
                     const dispatchStatus = row.details?.dispatchStatus
-                    if (dispatchStatus === "DISPATCHED") return "bg-blue-50 border-l-blue-500"
+                    if (dispatchStatus === "DISPATCHED") return "bg-brand-50 border-l-brand-500"
                     if (dispatchStatus === "IN_TRANSIT") return "bg-orange-50 border-l-orange-500"
                     if (dispatchStatus === "DELIVERED") return "bg-green-50 border-l-green-500"
                     if (selectedAgriSalesOrders.includes(row.details?.orderid)) return "bg-amber-50 border-l-amber-500"
@@ -3572,10 +3476,10 @@ const mapSlotForUi = (slotData) => {
                   return (
                     <tr
                       key={index}
-                      className={`hover:bg-blue-50 transition-all duration-150 cursor-pointer border-l-4 ${
+                      className={`hover:bg-brand-50 transition-all duration-150 cursor-pointer border-l-4 ${
                         hasPendingPayment && !showAgriSalesOrders ? "payment-blink border-l-amber-400" : "border-l-transparent"
                       } ${row?.details?.dealerOrder ? "bg-sky-50" : ""} ${
-                        selectedRows.has(row.details.orderid) && !showAgriSalesOrders ? "bg-blue-100 border-l-blue-500" : ""
+                        selectedRows.has(row.details.orderid) && !showAgriSalesOrders ? "bg-brand-100 border-l-brand-500" : ""
                       } ${getAgriRowStyle()}`}
                       onClick={() => {
                         setSelectedOrder(row)
@@ -3646,7 +3550,7 @@ const mapSlotForUi = (slotData) => {
                               toggleRowSelection(row.details.orderid, row)
                             }}
                             checked={selectedRows.has(row.details.orderid)}
-                            className="w-3.5 h-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                            className="w-3.5 h-3.5 rounded border-gray-300 text-brand-600 focus:ring-brand-500 cursor-pointer"
                           />
                         </td>
                       )}
@@ -3675,7 +3579,7 @@ const mapSlotForUi = (slotData) => {
                           )}
                         </div>
                         {row.details?.salesPerson && (
-                          <div className="text-[10px] text-blue-600 mt-0.5">
+                          <div className="text-[10px] text-brand-600 mt-0.5">
                             By: {row.details.salesPerson.name}
                             {row.details.salesPerson.jobTitle === "DEALER" && " (D)"}
                           </div>
@@ -3692,7 +3596,7 @@ const mapSlotForUi = (slotData) => {
                           {(row.totalPlants ?? row.quantity)?.toLocaleString()}
                         </div>
                         {row.additionalPlants > 0 && (
-                          <div className="text-[10px] text-blue-600 mt-0.5">
+                          <div className="text-[10px] text-brand-600 mt-0.5">
                             B:{row.basePlants?.toLocaleString()} +{row.additionalPlants?.toLocaleString()}
                           </div>
                         )}
@@ -3731,7 +3635,7 @@ const mapSlotForUi = (slotData) => {
                               {/* Dispatch Status Badge */}
                               <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium inline-block w-fit ${
                                 row.details.dispatchStatus === "DISPATCHED" 
-                                  ? row.details.dispatchMode === "COURIER" ? "bg-purple-100 text-purple-700" : "bg-blue-100 text-blue-700"
+                                  ? row.details.dispatchMode === "COURIER" ? "bg-purple-100 text-purple-700" : "bg-brand-100 text-brand-700"
                                   : row.details.dispatchStatus === "IN_TRANSIT" ? "bg-orange-100 text-orange-700" 
                                   : row.details.dispatchStatus === "DELIVERED" ? "bg-green-100 text-green-700" 
                                   : "bg-gray-100 text-gray-700"
@@ -3776,7 +3680,7 @@ const mapSlotForUi = (slotData) => {
                               
                               {/* Dispatched By Info */}
                               {row.details?.dispatchedBy && (
-                                <div className="text-[10px] text-indigo-600 font-medium">
+                                <div className="text-[10px] text-brand-600 font-medium">
                                   By: {row.details.dispatchedBy?.name || "Unknown"}
                                 </div>
                               )}
@@ -3797,9 +3701,9 @@ const mapSlotForUi = (slotData) => {
                         </td>
                       )}
                       <td className="px-2 py-2">
-                        <div className="text-xs text-blue-600 font-semibold leading-tight">{row.Delivery}</div>
+                        <div className="text-xs text-brand-600 font-semibold leading-tight">{row.Delivery}</div>
                         {row.deliveryDate && row.deliveryDate !== "-" && (
-                          <div className="text-[10px] text-blue-700 mt-0.5 font-medium">📅 {row.deliveryDate}</div>
+                          <div className="text-[10px] text-brand-700 mt-0.5 font-medium">📅 {row.deliveryDate}</div>
                         )}
                         {row["Farm Ready"] !== "-" && (
                           <div className="text-[10px] text-green-700 mt-0.5 font-medium">🌱 {row["Farm Ready"]}</div>
@@ -3876,7 +3780,7 @@ const mapSlotForUi = (slotData) => {
                           if (driverName === 'N/A' && vehicleName === 'N/A') return null;
                           
                           return (
-                            <div className="text-xs text-blue-600">
+                            <div className="text-xs text-brand-600">
                               <div>🚚 {driverName}</div>
                               <div>🚗 {vehicleName}</div>
                             </div>
@@ -3991,7 +3895,7 @@ const mapSlotForUi = (slotData) => {
                               )}
                             </div>
                             {row.details?.salesPerson && (
-                              <p className="text-xs text-blue-600 mt-1 font-medium">
+                              <p className="text-xs text-brand-600 mt-1 font-medium">
                                 Booked by: {row.details.salesPerson.name}
                                 {row.details.salesPerson.jobTitle === "DEALER" && " (Dealer)"}
                               </p>
@@ -4010,7 +3914,7 @@ const mapSlotForUi = (slotData) => {
                                 }}
                                 onClick={(e) => e.stopPropagation()}
                                 checked={selectedRows.has(row.details.orderid)}
-                                className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                className="w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
                               />
                             )}
                             <DownloadPDFButton order={row} />
@@ -4059,7 +3963,7 @@ const mapSlotForUi = (slotData) => {
                               {(row.totalPlants ?? row.quantity)?.toLocaleString()}
                             </div>
                             {row.additionalPlants > 0 && (
-                              <div className="text-xs text-blue-600 mt-0.5">
+                              <div className="text-xs text-brand-600 mt-0.5">
                                 Base: {row.basePlants?.toLocaleString()} &middot; Extra: +
                                 {row.additionalPlants?.toLocaleString()}
                               </div>
@@ -4096,15 +4000,15 @@ const mapSlotForUi = (slotData) => {
                         <div className="space-y-1">
                           <div className="flex items-center justify-between">
                             <span className="text-xs text-gray-500">Delivery Period</span>
-                            <span className="text-xs font-medium text-blue-600">{row.Delivery}</span>
+                            <span className="text-xs font-medium text-brand-600">{row.Delivery}</span>
                           </div>
                           {row.deliveryDate && row.deliveryDate !== "-" && (
-                            <div className="bg-blue-50 rounded-md p-1.5 border border-blue-200">
+                            <div className="bg-brand-50 rounded-md p-1.5 border border-brand-200">
                               <div className="flex items-center justify-between">
-                                <span className="text-xs text-blue-700 font-medium flex items-center">
+                                <span className="text-xs text-brand-700 font-medium flex items-center">
                                   📅 Delivery Date
                                 </span>
-                                <span className="text-xs font-semibold text-blue-800">
+                                <span className="text-xs font-semibold text-brand-800">
                                   {row.deliveryDate}
                                 </span>
                               </div>
@@ -4135,18 +4039,18 @@ const mapSlotForUi = (slotData) => {
                           if (driverName === 'N/A' && vehicleName === 'N/A') return null;
                           
                           return (
-                            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-2 border-l-4 border-blue-500 shadow-sm">
+                            <div className="bg-gradient-to-r from-brand-50 to-brand-100 rounded-lg p-2 border-l-4 border-brand-500 shadow-sm">
                               <div className="flex items-center gap-2 text-xs">
                                 <span className="text-sm">🚚</span>
                                 <div className="flex items-center gap-1 flex-wrap">
-                                  <span className="font-bold text-blue-900">{driverName}</span>
+                                  <span className="font-bold text-brand-900">{driverName}</span>
                                   {driverPhone && <span className="text-gray-600">({driverPhone})</span>}
-                                  <span className="text-blue-600 font-bold">→</span>
+                                  <span className="text-brand-600 font-bold">→</span>
                                   <span className="font-semibold text-gray-800">🚗 {vehicleName}</span>
                                   {transportId && (
                                     <>
-                                      <span className="text-blue-600 font-bold">→</span>
-                                      <span className="text-[10px] font-mono font-bold text-white bg-blue-600 px-1.5 py-0.5 rounded">
+                                      <span className="text-brand-600 font-bold">→</span>
+                                      <span className="text-[10px] font-mono font-bold text-white bg-brand-600 px-1.5 py-0.5 rounded">
                                         #{transportId}
                                       </span>
                                     </>
@@ -4164,7 +4068,7 @@ const mapSlotForUi = (slotData) => {
                           row?.orderStatus !== "DISPATCHED" && (
                             <div className="flex items-center justify-between pt-2 border-t border-gray-100">
                               {isDispatchManager && (
-                                <span className="text-xs text-blue-600 font-medium">🚚 DM Access</span>
+                                <span className="text-xs text-brand-600 font-medium">🚚 DM Access</span>
                               )}
                               <div className="flex items-center space-x-2 ml-auto">
                                 {editingRows.has(index) ? (
@@ -4233,7 +4137,7 @@ const mapSlotForUi = (slotData) => {
             </div>
             <button
               onClick={() => setIsDispatchFormOpen(true)}
-              className="bg-blue-600 text-white px-4 py-2 rounded-md shadow hover:bg-blue-700 transition-colors flex items-center space-x-2">
+              className="bg-brand-600 text-white px-4 py-2 rounded-md shadow hover:bg-brand-700 transition-colors flex items-center space-x-2">
               <span>Proceed to Dispatch</span>
             </button>
           </div>
@@ -4259,18 +4163,18 @@ const mapSlotForUi = (slotData) => {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2">
           <div className="bg-white rounded-xl w-full max-w-5xl max-h-[90vh] overflow-hidden shadow-2xl">
             {/* Modal Header */}
-            <div className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white p-4">
+            <div className="bg-gradient-to-r from-brand-600 to-brand-500 text-white p-4">
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className="text-xl font-bold">Order #{selectedOrder.order}</h2>
-                  <p className="text-blue-100 text-sm mt-1">
+                  <p className="text-brand-100 text-sm mt-1">
                     {selectedOrder.farmerName} • {selectedOrder.plantType}
                   </p>
                 </div>
                 <div className="flex items-center space-x-2">
                   <button
                     onClick={refreshModalData}
-                    className="text-white hover:text-blue-100 transition-colors p-1 rounded hover:bg-white hover:bg-opacity-10">
+                    className="text-white hover:text-brand-100 transition-colors p-1 rounded hover:bg-white hover:bg-opacity-10">
                     <RefreshCw size={18} />
                   </button>
                   <button
@@ -4282,7 +4186,7 @@ const mapSlotForUi = (slotData) => {
                       setSlots([])
                       resetPaymentForm(false)
                     }}
-                    className="text-white hover:text-blue-100 transition-colors">
+                    className="text-white hover:text-brand-100 transition-colors">
                     <XIcon size={24} />
                   </button>
                 </div>
@@ -4294,9 +4198,9 @@ const mapSlotForUi = (slotData) => {
               <div className="p-4">
                 {/* Order Summary Cards */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-                  <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
-                    <div className="text-blue-600 text-xs font-medium">Total Value</div>
-                    <div className="text-lg font-bold text-blue-900">
+                  <div className="bg-brand-50 rounded-lg p-3 border border-brand-200">
+                    <div className="text-brand-600 text-xs font-medium">Total Value</div>
+                    <div className="text-lg font-bold text-brand-900">
                       ₹{(selectedOrder.rate * selectedOrderCounts.total).toLocaleString()}
                     </div>
                   </div>
@@ -4333,7 +4237,7 @@ const mapSlotForUi = (slotData) => {
                         onClick={() => setActiveTab("overview")}
                         className={`inline-flex items-center py-3 px-1 border-b-2 font-medium text-sm transition-colors ${
                           activeTab === "overview"
-                            ? "border-blue-500 text-blue-600"
+                            ? "border-brand-500 text-brand-600"
                             : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
                         }`}>
                         <FaUser size={14} className="mr-1" />
@@ -4343,7 +4247,7 @@ const mapSlotForUi = (slotData) => {
                         onClick={() => setActiveTab("payments")}
                         className={`inline-flex items-center py-3 px-1 border-b-2 font-medium text-sm transition-colors ${
                           activeTab === "payments"
-                            ? "border-blue-500 text-blue-600"
+                            ? "border-brand-500 text-brand-600"
                             : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
                         }`}>
                         <FaCreditCard size={14} className="mr-1" />
@@ -4366,7 +4270,7 @@ const mapSlotForUi = (slotData) => {
                         }}
                         className={`inline-flex items-center py-3 px-1 border-b-2 font-medium text-sm transition-colors ${
                           activeTab === "edit"
-                            ? "border-blue-500 text-blue-600"
+                            ? "border-brand-500 text-brand-600"
                             : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
                         }`}>
                         <FaEdit size={14} className="mr-1" />
@@ -4376,7 +4280,7 @@ const mapSlotForUi = (slotData) => {
                         onClick={() => setActiveTab("remarks")}
                         className={`inline-flex items-center py-3 px-1 border-b-2 font-medium text-sm transition-colors ${
                           activeTab === "remarks"
-                            ? "border-blue-500 text-blue-600"
+                            ? "border-brand-500 text-brand-600"
                             : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
                         }`}>
                         <FaFileAlt size={14} className="mr-1" />
@@ -4386,7 +4290,7 @@ const mapSlotForUi = (slotData) => {
                         onClick={() => setActiveTab("dispatchTrail")}
                         className={`inline-flex items-center py-3 px-1 border-b-2 font-medium text-sm transition-colors ${
                           activeTab === "dispatchTrail"
-                            ? "border-blue-500 text-blue-600"
+                            ? "border-brand-500 text-brand-600"
                             : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
                         }`}>
                         <span className="mr-1">🚚</span>
@@ -4396,7 +4300,7 @@ const mapSlotForUi = (slotData) => {
                         onClick={() => setActiveTab("editHistory")}
                         className={`inline-flex items-center py-3 px-1 border-b-2 font-medium text-sm transition-colors ${
                           activeTab === "editHistory"
-                            ? "border-blue-500 text-blue-600"
+                            ? "border-brand-500 text-brand-600"
                             : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
                         }`}>
                         <span className="mr-1">📝</span>
@@ -4610,9 +4514,9 @@ const mapSlotForUi = (slotData) => {
                               </span>
                             </div>
                             {selectedOrder.deliveryDate && selectedOrder.deliveryDate !== "-" && (
-                              <div className="flex flex-col space-y-1 bg-blue-50 p-2 rounded border border-blue-200">
+                              <div className="flex flex-col space-y-1 bg-brand-50 p-2 rounded border border-brand-200">
                                 <div className="flex items-center justify-between">
-                                  <span className="text-xs text-blue-700 font-medium">📅 Delivery Date</span>
+                                  <span className="text-xs text-brand-700 font-medium">📅 Delivery Date</span>
                                   <button
                                     onClick={() => {
                                       setActiveTab("edit")
@@ -4626,11 +4530,11 @@ const mapSlotForUi = (slotData) => {
                                           : null
                                       })
                                     }}
-                                    className="text-xs text-blue-600 hover:text-blue-800 underline">
+                                    className="text-xs text-brand-600 hover:text-brand-800 underline">
                                     Change
                                   </button>
                                 </div>
-                                <span className="font-bold text-sm text-blue-900">
+                                <span className="font-bold text-sm text-brand-900">
                                   {selectedOrder.deliveryDate}
                                 </span>
                               </div>
@@ -4710,8 +4614,8 @@ const mapSlotForUi = (slotData) => {
                         {/* Status History */}
                         {selectedOrder?.details?.statusChanges &&
                           selectedOrder?.details?.statusChanges.length > 0 && (
-                            <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
-                              <h3 className="font-medium text-blue-900 mb-2 flex items-center text-sm">
+                            <div className="bg-brand-50 rounded-lg p-3 border border-brand-200">
+                              <h3 className="font-medium text-brand-900 mb-2 flex items-center text-sm">
                                 <span className="mr-1">📊</span>
                                 Status Change History
                               </h3>
@@ -4804,8 +4708,8 @@ const mapSlotForUi = (slotData) => {
                         {/* Dispatch History */}
                         {selectedOrder?.details?.dispatchHistory &&
                           selectedOrder?.details?.dispatchHistory.length > 0 && (
-                            <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
-                              <h3 className="font-medium text-blue-900 mb-3 flex items-center">
+                            <div className="bg-brand-50 rounded-lg p-4 border border-brand-200">
+                              <h3 className="font-medium text-brand-900 mb-3 flex items-center">
                                 <span className="mr-2">🚚</span>
                                 Dispatch History
                               </h3>
@@ -4818,7 +4722,7 @@ const mapSlotForUi = (slotData) => {
                                 </div>
                                 <div className="text-center">
                                   <div className="text-sm text-gray-500">Dispatched Plants</div>
-                                  <div className="text-xl font-bold text-blue-600">
+                                  <div className="text-xl font-bold text-brand-600">
                                     {(selectedOrderCounts.total - (selectedOrder["remaining Plants"] || 0))?.toLocaleString()}
                                   </div>
                                 </div>
@@ -4834,7 +4738,7 @@ const mapSlotForUi = (slotData) => {
                                   (dispatchItem, dispatchIndex) => (
                                     <div key={dispatchIndex} className="bg-white p-3 rounded border">
                                       <div className="flex items-center justify-between mb-1">
-                                        <span className="text-sm font-medium text-blue-600">
+                                        <span className="text-sm font-medium text-brand-600">
                                           {dispatchItem.quantity} plants dispatched
                                         </span>
                                         <span className="text-xs text-gray-500">
@@ -4974,7 +4878,7 @@ const mapSlotForUi = (slotData) => {
                                   onChange={(e) =>
                                     handlePaymentInputChange("paidAmount", e.target.value)
                                   }
-                                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 mt-1"
+                                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 mt-1"
                                   placeholder="Enter amount"
                                 />
                               </div>
@@ -4988,7 +4892,7 @@ const mapSlotForUi = (slotData) => {
                                   onChange={(e) =>
                                     handlePaymentInputChange("paymentDate", e.target.value)
                                   }
-                                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 mt-1"
+                                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 mt-1"
                                 />
                               </div>
                               <div>
@@ -5000,7 +4904,7 @@ const mapSlotForUi = (slotData) => {
                                   onChange={(e) =>
                                     handlePaymentInputChange("modeOfPayment", e.target.value)
                                   }
-                                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 mt-1">
+                                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 mt-1">
                                   <option value="">Select Mode</option>
                                   <option value="Cash">Cash</option>
                                   <option value="UPI">UPI</option>
@@ -5034,7 +4938,7 @@ const mapSlotForUi = (slotData) => {
                                   onChange={(e) =>
                                     handlePaymentInputChange("bankName", e.target.value)
                                   }
-                                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 mt-1"
+                                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 mt-1"
                                   placeholder={
                                     newPayment.modeOfPayment === "Cheque" ||
                                     newPayment.modeOfPayment === "NEFT/RTGS"
@@ -5054,7 +4958,7 @@ const mapSlotForUi = (slotData) => {
                                 type="text"
                                 value={newPayment.remark}
                                 onChange={(e) => handlePaymentInputChange("remark", e.target.value)}
-                                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 mt-1"
+                                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 mt-1"
                                 placeholder="Optional remark"
                               />
                             </div>
@@ -5097,7 +5001,7 @@ const mapSlotForUi = (slotData) => {
                                       }
                                     }
                                   }}
-                                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
                                 />
                                 {newPayment.modeOfPayment && newPayment.modeOfPayment !== "Cash" && newPayment.modeOfPayment !== "NEFT/RTGS" && (
                                   <p className="text-xs text-red-600 mt-1">
@@ -5177,21 +5081,21 @@ const mapSlotForUi = (slotData) => {
                                 {/* Dealer Wallet Information */}
                                 {selectedOrder?.details?.salesPerson?.jobTitle === "DEALER" &&
                                   dealerWalletData && (
-                                    <div className="mb-4 bg-blue-50 p-4 rounded-lg border border-blue-200">
+                                    <div className="mb-4 bg-brand-50 p-4 rounded-lg border border-brand-200">
                                       <div className="flex items-center justify-between mb-2">
-                                        <h5 className="text-sm font-medium text-blue-900">
+                                        <h5 className="text-sm font-medium text-brand-900">
                                           Dealer Wallet: {selectedOrder?.details?.salesPerson?.name}
                                         </h5>
                                         {dealerWalletLoading && (
-                                          <div className="text-xs text-blue-600">Loading...</div>
+                                          <div className="text-xs text-brand-600">Loading...</div>
                                         )}
                                       </div>
                                       <div className="grid grid-cols-2 gap-4 text-sm">
                                         <div>
-                                          <div className="text-blue-600 font-medium">
+                                          <div className="text-brand-600 font-medium">
                                             Available Balance
                                           </div>
-                                          <div className="text-lg font-bold text-blue-900">
+                                          <div className="text-lg font-bold text-brand-900">
                                             ₹
                                             {(
                                               dealerWalletData?.financial?.availableAmount ?? 0
@@ -5199,10 +5103,10 @@ const mapSlotForUi = (slotData) => {
                                           </div>
                                         </div>
                                         <div>
-                                          <div className="text-blue-600 font-medium">
+                                          <div className="text-brand-600 font-medium">
                                             Total Orders
                                           </div>
-                                          <div className="text-lg font-bold text-blue-900">
+                                          <div className="text-lg font-bold text-brand-900">
                                             ₹
                                             {(
                                               dealerWalletData?.financial?.totalOrderAmount ?? 0
@@ -5307,27 +5211,27 @@ const mapSlotForUi = (slotData) => {
                               !isDealer &&
                               selectedOrder?.details?.salesPerson?.jobTitle === "DEALER" && (
                                 <div className="mt-4">
-                                  <div className="bg-blue-50 p-4 rounded-xl border border-blue-200">
+                                  <div className="bg-brand-50 p-4 rounded-xl border border-brand-200">
                                     <div className="flex items-center justify-between mb-3">
                                       <div className="flex items-center">
-                                        <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center mr-3">
-                                          <FaCreditCard className="text-blue-600 text-sm" />
+                                        <div className="w-8 h-8 bg-brand-100 rounded-full flex items-center justify-center mr-3">
+                                          <FaCreditCard className="text-brand-600 text-sm" />
                                         </div>
                                         <div>
-                                          <div className="text-sm font-medium text-blue-900">
+                                          <div className="text-sm font-medium text-brand-900">
                                             Dealer Wallet Payment
                                           </div>
-                                          <div className="text-xs text-blue-600">
+                                          <div className="text-xs text-brand-600">
                                             Sales Person:{" "}
                                             {selectedOrder?.details?.salesPerson?.name}
                                           </div>
                                         </div>
                                       </div>
                                       <div className="text-right">
-                                        <div className="text-xs text-blue-600">
+                                        <div className="text-xs text-brand-600">
                                           Available Balance
                                         </div>
-                                        <div className="text-lg font-bold text-blue-900">
+                                        <div className="text-lg font-bold text-brand-900">
                                           ₹
                                           {(
                                             dealerWalletData?.financial?.availableAmount ?? 0
@@ -5347,11 +5251,11 @@ const mapSlotForUi = (slotData) => {
                                             e.target.checked
                                           )
                                         }
-                                        className="mr-3 w-4 h-4 text-blue-600 bg-blue-100 border-blue-300 rounded focus:ring-blue-500"
+                                        className="mr-3 w-4 h-4 text-brand-600 bg-brand-100 border-brand-300 rounded focus:ring-brand-500"
                                       />
                                       <label
                                         htmlFor="dealerWalletPayment"
-                                        className="text-blue-800 font-medium">
+                                        className="text-brand-800 font-medium">
                                         Pay from Dealer&apos;s Wallet
                                       </label>
                                     </div>
@@ -5472,7 +5376,7 @@ const mapSlotForUi = (slotData) => {
                                           {payment.paymentStatus}
                                         </span>
                                         {payment.isWalletPayment && (
-                                          <span className="px-2 py-1 text-xs rounded-full bg-blue-100 text-blue-700">
+                                          <span className="px-2 py-1 text-xs rounded-full bg-brand-100 text-brand-700">
                                             Wallet
                                           </span>
                                         )}
@@ -5499,14 +5403,14 @@ const mapSlotForUi = (slotData) => {
                         <div className="flex items-center justify-between">
                           <h3 className="text-lg font-medium text-gray-900">Edit Order Details</h3>
                           {isDispatchManager && (
-                            <span className="text-sm bg-blue-100 text-blue-800 px-3 py-1 rounded-full font-medium">
+                            <span className="text-sm bg-brand-100 text-brand-800 px-3 py-1 rounded-full font-medium">
                               🚚 Dispatch Manager Access
                             </span>
                           )}
                         </div>
                         {isDispatchManager && (
-                          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                            <p className="text-sm text-blue-800">
+                          <div className="bg-brand-50 border border-brand-200 rounded-lg p-4">
+                            <p className="text-sm text-brand-800">
                               <span className="font-semibold">🔑 Dispatch Manager Permissions:</span> You can change order status, delivery date, rate, and quantity for dispatch management.
                             </p>
                           </div>
@@ -5514,25 +5418,25 @@ const mapSlotForUi = (slotData) => {
                         <div className="bg-gray-50 rounded-lg p-6">
                           {/* Current Order Information */}
                           {selectedOrder?.details?.bookingSlot && (
-                            <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
-                              <h4 className="text-sm font-medium text-blue-900 mb-2">
+                            <div className="mb-4 p-3 bg-brand-50 rounded-lg border border-brand-200">
+                              <h4 className="text-sm font-medium text-brand-900 mb-2">
                                 Current Order Information
                               </h4>
                               <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-sm">
                                 <div>
-                                  <span className="text-blue-700">Current Delivery Period:</span>{" "}
+                                  <span className="text-brand-700">Current Delivery Period:</span>{" "}
                                   {selectedOrder.details.bookingSlot.startDay} -{" "}
                                   {selectedOrder.details.bookingSlot.endDay}
                                 </div>
                                 <div>
-                                  <span className="text-blue-700">Current Delivery Date:</span>{" "}
+                                  <span className="text-brand-700">Current Delivery Date:</span>{" "}
                                   {selectedOrder.deliveryDate || "Not set"}
                                 </div>
                                 <div>
-                                  <span className="text-blue-700">Current Quantity:</span>{" "}
+                                  <span className="text-brand-700">Current Quantity:</span>{" "}
                                   {selectedOrderCounts.base?.toLocaleString()}
                                   {selectedOrderCounts.additional > 0 && (
-                                    <span className="ml-2 text-sm text-blue-600">
+                                    <span className="ml-2 text-sm text-brand-600">
                                       (+{selectedOrderCounts.additional?.toLocaleString()} extra, total{" "}
                                       {selectedOrderCounts.total?.toLocaleString()})
                                     </span>
@@ -5553,7 +5457,7 @@ const mapSlotForUi = (slotData) => {
                                     : selectedOrder?.rate
                                 }
                                 onChange={(e) => handleInputChange(0, "rate", e.target.value)}
-                                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 mt-1"
+                                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 mt-1"
                               />
                             </div>
                             <div>
@@ -5566,7 +5470,7 @@ const mapSlotForUi = (slotData) => {
                                     : selectedOrderCounts.base
                                 }
                                 onChange={(e) => handleInputChange(0, "quantity", e.target.value)}
-                                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 mt-1"
+                                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 mt-1"
                               />
                               {updatedObject?.quantity && (
                                 <div className="mt-1">
@@ -5603,7 +5507,7 @@ const mapSlotForUi = (slotData) => {
                                       Toast.info('No available slots found. Please select a different plant/subtype.')
                                     }
                                   }}
-                                  className="w-full px-3 py-2 border rounded-lg mt-1 text-left hover:border-blue-500 focus:ring-2 focus:ring-blue-500 transition-colors bg-white"
+                                  className="w-full px-3 py-2 border rounded-lg mt-1 text-left hover:border-brand-500 focus:ring-2 focus:ring-brand-500 transition-colors bg-white"
                                   disabled={slots.length === 0}>
                                   <span className={updatedObject?.deliveryDate ? "text-gray-900" : "text-gray-400"}>
                                     {updatedObject?.deliveryDate 
@@ -5637,9 +5541,9 @@ const mapSlotForUi = (slotData) => {
                                       slotDetails.available + currentQuantity
 
                                     return (
-                                      <div className="mt-2 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                                      <div className="mt-2 p-3 bg-brand-50 rounded-lg border border-brand-200">
                                         <div className="text-xs text-gray-700 space-y-2">
-                                          <div className="font-medium text-blue-900">
+                                          <div className="font-medium text-brand-900">
                                             📅 Delivery Period: {slotDetails.startDay} - {slotDetails.endDay}
                                           </div>
                                           <div className="grid grid-cols-2 gap-2">
@@ -5788,7 +5692,7 @@ const mapSlotForUi = (slotData) => {
                                 }
                               }}
                               disabled={!updatedObject || Object.keys(updatedObject).length === 0}
-                              className="px-4 py-2 text-white bg-blue-500 rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed">
+                              className="px-4 py-2 text-white bg-brand-500 rounded-lg hover:bg-brand-600 disabled:opacity-50 disabled:cursor-not-allowed">
                               Save Changes
                             </button>
                           </div>
@@ -5824,12 +5728,12 @@ const mapSlotForUi = (slotData) => {
                               placeholder="Enter a new remark..."
                               value={newRemark}
                               onChange={(e) => setNewRemark(e.target.value)}
-                              className="flex-grow px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                              className="flex-grow px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
                             />
                             <button
                               onClick={() => handleAddRemark(selectedOrder.details.orderid)}
                               disabled={!newRemark.trim()}
-                              className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed">
+                              className="px-4 py-2 bg-brand-500 text-white rounded-lg hover:bg-brand-600 disabled:opacity-50 disabled:cursor-not-allowed">
                               Add Remark
                             </button>
                           </div>
@@ -5855,12 +5759,12 @@ const mapSlotForUi = (slotData) => {
                                   {selectedOrderCounts.total?.toLocaleString()}
                                 </div>
                               </div>
-                              <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
-                                <div className="text-sm text-blue-600 mb-1">Total Dispatched</div>
-                                <div className="text-2xl font-bold text-blue-900">
+                              <div className="bg-brand-50 rounded-lg p-4 border border-brand-200">
+                                <div className="text-sm text-brand-600 mb-1">Total Dispatched</div>
+                                <div className="text-2xl font-bold text-brand-900">
                                   {(selectedOrderCounts.total - (selectedOrder["remaining Plants"] || 0))?.toLocaleString()}
                                 </div>
-                                <div className="text-xs text-blue-600 mt-1">
+                                <div className="text-xs text-brand-600 mt-1">
                                   in {selectedOrder.details.dispatchHistory.length} dispatch{selectedOrder.details.dispatchHistory.length > 1 ? 'es' : ''}
                                 </div>
                               </div>
@@ -5877,25 +5781,25 @@ const mapSlotForUi = (slotData) => {
 
                             {/* Dispatch Timeline */}
                             <div className="bg-white rounded-lg border">
-                              <div className="p-3 border-b bg-blue-50">
-                                <h4 className="font-medium text-blue-900 text-sm">Dispatch Timeline</h4>
+                              <div className="p-3 border-b bg-brand-50">
+                                <h4 className="font-medium text-brand-900 text-sm">Dispatch Timeline</h4>
                               </div>
                               <div className="p-4 space-y-4">
                                 {(selectedOrder.details.dispatchHistory || []).map(
                                   (dispatchItem, dispatchIndex) => (
                                     <div 
                                       key={dispatchIndex} 
-                                      className="relative pl-8 pb-6 border-l-2 border-blue-300 last:border-l-0 last:pb-0">
+                                      className="relative pl-8 pb-6 border-l-2 border-brand-300 last:border-l-0 last:pb-0">
                                       {/* Timeline dot */}
-                                      <div className="absolute left-0 top-0 -ml-2 w-4 h-4 bg-blue-600 rounded-full border-2 border-white"></div>
+                                      <div className="absolute left-0 top-0 -ml-2 w-4 h-4 bg-brand-600 rounded-full border-2 border-white"></div>
                                       
-                                      <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                                      <div className="bg-brand-50 p-4 rounded-lg border border-brand-200">
                                         <div className="flex items-center justify-between mb-3">
                                           <div className="flex items-center gap-2">
-                                            <span className="text-sm font-semibold text-blue-900">
+                                            <span className="text-sm font-semibold text-brand-900">
                                               Dispatch #{dispatchIndex + 1}
                                             </span>
-                                            <span className="px-2 py-1 bg-blue-200 text-blue-800 rounded text-xs font-medium">
+                                            <span className="px-2 py-1 bg-brand-200 text-brand-800 rounded text-xs font-medium">
                                               {dispatchItem.quantity?.toLocaleString()} plants
                                             </span>
                                           </div>
@@ -5908,7 +5812,7 @@ const mapSlotForUi = (slotData) => {
 
                                         {/* Dispatch Details */}
                                         {dispatchItem.dispatch && (
-                                          <div className="bg-white p-3 rounded border border-blue-100 mb-3">
+                                          <div className="bg-white p-3 rounded border border-brand-100 mb-3">
                                             <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
                                               <div>
                                                 <span className="text-gray-500">Transport ID:</span>
@@ -5936,7 +5840,7 @@ const mapSlotForUi = (slotData) => {
                                         <div className="grid grid-cols-2 gap-3 text-sm">
                                           <div className="bg-white p-2 rounded border border-gray-200">
                                             <span className="text-gray-500">Dispatched Quantity:</span>
-                                            <div className="font-bold text-blue-600">
+                                            <div className="font-bold text-brand-600">
                                               {dispatchItem.quantity?.toLocaleString()} plants
                                             </div>
                                           </div>
@@ -5950,7 +5854,7 @@ const mapSlotForUi = (slotData) => {
 
                                         {/* Processed By */}
                                         {dispatchItem.processedBy && (
-                                          <div className="mt-3 pt-3 border-t border-blue-100">
+                                          <div className="mt-3 pt-3 border-t border-brand-100">
                                             <div className="text-xs text-gray-600">
                                               <span className="font-medium">Processed by:</span>{" "}
                                               {dispatchItem.processedBy.name}
@@ -6133,14 +6037,14 @@ const mapSlotForUi = (slotData) => {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
           <div className="bg-white rounded-2xl w-full max-w-4xl max-h-[85vh] overflow-hidden shadow-2xl">
             {/* Modal Header */}
-            <div className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white p-4 flex items-center justify-between">
+            <div className="bg-gradient-to-r from-brand-600 to-brand-500 text-white p-4 flex items-center justify-between">
               <div className="flex items-center">
                 <span className="text-2xl mr-3">📅</span>
                 <h2 className="text-xl font-bold">Select Delivery Date</h2>
               </div>
               <button
                 onClick={() => setShowDeliveryDateModal(false)}
-                className="text-white hover:text-blue-100 transition-colors p-2 rounded-full hover:bg-white hover:bg-opacity-20">
+                className="text-white hover:text-brand-100 transition-colors p-2 rounded-full hover:bg-white hover:bg-opacity-20">
                 <XIcon size={24} />
               </button>
             </div>
@@ -6177,10 +6081,10 @@ const mapSlotForUi = (slotData) => {
                     return (
                       <div key={slot.value} className="border-b border-gray-200 pb-6 last:border-b-0">
                         {/* Slot Header */}
-                        <div className="flex items-center mb-4 pb-3 border-b-2 border-blue-100">
-                          <div className="w-2 h-2 rounded-full bg-blue-600 mr-3"></div>
+                        <div className="flex items-center mb-4 pb-3 border-b-2 border-brand-100">
+                          <div className="w-2 h-2 rounded-full bg-brand-600 mr-3"></div>
                           <div className="flex-1">
-                            <h3 className="text-base font-bold text-blue-600">
+                            <h3 className="text-base font-bold text-brand-600">
                               {slot.label}
                             </h3>
                             <p className="text-sm text-gray-600 mt-1">
@@ -6212,20 +6116,20 @@ const mapSlotForUi = (slotData) => {
                                 className={`
                                   relative p-3 rounded-2xl border-2 transition-all duration-200
                                   ${isSelected 
-                                    ? 'bg-blue-600 border-blue-600 text-white shadow-lg scale-105' 
+                                    ? 'bg-brand-600 border-brand-600 text-white shadow-lg scale-105' 
                                     : isToday
                                       ? 'border-amber-400 bg-amber-50 text-gray-900 hover:bg-amber-100'
-                                      : 'border-gray-200 bg-white text-gray-900 hover:border-blue-400 hover:bg-blue-50'
+                                      : 'border-gray-200 bg-white text-gray-900 hover:border-brand-400 hover:bg-brand-50'
                                   }
                                 `}>
                                 <div className="flex flex-col items-center">
-                                  <span className={`text-xs font-semibold uppercase ${isSelected ? 'text-blue-100' : 'text-gray-500'}`}>
+                                  <span className={`text-xs font-semibold uppercase ${isSelected ? 'text-brand-100' : 'text-gray-500'}`}>
                                     {date.format('ddd')}
                                   </span>
                                   <span className={`text-xl font-bold my-1 ${isSelected ? 'text-white' : 'text-gray-900'}`}>
                                     {date.format('DD')}
                                   </span>
-                                  <span className={`text-xs font-semibold uppercase ${isSelected ? 'text-blue-100' : 'text-gray-600'}`}>
+                                  <span className={`text-xs font-semibold uppercase ${isSelected ? 'text-brand-100' : 'text-gray-600'}`}>
                                     {date.format('MMM')}
                                   </span>
                                 </div>
@@ -6235,7 +6139,7 @@ const mapSlotForUi = (slotData) => {
                                   </div>
                                 )}
                                 {isSelected && (
-                                  <div className="absolute top-1 right-1 bg-white text-blue-600 rounded-full w-5 h-5 flex items-center justify-center">
+                                  <div className="absolute top-1 right-1 bg-white text-brand-600 rounded-full w-5 h-5 flex items-center justify-center">
                                     <CheckIcon size={12} />
                                   </div>
                                 )}
@@ -6248,8 +6152,8 @@ const mapSlotForUi = (slotData) => {
                   })}
 
                   {/* Helper Text */}
-                  <div className="bg-blue-50 border-l-4 border-blue-600 p-4 rounded-r-lg">
-                    <p className="text-sm text-blue-800">
+                  <div className="bg-brand-50 border-l-4 border-brand-600 p-4 rounded-r-lg">
+                    <p className="text-sm text-brand-800">
                       💡 <span className="font-semibold">Tip:</span> Click on any date to select it as the delivery date. Only dates within available slots are shown.
                     </p>
                   </div>
@@ -6275,12 +6179,12 @@ const mapSlotForUi = (slotData) => {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
           <div className="bg-white rounded-2xl w-full max-w-lg max-h-[85vh] overflow-hidden shadow-2xl">
             {/* Modal Header */}
-            <div className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white p-4 flex items-center justify-between">
+            <div className="bg-gradient-to-r from-brand-600 to-brand-500 text-white p-4 flex items-center justify-between">
               <div className="flex items-center">
                 <span className="text-2xl mr-3">{agriDispatchForm.dispatchMode === "VEHICLE" ? "🚚" : "📦"}</span>
                 <div>
                   <h2 className="text-lg font-bold">Dispatch Orders</h2>
-                  <p className="text-sm text-blue-100">{selectedAgriSalesOrders.length} order(s) selected</p>
+                  <p className="text-sm text-brand-100">{selectedAgriSalesOrders.length} order(s) selected</p>
                 </div>
               </div>
               <button
@@ -6298,7 +6202,7 @@ const mapSlotForUi = (slotData) => {
                     dispatchNotes: "",
                   })
                 }}
-                className="text-white hover:text-blue-100 transition-colors p-2 rounded-full hover:bg-white hover:bg-opacity-20">
+                className="text-white hover:text-brand-100 transition-colors p-2 rounded-full hover:bg-white hover:bg-opacity-20">
                 <XIcon size={24} />
               </button>
             </div>
@@ -6306,13 +6210,13 @@ const mapSlotForUi = (slotData) => {
             {/* Modal Content */}
             <div className="overflow-y-auto max-h-[calc(85vh-160px)] p-6">
               {/* Selected Orders Summary */}
-              <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
-                <h4 className="text-sm font-semibold text-blue-800 mb-2">Selected Orders</h4>
+              <div className="mb-4 p-3 bg-brand-50 rounded-lg border border-brand-200">
+                <h4 className="text-sm font-semibold text-brand-800 mb-2">Selected Orders</h4>
                 <div className="max-h-24 overflow-y-auto space-y-1">
                   {orders
                     .filter((o) => selectedAgriSalesOrders.includes(o.details?.orderid))
                     .map((order) => (
-                      <div key={order.details?.orderid} className="text-xs text-blue-700 flex justify-between">
+                      <div key={order.details?.orderid} className="text-xs text-brand-700 flex justify-between">
                         <span className="font-medium">{order.order}</span>
                         <span>{order.farmerName} • {order.details?.customerVillage}</span>
                       </div>
@@ -6329,7 +6233,7 @@ const mapSlotForUi = (slotData) => {
                     onClick={() => setAgriDispatchForm((prev) => ({ ...prev, dispatchMode: "VEHICLE" }))}
                     className={`flex-1 py-3 px-4 rounded-lg border-2 transition-all flex items-center justify-center gap-2 ${
                       agriDispatchForm.dispatchMode === "VEHICLE"
-                        ? "border-blue-500 bg-blue-50 text-blue-700"
+                        ? "border-brand-500 bg-brand-50 text-brand-700"
                         : "border-gray-300 bg-white text-gray-600 hover:border-gray-400"
                     }`}>
                     <span className="text-xl">🚚</span>
@@ -6358,7 +6262,7 @@ const mapSlotForUi = (slotData) => {
                     <select
                       value={agriDispatchForm.vehicleId}
                       onChange={(e) => handleAgriVehicleSelect(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-brand-500 focus:border-brand-500">
                       <option value="">-- Select or enter manually --</option>
                       {Array.isArray(agriVehicles) && agriVehicles.map((vehicle) => (
                         <option key={vehicle._id || vehicle.id} value={vehicle._id || vehicle.id}>
@@ -6377,7 +6281,7 @@ const mapSlotForUi = (slotData) => {
                       value={agriDispatchForm.vehicleNumber}
                       onChange={(e) => setAgriDispatchForm((prev) => ({ ...prev, vehicleNumber: e.target.value.toUpperCase() }))}
                       placeholder="e.g., MH12AB1234"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-brand-500 focus:border-brand-500"
                     />
                   </div>
 
@@ -6389,7 +6293,7 @@ const mapSlotForUi = (slotData) => {
                       value={agriDispatchForm.driverName}
                       onChange={(e) => setAgriDispatchForm((prev) => ({ ...prev, driverName: e.target.value }))}
                       placeholder="Enter driver name"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-brand-500 focus:border-brand-500"
                     />
                   </div>
 
@@ -6405,7 +6309,7 @@ const mapSlotForUi = (slotData) => {
                       }}
                       placeholder="10 digit mobile number"
                       maxLength={10}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-brand-500 focus:border-brand-500"
                     />
                   </div>
                 </>
@@ -6464,7 +6368,7 @@ const mapSlotForUi = (slotData) => {
                   onChange={(e) => setAgriDispatchForm((prev) => ({ ...prev, dispatchNotes: e.target.value }))}
                   placeholder="Any special instructions, delivery notes..."
                   rows={2}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-brand-500 focus:border-brand-500"
                 />
               </div>
             </div>
@@ -6502,7 +6406,7 @@ const mapSlotForUi = (slotData) => {
                 }
                 className={`px-4 py-2 text-sm font-medium text-white rounded-lg disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-2 ${
                   agriDispatchForm.dispatchMode === "VEHICLE" 
-                    ? "bg-blue-600 hover:bg-blue-700" 
+                    ? "bg-brand-600 hover:bg-brand-700" 
                     : "bg-purple-600 hover:bg-purple-700"
                 }`}>
                 {agriDispatchLoading ? (
@@ -6575,7 +6479,7 @@ const mapSlotForUi = (slotData) => {
                                 {order.details?.farmer?.name || order.customerName} • {order.details?.farmer?.village || order.customerVillage}
                               </span>
                             </div>
-                            <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs font-medium rounded">
+                            <span className="px-2 py-0.5 bg-brand-100 text-brand-700 text-xs font-medium rounded">
                               Qty: {orderQty}
                             </span>
                           </div>

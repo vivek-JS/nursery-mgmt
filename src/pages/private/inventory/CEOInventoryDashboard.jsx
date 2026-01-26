@@ -125,7 +125,7 @@ const CEOInventoryDashboard = () => {
     if (loading) {
       return (
         <div className="flex items-center justify-center h-96">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-600"></div>
         </div>
       );
     }
@@ -146,25 +146,25 @@ const CEOInventoryDashboard = () => {
       <div className="space-y-6">
         {/* Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl shadow-lg p-6 text-white transform transition-all duration-300 hover:scale-105">
+          <div className="bg-gradient-to-br from-brand-600 to-brand-500 rounded-xl shadow-lg p-6 text-white transform transition-all duration-300 hover:scale-105">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-blue-100 text-sm font-medium">Total Products</p>
                 <p className="text-3xl font-bold mt-2">{summary.totalProducts}</p>
                 <p className="text-blue-100 text-xs mt-1">+ {summary.totalCrops} Crops</p>
               </div>
-              <Package className="w-12 h-12 text-blue-200" />
+              <Package className="w-12 h-12 text-brand-200" />
             </div>
           </div>
 
-          <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-xl shadow-lg p-6 text-white transform transition-all duration-300 hover:scale-105">
+          <div className="bg-gradient-to-br from-brand-600 to-brand-500 rounded-xl shadow-lg p-6 text-white transform transition-all duration-300 hover:scale-105">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-green-100 text-sm font-medium">Total Stock Value</p>
+                <p className="text-brand-100 text-sm font-medium">Total Stock Value</p>
                 <p className="text-3xl font-bold mt-2">{formatCurrency(summary.totalStockValue)}</p>
-                <p className="text-green-100 text-xs mt-1">{formatNumber(summary.totalCurrentStock)} units</p>
+                <p className="text-brand-100 text-xs mt-1">{formatNumber(summary.totalCurrentStock)} units</p>
               </div>
-              <DollarSign className="w-12 h-12 text-green-200" />
+              <DollarSign className="w-12 h-12 text-brand-200" />
             </div>
           </div>
 
@@ -260,7 +260,7 @@ const CEOInventoryDashboard = () => {
     if (loading) {
       return (
         <div className="flex items-center justify-center h-96">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-600"></div>
         </div>
       );
     }
@@ -285,50 +285,50 @@ const CEOInventoryDashboard = () => {
               type="date"
               value={dateRange.startDate}
               onChange={(e) => setDateRange({ ...dateRange, startDate: e.target.value })}
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+              className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
             />
             <span className="text-gray-500">to</span>
             <input
               type="date"
               value={dateRange.endDate}
               onChange={(e) => setDateRange({ ...dateRange, endDate: e.target.value })}
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+              className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
             />
           </div>
         </div>
 
         {/* Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl shadow-lg p-6 text-white transform transition-all duration-300 hover:scale-105">
+          <div className="bg-gradient-to-br from-brand-600 to-brand-500 rounded-xl shadow-lg p-6 text-white transform transition-all duration-300 hover:scale-105">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-blue-100 text-sm font-medium">Total Orders</p>
                 <p className="text-3xl font-bold mt-2">{summary.totalOrders}</p>
                 <p className="text-blue-100 text-xs mt-1">In selected period</p>
               </div>
-              <ShoppingCart className="w-12 h-12 text-blue-200" />
+              <ShoppingCart className="w-12 h-12 text-brand-200" />
             </div>
           </div>
 
-          <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-xl shadow-lg p-6 text-white transform transition-all duration-300 hover:scale-105">
+          <div className="bg-gradient-to-br from-brand-600 to-brand-500 rounded-xl shadow-lg p-6 text-white transform transition-all duration-300 hover:scale-105">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-green-100 text-sm font-medium">Total Order Value</p>
+                <p className="text-brand-100 text-sm font-medium">Total Order Value</p>
                 <p className="text-3xl font-bold mt-2">{formatCurrency(summary.totalOrderValue)}</p>
-                <p className="text-green-100 text-xs mt-1">Gross sales</p>
+                <p className="text-brand-100 text-xs mt-1">Gross sales</p>
               </div>
-              <DollarSign className="w-12 h-12 text-green-200" />
+              <DollarSign className="w-12 h-12 text-brand-200" />
             </div>
           </div>
 
-          <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl shadow-lg p-6 text-white transform transition-all duration-300 hover:scale-105">
+          <div className="bg-gradient-to-br from-brand-600 to-brand-500 rounded-xl shadow-lg p-6 text-white transform transition-all duration-300 hover:scale-105">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-purple-100 text-sm font-medium">Total Collected</p>
                 <p className="text-3xl font-bold mt-2">{formatCurrency(summary.totalPaidAmount)}</p>
                 <p className="text-purple-100 text-xs mt-1">Payments received</p>
               </div>
-              <CheckCircle className="w-12 h-12 text-purple-200" />
+              <CheckCircle className="w-12 h-12 text-brand-200" />
             </div>
           </div>
 
@@ -348,13 +348,13 @@ const CEOInventoryDashboard = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="bg-white rounded-xl shadow-lg p-6 border-l-4 border-blue-500 transform transition-all duration-300 hover:shadow-xl">
             <h3 className="text-lg font-semibold text-gray-800 mb-2">Opening Balance</h3>
-            <p className="text-3xl font-bold text-blue-600">{formatCurrency(summary.openingBalance)}</p>
+            <p className="text-3xl font-bold text-brand-600">{formatCurrency(summary.openingBalance)}</p>
             <p className="text-sm text-gray-500 mt-2">Balance before selected period</p>
           </div>
 
-          <div className="bg-white rounded-xl shadow-lg p-6 border-l-4 border-green-500 transform transition-all duration-300 hover:shadow-xl">
+          <div className="bg-white rounded-xl shadow-lg p-6 border-l-4 border-brand-500 transform transition-all duration-300 hover:shadow-xl">
             <h3 className="text-lg font-semibold text-gray-800 mb-2">Closing Balance</h3>
-            <p className="text-3xl font-bold text-green-600">{formatCurrency(summary.closingBalance)}</p>
+            <p className="text-3xl font-bold text-brand-600">{formatCurrency(summary.closingBalance)}</p>
             <p className="text-sm text-gray-500 mt-2">Balance after selected period</p>
           </div>
         </div>
@@ -416,7 +416,7 @@ const CEOInventoryDashboard = () => {
                   <tr key={product.productId} className="hover:bg-gray-50">
                     <td className="px-4 py-3 text-sm font-medium text-gray-900">{product.productName}</td>
                     <td className="px-4 py-3 text-sm text-gray-600">{formatNumber(product.totalQuantity)}</td>
-                    <td className="px-4 py-3 text-sm font-semibold text-green-600">{formatCurrency(product.totalValue)}</td>
+                    <td className="px-4 py-3 text-sm font-semibold text-brand-600">{formatCurrency(product.totalValue)}</td>
                     <td className="px-4 py-3 text-sm text-gray-600">{product.orders.length}</td>
                   </tr>
                 ))}
@@ -447,7 +447,7 @@ const CEOInventoryDashboard = () => {
                     <td className="px-4 py-3 text-sm text-gray-600">{customer.customerMobile}</td>
                     <td className="px-4 py-3 text-sm text-gray-600">{customer.totalOrders}</td>
                     <td className="px-4 py-3 text-sm font-semibold text-gray-900">{formatCurrency(customer.totalOrderValue)}</td>
-                    <td className="px-4 py-3 text-sm font-semibold text-green-600">{formatCurrency(customer.totalPaid)}</td>
+                    <td className="px-4 py-3 text-sm font-semibold text-brand-600">{formatCurrency(customer.totalPaid)}</td>
                     <td className="px-4 py-3 text-sm font-semibold text-orange-600">{formatCurrency(customer.outstanding)}</td>
                   </tr>
                 ))}
@@ -482,7 +482,7 @@ const CEOInventoryDashboard = () => {
                     <td className="px-4 py-3 text-sm font-semibold text-gray-900">{formatCurrency(payment.paidAmount)}</td>
                     <td className="px-4 py-3 text-sm">
                       <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                        payment.paymentStatus === 'COLLECTED' ? 'bg-green-100 text-green-800' :
+                        payment.paymentStatus === 'COLLECTED' ? 'bg-brand-100 text-brand-800' :
                         payment.paymentStatus === 'PENDING' ? 'bg-yellow-100 text-yellow-800' :
                         'bg-red-100 text-red-800'
                       }`}>
@@ -521,7 +521,7 @@ const CEOInventoryDashboard = () => {
             <button
               onClick={handleRefresh}
               disabled={refreshing}
-              className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
+              className="flex items-center space-x-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50 transition-colors"
             >
               <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
               <span>Refresh</span>
@@ -538,7 +538,7 @@ const CEOInventoryDashboard = () => {
               onClick={() => setActiveTab('stock')}
               className={`py-4 px-2 border-b-2 font-medium text-sm transition-colors ${
                 activeTab === 'stock'
-                  ? 'border-green-600 text-green-600'
+                  ? 'border-brand-600 text-brand-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
@@ -551,7 +551,7 @@ const CEOInventoryDashboard = () => {
               onClick={() => setActiveTab('ledger')}
               className={`py-4 px-2 border-b-2 font-medium text-sm transition-colors ${
                 activeTab === 'ledger'
-                  ? 'border-green-600 text-green-600'
+                  ? 'border-brand-600 text-brand-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
             >

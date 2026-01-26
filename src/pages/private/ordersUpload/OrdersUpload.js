@@ -101,7 +101,9 @@ const ExcelUpload = () => {
     "DRIVER",
     "LABORATORY_MANAGER",
     "DEALER",
-    "OFFICE_ADMIN"
+    "OFFICE_ADMIN",
+    "RAM_AGRI_SALES",
+    "RAM_AGRI_SALES_MANAGER"
   ]
 
   // Parse error message to extract sales person name
