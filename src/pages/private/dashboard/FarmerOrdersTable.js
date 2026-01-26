@@ -591,6 +591,15 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   const [showAgriSalesOrders, setShowAgriSalesOrders] = useState(true) // Ram Agri Inputs only (no regular orders)
   const [showAddAgriSalesOrderForm, setShowAddAgriSalesOrderForm] = useState(false) // Dialog for adding Agri Sales order
   const [agriSalesPendingCount, setAgriSalesPendingCount] = useState(0) // Pending payments count for badge
+  const [agriStatusCounts, setAgriStatusCounts] = useState({
+    ALL: 0,
+    PENDING: 0,
+    ACCEPTED: 0,
+    ASSIGNED: 0,
+    DISPATCHED: 0,
+    IN_TRANSIT: 0,
+    COMPLETED: 0
+  }) // Counts for each status tab (consistent with API)
   
   // Ram Agri Inputs Dispatch State
   const [selectedAgriSalesOrders, setSelectedAgriSalesOrders] = useState([]) // Selected orders for dispatch
@@ -1355,6 +1364,9 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
   // Load initial data
   useEffect(() => {
     getOrders()
+    if (showAgriSalesOrders) {
+      fetchAgriStatusCounts()
+    }
   }, [
     debouncedSearchTerm,
     refresh,
@@ -1731,6 +1743,7 @@ const loadFilterOptions = async () => {
           dispatchNotes: "",
         })
         getOrders()
+        fetchAgriStatusCounts() // Refresh counts after dispatch
       } else {
         Toast.error("Failed to dispatch orders")
       }
@@ -1823,6 +1836,7 @@ const loadFilterOptions = async () => {
           returnNotes: "",
         })
         getOrders()
+        fetchAgriStatusCounts() // Refresh counts after complete
       } else {
         Toast.error("Failed to complete orders")
       }
@@ -1870,6 +1884,7 @@ const loadFilterOptions = async () => {
         setAssignToUser("")
         setAssignmentNotes("")
         getOrders()
+        fetchAgriStatusCounts() // Refresh counts after assign
       } else {
         Toast.error("Failed to assign orders")
       }
@@ -2093,6 +2108,48 @@ const mapSlotForUi = (slotData) => {
     }
   }
 
+  // Function to fetch counts for all statuses (without status filter)
+  const fetchAgriStatusCounts = async () => {
+    if (!showAgriSalesOrders) return
+    
+    try {
+      const instance = NetworkManager(API.INVENTORY.GET_ALL_AGRI_SALES_ORDERS)
+      const params = {
+        search: debouncedSearchTerm,
+        limit: 10000,
+        page: 1,
+      }
+
+      if (startDate && endDate) {
+        params.startDate = moment(startDate).format("YYYY-MM-DD")
+        params.endDate = moment(endDate).format("YYYY-MM-DD")
+      }
+
+      // Don't apply status filter - fetch all orders to calculate counts
+      if (selectedSalesPerson) {
+        params.createdBy = selectedSalesPerson
+      }
+
+      const response = await instance.request({}, params)
+      const ordersData = response?.data?.data?.data || response?.data?.data || []
+
+      // Calculate counts for each status
+      const counts = {
+        ALL: ordersData.length,
+        PENDING: ordersData.filter(o => o.orderStatus === "PENDING").length,
+        ACCEPTED: ordersData.filter(o => o.orderStatus === "ACCEPTED").length,
+        ASSIGNED: ordersData.filter(o => o.orderStatus === "ASSIGNED").length,
+        DISPATCHED: ordersData.filter(o => o.orderStatus === "DISPATCHED" || o.dispatchStatus === "DISPATCHED").length,
+        IN_TRANSIT: ordersData.filter(o => o.dispatchStatus === "IN_TRANSIT").length,
+        COMPLETED: ordersData.filter(o => o.orderStatus === "COMPLETED" || o.dispatchStatus === "DELIVERED").length
+      }
+
+      setAgriStatusCounts(counts)
+    } catch (error) {
+      console.error("Error fetching status counts:", error)
+    }
+  }
+
   const getOrders = async () => {
     setLoading(true)
 
@@ -2137,6 +2194,9 @@ const mapSlotForUi = (slotData) => {
 
         const response = await instance.request({}, params)
         const ordersData = response?.data?.data?.data || response?.data?.data || []
+        
+        // Fetch counts in parallel (without blocking)
+        fetchAgriStatusCounts()
 
         // Transform Agri Sales orders to match the expected format
         const transformedOrders = ordersData.map((order) => {
@@ -2689,6 +2749,7 @@ const mapSlotForUi = (slotData) => {
               if (response?.data) {
                 Toast.success("Order accepted and stock deducted successfully")
                 await getOrders()
+                fetchAgriStatusCounts() // Refresh counts after accept
                 refreshComponent()
               }
             } else if (newStatus === "REJECTED") {
@@ -2697,6 +2758,7 @@ const mapSlotForUi = (slotData) => {
               if (response?.data) {
                 Toast.success("Order rejected successfully")
                 await getOrders()
+                fetchAgriStatusCounts() // Refresh counts after reject
                 refreshComponent()
               }
             }
@@ -2976,63 +3038,48 @@ const mapSlotForUi = (slotData) => {
         </div>
 
 
-        {/* Ram Agri Inputs Action Bar */}
-        {showAgriSalesOrders && (
+        {/* Ram Agri Inputs Action Bar - Only show when orders are selected */}
+        {showAgriSalesOrders && (selectedAgriSalesOrders.length > 0 || selectedAgriOrdersForComplete.length > 0) && (
           <div className="bg-white rounded-lg shadow-sm border mb-4 overflow-hidden">
             {/* Action Bar Header */}
             <div className="bg-gradient-to-r from-orange-500 to-amber-500 px-4 py-3">
               <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
                 <div className="flex items-center gap-2 md:gap-4 overflow-x-auto pb-2 lg:pb-0">
-                  {/* Dispatch Button */}
-                  <button
-                    onClick={openAgriDispatchModal}
-                    disabled={selectedAgriSalesOrders.length === 0}
-                    className={`px-3 md:px-4 py-2 text-xs md:text-sm font-medium rounded-lg transition-all flex items-center gap-1 md:gap-2 whitespace-nowrap ${
-                      selectedAgriSalesOrders.length > 0
-                        ? "bg-white text-orange-600 hover:bg-orange-50 shadow-md"
-                        : "bg-white/50 text-white/70 cursor-not-allowed"
-                    }`}>
-                    🚚 Dispatch
-                    {selectedAgriSalesOrders.length > 0 && (
+                  {/* Dispatch Button - Only show when orders are selected */}
+                  {selectedAgriSalesOrders.length > 0 && (
+                    <button
+                      onClick={openAgriDispatchModal}
+                      className="px-3 md:px-4 py-2 text-xs md:text-sm font-medium rounded-lg transition-all flex items-center gap-1 md:gap-2 whitespace-nowrap bg-orange-100 text-orange-700 hover:bg-orange-200 shadow-sm border border-orange-300">
+                      🚚 Dispatch
                       <span className="bg-orange-600 text-white text-xs px-2 py-0.5 rounded-full">
                         {selectedAgriSalesOrders.length}
                       </span>
-                    )}
-                  </button>
+                    </button>
+                  )}
 
                   {/* Assign to Sales Person Button */}
-                  <button
-                    onClick={openAssignModal}
-                    disabled={selectedAgriSalesOrders.length === 0}
-                    className={`px-3 md:px-4 py-2 text-xs md:text-sm font-medium rounded-lg transition-all flex items-center gap-1 md:gap-2 whitespace-nowrap ${
-                      selectedAgriSalesOrders.length > 0
-                        ? "bg-purple-600 text-white hover:bg-purple-700 shadow-md"
-                        : "bg-white/50 text-white/70 cursor-not-allowed"
-                    }`}>
-                    👤 Assign
-                    {selectedAgriSalesOrders.length > 0 && (
-                      <span className="bg-white text-purple-600 text-xs px-2 py-0.5 rounded-full">
+                  {selectedAgriSalesOrders.length > 0 && (
+                    <button
+                      onClick={openAssignModal}
+                      className="px-3 md:px-4 py-2 text-xs md:text-sm font-medium rounded-lg transition-all flex items-center gap-1 md:gap-2 whitespace-nowrap bg-purple-100 text-purple-700 hover:bg-purple-200 shadow-sm border border-purple-300">
+                      👤 Assign
+                      <span className="bg-purple-600 text-white text-xs px-2 py-0.5 rounded-full">
                         {selectedAgriSalesOrders.length}
                       </span>
-                    )}
-                  </button>
+                    </button>
+                  )}
 
                   {/* Complete Button */}
-                  <button
-                    onClick={openAgriCompleteModal}
-                    disabled={selectedAgriOrdersForComplete.length === 0}
-                    className={`px-3 md:px-4 py-2 text-xs md:text-sm font-medium rounded-lg transition-all flex items-center gap-1 md:gap-2 whitespace-nowrap ${
-                      selectedAgriOrdersForComplete.length > 0
-                        ? "bg-green-600 text-white hover:bg-green-700 shadow-md"
-                        : "bg-white/50 text-white/70 cursor-not-allowed"
-                    }`}>
-                    ✅ Complete
-                    {selectedAgriOrdersForComplete.length > 0 && (
-                      <span className="bg-white text-green-600 text-xs px-2 py-0.5 rounded-full">
+                  {selectedAgriOrdersForComplete.length > 0 && (
+                    <button
+                      onClick={openAgriCompleteModal}
+                      className="px-3 md:px-4 py-2 text-xs md:text-sm font-medium rounded-lg transition-all flex items-center gap-1 md:gap-2 whitespace-nowrap bg-green-100 text-green-700 hover:bg-green-200 shadow-sm border border-green-300">
+                      ✅ Complete
+                      <span className="bg-green-600 text-white text-xs px-2 py-0.5 rounded-full">
                         {selectedAgriOrdersForComplete.length}
                       </span>
-                    )}
-                  </button>
+                    </button>
+                  )}
 
                   {/* Dispatched By Filter */}
                   <div className="flex items-center gap-2 whitespace-nowrap">
@@ -3078,21 +3125,6 @@ const mapSlotForUi = (slotData) => {
                         Clear
                       </button>
                     </>
-                  )}
-                  {/* Quick Select Buttons */}
-                  {selectedAgriSalesOrders.length === 0 && selectedAgriOrdersForComplete.length === 0 && (
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={selectAllAgriOrders}
-                        className="px-2 md:px-3 py-1.5 text-xs md:text-sm font-medium rounded-lg bg-white/20 text-white hover:bg-white/30 transition-colors whitespace-nowrap">
-                        Select Accepted
-                      </button>
-                      <button
-                        onClick={selectAllDispatchedOrders}
-                        className="px-2 md:px-3 py-1.5 text-xs md:text-sm font-medium rounded-lg bg-green-600 text-white hover:bg-green-700 transition-colors whitespace-nowrap">
-                        Select Dispatched
-                      </button>
-                    </div>
                   )}
                 </div>
               </div>
@@ -3242,73 +3274,74 @@ const mapSlotForUi = (slotData) => {
               )}
             </div>
 
-            {/* Status filter (Ram Agri Inputs) */}
+            {/* Status filter (Ram Agri Inputs) - Tab Style */}
             {showAgriSalesOrders && (
-              <div className="ml-4 pl-4 border-l border-gray-300 flex items-center gap-1 flex-wrap">
-                <span className="text-sm font-medium text-gray-700 mr-1">Status:</span>
-                <button
-                  onClick={() => setAgriDispatchStatusFilter("ALL")}
-                  className={`px-2 py-1 text-xs font-medium rounded-full transition-all whitespace-nowrap ${
-                    agriDispatchStatusFilter === "ALL"
-                      ? "bg-gray-800 text-white shadow-sm"
-                      : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                  }`}>
-                  All ({orders.length})
-                </button>
-                <button
-                  onClick={() => setAgriDispatchStatusFilter("PENDING")}
-                  className={`px-2 py-1 text-xs font-medium rounded-full transition-all whitespace-nowrap ${
-                    agriDispatchStatusFilter === "PENDING"
-                      ? "bg-yellow-600 text-white shadow-sm"
-                      : "bg-yellow-50 text-yellow-700 hover:bg-yellow-100"
-                  }`}>
-                  ⏳ Pending ({orders.filter(o => o.orderStatus === "PENDING").length})
-                </button>
-                <button
-                  onClick={() => setAgriDispatchStatusFilter("ACCEPTED")}
-                  className={`px-2 py-1 text-xs font-medium rounded-full transition-all whitespace-nowrap ${
-                    agriDispatchStatusFilter === "ACCEPTED"
-                      ? "bg-gray-600 text-white shadow-sm"
-                      : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                  }`}>
-                  ✓ Accepted ({orders.filter(o => o.orderStatus === "ACCEPTED").length})
-                </button>
-                <button
-                  onClick={() => setAgriDispatchStatusFilter("ASSIGNED")}
-                  className={`px-2 py-1 text-xs font-medium rounded-full transition-all whitespace-nowrap ${
-                    agriDispatchStatusFilter === "ASSIGNED"
-                      ? "bg-purple-600 text-white shadow-sm"
-                      : "bg-purple-50 text-purple-600 hover:bg-purple-100"
-                  }`}>
-                  👤 Assigned ({orders.filter(o => o.orderStatus === "ASSIGNED").length})
-                </button>
-                <button
-                  onClick={() => setAgriDispatchStatusFilter("DISPATCHED")}
-                  className={`px-2 py-1 text-xs font-medium rounded-full transition-all whitespace-nowrap ${
-                    agriDispatchStatusFilter === "DISPATCHED"
-                      ? "bg-brand-600 text-white shadow-sm"
-                      : "bg-brand-50 text-brand-600 hover:bg-brand-100"
-                  }`}>
-                  🚚 Dispatched ({orders.filter(o => o.orderStatus === "DISPATCHED" || o.details?.dispatchStatus === "DISPATCHED").length})
-                </button>
-                <button
-                  onClick={() => setAgriDispatchStatusFilter("IN_TRANSIT")}
-                  className={`px-2 py-1 text-xs font-medium rounded-full transition-all whitespace-nowrap ${
-                    agriDispatchStatusFilter === "IN_TRANSIT"
-                      ? "bg-orange-600 text-white shadow-sm"
-                      : "bg-orange-50 text-orange-600 hover:bg-orange-100"
-                  }`}>
-                  🛣️ In Transit ({orders.filter(o => o.details?.dispatchStatus === "IN_TRANSIT").length})
-                </button>
-                <button
-                  onClick={() => setAgriDispatchStatusFilter("COMPLETED")}
-                  className={`px-2 py-1 text-xs font-medium rounded-full transition-all whitespace-nowrap ${
-                    agriDispatchStatusFilter === "COMPLETED"
-                      ? "bg-green-600 text-white shadow-sm"
-                      : "bg-green-50 text-green-600 hover:bg-green-100"
-                  }`}>
-                  ✅ Completed ({orders.filter(o => o.orderStatus === "COMPLETED" || o.details?.dispatchStatus === "DELIVERED").length})
-                </button>
+              <div className="ml-4 pl-4 border-l border-gray-300">
+                <div className="flex items-center gap-1 overflow-x-auto scrollbar-hide pb-1">
+                  <button
+                    onClick={() => setAgriDispatchStatusFilter("ALL")}
+                    className={`px-3 py-2 text-xs font-medium whitespace-nowrap transition-all border-b-2 ${
+                      agriDispatchStatusFilter === "ALL"
+                        ? "border-brand-600 text-brand-600 bg-brand-50"
+                        : "border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300"
+                    }`}>
+                    All <span className="ml-1 text-xs font-semibold">({agriStatusCounts.ALL})</span>
+                  </button>
+                  <button
+                    onClick={() => setAgriDispatchStatusFilter("PENDING")}
+                    className={`px-3 py-2 text-xs font-medium whitespace-nowrap transition-all border-b-2 ${
+                      agriDispatchStatusFilter === "PENDING"
+                        ? "border-yellow-600 text-yellow-600 bg-yellow-50"
+                        : "border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300"
+                    }`}>
+                    ⏳ Pending <span className="ml-1 text-xs font-semibold">({agriStatusCounts.PENDING})</span>
+                  </button>
+                  <button
+                    onClick={() => setAgriDispatchStatusFilter("ACCEPTED")}
+                    className={`px-3 py-2 text-xs font-medium whitespace-nowrap transition-all border-b-2 ${
+                      agriDispatchStatusFilter === "ACCEPTED"
+                        ? "border-gray-600 text-gray-600 bg-gray-50"
+                        : "border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300"
+                    }`}>
+                    ✓ Accepted <span className="ml-1 text-xs font-semibold">({agriStatusCounts.ACCEPTED})</span>
+                  </button>
+                  <button
+                    onClick={() => setAgriDispatchStatusFilter("ASSIGNED")}
+                    className={`px-3 py-2 text-xs font-medium whitespace-nowrap transition-all border-b-2 ${
+                      agriDispatchStatusFilter === "ASSIGNED"
+                        ? "border-purple-600 text-purple-600 bg-purple-50"
+                        : "border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300"
+                    }`}>
+                    👤 Assigned <span className="ml-1 text-xs font-semibold">({agriStatusCounts.ASSIGNED})</span>
+                  </button>
+                  <button
+                    onClick={() => setAgriDispatchStatusFilter("DISPATCHED")}
+                    className={`px-3 py-2 text-xs font-medium whitespace-nowrap transition-all border-b-2 ${
+                      agriDispatchStatusFilter === "DISPATCHED"
+                        ? "border-brand-600 text-brand-600 bg-brand-50"
+                        : "border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300"
+                    }`}>
+                    🚚 Dispatched <span className="ml-1 text-xs font-semibold">({agriStatusCounts.DISPATCHED})</span>
+                  </button>
+                  <button
+                    onClick={() => setAgriDispatchStatusFilter("IN_TRANSIT")}
+                    className={`px-3 py-2 text-xs font-medium whitespace-nowrap transition-all border-b-2 ${
+                      agriDispatchStatusFilter === "IN_TRANSIT"
+                        ? "border-orange-600 text-orange-600 bg-orange-50"
+                        : "border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300"
+                    }`}>
+                    🛣️ In Transit <span className="ml-1 text-xs font-semibold">({agriStatusCounts.IN_TRANSIT})</span>
+                  </button>
+                  <button
+                    onClick={() => setAgriDispatchStatusFilter("COMPLETED")}
+                    className={`px-3 py-2 text-xs font-medium whitespace-nowrap transition-all border-b-2 ${
+                      agriDispatchStatusFilter === "COMPLETED"
+                        ? "border-green-600 text-green-600 bg-green-50"
+                        : "border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300"
+                    }`}>
+                    ✅ Completed <span className="ml-1 text-xs font-semibold">({agriStatusCounts.COMPLETED})</span>
+                  </button>
+                </div>
               </div>
             )}
           </div>
