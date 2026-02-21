@@ -56,6 +56,11 @@ const DealersDetails = React.lazy(() => import("pages/private/dealers/DelaerDeta
 const CapacityInsights = React.lazy(() => import("pages/private/capacityinsights/CapacityInsights"))
 const Payments = React.lazy(() => import("pages/private/payments"))
 const WhatsAppManagement = React.lazy(() => import("pages/private/whatsapp/WhatsAppManagement"))
+const WhatsAppCampaignsList = React.lazy(() => import("modules/whatsapp-automation/CampaignList"))
+const WhatsAppCampaignCreate = React.lazy(() => import("modules/whatsapp-automation/CampaignCreate"))
+const AutomationPage = React.lazy(() => import("pages/private/automation/AutomationPage"))
+const CampaignsPage = React.lazy(() => import("pages/private/automation/CampaignsPage"))
+const CampaignCreateWizard = React.lazy(() => import("pages/private/automation/CampaignCreateWizard"))
 const SowingManagement = React.lazy(() => import("pages/private/Sowing/SowingManagement"))
 const PlantAvailability = React.lazy(() => import("pages/private/Sowing/PlantAvailability"))
 const SowingGapAnalysis = React.lazy(() => import("pages/private/Sowing/SowingGapAnalysis"))
@@ -67,6 +72,8 @@ const FollowUpManagement = React.lazy(() => import("pages/private/followUp"))
 const TaskManagement = React.lazy(() => import("pages/private/tasks"))
 const DispatchOrderList = React.lazy(() => import("pages/private/Dispatch/DispatchOrderList"))
 const DispatchedListPage = React.lazy(() => import("pages/private/Dispatch/DispatchedListPage"))
+const PlaceOrderMobile = React.lazy(() => import("pages/private/order/PlaceOrderMobile"))
+const CallAssignmentList = React.lazy(() => import("pages/private/callAssignment/CallAssignmentList"))
 
 export const PrivateRoutes = [
   { path: "/u/dashboard", component: Dashboard },
@@ -129,6 +136,11 @@ export const PrivateRoutes = [
   { path: "/u/capacity-insights", component: CapacityInsights },
   { path: "/u/payments", component: Payments },
   { path: "/u/whatsapp", component: WhatsAppManagement },
+  { path: "/u/whatsapp-automation", component: WhatsAppCampaignsList },
+  { path: "/u/whatsapp-automation/create", component: WhatsAppCampaignCreate },
+  { path: "/u/automation", component: AutomationPage },
+  { path: "/u/automation/campaigns", component: CampaignsPage },
+  { path: "/u/automation/create", component: CampaignCreateWizard },
   { path: "/u/sowing", component: SowingManagement },
   { path: "/u/plant-availability", component: PlantAvailability },
   { path: "/u/sowing-gap-analysis", component: SowingGapAnalysis },
@@ -140,5 +152,8 @@ export const PrivateRoutes = [
   { path: "/u/tasks", component: TaskManagement },
   { path: "/u/dispatch-orders", component: DispatchedListPage },
   // Mobile-friendly Agri Sales Order form (private route, no sidebar)
-  { path: "/u/mobile/agri-sales-order", component: AgriSalesOrderMobile }
+  { path: "/u/mobile/agri-sales-order", component: AgriSalesOrderMobile },
+  // Mobile Place Order - regular orders (farmer/dealer, quota, wallet); no sidebar; DEALER/SALES redirect
+  { path: "/u/mobile/place-order", component: PlaceOrderMobile },
+  { path: "/u/call-assignment", component: CallAssignmentList }
 ]

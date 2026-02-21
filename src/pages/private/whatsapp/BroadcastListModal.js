@@ -85,14 +85,19 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
   const [publicLinks, setPublicLinks] = useState([])
   const [selectedPublicLinkId, setSelectedPublicLinkId] = useState("")
   const [loadingPublicLinks, setLoadingPublicLinks] = useState(false)
+  // Pagination state for farmers / old sales
+  const [oldFarmersPage, setOldFarmersPage] = useState(1)
+  const [oldFarmersHasMore, setOldFarmersHasMore] = useState(true)
+  const [oldSalesPage, setOldSalesPage] = useState(1)
+  const [oldSalesHasMore, setOldSalesHasMore] = useState(true)
 
   useEffect(() => {
     if (open) {
       resetForm()
       fetchPublicLinks()
-      // Load all sources when modal opens
-      fetchOldFarmers()
-      fetchOldSalesData()
+      // Load first page for tabs when modal opens
+      fetchOldFarmers({ page: 1 })
+      fetchOldSalesData({ page: 1 })
     }
   }, [open])
 
@@ -107,6 +112,10 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
     setSelectedPublicLinkId("")
     setActiveTab(0)
     setError(null)
+    setOldFarmersPage(1)
+    setOldFarmersHasMore(true)
+    setOldSalesPage(1)
+    setOldSalesHasMore(true)
   }
 
   // Fetch public links
@@ -125,27 +134,31 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
   }
 
   // Fetch old farmers
-  const fetchOldFarmers = async () => {
+  const fetchOldFarmers = async ({ page = 1, limit = 100 } = {}) => {
     setLoadingOldFarmers(true)
     try {
       const instance = NetworkManager(API.FARMER.GET_FARMERS)
-      const response = await instance.request()
-      
+      const response = await instance.request({}, { page, limit, q: searchTerm })
+
+      let farmersData = []
       if (response.data?.data) {
-        const farmersData = Array.isArray(response.data.data) 
-          ? response.data.data 
+        farmersData = Array.isArray(response.data.data)
+          ? response.data.data
           : response.data.data.farmers || []
-        
-        const normalizedFarmers = farmersData.map(farmer => ({
-          ...farmer,
-          _id: farmer._id || farmer.id,
-          id: farmer._id || farmer.id,
-          source: "oldFarmer",
-          sourceLabel: "Old Farmer"
-        }))
-        
-        setOldFarmersData(normalizedFarmers)
       }
+
+      const normalizedFarmers = farmersData.map(farmer => ({
+        ...farmer,
+        _id: farmer._id || farmer.id,
+        id: farmer._id || farmer.id,
+        opt_in: farmer.opt_in ?? null,
+        source: "oldFarmer",
+        sourceLabel: "Old Farmer"
+      }))
+
+      setOldFarmersData(prev => (page === 1 ? normalizedFarmers : [...prev, ...normalizedFarmers]))
+      setOldFarmersPage(page)
+      setOldFarmersHasMore(farmersData.length === limit)
     } catch (error) {
       console.error("Error fetching old farmers:", error)
       setError("Failed to fetch old farmers")
@@ -154,42 +167,33 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
     }
   }
 
-  // Fetch old sales data
-  const fetchOldSalesData = async () => {
+  // Fetch old sales data (unique farmers/customers from old sales)
+  const fetchOldSalesData = async ({ page = 1, limit = 200 } = {}) => {
     setLoadingOldSales(true)
     try {
-      const instance = NetworkManager(API.OLD_SALES.GET_GEO_SUMMARY)
-      const queryParams = {
-        limit: 1000,
-        sortBy: "totalInvoiceAmount",
-        sortOrder: "desc"
-      }
-      const response = await instance.request({}, queryParams)
-      
-      if (response.data?.data) {
-        const salesData = Array.isArray(response.data.data) 
-          ? response.data.data 
-          : response.data.data.summary || []
-        
-        const normalizedFarmers = salesData.map((item, index) => {
-          const farmer = item.farmer || item
-          return {
-            _id: farmer._id || `old-sales-${index}`,
-            id: farmer._id || `old-sales-${index}`,
-            name: farmer.name || "",
-            mobileNumber: farmer.mobileNumber || "",
-            village: farmer.village || farmer.villageName || "",
-            taluka: farmer.taluka || farmer.talukaName || "",
-            district: farmer.district || farmer.districtName || "",
-            state: farmer.state || farmer.stateName || "",
-            source: "oldSales",
-            sourceLabel: "Old Sales",
-            originalData: item
-          }
-        }).filter(f => f.name && f.mobileNumber)
-        
-        setOldSalesData(normalizedFarmers)
-      }
+      const instance = NetworkManager(API.OLD_SALES.GET_UNIQUE_CUSTOMERS)
+      const response = await instance.request({}, { page, limit })
+      const customers = response?.data?.data?.customers || []
+
+      const normalizedFarmers = customers.map((c, index) => ({
+        _id: c._id || `old-sales-${c.mobileNumber}-${(page - 1) * limit + index}`,
+        id: c._id || `old-sales-${c.mobileNumber}-${(page - 1) * limit + index}`,
+        name: c.name || c.customerName || "",
+        mobileNumber: c.mobileNumber || c.mobileNo || "",
+        // Expect backend to include opt_in on customer/farmer object
+        opt_in: c.opt_in ?? c.optIn ?? null,
+        village: c.village || "",
+        taluka: c.taluka || "",
+        district: c.district || "",
+        state: c.state || "",
+        source: "oldSales",
+        sourceLabel: "Old Sales (Farmer)",
+        originalData: c
+      })).filter(f => f.name && f.mobileNumber)
+
+      setOldSalesData(prev => (page === 1 ? normalizedFarmers : [...prev, ...normalizedFarmers]))
+      setOldSalesPage(page)
+      setOldSalesHasMore(customers.length === limit)
     } catch (error) {
       console.error("Error fetching old sales data:", error)
       setError("Failed to fetch old sales data")
@@ -198,19 +202,35 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
     }
   }
 
-  // Fetch public link leads
-  const fetchPublicLeads = async (linkId) => {
-    if (!linkId) {
-      setPublicLeadsData([])
-      return
-    }
+  // -- bulk opt-in is expected from backend in the customers/farmers payload.
+  // Removed per-phone lookup; frontend now relies on `opt_in` present on returned records.
 
+  const handleLoadMoreOldFarmers = () => {
+    if (loadingOldFarmers || !oldFarmersHasMore) return
+    fetchOldFarmers({ page: oldFarmersPage + 1 })
+  }
+
+  const handleLoadMoreOldSales = () => {
+    if (loadingOldSales || !oldSalesHasMore) return
+    fetchOldSalesData({ page: oldSalesPage + 1 })
+  }
+
+  // Fetch public link leads (single link or all links)
+  const fetchPublicLeads = async (linkId) => {
     setLoadingPublicLeads(true)
+    setError(null)
     try {
-      const instance = NetworkManager(API.PUBLIC_LINKS.GET_LEADS)
-      const response = await instance.request(null, [linkId])
-      const leads = response?.data?.data?.leads || []
-      
+      let leads = []
+      if (linkId && linkId !== "all") {
+        const instance = NetworkManager(API.PUBLIC_LINKS.GET_LEADS)
+        const response = await instance.request(null, [linkId])
+        leads = response?.data?.data?.leads || []
+      } else {
+        const instance = NetworkManager(API.PUBLIC_LINKS.GET_ALL_LEADS)
+        const response = await instance.request()
+        leads = response?.data?.data?.leads || []
+      }
+
       const normalizedLeads = leads.map(lead => ({
         _id: lead._id,
         id: lead._id,
@@ -221,14 +241,15 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
         district: lead.districtName || "",
         state: lead.stateName || "",
         source: "publicLead",
-        sourceLabel: "Public Lead",
+        sourceLabel: lead.linkName ? `Lead (${lead.linkName})` : "Public Lead",
         originalLead: lead
       }))
-      
+
       setPublicLeadsData(normalizedLeads)
     } catch (error) {
       console.error("Error fetching public leads:", error)
       setError("Failed to fetch public link leads")
+      setPublicLeadsData([])
     } finally {
       setLoadingPublicLeads(false)
     }
@@ -236,8 +257,8 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
 
   // Handle public link selection change
   useEffect(() => {
-    if (activeTab === 2 && selectedPublicLinkId) {
-      fetchPublicLeads(selectedPublicLinkId)
+    if (activeTab === 2) {
+      fetchPublicLeads(selectedPublicLinkId || "all")
     }
   }, [selectedPublicLinkId, activeTab])
 
@@ -327,26 +348,44 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
     setSaving(true)
     setError(null)
 
+    const hasOnlyOldFarmers = selectedFarmers.every(
+      (f) => f.source === "oldFarmer" && (f._id?.toString?.()?.length === 24 || f.id?.toString?.()?.length === 24)
+    )
+
     try {
-      // Extract farmer IDs (use _id or id field)
-      const farmerIds = selectedFarmers.map(f => f._id || f.id).filter(Boolean)
-
-      const instance = NetworkManager(API.FARMER_LIST.CREATE_LIST)
-      await instance.request({
-        name: listName.trim(),
-        farmerIds: farmerIds
-      })
-
-      alert(`✅ Broadcast list "${listName}" created successfully with ${farmerIds.length} farmers!`)
-      
-      if (onListCreated) {
-        onListCreated()
+      if (hasOnlyOldFarmers) {
+        const farmerIds = selectedFarmers.map((f) => f._id || f.id).filter(Boolean)
+        const instance = NetworkManager(API.FARMER_LIST.CREATE_LIST)
+        await instance.request({
+          name: listName.trim(),
+          farmerIds,
+        })
+        alert(`✅ Broadcast list "${listName}" created with ${farmerIds.length} farmers!`)
+      } else {
+        const contacts = selectedFarmers.map((f) => ({
+          phone: (f.mobileNumber || "").toString().replace(/\D/g, "").replace(/^(\d{10})$/, "91$1"),
+          name: (f.name || "").trim(),
+        })).filter((c) => c.phone.length >= 10)
+        if (!contacts.length) {
+          setError("No valid phone numbers to save")
+          setSaving(false)
+          return
+        }
+        const instance = NetworkManager(API.WHATSAPP_CONTACT_LIST.CREATE)
+        await instance.request({
+          name: listName.trim(),
+          description: "From Broadcast List (Old Sales / Public Leads)",
+          contacts,
+          source: "manual",
+        })
+        alert(`✅ Contact list "${listName}" created with ${contacts.length} contacts. Use WhatsApp Management to send messages.`)
       }
-      
+
+      if (onListCreated) onListCreated()
       onClose()
     } catch (error) {
-      console.error("Error creating broadcast list:", error)
-      setError(error.response?.data?.message || "Failed to create broadcast list")
+      console.error("Error creating list:", error)
+      setError(error.response?.data?.message || "Failed to create list")
     } finally {
       setSaving(false)
     }
@@ -509,16 +548,16 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
             {activeTab === 2 && (
               <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
                 <FormControl fullWidth size="small">
-                  <InputLabel>Select Public Link</InputLabel>
+                  <InputLabel>Public Link</InputLabel>
                   <Select
-                    value={selectedPublicLinkId}
-                    onChange={(e) => setSelectedPublicLinkId(e.target.value)}
-                    label="Select Public Link"
+                    value={selectedPublicLinkId || "all"}
+                    onChange={(e) => setSelectedPublicLinkId(e.target.value === "all" ? "" : e.target.value)}
+                    label="Public Link"
                     disabled={loadingPublicLinks}
                     sx={{ borderRadius: 2 }}
                   >
-                    <MenuItem value="">
-                      <em>Select a Public Link</em>
+                    <MenuItem value="all">
+                      <em>All links (all farmers registered on any link)</em>
                     </MenuItem>
                     {publicLinks.map((link) => (
                       <MenuItem key={link._id} value={link._id}>
@@ -531,7 +570,7 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
             )}
 
             {/* Search and Filters */}
-            {(activeTab !== 2 || selectedPublicLinkId) && (
+            {(activeTab !== 2 || true) && (
               <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
                 <Grid container spacing={2}>
                   <Grid item xs={12} md={4}>
@@ -626,6 +665,7 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
                       <TableCell sx={{ fontWeight: 'bold', width: 50 }}>Add</TableCell>
                       <TableCell sx={{ fontWeight: 'bold' }}>Name</TableCell>
                       <TableCell sx={{ fontWeight: 'bold' }}>Mobile</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }}>Opt-in</TableCell>
                       <TableCell sx={{ fontWeight: 'bold' }}>Village</TableCell>
                       <TableCell sx={{ fontWeight: 'bold' }}>Taluka</TableCell>
                       <TableCell sx={{ fontWeight: 'bold' }}>District</TableCell>
@@ -635,10 +675,10 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
                   <TableBody>
                     {filteredFarmers.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
+                        <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
                           <Typography variant="body2" color="text.secondary">
-                            {activeTab === 2 && !selectedPublicLinkId
-                              ? "Please select a public link to view leads"
+                            {activeTab === 2
+                              ? "No farmers registered on public links yet"
                               : "No farmers found"}
                           </Typography>
                         </TableCell>
@@ -687,6 +727,15 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
                             </TableCell>
                             <TableCell>{farmer.name}</TableCell>
                             <TableCell>{farmer.mobileNumber}</TableCell>
+                            <TableCell>
+                              {farmer.opt_in === true ? (
+                                <Chip label="Opted-in" size="small" color="success" variant="outlined" />
+                              ) : farmer.opt_in === false ? (
+                                <Chip label="Opted-out" size="small" color="error" variant="outlined" />
+                              ) : (
+                                <Chip label="Unknown" size="small" color="default" variant="outlined" />
+                              )}
+                            </TableCell>
                             <TableCell>{farmer.village}</TableCell>
                             <TableCell>{farmer.taluka}</TableCell>
                             <TableCell>{farmer.district}</TableCell>
@@ -710,6 +759,19 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
                 </Table>
               )}
             </TableContainer>
+            {/* Load more for paginated sources */}
+            <Box sx={{ p: 2, display: 'flex', justifyContent: 'center' }}>
+              {activeTab === 0 && oldFarmersHasMore && (
+                <Button size="small" onClick={handleLoadMoreOldFarmers} disabled={loadingOldFarmers}>
+                  {loadingOldFarmers ? "Loading..." : "Load more"}
+                </Button>
+              )}
+              {activeTab === 1 && oldSalesHasMore && (
+                <Button size="small" onClick={handleLoadMoreOldSales} disabled={loadingOldSales}>
+                  {loadingOldSales ? "Loading..." : "Load more"}
+                </Button>
+              )}
+            </Box>
           </CardContent>
         </Card>
       </DialogContent>
