@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react"
+import React, { useState, useEffect, useRef } from "react"
 import {
   Dialog,
   DialogTitle,
@@ -85,19 +85,22 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
   const [publicLinks, setPublicLinks] = useState([])
   const [selectedPublicLinkId, setSelectedPublicLinkId] = useState("")
   const [loadingPublicLinks, setLoadingPublicLinks] = useState(false)
+  // Manual number entry (3 fields)
+  const [manualNumbers, setManualNumbers] = useState(["", "", ""])
   // Pagination state for farmers / old sales
   const [oldFarmersPage, setOldFarmersPage] = useState(1)
   const [oldFarmersHasMore, setOldFarmersHasMore] = useState(true)
   const [oldSalesPage, setOldSalesPage] = useState(1)
   const [oldSalesHasMore, setOldSalesHasMore] = useState(true)
+  const searchDebounceRef = useRef(null)
 
   useEffect(() => {
     if (open) {
       resetForm()
       fetchPublicLinks()
       // Load first page for tabs when modal opens
-      fetchOldFarmers({ page: 1 })
-      fetchOldSalesData({ page: 1 })
+      fetchOldFarmers({ page: 1 }, "")
+      fetchOldSalesData({ page: 1 }, "")
     }
   }, [open])
 
@@ -110,6 +113,7 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
     setFilters({ district: "", taluka: "", village: "" })
     setListName("")
     setSelectedPublicLinkId("")
+    setManualNumbers(["", "", ""])
     setActiveTab(0)
     setError(null)
     setOldFarmersPage(1)
@@ -133,12 +137,14 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
     }
   }
 
-  // Fetch old farmers
-  const fetchOldFarmers = async ({ page = 1, limit = 100 } = {}) => {
+  // Fetch old farmers (search triggers API call)
+  const fetchOldFarmers = async ({ page = 1, limit = 100 } = {}, search = "") => {
     setLoadingOldFarmers(true)
     try {
       const instance = NetworkManager(API.FARMER.GET_FARMERS)
-      const response = await instance.request({}, { page, limit, q: searchTerm })
+      const params = { page, limit }
+      if (search && search.trim()) params.q = search.trim()
+      const response = await instance.request({}, params)
 
       let farmersData = []
       if (response.data?.data) {
@@ -167,12 +173,14 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
     }
   }
 
-  // Fetch old sales data (unique farmers/customers from old sales)
-  const fetchOldSalesData = async ({ page = 1, limit = 200 } = {}) => {
+  // Fetch old sales data (unique farmers/customers from old sales, search triggers API call)
+  const fetchOldSalesData = async ({ page = 1, limit = 200 } = {}, search = "") => {
     setLoadingOldSales(true)
     try {
       const instance = NetworkManager(API.OLD_SALES.GET_UNIQUE_CUSTOMERS)
-      const response = await instance.request({}, { page, limit })
+      const params = { page, limit }
+      if (search && search.trim()) params.q = search.trim()
+      const response = await instance.request({}, params)
       const customers = response?.data?.data?.customers || []
 
       const normalizedFarmers = customers.map((c, index) => ({
@@ -207,27 +215,28 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
 
   const handleLoadMoreOldFarmers = () => {
     if (loadingOldFarmers || !oldFarmersHasMore) return
-    fetchOldFarmers({ page: oldFarmersPage + 1 })
+    fetchOldFarmers({ page: oldFarmersPage + 1 }, searchTerm)
   }
 
   const handleLoadMoreOldSales = () => {
     if (loadingOldSales || !oldSalesHasMore) return
-    fetchOldSalesData({ page: oldSalesPage + 1 })
+    fetchOldSalesData({ page: oldSalesPage + 1 }, searchTerm)
   }
 
-  // Fetch public link leads (single link or all links)
-  const fetchPublicLeads = async (linkId) => {
+  // Fetch public link leads (single link or all links, search triggers API call)
+  const fetchPublicLeads = async (linkId, search = "") => {
     setLoadingPublicLeads(true)
     setError(null)
     try {
       let leads = []
+      const queryParams = search && search.trim() ? { q: search.trim() } : {}
       if (linkId && linkId !== "all") {
         const instance = NetworkManager(API.PUBLIC_LINKS.GET_LEADS)
-        const response = await instance.request(null, [linkId])
+        const response = await instance.request(null, { pathParams: [linkId], ...queryParams })
         leads = response?.data?.data?.leads || []
       } else {
         const instance = NetworkManager(API.PUBLIC_LINKS.GET_ALL_LEADS)
-        const response = await instance.request()
+        const response = await instance.request(null, queryParams)
         leads = response?.data?.data?.leads || []
       }
 
@@ -255,12 +264,44 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
     }
   }
 
-  // Handle public link selection change
+  // Handle public link selection change (tab 2) - fetch when link or tab changes
   useEffect(() => {
     if (activeTab === 2) {
-      fetchPublicLeads(selectedPublicLinkId || "all")
+      fetchPublicLeads(selectedPublicLinkId || "all", searchTerm)
     }
   }, [selectedPublicLinkId, activeTab])
+
+  // Debounced search: trigger API refetch when searchTerm changes (skip initial mount to avoid double fetch)
+  const searchInitializedRef = useRef(false)
+  useEffect(() => {
+    if (!open) {
+      searchInitializedRef.current = false
+      return
+    }
+    if (!searchInitializedRef.current) {
+      searchInitializedRef.current = true
+      return
+    }
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current)
+    searchDebounceRef.current = setTimeout(() => {
+      setOldFarmersPage(1)
+      setOldSalesPage(1)
+      setOldFarmersHasMore(true)
+      setOldSalesHasMore(true)
+      if (activeTab === 0) {
+        setOldFarmersData([])
+        fetchOldFarmers({ page: 1 }, searchTerm)
+      } else if (activeTab === 1) {
+        setOldSalesData([])
+        fetchOldSalesData({ page: 1 }, searchTerm)
+      } else if (activeTab === 2) {
+        fetchPublicLeads(selectedPublicLinkId || "all", searchTerm)
+      }
+    }, 400)
+    return () => {
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current)
+    }
+  }, [searchTerm, activeTab, open])
 
   // Get current source data based on active tab
   const getCurrentSourceData = () => {
@@ -270,23 +311,13 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
     return []
   }
 
-  // Filter farmers data
+  // Filter farmers data (search is server-side; district/taluka/village remain client-side)
   const getFilteredFarmers = (data) => {
     return data.filter(farmer => {
-      const name = (farmer.name || "").toLowerCase()
-      const mobile = (farmer.mobileNumber || "").toString()
-      const village = (farmer.village || "").toLowerCase()
-      
-      const matchesSearch = !searchTerm || 
-                           name.includes(searchTerm.toLowerCase()) ||
-                           mobile.includes(searchTerm) ||
-                           village.includes(searchTerm.toLowerCase())
-      
       const matchesDistrict = !filters.district || (farmer.district || "") === filters.district
       const matchesTaluka = !filters.taluka || (farmer.taluka || "") === filters.taluka
       const matchesVillage = !filters.village || (farmer.village || "") === filters.village
-      
-      return matchesSearch && matchesDistrict && matchesTaluka && matchesVillage
+      return matchesDistrict && matchesTaluka && matchesVillage
     })
   }
 
@@ -316,6 +347,38 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
   // Remove farmer from selected list
   const handleRemoveFarmer = (farmerId) => {
     setSelectedFarmers(prev => prev.filter(f => (f._id || f.id) !== farmerId))
+  }
+
+  // Add manual numbers to selected list
+  const handleAddManualNumbers = () => {
+    const toAdd = []
+    manualNumbers.forEach((val, idx) => {
+      const digits = String(val || "").replace(/\D/g, "")
+      const phone = digits.length === 10 ? digits : digits.length === 12 && digits.startsWith("91") ? digits.slice(2) : null
+      if (phone) {
+        const mobileNumber = phone
+        const id = `manual-${mobileNumber}-${idx}-${Date.now()}`
+        if (!selectedFarmers.some(f => String(f.mobileNumber || "").replace(/\D/g, "").slice(-10) === mobileNumber)) {
+          toAdd.push({
+            _id: id,
+            id,
+            name: "",
+            mobileNumber,
+            village: "",
+            taluka: "",
+            district: "",
+            source: "manual",
+            sourceLabel: "Manual"
+          })
+        }
+      }
+    })
+    if (toAdd.length > 0) {
+      setSelectedFarmers(prev => [...prev, ...toAdd])
+      setManualNumbers(["", "", ""])
+    } else if (manualNumbers.some(m => m.trim())) {
+      setError("Enter valid 10-digit phone numbers")
+    }
   }
 
   // Handle select all from current filtered list
@@ -456,6 +519,52 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
           </CardContent>
         </Card>
 
+        {/* Manual Number Entry */}
+        <Card sx={{ boxShadow: 0, border: 1, borderColor: 'primary.main', bgcolor: 'primary.50' }}>
+          <CardContent>
+            <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
+              <Plus size={18} color="#1976d2" />
+              <Typography variant="subtitle2" fontWeight="bold" color="primary.main">
+                Add numbers manually
+              </Typography>
+            </Stack>
+            <Grid container spacing={2} alignItems="center">
+              {[0, 1, 2].map((idx) => (
+                <Grid item xs={12} sm={4} key={idx}>
+                  <TextField
+                    fullWidth
+                    placeholder={`Phone ${idx + 1} (10 digits)`}
+                    value={manualNumbers[idx]}
+                    onChange={(e) => {
+                      const v = e.target.value.replace(/\D/g, "").slice(0, 12)
+                      setManualNumbers(prev => {
+                        const next = [...prev]
+                        next[idx] = v
+                        return next
+                      })
+                    }}
+                    size="small"
+                    inputProps={{ maxLength: 12 }}
+                    sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+                  />
+                </Grid>
+              ))}
+              <Grid item xs={12} sm="auto">
+                <Button
+                  variant="outlined"
+                  color="primary"
+                  size="small"
+                  startIcon={<Plus size={16} />}
+                  onClick={handleAddManualNumbers}
+                  sx={{ borderRadius: 2 }}
+                >
+                  Add to list
+                </Button>
+              </Grid>
+            </Grid>
+          </CardContent>
+        </Card>
+
         {/* Selected Farmers Section */}
         {selectedFarmers.length > 0 && (
           <Card sx={{ boxShadow: 0, border: 1, borderColor: 'success.main', bgcolor: 'success.50' }}>
@@ -491,7 +600,7 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
                 {selectedFarmers.map((farmer) => (
                   <Chip
                     key={farmer._id || farmer.id}
-                    label={`${farmer.name} (${farmer.mobileNumber})`}
+                    label={farmer.name ? `${farmer.name} (${farmer.mobileNumber})` : farmer.mobileNumber}
                     onDelete={() => handleRemoveFarmer(farmer._id || farmer.id)}
                     size="small"
                     color="success"
@@ -518,8 +627,8 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
                 setActiveTab(newValue)
                 setSearchTerm("")
                 setFilters({ district: "", taluka: "", village: "" })
-                if (newValue === 2 && selectedPublicLinkId) {
-                  fetchPublicLeads(selectedPublicLinkId)
+                if (newValue === 2) {
+                  fetchPublicLeads(selectedPublicLinkId || "all", "")
                 }
               }}
               sx={{ borderBottom: 1, borderColor: 'divider', px: 2 }}

@@ -56,6 +56,9 @@ import ViewBroadcastListModal from "./ViewBroadcastListModal"
 import SendSmsModal from "./SendSmsModal"
 import { useHasWhatsAppAccess } from "utils/roleUtils"
 import { API, NetworkManager } from "network/core"
+import CampaignListTab from "./CampaignListTab"
+import { Tabs, Tab } from "@mui/material"
+import CampaignDetailModal from "./CampaignDetailModal"
 
 const WhatsAppManagement = () => {
   const hasWhatsAppAccess = useHasWhatsAppAccess()
@@ -81,6 +84,10 @@ const WhatsAppManagement = () => {
   const [deleteList, setDeleteList] = useState(null)
   const [farmerCampaignInitialListId, setFarmerCampaignInitialListId] = useState(null)
   const [showSendSmsModal, setShowSendSmsModal] = useState(false)
+  const [activeTab, setActiveTab] = useState(0) // 0: Templates, 1: Campaigns
+  const [openCampaignDetail, setOpenCampaignDetail] = useState(false)
+  const [viewBroadcastId, setViewBroadcastId] = useState(null)
+  const [campaignRefreshTrigger, setCampaignRefreshTrigger] = useState(0)
 
   // Access control check
   if (!hasWhatsAppAccess) {
@@ -269,11 +276,26 @@ const WhatsAppManagement = () => {
   }
 
   return (
-    <Box sx={{ p: 3, maxWidth: 1400, margin: '0 auto' }}>
+    <>
+      <Tabs
+        value={activeTab}
+        onChange={(e, v) => setActiveTab(v)}
+        sx={{
+          mb: 2,
+          "& .MuiTab-root": { fontWeight: 600 },
+          "& .Mui-selected": { color: "#25D366" },
+          "& .MuiTabs-indicator": { bgcolor: "#25D366", height: 3, borderRadius: "3px 3px 0 0" }
+        }}
+      >
+        <Tab label="Templates" />
+        <Tab label="Campaigns" />
+      </Tabs>
+      {activeTab === 0 ? (
+        <Box sx={{ p: 3, maxWidth: 1400, margin: '0 auto' }}>
       {/* Header */}
       <Box sx={{ mb: 4 }}>
         <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 1 }}>
-          <MessageSquare size={32} color="#10b981" />
+          <MessageSquare size={32} color="#25D366" />
           <Typography variant="h4" fontWeight="bold">
             WhatsApp Management
           </Typography>
@@ -533,6 +555,20 @@ const WhatsAppManagement = () => {
             <Stack direction="row" spacing={2} flexWrap="wrap">
               <Button
                 variant="contained"
+                color="success"
+                startIcon={<Send size={18} />}
+                onClick={() => {
+                  setSelectedTemplate(approvedTemplates[0] || null)
+                  setFarmerCampaignInitialListId(null)
+                  setShowFarmerCampaign(true)
+                }}
+                disabled={approvedTemplates.length === 0}
+                sx={{ borderRadius: 2 }}
+              >
+                New Campaign
+              </Button>
+              <Button
+                variant="contained"
                 color="primary"
                 startIcon={<Send size={18} />}
                 onClick={() => setShowSowingReminder(true)}
@@ -719,95 +755,6 @@ const WhatsAppManagement = () => {
         </CardContent>
       </Card>
 
-      {/* Farmer Campaign Modal */}
-      <FarmerCampaignModal
-        open={showFarmerCampaign && selectedTemplate}
-        onClose={() => {
-          setShowFarmerCampaign(false)
-          setSelectedTemplate(null)
-          setFarmerCampaignInitialListId(null)
-        }}
-        template={selectedTemplate}
-        farmerLists={farmerLists}
-        onListUpdate={fetchFarmerLists}
-        initialListId={farmerCampaignInitialListId}
-      />
-
-      {/* Single Send Modal */}
-      <SingleSendModal
-        open={showSingleSend && selectedTemplate}
-        onClose={() => {
-          setShowSingleSend(false)
-          setSelectedTemplate(null)
-        }}
-        template={selectedTemplate}
-      />
-
-      {/* Sowing Reminder Modal */}
-      <SowingReminderModal
-        open={showSowingReminder}
-        onClose={() => setShowSowingReminder(false)}
-      />
-
-      {/* Broadcast List Modal */}
-      <BroadcastListModal
-        open={showBroadcastListModal}
-        onClose={() => setShowBroadcastListModal(false)}
-        onListCreated={() => {
-          refreshAllLists()
-          setShowBroadcastListModal(false)
-        }}
-      />
-
-      {/* Excel Upload & Send Modal */}
-      <ExcelSendModal
-        open={showExcelSendModal}
-        onClose={() => setShowExcelSendModal(false)}
-        templates={templates}
-        onListCreated={fetchExcelContactLists}
-      />
-
-      <SendSmsModal
-        open={showSendSmsModal}
-        onClose={() => setShowSendSmsModal(false)}
-      />
-
-      {/* Send to saved Excel list */}
-      <SendToListModal
-        open={sendToListModal.open}
-        onClose={() => setSendToListModal({ open: false, listId: null, listName: "" })}
-        listId={sendToListModal.listId}
-        listName={sendToListModal.listName}
-        templates={templates}
-        onSent={fetchExcelContactLists}
-      />
-
-      {/* Edit list modal */}
-      <EditBroadcastListModal
-        open={!!editList}
-        onClose={() => setEditList(null)}
-        list={editList}
-        onSaved={refreshAllLists}
-      />
-
-      {/* View list modal */}
-      <ViewBroadcastListModal
-        open={!!viewList}
-        onClose={() => setViewList(null)}
-        list={viewList}
-        templates={templates}
-        onSendMessage={(list) => {
-          setViewList(null)
-          if (list.type === "farmer") {
-            setSelectedTemplate(approvedTemplates[0] || null)
-            setFarmerCampaignInitialListId(list.id)
-            setShowFarmerCampaign(true)
-          } else {
-            setSendToListModal({ open: true, listId: list.id, listName: list.name })
-          }
-        }}
-      />
-
       {/* Delete confirmation */}
       <Dialog open={!!deleteList} onClose={() => setDeleteList(null)}>
         <DialogTitle>Delete list?</DialogTitle>
@@ -824,6 +771,102 @@ const WhatsAppManagement = () => {
         </DialogActions>
       </Dialog>
     </Box>
+      ) : (
+        <CampaignListTab
+          onCreateCampaign={() => { setShowFarmerCampaign(true); }}
+          onView={(id) => { setViewBroadcastId(id); setOpenCampaignDetail(true); }}
+          refreshTrigger={campaignRefreshTrigger}
+        />
+      )}
+    {/* Modals (mounted regardless of current tab) */}
+    <FarmerCampaignModal
+      open={showFarmerCampaign}
+      onClose={() => {
+        setShowFarmerCampaign(false)
+        setSelectedTemplate(null)
+        setFarmerCampaignInitialListId(null)
+      }}
+      template={selectedTemplate}
+      templates={templates}
+      farmerLists={farmerLists}
+      onListUpdate={fetchFarmerLists}
+      initialListId={farmerCampaignInitialListId}
+      onSuccess={() => setCampaignRefreshTrigger((t) => t + 1)}
+    />
+
+    <SingleSendModal
+      open={showSingleSend && selectedTemplate}
+      onClose={() => {
+        setShowSingleSend(false)
+        setSelectedTemplate(null)
+      }}
+      template={selectedTemplate}
+    />
+
+    <SowingReminderModal
+      open={showSowingReminder}
+      onClose={() => setShowSowingReminder(false)}
+    />
+
+    <BroadcastListModal
+      open={showBroadcastListModal}
+      onClose={() => setShowBroadcastListModal(false)}
+      onListCreated={() => {
+        refreshAllLists()
+        setShowBroadcastListModal(false)
+      }}
+    />
+
+    <ExcelSendModal
+      open={showExcelSendModal}
+      onClose={() => setShowExcelSendModal(false)}
+      templates={templates}
+      onListCreated={fetchExcelContactLists}
+    />
+
+    <SendSmsModal
+      open={showSendSmsModal}
+      onClose={() => setShowSendSmsModal(false)}
+    />
+
+    <SendToListModal
+      open={sendToListModal.open}
+      onClose={() => setSendToListModal({ open: false, listId: null, listName: "" })}
+      listId={sendToListModal.listId}
+      listName={sendToListModal.listName}
+      templates={templates}
+      onSent={fetchExcelContactLists}
+    />
+
+    <EditBroadcastListModal
+      open={!!editList}
+      onClose={() => setEditList(null)}
+      list={editList}
+      onSaved={refreshAllLists}
+    />
+
+    <ViewBroadcastListModal
+      open={!!viewList}
+      onClose={() => setViewList(null)}
+      list={viewList}
+      templates={templates}
+      onSendMessage={(list) => {
+        setViewList(null)
+        if (list.type === "farmer") {
+          setSelectedTemplate(approvedTemplates[0] || null)
+          setFarmerCampaignInitialListId(list.id)
+          setShowFarmerCampaign(true)
+        } else {
+          setSendToListModal({ open: true, listId: list.id, listName: list.name })
+        }
+      }}
+    />
+    <CampaignDetailModal
+      open={openCampaignDetail}
+      onClose={() => setOpenCampaignDetail(false)}
+      broadcastId={viewBroadcastId}
+    />
+  </>
   )
 }
 

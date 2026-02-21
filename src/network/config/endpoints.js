@@ -546,6 +546,7 @@ export const API = {
   FARMER: {
     GET_FARMERS: new APIRouter("farmer/getFarmers", HTTP_METHODS.GET),
     GET_FARMER_BY_MOBILE: new APIRouter("farmer/getfarmer", HTTP_METHODS.GET),
+    GET_WHATSAPP_HISTORY: new APIRouter("farmer/:id/whatsapp-history", HTTP_METHODS.GET),
     CREATE_FARMER: new APIRouter("farmer/createFarmer", HTTP_METHODS.POST),
     UPDATE_FARMER: new APIRouter("farmer/updateFarmer", HTTP_METHODS.PATCH),
     GET_INVALID_PHONE_FARMERS: new APIRouter("farmer/invalid-phones", HTTP_METHODS.GET),
@@ -692,6 +693,10 @@ export const API = {
     CREATE_CAMPAIGN: new APIRouter("whatsapp/campaigns", HTTP_METHODS.POST),
     GET_CAMPAIGNS: new APIRouter("whatsapp/campaigns", HTTP_METHODS.GET),
     UPLOAD_AND_CREATE: new APIRouter("whatsapp/campaigns/upload-and-create", HTTP_METHODS.POST)
+  },
+  WHATSAPP_BROADCAST: {
+    GET_ALL: new APIRouter("whatsapp-broadcast", HTTP_METHODS.GET),
+    GET_BY_ID: new APIRouter("whatsapp-broadcast/:id", HTTP_METHODS.GET)
   },
   CAMPAIGN: {
     LIST: new APIRouter("campaigns", HTTP_METHODS.GET),
