@@ -545,6 +545,7 @@ export const API = {
   },
   FARMER: {
     GET_FARMERS: new APIRouter("farmer/getFarmers", HTTP_METHODS.GET),
+    GET_FILTER_OPTIONS: new APIRouter("farmer/filter-options", HTTP_METHODS.GET),
     GET_FARMER_BY_MOBILE: new APIRouter("farmer/getfarmer", HTTP_METHODS.GET),
     GET_WHATSAPP_HISTORY: new APIRouter("farmer/:id/whatsapp-history", HTTP_METHODS.GET),
     CREATE_FARMER: new APIRouter("farmer/createFarmer", HTTP_METHODS.POST),
@@ -596,6 +597,7 @@ export const API = {
   },
   OLD_SALES: {
     GET_FILTERS: new APIRouter("/old-sales/filters", HTTP_METHODS.GET),
+    GET_FILTER_OPTIONS: new APIRouter("/old-sales/filter-options", HTTP_METHODS.GET),
     GET_ANALYTICS: new APIRouter("/old-sales/analytics", HTTP_METHODS.GET),
     GET_RECORDS: new APIRouter("/old-sales/records", HTTP_METHODS.GET),
     EXPORT_CSV: new APIRouter("/old-sales/export", HTTP_METHODS.GET),
@@ -742,6 +744,7 @@ export const API = {
     CREATE_LEAD: new APIRouter("/public-links/leads", HTTP_METHODS.POST),
     GET_LEADS: new APIRouter("/public-links/links/leads", HTTP_METHODS.GET),
     GET_LEADS_BY_LINK: (linkId) => `/api/v1/public-links/links/leads/${linkId}`,
-    GET_ALL_LEADS: new APIRouter("/public-links/links/all-leads", HTTP_METHODS.GET)
+    GET_ALL_LEADS: new APIRouter("/public-links/links/all-leads", HTTP_METHODS.GET),
+    GET_FILTER_OPTIONS: new APIRouter("/public-links/filter-options", HTTP_METHODS.GET)
   }
 }
