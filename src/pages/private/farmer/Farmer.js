@@ -101,7 +101,8 @@ const FarmerComponent = () => {
       if (filters.opt_in === "false") params.opt_in = false
       const response = await instance.request({}, params)
       if (response.data?.data) {
-        const farmersData = Array.isArray(response.data.data) ? response.data.data : []
+        const data = response.data.data
+        const farmersData = Array.isArray(data) ? data : data.farmers || []
         setFarmers(farmersData)
       }
     } catch (error) {
