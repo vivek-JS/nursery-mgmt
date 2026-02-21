@@ -13,8 +13,14 @@ import {
   TableCell,
   TableContainer,
   Paper,
-  CircularProgress
-  ,Pagination
+  CircularProgress,
+  Pagination,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  TextField,
+  Alert
 } from "@mui/material"
 import { getCampaigns } from "network/whatsappAutomation"
 import { API, NetworkManager } from "network/core"
@@ -35,6 +41,10 @@ const CampaignList = () => {
   const [showExcelModal, setShowExcelModal] = useState(false)
   const [viewCampaign, setViewCampaign] = useState(null)
   const [editCampaign, setEditCampaign] = useState(null)
+  const [sendAllCampaign, setSendAllCampaign] = useState(null)
+  const [ratePer2Min, setRatePer2Min] = useState(1)
+  const [sending, setSending] = useState(false)
+  const [sendError, setSendError] = useState(null)
 
   const fetch = async (p = page) => {
     setLoading(true)
@@ -96,10 +106,10 @@ const CampaignList = () => {
                       <Stack direction="row" spacing={1} justifyContent="center">
                         <Button size="small" onClick={() => setViewCampaign(c)}>View</Button>
                         <Button size="small" onClick={() => setEditCampaign(c)}>Edit</Button>
-                        <Button size="small" color="success" onClick={async () => {
-                          const instance = NetworkManager(API.CAMPAIGN.START)
-                          await instance.request(null, [c._id])
-                          fetch()
+                        <Button size="small" color="success" onClick={() => {
+                          setSendAllCampaign(c)
+                          setRatePer2Min(1)
+                          setSendError(null)
                         }}>Send All</Button>
                       </Stack>
                     </TableCell>
@@ -151,6 +161,55 @@ const CampaignList = () => {
         campaign={editCampaign}
         onSaved={() => { fetch(); setEditCampaign(null) }}
       />
+
+      <Dialog open={!!sendAllCampaign} onClose={() => !sending && setSendAllCampaign(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>Send All via WhatsApp Web</DialogTitle>
+        <DialogContent>
+          {sendError && <Alert severity="error" sx={{ mb: 2 }}>{sendError}</Alert>}
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Uses Selenium to automate WhatsApp Web. Chrome will open; ensure WhatsApp Web is logged in.
+          </Typography>
+          <TextField
+            label="Messages per 2 minutes"
+            type="number"
+            value={ratePer2Min}
+            onChange={(e) => setRatePer2Min(Math.max(1, Math.min(30, Number(e.target.value) || 1)))}
+            inputProps={{ min: 1, max: 30 }}
+            helperText="1 = 1 message every 2 min (safer). Higher = faster."
+            fullWidth
+            sx={{ mt: 1 }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => !sending && setSendAllCampaign(null)} disabled={sending}>Cancel</Button>
+          <Button
+            variant="contained"
+            color="success"
+            onClick={async () => {
+              if (!sendAllCampaign) return
+              setSending(true)
+              setSendError(null)
+              try {
+                const instance = NetworkManager(API.CAMPAIGN.START)
+                const res = await instance.request({ ratePer2Min }, [sendAllCampaign._id])
+                if (res && res.success !== false) {
+                  setSendAllCampaign(null)
+                  fetch()
+                } else {
+                  setSendError(res?.message || "Failed to start campaign")
+                }
+              } catch (e) {
+                setSendError(e?.message || "Failed to start campaign")
+              } finally {
+                setSending(false)
+              }
+            }}
+            disabled={sending}
+          >
+            {sending ? "Starting…" : "Send All"}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   )
 }

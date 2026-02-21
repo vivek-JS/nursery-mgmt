@@ -74,6 +74,7 @@ const DispatchOrderList = React.lazy(() => import("pages/private/Dispatch/Dispat
 const DispatchedListPage = React.lazy(() => import("pages/private/Dispatch/DispatchedListPage"))
 const PlaceOrderMobile = React.lazy(() => import("pages/private/order/PlaceOrderMobile"))
 const CallAssignmentList = React.lazy(() => import("pages/private/callAssignment/CallAssignmentList"))
+const Assignments = React.lazy(() => import("pages/private/assignments/Assignments"))
 
 export const PrivateRoutes = [
   { path: "/u/dashboard", component: Dashboard },
@@ -155,5 +156,5 @@ export const PrivateRoutes = [
   { path: "/u/mobile/agri-sales-order", component: AgriSalesOrderMobile },
   // Mobile Place Order - regular orders (farmer/dealer, quota, wallet); no sidebar; DEALER/SALES redirect
   { path: "/u/mobile/place-order", component: PlaceOrderMobile },
-  { path: "/u/call-assignment", component: CallAssignmentList }
+  { path: "/u/call-assignment", component: Assignments }
 ]

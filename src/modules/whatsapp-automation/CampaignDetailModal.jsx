@@ -1,5 +1,5 @@
 import React from "react"
-import { Dialog, DialogTitle, DialogContent, DialogActions, Button, Typography, Table, TableHead, TableRow, TableCell, TableBody, TableContainer, Paper, Box, Pagination } from "@mui/material"
+import { Dialog, DialogTitle, DialogContent, DialogActions, Button, Typography, Table, TableHead, TableRow, TableCell, TableBody, TableContainer, Paper, Box, Pagination, TextField } from "@mui/material"
 import { NetworkManager, API } from "network/core"
 import { getCampaignTargets } from "network/whatsappAutomation"
 
@@ -8,6 +8,8 @@ const CampaignDetailModal = ({ open, onClose, campaign, onStart }) => {
   const [page, setPage] = React.useState(1)
   const [limit] = React.useState(50)
   const [total, setTotal] = React.useState(0)
+  const [ratePer2Min, setRatePer2Min] = React.useState(1)
+  const [sending, setSending] = React.useState(false)
 
   React.useEffect(() => {
     if (!campaign) return
@@ -29,13 +31,16 @@ const CampaignDetailModal = ({ open, onClose, campaign, onStart }) => {
 
   if (!campaign) return null
   const handleStart = async () => {
+    setSending(true)
     try {
       const instance = NetworkManager(API.CAMPAIGN.START)
-      await instance.request(null, [campaign._id])
+      await instance.request({ ratePer2Min }, [campaign._id])
       onStart && onStart()
       onClose && onClose()
     } catch (e) {
       alert("Failed to start campaign: " + (e?.message || "error"))
+    } finally {
+      setSending(false)
     }
   }
 
@@ -70,10 +75,22 @@ const CampaignDetailModal = ({ open, onClose, campaign, onStart }) => {
         <Box sx={{ mt: 2, display: 'flex', justifyContent: 'center' }}>
           <Pagination count={Math.ceil((total || 0) / limit) || 1} page={page} onChange={(_,v)=>setPage(v)} />
         </Box>
+        <TextField
+          label="Messages per 2 minutes"
+          type="number"
+          value={ratePer2Min}
+          onChange={(e) => setRatePer2Min(Math.max(1, Math.min(30, Number(e.target.value) || 1)))}
+          inputProps={{ min: 1, max: 30 }}
+          helperText="1 = 1 message every 2 min (WhatsApp Web Selenium)"
+          fullWidth
+          sx={{ mt: 2 }}
+        />
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Close</Button>
-        <Button variant="contained" color="success" onClick={handleStart}>Send to all farmers</Button>
+        <Button variant="contained" color="success" onClick={handleStart} disabled={sending}>
+          {sending ? "Starting…" : "Send to all farmers"}
+        </Button>
       </DialogActions>
     </Dialog>
   )
