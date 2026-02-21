@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react"
+import React, { useState, useEffect, useRef } from "react"
 import {
   Box,
   Button,
@@ -20,11 +20,15 @@ import {
   Tab,
   Pagination,
   Stack,
+  Grid,
+  InputAdornment,
+  Collapse,
+  CircularProgress,
   IconButton,
   Link,
   alpha,
 } from "@mui/material"
-import { UserPlus, Copy, ExternalLink, Filter, Users, UserPlus as LeadIcon, Link2 } from "lucide-react"
+import { UserPlus, Copy, ExternalLink, Filter, Users, UserPlus as LeadIcon, Link2, Search, Plus, Database, FileText } from "lucide-react"
 import { API, NetworkManager } from "network/core"
 
 const PAGE_SIZE = 20
@@ -51,40 +55,87 @@ const CallAssignmentList = () => {
   const [assignLoading, setAssignLoading] = useState(false)
   const [assignError, setAssignError] = useState(null)
   const [mobileUrl, setMobileUrl] = useState(null)
+  const [searchTerm, setSearchTerm] = useState("")
+  const [moreFiltersExpanded, setMoreFiltersExpanded] = useState(false)
+  const [oldSalesFilters, setOldSalesFilters] = useState({ plant: "", variety: "", media: "", batch: "", paymentMode: "", reference: "", marketingReference: "", billGivenOrNot: "", verifiedOrNot: "", shadeNo: "", vehicleNo: "", driverName: "" })
+  const searchDebounceRef = useRef(null)
+  const [viewListOpen, setViewListOpen] = useState(false)
+  const [viewListData, setViewListData] = useState(null)
+  const [viewLoading, setViewLoading] = useState(false)
+  const [entryActionLoading, setEntryActionLoading] = useState(false)
 
   const fetchData = async (source, page = 1, linkIdParam) => {
     setLoading(true)
     try {
-      const instance = NetworkManager(API.CALL_ASSIGNMENT.GET_COMBINED)
-      const params = {
-        source,
+      // Use specific source APIs to match BroadcastListModal behavior
+      const commonParams = {
         page,
         limit: PAGE_SIZE,
-        search: filters.search,
-        district: filters.district,
-        taluka: filters.taluka,
-        village: filters.village,
-        stateName: filters.stateName,
+        q: filters.search || undefined,
+        district: filters.district || undefined,
+        taluka: filters.taluka || undefined,
+        village: filters.village || undefined,
+        stateName: filters.stateName || undefined,
       }
-      if (source === "farmerForm" && (linkIdParam || selectedLinkId)) {
-        params.linkId = linkIdParam || selectedLinkId
-      }
-      const res = await instance.request({}, params)
-      const d = res?.data?.data ?? res?.data
+
       if (source === "farmer") {
-        setFarmers(d?.items ?? [])
-        setFarmersMeta({ total: d?.total ?? 0, page: d?.page ?? 1, totalPages: d?.totalPages ?? 1 })
+        const instance = NetworkManager(API.FARMER.GET_FARMERS)
+        const res = await instance.request({}, commonParams)
+        const data = res?.data?.data || {}
+        const farmersData = Array.isArray(data) ? data : data.farmers || []
+        const pagination = data.pagination || {}
+        setFarmers(farmersData)
+        setFarmersMeta({ total: pagination.total ?? farmersData.length, page: pagination.page ?? page, totalPages: pagination.totalPages ?? 1 })
       } else if (source === "lead") {
-        setLeads(d?.items ?? [])
-        setLeadsMeta({ total: d?.total ?? 0, page: d?.page ?? 1, totalPages: d?.totalPages ?? 1 })
+        // Old sales unique customers endpoint
+        const instance = NetworkManager(API.OLD_SALES.GET_UNIQUE_CUSTOMERS)
+        const res = await instance.request({}, commonParams)
+        const data = res?.data?.data || {}
+        const customers = data.customers || []
+        const pagination = data.pagination || {}
+        // normalize to leads state shape
+        const normalized = customers.map((c, index) => ({
+          _id: c._id || `old-sales-${c.mobileNumber}-${(page - 1) * PAGE_SIZE + index}`,
+          id: c._id || `old-sales-${c.mobileNumber}-${(page - 1) * PAGE_SIZE + index}`,
+          name: c.name || c.customerName || "",
+          phone: c.mobileNumber || c.mobileNo || "",
+          village: c.village || "",
+          taluka: c.taluka || "",
+          district: c.district || "",
+          source: "oldSales",
+        }))
+        setLeads(normalized)
+        setLeadsMeta({ total: pagination.total ?? normalized.length, page: pagination.page ?? page, totalPages: pagination.totalPages ?? 1 })
       } else if (source === "farmerForm") {
-        setFarmerFormLeads(d?.items ?? [])
-        setFarmerFormMeta({ total: d?.total ?? 0, page: d?.page ?? 1, totalPages: d?.totalPages ?? 1 })
+        if (linkIdParam || selectedLinkId) {
+          const instance = NetworkManager(API.PUBLIC_LINKS.GET_LEADS)
+          const params = { page, limit: PAGE_SIZE, q: filters.search }
+          const res = await instance.request({}, { pathParams: [linkIdParam || selectedLinkId], ...params })
+          const data = res?.data?.data || {}
+          const leadsData = data.leads || []
+          const pagination = { total: data.total ?? leadsData.length, totalPages: data.totalPages ?? 1 }
+          setFarmerFormLeads(leadsData)
+          setFarmerFormMeta({ total: pagination.total, page, totalPages: pagination.totalPages })
+        } else {
+          // no link selected - fetch all leads
+          const instance = NetworkManager(API.PUBLIC_LINKS.GET_ALL_LEADS)
+          const res = await instance.request({}, { page, limit: PAGE_SIZE, q: filters.search })
+          const data = res?.data?.data || {}
+          const leadsData = data.leads || []
+          const pagination = { total: data.total ?? leadsData.length, totalPages: data.totalPages ?? 1 }
+          setFarmerFormLeads(leadsData)
+          setFarmerFormMeta({ total: pagination.total, page, totalPages: pagination.totalPages })
+        }
       } else {
+        // fallback to combined
+        const instance = NetworkManager(API.CALL_ASSIGNMENT.GET_COMBINED)
+        const params = { source: "all", page, limit: PAGE_SIZE }
+        const res = await instance.request({}, params)
+        const d = res?.data?.data ?? res?.data
         setFarmers(d?.farmers?.items ?? [])
         setLeads(d?.leads?.items ?? [])
-        setFarmersMeta({ total: d?.farmers?.total ?? 0, page: d?.farmers?.page ?? 1, totalPages: d?.farmers?.totalPages ?? 1 })
-        setLeadsMeta({ total: d?.leads?.total ?? 0, page: d?.leads?.page ?? 1, totalPages: d?.leads?.totalPages ?? 1 })
+        setFarmersMeta({ total: d?.farmers?.total ?? 0, page: page, totalPages: d?.farmers?.totalPages ?? 1 })
+        setLeadsMeta({ total: d?.leads?.total ?? 0, page: page, totalPages: d?.leads?.totalPages ?? 1 })
       }
     } catch (e) {
       console.error(e)
@@ -101,6 +152,40 @@ const CallAssignmentList = () => {
       if (listsData) setLists(listsData)
     } catch (e) {
       console.error(e)
+    }
+  }
+
+  const openListDetails = async (listId) => {
+    setViewLoading(true)
+    try {
+      const instance = NetworkManager(API.CALL_ASSIGNMENT.GET_LIST_BY_ID)
+      const res = await instance.request({}, [listId])
+      const d = res?.data?.data ?? res?.data
+      setViewListData(d?.list || d)
+      setViewListOpen(true)
+    } catch (e) {
+      console.error("Failed to fetch list details:", e)
+    } finally {
+      setViewLoading(false)
+    }
+  }
+
+  const handleMarkEntryDone = async (listId, entryIndex, remark = "") => {
+    setEntryActionLoading(true)
+    try {
+      const instance = NetworkManager(API.CALL_ASSIGNMENT.ADD_CALL_LOG)
+      // endpoint becomes call-assignment/lists/:id/call-log by passing path params
+      await instance.request({ entryIndex, remark, result: "done" }, [listId, "call-log"])
+      // refresh lists and view
+      fetchLists()
+      fetchData(activeTab === 0 ? "farmer" : activeTab === 1 ? "lead" : "farmerForm", meta.page)
+      if (viewListData && viewListData._id === listId) {
+        openListDetails(listId)
+      }
+    } catch (e) {
+      console.error("Failed to mark entry done:", e)
+    } finally {
+      setEntryActionLoading(false)
     }
   }
 
@@ -144,6 +229,51 @@ const CallAssignmentList = () => {
       console.error(e)
     }
   }
+
+  const handleFilterChange = (key, value) => {
+    let newFilters = { ...filters, [key]: value }
+    // reset dependent fields
+    if (key === "district") {
+      newFilters = { ...newFilters, taluka: "", village: "" }
+      fetchFilterOptions(activeTab === 2 ? "farmerForm" : activeTab === 1 ? "lead" : "farmer", value, "")
+    } else if (key === "taluka") {
+      newFilters = { ...newFilters, village: "" }
+      fetchFilterOptions(activeTab === 2 ? "farmerForm" : activeTab === 1 ? "lead" : "farmer", newFilters.district, value)
+    }
+
+    setFilters(newFilters)
+    // reset to first page and refetch
+    fetchData(activeTab === 0 ? "farmer" : activeTab === 1 ? "lead" : "farmerForm", 1)
+  }
+
+  const handleOldSalesFilterChange = (key, value) => {
+    const newOldSalesFilters = { ...oldSalesFilters, [key]: value }
+    setOldSalesFilters(newOldSalesFilters)
+    // When old sales filters change, refresh data if on oldSales tab
+    if (activeTab === 1) {
+      setFarmers([])
+      fetchData("lead", 1)
+    }
+  }
+
+  const handleClearFilters = () => {
+    const emptyFilters = { search: "", district: "", taluka: "", village: "", stateName: "" }
+    setFilters(emptyFilters)
+    setSearchTerm("")
+    setOldSalesFilters({ plant: "", variety: "", media: "", batch: "", paymentMode: "", reference: "", marketingReference: "", billGivenOrNot: "", verifiedOrNot: "", shadeNo: "", vehicleNo: "", driverName: "" })
+    fetchData(activeTab === 0 ? "farmer" : activeTab === 1 ? "lead" : "farmerForm", 1)
+  }
+
+  // Debounced search -> update filters.search
+  useEffect(() => {
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current)
+    searchDebounceRef.current = setTimeout(() => {
+      setFilters((f) => ({ ...f, search: searchTerm }))
+    }, 400)
+    return () => {
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current)
+    }
+  }, [searchTerm])
 
   useEffect(() => {
     fetchData("all")
@@ -259,62 +389,94 @@ const CallAssignmentList = () => {
           <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1.5, fontWeight: 600 }}>
             Filters
           </Typography>
-          <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} flexWrap="wrap" useFlexGap>
-            <TextField
-              size="small"
-              placeholder="Search name/phone"
-              value={filters.search}
-              onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
-              sx={{ minWidth: 160 }}
-            />
-            <FormControl size="small" sx={{ minWidth: 130 }}>
-              <InputLabel>State</InputLabel>
-              <Select value={filters.stateName} onChange={(e) => setFilters((f) => ({ ...f, stateName: e.target.value }))} label="State">
-                <MenuItem value="">All</MenuItem>
-                {filterOptions.states.map((s) => (
-                  <MenuItem key={s} value={s}>{s}</MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-            <FormControl size="small" sx={{ minWidth: 130 }}>
-              <InputLabel>District</InputLabel>
-              <Select value={filters.district} onChange={(e) => setFilters((f) => ({ ...f, district: e.target.value }))} label="District">
-                <MenuItem value="">All</MenuItem>
-                {filterOptions.districts.map((d) => (
-                  <MenuItem key={d} value={d}>{d}</MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-            <FormControl size="small" sx={{ minWidth: 130 }}>
-              <InputLabel>Taluka</InputLabel>
-              <Select value={filters.taluka} onChange={(e) => setFilters((f) => ({ ...f, taluka: e.target.value }))} label="Taluka">
-                <MenuItem value="">All</MenuItem>
-                {filterOptions.talukas.map((t) => (
-                  <MenuItem key={t} value={t}>{t}</MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-            <FormControl size="small" sx={{ minWidth: 130 }}>
-              <InputLabel>Village</InputLabel>
-              <Select value={filters.village} onChange={(e) => setFilters((f) => ({ ...f, village: e.target.value }))} label="Village">
-                <MenuItem value="">All</MenuItem>
-                {filterOptions.villages.map((v) => (
-                  <MenuItem key={v} value={v}>{v}</MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-            <Button variant="outlined" size="small" startIcon={<Filter size={16} />} onClick={() => fetchData(activeTab === 0 ? "farmer" : activeTab === 1 ? "lead" : "farmerForm", 1)}>
-              Refresh
-            </Button>
-          </Stack>
+          <Box sx={{ p: 2, borderBottom: 1, borderColor: "divider" }}>
+            <Grid container spacing={2} alignItems="center">
+              <Grid item xs={12} md={4}>
+                <TextField
+                  fullWidth
+                  placeholder="Search name/phone..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  size="small"
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <Search size={20} />
+                      </InputAdornment>
+                    )
+                  }}
+                />
+              </Grid>
+              <Grid item xs={12} md={2.5}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>District</InputLabel>
+                  <Select value={filters.district} onChange={(e) => handleFilterChange("district", e.target.value)} label="District">
+                    <MenuItem value="">All</MenuItem>
+                    {filterOptions.districts.map(d => <MenuItem key={d} value={d}>{d}</MenuItem>)}
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12} md={2.5}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Taluka</InputLabel>
+                  <Select value={filters.taluka} onChange={(e) => handleFilterChange("taluka", e.target.value)} label="Taluka">
+                    <MenuItem value="">All</MenuItem>
+                    {filterOptions.talukas.map(t => <MenuItem key={t} value={t}>{t}</MenuItem>)}
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12} md={2.5}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Village</InputLabel>
+                  <Select value={filters.village} onChange={(e) => handleFilterChange("village", e.target.value)} label="Village">
+                    <MenuItem value="">All</MenuItem>
+                    {filterOptions.villages.map(v => <MenuItem key={v} value={v}>{v}</MenuItem>)}
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12} md="auto">
+                <Button size="small" variant="outlined" onClick={handleClearFilters} disabled={!filters.district && !filters.taluka && !filters.village && !searchTerm}>Clear filters</Button>
+              </Grid>
+              {activeTab === 1 && (
+                <Grid item xs={12}>
+                  <Button size="small" startIcon={moreFiltersExpanded ? <Plus size={16} /> : <Plus size={16} />} onClick={() => setMoreFiltersExpanded(!moreFiltersExpanded)} sx={{ textTransform: 'none' }}>
+                    {moreFiltersExpanded ? "Hide more filters" : "More filters (plant, variety...)"}
+                  </Button>
+                </Grid>
+              )}
+            </Grid>
+            {activeTab === 1 && moreFiltersExpanded && (
+              <Collapse in={moreFiltersExpanded}>
+                <Grid container spacing={2} sx={{ mt: 1, pt: 2, borderTop: 1, borderColor: 'divider' }}>
+                  {[
+                    { key: "plant", label: "Plant", options: [] },
+                    { key: "variety", label: "Variety", options: [] },
+                    { key: "media", label: "Media", options: [] },
+                    { key: "batch", label: "Batch", options: [] },
+                    { key: "paymentMode", label: "Payment Mode", options: [] },
+                  ].map(({ key, label, options }) => (
+                    <Grid item xs={12} sm={6} md={4} key={key}>
+                      <FormControl fullWidth size="small">
+                        <InputLabel>{label}</InputLabel>
+                        <Select value={oldSalesFilters[key] || ""} onChange={(e) => handleOldSalesFilterChange(key, e.target.value)} label={label}>
+                          <MenuItem value="">All</MenuItem>
+                          {(options || []).map((o) => <MenuItem key={o} value={o}>{o}</MenuItem>)}
+                        </Select>
+                      </FormControl>
+                    </Grid>
+                  ))}
+                </Grid>
+              </Collapse>
+            )}
+          </Box>
         </CardContent>
       </Card>
 
       <Card sx={{ mb: 2, borderRadius: 2, boxShadow: "0 2px 8px rgba(0,0,0,0.06)" }}>
         <Tabs value={activeTab} onChange={handleTabChange} sx={{ borderBottom: 1, borderColor: "divider", px: 1 }}>
-          <Tab icon={<Users size={18} />} iconPosition="start" label={`Farmers (${farmersMeta.total})`} sx={{ textTransform: "none", fontWeight: 600 }} />
-          <Tab icon={<LeadIcon size={18} />} iconPosition="start" label={`Leads (${leadsMeta.total})`} sx={{ textTransform: "none", fontWeight: 600 }} />
-          <Tab icon={<Link2 size={18} />} iconPosition="start" label={`Farmer form (${farmerFormMeta.total})`} sx={{ textTransform: "none", fontWeight: 600 }} />
+          <Tab icon={<Database size={18} />} iconPosition="start" label={`Old Farmers (${farmersMeta.total})`} sx={{ textTransform: "none", fontWeight: 600 }} />
+          <Tab icon={<FileText size={18} />} iconPosition="start" label={`Old Sales (${leadsMeta.total})`} sx={{ textTransform: "none", fontWeight: 600 }} />
+          <Tab icon={<Link2 size={18} />} iconPosition="start" label={`Public Leads (${farmerFormMeta.total})`} sx={{ textTransform: "none", fontWeight: 600 }} />
         </Tabs>
         <CardContent sx={{ p: 0 }}>
           {activeTab === 2 && (
@@ -441,6 +603,10 @@ const CallAssignmentList = () => {
                 <ExternalLink size={14} />
                 Mobile link
               </Link>
+            <Box sx={{ display: "flex", gap: 1, mt: 1 }}>
+              <Button size="small" variant="outlined" onClick={() => openListDetails(l._id)}>View</Button>
+              <Button size="small" variant="text" onClick={copyMobileUrl}>Copy</Button>
+            </Box>
             </CardContent>
           </Card>
         ))}
@@ -492,6 +658,47 @@ const CallAssignmentList = () => {
           </DialogActions>
         </Dialog>
       )}
+      {/* View list details modal */}
+      <Dialog open={viewListOpen} onClose={() => setViewListOpen(false)} maxWidth="md" fullWidth>
+        <DialogTitle>List details</DialogTitle>
+        <DialogContent>
+          {viewLoading ? (
+            <Typography>Loading...</Typography>
+          ) : viewListData ? (
+            <>
+              <Typography variant="subtitle1" sx={{ mb: 1 }}>{viewListData.name}</Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ mb: 2, display: "block" }}>Assigned to: {viewListData.assignedTo?.name || "-"}</Typography>
+              <Box sx={{ maxHeight: 400, overflow: "auto" }}>
+                {(viewListData.entries || []).map((e, idx) => (
+                  <Card key={idx} sx={{ mb: 1 }}>
+                    <CardContent sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <Box>
+                        <Typography sx={{ fontWeight: 600 }}>{e.name}</Typography>
+                        <Typography variant="body2" color="text.secondary">{e.phone}</Typography>
+                        <Typography variant="caption" color="text.secondary">Status: {e.status}</Typography>
+                      </Box>
+                      <Box>
+                        <TextField size="small" placeholder="Remark (optional)" id={`remark-${idx}`} sx={{ mr: 1 }} />
+                        <Button size="small" variant="contained" onClick={async () => {
+                          const remark = document.getElementById(`remark-${idx}`).value || ""
+                          await handleMarkEntryDone(viewListData._id, idx, remark)
+                        }} disabled={entryActionLoading}>
+                          {entryActionLoading ? "..." : "Mark Done"}
+                        </Button>
+                      </Box>
+                    </CardContent>
+                  </Card>
+                ))}
+              </Box>
+            </>
+          ) : (
+            <Typography>No data</Typography>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setViewListOpen(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   )
 }

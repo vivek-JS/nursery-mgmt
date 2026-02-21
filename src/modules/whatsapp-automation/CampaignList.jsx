@@ -24,6 +24,7 @@ import {
 } from "@mui/material"
 import { getCampaigns } from "network/whatsappAutomation"
 import { API, NetworkManager } from "network/core"
+import { APIConfig } from "network/config/serverConfig"
 import CampaignCreateModal from "./CampaignCreateModal"
 import ContactListImporter from "./ContactListImporter"
 import ExcelSendModal from "pages/private/whatsapp/ExcelSendModal"
@@ -195,6 +196,19 @@ const CampaignList = () => {
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             {resumeMode ? "Resets failed + skipped to pending, then sends. Closes any running campaign first." : "Uses Selenium to automate WhatsApp Web. Chrome will open; ensure WhatsApp Web is logged in."}
           </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+            Production? Download Campaign Runner, run on a computer with Chrome, keep it open.
+          </Typography>
+          <Button
+            variant="outlined"
+            size="small"
+            href={`${APIConfig.BASE_URL.replace(/\/+$/, "")}/campaign-worker/download`}
+            target="_blank"
+            rel="noopener noreferrer"
+            sx={{ mb: 2 }}
+          >
+            Download Campaign Runner
+          </Button>
           <TextField
             label="Seconds between messages"
             type="number"

@@ -20,6 +20,7 @@ import {
   LinearProgress,
 } from "@mui/material"
 import { Phone, CheckCircle, MapPin, Smartphone } from "lucide-react"
+import { Stack } from "@mui/material"
 import axiosInstance from "services/axiosConfig"
 
 const STORAGE_KEY = (id, token) => `call-list-auth-${id}-${token}`
@@ -36,8 +37,14 @@ const CallListMobile = () => {
   const [logEntryIndex, setLogEntryIndex] = useState(null)
   const [remark, setRemark] = useState("")
   const [result, setResult] = useState("done")
+  const [followUpScheduledAt, setFollowUpScheduledAt] = useState("")
+  const [followUpAssignTo, setFollowUpAssignTo] = useState("")
+  const [followUpNotes, setFollowUpNotes] = useState("")
+  const [employeesList, setEmployeesList] = useState([])
   const [submitting, setSubmitting] = useState(false)
   const [verifying, setVerifying] = useState(false)
+  const [showFollowupsFor, setShowFollowupsFor] = useState(null)
+  const [manageFollowup, setManageFollowup] = useState(null)
 
   const fetchList = async (phone) => {
     if (!phone) return
@@ -51,6 +58,7 @@ const CallListMobile = () => {
       if (d?.list) {
         setList(d.list)
         setVerifiedPhone(phone)
+        setEmployeesList(d.list.employees || [])
         try {
           localStorage.setItem(STORAGE_KEY(id, token), String(phone).replace(/\D/g, "").slice(-10))
         } catch { /* localStorage may be unavailable */ }
@@ -120,6 +128,9 @@ const CallListMobile = () => {
     setLogEntryIndex(idx)
     setRemark("")
     setResult("done")
+    setFollowUpScheduledAt("")
+    setFollowUpAssignTo("")
+    setFollowUpNotes("")
     setLogOpen(true)
   }
 
@@ -127,12 +138,18 @@ const CallListMobile = () => {
     if (logEntryIndex == null || !verifiedPhone) return
     setSubmitting(true)
     try {
-      await axiosInstance.post(`call-list/${id}/${token}/call-log`, {
+      const payload = {
         entryIndex: logEntryIndex,
         remark,
         result,
         phone: String(verifiedPhone).replace(/\D/g, "").slice(-10),
-      })
+      }
+      if (result === "followup") {
+        payload.followUpScheduledAt = followUpScheduledAt
+        payload.followUpAssignTo = followUpAssignTo
+        payload.followUpNotes = followUpNotes
+      }
+      await axiosInstance.post(`call-list/${id}/${token}/call-log`, payload)
       setLogOpen(false)
       fetchList(verifiedPhone)
     } catch (e) {
@@ -351,12 +368,63 @@ const CallListMobile = () => {
                     >
                       Done
                     </Button>
+                    <Button
+                      size="small"
+                      variant="text"
+                      onClick={() => {
+                        // open quick follow-up dialog pre-filled
+                        openLog(idx)
+                        setResult("followup")
+                        // default follow-up schedule: next day 10:00
+                        const d = new Date()
+                        d.setDate(d.getDate() + 1)
+                        d.setHours(10, 0, 0, 0)
+                        setFollowUpScheduledAt(d.toISOString().slice(0,16))
+                      }}
+                      sx={{ textTransform: "none", fontWeight: 600, borderRadius: 2, py: 1 }}
+                    >
+                      Follow-up
+                    </Button>
                   </Box>
                 )}
               </Box>
             </CardContent>
           </Card>
         ))}
+        {/* Inline follow-ups panel */}
+        {typeof showFollowupsFor === "number" && list?.entries?.[showFollowupsFor] && (
+          <Box sx={{ px: 2, mb: 2 }}>
+            <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 700 }}>
+              Follow-ups for {list.entries[showFollowupsFor].name}
+            </Typography>
+            { (list.followUpsByFarmer && list.followUpsByFarmer[list.entries[showFollowupsFor].sourceId]) ? (
+              list.followUpsByFarmer[list.entries[showFollowupsFor].sourceId].map((fu) => (
+                <Card key={fu._id} sx={{ mb: 1, p: 1 }}>
+                  <CardContent sx={{ p: 1 }}>
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <Box>
+                        <Typography sx={{ fontWeight: 600 }}>{new Date(fu.scheduledAt).toLocaleString()}</Typography>
+                        <Typography variant="body2" color="text.secondary">{fu.notes}</Typography>
+                        <Typography variant="caption" color="text.secondary">Status: {fu.status}</Typography>
+                      </Box>
+                      <Stack direction="row" spacing={1}>
+                        {fu.status !== "completed" && (
+                          <>
+                            <Button size="small" onClick={() => setManageFollowup({ action: "reschedule", followUp: fu })}>Reschedule</Button>
+                            <Button size="small" onClick={() => setManageFollowup({ action: "complete", followUp: fu })}>Mark Complete</Button>
+                          </>
+                        )}
+                      </Stack>
+                    </Box>
+                  </CardContent>
+                </Card>
+              ))
+            ) : (
+              <Typography color="text.secondary">No follow-ups</Typography>
+            )}
+            <Button size="small" onClick={() => setShowFollowupsFor(null)} sx={{ mt: 1 }}>Close</Button>
+          </Box>
+        )}
       </Box>
 
       <Dialog open={logOpen} onClose={() => setLogOpen(false)} fullWidth maxWidth="xs" PaperProps={{ sx: { borderRadius: 2, m: 2 } }}>
@@ -370,16 +438,91 @@ const CallListMobile = () => {
               <MenuItem value="no_answer">No answer</MenuItem>
               <MenuItem value="not_interested">Not interested</MenuItem>
               <MenuItem value="callback">Callback</MenuItem>
+              <MenuItem value="followup">Schedule follow-up</MenuItem>
               <MenuItem value="other">Other</MenuItem>
             </Select>
           </FormControl>
-          <TextField fullWidth label="Remark" multiline rows={3} value={remark} onChange={(e) => setRemark(e.target.value)} placeholder="Add notes..." />
+          <TextField fullWidth label="Remark" multiline rows={3} value={remark} onChange={(e) => setRemark(e.target.value)} placeholder="Add notes..." sx={{ mb: 2 }} />
+          {result === "followup" && (
+            <>
+              <TextField
+                fullWidth
+                label="Follow-up date & time"
+                type="datetime-local"
+                InputLabelProps={{ shrink: true }}
+                value={followUpScheduledAt}
+                onChange={(e) => setFollowUpScheduledAt(e.target.value)}
+                sx={{ mb: 2 }}
+              />
+              <FormControl fullWidth sx={{ mb: 2 }}>
+                <InputLabel>Assign to</InputLabel>
+                <Select value={followUpAssignTo} onChange={(e) => setFollowUpAssignTo(e.target.value)} label="Assign to">
+                  <MenuItem value="">{list.assignedTo?._id || ""} (default)</MenuItem>
+                  {employeesList.map((emp) => (
+                    <MenuItem value={emp._id} key={emp._id}>
+                      {emp.name}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              <TextField fullWidth label="Follow-up notes (optional)" multiline rows={2} value={followUpNotes} onChange={(e) => setFollowUpNotes(e.target.value)} />
+            </>
+          )}
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
           <Button onClick={() => setLogOpen(false)}>Cancel</Button>
           <Button variant="contained" onClick={submitLog} disabled={submitting} sx={{ borderRadius: 2, px: 2 }}>
             {submitting ? "Saving..." : "Save"}
           </Button>
+        </DialogActions>
+      </Dialog>
+      {/* Manage follow-up dialog */}
+      <Dialog open={!!manageFollowup} onClose={() => setManageFollowup(null)} fullWidth maxWidth="xs" PaperProps={{ sx: { borderRadius: 2, m: 2 } }}>
+        <DialogTitle sx={{ fontWeight: 600 }}>{manageFollowup?.action === "reschedule" ? "Reschedule Follow-up" : "Manage Follow-up"}</DialogTitle>
+        <DialogContent>
+          {manageFollowup?.followUp && (
+            <>
+              <Typography sx={{ mb: 1 }}>{manageFollowup.followUp.notes}</Typography>
+              {manageFollowup.action === "reschedule" && (
+                <TextField
+                  fullWidth
+                  label="New date & time"
+                  type="datetime-local"
+                  InputLabelProps={{ shrink: true }}
+                  value={manageFollowup.newScheduledAt || new Date(manageFollowup.followUp.scheduledAt).toISOString().slice(0,16)}
+                  onChange={(e) => setManageFollowup((m) => ({ ...m, newScheduledAt: e.target.value }))}
+                />
+              )}
+              {manageFollowup.action === "complete" && (
+                <Typography>Mark follow-up completed?</Typography>
+              )}
+            </>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setManageFollowup(null)}>Cancel</Button>
+          <Button variant="contained" onClick={async () => {
+            if (!manageFollowup?.followUp) return;
+            const payload = { phone: String(verifiedPhone).replace(/\D/g, "").slice(-10) };
+            if (manageFollowup.action === "reschedule") {
+              payload.followUpAction = "reschedule";
+              payload.followUpId = manageFollowup.followUp._id;
+              payload.followUpNewScheduledAt = manageFollowup.newScheduledAt || new Date(manageFollowup.followUp.scheduledAt).toISOString();
+            } else if (manageFollowup.action === "complete") {
+              payload.followUpAction = "complete";
+              payload.followUpId = manageFollowup.followUp._id;
+            }
+            try {
+              setSubmitting(true);
+              await axiosInstance.post(`call-list/${id}/${token}/call-log`, payload);
+              setManageFollowup(null);
+              fetchList(verifiedPhone);
+            } catch (e) {
+              console.error(e);
+            } finally {
+              setSubmitting(false);
+            }
+          }}>Save</Button>
         </DialogActions>
       </Dialog>
     </Box>
