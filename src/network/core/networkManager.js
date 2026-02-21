@@ -114,8 +114,8 @@ export default function networkManager(router, withFile = false) {
       const fullError = err?.response?.data?.rowErrors
       const colError = err?.response?.data?.errors
       
-      // Extract error message from response
-      const errorMessage = err?.response?.data?.message || fullError?.message || "Unknown error"
+      // Extract error message from response (backend may use message or error)
+      const errorMessage = err?.response?.data?.message || err?.response?.data?.error || fullError?.message || "Unknown error"
       
       // Show toast notification for the error
       apiError(errorMessage)
@@ -145,7 +145,7 @@ export default function networkManager(router, withFile = false) {
 
       // ✅ Return full data here
       return new APIError(
-        fullError?.message || err?.response?.data?.message || "Request failed",
+        fullError?.message || err?.response?.data?.message || err?.response?.data?.error || "Request failed",
         err.code,
         fullError,
         colError

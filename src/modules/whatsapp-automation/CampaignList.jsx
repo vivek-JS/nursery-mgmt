@@ -42,9 +42,10 @@ const CampaignList = () => {
   const [viewCampaign, setViewCampaign] = useState(null)
   const [editCampaign, setEditCampaign] = useState(null)
   const [sendAllCampaign, setSendAllCampaign] = useState(null)
-  const [ratePer2Min, setRatePer2Min] = useState(1)
+  const [delaySeconds, setDelaySeconds] = useState(10)
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState(null)
+  const [resumeMode, setResumeMode] = useState(false)
 
   const fetch = async (p = page) => {
     setLoading(true)
@@ -103,14 +104,39 @@ const CampaignList = () => {
                       <TableCell>{c.message}</TableCell>
                       <TableCell>{c.videoFilename || c.video || "-"}</TableCell>
                     <TableCell align="center">
-                      <Stack direction="row" spacing={1} justifyContent="center">
+                      <Stack direction="row" spacing={1} justifyContent="center" flexWrap="wrap" useFlexGap>
                         <Button size="small" onClick={() => setViewCampaign(c)}>View</Button>
                         <Button size="small" onClick={() => setEditCampaign(c)}>Edit</Button>
                         <Button size="small" color="success" onClick={() => {
                           setSendAllCampaign(c)
-                          setRatePer2Min(1)
+                          setDelaySeconds(10)
                           setSendError(null)
+                          setResumeMode(false)
                         }}>Send All</Button>
+                        <Button size="small" color="error" onClick={async () => {
+                          try {
+                            const instance = NetworkManager(API.CAMPAIGN.STOP)
+                            const res = await instance.request({}, [c._id])
+                            if (res && res.success !== false) fetch()
+                          } catch (e) {
+                            console.error("Stop failed:", e)
+                          }
+                        }}>Stop</Button>
+                        <Button size="small" color="info" onClick={() => {
+                          setSendAllCampaign(c)
+                          setDelaySeconds(10)
+                          setSendError(null)
+                          setResumeMode(true)
+                        }}>Resume</Button>
+                        <Button size="small" color="warning" onClick={async () => {
+                          try {
+                            const instance = NetworkManager(API.CAMPAIGN.RESET_TARGETS)
+                            const res = await instance.request({}, [c._id])
+                            if (res && res.success !== false) fetch()
+                          } catch (e) {
+                            console.error("Reset failed:", e)
+                          }
+                        }}>Reset</Button>
                       </Stack>
                     </TableCell>
                     </TableRow>
@@ -162,26 +188,60 @@ const CampaignList = () => {
         onSaved={() => { fetch(); setEditCampaign(null) }}
       />
 
-      <Dialog open={!!sendAllCampaign} onClose={() => !sending && setSendAllCampaign(null)} maxWidth="xs" fullWidth>
-        <DialogTitle>Send All via WhatsApp Web</DialogTitle>
+      <Dialog open={!!sendAllCampaign} onClose={() => !sending && (setSendAllCampaign(null), setResumeMode(false))} maxWidth="xs" fullWidth>
+        <DialogTitle>{resumeMode ? "Resume Campaign" : "Send All via WhatsApp Web"}</DialogTitle>
         <DialogContent>
           {sendError && <Alert severity="error" sx={{ mb: 2 }}>{sendError}</Alert>}
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Uses Selenium to automate WhatsApp Web. Chrome will open; ensure WhatsApp Web is logged in.
+            {resumeMode ? "Resets failed + skipped to pending, then sends. Closes any running campaign first." : "Uses Selenium to automate WhatsApp Web. Chrome will open; ensure WhatsApp Web is logged in."}
           </Typography>
           <TextField
-            label="Messages per 2 minutes"
+            label="Seconds between messages"
             type="number"
-            value={ratePer2Min}
-            onChange={(e) => setRatePer2Min(Math.max(1, Math.min(30, Number(e.target.value) || 1)))}
-            inputProps={{ min: 1, max: 30 }}
-            helperText="1 = 1 message every 2 min (safer). Higher = faster."
+            value={delaySeconds}
+            onChange={(e) => setDelaySeconds(Math.max(1, Math.min(300, Number(e.target.value) || 10)))}
+            inputProps={{ min: 1, max: 300 }}
+            helperText="e.g. 10 = send one message every 10 seconds"
             fullWidth
             sx={{ mt: 1 }}
           />
         </DialogContent>
         <DialogActions>
           <Button onClick={() => !sending && setSendAllCampaign(null)} disabled={sending}>Cancel</Button>
+          {sendError && (sendError.includes("No pending targets") || sendError.includes("already been sent") || sendError.includes("No targets to resume")) && (
+            <Button
+              variant="outlined"
+              color="warning"
+              onClick={async () => {
+                if (!sendAllCampaign) return
+                setSending(true)
+                setSendError(null)
+                try {
+                  const resetInstance = NetworkManager(API.CAMPAIGN.RESET_TARGETS)
+                  const resetRes = await resetInstance.request({}, [sendAllCampaign._id])
+                  if (resetRes && resetRes.success !== false) {
+                    const runInstance = NetworkManager(resumeMode ? API.CAMPAIGN.RESUME_WEB : API.CAMPAIGN.RUN_NOW)
+                    const runRes = await runInstance.request({ delaySeconds }, [sendAllCampaign._id])
+                    if (runRes && runRes.success !== false) {
+                      setSendAllCampaign(null)
+                      fetch()
+                    } else {
+                      setSendError(runRes?.message || "Failed to start campaign")
+                    }
+                  } else {
+                    setSendError(resetRes?.message || "Failed to reset targets")
+                  }
+                } catch (e) {
+                  setSendError(e?.message || "Failed")
+                } finally {
+                  setSending(false)
+                }
+              }}
+              disabled={sending}
+            >
+              {sending ? "Resetting…" : "Reset & Send All"}
+            </Button>
+          )}
           <Button
             variant="contained"
             color="success"
@@ -190,8 +250,8 @@ const CampaignList = () => {
               setSending(true)
               setSendError(null)
               try {
-                const instance = NetworkManager(API.CAMPAIGN.START)
-                const res = await instance.request({ ratePer2Min }, [sendAllCampaign._id])
+                const instance = NetworkManager(resumeMode ? API.CAMPAIGN.RESUME_WEB : API.CAMPAIGN.RUN_NOW)
+                const res = await instance.request({ delaySeconds }, [sendAllCampaign._id])
                 if (res && res.success !== false) {
                   setSendAllCampaign(null)
                   fetch()
@@ -206,7 +266,7 @@ const CampaignList = () => {
             }}
             disabled={sending}
           >
-            {sending ? "Starting…" : "Send All"}
+            {sending ? "Starting…" : resumeMode ? "Resume & Send" : "Send All"}
           </Button>
         </DialogActions>
       </Dialog>

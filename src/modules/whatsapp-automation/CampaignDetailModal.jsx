@@ -8,7 +8,7 @@ const CampaignDetailModal = ({ open, onClose, campaign, onStart }) => {
   const [page, setPage] = React.useState(1)
   const [limit] = React.useState(50)
   const [total, setTotal] = React.useState(0)
-  const [ratePer2Min, setRatePer2Min] = React.useState(1)
+  const [delaySeconds, setDelaySeconds] = React.useState(10)
   const [sending, setSending] = React.useState(false)
 
   React.useEffect(() => {
@@ -34,7 +34,7 @@ const CampaignDetailModal = ({ open, onClose, campaign, onStart }) => {
     setSending(true)
     try {
       const instance = NetworkManager(API.CAMPAIGN.START)
-      await instance.request({ ratePer2Min }, [campaign._id])
+      await instance.request({ delaySeconds }, [campaign._id])
       onStart && onStart()
       onClose && onClose()
     } catch (e) {
@@ -76,12 +76,12 @@ const CampaignDetailModal = ({ open, onClose, campaign, onStart }) => {
           <Pagination count={Math.ceil((total || 0) / limit) || 1} page={page} onChange={(_,v)=>setPage(v)} />
         </Box>
         <TextField
-          label="Messages per 2 minutes"
+          label="Seconds between messages"
           type="number"
-          value={ratePer2Min}
-          onChange={(e) => setRatePer2Min(Math.max(1, Math.min(30, Number(e.target.value) || 1)))}
-          inputProps={{ min: 1, max: 30 }}
-          helperText="1 = 1 message every 2 min (WhatsApp Web Selenium)"
+          value={delaySeconds}
+          onChange={(e) => setDelaySeconds(Math.max(1, Math.min(300, Number(e.target.value) || 10)))}
+          inputProps={{ min: 1, max: 300 }}
+          helperText="e.g. 10 = send one message every 10 seconds"
           fullWidth
           sx={{ mt: 2 }}
         />

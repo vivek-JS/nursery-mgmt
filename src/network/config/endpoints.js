@@ -705,8 +705,12 @@ export const API = {
     GET: new APIRouter("campaigns/:id", HTTP_METHODS.GET),
     TARGETS: new APIRouter("campaigns/targets", HTTP_METHODS.GET),
     UPDATE: new APIRouter("campaigns/:id", HTTP_METHODS.PATCH),
-    START: new APIRouter("campaigns/:id/start", HTTP_METHODS.POST)
-    ,UPDATE_TARGETS: new APIRouter("campaigns/:id/targets", HTTP_METHODS.PATCH)
+    START: new APIRouter("campaigns/:id/start", HTTP_METHODS.POST),
+    RUN_NOW: new APIRouter("campaigns/:id/run-now", HTTP_METHODS.POST),
+    STOP: new APIRouter("campaigns/:id/stop", HTTP_METHODS.POST),
+    RESUME_WEB: new APIRouter("campaigns/:id/resume-web", HTTP_METHODS.POST),
+    RESET_TARGETS: new APIRouter("campaigns/:id/reset-targets", HTTP_METHODS.POST),
+    UPDATE_TARGETS: new APIRouter("campaigns/:id/targets", HTTP_METHODS.PATCH)
   },
   // WATI proxy (backend-only; token in env). Use these for all WATI operations.
   WATI: {

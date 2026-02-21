@@ -46,6 +46,7 @@ const CampaignCreateModal = ({ open, onClose, onCreated }) => {
   const [selectedListIds, setSelectedListIds] = useState([])
   const [importedFarmers, setImportedFarmers] = useState([]) // { farmerId, phone, name }
   const [selectedImportedIds, setSelectedImportedIds] = useState([])
+  const [manualNumbers, setManualNumbers] = useState("")
 
   function findColumn(row, names) {
     const keys = Object.keys(row || {}).map((k) => k.trim().toLowerCase())
@@ -118,17 +119,19 @@ const CampaignCreateModal = ({ open, onClose, onCreated }) => {
         const instance = NetworkManager(API.WHATSAPP_AUTOMATION.UPLOAD_AND_CREATE, true)
         res = await instance.request(form)
       } else {
-        // If user has imported farmers, send their IDs to createCampaign
         const payload = { name: name.trim(), message: message.trim(), video: videoFile }
         if (selectedImportedIds && selectedImportedIds.length > 0) {
           payload.farmerIds = selectedImportedIds
+        }
+        if (manualNumbers && manualNumbers.trim()) {
+          payload.manualPhones = manualNumbers.trim()
         }
         res = await createCampaign(payload)
       }
       const ok = (res && res.success) || (res && (res.data?.campaignId || res.campaignId))
       if (ok) {
         setStatus({ loading: false, error: null, success: "Created" })
-        setName(""); setMessage(""); setVideoFile(null); setExcelFile(null)
+        setName(""); setMessage(""); setVideoFile(null); setExcelFile(null); setManualNumbers("")
         onCreated && onCreated()
         onClose && onClose()
       } else {
@@ -218,6 +221,19 @@ const CampaignCreateModal = ({ open, onClose, onCreated }) => {
               />
             </label>
           </div>
+          <Box sx={{ mt: 2 }}>
+            <Typography variant="subtitle2" sx={{ mb: 1 }}>Or add manual numbers</Typography>
+            <TextField
+              fullWidth
+              multiline
+              minRows={2}
+              placeholder="Enter phone numbers (comma, space or newline separated). E.g. 9876543210, 9123456789"
+              value={manualNumbers}
+              onChange={(e) => setManualNumbers(e.target.value)}
+              size="small"
+              helperText={`${manualNumbers.trim() ? manualNumbers.trim().split(/[\n,\s]+/).filter(Boolean).length : 0} number(s)`}
+            />
+          </Box>
           <Box sx={{ mt: 2 }}>
             <Typography variant="subtitle2" sx={{ mb: 1 }}>Or import from saved contact lists</Typography>
             <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
