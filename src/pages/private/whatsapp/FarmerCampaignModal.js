@@ -31,6 +31,7 @@ import {
   ToggleButton,
   ToggleButtonGroup
 } from "@mui/material"
+import ListItemText from "@mui/material/ListItemText"
 import {
   Send,
   X,
@@ -44,8 +45,9 @@ import {
 } from "lucide-react"
 import { sendTemplateMessages } from "network/core/wati"
 import { API, NetworkManager } from "network/core"
+import ExcelSendModal from "pages/private/whatsapp/ExcelSendModal"
 
-const FarmerCampaignModal = ({ open, onClose, template, farmerLists = [], onListUpdate }) => {
+const FarmerCampaignModal = ({ open, onClose, template, farmerLists = [], onListUpdate, initialListId }) => {
   if (!template) return null
 
   const [farmers, setFarmers] = useState([])
@@ -62,6 +64,8 @@ const FarmerCampaignModal = ({ open, onClose, template, farmerLists = [], onList
   const [parameterValues, setParameterValues] = useState({})
   const [selectedListId, setSelectedListId] = useState("")
   const [useListMode, setUseListMode] = useState(false)
+  const [selectedListIds, setSelectedListIds] = useState([])
+  const [showExcelModal, setShowExcelModal] = useState(false)
   
   // New state for data source selection
   const [dataSource, setDataSource] = useState("oldFarmers") // "oldFarmers" or "publicLeads"
@@ -73,8 +77,8 @@ const FarmerCampaignModal = ({ open, onClose, template, farmerLists = [], onList
 
   useEffect(() => {
     if (open) {
-      setSelectedListId("")
-      setUseListMode(false)
+      setSelectedListIds(initialListId ? [initialListId] : [])
+      setUseListMode(!!initialListId)
       setSelectedFarmers([])
       setDataSource("oldFarmers")
       setSelectedPublicLinkId("")
@@ -84,7 +88,7 @@ const FarmerCampaignModal = ({ open, onClose, template, farmerLists = [], onList
       fetchPublicLinks()
       fetchFarmers()
     }
-  }, [open])
+  }, [open, initialListId])
 
   // Fetch public links
   const fetchPublicLinks = async () => {
@@ -171,8 +175,8 @@ const FarmerCampaignModal = ({ open, onClose, template, farmerLists = [], onList
   }, [selectedPublicLinkId])
 
   useEffect(() => {
-    if (selectedListId && useListMode) {
-      loadFarmersFromList(selectedListId)
+    if (useListMode && selectedListIds && selectedListIds.length > 0) {
+      loadFarmersFromLists(selectedListIds)
     }
   }, [selectedListId, useListMode])
 
@@ -197,6 +201,45 @@ const FarmerCampaignModal = ({ open, onClose, template, farmerLists = [], onList
     } catch (error) {
       console.error("Error loading farmers from list:", error)
       setError("Failed to load farmers from list")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const loadFarmersFromLists = async (listIds = []) => {
+    setLoading(true)
+    try {
+      const allFarmers = []
+      for (const listId of listIds) {
+        try {
+          const endpoint = {
+            ...API.FARMER_LIST.GET_LIST_BY_ID,
+            endpoint: `farmer-list/${listId}`
+          }
+          const listInstance = NetworkManager(endpoint)
+          const response = await listInstance.request()
+          const listFarmers = response.data?.data?.farmers || []
+          allFarmers.push(...listFarmers)
+        } catch (e) {
+          console.error("Failed to load list", listId, e)
+        }
+      }
+      // Deduplicate by mobileNumber (normalized) or id
+      const seen = new Set()
+      const unique = []
+      for (const f of allFarmers) {
+        const key = (f.mobileNumber || f._id || "").toString()
+        if (!seen.has(key)) {
+          seen.add(key)
+          unique.push(f)
+        }
+      }
+      setFarmers(unique)
+      setFilteredFarmers(unique)
+      setSelectedFarmers(unique.map((f) => f._id || f.id))
+    } catch (error) {
+      console.error("Error loading farmers from lists:", error)
+      setError("Failed to load farmers from lists")
     } finally {
       setLoading(false)
     }
@@ -419,6 +462,19 @@ const FarmerCampaignModal = ({ open, onClose, template, farmerLists = [], onList
       const response = await sendTemplateMessages(messageData)
       
       if (response.success) {
+        // Record history for these farmers
+        try {
+          const historyInstance = NetworkManager(API.FARMER.CREATE_WHATSAPP_HISTORY)
+          await historyInstance.request({
+            farmerIds: selectedFarmers,
+            campaignId: null,
+            message: templateContent,
+            status: "sent",
+            timestamp: new Date().toISOString()
+          })
+        } catch (e) {
+          console.error("Failed to record whatsapp history:", e)
+        }
         alert(`✅ Campaign sent successfully to ${selectedFarmers.length} farmers!`)
         onClose()
       } else {
@@ -560,26 +616,30 @@ const FarmerCampaignModal = ({ open, onClose, template, farmerLists = [], onList
                 </Typography>
               </Stack>
               <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap">
-                <FormControl size="small" sx={{ minWidth: 250 }}>
-                  <InputLabel>Choose a List</InputLabel>
+                <FormControl size="small" sx={{ minWidth: 300 }}>
+                  <InputLabel>Choose Lists (multi-select)</InputLabel>
                   <Select
-                    value={selectedListId}
+                    multiple
+                    value={selectedListIds}
                     onChange={(e) => {
-                      setSelectedListId(e.target.value)
-                      setUseListMode(!!e.target.value)
+                      const v = e.target.value
+                      setSelectedListIds(v)
+                      setUseListMode(v && v.length > 0)
                     }}
-                    label="Choose a List"
+                    label="Choose Lists"
+                    renderValue={(v) => `${v.length} selected`}
                     sx={{ borderRadius: 2 }}>
-                    <MenuItem value="">
-                      <em>Select Individual Farmers</em>
-                    </MenuItem>
                     {farmerLists.map((list) => (
                       <MenuItem key={list._id} value={list._id}>
-                        {list.name} ({list.farmers?.length || 0} farmers)
+                        <Checkbox checked={selectedListIds.indexOf(list._id) > -1} />
+                        <ListItemText primary={`${list.name} (${list.farmers?.length || 0})`} />
                       </MenuItem>
                     ))}
                   </Select>
                 </FormControl>
+                <Button variant="outlined" size="small" onClick={() => setShowExcelModal(true)}>
+                  Upload Excel
+                </Button>
                 {selectedListId && (
                   <Chip
                     label={`Using list: ${farmerLists.find(l => l._id === selectedListId)?.name}`}
@@ -859,6 +919,21 @@ const FarmerCampaignModal = ({ open, onClose, template, farmerLists = [], onList
           {loading ? "Sending..." : `Send to ${selectedFarmers.length} Farmers`}
         </Button>
       </DialogActions>
+      <ExcelSendModal
+        open={showExcelModal}
+        onClose={() => setShowExcelModal(false)}
+        templates={[]}
+        onListCreated={(id) => {
+          // after saving list, extract farmers from it and add to selection
+          if (id) {
+            const newIds = [...selectedListIds, id]
+            setSelectedListIds(newIds)
+            setUseListMode(true)
+            loadFarmersFromLists(newIds)
+          }
+          setShowExcelModal(false)
+        }}
+      />
     </Dialog>
   )
 }

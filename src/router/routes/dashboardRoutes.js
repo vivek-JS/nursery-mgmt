@@ -22,6 +22,7 @@ import AssignmentIcon from "@mui/icons-material/Assignment"
 import TaskIcon from "@mui/icons-material/Task"
 import CloudUploadIcon from "@mui/icons-material/CloudUpload"
 import DashboardIcon from "@mui/icons-material/Dashboard"
+import PhoneIcon from "@mui/icons-material/Phone"
 
 export const DashboardMenus = [
   new MenuPath("Orders", <HomeIcon />, "/u/dashboard"),
@@ -36,6 +37,7 @@ export const DashboardMenus = [
   new MenuPath("CMS", <AodIcon />, "/u/cms"),
   new MenuPath("Backup & Import", <BiotechIcon />, "/u/data"),
   new MenuPath("Farmers", <BiotechIcon />, "/u/farmers"),
+  new MenuPath("Call Assignment", <PhoneIcon />, "/u/call-assignment"),
   // new MenuPath("Weekly", <DateRangeOutlinedIcon />, "/u/weekly"),
   // new MenuPath("Transactions", <PaidIcon />, "/u/transactions"),
   new MenuPath("Employees", <GroupIcon />, "/u/employeese"),
@@ -53,5 +55,7 @@ export const DashboardMenus = [
   new MenuPath("Dealers", <ListAltIcon />, "/u/dealers"),
   new MenuPath("Payments", <PaymentIcon />, "/u/payments", ["ACCOUNTANT", "SUPER_ADMIN"]),
   new MenuPath("WhatsApp Management", <WhatsAppIcon />, "/u/whatsapp", ["SUPER_ADMIN"]),
+  new MenuPath("WhatsApp Automation", <WhatsAppIcon />, "/u/whatsapp-automation", ["SUPER_ADMIN"]),
+  new MenuPath("Automation", <TaskIcon />, "/u/automation", ["SUPER_ADMIN","ADMIN"]),
   new MenuPath("Public Farmer Links", <LinkIcon />, "/u/public-links", ["SUPER_ADMIN"])
 ]

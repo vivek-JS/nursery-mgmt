@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react"
+import React, { useState, useEffect, useMemo } from "react"
 import {
   Box,
   Card,
@@ -20,7 +20,11 @@ import {
   InputAdornment,
   Stack,
   Tooltip,
-  Badge
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions
 } from "@mui/material"
 import {
   Send,
@@ -33,12 +37,23 @@ import {
   Phone,
   Shield,
   Users,
+  FileSpreadsheet,
+  Wifi,
+  WifiOff,
+  Pencil,
+  Trash2,
+  Eye
 } from "lucide-react"
 import { getMessageTemplates, testWatiConnection } from "network/core/wati"
 import FarmerCampaignModal from "./FarmerCampaignModal"
 import SingleSendModal from "./SingleSendModal"
 import SowingReminderModal from "./SowingReminderModal"
 import BroadcastListModal from "./BroadcastListModal"
+import ExcelSendModal from "./ExcelSendModal"
+import SendToListModal from "./SendToListModal"
+import EditBroadcastListModal from "./EditBroadcastListModal"
+import ViewBroadcastListModal from "./ViewBroadcastListModal"
+import SendSmsModal from "./SendSmsModal"
 import { useHasWhatsAppAccess } from "utils/roleUtils"
 import { API, NetworkManager } from "network/core"
 
@@ -52,10 +67,20 @@ const WhatsAppManagement = () => {
   const [loading, setLoading] = useState(false)
   const [searchTerm, setSearchTerm] = useState("")
   const [error, setError] = useState(null)
-  const [connectionStatus, setConnectionStatus] = useState(null)
+  const [connectionStatus, setConnectionStatus] = useState(null) // 'testing' | 'success' | 'error'
+  const [watiConnected, setWatiConnected] = useState(false)
   const [farmerLists, setFarmerLists] = useState([])
   const [listsLoading, setListsLoading] = useState(false)
   const [showBroadcastListModal, setShowBroadcastListModal] = useState(false)
+  const [excelContactLists, setExcelContactLists] = useState([])
+  const [excelListsLoading, setExcelListsLoading] = useState(false)
+  const [showExcelSendModal, setShowExcelSendModal] = useState(false)
+  const [sendToListModal, setSendToListModal] = useState({ open: false, listId: null, listName: "" })
+  const [editList, setEditList] = useState(null)
+  const [viewList, setViewList] = useState(null)
+  const [deleteList, setDeleteList] = useState(null)
+  const [farmerCampaignInitialListId, setFarmerCampaignInitialListId] = useState(null)
+  const [showSendSmsModal, setShowSendSmsModal] = useState(false)
 
   // Access control check
   if (!hasWhatsAppAccess) {
@@ -106,37 +131,57 @@ const WhatsAppManagement = () => {
   }
 
   const testConnection = async () => {
-    setConnectionStatus('testing')
+    setConnectionStatus("testing")
     try {
       const response = await testWatiConnection()
       if (response.success) {
-        setConnectionStatus('success')
-        setTimeout(() => setConnectionStatus(null), 3000)
+        setConnectionStatus("success")
+        setWatiConnected(true)
       } else {
-        setConnectionStatus('error')
-        setTimeout(() => setConnectionStatus(null), 3000)
+        setConnectionStatus("error")
+        setWatiConnected(false)
       }
-    } catch (error) {
-      setConnectionStatus('error')
-      setTimeout(() => setConnectionStatus(null), 3000)
+    } catch (err) {
+      setConnectionStatus("error")
+      setWatiConnected(false)
+    }
+    setTimeout(() => setConnectionStatus(null), 4000)
+  }
+
+  const fetchExcelContactLists = async () => {
+    setExcelListsLoading(true)
+    try {
+      const instance = NetworkManager(API.WHATSAPP_CONTACT_LIST.GET_ALL)
+      const response = await instance.request()
+      if (response.data?.data) setExcelContactLists(response.data.data)
+      else setExcelContactLists([])
+    } catch (err) {
+      console.error("Error fetching Excel contact lists:", err)
+      setExcelContactLists([])
+    } finally {
+      setExcelListsLoading(false)
     }
   }
 
   useEffect(() => {
     fetchTemplates()
     fetchFarmerLists()
+    fetchExcelContactLists()
   }, [])
+
+  useEffect(() => {
+    if (!hasWhatsAppAccess) return
+    testConnection()
+  }, [hasWhatsAppAccess])
 
   const fetchFarmerLists = async () => {
     setListsLoading(true)
     try {
       const instance = NetworkManager(API.FARMER_LIST.GET_ALL_LISTS)
       const response = await instance.request()
-      if (response.data?.data) {
-        setFarmerLists(response.data.data)
-      }
-    } catch (error) {
-      console.error("Error fetching farmer lists:", error)
+      if (response.data?.data) setFarmerLists(response.data.data)
+    } catch (err) {
+      console.error("Error fetching farmer lists:", err)
     } finally {
       setListsLoading(false)
     }
@@ -153,6 +198,49 @@ const WhatsAppManagement = () => {
   const approvedTemplates = filteredTemplates.filter(t => t.status === "APPROVED")
   const pendingTemplates = filteredTemplates.filter(t => t.status === "PENDING")
   const rejectedTemplates = filteredTemplates.filter(t => t.status === "REJECTED")
+
+  const allBroadcastLists = useMemo(() => {
+    const farmer = (farmerLists || []).map((l) => ({
+      id: l._id,
+      name: l.name,
+      description: l.description || "",
+      type: "farmer",
+      count: l.farmers?.length || 0,
+      optInCount: (l.farmers || []).filter(f => f.opt_in === true).length
+    }))
+    const contact = (excelContactLists || []).map((l) => ({
+      id: l._id,
+      name: l.name,
+      description: l.description || "",
+      type: "contact",
+      count: l.contacts?.length || 0
+    }))
+    return [...farmer, ...contact].sort((a, b) => (b.name || "").localeCompare(a.name || ""))
+  }, [farmerLists, excelContactLists])
+
+  const handleDeleteList = async () => {
+    if (!deleteList) return
+    try {
+      if (deleteList.type === "farmer") {
+        const endpoint = { ...API.FARMER_LIST.DELETE_LIST, endpoint: `farmer-list/${deleteList.id}` }
+        await NetworkManager(endpoint).request()
+        fetchFarmerLists()
+      } else {
+        const endpoint = { ...API.WHATSAPP_CONTACT_LIST.DELETE, endpoint: `whatsapp-contact-list/${deleteList.id}` }
+        await NetworkManager(endpoint).request()
+        fetchExcelContactLists()
+      }
+      setDeleteList(null)
+    } catch (err) {
+      console.error("Delete list failed:", err)
+      setError(err?.response?.data?.message || "Failed to delete list")
+    }
+  }
+
+  const refreshAllLists = () => {
+    fetchFarmerLists()
+    fetchExcelContactLists()
+  }
 
   const getStatusIcon = (status) => {
     switch (status) {
@@ -222,22 +310,105 @@ const WhatsAppManagement = () => {
             <Typography variant="body2">Pending Approval</Typography>
           </CardContent>
         </Card>
-        <Card sx={{ background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)', color: 'white' }}>
+        <Card
+          sx={{
+            background:
+              connectionStatus === "testing"
+                ? "linear-gradient(135deg, #94a3b8 0%, #64748b 100%)"
+                : watiConnected
+                  ? "linear-gradient(135deg, #10b981 0%, #059669 100%)"
+                  : "linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)",
+            color: "white"
+          }}
+        >
           <CardContent>
-            <Typography variant="h3" fontWeight="bold">
-              {connectionStatus === 'testing' ? '...' : connectionStatus === 'success' ? '✓' : '●'}
-            </Typography>
-            <Typography variant="body2">WATI Connection</Typography>
+            <Stack direction="row" alignItems="center" spacing={1}>
+              {connectionStatus === "testing" ? (
+                <CircularProgress size={28} sx={{ color: "white" }} />
+              ) : watiConnected ? (
+                <Wifi size={28} />
+              ) : (
+                <WifiOff size={28} />
+              )}
+              <Typography variant="h3" fontWeight="bold">
+                {connectionStatus === "testing"
+                  ? "..."
+                  : watiConnected
+                    ? "Connected"
+                    : "Not connected"}
+              </Typography>
+            </Stack>
+            <Typography variant="body2">WATI</Typography>
+            <Button
+              size="small"
+              sx={{ mt: 1, color: "white", borderColor: "rgba(255,255,255,0.8)" }}
+              variant="outlined"
+              onClick={testConnection}
+              disabled={connectionStatus === "testing"}
+            >
+              {connectionStatus === "testing" ? "Testing..." : "Test again"}
+            </Button>
           </CardContent>
         </Card>
       </Box>
 
-      {/* Broadcast Lists Section */}
+      {/* Send from Excel */}
+      <Card sx={{ mb: 3, boxShadow: 3, borderLeft: 4, borderColor: "primary.main" }}>
+        <CardContent>
+          <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" spacing={2}>
+            <Box>
+              <Typography variant="h6" fontWeight="bold" sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                <FileSpreadsheet size={24} />
+                Send from Excel
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Upload .xlsx / .csv with Phone and optional Name column. Save to DB and send WhatsApp to all numbers.
+              </Typography>
+            </Box>
+            <Button
+              variant="contained"
+              color="primary"
+              startIcon={<FileSpreadsheet size={18} />}
+              onClick={() => setShowExcelSendModal(true)}
+              sx={{ borderRadius: 2 }}
+            >
+              Upload Excel & Send
+            </Button>
+          </Stack>
+        </CardContent>
+      </Card>
+
+      {/* Send SMS via Exotel */}
+      <Card sx={{ mb: 3, boxShadow: 3, borderLeft: 4, borderColor: "#6366f1" }}>
+        <CardContent>
+          <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" spacing={2}>
+            <Box>
+              <Typography variant="h6" fontWeight="bold" sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                <MessageSquare size={24} style={{ color: "#6366f1" }} />
+                Send SMS (Exotel)
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Send an SMS to any mobile number via Exotel. Configure EXOTEL_* env vars on the server.
+              </Typography>
+            </Box>
+            <Button
+              variant="contained"
+              startIcon={<MessageSquare size={18} />}
+              onClick={() => setShowSendSmsModal(true)}
+              sx={{ borderRadius: 2, bgcolor: "#6366f1", "&:hover": { bgcolor: "#4f46e5" } }}
+            >
+              Send SMS
+            </Button>
+          </Stack>
+        </CardContent>
+      </Card>
+
+      {/* All Broadcast Lists – Farmer lists + Contact lists with Edit / Delete / View / Send */}
       <Card sx={{ mb: 3, boxShadow: 3 }}>
         <CardContent>
-          <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+          <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" spacing={2} sx={{ mb: 2 }}>
             <Typography variant="h6" fontWeight="bold">
-              📋 Broadcast Lists ({farmerLists.length})
+              📋 All Broadcast Lists ({allBroadcastLists.length})
             </Typography>
             <Button
               variant="contained"
@@ -248,30 +419,95 @@ const WhatsAppManagement = () => {
               Create Broadcast List
             </Button>
           </Stack>
-          {farmerLists.length > 0 ? (
-            <Stack direction="row" spacing={2} flexWrap="wrap">
-              {farmerLists.map((list) => (
-                <Chip
-                  key={list._id}
-                  label={`${list.name} (${list.farmers?.length || 0})`}
-                  onClick={() => {
-                    // This will be handled in FarmerCampaignModal
-                    console.log("List selected:", list)
-                  }}
-                  sx={{
-                    cursor: "pointer",
-                    "&:hover": {
-                      bgcolor: "primary.main",
-                      color: "white"
-                    }
-                  }}
-                />
-              ))}
+          {listsLoading || excelListsLoading ? (
+            <Stack direction="row" alignItems="center" spacing={1} sx={{ py: 2 }}>
+              <CircularProgress size={24} />
+              <Typography variant="body2" color="text.secondary">Loading lists...</Typography>
             </Stack>
-          ) : (
+          ) : allBroadcastLists.length === 0 ? (
             <Typography variant="body2" color="text.secondary">
-              No broadcast lists yet. Create one to get started!
+              No broadcast lists yet. Create one from &quot;Create Broadcast List&quot; or upload Excel above.
             </Typography>
+          ) : (
+            <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: "bold" }}>Name</TableCell>
+                    <TableCell sx={{ fontWeight: "bold" }}>Type</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: "bold" }}>Count</TableCell>
+                    <TableCell align="center" sx={{ fontWeight: "bold" }}>Actions</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {allBroadcastLists.map((list) => (
+                    <TableRow key={`${list.type}-${list.id}`} hover>
+                      <TableCell>
+                        <Typography variant="body2" fontWeight={500}>{list.name}</Typography>
+                        {list.description && (
+                          <Typography variant="caption" color="text.secondary" display="block" noWrap sx={{ maxWidth: 280 }}>
+                            {list.description}
+                          </Typography>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Chip
+                          label={list.type === "farmer" ? "Farmer list" : "Contact list"}
+                          size="small"
+                          color={list.type === "farmer" ? "primary" : "secondary"}
+                          variant="outlined"
+                        />
+                      </TableCell>
+                      <TableCell align="right">
+                        {list.count}
+                        {typeof list.optInCount === "number" ? (
+                          <Typography variant="caption" color="text.secondary" display="block">
+                            {list.optInCount} opted
+                          </Typography>
+                        ) : null}
+                      </TableCell>
+                      <TableCell align="center">
+                        <Stack direction="row" spacing={0.5} justifyContent="center" flexWrap="wrap">
+                          <Tooltip title="Send message">
+                            <IconButton
+                              size="small"
+                              onClick={() => {
+                                if (list.type === "farmer") {
+                                  setSelectedTemplate(approvedTemplates[0] || null)
+                                  setFarmerCampaignInitialListId(list.id)
+                                  setShowFarmerCampaign(true)
+                                } else {
+                                  setSendToListModal({ open: true, listId: list.id, listName: list.name })
+                                }
+                              }}
+                              disabled={list.type === "farmer" && approvedTemplates.length === 0}
+                              sx={{ color: "success.main" }}
+                            >
+                              <Send size={18} />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="View">
+                            <IconButton size="small" onClick={() => setViewList(list)} sx={{ color: "info.main" }}>
+                              <Eye size={18} />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Edit">
+                            <IconButton size="small" onClick={() => setEditList(list)}>
+                              <Pencil size={18} />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Delete">
+                            <IconButton size="small" onClick={() => setDeleteList(list)} sx={{ color: "error.main" }}>
+                              <Trash2 size={18} />
+                            </IconButton>
+                          </Tooltip>
+                        </Stack>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
           )}
         </CardContent>
       </Card>
@@ -310,21 +546,22 @@ const WhatsAppManagement = () => {
                 onClick={() => {
                   fetchTemplates()
                   fetchFarmerLists()
+                  fetchExcelContactLists()
                 }}
-                disabled={loading || listsLoading}
+                disabled={loading || listsLoading || excelListsLoading}
                 sx={{ borderRadius: 2 }}
               >
                 Refresh
               </Button>
               <Button
-                variant={connectionStatus === 'success' ? 'contained' : 'outlined'}
-                color={connectionStatus === 'success' ? 'success' : connectionStatus === 'error' ? 'error' : 'primary'}
-                startIcon={connectionStatus === 'testing' ? <CircularProgress size={18} color="inherit" /> : <MessageSquare size={18} />}
+                variant={watiConnected ? "contained" : "outlined"}
+                color={watiConnected ? "success" : "primary"}
+                startIcon={connectionStatus === "testing" ? <CircularProgress size={18} color="inherit" /> : <MessageSquare size={18} />}
                 onClick={testConnection}
-                disabled={connectionStatus === 'testing'}
+                disabled={connectionStatus === "testing"}
                 sx={{ borderRadius: 2 }}
               >
-                {connectionStatus === 'success' ? 'Connected' : connectionStatus === 'error' ? 'Failed' : 'Test API'}
+                {connectionStatus === "testing" ? "Testing..." : watiConnected ? "WATI OK" : "Test WATI"}
               </Button>
             </Stack>
           </Stack>
@@ -472,7 +709,8 @@ const WhatsAppManagement = () => {
             💡 Quick Guide
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            • <strong>Approved templates</strong> can be sent to farmers immediately<br />
+            • <strong>WATI</strong> status is tested on load; use &quot;Test again&quot; if needed<br />
+            • <strong>Send from Excel:</strong> Upload .xlsx/.csv with Phone (and optional Name), save to DB, then send<br />
             • <strong>Send Campaign:</strong> Send to multiple farmers from your database<br />
             • <strong>Send Single:</strong> Send to a specific phone number<br />
             • Create new templates in <a href="https://app.wati.io" target="_blank" rel="noopener noreferrer">WATI Dashboard</a><br />
@@ -487,10 +725,12 @@ const WhatsAppManagement = () => {
         onClose={() => {
           setShowFarmerCampaign(false)
           setSelectedTemplate(null)
+          setFarmerCampaignInitialListId(null)
         }}
         template={selectedTemplate}
         farmerLists={farmerLists}
         onListUpdate={fetchFarmerLists}
+        initialListId={farmerCampaignInitialListId}
       />
 
       {/* Single Send Modal */}
@@ -514,10 +754,75 @@ const WhatsAppManagement = () => {
         open={showBroadcastListModal}
         onClose={() => setShowBroadcastListModal(false)}
         onListCreated={() => {
-          fetchFarmerLists()
+          refreshAllLists()
           setShowBroadcastListModal(false)
         }}
       />
+
+      {/* Excel Upload & Send Modal */}
+      <ExcelSendModal
+        open={showExcelSendModal}
+        onClose={() => setShowExcelSendModal(false)}
+        templates={templates}
+        onListCreated={fetchExcelContactLists}
+      />
+
+      <SendSmsModal
+        open={showSendSmsModal}
+        onClose={() => setShowSendSmsModal(false)}
+      />
+
+      {/* Send to saved Excel list */}
+      <SendToListModal
+        open={sendToListModal.open}
+        onClose={() => setSendToListModal({ open: false, listId: null, listName: "" })}
+        listId={sendToListModal.listId}
+        listName={sendToListModal.listName}
+        templates={templates}
+        onSent={fetchExcelContactLists}
+      />
+
+      {/* Edit list modal */}
+      <EditBroadcastListModal
+        open={!!editList}
+        onClose={() => setEditList(null)}
+        list={editList}
+        onSaved={refreshAllLists}
+      />
+
+      {/* View list modal */}
+      <ViewBroadcastListModal
+        open={!!viewList}
+        onClose={() => setViewList(null)}
+        list={viewList}
+        templates={templates}
+        onSendMessage={(list) => {
+          setViewList(null)
+          if (list.type === "farmer") {
+            setSelectedTemplate(approvedTemplates[0] || null)
+            setFarmerCampaignInitialListId(list.id)
+            setShowFarmerCampaign(true)
+          } else {
+            setSendToListModal({ open: true, listId: list.id, listName: list.name })
+          }
+        }}
+      />
+
+      {/* Delete confirmation */}
+      <Dialog open={!!deleteList} onClose={() => setDeleteList(null)}>
+        <DialogTitle>Delete list?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Delete &quot;{deleteList?.name}&quot;? This cannot be undone.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteList(null)}>Cancel</Button>
+          <Button variant="contained" color="error" onClick={handleDeleteList}>
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   )
 }
