@@ -545,11 +545,14 @@ export const API = {
   },
   FARMER: {
     GET_FARMERS: new APIRouter("farmer/getFarmers", HTTP_METHODS.GET),
+    GET_FILTER_OPTIONS: new APIRouter("farmer/filter-options", HTTP_METHODS.GET),
     GET_FARMER_BY_MOBILE: new APIRouter("farmer/getfarmer", HTTP_METHODS.GET),
+    GET_WHATSAPP_HISTORY: new APIRouter("farmer/:id/whatsapp-history", HTTP_METHODS.GET),
     CREATE_FARMER: new APIRouter("farmer/createFarmer", HTTP_METHODS.POST),
     UPDATE_FARMER: new APIRouter("farmer/updateFarmer", HTTP_METHODS.PATCH),
     GET_INVALID_PHONE_FARMERS: new APIRouter("farmer/invalid-phones", HTTP_METHODS.GET),
-    UPDATE_FARMER_PHONE: new APIRouter("farmer", HTTP_METHODS.PUT)
+    UPDATE_FARMER_PHONE: new APIRouter("farmer", HTTP_METHODS.PUT),
+    CREATE_WHATSAPP_HISTORY: new APIRouter("farmer/whatsapp-history", HTTP_METHODS.POST)
   },
   FARMER_LIST: {
     GET_ALL_LISTS: new APIRouter("farmer-list", HTTP_METHODS.GET),
@@ -559,6 +562,13 @@ export const API = {
     ADD_FARMERS_TO_LIST: new APIRouter("farmer-list", HTTP_METHODS.POST),
     REMOVE_FARMERS_FROM_LIST: new APIRouter("farmer-list", HTTP_METHODS.POST),
     DELETE_LIST: new APIRouter("farmer-list", HTTP_METHODS.DELETE)
+  },
+  WHATSAPP_CONTACT_LIST: {
+    GET_ALL: new APIRouter("whatsapp-contact-list", HTTP_METHODS.GET),
+    GET_BY_ID: new APIRouter("whatsapp-contact-list", HTTP_METHODS.GET),
+    CREATE: new APIRouter("whatsapp-contact-list", HTTP_METHODS.POST),
+    UPDATE: new APIRouter("whatsapp-contact-list", HTTP_METHODS.PATCH),
+    DELETE: new APIRouter("whatsapp-contact-list", HTTP_METHODS.DELETE)
   },
   LOCATION: {
     GET_ALL_LOCATIONS: new APIRouter("/location/all", HTTP_METHODS.GET),
@@ -587,6 +597,7 @@ export const API = {
   },
   OLD_SALES: {
     GET_FILTERS: new APIRouter("/old-sales/filters", HTTP_METHODS.GET),
+    GET_FILTER_OPTIONS: new APIRouter("/old-sales/filter-options", HTTP_METHODS.GET),
     GET_ANALYTICS: new APIRouter("/old-sales/analytics", HTTP_METHODS.GET),
     GET_RECORDS: new APIRouter("/old-sales/records", HTTP_METHODS.GET),
     EXPORT_CSV: new APIRouter("/old-sales/export", HTTP_METHODS.GET),
@@ -596,7 +607,8 @@ export const API = {
     GET_CASE_MISMATCHES: new APIRouter("/old-sales/case-mismatches", HTTP_METHODS.GET),
     NORMALIZE_CASE: new APIRouter("/old-sales/normalize-case", HTTP_METHODS.PATCH),
     GET_GEO_SUMMARY: new APIRouter("/old-sales/geo-summary", HTTP_METHODS.GET),
-    GET_REPEAT_CUSTOMERS: new APIRouter("/old-sales/repeat-customers", HTTP_METHODS.GET)
+    GET_REPEAT_CUSTOMERS: new APIRouter("/old-sales/repeat-customers", HTTP_METHODS.GET),
+    GET_UNIQUE_CUSTOMERS: new APIRouter("/old-sales/unique-customers", HTTP_METHODS.GET)
   },
   SLOTS: {
     GET_SLOTS: new APIRouter("slots/getslots", HTTP_METHODS.GET, OFFLINE.PROFILE),
@@ -679,6 +691,50 @@ export const API = {
     UPDATE_TEMPLATE: new APIRouter("/{tenantId}/api/v1/updateTemplate", HTTP_METHODS.PUT),
     DELETE_TEMPLATE: new APIRouter("/{tenantId}/api/v1/deleteTemplate", HTTP_METHODS.DELETE)
   },
+  WHATSAPP_AUTOMATION: {
+    CREATE_CAMPAIGN: new APIRouter("whatsapp/campaigns", HTTP_METHODS.POST),
+    GET_CAMPAIGNS: new APIRouter("whatsapp/campaigns", HTTP_METHODS.GET),
+    UPLOAD_AND_CREATE: new APIRouter("whatsapp/campaigns/upload-and-create", HTTP_METHODS.POST)
+  },
+  WHATSAPP_BROADCAST: {
+    GET_ALL: new APIRouter("whatsapp-broadcast", HTTP_METHODS.GET),
+    GET_BY_ID: new APIRouter("whatsapp-broadcast/:id", HTTP_METHODS.GET)
+  },
+  CAMPAIGN: {
+    LIST: new APIRouter("campaigns", HTTP_METHODS.GET),
+    GET: new APIRouter("campaigns/:id", HTTP_METHODS.GET),
+    TARGETS: new APIRouter("campaigns/targets", HTTP_METHODS.GET),
+    UPDATE: new APIRouter("campaigns/:id", HTTP_METHODS.PATCH),
+    START: new APIRouter("campaigns/:id/start", HTTP_METHODS.POST)
+    ,UPDATE_TARGETS: new APIRouter("campaigns/:id/targets", HTTP_METHODS.PATCH)
+  },
+  // WATI proxy (backend-only; token in env). Use these for all WATI operations.
+  WATI: {
+    GET_TEMPLATES: new APIRouter("wati/templates", HTTP_METHODS.GET),
+    TEST: new APIRouter("wati/test", HTTP_METHODS.GET),
+    GET_CONTACTS: new APIRouter("wati/contacts", HTTP_METHODS.GET),
+    SEND_TEMPLATE: new APIRouter("wati/send-template", HTTP_METHODS.POST),
+    SEND_TEMPLATE_MESSAGES: new APIRouter("wati/send-template-messages", HTTP_METHODS.POST),
+    SEND_MESSAGE: new APIRouter("wati/send-message", HTTP_METHODS.POST)
+  },
+  EXOTEL: {
+    SEND_SMS: new APIRouter("exotel/send", HTTP_METHODS.POST),
+    TEST: new APIRouter("exotel/test", HTTP_METHODS.GET)
+  },
+  CALL_ASSIGNMENT: {
+    GET_FILTER_VALUES: new APIRouter("call-assignment/filter-values", HTTP_METHODS.GET),
+    GET_COMBINED: new APIRouter("call-assignment/combined", HTTP_METHODS.GET),
+    ASSIGN_LIST: new APIRouter("call-assignment/assign", HTTP_METHODS.POST),
+    GET_LISTS: new APIRouter("call-assignment/lists", HTTP_METHODS.GET),
+    GET_PROGRESS: new APIRouter("call-assignment/lists/progress", HTTP_METHODS.GET),
+    GET_LIST_BY_ID: new APIRouter("call-assignment/lists", HTTP_METHODS.GET),
+    GET_LIST_MOBILE: new APIRouter("call-assignment/lists", HTTP_METHODS.GET),
+    ADD_CALL_LOG: new APIRouter("call-assignment/lists", HTTP_METHODS.POST),
+  },
+  CALL_LIST_PUBLIC: {
+    GET_LIST: (id, token) => `/api/v1/call-list/${id}/${token}`,
+    ADD_CALL_LOG: (id, token) => `/api/v1/call-list/${id}/${token}/call-log`,
+  },
   PUBLIC_LINKS: {
     CREATE_LINK: new APIRouter("/public-links/links", HTTP_METHODS.POST),
     GET_LINKS: new APIRouter("/public-links/links", HTTP_METHODS.GET),
@@ -686,6 +742,9 @@ export const API = {
     UPDATE_LINK: new APIRouter("/public-links/links", HTTP_METHODS.PATCH),
     GET_PUBLIC_CONFIG: new APIRouter("/public-links/config", HTTP_METHODS.GET),
     CREATE_LEAD: new APIRouter("/public-links/leads", HTTP_METHODS.POST),
-    GET_LEADS: new APIRouter("/public-links/links/leads", HTTP_METHODS.GET)
+    GET_LEADS: new APIRouter("/public-links/links/leads", HTTP_METHODS.GET),
+    GET_LEADS_BY_LINK: (linkId) => `/api/v1/public-links/links/leads/${linkId}`,
+    GET_ALL_LEADS: new APIRouter("/public-links/links/all-leads", HTTP_METHODS.GET),
+    GET_FILTER_OPTIONS: new APIRouter("/public-links/filter-options", HTTP_METHODS.GET)
   }
 }

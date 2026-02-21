@@ -6,7 +6,16 @@ import { API, NetworkManager } from "network/core"
 import { PageLoader, ExcelExport } from "components"
 import moment from "moment"
 import debounce from "lodash.debounce"
-import { MenuItem, Select } from "@mui/material"
+import {
+  MenuItem,
+  Select,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
+  Box,
+  Typography
+} from "@mui/material"
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore"
 import DownloadPDFButton from "./OrdereRecipt"
 import DispatchForm from "./DispatchedForm"
 import DispatchList from "./DispatchedList"
@@ -737,6 +746,7 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
   const [isDispatchtab, setisDispatchtab] = useState(false)
   const [newRemark, setNewRemark] = useState("")
   const [showPaymentForm, setShowPaymentForm] = useState(false)
+  const [expandedAddPaymentAccordion, setExpandedAddPaymentAccordion] = useState(false)
   const [showDeliveryDateModal, setShowDeliveryDateModal] = useState(false)
   const [newPayment, setNewPayment] = useState({
     paidAmount: "",
@@ -889,6 +899,7 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
         if (response?.data) {
           Toast.success("Payment added successfully")
           setShowPaymentForm(false)
+          setExpandedAddPaymentAccordion(false)
           resetPaymentForm(false)
           
           // Refresh orders
@@ -945,6 +956,7 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
         }
         Toast.success(response?.data?.message || "Payment added successfully")
         setShowPaymentForm(false)
+        setExpandedAddPaymentAccordion(false)
         resetPaymentForm(false)
 
         // Refresh wallet data if it was a wallet payment
@@ -974,9 +986,11 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
             page: 1
           }
 
-
-          // Add new filter parameters
-          if (selectedSalesPerson) {
+          // When dealer or sales is logged in, filter by their id
+          const isDealerOrSalesRefresh = user?.jobTitle === "DEALER" || user?.jobTitle === "SALES"
+          if (isDealerOrSalesRefresh && (user?._id || user?.id)) {
+            params.salesPerson = user._id || user.id
+          } else if (selectedSalesPerson) {
             params.salesPerson = selectedSalesPerson
           }
           if (selectedVillage) {
@@ -1927,6 +1941,12 @@ const loadFilterOptions = async () => {
       0
     )
   }
+  const paymentSummary = React.useMemo(() => {
+    if (!selectedOrder) return { total: 0, paid: 0, balance: 0 }
+    const total = (selectedOrder?.rate || 0) * (selectedOrderCounts?.total || 0)
+    const paid = getTotalPaidAmount(selectedOrder?.details?.payment || [])
+    return { total, paid, balance: Math.max(0, total - paid) }
+  }, [selectedOrder, selectedOrderCounts])
 
 const currentYear = new Date().getFullYear()
 
@@ -2593,8 +2613,13 @@ const mapSlotForUi = (slotData) => {
     }
 
 
-    // Add new filter parameters
-    if (selectedSalesPerson) {
+    // When dealer or sales is logged in, filter orders by their id (same as getOrders API expectation)
+    const isDealerOrSales = user?.jobTitle === "DEALER" || user?.jobTitle === "SALES"
+    if (isDealerOrSales && (user?._id || user?.id)) {
+      params.salesPerson = user._id || user.id
+    }
+    // Add new filter parameters (only apply selectedSalesPerson when not dealer/sales)
+    else if (selectedSalesPerson) {
       params.salesPerson = selectedSalesPerson
     }
     if (selectedVillage) {
@@ -4636,6 +4661,7 @@ const mapSlotForUi = (slotData) => {
                       setIsOrderModalOpen(false)
                       setSelectedOrder(null)
                       setShowPaymentForm(false)
+                      setExpandedAddPaymentAccordion(false)
                       setUpdatedObject(null)
                       setSlots([])
                       resetPaymentForm(false)
@@ -5331,30 +5357,53 @@ const mapSlotForUi = (slotData) => {
                     )}
 
                     {activeTab === "payments" && (
-                      <div className="space-y-4">
-                        <div className="flex items-center justify-between">
-                          <h3 className="text-base font-medium text-gray-900">
-                            Payment Management
-                          </h3>
-                          {canAddPayment && (
-                            <button
-                              onClick={() => {
-                                if (!showPaymentForm) {
-                                  initializePaymentForm()
-                                }
-                                setShowPaymentForm(!showPaymentForm)
-                              }}
-                              className="bg-green-500 text-white px-3 py-1.5 rounded-lg hover:bg-green-600 transition-colors text-sm">
-                              {showPaymentForm ? "Cancel" : "+ Add Payment"}
-                              {isOfficeAdmin && (
-                                <span className="ml-1 text-xs">(PENDING only)</span>
-                              )}
-                            </button>
-                          )}
-                        </div>
+                      <div className="space-y-2">
+                        <Accordion defaultExpanded sx={{ boxShadow: "none", border: "1px solid #e5e7eb", borderRadius: 1, "&:before": { display: "none" } }}>
+                          <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={{ bgcolor: "#f9fafb", minHeight: 48 }}>
+                            <Box sx={{ display: "flex", alignItems: "center", gap: 2, flexWrap: "wrap" }}>
+                              <Typography variant="subtitle2" fontWeight={600} color="text.primary">Payment Status</Typography>
+                              <Typography variant="body2" color="text.secondary">Total: ₹{paymentSummary?.total?.toLocaleString()} · Paid: ₹{paymentSummary?.paid?.toLocaleString()} · Balance: ₹{paymentSummary?.balance?.toLocaleString()}</Typography>
+                            </Box>
+                          </AccordionSummary>
+                          <AccordionDetails sx={{ py: 1 }}>
+                            <Box sx={{ display: "flex", gap: 3, flexWrap: "wrap" }}>
+                              <Box><Typography variant="caption" color="text.secondary">Total</Typography><Typography fontWeight={600}>₹{paymentSummary?.total?.toLocaleString()}</Typography></Box>
+                              <Box><Typography variant="caption" color="text.secondary">Paid</Typography><Typography fontWeight={600} color="success.main">₹{paymentSummary?.paid?.toLocaleString()}</Typography></Box>
+                              <Box><Typography variant="caption" color="text.secondary">Balance</Typography><Typography fontWeight={600} color={paymentSummary?.balance > 0 ? "warning.main" : "text.primary"}>₹{paymentSummary?.balance?.toLocaleString()}</Typography></Box>
+                            </Box>
+                          </AccordionDetails>
+                        </Accordion>
 
-                        {showPaymentForm && (
-                          <div className="bg-gray-50 rounded-lg p-4 border">
+                        <Accordion
+                          expanded={expandedAddPaymentAccordion}
+                          onChange={(_, expanded) => {
+                            setExpandedAddPaymentAccordion(expanded)
+                            if (expanded) {
+                              if (!showPaymentForm) initializePaymentForm()
+                              setShowPaymentForm(true)
+                            } else {
+                              setShowPaymentForm(false)
+                            }
+                          }}
+                          sx={{ boxShadow: "none", border: "1px solid #e5e7eb", borderRadius: 1, "&:before": { display: "none" } }}
+                        >
+                          <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={{ bgcolor: "#f0fdf4", minHeight: 48 }}>
+                            <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", pr: 1 }}>
+                              <Typography variant="subtitle2" fontWeight={600} color="success.dark">Add Payment</Typography>
+                              {canAddPayment && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); if (!expandedAddPaymentAccordion) { if (!showPaymentForm) initializePaymentForm(); setShowPaymentForm(true); setExpandedAddPaymentAccordion(true); } }}
+                                  className="bg-green-500 text-white px-3 py-1 rounded-lg hover:bg-green-600 text-sm"
+                                >
+                                  + Add Payment
+                                  {isOfficeAdmin && <span className="ml-1 text-xs">(PENDING only)</span>}
+                                </button>
+                              )}
+                            </Box>
+                          </AccordionSummary>
+                          <AccordionDetails sx={{ bgcolor: "#f9fafb", borderTop: "1px solid #e5e7eb" }}>
+                        <div className="bg-gray-50 rounded-lg p-4 border">
                             <h4 className="font-medium text-gray-900 mb-3 text-sm">
                               Add New Payment
                             </h4>
@@ -5790,7 +5839,7 @@ const mapSlotForUi = (slotData) => {
                               )}
                             <div className="flex items-center justify-end space-x-2 mt-4">
                               <button
-                                onClick={() => setShowPaymentForm(false)}
+                                onClick={() => { setShowPaymentForm(false); setExpandedAddPaymentAccordion(false); }}
                                 className="px-4 py-2 text-gray-600 border rounded-lg hover:bg-gray-50">
                                 Cancel
                               </button>
@@ -5837,55 +5886,69 @@ const mapSlotForUi = (slotData) => {
                               )}
                             </div>
                           </div>
-                        )}
+                          </AccordionDetails>
+                        </Accordion>
 
-                        {selectedOrder?.details?.payment &&
-                          selectedOrder?.details?.payment.length > 0 && (
-                            <div className="bg-white rounded-lg border">
-                              <div className="p-3 border-b">
-                                <h4 className="font-medium text-gray-900 text-sm">
-                                  Payment History
-                                </h4>
-                              </div>
+                        <Accordion defaultExpanded sx={{ boxShadow: "none", border: "1px solid #e5e7eb", borderRadius: 1, "&:before": { display: "none" } }}>
+                          <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={{ bgcolor: "#fafafa", minHeight: 48 }}>
+                            <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", pr: 1 }}>
+                              <Typography variant="subtitle2" fontWeight={600} color="text.primary">
+                                Payment History {(selectedOrder?.details?.payment || []).length > 0 && `(${(selectedOrder.details.payment || []).length})`}
+                              </Typography>
+                              {canAddPayment && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); if (!showPaymentForm) initializePaymentForm(); setShowPaymentForm(true); setExpandedAddPaymentAccordion(true); }}
+                                  className="text-green-600 hover:text-green-700 text-sm font-medium"
+                                >
+                                  + Add Payment
+                                </button>
+                              )}
+                            </Box>
+                          </AccordionSummary>
+                          <AccordionDetails sx={{ p: 0 }}>
+                            {selectedOrder?.details?.payment && selectedOrder.details.payment.length > 0 ? (
                               <div className="divide-y">
                                 {(selectedOrder.details.payment || []).map((payment, pIndex) => (
-                                  <div key={pIndex} className="p-3 hover:bg-gray-50">
-                                    <div className="flex items-center justify-between">
-                                      <div className="flex items-center space-x-3">
-                                        <div className="text-base font-semibold text-gray-900">
-                                          ₹{payment.paidAmount}
-                                        </div>
-                                        <div className="text-xs text-gray-500">
-                                          {payment.modeOfPayment}
-                                        </div>
-                                        <span
-                                          className={`px-2 py-1 text-xs rounded-full ${
-                                            payment.paymentStatus === "COLLECTED"
-                                              ? "bg-green-100 text-green-700"
-                                              : "bg-amber-100 text-amber-700"
-                                          }`}>
-                                          {payment.paymentStatus}
-                                        </span>
-                                        {payment.isWalletPayment && (
-                                          <span className="px-2 py-1 text-xs rounded-full bg-brand-100 text-brand-700">
-                                            Wallet
-                                          </span>
-                                        )}
-                                      </div>
-                  <div className="text-xs text-gray-500">
-                    {moment(payment.paymentDate).format("DD MMM YYYY")}
-                                      </div>
+                                  <div key={pIndex} className="p-3 hover:bg-gray-50 flex items-center justify-between flex-wrap gap-2">
+                                    <div className="flex items-center flex-wrap gap-2">
+                                      <span className="text-base font-semibold text-gray-900">₹{payment.paidAmount}</span>
+                                      <span className="text-xs text-gray-500">{payment.modeOfPayment}</span>
+                                      <span className={`px-2 py-0.5 text-xs rounded-full ${payment.paymentStatus === "COLLECTED" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
+                                        {payment.paymentStatus}
+                                      </span>
+                                      {payment.isWalletPayment && <span className="px-2 py-0.5 text-xs rounded-full bg-brand-100 text-brand-700">Wallet</span>}
+                                      <span className="text-xs text-gray-500">{moment(payment.paymentDate).format("DD MMM YYYY")}</span>
                                     </div>
-                                    {payment.remark && (
-                                      <div className="mt-1 text-xs text-gray-600">
-                                        Remark: {payment.remark}
-                                      </div>
+                                    {canAddPayment && (
+                                      <button
+                                        type="button"
+                                        onClick={() => { if (!showPaymentForm) initializePaymentForm(); setShowPaymentForm(true); setExpandedAddPaymentAccordion(true); }}
+                                        className="text-xs text-green-600 hover:text-green-700 font-medium"
+                                      >
+                                        + Add payment
+                                      </button>
                                     )}
+                                    {payment.remark && <div className="w-full text-xs text-gray-600 mt-1">Remark: {payment.remark}</div>}
                                   </div>
                                 ))}
                               </div>
-                            </div>
-                          )}
+                            ) : (
+                              <Box sx={{ p: 2, textAlign: "center" }}>
+                                <Typography variant="body2" color="text.secondary">No payments yet.</Typography>
+                                {canAddPayment && (
+                                  <button
+                                    type="button"
+                                    onClick={() => { if (!showPaymentForm) initializePaymentForm(); setShowPaymentForm(true); setExpandedAddPaymentAccordion(true); }}
+                                    className="mt-2 text-green-600 hover:text-green-700 text-sm font-medium"
+                                  >
+                                    + Add Payment
+                                  </button>
+                                )}
+                              </Box>
+                            )}
+                          </AccordionDetails>
+                        </Accordion>
                       </div>
                     )}
 

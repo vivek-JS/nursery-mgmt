@@ -68,70 +68,86 @@ const useStyles = makeStyles()((theme) => ({
       maxHeight: "90vh",
       maxWidth: "95vw",
       width: "100%"
+    },
+    "&.fullScreenDialog .MuiDialog-paper": {
+      maxWidth: "100%",
+      width: "100%",
+      height: "100%",
+      maxHeight: "100%",
+      borderRadius: 0
     }
   },
   dialogTitle: {
     background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
     color: "white",
-    padding: "16px 24px",
+    padding: "10px 16px",
     position: "relative",
     "& .MuiTypography-root": {
-      fontSize: "1.25rem",
+      fontSize: "1.1rem",
       fontWeight: 600
     }
   },
   closeButton: {
     position: "absolute",
-    right: 12,
-    top: 12,
+    right: 8,
+    top: 8,
     color: "white",
     "&:hover": {
       backgroundColor: "rgba(255,255,255,0.1)"
     }
   },
   formContainer: {
-    padding: "20px 24px",
+    padding: "12px 16px",
     maxWidth: 1000,
     margin: "0 auto",
-    background: "#fafafa"
+    background: "#fafafa",
+    "& .MuiFormHelperText-root": {
+      marginLeft: 0,
+      paddingLeft: "14px",
+      marginTop: 4
+    },
+    "& .MuiOutlinedInput-root:not(.MuiInputBase-sizeSmall) .MuiOutlinedInput-input": {
+      padding: "16px 14px",
+      boxSizing: "border-box"
+    }
   },
   formCard: {
-    marginBottom: 16,
-    borderRadius: 8,
-    boxShadow: "0 2px 12px rgba(0,0,0,0.06)",
+    marginBottom: 10,
+    borderRadius: 6,
+    boxShadow: "0 1px 8px rgba(0,0,0,0.06)",
     border: "1px solid #e8e8e8",
     transition: "all 0.2s ease",
     "&:hover": {
-      boxShadow: "0 4px 20px rgba(0,0,0,0.1)"
+      boxShadow: "0 2px 12px rgba(0,0,0,0.1)"
     }
   },
   cardHeader: {
     background: "linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%)",
-    padding: "12px 16px",
+    padding: "8px 12px",
     borderBottom: "1px solid #e0e0e0",
-    borderRadius: "8px 8px 0 0"
+    borderRadius: "6px 6px 0 0"
   },
   sectionTitle: {
     color: "#2c3e50",
     fontWeight: 600,
-    fontSize: "1rem",
+    fontSize: "0.9rem",
     display: "flex",
     alignItems: "center",
-    gap: 6
+    gap: 4
   },
   orderTypeContainer: {
-    marginBottom: 16
+    marginBottom: 10
   },
   quotaTypeContainer: {
-    marginTop: 12,
-    padding: 16,
+    marginTop: 8,
+    padding: 10,
     backgroundColor: "#f8f9fa",
     borderRadius: 6,
     border: "1px solid #e9ecef"
   },
   quotaInfo: {
-    marginTop: 8,
-    padding: 12,
+    marginTop: 6,
+    padding: 8,
     backgroundColor: "#e3f2fd",
     borderRadius: 6,
     border: "1px solid #2196f3",
@@ -140,9 +156,9 @@ const useStyles = makeStyles()((theme) => ({
     gap: 6
   },
   submitButton: {
-    marginTop: 16,
-    padding: "12px 32px",
-    fontSize: "1rem",
+    marginTop: 8,
+    padding: "8px 24px",
+    fontSize: "0.9rem",
     borderRadius: 6,
     background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
     "&:hover": {
@@ -150,8 +166,9 @@ const useStyles = makeStyles()((theme) => ({
     }
   },
   stepper: {
-    padding: "16px 0",
-    background: "transparent"
+    padding: "4px 0",
+    background: "transparent",
+    width: "100%"
   },
   stepIcon: {
     backgroundColor: "#e0e0e0",
@@ -163,13 +180,13 @@ const useStyles = makeStyles()((theme) => ({
     }
   },
   formSection: {
-    padding: "8px",
+    padding: "6px 8px",
     "& .MuiGrid-item": {
-      marginBottom: 6
+      marginBottom: 4
     }
   },
   infoChip: {
-    margin: "4px 0",
+    margin: "2px 0",
     backgroundColor: "#e3f2fd",
     color: "#1976d2",
     fontWeight: 500
@@ -187,26 +204,26 @@ const useStyles = makeStyles()((theme) => ({
   farmerInfo: {
     display: "flex",
     alignItems: "center",
-    gap: 10,
-    padding: 12,
+    gap: 8,
+    padding: 8,
     backgroundColor: "#f0f8ff",
     borderRadius: 6,
     border: "1px solid #2196f3",
-    marginBottom: 12
+    marginBottom: 8
   },
   avatar: {
     backgroundColor: "#2196f3",
-    width: 32,
-    height: 32
+    width: 28,
+    height: 28
   },
   slotInfo: {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    padding: 8,
+    padding: 6,
     backgroundColor: "#f5f5f5",
     borderRadius: 4,
-    marginTop: 8
+    marginTop: 6
   },
   loadingOverlay: {
     position: "absolute",
@@ -220,10 +237,28 @@ const useStyles = makeStyles()((theme) => ({
     justifyContent: "center",
     zIndex: 1000,
     borderRadius: 12
+  },
+  compactForm: {
+    "& .MuiCardContent-root": { padding: "8px 12px", "&:last-child": { paddingBottom: 8 } },
+    "& .MuiCard-root": { marginBottom: 8 },
+    "& .MuiFormControlLabel-root": { marginLeft: 0, marginRight: 0 },
+    "& .MuiAlert-root": { padding: "6px 12px", "& .MuiAlert-message": { fontSize: "0.8rem" } },
+    "& .MuiTypography-body2": { fontSize: "0.8rem" },
+    "& .MuiTypography-subtitle1": { fontSize: "0.85rem" },
+    "& .MuiTypography-subtitle2": { fontSize: "0.8rem" },
+    "& .MuiInputBase-input": { fontSize: "0.875rem" },
+    "& .MuiInputLabel-root": { fontSize: "0.875rem" },
+    "& .MuiFormLabel-root": { fontSize: "0.875rem" },
+    "& .MuiOutlinedInput-input": {
+      fontSize: "0.875rem",
+      padding: "10px 12px",
+      boxSizing: "border-box"
+    },
+    "& .MuiFormHelperText-root": { paddingLeft: "12px" }
   }
 }))
 
-const AddOrderForm = ({ open, onClose, onSuccess }) => {
+const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
   const { classes } = useStyles()
   
   // ============================================================================
@@ -2585,10 +2620,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
       // Ctrl/Cmd + S to submit
       if ((e.ctrlKey || e.metaKey) && e.key === 's') {
         e.preventDefault()
-        const completion = getFormCompletionPercentage()
-        if (!loading && completion >= 50) {
-          handleSubmit()
-        }
+        if (!loading) handleSubmit()
       }
       // Esc to close
       if (e.key === 'Escape' && !showConfirmation) {
@@ -2608,41 +2640,35 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
     <Dialog
       open={open}
       onClose={handleClose}
-      maxWidth="sm"
-      fullWidth
-      className={classes.dialog}
+      maxWidth={fullScreen ? false : "sm"}
+      fullWidth={!fullScreen}
+      fullScreen={fullScreen}
+      className={`${classes.dialog} ${fullScreen ? 'fullScreenDialog' : ''}`.trim()}
       PaperProps={{
-        style: { maxHeight: "75vh", minHeight: "50vh" }
-      }}>
-      <DialogTitle className={classes.dialogTitle} sx={{ pb: 1 }}>
+        style: fullScreen
+          ? { maxWidth: '100%', width: '100%', height: '100%', maxHeight: '100%', borderRadius: 0 }
+          : { maxHeight: '75vh', minHeight: '50vh' },
+        sx: fullScreen ? { m: 0, maxWidth: '100vw', maxHeight: '100vh' } : undefined,
+      }}
+    >
+      <DialogTitle className={classes.dialogTitle} sx={{ pb: 0.5, ...(fullScreen && { py: 1, px: 1.5 }) }}>
         <Box display="flex" alignItems="center" justifyContent="space-between">
-          <Box display="flex" alignItems="center" gap={1}>
-            <AddIcon fontSize="small" />
-            <Typography variant="h6">Add New Order</Typography>
-            {getFormCompletionPercentage() > 0 && (
-              <Chip
-                label={`${getFormCompletionPercentage()}%`}
-                size="small"
-                sx={{
-                  height: 20,
-                  fontSize: '0.65rem',
-                  bgcolor: 'rgba(255,255,255,0.2)',
-                  color: 'white',
-                  fontWeight: 600
-                }}
-              />
-            )}
+          <Box display="flex" alignItems="center" gap={0.5}>
+            <AddIcon fontSize="small" sx={fullScreen ? { fontSize: '1.2rem' } : undefined} />
+            <Typography variant="h6" sx={fullScreen ? { fontSize: '1rem' } : undefined}>Add New Order</Typography>
           </Box>
           <Box display="flex" alignItems="center" gap={0.5}>
-            <Tooltip title="Keyboard Shortcuts: Ctrl+S to submit, Esc to close">
-              <IconButton
-                className={classes.closeButton}
-                size="small"
-                sx={{ mr: 0.5 }}
-              >
-                <InfoIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
+            {!fullScreen && (
+              <Tooltip title="Keyboard Shortcuts: Ctrl+S to submit, Esc to close">
+                <IconButton
+                  className={classes.closeButton}
+                  size="small"
+                  sx={{ mr: 0.5 }}
+                >
+                  <InfoIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
             <IconButton className={classes.closeButton} onClick={handleClose} size="small">
               <CloseIcon fontSize="small" />
             </IconButton>
@@ -2650,96 +2676,61 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
         </Box>
       </DialogTitle>
 
-      <DialogContent sx={{ p: 1 }}>
-        <Box className={classes.formContainer}>
+      <DialogContent
+        sx={{
+          p: fullScreen ? 0 : 0.75,
+          overflowX: 'hidden',
+          ...(fullScreen && {
+            flex: 1,
+            overflowY: 'auto',
+            WebkitOverflowScrolling: 'touch',
+            display: 'flex',
+            flexDirection: 'column',
+          }),
+        }}
+      >
+        <Box
+          className={`${classes.formContainer} ${fullScreen ? classes.compactForm : ''}`.trim()}
+          sx={{
+            ...(fullScreen && {
+              padding: '8px 12px',
+              maxWidth: '100%',
+              width: '100%',
+              boxSizing: 'border-box',
+              flex: 1,
+              minWidth: 0,
+            }),
+          }}
+        >
           {loading && (
             <Box className={classes.loadingOverlay}>
               <CircularProgress size={60} />
             </Box>
           )}
 
-          {/* Form Progress Indicator */}
-          <Box sx={{ mb: 2, p: 1.5, bgcolor: '#f8f9fa', borderRadius: 2, border: '1px solid #e0e0e0' }}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-              <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.75rem', fontWeight: 600 }}>
-                Form Completion
-              </Typography>
-              <Chip
-                label={`${getFormCompletionPercentage()}%`}
-                size="small"
-                color={getFormCompletionStatus().color}
-                sx={{ height: 22, fontSize: '0.75rem', fontWeight: 600 }}
-              />
-            </Box>
-            <Box sx={{ position: 'relative', height: 8, bgcolor: '#e0e0e0', borderRadius: 4, overflow: 'hidden' }}>
-              <Box
-                sx={{
-                  position: 'absolute',
-                  left: 0,
-                  top: 0,
-                  height: '100%',
-                  width: `${getFormCompletionPercentage()}%`,
-                  bgcolor: getFormCompletionPercentage() === 100 ? '#4caf50' : getFormCompletionPercentage() >= 75 ? '#ff9800' : '#2196f3',
-                  transition: 'width 0.3s ease',
-                  borderRadius: 4,
-                  boxShadow: getFormCompletionPercentage() === 100 ? '0 0 8px rgba(76, 175, 80, 0.4)' : 'none'
-                }}
-              />
-            </Box>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1 }}>
-              <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
-                {getFormCompletionStatus().text}
-              </Typography>
-              {getFormCompletionPercentage() < 100 && (
-                <Typography variant="caption" color="error" sx={{ fontSize: '0.65rem' }}>
-                  {100 - getFormCompletionPercentage()}% remaining
-                </Typography>
-              )}
-            </Box>
-            {/* Missing Fields Summary */}
-            {getMissingFields().length > 0 && getFormCompletionPercentage() < 100 && (
-              <Box sx={{ mt: 1.5, pt: 1.5, borderTop: '1px solid #e0e0e0' }}>
-                <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem', fontWeight: 600, display: 'block', mb: 0.5 }}>
-                  Missing Required Fields:
-                </Typography>
-                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                  {getMissingFields().slice(0, 5).map((field, idx) => (
-                    <Chip
-                      key={idx}
-                      label={field}
-                      size="small"
-                      variant="outlined"
-                      color="error"
-                      sx={{ height: 20, fontSize: '0.65rem' }}
-                    />
-                  ))}
-                  {getMissingFields().length > 5 && (
-                    <Chip
-                      label={`+${getMissingFields().length - 5} more`}
-                      size="small"
-                      variant="outlined"
-                      color="error"
-                      sx={{ height: 20, fontSize: '0.65rem' }}
-                    />
-                  )}
-                </Box>
-              </Box>
-            )}
-          </Box>
-
-          {/* Stepper */}
-          <Paper elevation={0} sx={{ mb: 0.5, p: 0.25, background: "transparent" }}>
+          {/* Stepper - compact, full width */}
+          <Paper
+            elevation={0}
+            sx={{
+              mb: fullScreen ? 0.25 : 0.5,
+              px: 0,
+              py: 0,
+              background: 'transparent',
+              width: '100%',
+              ...(fullScreen && { overflowX: 'auto', overflowY: 'hidden', minWidth: 0, WebkitOverflowScrolling: 'touch' }),
+            }}
+          >
             <Stepper activeStep={activeStep} className={classes.stepper} size="small">
               {steps.map((label) => (
                 <Step key={label}>
-                  <StepLabel sx={{ fontSize: "0.7rem" }}>{label}</StepLabel>
+                  <StepLabel sx={{ fontSize: fullScreen ? '0.6rem' : '0.7rem' }}>{label}</StepLabel>
                 </Step>
               ))}
             </Stepper>
           </Paper>
 
-          {/* Quick Actions Bar */}
-          {user?.jobTitle === "SUPERADMIN" || user?.jobTitle === "OFFICE_ADMIN" ? (
+          {/* Quick Actions Bar - hidden on mobile fullScreen */}
+          {!fullScreen && (user?.jobTitle === "SUPERADMIN" || user?.jobTitle === "OFFICE_ADMIN") ? (
             <Box sx={{ mb: 2, p: 1, bgcolor: '#f5f5f5', borderRadius: 1, display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
               <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
                 Quick Actions:
@@ -2829,7 +2820,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                   </Box>
                 )}
 
-                <Grid container spacing={2}>
+                <Grid container spacing={fullScreen ? 1 : 2}>
                   <Grid item xs={12} md={6}>
                     <LocalizationProvider dateAdapter={AdapterDateFns}>
                       <DatePicker
@@ -2970,7 +2961,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                           sx={{ mb: 2, fontWeight: 600, color: "#2c3e50" }}>
                           Location (Auto-filled from farmer data)
                         </Typography>
-                        <Grid container spacing={2}>
+                        <Grid container spacing={fullScreen ? 1 : 2}>
                           <Grid item xs={12} md={3}>
                             <TextField
                               fullWidth
@@ -3062,7 +3053,8 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
             </Card>
           )}
 
-          {/* Sales Person Selection */}
+          {/* Sales Person Selection - hidden for DEALER and SALES */}
+          {user?.jobTitle !== "DEALER" && user?.jobTitle !== "SALES" && (
           <Card className={classes.formCard}>
             <div className={classes.cardHeader}>
               <Typography variant="h6" className={classes.sectionTitle}>
@@ -3070,7 +3062,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
               </Typography>
             </div>
             <CardContent className={classes.formSection}>
-              <Grid container spacing={2}>
+              <Grid container spacing={fullScreen ? 1 : 2}>
                 <Grid item xs={12} md={6}>
                   <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 1 }}>
                     <Box sx={{ flex: 1 }}>
@@ -3465,6 +3457,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
               </Alert>
             </CardContent>
           </Card>
+          )}
 
           {/* Plant Details */}
           <Card className={classes.formCard}>
@@ -3511,10 +3504,15 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                 {/* Ready Plants Product Selection - Show as compact cards */}
                 {formData?.plant && (
                   <Grid item xs={12}>
-                    <Box sx={{ mb: 2 }}>
-                      <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600, color: "#2c3e50" }}>
+                    <Box sx={{ mb: 1 }}>
+                      <Typography variant="subtitle2" sx={{ mb: 0.5, fontWeight: 600, color: "#2c3e50", fontSize: "0.8rem" }}>
                         Ready Plants Products (From Other Nursery)
                       </Typography>
+                      {plants.find((p) => p.value === formData?.plant)?.sowingAllowed && (
+                        <Typography variant="caption" sx={{ display: "block", mb: 0.5, color: "#2e7d32", fontWeight: 500 }}>
+                          Unlimited booking available for this plant.
+                        </Typography>
+                      )}
                       {mappingsLoading ? (
                         <Box sx={{ display: "flex", alignItems: "center", gap: 1, p: 2 }}>
                           <CircularProgress size={16} />
@@ -3524,7 +3522,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                         </Box>
                       ) : plantProductMappings.length > 0 ? (
                         <>
-                        <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.5 }}>
+                        <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
                         {/* Compact product cards */}
                         {plantProductMappings.map((mapping) => {
                           const availableQty = mapping.mappingAvailableQuantity !== undefined 
@@ -3565,8 +3563,8 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                                 handleInputChange("orderDate", null)
                               }}
                               sx={{
-                                p: 1.5,
-                                borderRadius: 1.5,
+                                p: 1,
+                                borderRadius: 1,
                                 border: isSelected 
                                   ? "2px solid #2196f3" 
                                   : availableQty > 0 
@@ -3589,8 +3587,8 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                                   transform: "translateY(-1px)",
                                   boxShadow: 2
                                 },
-                                minWidth: 160,
-                                maxWidth: 200,
+                                minWidth: 130,
+                                maxWidth: 165,
                                 flex: "0 1 auto"
                               }}
                             >
@@ -3600,8 +3598,8 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                                 fontWeight={600} 
                                 color="#2c3e50"
                                 sx={{ 
-                                  mb: 0.5,
-                                  fontSize: "0.875rem",
+                                  mb: 0.25,
+                                  fontSize: "0.8rem",
                                   lineHeight: 1.2,
                                   overflow: "hidden",
                                   textOverflow: "ellipsis",
@@ -3615,95 +3613,32 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                               
                               {/* Subtype */}
                               {subtypeName && (
-                                <Typography 
-                                  variant="caption" 
-                                  display="block" 
-                                  color="text.secondary"
-                                  sx={{ 
-                                    mb: 0.5,
-                                    fontSize: "0.7rem"
-                                  }}
-                                >
+                                <Typography variant="caption" display="block" color="text.secondary" sx={{ mb: 0.25, fontSize: "0.65rem" }}>
                                   {subtypeName}
                                 </Typography>
                               )}
                               
                               {/* Date Range */}
-                              <Typography 
-                                variant="caption" 
-                                display="block" 
-                                color="text.secondary"
-                                sx={{ 
-                                  mb: 0.75,
-                                  fontSize: "0.7rem"
-                                }}
-                              >
+                              <Typography variant="caption" display="block" color="text.secondary" sx={{ mb: 0.5, fontSize: "0.65rem" }}>
                                 {mapping.dateRange.startDate} to {mapping.dateRange.endDate}
                               </Typography>
                               
                               {/* Available Quantity */}
-                              <Box sx={{ 
-                                display: "flex", 
-                                alignItems: "center", 
-                                justifyContent: "space-between",
-                                pt: 0.75,
-                                borderTop: "1px solid #e0e0e0"
-                              }}>
-                                <Typography 
-                                  variant="caption" 
-                                  color="text.secondary"
-                                  sx={{ 
-                                    fontSize: "0.7rem",
-                                    fontWeight: 500
-                                  }}
-                                >
-                                  Available:
-                                </Typography>
+                              <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", pt: 0.5, borderTop: "1px solid #e0e0e0" }}>
+                                <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.65rem", fontWeight: 500 }}>Available:</Typography>
                                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                                   {availableQty > 0 && (
-                                    <Box
-                                      sx={{
-                                        width: 6,
-                                        height: 6,
-                                        borderRadius: '50%',
-                                        bgcolor: '#4caf50',
-                                        animation: availableQty > 0 ? 'pulse 2s infinite' : 'none',
-                                        '@keyframes pulse': {
-                                          '0%, 100%': { opacity: 1 },
-                                          '50%': { opacity: 0.5 }
-                                        }
-                                      }}
-                                    />
+                                    <Box sx={{ width: 5, height: 5, borderRadius: '50%', bgcolor: '#4caf50', animation: availableQty > 0 ? 'pulse 2s infinite' : 'none', '@keyframes pulse': { '0%, 100%': { opacity: 1 }, '50%': { opacity: 0.5 } } }} />
                                   )}
-                                  <Typography 
-                                    variant="body2" 
-                                    sx={{ 
-                                      fontWeight: 700,
-                                      color: availableQty > 0 ? "#2e7d32" : "#757575",
-                                      fontSize: "0.9rem"
-                                    }}
-                                  >
+                                  <Typography variant="body2" sx={{ fontWeight: 700, color: availableQty > 0 ? "#2e7d32" : "#757575", fontSize: "0.8rem" }}>
                                     {availableQty}
                                   </Typography>
                                 </Box>
                               </Box>
                               
-                              {/* Selected indicator */}
                               {isSelected && (
-                                <Box sx={{ 
-                                  position: "absolute", 
-                                  top: 4, 
-                                  right: 4 
-                                }}>
-                                  <CheckIcon 
-                                    color="primary" 
-                                    sx={{ 
-                                      fontSize: "18px",
-                                      backgroundColor: "white",
-                                      borderRadius: "50%",
-                                      p: 0.25
-                                    }} 
-                                  />
+                                <Box sx={{ position: "absolute", top: 2, right: 2 }}>
+                                  <CheckIcon color="primary" sx={{ fontSize: "14px", backgroundColor: "white", borderRadius: "50%", p: 0.2 }} />
                                 </Box>
                               )}
                             </Box>
@@ -3718,24 +3653,21 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                           const plantIdForSubtype = mapping.plantId?._id || mapping.plantId || formData?.plant
                           const subtypeName = getSubtypeName(mapping.subtypeId, plantIdForSubtype)
                           return (
-                            <Box sx={{ mt: 1.5, p: 1.5, bgcolor: "#e3f2fd", borderRadius: 1, border: "2px solid #2196f3" }}>
-                              <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.5 }}>
-                                <CheckIcon color="primary" sx={{ fontSize: "16px" }} />
-                                <Typography variant="body2" fontWeight={600} color="#1976d2" sx={{ fontSize: "0.875rem" }}>
+                            <Box sx={{ mt: 1, p: 1, bgcolor: "#e3f2fd", borderRadius: 1, border: "2px solid #2196f3" }}>
+                              <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, flexWrap: "wrap" }}>
+                                <CheckIcon color="primary" sx={{ fontSize: "14px" }} />
+                                <Typography variant="body2" fontWeight={600} color="#1976d2" sx={{ fontSize: "0.8rem" }}>
                                   Selected: {mapping.displayTitle || mapping.productName}
                                 </Typography>
-                              </Box>
-                              {subtypeName && (
-                                <Typography variant="caption" display="block" color="text.secondary" sx={{ mb: 0.5, fontSize: "0.7rem" }}>
-                                  <strong>Subtype:</strong> {subtypeName}
+                                {subtypeName && (
+                                  <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.65rem" }}>
+                                    • {subtypeName}
+                                  </Typography>
+                                )}
+                                <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.65rem" }}>
+                                  • {mapping.dateRange.startDate}–{mapping.dateRange.endDate} • Avail: {mapping.mappingAvailableQuantity !== undefined ? mapping.mappingAvailableQuantity : getAvailableQuantityForProduct(mapping)}
                                 </Typography>
-                              )}
-                              <Typography variant="caption" display="block" color="text.secondary" sx={{ mb: 0.5, fontSize: "0.7rem" }}>
-                                <strong>Date:</strong> {mapping.dateRange.startDate} to {mapping.dateRange.endDate}
-                              </Typography>
-                              <Typography variant="caption" display="block" color="text.secondary" sx={{ mb: 0.5, fontSize: "0.7rem" }}>
-                                <strong>Available:</strong> {mapping.mappingAvailableQuantity !== undefined ? mapping.mappingAvailableQuantity : getAvailableQuantityForProduct(mapping)} plants
-                              </Typography>
+                              </Box>
                             </Box>
                           )
                         }
@@ -4449,54 +4381,28 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
               </Typography>
             </div>
             <CardContent className={classes.formSection}>
-              {/* Payment Summary */}
-              <Box
-                sx={{
-                  mb: 3,
-                  p: 2,
-                  bgcolor: "#f8f9fa",
-                  borderRadius: 1,
-                  border: "1px solid #e9ecef"
-                }}>
-                <Grid container spacing={2} alignItems="center">
-                  <Grid item xs={12} md={3}>
-                    <Typography variant="body2" color="text.secondary">
-                      Total Order Amount:
-                    </Typography>
-                    <Typography variant="h6" fontWeight={600} color="#2c3e50">
-                      ₹{getTotalOrderAmount().toLocaleString()}
-                    </Typography>
-                  </Grid>
-                  <Grid item xs={12} md={3}>
-                    <Typography variant="body2" color="text.secondary">
-                      Total Paid:
-                    </Typography>
-                    <Typography variant="h6" fontWeight={600} color="#4caf50">
-                      ₹{getTotalPaidAmount().toLocaleString()}
-                    </Typography>
-                  </Grid>
-                  <Grid item xs={12} md={3}>
-                    <Typography variant="body2" color="text.secondary">
-                      Balance:
-                    </Typography>
-                    <Typography
-                      variant="h6"
-                      fontWeight={600}
-                      color={getBalanceAmount() >= 0 ? "#2c3e50" : "#f44336"}>
-                      ₹{getBalanceAmount().toLocaleString()}
-                    </Typography>
-                  </Grid>
+              {/* Payment Summary - one line: Total | Paid | Balance (and Wallet when dealer) */}
+              <Box sx={{ mb: 2, p: 1.5, bgcolor: "#f8f9fa", borderRadius: 1, border: "1px solid #e9ecef" }}>
+                <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 2, rowGap: 0.5 }}>
+                  <Box sx={{ display: "flex", alignItems: "baseline", gap: 0.5 }}>
+                    <Typography variant="body2" color="text.secondary">Total:</Typography>
+                    <Typography variant="body1" fontWeight={600} color="#2c3e50">₹{getTotalOrderAmount().toLocaleString()}</Typography>
+                  </Box>
+                  <Box sx={{ display: "flex", alignItems: "baseline", gap: 0.5 }}>
+                    <Typography variant="body2" color="text.secondary">Paid:</Typography>
+                    <Typography variant="body1" fontWeight={600} color="#4caf50">₹{getTotalPaidAmount().toLocaleString()}</Typography>
+                  </Box>
+                  <Box sx={{ display: "flex", alignItems: "baseline", gap: 0.5 }}>
+                    <Typography variant="body2" color="text.secondary">Balance:</Typography>
+                    <Typography variant="body1" fontWeight={600} color={getBalanceAmount() >= 0 ? "#2c3e50" : "#f44336"}>₹{getBalanceAmount().toLocaleString()}</Typography>
+                  </Box>
                   {formData?.dealer && dealerWallet && (
-                    <Grid item xs={12} md={3}>
-                      <Typography variant="body2" color="text.secondary">
-                        Wallet Balance:
-                      </Typography>
-                      <Typography variant="h6" fontWeight={600} color="#ff9800">
-                        ₹{dealerWallet.availableAmount?.toLocaleString() || 0}
-                      </Typography>
-                    </Grid>
+                    <Box sx={{ display: "flex", alignItems: "baseline", gap: 0.5 }}>
+                      <Typography variant="body2" color="text.secondary">Wallet:</Typography>
+                      <Typography variant="body1" fontWeight={600} color="#ff9800">₹{dealerWallet.availableAmount?.toLocaleString() || 0}</Typography>
+                    </Box>
                   )}
-                </Grid>
+                </Box>
               </Box>
 
               {/* Payment Entry */}
@@ -4557,7 +4463,7 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                   </Box>
                 )}
 
-                <Grid container spacing={2}>
+                <Grid container spacing={fullScreen ? 1 : 2}>
                   <Grid item xs={12} md={6}>
                     <TextField
                       fullWidth
@@ -4566,7 +4472,6 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                       value={newPayment.paidAmount}
                       onChange={(e) => handlePaymentInputChange("paidAmount", e.target.value)}
                       placeholder="Enter amount"
-                      size="small"
                     />
                   </Grid>
                   <Grid item xs={12} md={6}>
@@ -4624,7 +4529,6 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                         (newPayment.modeOfPayment !== "Cheque" &&
                           newPayment.modeOfPayment !== "NEFT/RTGS")
                       }
-                      size="small"
                     />
                   </Grid>
                   <Grid item xs={12}>
@@ -4726,84 +4630,53 @@ const AddOrderForm = ({ open, onClose, onSuccess }) => {
                 </Grid>
               </Box>
 
-              {/* Payment Status Summary */}
-              <Box
-                sx={{
-                  mt: 2,
-                  p: 2,
-                  bgcolor: "#e3f2fd",
-                  borderRadius: 1,
-                  border: "1px solid #2196f3"
-                }}>
-                <Typography variant="body2" fontWeight={600} color="#1976d2" sx={{ mb: 1 }}>
-                  Payment Status Summary
-                </Typography>
-                <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
-                  <Chip
-                    label={`Total: ₹${getTotalOrderAmount().toLocaleString()}`}
-                    color="primary"
-                    variant="outlined"
-                    size="small"
-                  />
-                  <Chip
-                    label={`Paid: ₹${getTotalPaidAmount().toLocaleString()}`}
-                    color="success"
-                    variant="outlined"
-                    size="small"
-                  />
-                  <Chip
-                    label={`Balance: ₹${getBalanceAmount().toLocaleString()}`}
-                    color={getBalanceAmount() >= 0 ? "default" : "error"}
-                    variant="outlined"
-                    size="small"
-                  />
-                  {getBalanceAmount() < 0 && <Chip label="Overpaid" color="warning" size="small" />}
-                  {getBalanceAmount() === 0 && (
-                    <Chip label="Fully Paid" color="success" size="small" />
-                  )}
-                </Box>
-              </Box>
             </CardContent>
           </Card>
         </Box>
       </DialogContent>
 
-      <DialogActions sx={{ p: 1, background: "#fafafa", borderTop: "1px solid #e0e0e0", justifyContent: "space-between" }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+      <DialogActions
+        sx={{
+          p: fullScreen ? 1 : 0.75,
+          background: '#fafafa',
+          borderTop: '1px solid #e0e0e0',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: 0.5,
+        }}
+      >
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
           {formData?.noOfPlants && formData?.rate && (
             <Chip
-              label={`Total: ₹${(parseInt(formData.noOfPlants) || 0) * (parseFloat(formData.rate) || 0)}`}
+              label={`Total: ₹${((parseInt(formData.noOfPlants) || 0) * (parseFloat(formData.rate) || 0)).toLocaleString()}`}
               color="primary"
               variant="outlined"
               size="small"
               sx={{ fontWeight: 600 }}
             />
           )}
-          <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
-            {getFormCompletionPercentage()}% complete
-          </Typography>
         </Box>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button 
-            onClick={handleClose} 
-            color="secondary" 
-            variant="outlined" 
+        <Box sx={{ display: 'flex', gap: 1, flexShrink: 0 }}>
+          <Button
+            onClick={handleClose}
+            color="secondary"
+            variant="outlined"
             size="small"
             disabled={loading}
           >
-            Cancel (Esc)
+            {fullScreen ? 'Cancel' : 'Cancel (Esc)'}
           </Button>
           <Button
             onClick={handleSubmit}
             variant="contained"
             color="primary"
-            disabled={loading || getFormCompletionPercentage() < 50}
+            disabled={loading}
             className={classes.submitButton}
             size="small"
             startIcon={loading ? <CircularProgress size={14} /> : <AddIcon fontSize="small" />}
-            title={getFormCompletionPercentage() < 50 ? "Please fill at least 50% of the form" : "Press Ctrl+S to submit"}
+            title="Press Ctrl+S to submit"
           >
-            {loading ? "Adding Order..." : `Add Order (Ctrl+S)`}
+            {loading ? 'Adding Order...' : 'Add Order'}
           </Button>
         </Box>
       </DialogActions>

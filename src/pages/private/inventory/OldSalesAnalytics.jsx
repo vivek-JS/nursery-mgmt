@@ -59,8 +59,10 @@ import {
 import { GoogleMap, LoadScript, HeatmapLayer, Circle, InfoWindow } from "@react-google-maps/api";
 import html2canvas from "html2canvas";
 import axios from "axios";
+import { useNavigate } from "react-router-dom";
 import { API, APIConfig, NetworkManager } from "../../../network/core";
 import { CookieKeys } from "../../../constants/cookieKeys";
+import MessageSquareIcon from "@mui/icons-material/Message";
 
 const COLORS = ["#6366F1", "#22C55E", "#F97316", "#06B6D4", "#A855F7", "#EF4444"];
 
@@ -664,6 +666,16 @@ const OldSalesAnalytics = () => {
     limit: 12,
   });
   const [geoMetric, setGeoMetric] = useState("totalInvoiceAmount");
+  const [broadcastModalOpen, setBroadcastModalOpen] = useState(false);
+  const [broadcastCustomers, setBroadcastCustomers] = useState([]);
+  const [loadingBroadcast, setLoadingBroadcast] = useState(false);
+  const [broadcastListName, setBroadcastListName] = useState("");
+  const [savingBroadcast, setSavingBroadcast] = useState(false);
+  const [broadcastError, setBroadcastError] = useState(null);
+  const [broadcastPage, setBroadcastPage] = useState(1);
+  const [broadcastLimit, setBroadcastLimit] = useState(200);
+  const [broadcastTotal, setBroadcastTotal] = useState(0);
+  const navigate = useNavigate();
 
   const analyticsParams = useMemo(() => buildParams(appliedFilters), [appliedFilters]);
 
@@ -1008,6 +1020,96 @@ const OldSalesAnalytics = () => {
     }
   };
 
+  const openBroadcastModal = async () => {
+    // Fetch first page of unique customers with opt_in included
+    setLoadingBroadcast(true);
+    setBroadcastError(null);
+    setBroadcastCustomers([]);
+    setBroadcastListName("");
+    setBroadcastPage(1);
+    setBroadcastTotal(0);
+    try {
+      const instance = NetworkManager(API.OLD_SALES.GET_UNIQUE_CUSTOMERS);
+      const response = await instance.request(
+        {},
+        { ...analyticsParams, page: 1, limit: broadcastLimit }
+      );
+      const data = response?.data?.data || {};
+      const customers = data.customers || [];
+      const pagination = data.pagination || {};
+      setBroadcastCustomers(customers);
+      setBroadcastTotal(pagination.total || customers.length);
+      setBroadcastModalOpen(true);
+      if (!customers.length) {
+        setBroadcastError("No farmers/customers found for the current filters.");
+      }
+    } catch (err) {
+      console.error("Failed to fetch customers for broadcast:", err);
+      setBroadcastError("Failed to load farmers for broadcast.");
+    } finally {
+      setLoadingBroadcast(false);
+    }
+  };
+
+  const loadMoreBroadcastCustomers = async () => {
+    if (loadingBroadcast) return;
+    const nextPage = broadcastPage + 1;
+    setLoadingBroadcast(true);
+    try {
+      const instance = NetworkManager(API.OLD_SALES.GET_UNIQUE_CUSTOMERS);
+      const response = await instance.request(
+        {},
+        { ...analyticsParams, page: nextPage, limit: broadcastLimit }
+      );
+      const data = response?.data?.data || {};
+      const customers = data.customers || [];
+      const pagination = data.pagination || {};
+      setBroadcastCustomers(prev => [...prev, ...customers]);
+      setBroadcastPage(nextPage);
+      setBroadcastTotal(pagination.total || (prev => prev.length + customers.length));
+    } catch (err) {
+      console.error("Failed to load more broadcast customers:", err);
+    } finally {
+      setLoadingBroadcast(false);
+    }
+  }
+
+  const handleSaveBroadcastList = async () => {
+    if (!broadcastListName.trim()) {
+      setBroadcastError("Enter a list name.");
+      return;
+    }
+    if (broadcastCustomers.length === 0) {
+      setBroadcastError("No contacts to save.");
+      return;
+    }
+    setSavingBroadcast(true);
+    setBroadcastError(null);
+    try {
+      const contacts = broadcastCustomers.map((c) => ({
+        phone: (c.mobileNumber || c.mobileNo || "")
+          .toString()
+          .replace(/\D/g, "")
+          .replace(/^(\d{10})$/, "91$1"),
+        name: (c.name || c.customerName || "").trim(),
+      })).filter((c) => c.phone.length >= 10);
+      const instance = NetworkManager(API.WHATSAPP_CONTACT_LIST.CREATE);
+      await instance.request({
+        name: broadcastListName.trim(),
+        description: `From Old Sales Analytics (filtered)`,
+        contacts,
+        source: "manual",
+      });
+      setBroadcastModalOpen(false);
+      navigate("/u/whatsapp");
+    } catch (err) {
+      console.error("Failed to create broadcast list:", err);
+      setBroadcastError(err?.response?.data?.message || "Failed to create list.");
+    } finally {
+      setSavingBroadcast(false);
+    }
+  };
+
   const summary = analytics?.summary || {};
   const collectionRate = summary.totalInvoiceAmount
     ? Math.round(((summary.totalPaymentAmount || 0) / summary.totalInvoiceAmount) * 100)
@@ -1058,7 +1160,16 @@ const OldSalesAnalytics = () => {
               </Typography>
             )}
           </Box>
-          <Stack direction="row" spacing={1.5}>
+          <Stack direction="row" spacing={1.5} flexWrap="wrap">
+            <Button
+              variant="contained"
+              startIcon={loadingBroadcast ? <CircularProgress size={18} sx={{ color: "#0f172a" }} /> : <MessageSquareIcon />}
+              onClick={openBroadcastModal}
+              disabled={loadingBroadcast}
+              sx={{ backgroundColor: "#10b981", color: "#fff", fontWeight: 600, "&:hover": { backgroundColor: "#059669" } }}
+            >
+              Create Broadcast from Filtered
+            </Button>
             <Button
               variant="contained"
               startIcon={<DownloadIcon />}
@@ -2113,9 +2224,14 @@ const OldSalesAnalytics = () => {
       >
         <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2 }}>
           <ReceiptLongIcon sx={{ color: "#6366f1" }} />
-          <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-            Recent Records
-          </Typography>
+          <Box>
+            <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+              Farmers / Recent Records (Old Sales)
+            </Typography>
+            <Typography variant="caption" sx={{ color: "text.secondary" }}>
+              Apply filters above, then use &quot;Create Broadcast from Filtered&quot; to send WhatsApp to these farmers.
+            </Typography>
+          </Box>
         </Stack>
         <Divider sx={{ mb: 2 }} />
         {loadingRecords ? (
@@ -2183,6 +2299,51 @@ const OldSalesAnalytics = () => {
           </>
         )}
       </Paper>
+
+      <Dialog open={broadcastModalOpen} onClose={() => setBroadcastModalOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Create Broadcast List from Filtered Farmers</DialogTitle>
+        <DialogContent>
+          {broadcastError && (
+            <Alert severity="error" sx={{ mb: 2 }} onClose={() => setBroadcastError(null)}>
+              {broadcastError}
+            </Alert>
+          )}
+          <Typography variant="body2" sx={{ mb: 2 }}>
+            {broadcastCustomers.length} unique farmer(s) / customer(s) match your current filters. Total: {broadcastTotal}. Save as a contact list
+            and open WhatsApp Management to send messages.
+          </Typography>
+          <TextField
+            fullWidth
+            label="List name"
+            value={broadcastListName}
+            onChange={(e) => setBroadcastListName(e.target.value)}
+            placeholder="e.g. Old Sales Nov 2025"
+            sx={{ mt: 1 }}
+          />
+          {broadcastCustomers.length < broadcastTotal && (
+            <Box sx={{ mt: 2, display: 'flex', gap: 1, alignItems: 'center' }}>
+              <Button size="small" variant="outlined" onClick={loadMoreBroadcastCustomers} disabled={loadingBroadcast}>
+                {loadingBroadcast ? "Loading..." : `Load more (${broadcastCustomers.length}/${broadcastTotal})`}
+              </Button>
+              <Typography variant="caption" color="text.secondary">
+                Page {broadcastPage} · Showing {broadcastCustomers.length}
+              </Typography>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setBroadcastModalOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={handleSaveBroadcastList}
+            disabled={savingBroadcast || broadcastCustomers.length === 0 || !broadcastListName.trim()}
+            startIcon={savingBroadcast ? <CircularProgress size={18} /> : <MessageSquareIcon />}
+            sx={{ backgroundColor: "#10b981", "&:hover": { backgroundColor: "#059669" } }}
+          >
+            {savingBroadcast ? "Saving..." : "Save & Open WhatsApp"}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={fixDialogOpen} onClose={closeFixDialog} fullWidth maxWidth="sm">
         <DialogTitle>Normalize {qualityTab} value</DialogTitle>

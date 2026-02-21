@@ -22,9 +22,10 @@ const Router = () => {
               // For public farmer form routes, ALWAYS allow access - no conditions, no auth check
               // This ensures it works in production, incognito, mobile, first visit, etc.
               const isPublicFarmerRoute = route.path?.startsWith("/public/add-farmer")
+              const isCallListRoute = route.path?.startsWith("/call-list")
               
-              // Public farmer routes: UNCONDITIONAL access - always render, never redirect
-              if (isPublicFarmerRoute) {
+              // Public farmer routes & call list: UNCONDITIONAL access - always render, never redirect
+              if (isPublicFarmerRoute || isCallListRoute) {
                 return (
                   <Route
                     key={`public-route-${route.path}`}

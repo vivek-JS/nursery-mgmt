@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react"
+import React, { useState, useEffect, useRef } from "react"
 import {
   Dialog,
   DialogTitle,
@@ -31,7 +31,9 @@ import {
   Tabs,
   Tab,
   IconButton,
-  Paper
+  Paper,
+  Pagination,
+  Collapse
 } from "@mui/material"
 import {
   X,
@@ -45,7 +47,9 @@ import {
   Save,
   Trash2,
   Plus,
-  UserMinus
+  UserMinus,
+  ChevronDown,
+  ChevronUp
 } from "lucide-react"
 import { API, NetworkManager } from "network/core"
 
@@ -76,6 +80,22 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
     taluka: "",
     village: ""
   })
+  // Extended filters for Old Sales tab (plant, variety, media, batch, etc.)
+  const [oldSalesFilters, setOldSalesFilters] = useState({
+    plant: "",
+    variety: "",
+    media: "",
+    batch: "",
+    paymentMode: "",
+    reference: "",
+    marketingReference: "",
+    billGivenOrNot: "",
+    verifiedOrNot: "",
+    shadeNo: "",
+    vehicleNo: "",
+    driverName: ""
+  })
+  const [moreFiltersExpanded, setMoreFiltersExpanded] = useState(false)
   
   // List name
   const [listName, setListName] = useState("")
@@ -85,14 +105,109 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
   const [publicLinks, setPublicLinks] = useState([])
   const [selectedPublicLinkId, setSelectedPublicLinkId] = useState("")
   const [loadingPublicLinks, setLoadingPublicLinks] = useState(false)
+  // Manual number entry (3 fields)
+  const [manualNumbers, setManualNumbers] = useState(["", "", ""])
+  // Pagination state for farmers / old sales / public leads
+  const [oldFarmersPage, setOldFarmersPage] = useState(1)
+  const [oldFarmersHasMore, setOldFarmersHasMore] = useState(true)
+  const [oldFarmersPagination, setOldFarmersPagination] = useState({ total: 0, totalPages: 1 })
+  const [oldSalesPage, setOldSalesPage] = useState(1)
+  const [oldSalesHasMore, setOldSalesHasMore] = useState(true)
+  const [oldSalesPagination, setOldSalesPagination] = useState({ total: 0, totalPages: 1 })
+  const [publicLeadsPage, setPublicLeadsPage] = useState(1)
+  const [publicLeadsHasMore, setPublicLeadsHasMore] = useState(true)
+  const [publicLeadsPagination, setPublicLeadsPagination] = useState({ total: 0, totalPages: 1 })
+  const [filterOptions, setFilterOptions] = useState({
+    districts: [],
+    talukas: [],
+    villages: [],
+    plant: [],
+    variety: [],
+    media: [],
+    batch: [],
+    paymentMode: [],
+    reference: [],
+    marketingReference: [],
+    billGivenOrNot: [],
+    verifiedOrNot: [],
+    shadeNo: [],
+    vehicleNo: [],
+    driverName: []
+  })
+  const [loadingFilterOptions, setLoadingFilterOptions] = useState(false)
+  const searchDebounceRef = useRef(null)
+
+  const PAGE_LIMIT = 50
+
+  const fetchFilterOptions = async (tab, district = "", taluka = "") => {
+    setLoadingFilterOptions(true)
+    try {
+      if (tab === 0) {
+        const instance = NetworkManager(API.FARMER.GET_FILTER_OPTIONS)
+        const params = {}
+        if (district) params.district = district
+        if (taluka) params.taluka = taluka
+        const res = await instance.request({}, params)
+        const d = res?.data?.data || {}
+        setFilterOptions(prev => ({
+          ...prev,
+          districts: Array.isArray(d.districts) ? d.districts : [],
+          talukas: Array.isArray(d.talukas) ? d.talukas : [],
+          villages: Array.isArray(d.villages) ? d.villages : [],
+        }))
+      } else if (tab === 1) {
+        const instance = NetworkManager(API.OLD_SALES.GET_FILTER_OPTIONS)
+        const params = {}
+        if (district) params.district = district
+        if (taluka) params.taluka = taluka
+        const res = await instance.request({}, params)
+        const d = res?.data?.data || res?.data || {}
+        setFilterOptions(prev => ({
+          ...prev,
+          districts: Array.isArray(d.district) ? d.district : [],
+          talukas: Array.isArray(d.taluka) ? d.taluka : [],
+          villages: Array.isArray(d.village) ? d.village : [],
+          plant: Array.isArray(d.plant) ? d.plant : [],
+          variety: Array.isArray(d.variety) ? d.variety : [],
+          media: Array.isArray(d.media) ? d.media : [],
+          batch: Array.isArray(d.batch) ? d.batch : [],
+          paymentMode: Array.isArray(d.paymentMode) ? d.paymentMode : [],
+          reference: Array.isArray(d.reference) ? d.reference : [],
+          marketingReference: Array.isArray(d.marketingReference) ? d.marketingReference : [],
+          billGivenOrNot: Array.isArray(d.billGivenOrNot) ? d.billGivenOrNot : [],
+          verifiedOrNot: Array.isArray(d.verifiedOrNot) ? d.verifiedOrNot : [],
+          shadeNo: Array.isArray(d.shadeNo) ? d.shadeNo : [],
+          vehicleNo: Array.isArray(d.vehicleNo) ? d.vehicleNo : [],
+          driverName: Array.isArray(d.driverName) ? d.driverName : [],
+        }))
+      } else if (tab === 2) {
+        const instance = NetworkManager(API.PUBLIC_LINKS.GET_FILTER_OPTIONS)
+        const params = {}
+        if (district) params.district = district
+        if (taluka) params.taluka = taluka
+        const res = await instance.request({}, params)
+        const d = res?.data?.data || {}
+        setFilterOptions(prev => ({
+          ...prev,
+          districts: Array.isArray(d.districts) ? d.districts : [],
+          talukas: Array.isArray(d.talukas) ? d.talukas : [],
+          villages: Array.isArray(d.villages) ? d.villages : [],
+        }))
+      }
+    } catch (e) {
+      console.error("Error fetching filter options:", e)
+    } finally {
+      setLoadingFilterOptions(false)
+    }
+  }
 
   useEffect(() => {
     if (open) {
       resetForm()
       fetchPublicLinks()
-      // Load all sources when modal opens
-      fetchOldFarmers()
-      fetchOldSalesData()
+      fetchFilterOptions(0)
+      fetchOldFarmers({ page: 1, limit: 50 }, "", { district: "", taluka: "", village: "" })
+      fetchOldSalesData({ page: 1, limit: 50 }, "", { district: "", taluka: "", village: "" })
     }
   }, [open])
 
@@ -103,10 +218,23 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
     setSelectedFarmers([])
     setSearchTerm("")
     setFilters({ district: "", taluka: "", village: "" })
+    setOldSalesFilters({ plant: "", variety: "", media: "", batch: "", paymentMode: "", reference: "", marketingReference: "", billGivenOrNot: "", verifiedOrNot: "", shadeNo: "", vehicleNo: "", driverName: "" })
+    setMoreFiltersExpanded(false)
+    setFilterOptions({ districts: [], talukas: [], villages: [], plant: [], variety: [], media: [], batch: [], paymentMode: [], reference: [], marketingReference: [], billGivenOrNot: [], verifiedOrNot: [], shadeNo: [], vehicleNo: [], driverName: [] })
     setListName("")
     setSelectedPublicLinkId("")
+    setManualNumbers(["", "", ""])
     setActiveTab(0)
     setError(null)
+    setOldFarmersPage(1)
+    setOldFarmersHasMore(true)
+    setOldFarmersPagination({ total: 0, totalPages: 1 })
+    setOldSalesPage(1)
+    setOldSalesHasMore(true)
+    setOldSalesPagination({ total: 0, totalPages: 1 })
+    setPublicLeadsPage(1)
+    setPublicLeadsHasMore(true)
+    setPublicLeadsPagination({ total: 0, totalPages: 1 })
   }
 
   // Fetch public links
@@ -124,28 +252,39 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
     }
   }
 
-  // Fetch old farmers
-  const fetchOldFarmers = async () => {
+  // Fetch old farmers (search + filters trigger API call)
+  const fetchOldFarmers = async ({ page = 1, limit = 50 } = {}, search = "", filterOverrides = null) => {
     setLoadingOldFarmers(true)
     try {
       const instance = NetworkManager(API.FARMER.GET_FARMERS)
-      const response = await instance.request()
-      
-      if (response.data?.data) {
-        const farmersData = Array.isArray(response.data.data) 
-          ? response.data.data 
-          : response.data.data.farmers || []
-        
-        const normalizedFarmers = farmersData.map(farmer => ({
-          ...farmer,
-          _id: farmer._id || farmer.id,
-          id: farmer._id || farmer.id,
-          source: "oldFarmer",
-          sourceLabel: "Old Farmer"
-        }))
-        
-        setOldFarmersData(normalizedFarmers)
-      }
+      const params = { page, limit }
+      if (search && search.trim()) params.q = search.trim()
+      const f = filterOverrides ?? filters
+      if (f.district) params.district = f.district
+      if (f.taluka) params.taluka = f.taluka
+      if (f.village) params.village = f.village
+      const response = await instance.request({}, params)
+
+      const data = response.data?.data || {}
+      const farmersData = Array.isArray(data) ? data : data.farmers || []
+      const pagination = data.pagination || {}
+
+      const normalizedFarmers = farmersData.map(farmer => ({
+        ...farmer,
+        _id: farmer._id || farmer.id,
+        id: farmer._id || farmer.id,
+        opt_in: farmer.opt_in ?? null,
+        source: "oldFarmer",
+        sourceLabel: "Old Farmer"
+      }))
+
+      setOldFarmersData(normalizedFarmers)
+      setOldFarmersPage(page)
+      setOldFarmersHasMore(pagination.hasNextPage ?? farmersData.length === limit)
+      setOldFarmersPagination({
+        total: pagination.total ?? 0,
+        totalPages: pagination.totalPages ?? 1,
+      })
     } catch (error) {
       console.error("Error fetching old farmers:", error)
       setError("Failed to fetch old farmers")
@@ -154,42 +293,57 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
     }
   }
 
-  // Fetch old sales data
-  const fetchOldSalesData = async () => {
+  // Fetch old sales data (unique farmers/customers from old sales, search + filters)
+  const fetchOldSalesData = async ({ page = 1, limit = 50 } = {}, search = "", filterOverrides = null, oldSalesFilterOverrides = null) => {
     setLoadingOldSales(true)
     try {
-      const instance = NetworkManager(API.OLD_SALES.GET_GEO_SUMMARY)
-      const queryParams = {
-        limit: 1000,
-        sortBy: "totalInvoiceAmount",
-        sortOrder: "desc"
-      }
-      const response = await instance.request({}, queryParams)
-      
-      if (response.data?.data) {
-        const salesData = Array.isArray(response.data.data) 
-          ? response.data.data 
-          : response.data.data.summary || []
-        
-        const normalizedFarmers = salesData.map((item, index) => {
-          const farmer = item.farmer || item
-          return {
-            _id: farmer._id || `old-sales-${index}`,
-            id: farmer._id || `old-sales-${index}`,
-            name: farmer.name || "",
-            mobileNumber: farmer.mobileNumber || "",
-            village: farmer.village || farmer.villageName || "",
-            taluka: farmer.taluka || farmer.talukaName || "",
-            district: farmer.district || farmer.districtName || "",
-            state: farmer.state || farmer.stateName || "",
-            source: "oldSales",
-            sourceLabel: "Old Sales",
-            originalData: item
-          }
-        }).filter(f => f.name && f.mobileNumber)
-        
-        setOldSalesData(normalizedFarmers)
-      }
+      const instance = NetworkManager(API.OLD_SALES.GET_UNIQUE_CUSTOMERS)
+      const params = { page, limit }
+      if (search && search.trim()) params.q = search.trim()
+      const f = filterOverrides ?? filters
+      const osf = oldSalesFilterOverrides ?? oldSalesFilters
+      if (f.district) params.district = f.district
+      if (f.taluka) params.taluka = f.taluka
+      if (f.village) params.village = f.village
+      if (osf.plant) params.plant = osf.plant
+      if (osf.variety) params.variety = osf.variety
+      if (osf.media) params.media = osf.media
+      if (osf.batch) params.batch = osf.batch
+      if (osf.paymentMode) params.paymentMode = osf.paymentMode
+      if (osf.reference) params.reference = osf.reference
+      if (osf.marketingReference) params.marketingReference = osf.marketingReference
+      if (osf.billGivenOrNot) params.billGivenOrNot = osf.billGivenOrNot
+      if (osf.verifiedOrNot) params.verifiedOrNot = osf.verifiedOrNot
+      if (osf.shadeNo) params.shadeNo = osf.shadeNo
+      if (osf.vehicleNo) params.vehicleNo = osf.vehicleNo
+      if (osf.driverName) params.driverName = osf.driverName
+      const response = await instance.request({}, params)
+      const customers = response?.data?.data?.customers || []
+
+      const normalizedFarmers = customers.map((c, index) => ({
+        _id: c._id || `old-sales-${c.mobileNumber}-${(page - 1) * limit + index}`,
+        id: c._id || `old-sales-${c.mobileNumber}-${(page - 1) * limit + index}`,
+        name: c.name || c.customerName || "",
+        mobileNumber: c.mobileNumber || c.mobileNo || "",
+        // Expect backend to include opt_in on customer/farmer object
+        opt_in: c.opt_in ?? c.optIn ?? null,
+        village: c.village || "",
+        taluka: c.taluka || "",
+        district: c.district || "",
+        state: c.state || "",
+        source: "oldSales",
+        sourceLabel: "Old Sales (Farmer)",
+        originalData: c
+      })).filter(f => f.name && f.mobileNumber)
+
+      const pagination = response?.data?.data?.pagination || {}
+      setOldSalesData(normalizedFarmers)
+      setOldSalesPage(page)
+      setOldSalesHasMore(pagination.hasNextPage ?? (pagination.totalPages != null ? page < pagination.totalPages : customers.length === limit))
+      setOldSalesPagination({
+        total: pagination.total ?? 0,
+        totalPages: pagination.totalPages ?? 1,
+      })
     } catch (error) {
       console.error("Error fetching old sales data:", error)
       setError("Failed to fetch old sales data")
@@ -198,50 +352,124 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
     }
   }
 
-  // Fetch public link leads
-  const fetchPublicLeads = async (linkId) => {
-    if (!linkId) {
-      setPublicLeadsData([])
-      return
-    }
+  // -- bulk opt-in is expected from backend in the customers/farmers payload.
+  // Removed per-phone lookup; frontend now relies on `opt_in` present on returned records.
 
+  const handleFarmersPageChange = (_, page) => {
+    setOldFarmersPage(page)
+    fetchOldFarmers({ page, limit: PAGE_LIMIT }, searchTerm)
+  }
+
+  const handleOldSalesPageChange = (_, page) => {
+    setOldSalesPage(page)
+    fetchOldSalesData({ page, limit: PAGE_LIMIT }, searchTerm)
+  }
+
+  const handlePublicLeadsPageChange = (_, page) => {
+    setPublicLeadsPage(page)
+    fetchPublicLeads(selectedPublicLinkId || "all", searchTerm, page)
+  }
+
+  // Fetch public link leads (single link or all links, search + filters)
+  const fetchPublicLeads = async (linkId, search = "", page = 1, filterOverrides = null) => {
     setLoadingPublicLeads(true)
+    setError(null)
     try {
-      const instance = NetworkManager(API.PUBLIC_LINKS.GET_LEADS)
-      const response = await instance.request(null, [linkId])
-      const leads = response?.data?.data?.leads || []
-      
+      let leads = []
+      const f = filterOverrides ?? filters
+      const queryParams = { page, limit: PAGE_LIMIT }
+      if (search && search.trim()) queryParams.q = search.trim()
+      if (f.district) queryParams.district = f.district
+      if (f.taluka) queryParams.taluka = f.taluka
+      if (f.village) queryParams.village = f.village
+      if (linkId && linkId !== "all") {
+        const instance = NetworkManager(API.PUBLIC_LINKS.GET_LEADS)
+        const response = await instance.request(null, { pathParams: [linkId], ...queryParams })
+        const data = response?.data?.data || {}
+        leads = data.leads || []
+        const pagination = { total: data.total ?? 0, totalPages: data.totalPages ?? 1, hasNextPage: data.hasNextPage ?? false, nextPage: data.nextPage }
+        setPublicLeadsPage(page)
+        setPublicLeadsHasMore(pagination.hasNextPage)
+        setPublicLeadsPagination({ total: pagination.total, totalPages: pagination.totalPages })
+      } else {
+        const instance = NetworkManager(API.PUBLIC_LINKS.GET_ALL_LEADS)
+        const response = await instance.request(null, queryParams)
+        const data = response?.data?.data || {}
+        leads = data.leads || []
+        const pagination = { total: data.total ?? 0, totalPages: data.totalPages ?? 1, hasNextPage: data.hasNextPage ?? false, nextPage: data.nextPage }
+        setPublicLeadsPage(page)
+        setPublicLeadsHasMore(pagination.hasNextPage)
+        setPublicLeadsPagination({ total: pagination.total, totalPages: pagination.totalPages })
+      }
+
       const normalizedLeads = leads.map(lead => ({
         _id: lead._id,
         id: lead._id,
         name: lead.name,
         mobileNumber: lead.mobileNumber,
-        village: lead.villageName || "",
-        taluka: lead.talukaName || "",
-        district: lead.districtName || "",
-        state: lead.stateName || "",
+        village: lead.villageName || lead.village || "",
+        taluka: lead.talukaName || lead.taluka || "",
+        district: lead.districtName || lead.district || "",
+        state: lead.stateName || lead.state || "",
         source: "publicLead",
-        sourceLabel: "Public Lead",
+        sourceLabel: lead.linkName ? `Lead (${lead.linkName})` : "Public Lead",
         originalLead: lead
       }))
-      
+
       setPublicLeadsData(normalizedLeads)
     } catch (error) {
       console.error("Error fetching public leads:", error)
       setError("Failed to fetch public link leads")
+      setPublicLeadsData([])
     } finally {
       setLoadingPublicLeads(false)
     }
   }
 
-  // Handle public link selection change
+
+  // Handle public link selection change (tab 2) - fetch when link or tab changes
   useEffect(() => {
-    if (activeTab === 2 && selectedPublicLinkId) {
-      fetchPublicLeads(selectedPublicLinkId)
+    if (activeTab === 2) {
+      setPublicLeadsData([])
+      setPublicLeadsPage(1)
+      setPublicLeadsHasMore(true)
+      fetchPublicLeads(selectedPublicLinkId || "all", searchTerm, 1)
     }
   }, [selectedPublicLinkId, activeTab])
 
-  // Get current source data based on active tab
+  // Debounced search: trigger API refetch when searchTerm changes (skip initial mount to avoid double fetch)
+  const searchInitializedRef = useRef(false)
+  useEffect(() => {
+    if (!open) {
+      searchInitializedRef.current = false
+      return
+    }
+    if (!searchInitializedRef.current) {
+      searchInitializedRef.current = true
+      return
+    }
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current)
+    searchDebounceRef.current = setTimeout(() => {
+      setOldFarmersPage(1)
+      setOldSalesPage(1)
+      setPublicLeadsPage(1)
+      if (activeTab === 0) {
+        setOldFarmersData([])
+        fetchOldFarmers({ page: 1, limit: PAGE_LIMIT }, searchTerm)
+      } else if (activeTab === 1) {
+        setOldSalesData([])
+        fetchOldSalesData({ page: 1, limit: PAGE_LIMIT }, searchTerm)
+      } else if (activeTab === 2) {
+        setPublicLeadsData([])
+        fetchPublicLeads(selectedPublicLinkId || "all", searchTerm, 1)
+      }
+    }, 400)
+    return () => {
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current)
+    }
+  }, [searchTerm, activeTab, open])
+
+  // Get current source data (server-side filtering - no client filter)
   const getCurrentSourceData = () => {
     if (activeTab === 0) return oldFarmersData
     if (activeTab === 1) return oldSalesData
@@ -249,36 +477,71 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
     return []
   }
 
-  // Filter farmers data
-  const getFilteredFarmers = (data) => {
-    return data.filter(farmer => {
-      const name = (farmer.name || "").toLowerCase()
-      const mobile = (farmer.mobileNumber || "").toString()
-      const village = (farmer.village || "").toLowerCase()
-      
-      const matchesSearch = !searchTerm || 
-                           name.includes(searchTerm.toLowerCase()) ||
-                           mobile.includes(searchTerm) ||
-                           village.includes(searchTerm.toLowerCase())
-      
-      const matchesDistrict = !filters.district || (farmer.district || "") === filters.district
-      const matchesTaluka = !filters.taluka || (farmer.taluka || "") === filters.taluka
-      const matchesVillage = !filters.village || (farmer.village || "") === filters.village
-      
-      return matchesSearch && matchesDistrict && matchesTaluka && matchesVillage
-    })
+  const filteredFarmers = getCurrentSourceData()
+
+  const handleFilterChange = (key, value) => {
+    let newFilters = { ...filters, [key]: value }
+    if (key === "district") {
+      newFilters = { ...newFilters, taluka: "", village: "" }
+      if (activeTab === 0) fetchFilterOptions(0, value, "")
+      else if (activeTab === 1) fetchFilterOptions(1, value, "")
+      else if (activeTab === 2) fetchFilterOptions(2, value, "")
+    } else if (key === "taluka") {
+      newFilters = { ...newFilters, village: "" }
+      if (activeTab === 0) fetchFilterOptions(0, filters.district, value)
+      else if (activeTab === 1) fetchFilterOptions(1, filters.district, value)
+      else if (activeTab === 2) fetchFilterOptions(2, filters.district, value)
+    }
+    setFilters(newFilters)
+    setOldFarmersPage(1)
+    setOldSalesPage(1)
+    setPublicLeadsPage(1)
+    if (activeTab === 0) {
+      setOldFarmersData([])
+      fetchOldFarmers({ page: 1, limit: PAGE_LIMIT }, searchTerm, newFilters)
+    } else if (activeTab === 1) {
+      setOldSalesData([])
+      fetchOldSalesData({ page: 1, limit: PAGE_LIMIT }, searchTerm, newFilters)
+    } else if (activeTab === 2) {
+      setPublicLeadsData([])
+      fetchPublicLeads(selectedPublicLinkId || "all", searchTerm, 1, newFilters)
+    }
   }
 
-  const filteredFarmers = getFilteredFarmers(getCurrentSourceData())
-
-  // Get unique values for filters from all sources combined
-  const getAllFarmers = () => {
-    return [...oldFarmersData, ...oldSalesData, ...publicLeadsData]
+  const handleOldSalesFilterChange = (key, value) => {
+    const newOldSalesFilters = { ...oldSalesFilters, [key]: value }
+    setOldSalesFilters(newOldSalesFilters)
+    setOldSalesPage(1)
+    setOldSalesData([])
+    fetchOldSalesData({ page: 1, limit: PAGE_LIMIT }, searchTerm, filters, newOldSalesFilters)
   }
 
-  const getUniqueValues = (key) => {
-    return [...new Set(getAllFarmers().map(farmer => farmer[key]).filter(Boolean))]
+  const handleClearFilters = () => {
+    const emptyFilters = { district: "", taluka: "", village: "" }
+    const emptyOldSalesFilters = { plant: "", variety: "", media: "", batch: "", paymentMode: "", reference: "", marketingReference: "", billGivenOrNot: "", verifiedOrNot: "", shadeNo: "", vehicleNo: "", driverName: "" }
+    setFilters(emptyFilters)
+    if (activeTab === 0) fetchFilterOptions(0, "", "")
+    else if (activeTab === 1) {
+      setOldSalesFilters(emptyOldSalesFilters)
+      fetchFilterOptions(1, "", "")
+    } else if (activeTab === 2) fetchFilterOptions(2, "", "")
+    setOldFarmersPage(1)
+    setOldSalesPage(1)
+    setPublicLeadsPage(1)
+    if (activeTab === 0) {
+      setOldFarmersData([])
+      fetchOldFarmers({ page: 1, limit: PAGE_LIMIT }, searchTerm, emptyFilters)
+    } else if (activeTab === 1) {
+      setOldSalesData([])
+      fetchOldSalesData({ page: 1, limit: PAGE_LIMIT }, searchTerm, emptyFilters, emptyOldSalesFilters)
+    } else if (activeTab === 2) {
+      setPublicLeadsData([])
+      fetchPublicLeads(selectedPublicLinkId || "all", searchTerm, 1, emptyFilters)
+    }
   }
+
+  const hasActiveFilters = filters.district || filters.taluka || filters.village ||
+    (activeTab === 1 && (oldSalesFilters.plant || oldSalesFilters.variety || oldSalesFilters.media || oldSalesFilters.batch || oldSalesFilters.paymentMode || oldSalesFilters.reference || oldSalesFilters.marketingReference || oldSalesFilters.billGivenOrNot || oldSalesFilters.verifiedOrNot || oldSalesFilters.shadeNo || oldSalesFilters.vehicleNo || oldSalesFilters.driverName))
 
   // Check if farmer is already selected
   const isFarmerSelected = (farmerId) => {
@@ -295,6 +558,38 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
   // Remove farmer from selected list
   const handleRemoveFarmer = (farmerId) => {
     setSelectedFarmers(prev => prev.filter(f => (f._id || f.id) !== farmerId))
+  }
+
+  // Add manual numbers to selected list
+  const handleAddManualNumbers = () => {
+    const toAdd = []
+    manualNumbers.forEach((val, idx) => {
+      const digits = String(val || "").replace(/\D/g, "")
+      const phone = digits.length === 10 ? digits : digits.length === 12 && digits.startsWith("91") ? digits.slice(2) : null
+      if (phone) {
+        const mobileNumber = phone
+        const id = `manual-${mobileNumber}-${idx}-${Date.now()}`
+        if (!selectedFarmers.some(f => String(f.mobileNumber || "").replace(/\D/g, "").slice(-10) === mobileNumber)) {
+          toAdd.push({
+            _id: id,
+            id,
+            name: "",
+            mobileNumber,
+            village: "",
+            taluka: "",
+            district: "",
+            source: "manual",
+            sourceLabel: "Manual"
+          })
+        }
+      }
+    })
+    if (toAdd.length > 0) {
+      setSelectedFarmers(prev => [...prev, ...toAdd])
+      setManualNumbers(["", "", ""])
+    } else if (manualNumbers.some(m => m.trim())) {
+      setError("Enter valid 10-digit phone numbers")
+    }
   }
 
   // Handle select all from current filtered list
@@ -327,26 +622,44 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
     setSaving(true)
     setError(null)
 
+    const hasOnlyOldFarmers = selectedFarmers.every(
+      (f) => f.source === "oldFarmer" && (f._id?.toString?.()?.length === 24 || f.id?.toString?.()?.length === 24)
+    )
+
     try {
-      // Extract farmer IDs (use _id or id field)
-      const farmerIds = selectedFarmers.map(f => f._id || f.id).filter(Boolean)
-
-      const instance = NetworkManager(API.FARMER_LIST.CREATE_LIST)
-      await instance.request({
-        name: listName.trim(),
-        farmerIds: farmerIds
-      })
-
-      alert(`✅ Broadcast list "${listName}" created successfully with ${farmerIds.length} farmers!`)
-      
-      if (onListCreated) {
-        onListCreated()
+      if (hasOnlyOldFarmers) {
+        const farmerIds = selectedFarmers.map((f) => f._id || f.id).filter(Boolean)
+        const instance = NetworkManager(API.FARMER_LIST.CREATE_LIST)
+        await instance.request({
+          name: listName.trim(),
+          farmerIds,
+        })
+        alert(`✅ Broadcast list "${listName}" created with ${farmerIds.length} farmers!`)
+      } else {
+        const contacts = selectedFarmers.map((f) => ({
+          phone: (f.mobileNumber || "").toString().replace(/\D/g, "").replace(/^(\d{10})$/, "91$1"),
+          name: (f.name || "").trim(),
+        })).filter((c) => c.phone.length >= 10)
+        if (!contacts.length) {
+          setError("No valid phone numbers to save")
+          setSaving(false)
+          return
+        }
+        const instance = NetworkManager(API.WHATSAPP_CONTACT_LIST.CREATE)
+        await instance.request({
+          name: listName.trim(),
+          description: "From Broadcast List (Old Sales / Public Leads)",
+          contacts,
+          source: "manual", 
+        })
+        alert(`✅ Contact list "${listName}" created with ${contacts.length} contacts. Use WhatsApp Management to send messages.`)
       }
-      
+
+      if (onListCreated) onListCreated()
       onClose()
     } catch (error) {
-      console.error("Error creating broadcast list:", error)
-      setError(error.response?.data?.message || "Failed to create broadcast list")
+      console.error("Error creating list:", error)
+      setError(error.response?.data?.message || "Failed to create list")
     } finally {
       setSaving(false)
     }
@@ -417,6 +730,52 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
           </CardContent>
         </Card>
 
+        {/* Manual Number Entry */}
+        <Card sx={{ boxShadow: 0, border: 1, borderColor: 'primary.main', bgcolor: 'primary.50' }}>
+          <CardContent>
+            <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
+              <Plus size={18} color="#1976d2" />
+              <Typography variant="subtitle2" fontWeight="bold" color="primary.main">
+                Add numbers manually
+              </Typography>
+            </Stack>
+            <Grid container spacing={2} alignItems="center">
+              {[0, 1, 2].map((idx) => (
+                <Grid item xs={12} sm={4} key={idx}>
+                  <TextField
+                    fullWidth
+                    placeholder={`Phone ${idx + 1} (10 digits)`}
+                    value={manualNumbers[idx]}
+                    onChange={(e) => {
+                      const v = e.target.value.replace(/\D/g, "").slice(0, 12)
+                      setManualNumbers(prev => {
+                        const next = [...prev]
+                        next[idx] = v
+                        return next
+                      })
+                    }}
+                    size="small"
+                    inputProps={{ maxLength: 12 }}
+                    sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+                  />
+                </Grid>
+              ))}
+              <Grid item xs={12} sm="auto">
+                <Button
+                  variant="outlined"
+                  color="primary"
+                  size="small"
+                  startIcon={<Plus size={16} />}
+                  onClick={handleAddManualNumbers}
+                  sx={{ borderRadius: 2 }}
+                >
+                  Add to list
+                </Button>
+              </Grid>
+            </Grid>
+          </CardContent>
+        </Card>
+
         {/* Selected Farmers Section */}
         {selectedFarmers.length > 0 && (
           <Card sx={{ boxShadow: 0, border: 1, borderColor: 'success.main', bgcolor: 'success.50' }}>
@@ -452,7 +811,7 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
                 {selectedFarmers.map((farmer) => (
                   <Chip
                     key={farmer._id || farmer.id}
-                    label={`${farmer.name} (${farmer.mobileNumber})`}
+                    label={farmer.name ? `${farmer.name} (${farmer.mobileNumber})` : farmer.mobileNumber}
                     onDelete={() => handleRemoveFarmer(farmer._id || farmer.id)}
                     size="small"
                     color="success"
@@ -479,8 +838,17 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
                 setActiveTab(newValue)
                 setSearchTerm("")
                 setFilters({ district: "", taluka: "", village: "" })
-                if (newValue === 2 && selectedPublicLinkId) {
-                  fetchPublicLeads(selectedPublicLinkId)
+                if (newValue === 1) setOldSalesFilters({ plant: "", variety: "", media: "", batch: "", paymentMode: "", reference: "", marketingReference: "", billGivenOrNot: "", verifiedOrNot: "", shadeNo: "", vehicleNo: "", driverName: "" })
+                fetchFilterOptions(newValue)
+                if (newValue === 0) {
+                  setOldFarmersPage(1)
+                  fetchOldFarmers({ page: 1, limit: PAGE_LIMIT }, "", { district: "", taluka: "", village: "" })
+                } else if (newValue === 1) {
+                  setOldSalesPage(1)
+                  fetchOldSalesData({ page: 1, limit: PAGE_LIMIT }, "", { district: "", taluka: "", village: "" }, { plant: "", variety: "", media: "", batch: "", paymentMode: "", reference: "", marketingReference: "", billGivenOrNot: "", verifiedOrNot: "", shadeNo: "", vehicleNo: "", driverName: "" })
+                } else if (newValue === 2) {
+                  setPublicLeadsPage(1)
+                  fetchPublicLeads(selectedPublicLinkId || "all", "", 1, { district: "", taluka: "", village: "" })
                 }
               }}
               sx={{ borderBottom: 1, borderColor: 'divider', px: 2 }}
@@ -488,19 +856,19 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
               <Tab 
                 icon={<Database size={16} />} 
                 iconPosition="start"
-                label={`Old Farmers (${oldFarmersData.length})`}
+                label={`Old Farmers (${oldFarmersPagination.total || oldFarmersData.length})`}
                 sx={{ textTransform: 'none' }}
               />
               <Tab 
                 icon={<FileText size={16} />} 
                 iconPosition="start"
-                label={`Old Sales (${oldSalesData.length})`}
+                label={`Old Sales (${oldSalesPagination.total || oldSalesData.length})`}
                 sx={{ textTransform: 'none' }}
               />
               <Tab 
                 icon={<LinkIcon size={16} />} 
                 iconPosition="start"
-                label={`Public Leads (${publicLeadsData.length})`}
+                label={`Public Leads (${publicLeadsPagination.total || publicLeadsData.length})`}
                 sx={{ textTransform: 'none' }}
               />
             </Tabs>
@@ -509,16 +877,16 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
             {activeTab === 2 && (
               <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
                 <FormControl fullWidth size="small">
-                  <InputLabel>Select Public Link</InputLabel>
+                  <InputLabel>Public Link</InputLabel>
                   <Select
-                    value={selectedPublicLinkId}
-                    onChange={(e) => setSelectedPublicLinkId(e.target.value)}
-                    label="Select Public Link"
+                    value={selectedPublicLinkId || "all"}
+                    onChange={(e) => setSelectedPublicLinkId(e.target.value === "all" ? "" : e.target.value)}
+                    label="Public Link"
                     disabled={loadingPublicLinks}
                     sx={{ borderRadius: 2 }}
                   >
-                    <MenuItem value="">
-                      <em>Select a Public Link</em>
+                    <MenuItem value="all">
+                      <em>All links (all farmers registered on any link)</em>
                     </MenuItem>
                     {publicLinks.map((link) => (
                       <MenuItem key={link._id} value={link._id}>
@@ -530,10 +898,9 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
               </Box>
             )}
 
-            {/* Search and Filters */}
-            {(activeTab !== 2 || selectedPublicLinkId) && (
-              <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
-                <Grid container spacing={2}>
+            {/* Search and Filters - all tabs */}
+            <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
+                <Grid container spacing={2} alignItems="center">
                   <Grid item xs={12} md={4}>
                     <TextField
                       fullWidth
@@ -556,13 +923,14 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
                       <InputLabel>District</InputLabel>
                       <Select
                         value={filters.district}
-                        onChange={(e) => setFilters(prev => ({ ...prev, district: e.target.value }))}
+                        onChange={(e) => handleFilterChange("district", e.target.value)}
                         label="District"
                         sx={{ borderRadius: 2 }}
+                        disabled={loadingFilterOptions}
                       >
                         <MenuItem value="">All Districts</MenuItem>
-                        {getUniqueValues("district").map(district => (
-                          <MenuItem key={district} value={district}>{district}</MenuItem>
+                        {filterOptions.districts.map(d => (
+                          <MenuItem key={d} value={d}>{d}</MenuItem>
                         ))}
                       </Select>
                     </FormControl>
@@ -572,13 +940,14 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
                       <InputLabel>Taluka</InputLabel>
                       <Select
                         value={filters.taluka}
-                        onChange={(e) => setFilters(prev => ({ ...prev, taluka: e.target.value }))}
+                        onChange={(e) => handleFilterChange("taluka", e.target.value)}
                         label="Taluka"
                         sx={{ borderRadius: 2 }}
+                        disabled={loadingFilterOptions}
                       >
                         <MenuItem value="">All Talukas</MenuItem>
-                        {getUniqueValues("taluka").map(taluka => (
-                          <MenuItem key={taluka} value={taluka}>{taluka}</MenuItem>
+                        {filterOptions.talukas.map(t => (
+                          <MenuItem key={t} value={t}>{t}</MenuItem>
                         ))}
                       </Select>
                     </FormControl>
@@ -588,23 +957,139 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
                       <InputLabel>Village</InputLabel>
                       <Select
                         value={filters.village}
-                        onChange={(e) => setFilters(prev => ({ ...prev, village: e.target.value }))}
+                        onChange={(e) => handleFilterChange("village", e.target.value)}
                         label="Village"
                         sx={{ borderRadius: 2 }}
+                        disabled={loadingFilterOptions}
                       >
                         <MenuItem value="">All Villages</MenuItem>
-                        {getUniqueValues("village").map(village => (
-                          <MenuItem key={village} value={village}>{village}</MenuItem>
+                        {filterOptions.villages.map(v => (
+                          <MenuItem key={v} value={v}>{v}</MenuItem>
                         ))}
                       </Select>
                     </FormControl>
                   </Grid>
+                  <Grid item xs={12} md="auto">
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={handleClearFilters}
+                      disabled={!hasActiveFilters || loadingFilterOptions}
+                      sx={{ borderRadius: 2 }}
+                    >
+                      Clear filters
+                    </Button>
+                  </Grid>
+                  {activeTab === 1 && (
+                    <Grid item xs={12}>
+                      <Button
+                        size="small"
+                        startIcon={moreFiltersExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                        onClick={() => setMoreFiltersExpanded(!moreFiltersExpanded)}
+                        sx={{ textTransform: 'none' }}
+                      >
+                        {moreFiltersExpanded ? "Hide more filters" : "More filters (plant, variety, media, batch…)"}
+                      </Button>
+                    </Grid>
+                  )}
                 </Grid>
-              </Box>
-            )}
+                {activeTab === 1 && moreFiltersExpanded && (
+                  <Collapse in={moreFiltersExpanded}>
+                    <Grid container spacing={2} sx={{ mt: 1, pt: 2, borderTop: 1, borderColor: 'divider' }}>
+                      {[
+                        { key: "plant", label: "Plant", options: filterOptions.plant },
+                        { key: "variety", label: "Variety", options: filterOptions.variety },
+                        { key: "media", label: "Media", options: filterOptions.media },
+                        { key: "batch", label: "Batch", options: filterOptions.batch },
+                        { key: "paymentMode", label: "Payment Mode", options: filterOptions.paymentMode },
+                        { key: "reference", label: "Reference", options: filterOptions.reference },
+                        { key: "marketingReference", label: "Marketing Reference", options: filterOptions.marketingReference },
+                        { key: "billGivenOrNot", label: "Bill Given", options: filterOptions.billGivenOrNot },
+                        { key: "verifiedOrNot", label: "Verified", options: filterOptions.verifiedOrNot },
+                        { key: "shadeNo", label: "Shade No", options: filterOptions.shadeNo },
+                        { key: "vehicleNo", label: "Vehicle No", options: filterOptions.vehicleNo },
+                        { key: "driverName", label: "Driver Name", options: filterOptions.driverName },
+                      ].map(({ key, label, options }) => (
+                        <Grid item xs={12} sm={6} md={4} key={key}>
+                          <FormControl fullWidth size="small">
+                            <InputLabel>{label}</InputLabel>
+                            <Select
+                              value={oldSalesFilters[key] || ""}
+                              onChange={(e) => handleOldSalesFilterChange(key, e.target.value)}
+                              label={label}
+                              sx={{ borderRadius: 2 }}
+                              disabled={loadingFilterOptions}
+                            >
+                              <MenuItem value="">All</MenuItem>
+                              {(options || []).map((o) => (
+                                <MenuItem key={o} value={o}>{o}</MenuItem>
+                              ))}
+                            </Select>
+                          </FormControl>
+                        </Grid>
+                      ))}
+                    </Grid>
+                  </Collapse>
+                )}
+            </Box>
+
+            {/* Pagination - above table for visibility */}
+            <Box sx={{ px: 2, py: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1, borderBottom: 1, borderColor: 'divider', bgcolor: 'grey.50' }}>
+              {activeTab === 0 && (
+                <>
+                  <Typography variant="body2" color="text.secondary">
+                    {oldFarmersPagination.total || 0} total · Page {oldFarmersPage} of {oldFarmersPagination.totalPages || 1}
+                  </Typography>
+                  <Pagination
+                    count={Math.max(1, oldFarmersPagination.totalPages || 1)}
+                    page={oldFarmersPage}
+                    onChange={handleFarmersPageChange}
+                    color="primary"
+                    size="small"
+                    showFirstButton
+                    showLastButton
+                    disabled={loadingOldFarmers}
+                  />
+                </>
+              )}
+              {activeTab === 1 && (
+                <>
+                  <Typography variant="body2" color="text.secondary">
+                    {oldSalesPagination.total || 0} total · Page {oldSalesPage} of {oldSalesPagination.totalPages || 1}
+                  </Typography>
+                  <Pagination
+                    count={Math.max(1, oldSalesPagination.totalPages || 1)}
+                    page={oldSalesPage}
+                    onChange={handleOldSalesPageChange}
+                    color="primary"
+                    size="small"
+                    showFirstButton
+                    showLastButton
+                    disabled={loadingOldSales}
+                  />
+                </>
+              )}
+              {activeTab === 2 && (
+                <>
+                  <Typography variant="body2" color="text.secondary">
+                    {publicLeadsPagination.total || 0} total · Page {publicLeadsPage} of {publicLeadsPagination.totalPages || 1}
+                  </Typography>
+                  <Pagination
+                    count={Math.max(1, publicLeadsPagination.totalPages || 1)}
+                    page={publicLeadsPage}
+                    onChange={handlePublicLeadsPageChange}
+                    color="primary"
+                    size="small"
+                    showFirstButton
+                    showLastButton
+                    disabled={loadingPublicLeads}
+                  />
+                </>
+              )}
+            </Box>
 
             {/* Farmers List */}
-            <TableContainer sx={{ maxHeight: 350 }}>
+            <TableContainer sx={{ maxHeight: 320 }}>
               {getCurrentLoading() ? (
                 <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', py: 4 }}>
                   <CircularProgress size={40} />
@@ -626,6 +1111,7 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
                       <TableCell sx={{ fontWeight: 'bold', width: 50 }}>Add</TableCell>
                       <TableCell sx={{ fontWeight: 'bold' }}>Name</TableCell>
                       <TableCell sx={{ fontWeight: 'bold' }}>Mobile</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }}>Opt-in</TableCell>
                       <TableCell sx={{ fontWeight: 'bold' }}>Village</TableCell>
                       <TableCell sx={{ fontWeight: 'bold' }}>Taluka</TableCell>
                       <TableCell sx={{ fontWeight: 'bold' }}>District</TableCell>
@@ -635,10 +1121,10 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
                   <TableBody>
                     {filteredFarmers.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
+                        <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
                           <Typography variant="body2" color="text.secondary">
-                            {activeTab === 2 && !selectedPublicLinkId
-                              ? "Please select a public link to view leads"
+                            {activeTab === 2
+                              ? "No farmers registered on public links yet"
                               : "No farmers found"}
                           </Typography>
                         </TableCell>
@@ -687,6 +1173,15 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
                             </TableCell>
                             <TableCell>{farmer.name}</TableCell>
                             <TableCell>{farmer.mobileNumber}</TableCell>
+                            <TableCell>
+                              {farmer.opt_in === true ? (
+                                <Chip label="Opted-in" size="small" color="success" variant="outlined" />
+                              ) : farmer.opt_in === false ? (
+                                <Chip label="Opted-out" size="small" color="error" variant="outlined" />
+                              ) : (
+                                <Chip label="Unknown" size="small" color="default" variant="outlined" />
+                              )}
+                            </TableCell>
                             <TableCell>{farmer.village}</TableCell>
                             <TableCell>{farmer.taluka}</TableCell>
                             <TableCell>{farmer.district}</TableCell>
@@ -710,6 +1205,45 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
                 </Table>
               )}
             </TableContainer>
+            {/* Pagination - below table */}
+            <Box sx={{ p: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2, borderTop: 1, borderColor: 'divider' }}>
+              {activeTab === 0 && (
+                <Pagination
+                  count={Math.max(1, oldFarmersPagination.totalPages || 1)}
+                  page={oldFarmersPage}
+                  onChange={handleFarmersPageChange}
+                  color="primary"
+                  size="small"
+                  showFirstButton
+                  showLastButton
+                  disabled={loadingOldFarmers}
+                />
+              )}
+              {activeTab === 1 && (
+                <Pagination
+                  count={Math.max(1, oldSalesPagination.totalPages || 1)}
+                  page={oldSalesPage}
+                  onChange={handleOldSalesPageChange}
+                  color="primary"
+                  size="small"
+                  showFirstButton
+                  showLastButton
+                  disabled={loadingOldSales}
+                />
+              )}
+              {activeTab === 2 && (
+                <Pagination
+                  count={Math.max(1, publicLeadsPagination.totalPages || 1)}
+                  page={publicLeadsPage}
+                  onChange={handlePublicLeadsPageChange}
+                  color="primary"
+                  size="small"
+                  showFirstButton
+                  showLastButton
+                  disabled={loadingPublicLeads}
+                />
+              )}
+            </Box>
           </CardContent>
         </Card>
       </DialogContent>

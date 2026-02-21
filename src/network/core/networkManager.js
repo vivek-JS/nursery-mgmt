@@ -61,7 +61,11 @@ export default function networkManager(router, withFile = false) {
   async function request(body = {}, params = {} || []) {
     const url = urlBuilder(router, params)
     const getHttpMethod = router.method !== HTTP_METHODS.GET
-    const getArrayParams = !Array.isArray(params) && Object.keys(params).length
+    // Query params: exclude pathParams from axios params
+    const queryParams = params && typeof params === "object" && !Array.isArray(params) && params.pathParams
+      ? Object.fromEntries(Object.entries(params).filter(([k]) => k !== "pathParams"))
+      : params
+    const getArrayParams = !Array.isArray(queryParams) && typeof queryParams === "object" && Object.keys(queryParams).length > 0
     
     // Auto-detect FormData - if body is FormData instance, treat as file upload
     const isFormData = body instanceof FormData
@@ -96,7 +100,7 @@ export default function networkManager(router, withFile = false) {
         method: router.method,
         headers: requestHeaders,
         ...(getHttpMethod && { data: httpBody }),
-        ...(getArrayParams && { params: params })
+        ...(getArrayParams && { params: queryParams })
       })
       // If token expired, get it refreshed
       const response = result.data
@@ -161,18 +165,14 @@ function urlBuilder(router, params) {
   }
   uri = uri.concat(router.endpoint)
 
-  // Handle parameter replacement for named parameters like :orderId
-  if (Array.isArray(params)) {
-    // Replace named parameters in the URL
-    for (let i = 0; i < params.length; i++) {
-      const param = params[i]
-      // Find the next named parameter in the URL (like :orderId, :userId, etc.)
+  const pathParams = Array.isArray(params) ? params : params?.pathParams
+  if (pathParams && pathParams.length > 0) {
+    for (let i = 0; i < pathParams.length; i++) {
+      const param = pathParams[i]
       const paramMatch = uri.match(/:[^/]+/)
       if (paramMatch) {
-        // Replace the named parameter with the actual value
         uri = uri.replace(paramMatch[0], param)
       } else {
-        // If no named parameter found, append to the end (fallback behavior)
         uri = uri.concat("/", param)
       }
     }

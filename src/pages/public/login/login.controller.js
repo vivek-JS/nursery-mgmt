@@ -98,11 +98,15 @@ export const useLoginController = () => {
           await showMotivationalQuote()
 
           // Check if user is dispatch manager (by role or jobTitle)
-          const isDispatchManager = response.user?.role === "DISPATCH_MANAGER" || 
+          const isDispatchManager = response.user?.role === "DISPATCH_MANAGER" ||
                                    response.user?.jobTitle === "DISPATCH_MANAGER"
-          
+          // Check if user is DEALER or SALES (redirect to mobile place-order)
+          const isDealerOrSales = response.user?.jobTitle === "DEALER" || response.user?.jobTitle === "SALES"
+
           // Determine redirect path based on user role
-          const redirectPath = isDispatchManager ? "/u/dispatch-orders" : "/u/dashboard"
+          let redirectPath = "/u/dashboard"
+          if (isDispatchManager) redirectPath = "/u/dispatch-orders"
+          else if (isDealerOrSales) redirectPath = "/u/mobile/place-order"
 
           // Navigate to appropriate page if password is already set and no reset required
           setTimeout(() => {
@@ -133,11 +137,15 @@ export const useLoginController = () => {
     await showMotivationalQuote()
     
     // Check if user is dispatch manager (by role or jobTitle)
-    const isDispatchManager = loginResponse?.user?.role === "DISPATCH_MANAGER" || 
+    const isDispatchManager = loginResponse?.user?.role === "DISPATCH_MANAGER" ||
                              loginResponse?.user?.jobTitle === "DISPATCH_MANAGER"
-    
+    // Check if user is DEALER or SALES (redirect to mobile place-order)
+    const isDealerOrSales = loginResponse?.user?.jobTitle === "DEALER" || loginResponse?.user?.jobTitle === "SALES"
+
     // Determine redirect path based on user role
-    const redirectPath = isDispatchManager ? "/u/dispatch-orders" : "/u/dashboard"
+    let redirectPath = "/u/dashboard"
+    if (isDispatchManager) redirectPath = "/u/dispatch-orders"
+    else if (isDealerOrSales) redirectPath = "/u/mobile/place-order"
     
     setTimeout(() => {
       navigate(redirectPath, { replace: true })
