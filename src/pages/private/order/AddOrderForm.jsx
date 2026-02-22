@@ -411,22 +411,15 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
     loadInitialData()
   }, [])
 
-  // Load dealer wallet if user is dealer
+  // Load dealer wallet when dealer quota selected AND subtype selected (API called after subtype for quota display)
   useEffect(() => {
-    if (user?.jobTitle === "DEALER" && user?._id) {
-      loadDealerWallet(user._id)
-    }
-  }, [user])
-
-  // When dealer quota selected, ensure wallet is loaded (for admin: dealer may be selected; for dealer: self)
-  useEffect(() => {
-    if (quotaType === "dealer") {
+    if (quotaType === "dealer" && formData?.subtype) {
       const dealerId = formData?.dealer || (user?.jobTitle === "DEALER" ? user?._id : null)
-      if (dealerId && (!dealerWallet?.entries?.length) && (!dealerWallet?.plantDetails?.length)) {
+      if (dealerId) {
         loadDealerWallet(dealerId)
       }
     }
-  }, [quotaType, formData?.dealer, user?.jobTitle, user?._id])
+  }, [quotaType, formData?.dealer, formData?.subtype, user?.jobTitle, user?._id])
 
   // Auto-set dealer and quota type when user is DEALER (selection only for SUPERADMIN/OFFICE_ADMIN)
   useEffect(() => {
