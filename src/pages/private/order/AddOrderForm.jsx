@@ -97,7 +97,7 @@ const useStyles = makeStyles()((theme) => ({
     }
   },
   formContainer: {
-    padding: "8px 12px",
+    padding: "12px 16px",
     maxWidth: 520,
     margin: "0 auto",
     background: "#fafafa",
@@ -107,7 +107,18 @@ const useStyles = makeStyles()((theme) => ({
       paddingLeft: "14px",
       marginTop: 2
     },
-    "& .MuiOutlinedInput-root": { minWidth: 0 },
+    "& .MuiOutlinedInput-root": {
+      minWidth: 0,
+      minHeight: 48,
+    },
+    "& .MuiOutlinedInput-root .MuiOutlinedInput-input": {
+      padding: "12.5px 14px",
+      fontSize: "0.9rem",
+    },
+    "& .MuiSelect-select": {
+      padding: "12.5px 14px !important",
+      fontSize: "0.9rem",
+    },
   },
   formCard: {
     marginBottom: 8,
@@ -252,13 +263,10 @@ const useStyles = makeStyles()((theme) => ({
     "& .MuiInputBase-input": { fontSize: "0.875rem" },
     "& .MuiInputLabel-root": { fontSize: "0.875rem" },
     "& .MuiFormLabel-root": { fontSize: "0.875rem" },
-    "& .MuiOutlinedInput-root": { minWidth: 0 },
+    "& .MuiOutlinedInput-root": { minWidth: 0, minHeight: 48 },
     "& .MuiOutlinedInput-input": {
-      fontSize: "0.875rem",
-      padding: "10px 12px",
-      boxSizing: "border-box",
-      overflow: "hidden",
-      textOverflow: "ellipsis"
+      fontSize: "0.9rem",
+      padding: "12.5px 14px",
     },
     "& .MuiFormHelperText-root": { paddingLeft: "12px" }
   }
@@ -2843,7 +2851,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                   </Box>
                 )}
 
-                <Grid container spacing={1}>
+                <Grid container spacing={2}>
                   <Grid item xs={12} sm={6}>
                     <LocalizationProvider dateAdapter={AdapterDateFns}>
                       <DatePicker
@@ -2858,6 +2866,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                   <Grid item xs={12} sm={6}>
                     <TextField
                       fullWidth
+                      size="small"
                       label="Mobile Number"
                       value={formData?.mobileNumber}
                       onChange={(e) => {
@@ -2892,6 +2901,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                   <Grid item xs={12} sm={7}>
                     <TextField
                       fullWidth
+                      size="small"
                       label="Farmer Name"
                       value={formData?.name}
                       onChange={(e) => handleInputChange("name", e.target.value)}
@@ -2983,7 +2993,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                           sx={{ mb: 1, fontWeight: 600, color: "#2c3e50", fontSize: "0.8rem" }}>
                           Location (Auto-filled)
                         </Typography>
-                        <Grid container spacing={1}>
+                        <Grid container spacing={2}>
                           <Grid item xs={6} sm={3}>
                             <TextField
                               fullWidth
@@ -3069,7 +3079,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
               </Typography>
             </div>
             <CardContent className={classes.formSection}>
-              <Grid container spacing={1}>
+              <Grid container spacing={2}>
                 <Grid item xs={12} sm={6}>
                   <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 1 }}>
                     <Box sx={{ flex: 1 }}>
@@ -3474,7 +3484,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
               </Typography>
             </div>
             <CardContent className={classes.formSection}>
-              <Grid container spacing={1}>
+              <Grid container spacing={2}>
                 <Grid item xs={12} md={6}>
                   <FormControl fullWidth>
                     <InputLabel>Select Plant</InputLabel>
@@ -4310,70 +4320,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
             </CardContent>
           </Card>
 
-          {/* Screenshots Section */}
-          <Card className={classes.formCard}>
-            <div className={classes.cardHeader}>
-              <Typography variant="subtitle1" className={classes.sectionTitle}>
-                <CameraIcon fontSize="small" /> Order Screenshots (Required for Non-Cash Payments)
-              </Typography>
-            </div>
-            <CardContent className={classes.formSection}>
-              <Box sx={{ mb: 2 }}>
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                  Add screenshots or photos related to this order. <strong>Payment images are mandatory for UPI, Cheque, 1341, and 434 payments.</strong>
-                </Typography>
-                
-                <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
-                  <Button
-                    variant="outlined"
-                    component="label"
-                    startIcon={<UploadIcon />}
-                    size="small"
-                  >
-                    Take Picture
-                    <input
-                      type="file"
-                      hidden
-                      multiple
-                      accept="image/*"
-                      onChange={handleScreenshotUpload}
-                    />
-                  </Button>
-                  
-                  <Typography variant="caption" color="text.secondary" sx={{ alignSelf: 'center' }}>
-                    Max 5 images, 8MB each
-                  </Typography>
-                </Box>
-
-                {formData?.screenshots?.length > 0 && (
-                  <ImageList sx={{ width: '100%', height: 200 }} cols={3} rowHeight={164}>
-                    {formData?.screenshots?.map((screenshot) => (
-                      <ImageListItem key={screenshot.id}>
-                        <img
-                          src={screenshot.preview}
-                          alt={screenshot.name}
-                          loading="lazy"
-                          style={{ objectFit: 'cover' }}
-                        />
-                        <ImageListItemBar
-                          title={screenshot.name}
-                          subtitle={`${(screenshot.size / 1024 / 1024).toFixed(2)} MB`}
-                          actionIcon={
-                            <IconButton
-                              sx={{ color: 'rgba(255, 255, 255, 0.54)' }}
-                              onClick={() => removeScreenshot(screenshot.id)}
-                            >
-                              <DeleteIcon />
-                            </IconButton>
-                          }
-                        />
-                      </ImageListItem>
-                    ))}
-                  </ImageList>
-                )}
-              </Box>
-            </CardContent>
-          </Card>
+          {/* Screenshots Section - hidden for now */}
 
           {/* Payment Management */}
           <Card className={classes.formCard}>
@@ -4465,7 +4412,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                   </Box>
                 )}
 
-                <Grid container spacing={1}>
+                <Grid container spacing={2}>
                   <Grid item xs={12} md={6}>
                     <TextField
                       fullWidth
