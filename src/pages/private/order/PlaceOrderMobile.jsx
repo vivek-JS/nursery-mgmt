@@ -1292,7 +1292,7 @@ function PlaceOrderMobile() {
       <AddOrderForm open={showForm} onClose={() => setShowForm(false)} onSuccess={handleSuccess} fullScreen={isMobile} />
       {renderOrderDetail()}
       {watiDialogOpen && selectedOrder && (
-        <Dialog open onClose={() => setWatiDialogOpen(false)} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
+        <Dialog open onClose={() => setWatiDialogOpen(false)} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3 } }} sx={{ zIndex: 99999 }}>
           <Box sx={{ p: 2, bgcolor: "#22C55E", color: "white" }}>
             <Typography sx={{ fontWeight: 800, fontSize: "1.1rem" }}>WhatsApp संदेश पाठवायचा का?</Typography>
             <Typography sx={{ fontSize: "0.8rem", opacity: 0.9 }}>Order #{selectedOrder.order} accepted</Typography>

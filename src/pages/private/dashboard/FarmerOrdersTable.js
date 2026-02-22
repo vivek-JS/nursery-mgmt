@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react"
+import ReactDOM from "react-dom"
 import { Edit2Icon, CheckIcon, XIcon, RefreshCw, Search, ChevronDown, X } from "lucide-react"
 import DatePicker from "react-datepicker"
 import "react-datepicker/dist/react-datepicker.css"
@@ -303,7 +304,7 @@ const customStyles = `
     border: 2px solid #e2e8f0;
     border-radius: 12px;
     box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
-    z-index: 1000;
+    z-index: 9999;
     max-height: 600px;
     overflow-y: auto;
     margin-top: 4px;
@@ -410,7 +411,7 @@ const customStyles = `
     margin-left: 8px;
   }
 
-  /* Compact status dropdown */
+  /* Compact status dropdown - appears above to avoid scroll */
   .searchable-dropdown.status-dropdown {
     min-width: 120px;
   }
@@ -424,6 +425,16 @@ const customStyles = `
 
   .searchable-dropdown.status-dropdown .searchable-dropdown-menu {
     min-width: 150px;
+    z-index: 9999;
+    top: auto;
+    bottom: 100%;
+    margin-top: 0;
+    margin-bottom: 4px;
+    transform: translateY(0);
+  }
+
+  .searchable-dropdown.status-dropdown .searchable-dropdown-menu.closing {
+    transform: translateY(10px);
   }
 `
 
@@ -604,7 +615,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("")
   const [refresh, setRefresh] = useState(false)
   const [selectedRow, setSelectedRow] = useState(null)
-  const [showAgriSalesOrders, setShowAgriSalesOrders] = useState(true) // Ram Agri Inputs only (no regular orders)
+  const [showAgriSalesOrders, setShowAgriSalesOrders] = useState(false) // Regular orders by default (true = Ram Agri Inputs)
   const [showAddAgriSalesOrderForm, setShowAddAgriSalesOrderForm] = useState(false) // Dialog for adding Agri Sales order
   const [agriSalesPendingCount, setAgriSalesPendingCount] = useState(0) // Pending payments count for badge
   const [agriStatusCounts, setAgriStatusCounts] = useState({
@@ -2944,8 +2955,8 @@ const mapSlotForUi = (slotData) => {
           }
         }
 
-        // Show WATI dialog when order accepted and it's a farmer order with farmer mobile
-        const isFarmerOrder = !row?.details?.dealerOrder && row?.details?.farmer?.mobileNumber
+        // Show WATI dialog when order accepted - for all farmer orders (not dealer, not agri sales)
+        const isFarmerOrder = !isAgriSalesOrder && !row?.details?.dealerOrder
         if (dataToSend?.orderStatus === "ACCEPTED" && isFarmerOrder) {
           setWatiDialogOrder(row)
           setWatiDialogOpen(true)
@@ -6594,9 +6605,9 @@ const mapSlotForUi = (slotData) => {
         onCancel={() => setConfirmDialog((d) => ({ ...d, open: false }))}
       />
 
-      {/* WATI Order Accepted Message Dialog */}
-      {watiDialogOpen && watiDialogOrder && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[70] p-4">
+      {/* WATI Order Accepted Message Dialog - rendered in portal to appear above header */}
+      {watiDialogOpen && watiDialogOrder && ReactDOM.createPortal(
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4" style={{ zIndex: 99999 }}>
           <div className="bg-white rounded-2xl w-full max-w-lg max-h-[90vh] overflow-hidden shadow-2xl">
             <div className="bg-gradient-to-r from-green-600 to-green-500 text-white p-4">
               <h2 className="text-xl font-bold">WhatsApp संदेश पाठवायचा का?</h2>
@@ -6606,7 +6617,8 @@ const mapSlotForUi = (slotData) => {
               <p className="text-xs text-gray-500 mb-2">Message Preview:</p>
               <pre className="bg-gray-50 p-4 rounded-lg text-sm whitespace-pre-wrap font-sans border border-gray-200">
                 {(() => {
-                  const f = watiDialogOrder.details?.farmer
+                  const rawFarmer = watiDialogOrder.details?.farmer
+                  const f = Array.isArray(rawFarmer) ? rawFarmer[0] : rawFarmer
                   const paid = watiDialogOrder.details?.payment?.reduce((s, p) => s + (p.paidAmount || 0), 0) || 0
                   const total = (watiDialogOrder.rate || 0) * (watiDialogOrder.quantity || watiDialogOrder.totalPlants || 0)
                   const rem = total - paid
@@ -6673,7 +6685,8 @@ const mapSlotForUi = (slotData) => {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Delivery Date Picker Modal */}
