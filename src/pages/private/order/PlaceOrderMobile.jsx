@@ -173,6 +173,9 @@ function PlaceOrderMobile() {
   const [dealerWallet, setDealerWallet] = useState(null)
   const [walletLoading, setWalletLoading] = useState(false)
   const [walletInventory, setWalletInventory] = useState([])
+  const [walletSubTab, setWalletSubTab] = useState(0)
+  const [dealerStats, setDealerStats] = useState(null)
+  const [dealerDetail, setDealerDetail] = useState(null)
   const [transactions, setTransactions] = useState([])
   const [txnLoading, setTxnLoading] = useState(false)
   const [txnPage, setTxnPage] = useState(1)
@@ -185,8 +188,15 @@ function PlaceOrderMobile() {
     return () => handler.cancel()
   }, [searchTerm])
 
-  useEffect(() => { if (userId) loadDealerWallet(userId) }, [userId])
-  useEffect(() => { if (activeTab === 1 && userId) loadTransactions() }, [activeTab, txnPage, txnTypeFilter, userId])
+  useEffect(() => {
+    if (userId) {
+      loadDealerWallet(userId)
+      loadDealerDetail(userId)
+      loadDealerStats(userId)
+      loadTransactions()
+    }
+  }, [userId])
+  useEffect(() => { if (userId) loadTransactions() }, [txnPage, txnTypeFilter])
 
   const loadDealerWallet = async (dealerId) => {
     setWalletLoading(true)
@@ -203,6 +213,36 @@ function PlaceOrderMobile() {
       })
       setWalletInventory(data?.plantDetails || [])
     } catch (err) { console.error("Error loading wallet:", err) } finally { setWalletLoading(false) }
+  }
+
+  const loadDealerDetail = async (dealerId) => {
+    try {
+      const instance = NetworkManager(API.USER.GET_DEALERS)
+      const response = await instance.request({}, [dealerId])
+      if (response?.data?.data) {
+        const d = response.data.data
+        setDealerDetail(d)
+        if (d.financial) {
+          setDealerWallet((prev) => ({
+            ...prev,
+            availableAmount: d.financial.availableAmount || prev?.availableAmount || 0,
+            totalOrderAmount: d.financial.totalOrderAmount || prev?.totalOrderAmount || 0,
+            totalPaidAmount: d.financial.totalPaidAmount || prev?.totalPaidAmount || 0,
+            remainingAmount: d.financial.remainingAmount || prev?.remainingAmount || 0,
+            pendingPayment: d.financial.pendingPayment || 0,
+          }))
+        }
+        if (d.plantDetails?.length) setWalletInventory(d.plantDetails)
+      }
+    } catch (err) { console.error("Error loading dealer detail:", err) }
+  }
+
+  const loadDealerStats = async (dealerId) => {
+    try {
+      const instance = NetworkManager(API.USER.GET_DEALERS_STATS)
+      const response = await instance.request({}, [dealerId])
+      if (response?.data) setDealerStats(response.data)
+    } catch (err) { console.error("Error loading dealer stats:", err) }
   }
 
   const loadTransactions = async () => {
@@ -356,11 +396,6 @@ function PlaceOrderMobile() {
   const renderHeader = () => (
     <Box sx={{ position: "sticky", top: 0, zIndex: 1100, flexShrink: 0, background: C.gradient, boxShadow: "0 4px 20px rgba(91,95,199,0.25)" }}>
       <Box sx={{ display: "flex", alignItems: "center", px: 2, py: 1.25, gap: 1.5 }}>
-        {!isDealerOrSales && (
-          <IconButton onClick={() => navigate("/u/dashboard")} size="small" sx={{ color: "white", bgcolor: "rgba(255,255,255,0.12)", backdropFilter: "blur(10px)" }}>
-            <ArrowBackIcon sx={{ fontSize: 20 }} />
-          </IconButton>
-        )}
         <Avatar sx={{ width: 40, height: 40, bgcolor: "rgba(255,255,255,0.2)", fontSize: "1rem", fontWeight: 800, border: "2.5px solid rgba(255,255,255,0.35)", letterSpacing: 0 }}>
           {userInitial}
         </Avatar>
@@ -763,90 +798,270 @@ function PlaceOrderMobile() {
   )
 
   // =========================================================
-  // TAB 2: WALLET
+  // TAB 2: WALLET (with Money / Plants sub-tabs)
   // =========================================================
-  const renderWalletTab = () => (
-    <Box sx={{ flex: 1, overflow: "auto", WebkitOverflowScrolling: "touch", pb: "72px" }}>
-      {walletLoading ? (
-        <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 1.5 }}>
-          <Skeleton variant="rounded" height={160} sx={{ borderRadius: 3 }} />
-          <Skeleton variant="rounded" height={80} sx={{ borderRadius: 2.5 }} />
+  const renderWalletTab = () => {
+    const remainingAmt = dealerWallet?.remainingAmount || 0
+    const isAdvance = remainingAmt < 0
+
+    const renderMoneySubTab = () => (
+      <Box sx={{ p: 1.25 }}>
+        {/* Balance Hero */}
+        <Card sx={{ borderRadius: 3.5, background: C.gradient, color: "white", mb: 1.5, boxShadow: "0 8px 32px rgba(91,95,199,0.3)" }}>
+          <CardContent sx={{ py: 2.5, px: 2.5 }}>
+            <Typography sx={{ opacity: 0.7, fontSize: "0.68rem", textTransform: "uppercase", letterSpacing: 1.5, fontWeight: 600, mb: 0.25 }}>Available Balance</Typography>
+            <Typography sx={{ fontSize: "2.2rem", fontWeight: 900, letterSpacing: "-0.03em", lineHeight: 1.1, mb: 1.5 }}>
+              ₹{dealerWallet?.availableAmount?.toLocaleString() || "0"}
+            </Typography>
+            <Divider sx={{ bgcolor: "rgba(255,255,255,0.15)", mb: 1.5 }} />
+            <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+              {[{ label: "Total Orders", val: dealerWallet?.totalOrderAmount }, { label: "Total Paid", val: dealerWallet?.totalPaidAmount }, { label: isAdvance ? "Advance" : "Due", val: Math.abs(remainingAmt) }].map((item, i) => (
+                <Box key={i} sx={{ textAlign: i === 2 ? "right" : i === 1 ? "center" : "left" }}>
+                  <Typography sx={{ opacity: 0.6, fontSize: "0.6rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>{item.label}</Typography>
+                  <Typography sx={{ fontWeight: 800, fontSize: "0.92rem", mt: 0.15 }}>₹{item.val?.toLocaleString() || "0"}</Typography>
+                </Box>
+              ))}
+            </Box>
+          </CardContent>
+        </Card>
+
+        {/* Financial Summary Cards */}
+        <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0.75, mb: 1.5 }}>
+          <FinCard icon={<WalletIcon sx={{ fontSize: 18 }} />} iconBg={C.primaryLight + "20"} iconColor={C.primary} label="Available" value={`₹${(dealerWallet?.availableAmount || 0).toLocaleString()}`} valueColor={C.primary} />
+          <FinCard icon={<ReceiptIcon sx={{ fontSize: 18 }} />} iconBg={C.blueBg} iconColor={C.blueText} label="Order Amount" value={`₹${(dealerWallet?.totalOrderAmount || 0).toLocaleString()}`} valueColor={C.blueText} />
+          <FinCard icon={<PaymentIcon sx={{ fontSize: 18 }} />} iconBg={C.greenBg} iconColor={C.greenText} label="Total Paid" value={`₹${(dealerWallet?.totalPaidAmount || 0).toLocaleString()}`} valueColor={C.greenText} />
+          <FinCard icon={isAdvance ? <TrendingDownIcon sx={{ fontSize: 18 }} /> : <TrendingUpIcon sx={{ fontSize: 18 }} />} iconBg={isAdvance ? C.greenBg : C.redBg} iconColor={isAdvance ? C.greenText : C.redText}
+            label={isAdvance ? "In Advance" : "Remaining Due"} value={`₹${Math.abs(remainingAmt).toLocaleString()}`} valueColor={isAdvance ? C.greenText : C.redText} />
         </Box>
-      ) : (
-        <Box sx={{ p: 1.25 }}>
-          <Card sx={{ borderRadius: 3.5, background: C.gradient, color: "white", mb: 2, boxShadow: "0 8px 32px rgba(91,95,199,0.3)" }}>
-            <CardContent sx={{ py: 2.5, px: 2.5 }}>
-              <Typography sx={{ opacity: 0.7, fontSize: "0.72rem", textTransform: "uppercase", letterSpacing: 1.5, fontWeight: 600, mb: 0.5 }}>Available Balance</Typography>
-              <Typography sx={{ fontSize: "2.2rem", fontWeight: 900, letterSpacing: "-0.03em", lineHeight: 1.1, mb: 1.5 }}>
-                ₹{dealerWallet?.availableAmount?.toLocaleString() || "0"}
-              </Typography>
-              <Divider sx={{ bgcolor: "rgba(255,255,255,0.15)", mb: 1.5 }} />
-              <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-                {[{ label: "Total Orders", value: dealerWallet?.totalOrderAmount }, { label: "Total Paid", value: dealerWallet?.totalPaidAmount }, { label: "Pending", value: dealerWallet?.remainingAmount }].map((item, i) => (
-                  <Box key={i} sx={{ textAlign: i === 2 ? "right" : i === 1 ? "center" : "left" }}>
-                    <Typography sx={{ opacity: 0.6, fontSize: "0.62rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>{item.label}</Typography>
-                    <Typography sx={{ fontWeight: 800, fontSize: "0.92rem", mt: 0.25 }}>₹{item.value?.toLocaleString() || "0"}</Typography>
-                  </Box>
-                ))}
+
+        {/* Stats summary from dealerStats */}
+        {dealerStats?.dealerStats && (
+          <Card elevation={0} sx={{ borderRadius: 2.5, border: `1px solid ${C.border}`, mb: 1.5 }}>
+            <CardContent sx={{ py: 1, px: 1.25, "&:last-child": { pb: 1 } }}>
+              <Typography sx={{ fontWeight: 800, color: C.textPrimary, fontSize: "0.82rem", mb: 0.75 }}>Order Summary</Typography>
+              <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 0.75 }}>
+                <Box sx={{ textAlign: "center" }}>
+                  <Typography sx={{ fontSize: "1.1rem", fontWeight: 900, color: C.greenText }}>{dealerStats.dealerStats.acceptedOrdersCount || 0}</Typography>
+                  <Typography sx={{ fontSize: "0.6rem", color: C.textMuted, fontWeight: 600, textTransform: "uppercase" }}>Accepted</Typography>
+                </Box>
+                <Box sx={{ textAlign: "center" }}>
+                  <Typography sx={{ fontSize: "1.1rem", fontWeight: 900, color: C.redText }}>{dealerStats.dealerStats.rejectedOrdersCount || 0}</Typography>
+                  <Typography sx={{ fontSize: "0.6rem", color: C.textMuted, fontWeight: 600, textTransform: "uppercase" }}>Rejected</Typography>
+                </Box>
+                <Box sx={{ textAlign: "center" }}>
+                  <Typography sx={{ fontSize: "1.1rem", fontWeight: 900, color: C.primary }}>{dealerStats.dealerStats.orders?.length || 0}</Typography>
+                  <Typography sx={{ fontSize: "0.6rem", color: C.textMuted, fontWeight: 600, textTransform: "uppercase" }}>Total</Typography>
+                </Box>
               </Box>
             </CardContent>
           </Card>
+        )}
 
-          <Typography sx={{ fontWeight: 800, color: C.textPrimary, fontSize: "0.95rem", mb: 1, display: "flex", alignItems: "center", gap: 0.5 }}>
-            <PlantIcon sx={{ fontSize: 20, color: C.green }} /> Plant Inventory
-            <Chip label={walletInventory.length} size="small" sx={{ height: 18, fontSize: "0.6rem", fontWeight: 700, bgcolor: C.greenBg, color: C.greenText, ml: 0.5 }} />
-          </Typography>
-
-          {walletInventory.length === 0 ? (
-            <Box sx={{ py: 3, textAlign: "center", bgcolor: C.bg, borderRadius: 2 }}>
-              <Typography sx={{ fontSize: "0.82rem", color: C.textMuted }}>No inventory data</Typography>
+        {/* Recent transactions preview */}
+        {transactions.length > 0 && (
+          <Box sx={{ mb: 1 }}>
+            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 0.75 }}>
+              <Typography sx={{ fontWeight: 800, color: C.textPrimary, fontSize: "0.82rem" }}>Recent Transactions</Typography>
+              <Button size="small" onClick={() => setActiveTab(1)} sx={{ fontSize: "0.65rem", textTransform: "none", color: C.primary, fontWeight: 700 }}>
+                View All
+              </Button>
             </Box>
-          ) : (
-            <Box sx={{ display: "flex", flexDirection: "column", gap: 0.75 }}>
-              {walletInventory.map((plant, idx) => {
-                const util = plant.totalQuantity ? Math.round(((plant.totalBookedQuantity || 0) / plant.totalQuantity) * 100) : 0
+            {transactions.slice(0, 5).map((txn, idx) => {
+              const tc = txnTypeColors[txn.type] || { bg: C.bg, color: C.textSecondary, icon: <SwapIcon sx={{ fontSize: 15 }} /> }
+              const isPositive = txn.type === "CREDIT" || txn.type === "INVENTORY_ADD" || txn.type === "INVENTORY_RELEASE"
+              return (
+                <Box key={txn._id || idx} sx={{ display: "flex", alignItems: "center", gap: 0.75, py: 0.6, borderBottom: idx < 4 ? `1px solid ${C.borderLight}` : "none" }}>
+                  <Box sx={{ width: 28, height: 28, borderRadius: 1.5, bgcolor: tc.bg, display: "flex", alignItems: "center", justifyContent: "center", color: tc.color, flexShrink: 0 }}>{tc.icon}</Box>
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                    <Typography sx={{ fontSize: "0.72rem", color: C.textPrimary, fontWeight: 600 }} noWrap>{txn.description || txn.type}</Typography>
+                    <Typography sx={{ fontSize: "0.6rem", color: C.textMuted }}>{txn.createdAt ? moment(txn.createdAt).format("DD MMM, hh:mm A") : ""}</Typography>
+                  </Box>
+                  <Typography sx={{ fontWeight: 900, fontSize: "0.82rem", color: isPositive ? C.greenText : C.redText }}>
+                    {isPositive ? "+" : "−"}₹{Math.abs(txn.amount || 0).toLocaleString()}
+                  </Typography>
+                </Box>
+              )
+            })}
+          </Box>
+        )}
+
+        <Button size="small" variant="outlined" fullWidth onClick={() => { loadDealerWallet(userId); loadDealerDetail(userId); loadDealerStats(userId) }}
+          startIcon={<RefreshIcon sx={{ fontSize: 14 }} />}
+          sx={{ mt: 0.5, fontSize: "0.72rem", textTransform: "none", borderRadius: 2, borderColor: C.primary, color: C.primary, fontWeight: 700, height: 34 }}>
+          Refresh
+        </Button>
+      </Box>
+    )
+
+    const renderPlantsSubTab = () => (
+      <Box sx={{ p: 1.25 }}>
+        {/* Overall plant stats */}
+        {dealerStats?.dealerStats && (dealerStats.dealerStats.totalQuantity > 0) && (
+          <Card elevation={0} sx={{ borderRadius: 2.5, border: `1px solid ${C.border}`, mb: 1.5 }}>
+            <CardContent sx={{ py: 1, px: 1.25, "&:last-child": { pb: 1 } }}>
+              <Typography sx={{ fontWeight: 800, color: C.textPrimary, fontSize: "0.82rem", mb: 0.75, display: "flex", alignItems: "center", gap: 0.5 }}>
+                <PlantIcon sx={{ fontSize: 16, color: C.green }} /> Overall Inventory
+              </Typography>
+              <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 0.75, mb: 0.75 }}>
+                <Box sx={{ textAlign: "center", p: 0.75, bgcolor: C.bg, borderRadius: 1.5 }}>
+                  <Typography sx={{ fontSize: "1rem", fontWeight: 900, color: C.primary }}>{(dealerStats.dealerStats.totalQuantity || 0).toLocaleString()}</Typography>
+                  <Typography sx={{ fontSize: "0.58rem", color: C.textMuted, fontWeight: 600, textTransform: "uppercase" }}>Total</Typography>
+                </Box>
+                <Box sx={{ textAlign: "center", p: 0.75, bgcolor: C.orangeBg, borderRadius: 1.5 }}>
+                  <Typography sx={{ fontSize: "1rem", fontWeight: 900, color: C.orangeText }}>{(dealerStats.dealerStats.totalBookedQuantity || 0).toLocaleString()}</Typography>
+                  <Typography sx={{ fontSize: "0.58rem", color: C.textMuted, fontWeight: 600, textTransform: "uppercase" }}>Booked</Typography>
+                </Box>
+                <Box sx={{ textAlign: "center", p: 0.75, bgcolor: C.greenBg, borderRadius: 1.5 }}>
+                  <Typography sx={{ fontSize: "1rem", fontWeight: 900, color: C.greenText }}>{(dealerStats.dealerStats.totalRemainingQuantity || 0).toLocaleString()}</Typography>
+                  <Typography sx={{ fontSize: "0.58rem", color: C.textMuted, fontWeight: 600, textTransform: "uppercase" }}>Available</Typography>
+                </Box>
+              </Box>
+              {dealerStats.dealerStats.totalQuantity > 0 && (() => {
+                const bookPct = Math.round((dealerStats.dealerStats.totalBookedQuantity / dealerStats.dealerStats.totalQuantity) * 100)
                 return (
-                  <Card key={idx} elevation={0} sx={{ borderRadius: 2.5, border: `1px solid ${C.border}` }}>
-                    <CardContent sx={{ py: 1, px: 1.25, "&:last-child": { pb: 1 } }}>
-                      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 0.5 }}>
-                        <Typography sx={{ fontWeight: 800, color: C.textPrimary, fontSize: "0.85rem" }}>
-                          {plant.plantName} <Box component="span" sx={{ color: C.textMuted, fontWeight: 500 }}>/ {plant.subtypeName}</Box>
-                        </Typography>
-                        <Chip label={`${plant.totalRemainingQuantity?.toLocaleString() || 0} left`} size="small"
-                          sx={{ height: 20, fontSize: "0.62rem", fontWeight: 700, bgcolor: plant.totalRemainingQuantity > 0 ? C.greenBg : C.redBg, color: plant.totalRemainingQuantity > 0 ? C.greenText : C.redText, borderRadius: 1 }} />
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                    <Box sx={{ flex: 1, height: 6, bgcolor: C.border, borderRadius: 3, overflow: "hidden" }}>
+                      <Box sx={{ width: `${Math.min(bookPct, 100)}%`, height: "100%", borderRadius: 3, bgcolor: bookPct > 80 ? C.red : bookPct > 50 ? C.orange : C.green }} />
+                    </Box>
+                    <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, color: C.textSecondary }}>{bookPct}% booked</Typography>
+                  </Box>
+                )
+              })()}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Plant type distribution (from stats) */}
+        {dealerStats?.byPlantType?.length > 0 && (
+          <Box sx={{ mb: 1.5 }}>
+            <Typography sx={{ fontWeight: 800, color: C.textPrimary, fontSize: "0.82rem", mb: 0.75 }}>Plant Distribution</Typography>
+            <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
+              {dealerStats.byPlantType.map((pt, idx) => {
+                const bkPct = pt.totalQuantity ? Math.round((pt.totalBookedQuantity / pt.totalQuantity) * 100) : 0
+                return (
+                  <Card key={idx} elevation={0} sx={{ borderRadius: 2, border: `1px solid ${C.border}` }}>
+                    <CardContent sx={{ py: 0.75, px: 1.25, "&:last-child": { pb: 0.75 } }}>
+                      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 0.25 }}>
+                        <Typography sx={{ fontWeight: 800, color: C.textPrimary, fontSize: "0.82rem" }}>{pt.plantTypeName || "Unknown"}</Typography>
+                        <Chip label={`${(pt.totalRemainingQuantity || 0).toLocaleString()} left`} size="small"
+                          sx={{ height: 18, fontSize: "0.58rem", fontWeight: 700, bgcolor: pt.totalRemainingQuantity > 0 ? C.greenBg : C.redBg, color: pt.totalRemainingQuantity > 0 ? C.greenText : C.redText, borderRadius: 1 }} />
                       </Box>
-                      <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.5 }}>
-                        <Box sx={{ flex: 1, height: 5, bgcolor: C.border, borderRadius: 3, overflow: "hidden" }}>
-                          <Box sx={{ width: `${Math.min(util, 100)}%`, height: "100%", borderRadius: 3, bgcolor: util > 80 ? C.red : util > 50 ? C.orange : C.green }} />
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.25 }}>
+                        <Box sx={{ flex: 1, height: 4, bgcolor: C.border, borderRadius: 3, overflow: "hidden" }}>
+                          <Box sx={{ width: `${Math.min(bkPct, 100)}%`, height: "100%", borderRadius: 3, bgcolor: bkPct > 80 ? C.red : bkPct > 50 ? C.orange : C.green }} />
                         </Box>
-                        <Typography sx={{ fontSize: "0.65rem", fontWeight: 700, color: C.textSecondary, minWidth: 28 }}>{util}%</Typography>
+                        <Typography sx={{ fontSize: "0.6rem", fontWeight: 700, color: C.textSecondary }}>{bkPct}%</Typography>
                       </Box>
                       <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-                        <Typography sx={{ fontSize: "0.65rem", color: C.textMuted }}>Total: <Box component="span" sx={{ fontWeight: 700, color: C.textSecondary }}>{plant.totalQuantity?.toLocaleString() || 0}</Box></Typography>
-                        <Typography sx={{ fontSize: "0.65rem", color: C.textMuted }}>Booked: <Box component="span" sx={{ fontWeight: 700, color: C.textSecondary }}>{plant.totalBookedQuantity?.toLocaleString() || 0}</Box></Typography>
+                        <Typography sx={{ fontSize: "0.62rem", color: C.textMuted }}>Total: <Box component="span" sx={{ fontWeight: 700, color: C.textSecondary }}>{(pt.totalQuantity || 0).toLocaleString()}</Box></Typography>
+                        <Typography sx={{ fontSize: "0.62rem", color: C.textMuted }}>Booked: <Box component="span" sx={{ fontWeight: 700, color: C.textSecondary }}>{(pt.totalBookedQuantity || 0).toLocaleString()}</Box></Typography>
                       </Box>
-                      {plant.slotDetails?.length > 0 && (
-                        <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, mt: 0.5 }}>
-                          {plant.slotDetails.map((slot, sIdx) => (
-                            <Chip key={sIdx} label={`${slot.dates?.startDay || ""}–${slot.dates?.endDay || ""} · ${slot.remainingQuantity || 0}`} size="small" variant="outlined"
-                              sx={{ height: 18, fontSize: "0.52rem", fontWeight: 600, borderColor: slot.remainingQuantity > 0 ? C.green : C.border, color: slot.remainingQuantity > 0 ? C.greenText : C.textMuted, borderRadius: 1 }} />
-                          ))}
-                        </Box>
-                      )}
                     </CardContent>
                   </Card>
                 )
               })}
             </Box>
+          </Box>
+        )}
+
+        {/* Detailed Inventory (from wallet/dealer API) */}
+        <Typography sx={{ fontWeight: 800, color: C.textPrimary, fontSize: "0.82rem", mb: 0.75, display: "flex", alignItems: "center", gap: 0.5 }}>
+          <InventoryIcon sx={{ fontSize: 16, color: C.primary }} /> Inventory Details
+          <Chip label={walletInventory.length} size="small" sx={{ height: 18, fontSize: "0.6rem", fontWeight: 700, bgcolor: C.primaryLight + "15", color: C.primary, ml: 0.25 }} />
+        </Typography>
+
+        {walletInventory.length === 0 ? (
+          <Box sx={{ py: 3, textAlign: "center", bgcolor: C.bg, borderRadius: 2 }}>
+            <InventoryIcon sx={{ fontSize: 32, color: C.textMuted, mb: 0.5 }} />
+            <Typography sx={{ fontSize: "0.82rem", color: C.textMuted }}>No inventory allocated yet</Typography>
+          </Box>
+        ) : (
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 0.75 }}>
+            {walletInventory.map((plant, idx) => {
+              const util = plant.totalQuantity ? Math.round(((plant.totalBookedQuantity || 0) / plant.totalQuantity) * 100) : 0
+              return (
+                <Card key={idx} elevation={0} sx={{ borderRadius: 2.5, border: `1px solid ${C.border}` }}>
+                  <CardContent sx={{ py: 1, px: 1.25, "&:last-child": { pb: 1 } }}>
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 0.5 }}>
+                      <Typography sx={{ fontWeight: 800, color: C.textPrimary, fontSize: "0.85rem" }}>
+                        {plant.plantName} <Box component="span" sx={{ color: C.textMuted, fontWeight: 500 }}>/ {plant.subtypeName}</Box>
+                      </Typography>
+                      <Chip label={`${plant.totalRemainingQuantity?.toLocaleString() || 0} left`} size="small"
+                        sx={{ height: 20, fontSize: "0.62rem", fontWeight: 700, bgcolor: plant.totalRemainingQuantity > 0 ? C.greenBg : C.redBg, color: plant.totalRemainingQuantity > 0 ? C.greenText : C.redText, borderRadius: 1 }} />
+                    </Box>
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.5 }}>
+                      <Box sx={{ flex: 1, height: 5, bgcolor: C.border, borderRadius: 3, overflow: "hidden" }}>
+                        <Box sx={{ width: `${Math.min(util, 100)}%`, height: "100%", borderRadius: 3, bgcolor: util > 80 ? C.red : util > 50 ? C.orange : C.green }} />
+                      </Box>
+                      <Typography sx={{ fontSize: "0.65rem", fontWeight: 700, color: C.textSecondary, minWidth: 28 }}>{util}%</Typography>
+                    </Box>
+                    <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                      <Typography sx={{ fontSize: "0.65rem", color: C.textMuted }}>Total: <Box component="span" sx={{ fontWeight: 700, color: C.textSecondary }}>{plant.totalQuantity?.toLocaleString() || 0}</Box></Typography>
+                      <Typography sx={{ fontSize: "0.65rem", color: C.textMuted }}>Booked: <Box component="span" sx={{ fontWeight: 700, color: C.textSecondary }}>{plant.totalBookedQuantity?.toLocaleString() || 0}</Box></Typography>
+                    </Box>
+                    {plant.slotDetails?.length > 0 && (
+                      <Box sx={{ mt: 0.5 }}>
+                        <Typography sx={{ fontSize: "0.6rem", fontWeight: 700, color: C.textSecondary, mb: 0.25 }}>Slots</Typography>
+                        {plant.slotDetails.map((slot, sIdx) => {
+                          const slotUtil = slot.quantity ? Math.round((slot.bookedQuantity / slot.quantity) * 100) : 0
+                          return (
+                            <Box key={sIdx} sx={{ display: "flex", alignItems: "center", gap: 0.75, py: 0.35, borderBottom: sIdx < plant.slotDetails.length - 1 ? `1px solid ${C.borderLight}` : "none" }}>
+                              <CalendarIcon sx={{ fontSize: 11, color: C.textMuted }} />
+                              <Typography sx={{ fontSize: "0.62rem", color: C.textSecondary, minWidth: 60 }}>
+                                {slot.dates?.startDay || ""}–{slot.dates?.endDay || ""} {slot.dates?.month || ""}
+                              </Typography>
+                              <Box sx={{ flex: 1, height: 3, bgcolor: C.border, borderRadius: 3, overflow: "hidden" }}>
+                                <Box sx={{ width: `${Math.min(slotUtil, 100)}%`, height: "100%", borderRadius: 3, bgcolor: slotUtil > 80 ? C.red : slotUtil > 50 ? C.orange : C.green }} />
+                              </Box>
+                              <Typography sx={{ fontSize: "0.58rem", fontWeight: 700, color: slot.remainingQuantity > 0 ? C.greenText : C.redText, minWidth: 28, textAlign: "right" }}>
+                                {slot.remainingQuantity || 0}
+                              </Typography>
+                            </Box>
+                          )
+                        })}
+                      </Box>
+                    )}
+                  </CardContent>
+                </Card>
+              )
+            })}
+          </Box>
+        )}
+
+        <Button size="small" variant="outlined" fullWidth onClick={() => { loadDealerWallet(userId); loadDealerDetail(userId); loadDealerStats(userId) }}
+          startIcon={<RefreshIcon sx={{ fontSize: 14 }} />}
+          sx={{ mt: 1.5, fontSize: "0.72rem", textTransform: "none", borderRadius: 2, borderColor: C.primary, color: C.primary, fontWeight: 700, height: 34 }}>
+          Refresh
+        </Button>
+      </Box>
+    )
+
+    return (
+      <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        {/* Sub-tabs */}
+        <Tabs value={walletSubTab} onChange={(_, v) => setWalletSubTab(v)} variant="fullWidth"
+          sx={{
+            minHeight: 40, bgcolor: "white", borderBottom: `1px solid ${C.border}`, flexShrink: 0,
+            "& .MuiTab-root": { minHeight: 40, py: 0, fontSize: "0.78rem", textTransform: "none", fontWeight: 700, color: C.textMuted, "&.Mui-selected": { color: C.primary } },
+            "& .MuiTabs-indicator": { bgcolor: C.primary, height: 2.5, borderRadius: 2 },
+          }}>
+          <Tab icon={<WalletIcon sx={{ fontSize: 16, mr: 0.5 }} />} iconPosition="start" label="Money" />
+          <Tab icon={<PlantIcon sx={{ fontSize: 16, mr: 0.5 }} />} iconPosition="start" label="Plants" />
+        </Tabs>
+        <Box sx={{ flex: 1, overflow: "auto", WebkitOverflowScrolling: "touch", pb: "72px" }}>
+          {walletLoading ? (
+            <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 1.5 }}>
+              <Skeleton variant="rounded" height={160} sx={{ borderRadius: 3 }} />
+              <Skeleton variant="rounded" height={80} sx={{ borderRadius: 2.5 }} />
+              <Skeleton variant="rounded" height={60} sx={{ borderRadius: 2 }} />
+            </Box>
+          ) : (
+            walletSubTab === 0 ? renderMoneySubTab() : renderPlantsSubTab()
           )}
-          <Button size="small" variant="outlined" onClick={() => loadDealerWallet(userId)} startIcon={<RefreshIcon sx={{ fontSize: 14 }} />}
-            sx={{ mt: 1.5, fontSize: "0.72rem", textTransform: "none", borderRadius: 2, borderColor: C.primary, color: C.primary, fontWeight: 700 }}>
-            Refresh Wallet
-          </Button>
         </Box>
-      )}
-    </Box>
-  )
+      </Box>
+    )
+  }
 
   // =========================================================
   // TAB 3: PROFILE
@@ -884,12 +1099,6 @@ function PlaceOrderMobile() {
           </CardContent>
         </Card>
 
-        {!isDealerOrSales && (
-          <Button fullWidth variant="outlined" onClick={() => navigate("/u/dashboard")} startIcon={<ArrowBackIcon />}
-            sx={{ mt: 0.5, textTransform: "none", borderRadius: 2.5, borderColor: C.primary, color: C.primary, fontWeight: 700 }}>
-            Go to Dashboard
-          </Button>
-        )}
       </Box>
     </Box>
   )
@@ -1127,6 +1336,20 @@ const StatBox = ({ label, value, color, bg }) => (
     <Typography sx={{ fontWeight: 900, color, fontSize: "1.25rem", letterSpacing: "-0.02em", lineHeight: 1 }}>{value}</Typography>
     <Typography sx={{ fontSize: "0.65rem", color: "#6B7185", fontWeight: 600, mt: 0.25 }}>{label}</Typography>
   </Box>
+)
+
+const FinCard = ({ icon, iconBg, iconColor, label, value, valueColor }) => (
+  <Card elevation={0} sx={{ borderRadius: 2, border: "1px solid #E8EBF0" }}>
+    <CardContent sx={{ py: 1, px: 1, "&:last-child": { pb: 1 } }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+        <Box sx={{ width: 32, height: 32, borderRadius: 1.5, bgcolor: iconBg, display: "flex", alignItems: "center", justifyContent: "center", color: iconColor, flexShrink: 0 }}>{icon}</Box>
+        <Box sx={{ minWidth: 0 }}>
+          <Typography sx={{ fontSize: "0.58rem", color: "#9CA3B8", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.03em" }}>{label}</Typography>
+          <Typography sx={{ fontWeight: 900, color: valueColor, fontSize: "0.88rem", letterSpacing: "-0.02em", lineHeight: 1.2 }}>{value}</Typography>
+        </Box>
+      </Box>
+    </CardContent>
+  </Card>
 )
 
 export default PlaceOrderMobile
