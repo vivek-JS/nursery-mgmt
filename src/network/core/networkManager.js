@@ -87,9 +87,9 @@ export default function networkManager(router, withFile = false) {
     const isFormDataBody = httpBody instanceof FormData
     
     // For FormData, don't set Content-Type - axios will automatically detect and set it with boundary
-    // Axios automatically detects FormData and sets Content-Type: multipart/form-data; boundary=...
-    // Only set Content-Type for non-FormData requests
-    if (!isFormDataBody && !actualWithFile && !isFormData) {
+    // For GET: don't add Content-Type - GET has no body, and Content-Type triggers CORS preflight
+    // Only set Content-Type for non-GET requests with a body
+    if (!isFormDataBody && !actualWithFile && !isFormData && getHttpMethod) {
       requestHeaders["Content-Type"] = CONTENT_TYPE.JSON
     }
 
