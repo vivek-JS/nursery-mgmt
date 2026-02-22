@@ -24,7 +24,8 @@ import {
   History,
   Sprout,
   Send,
-  Package
+  Package,
+  ArrowRightLeft
 } from "lucide-react"
 import {
   Switch,
@@ -60,6 +61,7 @@ import { PageLoader } from "components"
 import { Toast } from "helpers/toasts/toastHelper"
 import FarmerOrdersTable from "../dashboard/FarmerOrdersTable"
 import SlotTrailModal from "components/Modals/SlotTrailModal"
+import TransferPlantsModal from "./TransferPlantsModal"
 import moment from "moment"
 import { useSelector } from "react-redux"
 
@@ -109,6 +111,9 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
   const [sowingQuantity, setSowingQuantity] = useState("")
   const [sowingDate, setSowingDate] = useState(moment().format("YYYY-MM-DD"))
   const [sowingNotes, setSowingNotes] = useState("")
+
+  const [transferModalOpen, setTransferModalOpen] = useState(false)
+  const [transferSlotData, setTransferSlotData] = useState(null)
 
   const monthOrder = [
     "January",
@@ -341,15 +346,21 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
   function calculateSummary(slots) {
     let totalPlants = 0
     let totalBookedPlants = 0
+    let totalAvailablePlants = 0
+    let totalPrimarySowed = 0
 
     slots.forEach((slot) => {
-      totalPlants += slot.totalPlants
-      totalBookedPlants += slot.totalBookedPlants
+      totalPlants += slot.totalPlants ?? 0
+      totalBookedPlants += slot.totalBookedPlants ?? 0
+      totalAvailablePlants += slot.availablePlants ?? Math.max(0, (slot.totalPlants ?? 0) - (slot.totalBookedPlants ?? 0))
+      totalPrimarySowed += slot.primarySowed ?? 0
     })
 
     return {
       totalPlants,
-      totalBookedPlants
+      totalBookedPlants,
+      totalAvailablePlants,
+      totalPrimarySowed
     }
   }
 
@@ -804,6 +815,17 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                       }}
                       sx={{ color: "#8b5cf6" }}>
                       <Shield className="w-5 h-5" />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="Transfer Plants">
+                    <IconButton
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setTransferSlotData(selectedSlot)
+                        setTransferModalOpen(true)
+                      }}
+                      sx={{ color: "#16a34a" }}>
+                      <ArrowRightLeft className="w-5 h-5" />
                     </IconButton>
                   </Tooltip>
                   <IconButton onClick={() => setDetailModalOpen(false)}>
@@ -1703,9 +1725,9 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
               {availableMonths.map((month, index) => {
                 const summary = calculateSummary(slotsByMonth[month])
                 const { totalPlants, totalBookedPlants } = summary
-                const totalCapacity = totalPlants + totalBookedPlants
-                const bookedPercentage = calculatePercentage(totalBookedPlants, totalCapacity)
-                const isOverbooked = totalPlants < 0 || bookedPercentage > 100
+                const totalCapacity = totalPlants
+                const bookedPercentage = totalCapacity > 0 ? calculatePercentage(totalBookedPlants, totalCapacity) : 0
+                const isOverbooked = totalCapacity < 0 || bookedPercentage > 100
 
                 return (
                   <Tab
@@ -1748,13 +1770,13 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
 
                 {(() => {
                   const summary = calculateSummary(slotsByMonth[availableMonths[selectedMonth]])
-                  const { totalPlants, totalBookedPlants } = summary
-                  const totalCapacity = totalPlants + totalBookedPlants
-                  const bookedPercentage = calculatePercentage(totalBookedPlants, totalCapacity)
-                  const isOverbooked = totalPlants < 0 || bookedPercentage > 100
-                  const statusColor = getStatusColor(bookedPercentage, totalPlants)
+                  const { totalPlants, totalBookedPlants, totalAvailablePlants, totalPrimarySowed } = summary
+                  const totalCapacity = totalPlants
+                  const bookedPercentage = totalCapacity > 0 ? calculatePercentage(totalBookedPlants, totalCapacity) : 0
+                  const isOverbooked = totalCapacity < 0 || bookedPercentage > 100
+                  const statusColor = getStatusColor(bookedPercentage, totalAvailablePlants)
 
-                  const gap = totalBookedPlants - totalPlants
+                  const gap = totalBookedPlants - totalPrimarySowed
                   const gapColor = gap > 0 ? "bg-orange-50 text-orange-600" : "bg-gray-50 text-gray-600"
                   
                   return (
@@ -1766,7 +1788,7 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                           className={`text-2xl font-bold ${
                             isOverbooked ? "text-red-600" : "text-green-600"
                           }`}>
-                          {totalPlants.toLocaleString()}
+                          {totalAvailablePlants.toLocaleString()}
                         </p>
                       </div>
                       <div className="p-4 rounded-lg bg-blue-50">
@@ -1819,18 +1841,16 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                   const end = moment(endDay, "DD-MM-YYYY").format("MMM D")
                   const year = moment(startDay, "DD-MM-YYYY").format("YYYY")
 
-                  // Use buffer-adjusted values if available, otherwise fall back to original calculation
+                  // Use buffer-adjusted values if available, otherwise use slot.totalPlants as capacity
                   const effectiveTotalCapacity =
-                    slot.bufferAdjustedCapacity || totalPlants + totalBookedPlants
+                    slot.bufferAdjustedCapacity ?? slot.totalPlants ?? 0
                   const effectiveAvailablePlants =
-                    slot.availablePlants !== undefined ? slot.availablePlants : totalPlants
-                  const effectiveTotalPlants =
-                    slot.totalPlants !== undefined ? slot.totalPlants : totalPlants
+                    slot.availablePlants !== undefined ? slot.availablePlants : Math.max(0, (slot.totalPlants ?? 0) - (slot.totalBookedPlants ?? 0))
+                  const effectiveTotalPlants = slot.totalPlants ?? 0
 
-                  const slotBookedPercentage = calculatePercentage(
-                    totalBookedPlants,
-                    effectiveTotalCapacity
-                  )
+                  const slotBookedPercentage = (effectiveTotalCapacity > 0)
+                    ? calculatePercentage(slot.totalBookedPlants ?? 0, effectiveTotalCapacity)
+                    : 0
                   const slotStatusColor = getStatusColor(
                     slotBookedPercentage,
                     effectiveAvailablePlants
@@ -1965,6 +1985,23 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                                   height: 28
                                 }}>
                                 <Sprout className="w-3.5 h-3.5 text-green-600" />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Transfer Plants" arrow>
+                              <IconButton
+                                size="small"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setTransferSlotData(slot)
+                                  setTransferModalOpen(true)
+                                }}
+                                sx={{
+                                  bgcolor: 'rgba(22, 163, 74, 0.1)',
+                                  '&:hover': { bgcolor: 'rgba(22, 163, 74, 0.2)' },
+                                  width: 28,
+                                  height: 28
+                                }}>
+                                <ArrowRightLeft className="w-3.5 h-3.5 text-green-600" />
                               </IconButton>
                             </Tooltip>
                           </div>
@@ -2108,9 +2145,7 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                             <div>
                               <p className="text-xs font-medium text-indigo-700 uppercase tracking-wide mb-1">Total Capacity</p>
                               <p className="text-xl font-bold text-indigo-900">
-                                {slot.originalTotalPlants
-                                  ? slot.originalTotalPlants.toLocaleString()
-                                  : (totalPlants + totalBookedPlants).toLocaleString()}
+                                {(slot.originalTotalPlants ?? totalPlants)?.toLocaleString()}
                               </p>
                             </div>
                             <Target className="w-8 h-8 text-indigo-400" />
@@ -2120,7 +2155,7 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                               <div className="flex justify-between text-xs">
                                 <span className="text-indigo-600">After Buffer</span>
                                 <span className="font-bold text-indigo-800">
-                                  {(slot.originalTotalPlants || totalPlants + totalBookedPlants) - slot.bufferAmount} available
+                                  {(slot.originalTotalPlants ?? totalPlants) - slot.bufferAmount} available
                                 </span>
                               </div>
                             </div>
@@ -2221,6 +2256,20 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
           slotInfo={selectedSlotForTrail}
         />
       )}
+
+      {/* Transfer Plants Modal */}
+      <TransferPlantsModal
+        open={transferModalOpen}
+        onClose={() => {
+          setTransferModalOpen(false)
+          setTransferSlotData(null)
+        }}
+        slot={transferSlotData}
+        plantId={plantId}
+        subtypeId={plantSubId}
+        year={year}
+        onSuccess={fetchPlantsSlots}
+      />
     </div>
   )
 }

@@ -20,11 +20,11 @@ const ParentAccordion = () => {
   const [expandedSections, setExpandedSections] = useState([])
   const [loading, setLoading] = useState(false)
   const [months, setMonths] = useState([])
-  const [selectedYear, setSelectedYear] = useState("2026")
+  const [selectedYear, setSelectedYear] = useState("2025")
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [plants, setPlants] = useState([])
 
-  const years = ["2026", "2027"]
+  const years = ["2025", "2026"]
 
   const toggleSection = (sectionIndex) => {
     setExpandedSections((prev) =>
@@ -74,12 +74,17 @@ const ParentAccordion = () => {
   }
 
   // Calculate summary statistics
+  // totalPlants = total capacity, available = totalPlants - totalBookedPlants
   const totalStats = months.reduce(
-    (acc, section) => ({
-      available: acc.available + (Number(section?.totalPlants) || 0),
-      booked: acc.booked + (Number(section?.totalBookedPlants) || 0),
-      total: acc.total + (Number(section?.totalPlants) + Number(section?.totalBookedPlants) || 0)
-    }),
+    (acc, section) => {
+      const total = Number(section?.totalPlants) || 0
+      const booked = Number(section?.totalBookedPlants) || 0
+      return {
+        available: acc.available + Math.max(0, total - booked),
+        booked: acc.booked + booked,
+        total: acc.total + total
+      }
+    },
     { available: 0, booked: 0, total: 0 }
   )
 
@@ -196,9 +201,9 @@ const ParentAccordion = () => {
             </div>
           ) : (
             months.map((section, sectionIndex) => {
-              const availablePlants = Number(section?.totalPlants) || 0
+              const totalCapacity = Number(section?.totalPlants) || 0
               const bookedPlants = Number(section?.totalBookedPlants) || 0
-              const totalCapacity = availablePlants + bookedPlants
+              const availablePlants = Math.max(0, totalCapacity - bookedPlants)
               const utilizationRate = totalCapacity > 0 ? (bookedPlants / totalCapacity) * 100 : 0
               const isExpanded = isSectionExpanded(sectionIndex)
 

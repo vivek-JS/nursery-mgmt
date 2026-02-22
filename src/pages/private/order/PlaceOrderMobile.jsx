@@ -600,31 +600,6 @@ function PlaceOrderMobile() {
       const paidTotal = getTotalPaidAll(payments)
       return (
         <Box>
-          {/* Order info grid */}
-          <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0.75, mb: 1 }}>
-            <InfoRow label="Plant" value={row.plantType} />
-            <InfoRow label="Subtype" value={row.plantSubtype} />
-            <InfoRow label="Quantity" value={`${row.totalPlants} plants`} />
-            <InfoRow label="Rate" value={`₹${row.rate}`} />
-            <InfoRow label="Slot" value={row.slotPeriod} />
-            <InfoRow label="Delivery" value={row.deliveryDate} />
-            <InfoRow label="Sales" value={row.salesPerson} />
-            <InfoRow label="Date" value={row.orderDate} />
-          </Box>
-
-          {row.farmerMobile && (
-            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, mb: 0.75 }}>
-              <PhoneIcon sx={{ fontSize: 12, color: "#667eea" }} />
-              <Typography variant="caption" sx={{ fontSize: "0.68rem", color: "#667eea" }}>{row.farmerMobile}</Typography>
-            </Box>
-          )}
-          {(row.farmerVillage || row.farmerTaluka) && (
-            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, mb: 1 }}>
-              <LocationIcon sx={{ fontSize: 12, color: "text.secondary" }} />
-              <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.65rem" }}>{[row.farmerVillage, row.farmerTaluka, row.farmerDistrict].filter(Boolean).join(", ")}</Typography>
-            </Box>
-          )}
-
           {/* Payment summary bar */}
           <Box sx={{ display: "flex", justifyContent: "space-around", py: 0.75, px: 0.5, bgcolor: "#f8f9fa", borderRadius: 1.5, mb: 1, border: "1px solid #eee" }}>
             <PaymentChip label="Total" value={`₹${row.total?.toLocaleString()}`} color="#2c3e50" />

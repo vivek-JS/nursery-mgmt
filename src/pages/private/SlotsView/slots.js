@@ -424,11 +424,11 @@ const SlotAccordionView = ({ plantId, year }) => {
                 }
               }}>
               {months?.subtypes?.map((subtype, index) => {
-                const totalCapacity = subtype?.totalPlants + subtype?.totalBookedPlants || 0
-                const availablePlants = subtype?.totalPlants || 0
+                const totalCapacity = subtype?.totalPlants || 0
                 const bookedPlants = subtype?.totalBookedPlants || 0
-                const bookedPercentage = calculatePercentage(bookedPlants, totalCapacity)
-                const isOverbooked = availablePlants < 0 || bookedPercentage > 100
+                const availablePlants = Math.max(0, totalCapacity - bookedPlants)
+                const bookedPercentage = totalCapacity > 0 ? calculatePercentage(bookedPlants, totalCapacity) : 0
+                const isOverbooked = totalCapacity < 0 || bookedPercentage > 100
 
                 return (
                   <Tab
@@ -462,12 +462,12 @@ const SlotAccordionView = ({ plantId, year }) => {
             <div className="space-y-6">
               {(() => {
                 const subtype = months.subtypes[selectedSubtype]
-                const totalCapacity = subtype?.totalPlants + subtype?.totalBookedPlants || 0
-                const availablePlants = subtype?.totalPlants || 0
+                const totalCapacity = subtype?.totalPlants || 0
                 const bookedPlants = subtype?.totalBookedPlants || 0
-                const bookedPercentage = calculatePercentage(bookedPlants, totalCapacity)
+                const availablePlants = Math.max(0, totalCapacity - bookedPlants)
+                const bookedPercentage = totalCapacity > 0 ? calculatePercentage(bookedPlants, totalCapacity) : 0
                 const statusInfo = getStatusInfo(bookedPercentage, availablePlants)
-                const isOverbooked = availablePlants < 0 || bookedPercentage > 100
+                const isOverbooked = totalCapacity < 0 || bookedPercentage > 100
 
                 return (
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
