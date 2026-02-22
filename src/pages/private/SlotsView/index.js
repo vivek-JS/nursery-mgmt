@@ -20,11 +20,11 @@ const ParentAccordion = () => {
   const [expandedSections, setExpandedSections] = useState([])
   const [loading, setLoading] = useState(false)
   const [months, setMonths] = useState([])
-  const [selectedYear, setSelectedYear] = useState("2025")
+  const [selectedYear, setSelectedYear] = useState("2026")
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [plants, setPlants] = useState([])
 
-  const years = ["2025", "2026"]
+  const years = ["2026", "2027"]
 
   const toggleSection = (sectionIndex) => {
     setExpandedSections((prev) =>
