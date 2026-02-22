@@ -1835,8 +1835,8 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
       }
     }
 
-    // Validate dealer quota availability
-    if (quotaType === "dealer" && formData?.plant && formData?.subtype && formData?.orderDate) {
+    // Validate dealer quota availability (only for normal farmer orders with dealer selected - not for dealer orders)
+    if (!bulkOrder && quotaType === "dealer" && formData?.plant && formData?.subtype && formData?.orderDate) {
       const requestedQuantity = parseInt(formData?.noOfPlants) || 0
       const availableQuantity = getRemainingQuantity()
 
@@ -1950,8 +1950,8 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
           availableQuantity = receivedAvailable + pendingAvailable
           productInfo = ` (Product: ${formData.productName})`
         }
-      } else if (isDealerQuotaSlot) {
-        // Use dealer quota data
+      } else if (!bulkOrder && isDealerQuotaSlot) {
+        // Use dealer quota data (only for normal farmer orders - dealer orders use API slots)
         availableQuantity = selectedSlot.availableQuantity
         slotPeriod = selectedSlot ? `${formatSlotPeriod(selectedSlot.startDay, selectedSlot.endDay)} (DEALER QUOTA)` : ""
       } else if (available !== null) {
@@ -3709,8 +3709,8 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                   </FormControl>
                 </Grid>
 
-                {/* Dealer Quota Summary - Show for dealer orders (including bulk/dealer orders) */}
-                {(formData?.dealer || user?.jobTitle === "DEALER") && formData?.plant && dealerWallet && dealerWallet.plantDetails && dealerWallet.plantDetails.length > 0 && (
+                {/* Dealer Quota Summary - only for normal farmer orders with dealer selected, not for dealer orders */}
+                {!bulkOrder && (formData?.dealer || user?.jobTitle === "DEALER") && formData?.plant && dealerWallet && dealerWallet.plantDetails && dealerWallet.plantDetails.length > 0 && (
                   <Grid item xs={12}>
                     <Box sx={{ p: 3, bgcolor: "#f8f9fa", borderRadius: 3, border: "2px solid #e3f2fd", boxShadow: "0 4px 8px rgba(0,0,0,0.1)" }}>
                       <Box sx={{ p: 3, bgcolor: "white", borderRadius: 2, boxShadow: "0 2px 6px rgba(0,0,0,0.1)" }}>
@@ -3879,9 +3879,11 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                                           <Typography sx={{ fontSize: "0.9rem", fontWeight: 600, color: "#334155" }}>
                                             {formatSlotPeriod(slot.startDay, slot.endDay) || slot.label}
                                           </Typography>
-                                          <Typography sx={{ fontSize: "0.8rem", color: "#64748b", fontWeight: 500 }}>
-                                            {slot.availableQuantity ?? 0} available
-                                          </Typography>
+                                          {(user?.jobTitle !== "DEALER" && user?.jobTitle !== "SALES") && (
+                                            <Typography sx={{ fontSize: "0.8rem", color: "#64748b", fontWeight: 500 }}>
+                                              {slot.availableQuantity ?? 0} available
+                                            </Typography>
+                                          )}
                                         </Box>
                                       )
                                     })}
@@ -3949,9 +3951,11 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                                             <Typography sx={{ fontSize: "0.9rem", fontWeight: 600, color: "#334155" }}>
                                               {formatSlotPeriod(slot.startDay, slot.endDay) || slot.label}
                                             </Typography>
-                                            <Typography sx={{ fontSize: "0.8rem", color: "#64748b", fontWeight: 500 }}>
-                                              {slot.availableQuantity ?? 0} available
-                                            </Typography>
+                                            {(user?.jobTitle !== "DEALER" && user?.jobTitle !== "SALES") && (
+                                              <Typography sx={{ fontSize: "0.8rem", color: "#64748b", fontWeight: 500 }}>
+                                                {slot.availableQuantity ?? 0} available
+                                              </Typography>
+                                            )}
                                           </Box>
                                         )
                                       })}
@@ -4215,6 +4219,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                     }}
                     inputProps={{ min: 1, step: 1 }}
                     error={
+                      !bulkOrder &&
                       quotaType === "dealer" &&
                       formData?.plant &&
                       formData?.subtype &&
@@ -4223,6 +4228,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                       parseInt(formData?.noOfPlants) > (getRemainingQuantity() || 0)
                     }
                     helperText={
+                      !bulkOrder &&
                       quotaType === "dealer" &&
                       formData?.plant &&
                       formData?.subtype &&
@@ -4443,8 +4449,9 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                   </Grid>
                 )}
 
-                {/* Dealer Quota Validation Display */}
-                {quotaType === "dealer" &&
+                {/* Dealer Quota Validation Display - only for normal farmer orders, not dealer orders */}
+                {!bulkOrder &&
+                  quotaType === "dealer" &&
                   formData?.plant &&
                   formData?.subtype &&
                   formData?.orderDate && (
