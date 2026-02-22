@@ -59,7 +59,7 @@ const EmployeeManagement = () => {
     try {
       setLoading(true)
       const instance = NetworkManager(API.EMPLOYEE.GET_EMPLOYEE)
-      const emps = await instance.request({})
+      const emps = await instance.request({}, { limit: 1000 })
       setEmployees(emps?.data?.data || [])
     } catch (error) {
       console.error("Error fetching employees:", error)

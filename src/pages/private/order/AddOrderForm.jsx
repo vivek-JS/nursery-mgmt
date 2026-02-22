@@ -101,16 +101,13 @@ const useStyles = makeStyles()((theme) => ({
     maxWidth: 520,
     margin: "0 auto",
     background: "#fafafa",
+    minWidth: 0,
     "& .MuiFormHelperText-root": {
       marginLeft: 0,
       paddingLeft: "14px",
       marginTop: 2
     },
-    "& .MuiOutlinedInput-root .MuiOutlinedInput-input": {
-      padding: "10px 12px",
-      fontSize: "0.875rem",
-      boxSizing: "border-box"
-    }
+    "& .MuiOutlinedInput-root": { minWidth: 0 },
   },
   formCard: {
     marginBottom: 8,
@@ -118,6 +115,7 @@ const useStyles = makeStyles()((theme) => ({
     boxShadow: "0 1px 8px rgba(0,0,0,0.06)",
     border: "1px solid #e8e8e8",
     transition: "all 0.2s ease",
+    minWidth: 0,
     "&:hover": {
       boxShadow: "0 2px 12px rgba(0,0,0,0.1)"
     }
@@ -182,8 +180,11 @@ const useStyles = makeStyles()((theme) => ({
   },
   formSection: {
     padding: "8px 12px",
+    minWidth: 0,
+    overflow: "hidden",
     "& .MuiGrid-item": {
-      marginBottom: 2
+      marginBottom: 2,
+      minWidth: 0
     }
   },
   infoChip: {
@@ -240,20 +241,24 @@ const useStyles = makeStyles()((theme) => ({
     borderRadius: 12
   },
   compactForm: {
-    "& .MuiCardContent-root": { padding: "8px 12px", "&:last-child": { paddingBottom: 8 } },
-    "& .MuiCard-root": { marginBottom: 8 },
+    "& .MuiCardContent-root": { padding: "10px 14px", "&:last-child": { paddingBottom: 10 } },
+    "& .MuiCard-root": { marginBottom: 10 },
     "& .MuiFormControlLabel-root": { marginLeft: 0, marginRight: 0 },
-    "& .MuiAlert-root": { padding: "6px 12px", "& .MuiAlert-message": { fontSize: "0.8rem" } },
-    "& .MuiTypography-body2": { fontSize: "0.8rem" },
+    "& .MuiAlert-root": { padding: "8px 12px", "& .MuiAlert-message": { fontSize: "0.82rem" } },
+    "& .MuiTypography-body2": { fontSize: "0.85rem" },
+    "& .MuiRadioGroup-root": { gap: 4 },
     "& .MuiTypography-subtitle1": { fontSize: "0.85rem" },
     "& .MuiTypography-subtitle2": { fontSize: "0.8rem" },
     "& .MuiInputBase-input": { fontSize: "0.875rem" },
     "& .MuiInputLabel-root": { fontSize: "0.875rem" },
     "& .MuiFormLabel-root": { fontSize: "0.875rem" },
+    "& .MuiOutlinedInput-root": { minWidth: 0 },
     "& .MuiOutlinedInput-input": {
       fontSize: "0.875rem",
       padding: "10px 12px",
-      boxSizing: "border-box"
+      boxSizing: "border-box",
+      overflow: "hidden",
+      textOverflow: "ellipsis"
     },
     "& .MuiFormHelperText-root": { paddingLeft: "12px" }
   }
@@ -589,7 +594,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
   const loadSubTypes = async (plantId) => {
     try {
       const instance = NetworkManager(API.slots.GET_PLANTS_SUBTYPE)
-      const response = await instance.request(null, { plantId, year: 2025 })
+      const response = await instance.request(null, { plantId, year: new Date().getFullYear() })
       if (response?.data?.subtypes) {
         const subtypes = response.data.subtypes.map((subtype) => {
           // Handle rate as array - pick 0th element
@@ -765,7 +770,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
       // Use fast simple slots endpoint for non-dealer quota
       // Fetch slots for both 2025 and 2026
       const instance = NetworkManager(API.slots.GET_SIMPLE_SLOTS)
-      const years = [2025, 2026]
+      const years = [2026, 2027]
       
       // Fetch slots for both years in parallel
       const responses = await Promise.all(
@@ -2598,16 +2603,17 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
             </Typography>
           </div>
           <CardContent className={classes.formSection}>
-            <RadioGroup row value={quotaType || ""} onChange={(e) => setQuotaType(e.target.value)}>
+            <RadioGroup value={quotaType || ""} onChange={(e) => setQuotaType(e.target.value)}
+              sx={{ flexDirection: fullScreen ? "column" : "row", gap: fullScreen ? 0.5 : 0 }}>
               <FormControlLabel
                 value="dealer"
-                control={<Radio color="primary" />}
-                label="From Dealer Quota"
+                control={<Radio color="primary" size={fullScreen ? "medium" : "small"} />}
+                label={<Typography sx={{ fontSize: fullScreen ? "0.9rem" : "0.85rem" }}>From Dealer Quota</Typography>}
               />
               <FormControlLabel
                 value="company"
-                control={<Radio color="primary" />}
-                label="From Company Quota"
+                control={<Radio color="primary" size={fullScreen ? "medium" : "small"} />}
+                label={<Typography sx={{ fontSize: fullScreen ? "0.9rem" : "0.85rem" }}>From Company Quota</Typography>}
               />
             </RadioGroup>
 
@@ -2664,9 +2670,9 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
       className={`${classes.dialog} ${fullScreen ? 'fullScreenDialog' : ''}`.trim()}
       PaperProps={{
         style: fullScreen
-          ? { maxWidth: '100%', width: '100%', height: '100%', maxHeight: '100%', borderRadius: 0 }
+          ? { maxWidth: '100%', width: '100%', height: '100%', maxHeight: '100%', borderRadius: 0, display: 'flex', flexDirection: 'column' }
           : { maxHeight: '75vh', minHeight: '50vh', maxWidth: 540 },
-        sx: fullScreen ? { m: 0, maxWidth: '100vw', maxHeight: '100vh' } : undefined,
+        sx: fullScreen ? { m: 0, maxWidth: '100vw', maxHeight: '100vh', overflow: 'hidden' } : undefined,
       }}
     >
       <DialogTitle className={classes.dialogTitle} sx={{ pb: 0.5, ...(fullScreen && { py: 1, px: 1.5 }) }}>
@@ -2698,12 +2704,11 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
         sx={{
           p: fullScreen ? 0 : 0.5,
           overflowX: 'hidden',
+          overflowY: 'auto',
+          WebkitOverflowScrolling: 'touch',
           ...(fullScreen && {
             flex: 1,
-            overflowY: 'auto',
-            WebkitOverflowScrolling: 'touch',
-            display: 'flex',
-            flexDirection: 'column',
+            p: 0,
           }),
         }}
       >
@@ -2711,12 +2716,12 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
           className={`${classes.formContainer} ${fullScreen ? classes.compactForm : ''}`.trim()}
           sx={{
             ...(fullScreen && {
-              padding: '8px 12px',
+              padding: '10px 14px',
               maxWidth: '100%',
               width: '100%',
               boxSizing: 'border-box',
-              flex: 1,
               minWidth: 0,
+              pb: 4,
             }),
           }}
         >
@@ -2853,7 +2858,6 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                   <Grid item xs={12} sm={6}>
                     <TextField
                       fullWidth
-                      size="small"
                       label="Mobile Number"
                       value={formData?.mobileNumber}
                       onChange={(e) => {
@@ -2888,7 +2892,6 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                   <Grid item xs={12} sm={7}>
                     <TextField
                       fullWidth
-                      size="small"
                       label="Farmer Name"
                       value={formData?.name}
                       onChange={(e) => handleInputChange("name", e.target.value)}
@@ -3679,14 +3682,9 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                       })()}
                         </>
                       ) : (
-                        <Alert severity="info" sx={{ mb: 2 }}>
-                          <Typography variant="body2">
-                            No ready plants products available for {plants.find(p => p.value === formData?.plant)?.label || "selected plant"}.
-                          </Typography>
-                          <Typography variant="caption" display="block" sx={{ mt: 1 }}>
-                            You can still place orders using our own stock by selecting a slot below.
-                          </Typography>
-                        </Alert>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: "block", py: 0.5 }}>
+                          No external products for {plants.find(p => p.value === formData?.plant)?.label || "selected plant"}. Select a slot below to continue.
+                        </Typography>
                       )}
                     </Box>
                   </Grid>
@@ -4641,12 +4639,14 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
 
       <DialogActions
         sx={{
-          p: fullScreen ? 1 : 0.75,
+          p: fullScreen ? 1.25 : 0.75,
           background: '#fafafa',
           borderTop: '1px solid #e0e0e0',
           justifyContent: 'space-between',
           flexWrap: 'wrap',
           gap: 0.5,
+          flexShrink: 0,
+          ...(fullScreen && { position: 'sticky', bottom: 0, zIndex: 10 }),
         }}
       >
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>

@@ -1,6 +1,16 @@
 import React, { useState, useEffect } from "react"
 import { NetworkManager, API } from "network/core"
-import { Loader } from "lucide-react"
+import {
+  Box,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  CircularProgress,
+  Alert,
+  Grid,
+  InputAdornment
+} from "@mui/material"
 
 const LocationSelector = ({
   selectedState,
@@ -38,103 +48,56 @@ const LocationSelector = ({
 
   const [error, setError] = useState("")
 
-  // Fetch states on component mount
   useEffect(() => {
     fetchStates()
   }, [])
 
-  // When disabled and we have values, ensure we load the necessary data to display them
   useEffect(() => {
     if (disabled && selectedState && selectedDistrict && selectedTaluka) {
-      // Load districts, talukas, and villages to display the selected values
       fetchDistricts(selectedState)
       fetchTalukas(selectedState, selectedDistrict)
       fetchVillages(selectedState, selectedDistrict, selectedTaluka)
     }
   }, [disabled, selectedState, selectedDistrict, selectedTaluka])
 
-  // Fetch districts when state changes
   useEffect(() => {
     if (selectedState) {
       fetchDistricts(selectedState)
-      // Reset dependent selections
-      onDistrictChange("")
-      onTalukaChange("")
-      onVillageChange("")
-      setTalukas([])
-      setVillages([])
-    } else {
-      setDistricts([])
-      setTalukas([])
-      setVillages([])
+      if (!autoFill) {
+        setTalukas([])
+        setVillages([])
+      }
     }
   }, [selectedState])
 
-  // Auto-fill districts when they are loaded and autoFill is enabled
-  useEffect(() => {
-    if (autoFill && districts.length > 0 && !selectedDistrict) {
-      const firstDistrict = districts[0]
-      onDistrictChange(firstDistrict.name)
-    }
-  }, [districts, autoFill, selectedDistrict, onDistrictChange])
-
-  // Fetch talukas when district changes
   useEffect(() => {
     if (selectedState && selectedDistrict) {
       fetchTalukas(selectedState, selectedDistrict)
-      // Reset dependent selections
-      onTalukaChange("")
-      onVillageChange("")
-      setVillages([])
-    } else {
-      setTalukas([])
-      setVillages([])
+      if (!autoFill) {
+        setVillages([])
+      }
     }
   }, [selectedDistrict])
 
-  // Auto-fill talukas when they are loaded and autoFill is enabled
-  useEffect(() => {
-    if (autoFill && talukas.length > 0 && !selectedTaluka) {
-      const firstTaluka = talukas[0]
-      onTalukaChange(firstTaluka.name)
-    }
-  }, [talukas, autoFill, selectedTaluka, onTalukaChange])
-
-  // Fetch villages when taluka changes
   useEffect(() => {
     if (selectedState && selectedDistrict && selectedTaluka) {
       fetchVillages(selectedState, selectedDistrict, selectedTaluka)
-      // Reset dependent selections
-      onVillageChange("")
-    } else {
-      setVillages([])
     }
   }, [selectedTaluka])
-
-  // Auto-fill villages when they are loaded and autoFill is enabled
-  useEffect(() => {
-    if (autoFill && villages.length > 0 && !selectedVillage) {
-      const firstVillage = villages[0]
-      onVillageChange(firstVillage.name)
-    }
-  }, [villages, autoFill, selectedVillage, onVillageChange])
 
   const fetchStates = async () => {
     setLoading((prev) => ({ ...prev, states: true }))
     setError("")
-
     try {
-      // Use the optimized endpoint for just states
-      const instance = NetworkManager(API.LOCATION.GET_STATES_ONLY)
-      const response = await instance.request()
-
-      if (response?.data?.status === "success" && Array.isArray(response.data.data)) {
-        setStates(response.data.data.map((s) => ({ id: s.id, name: s.name, code: s.code })))
+      const instance = NetworkManager(API.LOCATION.GET_CASCADING_LOCATION)
+      const response = await instance.request({})
+      if (response?.data?.status === "success" && Array.isArray(response.data.data.states)) {
+        setStates(response.data.data.states.map((s) => ({ id: s.id, name: s.name, code: s.code })))
       } else {
         setStates([])
       }
-    } catch (error) {
-      console.error("Error fetching states:", error)
+    } catch (err) {
+      console.error("Error fetching states:", err)
       setError("Failed to load states")
       setStates([])
     } finally {
@@ -146,20 +109,16 @@ const LocationSelector = ({
     setLoading((prev) => ({ ...prev, districts: true }))
     setError("")
     setDistricts([])
-    setTalukas([])
-    setVillages([])
     try {
       const instance = NetworkManager(API.LOCATION.GET_CASCADING_LOCATION)
       const response = await instance.request({ state: stateNameOrId })
       if (response?.data?.status === "success" && Array.isArray(response.data.data.districts)) {
-        setDistricts(
-          response.data.data.districts.map((d) => ({ id: d.id, name: d.name, code: d.code }))
-        )
+        setDistricts(response.data.data.districts.map((d) => ({ id: d.id, name: d.name, code: d.code })))
       } else {
         setDistricts([])
       }
-    } catch (error) {
-      console.error("Error fetching districts:", error)
+    } catch (err) {
+      console.error("Error fetching districts:", err)
       setError("Failed to load districts")
       setDistricts([])
     } finally {
@@ -171,19 +130,16 @@ const LocationSelector = ({
     setLoading((prev) => ({ ...prev, talukas: true }))
     setError("")
     setTalukas([])
-    setVillages([])
     try {
       const instance = NetworkManager(API.LOCATION.GET_CASCADING_LOCATION)
       const response = await instance.request({ state: stateNameOrId, district: districtNameOrId })
       if (response?.data?.status === "success" && Array.isArray(response.data.data.talukas)) {
-        setTalukas(
-          response.data.data.talukas.map((t) => ({ id: t.id, name: t.name, code: t.code }))
-        )
+        setTalukas(response.data.data.talukas.map((t) => ({ id: t.id, name: t.name, code: t.code })))
       } else {
         setTalukas([])
       }
-    } catch (error) {
-      console.error("Error fetching talukas:", error)
+    } catch (err) {
+      console.error("Error fetching talukas:", err)
       setError("Failed to load talukas")
       setTalukas([])
     } finally {
@@ -203,14 +159,12 @@ const LocationSelector = ({
         taluka: talukaNameOrId
       })
       if (response?.data?.status === "success" && Array.isArray(response.data.data.villages)) {
-        setVillages(
-          response.data.data.villages.map((v) => ({ id: v.id, name: v.name, code: v.code }))
-        )
+        setVillages(response.data.data.villages.map((v) => ({ id: v.id, name: v.name, code: v.code })))
       } else {
         setVillages([])
       }
-    } catch (error) {
-      console.error("Error fetching villages:", error)
+    } catch (err) {
+      console.error("Error fetching villages:", err)
       setError("Failed to load villages")
       setVillages([])
     } finally {
@@ -218,174 +172,105 @@ const LocationSelector = ({
     }
   }
 
-  const handleStateChange = (e) => {
-    const value = e.target.value
-    onStateChange(value)
-  }
+  const handleStateChange = (e) => onStateChange(e.target.value)
+  const handleDistrictChange = (e) => onDistrictChange(e.target.value)
+  const handleTalukaChange = (e) => onTalukaChange(e.target.value)
+  const handleVillageChange = (e) => onVillageChange(e.target.value)
 
-  const handleDistrictChange = (e) => {
-    const value = e.target.value
-    onDistrictChange(value)
-  }
-
-  const handleTalukaChange = (e) => {
-    const value = e.target.value
-    onTalukaChange(value)
-  }
-
-  const handleVillageChange = (e) => {
-    const value = e.target.value
-    onVillageChange(value)
-  }
+  const sz = compact ? "small" : "medium"
 
   return (
-    <div className={`${compact ? "space-y-2" : "space-y-4"} ${className}`}>
-      {error && <div className="text-red-500 text-sm bg-red-50 p-2 rounded-md">{error}</div>}
+    <Box className={className} sx={{ mt: compact ? 1 : 2 }}>
+      {error && (
+        <Alert severity="error" sx={{ mb: 1, py: 0.25, fontSize: "0.75rem" }}>{error}</Alert>
+      )}
 
-      <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 ${compact ? "gap-2" : "gap-4"}`}>
-        {/* State Selection */}
-        <div className="relative">
-          {showLabels && (
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              State {required && <span className="text-red-500">*</span>}
-            </label>
-          )}
-          <div className="relative">
-            <select
-              value={selectedState}
+      <Grid container spacing={compact ? 1 : 2}>
+        {/* State */}
+        <Grid item xs={12} sm={6} md={3}>
+          <FormControl fullWidth size={sz} disabled={disabled || loading.states}>
+            <InputLabel>{placeholder.state}</InputLabel>
+            <Select
+              value={selectedState || ""}
               onChange={handleStateChange}
-              disabled={disabled || loading.states}
-              className={`w-full ${compact ? "p-2 text-sm rounded-md" : "p-3 rounded-lg"} border shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200 ${
-                disabled || loading.states ? "bg-gray-100 cursor-not-allowed" : "bg-white"
-              } ${required && !selectedState ? "border-red-300" : "border-gray-300"}`}>
-              <option value="">{loading.states ? "Loading..." : placeholder.state}</option>
-              {states.map((state) => (
-                <option key={state.id} value={state.name}>
-                  {state.name}
-                </option>
+              label={placeholder.state}
+              endAdornment={loading.states ? <InputAdornment position="end"><CircularProgress size={16} /></InputAdornment> : null}
+            >
+              <MenuItem value=""><em>None</em></MenuItem>
+              {states.map((s) => (
+                <MenuItem key={s.id} value={s.name}>{s.name}</MenuItem>
               ))}
-              {/* Add selected state if not in the list (for disabled state) */}
               {selectedState && !states.find((s) => s.name === selectedState) && (
-                <option value={selectedState}>{selectedState}</option>
+                <MenuItem value={selectedState}>{selectedState}</MenuItem>
               )}
-            </select>
-            {loading.states && (
-              <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-                <Loader className="w-4 h-4 animate-spin text-gray-400" />
-              </div>
-            )}
-          </div>
-        </div>
+            </Select>
+          </FormControl>
+        </Grid>
 
-        {/* District Selection */}
-        <div className="relative">
-          {showLabels && (
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              District {required && <span className="text-red-500">*</span>}
-            </label>
-          )}
-          <div className="relative">
-            <select
-              value={selectedDistrict}
+        {/* District */}
+        <Grid item xs={12} sm={6} md={3}>
+          <FormControl fullWidth size={sz} disabled={disabled || loading.districts || !selectedState}>
+            <InputLabel>{placeholder.district}</InputLabel>
+            <Select
+              value={selectedDistrict || ""}
               onChange={handleDistrictChange}
-              disabled={disabled || loading.districts || !selectedState}
-              className={`w-full ${compact ? "p-2 text-sm rounded-md" : "p-3 rounded-lg"} border shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200 ${
-                disabled || loading.districts || !selectedState
-                  ? "bg-gray-100 cursor-not-allowed"
-                  : "bg-white"
-              } ${required && !selectedDistrict ? "border-red-300" : "border-gray-300"}`}>
-              <option value="">{loading.districts ? "Loading..." : placeholder.district}</option>
-              {districts.map((district) => (
-                <option key={district.id} value={district.name}>
-                  {district.name}
-                </option>
+              label={placeholder.district}
+              endAdornment={loading.districts ? <InputAdornment position="end"><CircularProgress size={16} /></InputAdornment> : null}
+            >
+              <MenuItem value=""><em>None</em></MenuItem>
+              {districts.map((d) => (
+                <MenuItem key={d.id} value={d.name}>{d.name}</MenuItem>
               ))}
-              {/* Add selected district if not in the list (for disabled state) */}
               {selectedDistrict && !districts.find((d) => d.name === selectedDistrict) && (
-                <option value={selectedDistrict}>{selectedDistrict}</option>
+                <MenuItem value={selectedDistrict}>{selectedDistrict}</MenuItem>
               )}
-            </select>
-            {loading.districts && (
-              <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-                <Loader className="w-4 h-4 animate-spin text-gray-400" />
-              </div>
-            )}
-          </div>
-        </div>
+            </Select>
+          </FormControl>
+        </Grid>
 
-        {/* Taluka Selection */}
-        <div className="relative">
-          {showLabels && (
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Taluka {required && <span className="text-red-500">*</span>}
-            </label>
-          )}
-          <div className="relative">
-            <select
-              value={selectedTaluka}
+        {/* Taluka */}
+        <Grid item xs={12} sm={6} md={3}>
+          <FormControl fullWidth size={sz} disabled={disabled || loading.talukas || !selectedDistrict}>
+            <InputLabel>{placeholder.taluka}</InputLabel>
+            <Select
+              value={selectedTaluka || ""}
               onChange={handleTalukaChange}
-              disabled={disabled || loading.talukas || !selectedDistrict}
-              className={`w-full ${compact ? "p-2 text-sm rounded-md" : "p-3 rounded-lg"} border shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200 ${
-                disabled || loading.talukas || !selectedDistrict
-                  ? "bg-gray-100 cursor-not-allowed"
-                  : "bg-white"
-              } ${required && !selectedTaluka ? "border-red-300" : "border-gray-300"}`}>
-              <option value="">{loading.talukas ? "Loading..." : placeholder.taluka}</option>
-              {talukas.map((taluka) => (
-                <option key={taluka.id} value={taluka.name}>
-                  {taluka.name}
-                </option>
+              label={placeholder.taluka}
+              endAdornment={loading.talukas ? <InputAdornment position="end"><CircularProgress size={16} /></InputAdornment> : null}
+            >
+              <MenuItem value=""><em>None</em></MenuItem>
+              {talukas.map((t) => (
+                <MenuItem key={t.id} value={t.name}>{t.name}</MenuItem>
               ))}
-              {/* Add selected taluka if not in the list (for disabled state) */}
               {selectedTaluka && !talukas.find((t) => t.name === selectedTaluka) && (
-                <option value={selectedTaluka}>{selectedTaluka}</option>
+                <MenuItem value={selectedTaluka}>{selectedTaluka}</MenuItem>
               )}
-            </select>
-            {loading.talukas && (
-              <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-                <Loader className="w-4 h-4 animate-spin text-gray-400" />
-              </div>
-            )}
-          </div>
-        </div>
+            </Select>
+          </FormControl>
+        </Grid>
 
-        {/* Village Selection */}
-        <div className="relative">
-          {showLabels && (
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Village {required && <span className="text-red-500">*</span>}
-            </label>
-          )}
-          <div className="relative">
-            <select
-              value={selectedVillage}
+        {/* Village */}
+        <Grid item xs={12} sm={6} md={3}>
+          <FormControl fullWidth size={sz} disabled={disabled || loading.villages || !selectedTaluka}>
+            <InputLabel>{placeholder.village}</InputLabel>
+            <Select
+              value={selectedVillage || ""}
               onChange={handleVillageChange}
-              disabled={disabled || loading.villages || !selectedTaluka}
-              className={`w-full ${compact ? "p-2 text-sm rounded-md" : "p-3 rounded-lg"} border shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200 ${
-                disabled || loading.villages || !selectedTaluka
-                  ? "bg-gray-100 cursor-not-allowed"
-                  : "bg-white"
-              } ${required && !selectedVillage ? "border-red-300" : "border-gray-300"}`}>
-              <option value="">{loading.villages ? "Loading..." : placeholder.village}</option>
-              {villages.map((village) => (
-                <option key={village.id} value={village.name}>
-                  {village.name}
-                </option>
+              label={placeholder.village}
+              endAdornment={loading.villages ? <InputAdornment position="end"><CircularProgress size={16} /></InputAdornment> : null}
+            >
+              <MenuItem value=""><em>None</em></MenuItem>
+              {villages.map((v) => (
+                <MenuItem key={v.id} value={v.name}>{v.name}</MenuItem>
               ))}
-              {/* Add selected village if not in the list (for disabled state) */}
               {selectedVillage && !villages.find((v) => v.name === selectedVillage) && (
-                <option value={selectedVillage}>{selectedVillage}</option>
+                <MenuItem value={selectedVillage}>{selectedVillage}</MenuItem>
               )}
-            </select>
-            {loading.villages && (
-              <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-                <Loader className="w-4 h-4 animate-spin text-gray-400" />
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
+            </Select>
+          </FormControl>
+        </Grid>
+      </Grid>
+    </Box>
   )
 }
 
