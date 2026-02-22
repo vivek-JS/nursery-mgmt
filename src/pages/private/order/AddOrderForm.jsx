@@ -22,9 +22,6 @@ import {
   DialogActions,
   Chip,
   Divider,
-  Stepper,
-  Step,
-  StepLabel,
   Paper,
   Avatar,
   IconButton,
@@ -334,6 +331,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
   const [isInstantOrder, setIsInstantOrder] = useState(false)
   const [bulkOrder, setBulkOrder] = useState(false)
   const [quotaType, setQuotaType] = useState(null) // "dealer" or "company"
+  const [selectedSlotMonth, setSelectedSlotMonth] = useState("") // For dealer order: month-first then slot
 
   // ============================================================================
   // FARMER DATA STATE
@@ -379,17 +377,6 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
     paymentStatus: "PENDING", // Default to PENDING, will be updated based on payment type
     isWalletPayment: false
   })
-
-  // ============================================================================
-  // CONSTANTS
-  // ============================================================================
-  const steps = [
-    "Order Type",
-    "Farmer Details",
-    "Plant & Slot",
-    "Payment Management",
-    "Review & Submit"
-  ]
 
   // ============================================================================
   // EFFECTS - INITIALIZATION
@@ -455,12 +442,12 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
     }
   }, [formData?.plant])
 
-  // Load slots when subtype changes
+  // Load slots when subtype changes (or when dealer order selected - dealer quota vs company)
   useEffect(() => {
-    if (formData?.subtype) {
-      loadSlots(formData?.plant, formData?.subtype)
+    if (formData?.plant && formData?.subtype) {
+      loadSlots(formData.plant, formData.subtype)
     }
-  }, [formData?.subtype, quotaType, dealerWallet, formData?.dealer])
+  }, [formData?.plant, formData?.subtype, quotaType, dealerWallet, formData?.dealer, bulkOrder])
 
   // Ensure wallet payment is unchecked for dealer orders
   useEffect(() => {
@@ -468,6 +455,13 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
       setNewPayment((prev) => ({ ...prev, isWalletPayment: false }))
     }
   }, [bulkOrder])
+
+  // Reset selected month when plant/subtype or slots change (dealer order)
+  useEffect(() => {
+    if (bulkOrder) {
+      setSelectedSlotMonth("")
+    }
+  }, [bulkOrder, formData?.plant, formData?.subtype, slots])
 
   // ============================================================================
   // DATA LOADING FUNCTIONS
@@ -546,7 +540,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
       noOfPlants: 'Number of Plants',
       plant: 'Plant',
       subtype: 'Subtype',
-      orderDate: 'Order Date',
+      orderDate: 'Delivery Date',
       cavity: 'Cavity'
     }
     
@@ -730,6 +724,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
   }
 
   const loadSlots = async (plantId, subtypeId) => {
+    if (!plantId || !subtypeId) return
     setSlotsLoading(true)
     try {
       // Check if dealer quota should be used
@@ -2150,8 +2145,10 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
           deliveryDate: formData?.orderDate instanceof Date ? formData?.orderDate.toISOString() : formData?.orderDate,
           orderPaymentStatus: "PENDING",
           cavity: formData?.cavity || "",
-          orderBookingDate:
-            formData?.date instanceof Date ? formData?.date.toISOString() : formData?.date,
+          orderBookingDate: (() => {
+            const d = formData?.date || new Date()
+            return d instanceof Date ? d.toISOString() : d
+          })(),
           dealerOrder: true,
           productName: formData?.productName || undefined, // Product name reference for plant products
           productMappingId: formData?.productMappingId || undefined, // PlantProductMapping ID for ready plants products
@@ -2473,6 +2470,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
     setIsInstantOrder(false)
     setBulkOrder(false)
     setQuotaType(null)
+    setSelectedSlotMonth("")
     setActiveStep(0)
     setShowConfirmation(false)
     setConfirmationData({})
@@ -2499,6 +2497,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
   // ============================================================================
   
   const renderOrderTypeSelector = () => {
+    // For dealers: Farmer Order / Dealer Order (shown in both dashboard and mobile place-order)
     if (user?.jobTitle === "DEALER") {
       return (
         <Card className={classes.formCard}>
@@ -2514,30 +2513,30 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
               onChange={(e) => {
                 const isBulkOrder = e.target.value === "bulk"
                 setBulkOrder(isBulkOrder)
-                // Uncheck wallet payment for dealer orders
                 if (isBulkOrder) {
                   setNewPayment((prev) => ({ ...prev, isWalletPayment: false }))
-                  // Clear sales person selection for bulk orders
                   handleInputChange("sales", "")
+                  if (user?.jobTitle === "DEALER" && !quotaType) setQuotaType("dealer")
                 }
-              }}>
+              }}
+              sx={{ flexDirection: fullScreen ? "column" : "row", gap: fullScreen ? 0.5 : 1.5, flexWrap: "nowrap" }}>
               <FormControlLabel
                 value="farmer"
-                control={<Radio color="primary" />}
+                control={<Radio color="primary" size={fullScreen ? "medium" : "small"} />}
                 label={
                   <Box display="flex" alignItems="center" gap={1}>
                     <PersonIcon color="primary" />
-                    <Typography>Farmer Order</Typography>
+                    <Typography sx={{ fontSize: fullScreen ? "0.95rem" : "0.9rem", whiteSpace: "nowrap" }}>Farmer Order</Typography>
                   </Box>
                 }
               />
               <FormControlLabel
                 value="bulk"
-                control={<Radio color="primary" />}
+                control={<Radio color="primary" size={fullScreen ? "medium" : "small"} />}
                 label={
                   <Box display="flex" alignItems="center" gap={1}>
                     <ShippingIcon color="primary" />
-                    <Typography>Dealer Order</Typography>
+                    <Typography sx={{ fontSize: fullScreen ? "0.95rem" : "0.9rem", whiteSpace: "nowrap" }}>Dealer Order</Typography>
                   </Box>
                 }
               />
@@ -2550,7 +2549,8 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
     if (
       user?.jobTitle === "OFFICE_STAFF" ||
       user?.jobTitle === "OFFICE_ADMIN" ||
-      user?.jobTitle === "SUPERADMIN"
+      user?.jobTitle === "SUPERADMIN" ||
+      user?.jobTitle === "SUPER_ADMIN"
     ) {
       return (
         <Card className={classes.formCard}>
@@ -2567,20 +2567,19 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                 const value = e.target.value
                 setIsInstantOrder(value === "instant")
                 setBulkOrder(value === "bulk")
-                // Uncheck wallet payment for dealer/bulk orders
                 if (value === "bulk") {
                   setNewPayment((prev) => ({ ...prev, isWalletPayment: false }))
-                  // Clear sales person selection for bulk orders
                   handleInputChange("sales", "")
                 }
-              }}>
+              }}
+              sx={{ gap: 1.5, flexWrap: "nowrap" }}>
               <FormControlLabel
                 value="normal"
                 control={<Radio color="primary" />}
                 label={
                   <Box display="flex" alignItems="center" gap={1}>
                     <PersonIcon color="primary" />
-                    <Typography>Normal Order</Typography>
+                    <Typography sx={{ fontSize: "0.9rem", whiteSpace: "nowrap" }}>Normal Order</Typography>
                   </Box>
                 }
               />
@@ -2590,7 +2589,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                 label={
                   <Box display="flex" alignItems="center" gap={1}>
                     <FlashIcon color="primary" />
-                    <Typography>Instant Order</Typography>
+                    <Typography sx={{ fontSize: "0.9rem", whiteSpace: "nowrap" }}>Instant Order</Typography>
                   </Box>
                 }
               />
@@ -2600,7 +2599,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                 label={
                   <Box display="flex" alignItems="center" gap={1}>
                     <ShippingIcon color="primary" />
-                    <Typography>Bulk Order</Typography>
+                    <Typography sx={{ fontSize: "0.9rem", whiteSpace: "nowrap" }}>Bulk Order</Typography>
                   </Box>
                 }
               />
@@ -2614,7 +2613,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
   }
 
   const renderQuotaTypeSelector = () => {
-    if (user?.jobTitle === "DEALER" && !bulkOrder) {
+    if (user?.jobTitle === "DEALER") {
       return (
         <Card className={classes.formCard}>
           <div className={classes.cardHeader}>
@@ -2751,27 +2750,6 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
               <CircularProgress size={60} />
             </Box>
           )}
-
-          {/* Stepper - compact, full width */}
-          <Paper
-            elevation={0}
-            sx={{
-              mb: fullScreen ? 0.25 : 0.5,
-              px: 0,
-              py: 0,
-              background: 'transparent',
-              width: '100%',
-              ...(fullScreen && { overflowX: 'hidden', overflowY: 'hidden', minWidth: 0 }),
-            }}
-          >
-            <Stepper activeStep={activeStep} className={classes.stepper} size="small">
-              {steps.map((label) => (
-                <Step key={label}>
-                  <StepLabel sx={{ fontSize: fullScreen ? '0.6rem' : '0.7rem' }}>{label}</StepLabel>
-                </Step>
-              ))}
-            </Stepper>
-          </Paper>
 
           {/* Quick Actions Bar - hidden on mobile fullScreen */}
           {!fullScreen && (user?.jobTitle === "SUPERADMIN" || user?.jobTitle === "OFFICE_ADMIN") ? (
@@ -3083,16 +3061,17 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
             </Card>
           )}
 
-          {/* Sales Person Selection - only for SUPERADMIN and OFFICE_ADMIN (dealers auto-use self) */}
-          {(user?.jobTitle === "SUPERADMIN" || user?.jobTitle === "OFFICE_ADMIN") && (
+          {/* Sales Assignment - SUPERADMIN/OFFICE_ADMIN: dealer only when bulk, else sales or dealer */}
+          {(user?.jobTitle === "SUPERADMIN" || user?.jobTitle === "OFFICE_ADMIN" || user?.jobTitle === "SUPER_ADMIN") && (
           <Card className={classes.formCard}>
             <div className={classes.cardHeader}>
               <Typography variant="h6" className={classes.sectionTitle}>
-                <PersonIcon /> Sales Assignment
+                <PersonIcon /> {bulkOrder ? "Select Dealer" : "Sales Assignment"}
               </Typography>
             </div>
             <CardContent className={classes.formSection}>
               <Grid container spacing={2}>
+                {!bulkOrder && (
                 <Grid item xs={12} sm={6}>
                   <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 1 }}>
                     <Box sx={{ flex: 1 }}>
@@ -3103,7 +3082,6 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                         onChange={(e) => {
                           const selectedSales = e.target.value
                           handleInputChange("sales", selectedSales)
-                          // Clear dealer selection when sales person is selected
                           if (selectedSales) {
                             handleInputChange("dealer", "")
                             setQuotaType(null)
@@ -3111,10 +3089,10 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                           }
                         }}
                         placeholder="Search sales person..."
-                        disabled={!!formData?.dealer || bulkOrder}
+                        disabled={!!formData?.dealer}
                       />
                     </Box>
-                    {formData?.sales && !bulkOrder && (
+                    {formData?.sales && (
                       <Button
                         variant="outlined"
                         color="secondary"
@@ -3140,8 +3118,9 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                     )}
                   </Box>
                 </Grid>
+                )}
 
-                <Grid item xs={12} md={6}>
+                <Grid item xs={12} sm={bulkOrder ? 12 : 6} md={bulkOrder ? 12 : 6}>
                   <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 1 }}>
                     <Box sx={{ flex: 1 }}>
                       <SearchableSelect
@@ -3157,7 +3136,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                           }
                         }}
                         placeholder="Search dealer..."
-                        disabled={!!formData?.sales}
+                        disabled={!bulkOrder && !!formData?.sales}
                       />
                     </Box>
                     {formData?.dealer && (
@@ -3190,7 +3169,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                 </Grid>
               </Grid>
 
-              {/* Show quota type selection when dealer is selected for normal orders only */}
+              {/* Show quota type when dealer is selected (not for dealer orders - they use dealer quota by default) */}
               {formData?.dealer && !bulkOrder && (
                 <Box sx={{ mt: 3 }}>
                   <Typography variant="subtitle2" sx={{ mb: 2, fontWeight: 600, color: "#2c3e50" }}>
@@ -3523,8 +3502,8 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                   </FormControl>
                 </Grid>
 
-                {/* Ready Plants Product Selection - Show as compact cards */}
-                {formData?.plant && (
+                {/* Ready Plants Product Selection - Show only when external products exist */}
+                {formData?.plant && (plantProductMappings.length > 0 || mappingsLoading) && (
                   <Grid item xs={12}>
                     <Box sx={{ mb: 1 }}>
                       <Typography variant="subtitle2" sx={{ mb: 0.5, fontWeight: 600, color: "#2c3e50", fontSize: "0.8rem" }}>
@@ -3696,11 +3675,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                         return null
                       })()}
                         </>
-                      ) : (
-                        <Typography variant="caption" color="text.secondary" sx={{ display: "block", py: 0.5 }}>
-                          No external products for {plants.find(p => p.value === formData?.plant)?.label || "selected plant"}. Select a slot below to continue.
-                        </Typography>
-                      )}
+                      ) : null}
                     </Box>
                   </Grid>
                 )}
@@ -3727,8 +3702,8 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                   </FormControl>
                 </Grid>
 
-                {/* Dealer Quota Summary - Show for selected plant only */}
-                {formData?.dealer && !bulkOrder && formData?.plant && dealerWallet && dealerWallet.plantDetails && dealerWallet.plantDetails.length > 0 && (
+                {/* Dealer Quota Summary - Show for dealer orders (including bulk/dealer orders) */}
+                {(formData?.dealer || user?.jobTitle === "DEALER") && formData?.plant && dealerWallet && dealerWallet.plantDetails && dealerWallet.plantDetails.length > 0 && (
                   <Grid item xs={12}>
                     <Box sx={{ p: 3, bgcolor: "#f8f9fa", borderRadius: 3, border: "2px solid #e3f2fd", boxShadow: "0 4px 8px rgba(0,0,0,0.1)" }}>
                       <Box sx={{ p: 3, bgcolor: "white", borderRadius: 2, boxShadow: "0 2px 6px rgba(0,0,0,0.1)" }}>
@@ -3793,10 +3768,207 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                   </Grid>
                 )}
 
+                {/* Order Booking Date - for dealer orders only (Farmer Details hidden) */}
+                {bulkOrder && (
+                  <Grid item xs={12} md={6}>
+                    <LocalizationProvider dateAdapter={AdapterDateFns}>
+                      <DatePicker
+                        label="Order Booking Date *"
+                        value={formData?.date}
+                        onChange={(date) => handleInputChange("date", date)}
+                        renderInput={(params) => (
+                          <TextField {...params} fullWidth helperText="Date when the order was placed" />
+                        )}
+                        maxDate={new Date()}
+                      />
+                    </LocalizationProvider>
+                  </Grid>
+                )}
+
+                {/* Slot selection - for dealer order: month first then slot; for normal: grouped by month */}
+                {formData?.plant && formData?.subtype && (
+                  <Grid item xs={12}>
+                    <Box sx={{
+                      mb: 2,
+                      p: 2,
+                      borderRadius: 2,
+                      bgcolor: "#f8fafc",
+                      border: "1px solid #e2e8f0"
+                    }}>
+                      <Typography variant="subtitle1" sx={{ mb: 1.5, fontWeight: 700, color: "#1e293b", fontSize: "0.95rem" }}>
+                        Select Slot
+                      </Typography>
+                      {slotsLoading ? (
+                        <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, py: 2 }}>
+                          <CircularProgress size={20} sx={{ color: "#3b82f6" }} />
+                          <Typography variant="body2" color="text.secondary">Loading slots...</Typography>
+                        </Box>
+                      ) : slots.length > 0 ? (
+                        <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                          {bulkOrder ? (
+                            <>
+                              <FormControl fullWidth size="small" sx={{ mb: 2 }}>
+                                <InputLabel>Select Month</InputLabel>
+                                <Select
+                                  value={selectedSlotMonth}
+                                  onChange={(e) => setSelectedSlotMonth(e.target.value)}
+                                  label="Select Month"
+                                >
+                                  {(() => {
+                                    const byMonth = {}
+                                    slots.forEach((slot) => {
+                                      if (slot.startDay && moment(slot.startDay, "DD-MM-YYYY", true).isValid()) {
+                                        const monthKey = moment(slot.startDay, "DD-MM-YYYY").format("YYYY-MM")
+                                        const monthLabel = moment(slot.startDay, "DD-MM-YYYY").format("MMMM YYYY")
+                                        if (!byMonth[monthKey]) byMonth[monthKey] = { label: monthLabel, slots: [] }
+                                        byMonth[monthKey].slots.push(slot)
+                                      }
+                                    })
+                                    return Object.entries(byMonth)
+                                      .sort(([a], [b]) => a.localeCompare(b))
+                                      .map(([key, { label }]) => (
+                                        <MenuItem key={key} value={key}>{label}</MenuItem>
+                                      ))
+                                  })()}
+                                </Select>
+                              </FormControl>
+                              {!selectedSlotMonth && (
+                                <Typography variant="body2" color="text.secondary" sx={{ py: 1 }}>
+                                  Select a month above to see available slots
+                                </Typography>
+                              )}
+                              {selectedSlotMonth && (
+                                <Box sx={{ display: "flex", flexDirection: "column", gap: 0.75 }}>
+                                  {slots
+                                    .filter((slot) => slot.startDay && moment(slot.startDay, "DD-MM-YYYY", true).isValid() &&
+                                      moment(slot.startDay, "DD-MM-YYYY").format("YYYY-MM") === selectedSlotMonth)
+                                    .map((slot) => {
+                                      const isSelected = formData?.orderDate && slot.startDay &&
+                                        moment(formData.orderDate).format("DD-MM-YYYY") === slot.startDay
+                                      return (
+                                        <Box
+                                          key={slot.value}
+                                          onClick={() => {
+                                            if (slot.startDay && moment(slot.startDay, "DD-MM-YYYY", true).isValid()) {
+                                              handleInputChange("orderDate", moment(slot.startDay, "DD-MM-YYYY").toDate())
+                                              handleInputChange("transferredSlotId", null)
+                                              const availableQty = getAvailableQuantityForDate(moment(slot.startDay, "DD-MM-YYYY").toDate(), formData?.productMappingId, formData?.productName)
+                                              setAvailable(availableQty)
+                                            }
+                                          }}
+                                          sx={{
+                                            cursor: "pointer",
+                                            p: 1.25,
+                                            borderRadius: 1.5,
+                                            border: isSelected ? "2px solid #3b82f6" : "1px solid #e2e8f0",
+                                            backgroundColor: isSelected ? "#eff6ff" : "#fff",
+                                            display: "flex",
+                                            alignItems: "center",
+                                            justifyContent: "space-between",
+                                            transition: "all 0.2s",
+                                            "&:active": { transform: "scale(0.98)" }
+                                          }}
+                                        >
+                                          <Typography sx={{ fontSize: "0.9rem", fontWeight: 600, color: "#334155" }}>
+                                            {formatSlotPeriod(slot.startDay, slot.endDay) || slot.label}
+                                          </Typography>
+                                          <Typography sx={{ fontSize: "0.8rem", color: "#64748b", fontWeight: 500 }}>
+                                            {slot.availableQuantity ?? 0} available
+                                          </Typography>
+                                        </Box>
+                                      )
+                                    })}
+                                </Box>
+                              )}
+                            </>
+                          ) : (
+                            (() => {
+                              const byMonth = {}
+                              slots.forEach((slot) => {
+                                if (slot.startDay && moment(slot.startDay, "DD-MM-YYYY", true).isValid()) {
+                                  const monthKey = moment(slot.startDay, "DD-MM-YYYY").format("YYYY-MM")
+                                  const monthLabel = moment(slot.startDay, "DD-MM-YYYY").format("MMMM YYYY")
+                                  if (!byMonth[monthKey]) byMonth[monthKey] = { label: monthLabel, slots: [] }
+                                  byMonth[monthKey].slots.push(slot)
+                                }
+                              })
+                              return Object.entries(byMonth)
+                                .sort(([a], [b]) => a.localeCompare(b))
+                                .map(([key, { label, slots: monthSlots }]) => (
+                                  <Box key={key}>
+                                    <Typography variant="caption" sx={{
+                                      display: "block",
+                                      mb: 1,
+                                      fontWeight: 700,
+                                      color: "#64748b",
+                                      fontSize: "0.75rem",
+                                      textTransform: "uppercase",
+                                      letterSpacing: 0.5
+                                    }}>
+                                      {label}
+                                    </Typography>
+                                    <Box sx={{
+                                      display: "flex",
+                                      flexDirection: "column",
+                                      gap: 0.75
+                                    }}>
+                                      {monthSlots.map((slot) => {
+                                        const isSelected = formData?.orderDate && slot.startDay &&
+                                          moment(formData.orderDate).format("DD-MM-YYYY") === slot.startDay
+                                        return (
+                                          <Box
+                                            key={slot.value}
+                                            onClick={() => {
+                                              if (slot.startDay && moment(slot.startDay, "DD-MM-YYYY", true).isValid()) {
+                                                handleInputChange("orderDate", moment(slot.startDay, "DD-MM-YYYY").toDate())
+                                                handleInputChange("transferredSlotId", null)
+                                                const availableQty = getAvailableQuantityForDate(moment(slot.startDay, "DD-MM-YYYY").toDate(), formData?.productMappingId, formData?.productName)
+                                                setAvailable(availableQty)
+                                              }
+                                            }}
+                                            sx={{
+                                              cursor: "pointer",
+                                              p: 1.25,
+                                              borderRadius: 1.5,
+                                              border: isSelected ? "2px solid #3b82f6" : "1px solid #e2e8f0",
+                                              backgroundColor: isSelected ? "#eff6ff" : "#fff",
+                                              display: "flex",
+                                              alignItems: "center",
+                                              justifyContent: "space-between",
+                                              transition: "all 0.2s",
+                                              "&:active": { transform: "scale(0.98)" }
+                                            }}
+                                          >
+                                            <Typography sx={{ fontSize: "0.9rem", fontWeight: 600, color: "#334155" }}>
+                                              {formatSlotPeriod(slot.startDay, slot.endDay) || slot.label}
+                                            </Typography>
+                                            <Typography sx={{ fontSize: "0.8rem", color: "#64748b", fontWeight: 500 }}>
+                                              {slot.availableQuantity ?? 0} available
+                                            </Typography>
+                                          </Box>
+                                        )
+                                      })}
+                                    </Box>
+                                  </Box>
+                                ))
+                            })()
+                          )}
+                        </Box>
+                      ) : (
+                        <Typography variant="body2" color="text.secondary" sx={{ py: 1 }}>
+                          No slots available. Select plant and subtype first.
+                        </Typography>
+                      )}
+                    </Box>
+                  </Grid>
+                )}
+
+                {/* Delivery Date - only for normal orders (dealer orders use slot selection directly) */}
+                {!bulkOrder && (
                 <Grid item xs={12} md={6}>
                   <LocalizationProvider dateAdapter={AdapterDateFns}>
                     <DatePicker
-                      label="Order Date *"
+                      label="Delivery Date *"
                       value={formData?.orderDate}
                       onChange={(date) => {
                         handleInputChange("orderDate", date)
@@ -3823,6 +3995,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                     />
                   </LocalizationProvider>
                 </Grid>
+                )}
 
                 {/* Nearby Slots Suggestion - Show only if slots have availability */}
                 {formData?.orderDate && (() => {
