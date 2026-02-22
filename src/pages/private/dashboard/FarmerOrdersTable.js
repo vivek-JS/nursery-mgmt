@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react"
+import React, { useState, useEffect, useRef, useLayoutEffect } from "react"
 import ReactDOM from "react-dom"
 import { Edit2Icon, CheckIcon, XIcon, RefreshCw, Search, ChevronDown, X } from "lucide-react"
 import DatePicker from "react-datepicker"
@@ -454,11 +454,47 @@ const SearchableDropdown = ({
   const [isClosing, setIsClosing] = useState(false)
   const [searchTerm, setSearchTerm] = useState("")
   const dropdownRef = useRef(null)
+  const buttonRef = useRef(null)
+  const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0, minWidth: 0 })
+
+  // Update menu position for portal (status dropdown)
+  const updateMenuPosition = () => {
+    if (buttonRef.current && isStatusDropdown) {
+      const rect = buttonRef.current.getBoundingClientRect()
+      setMenuPosition({
+        top: rect.top,
+        left: rect.left,
+        minWidth: rect.width
+      })
+    }
+  }
+
+  useLayoutEffect(() => {
+    if (isOpen && isStatusDropdown) {
+      updateMenuPosition()
+    }
+  }, [isOpen, isStatusDropdown])
+
+  useEffect(() => {
+    if (!isOpen || !isStatusDropdown) return
+    const handleScrollOrResize = () => updateMenuPosition()
+    window.addEventListener("scroll", handleScrollOrResize, true)
+    window.addEventListener("resize", handleScrollOrResize)
+    return () => {
+      window.removeEventListener("scroll", handleScrollOrResize, true)
+      window.removeEventListener("resize", handleScrollOrResize)
+    }
+  }, [isOpen, isStatusDropdown])
 
   // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+      const menuEl = document.querySelector(".searchable-dropdown-menu-portal")
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(event.target) &&
+        (!menuEl || !menuEl.contains(event.target))
+      ) {
         handleClose()
       }
     }
@@ -496,6 +532,60 @@ const SearchableDropdown = ({
     handleClose()
   }
 
+  const menuContent = (
+    <div
+      className={`searchable-dropdown-menu ${isClosing ? "closing" : ""} ${isStatusDropdown ? "searchable-dropdown-menu-portal" : ""}`}
+      style={
+        isStatusDropdown && isOpen
+          ? {
+              position: "fixed",
+              top: menuPosition.top - 4,
+              left: menuPosition.left,
+              minWidth: menuPosition.minWidth,
+              transform: isClosing ? "translateY(-100%) translateY(10px)" : "translateY(-100%)",
+              zIndex: 99999
+            }
+          : undefined}>
+      <div className="searchable-dropdown-search">
+        <div className="relative">
+          <Search
+            size={16}
+            className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"
+          />
+          <input
+            type="text"
+            placeholder="Search..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="pl-10 pr-4"
+            autoFocus
+            onFocus={(e) => e.target.select()}
+          />
+        </div>
+      </div>
+
+      <div className="searchable-dropdown-options" style={{ maxHeight }}>
+        {filteredOptions.length === 0 ? (
+          <div className="searchable-dropdown-empty">
+            {searchTerm ? "No results found" : "No options available"}
+          </div>
+        ) : (
+          filteredOptions.map((option) => (
+            <div
+              key={option.value}
+              className={`searchable-dropdown-option ${
+                option.value === value ? "selected" : ""
+              }`}
+              onClick={() => handleOptionClick(option)}>
+              <span className="truncate">{option.label}</span>
+              {option.value === value && <CheckIcon size={16} />}
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  )
+
   return (
     <div
       className={`searchable-dropdown ${isStatusDropdown ? "status-dropdown" : ""}`}
@@ -508,6 +598,7 @@ const SearchableDropdown = ({
       )}
 
       <button
+        ref={buttonRef}
         type="button"
         className={`searchable-dropdown-button ${
           isStatusDropdown
@@ -554,47 +645,12 @@ const SearchableDropdown = ({
         </div>
       </button>
 
-      {isOpen && (
-        <div className={`searchable-dropdown-menu ${isClosing ? "closing" : ""}`}>
-          <div className="searchable-dropdown-search">
-            <div className="relative">
-              <Search
-                size={16}
-                className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"
-              />
-              <input
-                type="text"
-                placeholder="Search..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10 pr-4"
-                autoFocus
-                onFocus={(e) => e.target.select()}
-              />
-            </div>
-          </div>
-
-          <div className="searchable-dropdown-options" style={{ maxHeight }}>
-            {filteredOptions.length === 0 ? (
-              <div className="searchable-dropdown-empty">
-                {searchTerm ? "No results found" : "No options available"}
-              </div>
-            ) : (
-              filteredOptions.map((option) => (
-                <div
-                  key={option.value}
-                  className={`searchable-dropdown-option ${
-                    option.value === value ? "selected" : ""
-                  }`}
-                  onClick={() => handleOptionClick(option)}>
-                  <span className="truncate">{option.label}</span>
-                  {option.value === value && <CheckIcon size={16} />}
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-      )}
+      {isOpen &&
+        (isStatusDropdown ? (
+          ReactDOM.createPortal(menuContent, document.body)
+        ) : (
+          menuContent
+        ))}
     </div>
   )
 }

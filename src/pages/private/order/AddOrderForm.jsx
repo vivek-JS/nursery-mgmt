@@ -29,7 +29,10 @@ import {
   Checkbox,
   ImageList,
   ImageListItem,
-  ImageListItemBar
+  ImageListItemBar,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails
 } from "@mui/material"
 import { DatePicker } from "@mui/x-date-pickers/DatePicker"
 import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider"
@@ -51,7 +54,8 @@ import {
   FlashOn as FlashIcon,
   PhotoCamera as CameraIcon,
   Delete as DeleteIcon,
-  CloudUpload as UploadIcon
+  CloudUpload as UploadIcon,
+  ExpandMore as ExpandMoreIcon
 } from "@mui/icons-material"
 import moment from "moment"
 import LocationSelector from "components/LocationSelector"
@@ -377,6 +381,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
     paymentStatus: "PENDING", // Default to PENDING, will be updated based on payment type
     isWalletPayment: false
   })
+  const [paymentAccordionExpanded, setPaymentAccordionExpanded] = useState(false)
 
   // ============================================================================
   // EFFECTS - INITIALIZATION
@@ -412,6 +417,16 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
       loadDealerWallet(user._id)
     }
   }, [user])
+
+  // When dealer quota selected, ensure wallet is loaded (for admin: dealer may be selected; for dealer: self)
+  useEffect(() => {
+    if (quotaType === "dealer") {
+      const dealerId = formData?.dealer || (user?.jobTitle === "DEALER" ? user?._id : null)
+      if (dealerId && (!dealerWallet?.entries?.length) && (!dealerWallet?.plantDetails?.length)) {
+        loadDealerWallet(dealerId)
+      }
+    }
+  }, [quotaType, formData?.dealer, user?.jobTitle, user?._id])
 
   // Auto-set dealer and quota type when user is DEALER (selection only for SUPERADMIN/OFFICE_ADMIN)
   useEffect(() => {
@@ -955,7 +970,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
         // Transform plantDetails to wallet entries format with slot dates
         const entries = []
         plantDetails.forEach((plant) => {
-          plant.slotDetails.forEach((slot) => {
+          (plant.slotDetails || []).forEach((slot) => {
             entries.push({
               plantTypeId: plant.plantType,
               subTypeId: plant.subType,
@@ -973,6 +988,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
 
         const walletData = {
           entries,
+          plantDetails, // Store for Dealer Quota Summary (mobile + desktop)
           // Include financial data for wallet balance display
           availableAmount: financial?.availableAmount || 0,
           totalOrderAmount: financial?.totalOrderAmount || 0,
@@ -2496,6 +2512,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
       paymentStatus: "PENDING", // Default to PENDING, will be updated based on payment type
       isWalletPayment: false
     })
+    setPaymentAccordionExpanded(false)
     onClose()
   }
 
@@ -2619,44 +2636,57 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
     return null
   }
 
-  const renderQuotaTypeSelector = () => {
-    if (user?.jobTitle === "DEALER" && !bulkOrder) {
+  // Dealer Quota - compact format only (🌱 Advance Booking Quota, plant-subtype, plants count, slot chips)
+  const renderDealerQuotaSlotsAndSummary = () => {
+    if (!dealerWallet?.plantDetails?.length) {
       return (
-        <Card className={classes.formCard}>
-          <div className={classes.cardHeader}>
-            <Typography variant="subtitle1" className={classes.sectionTitle}>
-              <InfoIcon fontSize="small" /> Quota Type
-            </Typography>
-          </div>
-          <CardContent className={classes.formSection}>
-            <RadioGroup value={quotaType || ""} onChange={(e) => setQuotaType(e.target.value)}
-              sx={{ flexDirection: fullScreen ? "column" : "row", gap: fullScreen ? 0.5 : 0 }}>
-              <FormControlLabel
-                value="dealer"
-                control={<Radio color="primary" size={fullScreen ? "medium" : "small"} />}
-                label={<Typography sx={{ fontSize: fullScreen ? "0.9rem" : "0.85rem" }}>From Dealer Quota</Typography>}
-              />
-              <FormControlLabel
-                value="company"
-                control={<Radio color="primary" size={fullScreen ? "medium" : "small"} />}
-                label={<Typography sx={{ fontSize: fullScreen ? "0.9rem" : "0.85rem" }}>From Company Quota</Typography>}
-              />
-            </RadioGroup>
-
-            {quotaType === "dealer" && formData?.orderDate && (
-              <Box className={classes.quotaInfo}>
-                <InfoIcon color="primary" />
-                <Typography variant="body2">
-                  Your quota for selected date:{" "}
-                  {getRemainingQuantity() !== null ? getRemainingQuantity() : "Loading..."}
-                </Typography>
-              </Box>
-            )}
-          </CardContent>
-        </Card>
+        <Box sx={{ p: 2, textAlign: "center" }}>
+          <Typography variant="body2" color="text.secondary">Loading dealer quota...</Typography>
+        </Box>
       )
     }
-    return null
+    const matchingPlants = dealerWallet.plantDetails.filter(
+      (plant) => !formData?.plant || plant.plantName === plants.find((p) => p.value === formData?.plant)?.label
+    )
+    return (
+      <Box sx={{ mt: 1 }}>
+        <Typography variant="subtitle2" sx={{ fontWeight: 700, color: "#1976d2", mb: 1.5 }}>
+          🌱 Advance Booking Quota
+        </Typography>
+        {matchingPlants.map((plant, idx) => (
+          <Box key={idx} sx={{ p: 1.5, bgcolor: "#f8f9fa", borderRadius: 1.5, border: "1px solid #e3f2fd", mb: 1 }}>
+            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
+              <Typography variant="body1" sx={{ fontWeight: 700, color: "#1a237e" }}>
+                {plant.plantName} - {plant.subtypeName}
+              </Typography>
+              <Typography variant="body2" sx={{ fontWeight: 700, color: "#2e7d32" }}>
+                {(plant.totalRemainingQuantity || 0).toLocaleString()} plants
+              </Typography>
+            </Box>
+            {plant.slotDetails?.length > 0 && (
+              <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
+                {plant.slotDetails.map((slot, sIdx) => (
+                  <Chip
+                    key={sIdx}
+                    label={`${formatSlotPeriod(slot.dates?.startDay, slot.dates?.endDay) || `${slot.dates?.startDay || ""} to ${slot.dates?.endDay || ""}`} • ${(slot.remainingQuantity || 0).toLocaleString()}`}
+                    size="small"
+                    sx={{
+                      fontSize: "0.75rem",
+                      height: 24,
+                      fontWeight: 600,
+                      borderColor: (slot.remainingQuantity || 0) > 0 ? "#4caf50" : "#bdbdbd",
+                      color: (slot.remainingQuantity || 0) > 0 ? "#2e7d32" : "#757575",
+                      bgcolor: (slot.remainingQuantity || 0) > 0 ? "#f1f8e9" : "#f5f5f5"
+                    }}
+                    variant="outlined"
+                  />
+                ))}
+              </Box>
+            )}
+          </Box>
+        ))}
+      </Box>
+    )
   }
 
   // ============================================================================
@@ -2813,8 +2843,6 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
           ) : null}
 
           {renderOrderTypeSelector()}
-          {renderQuotaTypeSelector()}
-
 
           {/* Farmer Details Section */}
           {!bulkOrder && (
@@ -2896,16 +2924,17 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                     />
                   </Grid>
 
-                  <Grid item xs={12} sm={7}>
-                    <TextField
-                      fullWidth
-                      size="small"
-                      label="Farmer Name"
-                      value={formData?.name}
-                      onChange={(e) => handleInputChange("name", e.target.value)}
-                      disabled={!!farmerData?.name}
-                    />
-                  </Grid>
+                  {!farmerData?.name && (
+                    <Grid item xs={12} sm={7}>
+                      <TextField
+                        fullWidth
+                        size="small"
+                        label="Farmer Name"
+                        value={formData?.name}
+                        onChange={(e) => handleInputChange("name", e.target.value)}
+                      />
+                    </Grid>
+                  )}
 
                   {/* Order For Toggle - Beside Farmer Name */}
                   <Grid item xs={12} sm={5}>
@@ -2981,10 +3010,11 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                     </>
                   )}
 
+                  {!farmerData?.name && (
                   <Grid item xs={12}>
 
                     {farmerData?.name ? (
-                      // Show location as read-only when farmer is found
+                      // Show location as read-only when farmer is found (hidden when farmer exists)
                       <Box sx={{ mt: 1 }}>
                         <Typography
                           variant="subtitle2"
@@ -3063,6 +3093,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                       </Alert>
                     )}
                   </Grid>
+                  )}
                 </Grid>
               </CardContent>
             </Card>
@@ -3176,285 +3207,6 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                 </Grid>
               </Grid>
 
-              {/* Show quota type when dealer is selected (not for dealer orders - they use dealer quota by default) */}
-              {formData?.dealer && !bulkOrder && (
-                <Box sx={{ mt: 3 }}>
-                  <Typography variant="subtitle2" sx={{ mb: 2, fontWeight: 600, color: "#2c3e50" }}>
-                    Quota Type for Selected Dealer
-                  </Typography>
-                  <RadioGroup
-                    row
-                    value={quotaType || ""}
-                    onChange={(e) => setQuotaType(e.target.value)}>
-                    <FormControlLabel
-                      value="dealer"
-                      control={<Radio color="primary" />}
-                      label="From Dealer Quota"
-                    />
-                    <FormControlLabel
-                      value="company"
-                      control={<Radio color="primary" />}
-                      label="From Company Quota"
-                    />
-                  </RadioGroup>
-
-                  {quotaType === "dealer" && formData?.orderDate && (
-                    <Box className={classes.quotaInfo} sx={{ mt: 2 }}>
-                      <InfoIcon color="primary" />
-                      <Typography variant="body2">
-                        Dealer quota for selected date:{" "}
-                        {getRemainingQuantity() !== null ? getRemainingQuantity() : "Loading..."}
-                      </Typography>
-                    </Box>
-                  )}
-
-                  {/* Show available plants for all slots when dealer quota is selected */}
-                  {quotaType === "dealer" && (
-                    <Box sx={{ mt: 3 }}>
-                      <Typography
-                        variant="subtitle2"
-                        sx={{ mb: 2, fontWeight: 600, color: "#2c3e50" }}>
-                        {formData?.plant && formData?.subtype
-                          ? "Available Plants in Dealer Quota by Slot"
-                          : "Total Available Plants in Dealer Quota by Slot (Select plant/subtype for specific details)"}
-                      </Typography>
-                      <Box
-                        sx={{
-                          maxHeight: 200,
-                          overflowY: "auto",
-                          border: "1px solid #e0e0e0",
-                          borderRadius: 1
-                        }}>
-                        {(() => {
-                          const availableSlots = getAvailablePlantsForSlots()
-
-                          // Show dealer wallet data when available, otherwise show dummy data
-                          if (availableSlots.length === 0 && quotaType === "dealer") {
-                            // If we have dealer wallet data, show it directly
-                            if (dealerWallet?.entries && dealerWallet.entries.length > 0) {
-                              return dealerWallet.entries
-                                .filter((entry) => (entry.remainingQuantity || 0) > 0) // Only show entries with available plants
-                                .map((entry, index) => {
-                                  // Try to find slot details from existing slots array first
-                                  const slotDetails = slots.find(
-                                    (slot) => slot.value === entry.bookingSlotId
-                                  )
-
-                                  let slotLabel
-                                  if (slotDetails) {
-                                    // Use slot details from slots array (with formatted dates)
-                                    slotLabel = `${slotDetails.label} (${
-                                      entry.remainingQuantity || 0
-                                    } available)`
-                                  } else if (entry.startDay && entry.endDay && entry.month) {
-                                    // Use dates from wallet data - format as "7 Jan to 15 Jan"
-                                    const period = formatSlotPeriod(entry.startDay, entry.endDay)
-                                    slotLabel = period ? `${period} (${entry.remainingQuantity || 0} available)` : `${entry.startDay} - ${entry.endDay} (${entry.remainingQuantity || 0} available)`
-                                  } else {
-                                    // Fallback to slot ID
-                                    slotLabel = `Slot ${entry.bookingSlotId} (${
-                                      entry.remainingQuantity || 0
-                                    } available)`
-                                  }
-
-                                  return {
-                                    slotId: entry.bookingSlotId || `entry-${index}`,
-                                    slotLabel: slotLabel,
-                                    availableInWallet: entry.remainingQuantity || 0,
-                                    totalInSlot: entry.quantity || 0,
-                                    hasQuota: true,
-                                    showAllPlants: true
-                                  }
-                                })
-                                .map((slotInfo, index) => (
-                                  <Box
-                                    key={slotInfo.slotId}
-                                    sx={{
-                                      p: 2,
-                                      borderBottom:
-                                        index < dealerWallet.entries.length - 1
-                                          ? "1px solid #f0f0f0"
-                                          : "none",
-                                      backgroundColor: "#e3f2fd",
-                                      display: "flex",
-                                      justifyContent: "space-between",
-                                      alignItems: "center"
-                                    }}>
-                                    <Box sx={{ flex: 1 }}>
-                                      <Typography
-                                        variant="body2"
-                                        sx={{ fontWeight: 500, color: "#2c3e50" }}>
-                                        {slotInfo.slotLabel} (DEALER QUOTA)
-                                      </Typography>
-                                      <Typography variant="caption" color="text.secondary">
-                                        Total in slot: {slotInfo.totalInSlot}
-                                      </Typography>
-                                    </Box>
-                                    <Box sx={{ textAlign: "right" }}>
-                                      <Chip
-                                        label={`${slotInfo.availableInWallet} available`}
-                                        color={slotInfo.availableInWallet > 0 ? "success" : "error"}
-                                        size="small"
-                                        variant="outlined"
-                                      />
-                                    </Box>
-                                  </Box>
-                                ))
-                            } else {
-                              return [
-                                {
-                                  slotId: "test-slot-1",
-                                  slotLabel: "01-07-2025 to 07-07-2025 July, 2025 (1000 available)",
-                                  availableInWallet: 500,
-                                  totalInSlot: 1000,
-                                  hasQuota: true,
-                                  showAllPlants: true
-                                },
-                                {
-                                  slotId: "test-slot-2",
-                                  slotLabel: "08-07-2025 to 14-07-2025 July, 2025 (800 available)",
-                                  availableInWallet: 300,
-                                  totalInSlot: 800,
-                                  hasQuota: true,
-                                  showAllPlants: true
-                                }
-                              ].map((slotInfo, index) => (
-                                <Box
-                                  key={slotInfo.slotId}
-                                  sx={{
-                                    p: 2,
-                                    borderBottom: index < 1 ? "1px solid #f0f0f0" : "none",
-                                    backgroundColor: "#e3f2fd",
-                                    display: "flex",
-                                    justifyContent: "space-between",
-                                    alignItems: "center"
-                                  }}>
-                                  <Box sx={{ flex: 1 }}>
-                                    <Typography
-                                      variant="body2"
-                                      sx={{ fontWeight: 500, color: "#2c3e50" }}>
-                                      {slotInfo.slotLabel} (TEST DATA)
-                                    </Typography>
-                                    <Typography variant="caption" color="text.secondary">
-                                      Total in slot: {slotInfo.totalInSlot}
-                                    </Typography>
-                                  </Box>
-                                  <Box sx={{ textAlign: "right" }}>
-                                    <Chip
-                                      label={`${slotInfo.availableInWallet} available (TEST)`}
-                                      color={slotInfo.availableInWallet > 0 ? "success" : "error"}
-                                      size="small"
-                                      variant="outlined"
-                                    />
-                                  </Box>
-                                </Box>
-                              ))
-                            }
-                          }
-                          return null
-                        })()}
-                        {getAvailablePlantsForSlots().map((slotInfo, index) => (
-                          <Box
-                            key={slotInfo.slotId}
-                            sx={{
-                              p: 2,
-                              borderBottom:
-                                index < getAvailablePlantsForSlots().length - 1
-                                  ? "1px solid #f0f0f0"
-                                  : "none",
-                              backgroundColor:
-                                slotInfo.slotId === getSlotIdForDate(formData?.orderDate)
-                                  ? "#e3f2fd"
-                                  : "transparent",
-                              display: "flex",
-                              justifyContent: "space-between",
-                              alignItems: "center"
-                            }}>
-                            <Box sx={{ flex: 1 }}>
-                              <Typography
-                                variant="body2"
-                                sx={{ fontWeight: 500, color: "#2c3e50" }}>
-                                {slotInfo.slotLabel}
-                              </Typography>
-                              <Typography variant="caption" color="text.secondary">
-                                Total in slot: {slotInfo.totalInSlot}
-                              </Typography>
-                            </Box>
-                            <Box sx={{ textAlign: "right" }}>
-                              {slotInfo.hasQuota ? (
-                                <Chip
-                                  label={
-                                    slotInfo.showAllPlants
-                                      ? `${slotInfo.availableInWallet} total`
-                                      : `${slotInfo.availableInWallet} available`
-                                  }
-                                  color={slotInfo.availableInWallet > 0 ? "success" : "error"}
-                                  size="small"
-                                  variant="outlined"
-                                />
-                              ) : (
-                                <Chip
-                                  label="No quota"
-                                  color="default"
-                                  size="small"
-                                  variant="outlined"
-                                />
-                              )}
-                            </Box>
-                          </Box>
-                        ))}
-                      </Box>
-                      <Typography
-                        variant="caption"
-                        color="text.secondary"
-                        sx={{ mt: 1, display: "block" }}>
-                        {formData?.plant && formData?.subtype
-                          ? "Green chips show available plants in dealer quota, red shows no availability"
-                          : "Green chips show total available plants across all plant types in dealer quota, red shows no availability"}
-                      </Typography>
-                    </Box>
-                  )}
-
-                  {/* Summary of total available in dealer quota */}
-                  {quotaType === "dealer" && formData?.plant && formData?.subtype && (
-                    <Box
-                      sx={{
-                        mt: 2,
-                        p: 2,
-                        backgroundColor: "#f8f9fa",
-                        borderRadius: 1,
-                        border: "1px solid #e9ecef"
-                      }}>
-                      <Typography
-                        variant="subtitle2"
-                        sx={{ fontWeight: 600, color: "#2c3e50", mb: 1 }}>
-                        Dealer Quota Summary
-                      </Typography>
-                      <Box
-                        sx={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "center"
-                        }}>
-                        <Typography variant="body2" color="text.secondary">
-                          Total available in dealer quota for{" "}
-                          {formData?.plant && plants.find((p) => p.value === formData?.plant)?.label}{" "}
-                          -{" "}
-                          {formData?.subtype &&
-                            subTypes.find((s) => s.value === formData?.subtype)?.label}
-                          :
-                        </Typography>
-                        <Chip
-                          label={`${getTotalAvailableInDealerQuota()} plants`}
-                          color={getTotalAvailableInDealerQuota() > 0 ? "success" : "error"}
-                          size="small"
-                        />
-                      </Box>
-                    </Box>
-                  )}
-                </Box>
-              )}
-
               <Alert severity="info" sx={{ mt: 2 }}>
                 <Typography variant="body2">
                   <strong>Note:</strong> {bulkOrder 
@@ -3508,6 +3260,35 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                     </Select>
                   </FormControl>
                 </Grid>
+
+                {/* Quota Type - after plant selection (DEALER or when dealer selected) */}
+                {formData?.plant && (formData?.dealer || user?.jobTitle === "DEALER") && !bulkOrder && (
+                  <Grid item xs={12}>
+                    <Box sx={{ py: 1, borderTop: "1px solid #eee" }}>
+                      <Typography variant="subtitle2" sx={{ mb: 1.5, fontWeight: 600, color: "#2c3e50" }}>
+                        Quota Type
+                      </Typography>
+                      <RadioGroup value={quotaType || ""} onChange={(e) => setQuotaType(e.target.value)}
+                        sx={{ flexDirection: fullScreen ? "column" : "row", gap: fullScreen ? 0.5 : 1 }}>
+                        <FormControlLabel
+                          value="dealer"
+                          control={<Radio color="primary" size={fullScreen ? "medium" : "small"} />}
+                          label={<Typography sx={{ fontSize: fullScreen ? "0.9rem" : "0.85rem" }}>From Dealer Quota</Typography>}
+                        />
+                        <FormControlLabel
+                          value="company"
+                          control={<Radio color="primary" size={fullScreen ? "medium" : "small"} />}
+                          label={<Typography sx={{ fontSize: fullScreen ? "0.9rem" : "0.85rem" }}>From Company Quota</Typography>}
+                        />
+                      </RadioGroup>
+                      {quotaType === "dealer" && (
+                        <Box sx={{ mt: 1.5 }}>
+                          {renderDealerQuotaSlotsAndSummary()}
+                        </Box>
+                      )}
+                    </Box>
+                  </Grid>
+                )}
 
                 {/* Ready Plants Product Selection - Show only when external products exist */}
                 {formData?.plant && (plantProductMappings.length > 0 || mappingsLoading) && (
@@ -3709,72 +3490,6 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                   </FormControl>
                 </Grid>
 
-                {/* Dealer Quota Summary - only for normal farmer orders with dealer selected, not for dealer orders */}
-                {!bulkOrder && (formData?.dealer || user?.jobTitle === "DEALER") && formData?.plant && dealerWallet && dealerWallet.plantDetails && dealerWallet.plantDetails.length > 0 && (
-                  <Grid item xs={12}>
-                    <Box sx={{ p: 3, bgcolor: "#f8f9fa", borderRadius: 3, border: "2px solid #e3f2fd", boxShadow: "0 4px 8px rgba(0,0,0,0.1)" }}>
-                      <Box sx={{ p: 3, bgcolor: "white", borderRadius: 2, boxShadow: "0 2px 6px rgba(0,0,0,0.1)" }}>
-                        <Typography variant="h6" sx={{ fontWeight: 800, color: "#1976d2", mb: 2, display: "flex", alignItems: "center", gap: 1, textAlign: "center", textShadow: "0 1px 2px rgba(0,0,0,0.1)" }}>
-                          🌱 Advance Booking Quota
-                        </Typography>
-                        <Box sx={{ maxHeight: 200, overflowY: "auto", display: "flex", flexDirection: "column", gap: 2 }}>
-                          {dealerWallet.plantDetails
-                            .filter(plant => {
-                              // Get selected plant name
-                              const selectedPlantData = plants.find(p => p.value === formData?.plant);
-                              return plant.plantName === selectedPlantData?.label;
-                            })
-                            .map((plant, idx) => (
-                              <Box key={idx} sx={{ p: 2.5, bgcolor: "#ffffff", borderRadius: 2, border: "2px solid #e3f2fd", boxShadow: "0 2px 4px rgba(0,0,0,0.1)" }}>
-                                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1.5 }}>
-                                  <Typography variant="body1" sx={{ fontWeight: 700, color: "#1a237e", fontSize: "1rem", textShadow: "0 1px 1px rgba(0,0,0,0.1)" }}>
-                                    {plant.plantName} - {plant.subtypeName}
-                                  </Typography>
-                                  <Chip 
-                                    label={`${plant.totalRemainingQuantity?.toLocaleString() || 0} plants`} 
-                                    size="medium" 
-                                    sx={{ 
-                                      bgcolor: plant.totalRemainingQuantity > 0 ? "#4caf50" : "#f44336", 
-                                      color: "white", 
-                                      fontWeight: 800,
-                                      fontSize: "0.85rem",
-                                      height: 28,
-                                      boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
-                                      textShadow: "0 1px 1px rgba(0,0,0,0.3)"
-                                    }} 
-                                  />
-                                </Box>
-                                {plant.slotDetails && plant.slotDetails.length > 0 && (
-                                  <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, mt: 1.5 }}>
-                                    {plant.slotDetails.map((slot, sIdx) => (
-                                      <Chip
-                                        key={sIdx}
-                                        label={`${formatSlotPeriod(slot.dates?.startDay, slot.dates?.endDay) || `${slot.dates?.startDay || ''} to ${slot.dates?.endDay || ''}`} • ${slot.remainingQuantity || 0}`}
-                                        size="medium"
-                                        variant="outlined"
-                                        sx={{ 
-                                          fontSize: "0.8rem", 
-                                          height: 28,
-                                          fontWeight: 600,
-                                          borderWidth: 2,
-                                          borderColor: slot.remainingQuantity > 0 ? "#4caf50" : "#bdbdbd",
-                                          color: slot.remainingQuantity > 0 ? "#2e7d32" : "#757575",
-                                          backgroundColor: slot.remainingQuantity > 0 ? "#f1f8e9" : "#f5f5f5",
-                                          boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
-                                          textShadow: "0 1px 1px rgba(0,0,0,0.1)"
-                                        }}
-                                      />
-                                    ))}
-                                  </Box>
-                                )}
-                              </Box>
-                            ))}
-                        </Box>
-                      </Box>
-                    </Box>
-                  </Grid>
-                )}
-
                 {/* Order Booking Date - for dealer orders only (Farmer Details hidden) */}
                 {bulkOrder && (
                   <Grid item xs={12} md={6}>
@@ -3792,8 +3507,8 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                   </Grid>
                 )}
 
-                {/* Slot selection - for dealer order: month first then slot; for normal: grouped by month */}
-                {formData?.plant && formData?.subtype && (
+                {/* Slot selection - ONLY for dealer order (bulk); dealer quota uses Delivery Date with mapped days */}
+                {formData?.plant && formData?.subtype && bulkOrder && (
                   <Grid item xs={12}>
                     <Box sx={{
                       mb: 2,
@@ -3997,12 +3712,14 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                           fullWidth 
                           helperText={
                             formData?.subtype 
-                              ? "Select delivery date (only dates within available slots are enabled)" 
+                              ? (quotaType === "dealer" 
+                                ? "Select delivery date (dealer quota - plants allocated to dealer only)" 
+                                : "Select delivery date (only dates within available slots are enabled)")
                               : "Select plant and subtype first"
                           }
                         />
                       )}
-                      minDate={new Date()}
+                      minDate={undefined}
                     />
                   </LocalizationProvider>
                 </Grid>
@@ -4546,19 +4263,32 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                 </Box>
               </Box>
 
-              {/* Payment Entry */}
-              <Box
+              {/* Payment Entry - in accordion, expand when user wants to add payment */}
+              <Accordion
+                expanded={paymentAccordionExpanded}
+                onChange={() => setPaymentAccordionExpanded(!paymentAccordionExpanded)}
                 sx={{
                   mb: 2,
-                  p: 2,
                   border: "1px solid #e0e0e0",
                   borderRadius: 1,
-                  bgcolor: "#fafafa"
+                  bgcolor: "#fafafa",
+                  "&:before": { display: "none" },
+                  boxShadow: "none"
                 }}>
-                <Typography variant="subtitle2" fontWeight={600} color="#2c3e50" sx={{ mb: 2 }}>
-                  Payment Details
-                </Typography>
-
+                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                  <Typography variant="subtitle2" fontWeight={600} color="#2c3e50">
+                    {paymentAccordionExpanded ? "Hide payment form" : "Add Payment"}
+                  </Typography>
+                  {newPayment.paidAmount && (
+                    <Chip
+                      label={`₹${parseFloat(newPayment.paidAmount).toLocaleString()} added`}
+                      size="small"
+                      color="success"
+                      sx={{ ml: 1 }}
+                    />
+                  )}
+                </AccordionSummary>
+                <AccordionDetails sx={{ pt: 0 }}>
                 {/* Wallet Payment Option - Only when dealer is selected in order */}
                 {formData?.dealer && (
                   <Box
@@ -4769,7 +4499,8 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                     </Box>
                   </Grid>
                 </Grid>
-              </Box>
+                </AccordionDetails>
+              </Accordion>
 
             </CardContent>
           </Card>
