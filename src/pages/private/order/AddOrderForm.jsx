@@ -1553,7 +1553,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
     try {
       setLoading(true)
       // Upload each file to the media endpoint and get URLs
-      const uploadedUrls = await Promise.all(
+      const uploadedUrls = (await Promise.all(
         files.map(async (file) => {
           const formData = new FormData()
           formData.append("media_key", file)
@@ -1562,9 +1562,9 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
           
           const instance = NetworkManager(API.MEDIA.UPLOAD)
           const response = await instance.request(formData)
-          return response.data.media_url
+          return response?.data?.data?.media_url || response?.data?.media_url
         })
-      )
+      )).filter(Boolean)
       
       // Add new URLs to existing receiptPhoto array
       setNewPayment(prev => ({
@@ -2144,7 +2144,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
           numberOfPlants: parseInt(formData?.noOfPlants) || 0,
           rate: parseFloat(formData?.rate) || 0,
           paymentStatus: "not paid",
-          orderStatus: isInstantOrder ? "DISPATCHED" : "ACCEPTED",
+          orderStatus: isInstantOrder ? "DISPATCHED" : "PENDING",
           plantName: formData?.plant || "",
           plantSubtype: formData?.subtype || "",
           bookingSlot: slotId, // Auto-detected slot ID from order date
@@ -2196,7 +2196,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
           paymentStatus: "not paid",
           // If dealer is selected, send dealer ID as salesPerson, otherwise send sales person ID (dealers auto-use self)
           salesPerson: formData?.dealer || formData?.sales || (user?.jobTitle === "DEALER" ? user?._id : null),
-          orderStatus: isInstantOrder ? "DISPATCHED" : "ACCEPTED",
+          orderStatus: isInstantOrder ? "DISPATCHED" : "PENDING",
           plantName: formData?.plant || "",
           plantSubtype: formData?.subtype || "",
           bookingSlot: slotId, // Auto-detected slot ID from order date
@@ -2294,20 +2294,22 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
       if (response?.data) {
         let successMessage = "Order added successfully"
         
-        // Get order ID from response - try multiple possible locations
-        const orderId = response?.data?.data?._id || 
+        // Get order ID from response - backend returns { data: { order, payments, walletTransactions } }
+        const orderId = response?.data?.data?.order?._id || 
+                       response?.data?.data?._id || 
                        response?.data?._id || 
                        response?.data?.orderId ||
                        response?.data?.data?.orderId ||
                        response?._id
+        const orderIdStr = orderId ? (typeof orderId === 'string' ? orderId : orderId.toString?.() || String(orderId)) : null
 
         console.log("Order creation response:", response?.data)
         console.log("Extracted orderId:", orderId)
         console.log("Has payment data:", hasPaymentData)
 
-        // Add payment separately if payment data exists
+        // Add payment separately if payment data exists (same flow as FarmerOrdersTable)
         if (hasPaymentData) {
-          if (!orderId) {
+          if (!orderIdStr) {
             console.error("Order ID not found in response. Cannot add payment.")
             console.error("Full response:", response)
             Toast.error("Order created but payment could not be added - Order ID missing")
@@ -2341,23 +2343,21 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
 
             console.log("Payment payload:", paymentPayload)
             console.log("isWalletPayment value:", isWalletPayment)
-            console.log("Order ID for payment:", orderId)
+            console.log("Order ID for payment:", orderIdStr)
 
-            // Use plain object (matching FarmerOrdersTable - images are already uploaded as URLs)
-            const paymentRequestPayload = paymentPayload
-
-            // Call ADD_PAYMENT API
+            // Call ADD_PAYMENT API (same as FarmerOrdersTable - receiptPhoto are pre-uploaded URLs)
             const paymentInstance = NetworkManager(API.ORDER.ADD_PAYMENT)
-            const paymentResponse = await paymentInstance.request(paymentRequestPayload, [orderId])
+            const paymentResponse = await paymentInstance.request(paymentPayload, [orderIdStr])
 
             console.log("Payment API response:", paymentResponse?.data)
 
             if (paymentResponse?.data) {
               successMessage += " with payment"
-              Toast.success(successMessage)
+              Toast.success("👋 ऑर्डर यशस्वीरित्या प्लेस झाली! आभार! 🙏")
             } else {
               console.warn("Payment API returned no data:", paymentResponse)
-              Toast.warning("Order added successfully, but payment response was empty")
+              Toast.success("👋 ऑर्डर यशस्वीरित्या प्लेस झाली! आभार! 🙏")
+              if (hasPaymentData) Toast.warning("Payment response was empty")
             }
           } catch (paymentError) {
             console.error("Error adding payment:", paymentError)
@@ -2367,7 +2367,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
             Toast.error(`Order added successfully, but payment failed: ${errorMsg}`)
           }
         } else {
-          Toast.success(successMessage)
+          Toast.success("👋 ऑर्डर यशस्वीरित्या प्लेस झाली! आभार! 🙏")
         }
 
         onSuccess?.()

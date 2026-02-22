@@ -27,6 +27,7 @@ import ConfirmDialog from "components/Modals/ConfirmDialog"
 import {
   useCanAddPayment,
   useIsOfficeAdmin,
+  useIsSuperAdmin,
   useIsDealer,
   useDealerWallet,
   useDealerWalletById,
@@ -670,10 +671,12 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   // Role-based access control
   const canAddPayment = useCanAddPayment() // Anyone can add payments
   const isOfficeAdmin = useIsOfficeAdmin()
+  const isSuperAdmin = useIsSuperAdmin()
   const isDealer = useIsDealer()
   const isDispatchManager = useIsDispatchManager()
   const { walletData, loading: walletLoading } = useDealerWallet()
   const user = useUserData() // Get current user data
+  const canChangeOrderStatus = !isDealer && (isOfficeAdmin || isSuperAdmin)
 
   const resolvePlantCounts = React.useCallback((order) => {
     if (!order) {
@@ -772,6 +775,9 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
     description: "",
     onConfirm: null
   })
+  const [watiDialogOpen, setWatiDialogOpen] = useState(false)
+  const [watiDialogOrder, setWatiDialogOrder] = useState(null)
+  const [watiSending, setWatiSending] = useState(false)
   // Add these handler functions
   const handleAddRemark = (orderId) => {
     if (!newRemark.trim()) return
@@ -2914,11 +2920,6 @@ const mapSlotForUi = (slotData) => {
       if (emps?.data?.status === "Success") {
         Toast.success("Order updated successfully")
 
-        // Your existing code for handling success
-        if (dataToSend?.orderStatus === "ACCEPTED") {
-          // Your existing WATI template code
-        }
-
         setEditingRows(new Set())
         setUpdatedObject(null)
 
@@ -2941,6 +2942,13 @@ const mapSlotForUi = (slotData) => {
               getSlots(plantId, subtypeId)
             }, 1000) // Small delay to ensure backend has processed the update
           }
+        }
+
+        // Show WATI dialog when order accepted and it's a farmer order with farmer mobile
+        const isFarmerOrder = !row?.details?.dealerOrder && row?.details?.farmer?.mobileNumber
+        if (dataToSend?.orderStatus === "ACCEPTED" && isFarmerOrder) {
+          setWatiDialogOrder(row)
+          setWatiDialogOpen(true)
         }
       }
     } catch (error) {
@@ -4057,9 +4065,9 @@ const mapSlotForUi = (slotData) => {
                         </td>
                       )}
                       <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
-                        {/* Show dropdown for non-COMPLETED Agri Sales orders, static badge for COMPLETED */}
+                        {/* Show dropdown for non-COMPLETED Agri Sales orders (admin only), static badge otherwise */}
                         {showAgriSalesOrders ? (
-                          row.orderStatus === "COMPLETED" ? (
+                          row.orderStatus === "COMPLETED" || !canChangeOrderStatus ? (
                             <div className="flex flex-col gap-0.5">
                               <span
                                 className={`status-badge-enhanced status-${row.orderStatus
@@ -4069,7 +4077,7 @@ const mapSlotForUi = (slotData) => {
                                 {row.orderStatus === "DISPATCH_PROCESS" ? "Loading" : row.orderStatus}
                               </span>
                               {/* Show outstanding indicator for COMPLETED orders with balance */}
-                              {agriDispatchStatusFilter === "OUTSTANDING" && (
+                              {agriDispatchStatusFilter === "OUTSTANDING" && row.orderStatus === "COMPLETED" && (
                                 <span className="text-[9px] text-orange-600 font-medium bg-orange-50 px-1.5 py-0.5 rounded">
                                   💰 Outstanding
                                 </span>
@@ -4086,7 +4094,7 @@ const mapSlotForUi = (slotData) => {
                               isStatusDropdown={true}
                             />
                           )
-                        ) : row.orderStatus !== "COMPLETED" && row.orderStatus !== "DISPATCHED" ? (
+                        ) : (row.orderStatus !== "COMPLETED" && row.orderStatus !== "DISPATCHED" && canChangeOrderStatus) ? (
                           <SearchableDropdown
                             label=""
                             value={row.orderStatus}
@@ -4344,9 +4352,9 @@ const mapSlotForUi = (slotData) => {
 
                         {/* Status Badge */}
                         <div className="flex items-center justify-between mt-2">
-                          {/* Show dropdown for non-COMPLETED Agri Sales orders, static badge for COMPLETED */}
+                          {/* Show dropdown for non-COMPLETED Agri Sales orders (admin only), static badge otherwise */}
                           {showAgriSalesOrders ? (
-                            row.orderStatus === "COMPLETED" ? (
+                            row.orderStatus === "COMPLETED" || !canChangeOrderStatus ? (
                               <div className="flex flex-col gap-1">
                                 <span
                                   className={`status-badge-enhanced status-${row.orderStatus
@@ -4356,7 +4364,7 @@ const mapSlotForUi = (slotData) => {
                                   {row.orderStatus === "DISPATCH_PROCESS" ? "Loading" : row.orderStatus}
                                 </span>
                                 {/* Show outstanding indicator for COMPLETED orders with balance */}
-                                {agriDispatchStatusFilter === "OUTSTANDING" && (
+                                {agriDispatchStatusFilter === "OUTSTANDING" && row.orderStatus === "COMPLETED" && (
                                   <span className="text-[9px] text-orange-600 font-medium bg-orange-50 px-1.5 py-0.5 rounded inline-block w-fit">
                                     💰 Outstanding
                                   </span>
@@ -4375,7 +4383,7 @@ const mapSlotForUi = (slotData) => {
                                 />
                               </div>
                             )
-                          ) : row.orderStatus !== "COMPLETED" && row.orderStatus !== "DISPATCHED" ? (
+                          ) : (row.orderStatus !== "COMPLETED" && row.orderStatus !== "DISPATCHED" && canChangeOrderStatus) ? (
                             <div className="relative" onClick={(e) => e.stopPropagation()}>
                               <SearchableDropdown
                                 label=""
@@ -6585,6 +6593,88 @@ const mapSlotForUi = (slotData) => {
         onConfirm={confirmDialog.onConfirm}
         onCancel={() => setConfirmDialog((d) => ({ ...d, open: false }))}
       />
+
+      {/* WATI Order Accepted Message Dialog */}
+      {watiDialogOpen && watiDialogOrder && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[70] p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg max-h-[90vh] overflow-hidden shadow-2xl">
+            <div className="bg-gradient-to-r from-green-600 to-green-500 text-white p-4">
+              <h2 className="text-xl font-bold">WhatsApp संदेश पाठवायचा का?</h2>
+              <p className="text-green-100 text-sm mt-1">Order #{watiDialogOrder.order} accepted - Preview message before sending</p>
+            </div>
+            <div className="p-4 overflow-y-auto max-h-[50vh]">
+              <p className="text-xs text-gray-500 mb-2">Message Preview:</p>
+              <pre className="bg-gray-50 p-4 rounded-lg text-sm whitespace-pre-wrap font-sans border border-gray-200">
+                {(() => {
+                  const f = watiDialogOrder.details?.farmer
+                  const paid = watiDialogOrder.details?.payment?.reduce((s, p) => s + (p.paidAmount || 0), 0) || 0
+                  const total = (watiDialogOrder.rate || 0) * (watiDialogOrder.quantity || watiDialogOrder.totalPlants || 0)
+                  const rem = total - paid
+                  const delivery = watiDialogOrder.details?.deliveryDate || watiDialogOrder.deliveryDate || watiDialogOrder.Delivery || "To be confirmed"
+                  const plantType = watiDialogOrder.plantType?.split?.(" -> ")?.[0] || watiDialogOrder.details?.plantName?.name || "Plants"
+                  const subtype = watiDialogOrder.plantType?.split?.(" -> ")?.[1] || watiDialogOrder.details?.plantSubtype?.name || "N/A"
+                  return `👋 नमस्कार *${f?.name || watiDialogOrder.farmerName || "Farmer"}*
+आपली ऑर्डर स्वीकारली आहे!:
+
+📝 ऑर्डर तपशील:
+🆔 ऑर्डर आयडी: *${watiDialogOrder.order || watiDialogOrder.details?.orderid || "N/A"}*
+👤 नाव: *${f?.name || watiDialogOrder.farmerName || "N/A"}*
+🏡 गाव: *${f?.village || "N/A"}*
+📞 मोबाईल नंबर: *${f?.mobileNumber || watiDialogOrder.details?.contact || "N/A"}*
+🌱 रोप प्रकार: *${plantType}*
+🔖 उप-प्रकार: *${subtype}*
+🌿 बुक केलेली एकूण रोपे: *${watiDialogOrder.quantity || watiDialogOrder.totalPlants || 0}*
+
+💰 पेमेंट तपशील:
+प्रति रोप दर: *₹${watiDialogOrder.rate || 0}*
+एकूण रक्कम: *₹${total}*
+प्राप्त रक्कम: *₹${paid}*
+शिल्लक रक्कम: *₹${rem}*
+
+🚚 डिलिव्हरी तारीख:
+ *${typeof delivery === "string" ? delivery : moment(delivery).format("DD-MM-YYYY")}*
+
+आपली ऑर्डर मध्ये काही बदल असल्यास आम्हाला कळवा.
+आभार! 🙏
+राम बायोटेक,
+7276386452`
+                })()}
+              </pre>
+            </div>
+            <div className="p-4 flex gap-3 justify-end border-t bg-gray-50">
+              <button
+                onClick={() => { setWatiDialogOpen(false); setWatiDialogOrder(null) }}
+                className="px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 font-medium">
+                नाही
+              </button>
+              <button
+                onClick={async () => {
+                  setWatiSending(true)
+                  try {
+                    const orderId = watiDialogOrder?.details?.orderid || watiDialogOrder?.details?._id
+                    const instance = NetworkManager(API.ORDER.SEND_ACCEPTED_WHATSAPP)
+                    const res = await instance.request({}, [orderId])
+                    if (res?.data?.status === "Success") {
+                      Toast.success("WhatsApp message sent successfully")
+                    } else {
+                      Toast.error(res?.data?.message || "Failed to send message")
+                    }
+                  } catch (err) {
+                    Toast.error(err?.response?.data?.message || "Failed to send WhatsApp message")
+                  } finally {
+                    setWatiSending(false)
+                    setWatiDialogOpen(false)
+                    setWatiDialogOrder(null)
+                  }
+                }}
+                disabled={watiSending}
+                className="px-4 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700 font-medium disabled:opacity-50">
+                {watiSending ? "पाठवत आहे..." : "होय पाठवा"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Delivery Date Picker Modal */}
       {showDeliveryDateModal && (

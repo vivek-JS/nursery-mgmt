@@ -418,6 +418,7 @@ export const API = {
       OFFLINE.PROFILE
     ),
     ADD_PAYMENT: new APIRouter("order/payment/:orderId", HTTP_METHODS.PATCH, OFFLINE.PROFILE),
+    SEND_ACCEPTED_WHATSAPP: new APIRouter("order/:orderId/send-accepted-whatsapp", HTTP_METHODS.POST, OFFLINE.PROFILE),
     GET_CSV: new APIRouter("order/getCSV", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_SLOTS: new APIRouter("slots/getslots", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_BUCKETING: new APIRouter("/order/bucketing", HTTP_METHODS.GET, OFFLINE.PROFILE),

@@ -148,6 +148,7 @@ function PlaceOrderMobile() {
   const userId = user?._id || user?.id
   const isDealerOrSales = userJobTitle === "DEALER" || userJobTitle === "SALES"
   const isDealer = userJobTitle === "DEALER"
+  const canChangeOrderStatus = !isDealer && (userJobTitle === "SUPERADMIN" || userJobTitle === "SUPER_ADMIN" || userJobTitle === "OFFICE_ADMIN")
 
   const [activeTab, setActiveTab] = useState(0)
   const [orders, setOrders] = useState([])
@@ -375,10 +376,19 @@ function PlaceOrderMobile() {
       const inst = NetworkManager(API.ORDER.UPDATE_ORDER); await inst.request(payload); Toast.success("Order updated"); await refreshOrderDetail()
     } catch (err) { Toast.error(err?.response?.data?.message || "Failed to update") } finally { setEditLoading(false) }
   }
+  const [watiDialogOpen, setWatiDialogOpen] = useState(false)
+  const [watiSending, setWatiSending] = useState(false)
   const handleStatusChange = async (newStatus) => {
     if (!selectedOrder) return; setStatusLoading(true)
-    try { const inst = NetworkManager(API.ORDER.UPDATE_ORDER); await inst.request({ id: selectedOrder._id, orderStatus: newStatus }); Toast.success(`Status → ${newStatus}`); await refreshOrderDetail() }
-    catch (err) { Toast.error(err?.response?.data?.message || "Failed") } finally { setStatusLoading(false) }
+    try {
+      const inst = NetworkManager(API.ORDER.UPDATE_ORDER)
+      await inst.request({ id: selectedOrder._id, orderStatus: newStatus })
+      Toast.success(`Status → ${newStatus}`)
+      await refreshOrderDetail()
+      if (newStatus === "ACCEPTED" && !selectedOrder.dealerOrder && selectedOrder.farmerMobile) {
+        setWatiDialogOpen(true)
+      }
+    } catch (err) { Toast.error(err?.response?.data?.message || "Failed") } finally { setStatusLoading(false) }
   }
   const handleAddRemark = async () => {
     if (!selectedOrder || !newRemark.trim()) return; setRemarkLoading(true)
@@ -574,7 +584,7 @@ function PlaceOrderMobile() {
               sx={{ fontSize: "0.7rem", fontWeight: 700, textTransform: "none", color: C.primary, flex: 1 }}>
               Full Details
             </Button>
-            {row.orderStatus !== "DISPATCHED" && row.orderStatus !== "REJECTED" && (
+            {canChangeOrderStatus && row.orderStatus !== "DISPATCHED" && row.orderStatus !== "REJECTED" && (
               <FormControl size="small" sx={{ minWidth: 95 }}>
                 <Select value="" displayEmpty onChange={(e) => { if (e.target.value) { setSelectedOrder(row); handleStatusChange(e.target.value) } }}
                   disabled={statusLoading} onClick={(e) => e.stopPropagation()}
@@ -1132,16 +1142,18 @@ function PlaceOrderMobile() {
         <Box sx={{ flex: 1, overflow: "auto", WebkitOverflowScrolling: "touch", bgcolor: C.bg }}>
           {detailTab === 0 && renderODDetails(o)}{detailTab === 1 && renderODPayment(o)}{detailTab === 2 && renderODEdit(o)}{detailTab === 3 && renderODRemarks(o)}{detailTab === 4 && renderODHistory(o)}
         </Box>
-        {o.orderStatus !== "DISPATCHED" && o.orderStatus !== "REJECTED" && (
+        {(o.orderStatus !== "DISPATCHED" && o.orderStatus !== "REJECTED") && (
           <Box sx={{ px: 2, py: 1, borderTop: `1px solid ${C.border}`, bgcolor: "white", display: "flex", gap: 0.75 }}>
             <Button size="small" variant="outlined" startIcon={<PaymentIcon sx={{ fontSize: 15 }} />} onClick={() => setDetailTab(1)} sx={{ fontSize: "0.7rem", fontWeight: 700, textTransform: "none", flex: 1, borderRadius: 2, borderColor: C.primary, color: C.primary }}>Add Payment</Button>
-            <FormControl size="small" sx={{ minWidth: 110 }}>
-              <Select value="" displayEmpty onChange={(e) => { if (e.target.value) handleStatusChange(e.target.value) }} disabled={statusLoading} sx={{ fontSize: "0.68rem", height: 32, borderRadius: 2, fontWeight: 600 }}
-                renderValue={() => statusLoading ? "..." : "Status"}>
-                <MenuItem value="" disabled>Change Status</MenuItem>
-                {statusOptions.filter((s) => s.value !== o.orderStatus).map((s) => <MenuItem key={s.value} value={s.value}><Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}><Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: s.color }} />{s.label}</Box></MenuItem>)}
-              </Select>
-            </FormControl>
+            {canChangeOrderStatus && (
+              <FormControl size="small" sx={{ minWidth: 110 }}>
+                <Select value="" displayEmpty onChange={(e) => { if (e.target.value) handleStatusChange(e.target.value) }} disabled={statusLoading} sx={{ fontSize: "0.68rem", height: 32, borderRadius: 2, fontWeight: 600 }}
+                  renderValue={() => statusLoading ? "..." : "Status"}>
+                  <MenuItem value="" disabled>Change Status</MenuItem>
+                  {statusOptions.filter((s) => s.value !== o.orderStatus).map((s) => <MenuItem key={s.value} value={s.value}><Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}><Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: s.color }} />{s.label}</Box></MenuItem>)}
+                </Select>
+              </FormControl>
+            )}
           </Box>
         )}
       </Dialog>
@@ -1279,6 +1291,56 @@ function PlaceOrderMobile() {
       {renderBottomNav()}
       <AddOrderForm open={showForm} onClose={() => setShowForm(false)} onSuccess={handleSuccess} fullScreen={isMobile} />
       {renderOrderDetail()}
+      {watiDialogOpen && selectedOrder && (
+        <Dialog open onClose={() => setWatiDialogOpen(false)} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
+          <Box sx={{ p: 2, bgcolor: "#22C55E", color: "white" }}>
+            <Typography sx={{ fontWeight: 800, fontSize: "1.1rem" }}>WhatsApp संदेश पाठवायचा का?</Typography>
+            <Typography sx={{ fontSize: "0.8rem", opacity: 0.9 }}>Order #{selectedOrder.order} accepted</Typography>
+          </Box>
+          <Box sx={{ p: 2, maxHeight: 280, overflow: "auto" }}>
+            <Typography sx={{ fontSize: "0.7rem", color: "text.secondary", mb: 1 }}>Message Preview:</Typography>
+            <Box component="pre" sx={{ bgcolor: "#f8fafc", p: 2, borderRadius: 2, fontSize: "0.75rem", whiteSpace: "pre-wrap", fontFamily: "inherit", border: "1px solid #e2e8f0" }}>
+              {`👋 नमस्कार *${selectedOrder.farmerName || "Farmer"}*
+आपली ऑर्डर स्वीकारली आहे!:
+
+📝 ऑर्डर तपशील:
+🆔 ऑर्डर आयडी: *${selectedOrder.order || "N/A"}*
+👤 नाव: *${selectedOrder.farmerName || "N/A"}*
+🏡 गाव: *${selectedOrder.farmerVillage || "N/A"}*
+📞 मोबाईल नंबर: *${selectedOrder.farmerMobile || "N/A"}*
+🌱 रोप प्रकार: *${selectedOrder.plantType || "N/A"}*
+🔖 उप-प्रकार: *${selectedOrder.plantSubtype || "N/A"}*
+🌿 बुक केलेली एकूण रोपे: *${selectedOrder.totalPlants || selectedOrder.quantity || 0}*
+
+💰 पेमेंट तपशील:
+प्रति रोप दर: *₹${selectedOrder.rate || 0}*
+एकूण रक्कम: *₹${selectedOrder.total || 0}*
+प्राप्त रक्कम: *₹${selectedOrder.paidAmt || 0}*
+शिल्लक रक्कम: *₹${selectedOrder.remainingAmt || 0}*
+
+🚚 डिलिव्हरी तारीख:
+ *${selectedOrder.deliveryDate || "To be confirmed"}*
+
+आपली ऑर्डर मध्ये काही बदल असल्यास आम्हाला कळवा.
+आभार! 🙏
+राम बायोटेक,
+7276386452`}
+            </Box>
+          </Box>
+          <Box sx={{ p: 2, display: "flex", gap: 1, justifyContent: "flex-end", borderTop: "1px solid #e2e8f0" }}>
+            <Button variant="outlined" onClick={() => setWatiDialogOpen(false)} sx={{ borderRadius: 2 }}>नाही</Button>
+            <Button variant="contained" color="success" disabled={watiSending} onClick={async () => {
+              setWatiSending(true)
+              try {
+                const inst = NetworkManager(API.ORDER.SEND_ACCEPTED_WHATSAPP)
+                await inst.request({}, [selectedOrder._id])
+                Toast.success("WhatsApp message sent")
+              } catch (e) { Toast.error(e?.response?.data?.message || "Failed to send") }
+              finally { setWatiSending(false); setWatiDialogOpen(false) }
+            }} sx={{ borderRadius: 2 }}>{watiSending ? "पाठवत आहे..." : "होय पाठवा"}</Button>
+          </Box>
+        </Dialog>
+      )}
     </Box>
   )
 }
