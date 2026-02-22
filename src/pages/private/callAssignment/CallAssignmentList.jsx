@@ -55,10 +55,12 @@ const CallAssignmentList = () => {
   const [assignLoading, setAssignLoading] = useState(false)
   const [assignError, setAssignError] = useState(null)
   const [mobileUrl, setMobileUrl] = useState(null)
+  const [error, setError] = useState(null)
   const [searchTerm, setSearchTerm] = useState("")
   const [moreFiltersExpanded, setMoreFiltersExpanded] = useState(false)
   const [oldSalesFilters, setOldSalesFilters] = useState({ plant: "", variety: "", media: "", batch: "", paymentMode: "", reference: "", marketingReference: "", billGivenOrNot: "", verifiedOrNot: "", shadeNo: "", vehicleNo: "", driverName: "" })
   const searchDebounceRef = useRef(null)
+  const fileInputRef = useRef(null)
   const [viewListOpen, setViewListOpen] = useState(false)
   const [viewListData, setViewListData] = useState(null)
   const [viewLoading, setViewLoading] = useState(false)
@@ -84,8 +86,15 @@ const CallAssignmentList = () => {
         const data = res?.data?.data || {}
         const farmersData = Array.isArray(data) ? data : data.farmers || []
         const pagination = data.pagination || {}
-        setFarmers(farmersData)
-        setFarmersMeta({ total: pagination.total ?? farmersData.length, page: pagination.page ?? page, totalPages: pagination.totalPages ?? 1 })
+        // Normalize farmers to expected UI shape
+        const normalizedFarmers = farmersData.map((f) => ({
+          ...f,
+          source: "farmer",
+          sourceId: f._id || f.id,
+          phone: String(f.mobileNumber || f.phone || f.mobile || "").replace(/\D/g, "").slice(-10),
+        }))
+        setFarmers(normalizedFarmers)
+        setFarmersMeta({ total: pagination.total ?? normalizedFarmers.length, page: pagination.page ?? page, totalPages: pagination.totalPages ?? 1 })
       } else if (source === "lead") {
         // Old sales unique customers endpoint
         const instance = NetworkManager(API.OLD_SALES.GET_UNIQUE_CUSTOMERS)
@@ -98,7 +107,8 @@ const CallAssignmentList = () => {
           _id: c._id || `old-sales-${c.mobileNumber}-${(page - 1) * PAGE_SIZE + index}`,
           id: c._id || `old-sales-${c.mobileNumber}-${(page - 1) * PAGE_SIZE + index}`,
           name: c.name || c.customerName || "",
-          phone: c.mobileNumber || c.mobileNo || "",
+          sourceId: c._id || null,
+          phone: String(c.mobileNumber || c.mobileNo || "").replace(/\D/g, "").slice(-10),
           village: c.village || "",
           taluka: c.taluka || "",
           district: c.district || "",
@@ -114,7 +124,13 @@ const CallAssignmentList = () => {
           const data = res?.data?.data || {}
           const leadsData = data.leads || []
           const pagination = { total: data.total ?? leadsData.length, totalPages: data.totalPages ?? 1 }
-          setFarmerFormLeads(leadsData)
+          const normalized = leadsData.map((lead) => ({
+            ...lead,
+            source: "publicLead",
+            sourceId: lead._id,
+            phone: String(lead.mobileNumber || lead.mobile || "").replace(/\D/g, "").slice(-10),
+          }))
+          setFarmerFormLeads(normalized)
           setFarmerFormMeta({ total: pagination.total, page, totalPages: pagination.totalPages })
         } else {
           // no link selected - fetch all leads
@@ -246,6 +262,50 @@ const CallAssignmentList = () => {
     fetchData(activeTab === 0 ? "farmer" : activeTab === 1 ? "lead" : "farmerForm", 1)
   }
 
+  const handleFileChange = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (evt) => {
+      const text = evt.target.result
+      // simple CSV parse: first line headers
+      const lines = text.split(/\r\n|\n/).map(l => l.trim()).filter(Boolean)
+      if (lines.length === 0) return
+      const headers = lines[0].split(",").map(h => h.trim().toLowerCase())
+      const nameIdx = headers.findIndex(h => h.includes("name"))
+      const mobileIdx = headers.findIndex(h => h.includes("mobile") || h.includes("phone") || h.includes("number"))
+      if (mobileIdx === -1) {
+        setError("CSV must include a mobile/phone column")
+        return
+      }
+      const newSelected = []
+      for (let i = 1; i < lines.length; i++) {
+        const cols = lines[i].split(",").map(c => c.trim())
+        const mobileRaw = cols[mobileIdx] || ""
+        const mobile = String(mobileRaw).replace(/\D/g, "").slice(-10)
+        if (!/^\d{10}$/.test(mobile)) continue
+        const name = nameIdx >= 0 ? (cols[nameIdx] || "") : ""
+        const id = `csv-${mobile}-${Date.now()}-${i}`
+        newSelected.push({ _id: id, id, name: name || mobile, phone: mobile, mobileNumber: mobile, source: "csv" })
+      }
+      if (newSelected.length === 0) {
+        setError("No valid rows found in CSV")
+        return
+      }
+      // add CSV rows into selected set (keyed)
+      setSelected((prev) => {
+        const next = new Set(prev)
+        for (const s of newSelected) {
+          const k = `csv:${s.id}`
+          next.add(k)
+        }
+        return next
+      })
+      e.target.value = ""
+    }
+    reader.readAsText(file)
+  }
+
   const handleOldSalesFilterChange = (key, value) => {
     const newOldSalesFilters = { ...oldSalesFilters, [key]: value }
     setOldSalesFilters(newOldSalesFilters)
@@ -315,7 +375,11 @@ const CallAssignmentList = () => {
   const items = activeTab === 0 ? farmers : activeTab === 1 ? leads : farmerFormLeads
   const meta = activeTab === 0 ? farmersMeta : activeTab === 1 ? leadsMeta : farmerFormMeta
 
-  const key = (c) => `${c.source}:${c.sourceId}`
+  const key = (c) => {
+    const sid = c.sourceId || c._id || c.id || ""
+    const src = c.source || (c.sourceLabel ? (c.sourceLabel.includes("Lead") ? "publicLead" : "farmer") : "farmer")
+    return `${src}:${sid}`
+  }
 
   const toggleSelect = (k) => {
     const next = new Set(selected)
@@ -325,8 +389,24 @@ const CallAssignmentList = () => {
   }
 
   const selectAll = () => {
-    if (selected.size === items.length) setSelected(new Set())
-    else setSelected(new Set(items.map((c) => key(c))))
+    // Toggle selection only for currently visible items (avoid mixing pages)
+    const visibleKeys = new Set(items.map((c) => key(c)))
+    const allVisibleSelected = Array.from(visibleKeys).every((k) => selected.has(k))
+    if (allVisibleSelected) {
+      // Deselect visible items only
+      setSelected((prev) => {
+        const next = new Set(prev)
+        for (const k of visibleKeys) next.delete(k)
+        return next
+      })
+    } else {
+      // Add visible items to selection (keep others)
+      setSelected((prev) => {
+        const next = new Set(prev)
+        for (const k of visibleKeys) next.add(k)
+        return next
+      })
+    }
   }
 
   const handleAssign = async () => {
@@ -338,8 +418,14 @@ const CallAssignmentList = () => {
     setAssignError(null)
     try {
       const itemsToAssign = Array.from(selected).map((k) => {
-        const [source, sourceId] = k.split(":")
-        return { source, sourceId, ...items.find((c) => key(c) === k) }
+        // find the item matching this key (robust against missing sourceId)
+        const matched = items.find((c) => key(c) === k)
+        const parts = k.split(":")
+        let source = parts[0] || (matched && matched.source) || "farmer"
+        let sourceId = parts[1] || (matched && (matched.sourceId || matched._id || matched.id)) || null
+        // if still missing, try to use matched._id
+        if (!sourceId && matched) sourceId = matched._id || matched.id || null
+        return { source, sourceId, ...(matched || {}) }
       })
       const instance = NetworkManager(API.CALL_ASSIGNMENT.ASSIGN_LIST)
       const res = await instance.request({
@@ -436,6 +522,18 @@ const CallAssignmentList = () => {
               </Grid>
               <Grid item xs={12} md="auto">
                 <Button size="small" variant="outlined" onClick={handleClearFilters} disabled={!filters.district && !filters.taluka && !filters.village && !searchTerm}>Clear filters</Button>
+              </Grid>
+              <Grid item xs={12} md="auto">
+                <input
+                  ref={(el) => (fileInputRef.current = el)}
+                  type="file"
+                  accept=".csv,text/csv"
+                  style={{ display: "none" }}
+                  onChange={handleFileChange}
+                />
+                <Button size="small" variant="outlined" onClick={() => fileInputRef.current && fileInputRef.current.click()}>
+                  Upload CSV
+                </Button>
               </Grid>
               {activeTab === 1 && (
                 <Grid item xs={12}>

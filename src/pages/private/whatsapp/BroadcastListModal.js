@@ -105,8 +105,8 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
   const [publicLinks, setPublicLinks] = useState([])
   const [selectedPublicLinkId, setSelectedPublicLinkId] = useState("")
   const [loadingPublicLinks, setLoadingPublicLinks] = useState(false)
-  // Manual number entry (3 fields)
-  const [manualNumbers, setManualNumbers] = useState(["", "", ""])
+  const [manualNumberInput, setManualNumberInput] = useState("")
+  const [manualAddExpanded, setManualAddExpanded] = useState(false)
   // Pagination state for farmers / old sales / public leads
   const [oldFarmersPage, setOldFarmersPage] = useState(1)
   const [oldFarmersHasMore, setOldFarmersHasMore] = useState(true)
@@ -223,7 +223,8 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
     setFilterOptions({ districts: [], talukas: [], villages: [], plant: [], variety: [], media: [], batch: [], paymentMode: [], reference: [], marketingReference: [], billGivenOrNot: [], verifiedOrNot: [], shadeNo: [], vehicleNo: [], driverName: [] })
     setListName("")
     setSelectedPublicLinkId("")
-    setManualNumbers(["", "", ""])
+    setManualNumberInput("")
+    setManualAddExpanded(false)
     setActiveTab(0)
     setError(null)
     setOldFarmersPage(1)
@@ -560,35 +561,20 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
     setSelectedFarmers(prev => prev.filter(f => (f._id || f.id) !== farmerId))
   }
 
-  // Add manual numbers to selected list
-  const handleAddManualNumbers = () => {
-    const toAdd = []
-    manualNumbers.forEach((val, idx) => {
-      const digits = String(val || "").replace(/\D/g, "")
-      const phone = digits.length === 10 ? digits : digits.length === 12 && digits.startsWith("91") ? digits.slice(2) : null
-      if (phone) {
-        const mobileNumber = phone
-        const id = `manual-${mobileNumber}-${idx}-${Date.now()}`
-        if (!selectedFarmers.some(f => String(f.mobileNumber || "").replace(/\D/g, "").slice(-10) === mobileNumber)) {
-          toAdd.push({
-            _id: id,
-            id,
-            name: "",
-            mobileNumber,
-            village: "",
-            taluka: "",
-            district: "",
-            source: "manual",
-            sourceLabel: "Manual"
-          })
-        }
+  const handleAddManualNumber = () => {
+    const digits = String(manualNumberInput || "").replace(/\D/g, "")
+    const phone = digits.length === 10 ? digits : digits.length === 12 && digits.startsWith("91") ? digits.slice(2) : null
+    if (phone) {
+      if (!selectedFarmers.some(f => String(f.mobileNumber || "").replace(/\D/g, "").slice(-10) === phone)) {
+        const id = `manual-${phone}-${Date.now()}`
+        setSelectedFarmers(prev => [...prev, {
+          _id: id, id, name: "", mobileNumber: phone, village: "", taluka: "", district: "",
+          source: "manual", sourceLabel: "Manual"
+        }])
+        setManualNumberInput("")
       }
-    })
-    if (toAdd.length > 0) {
-      setSelectedFarmers(prev => [...prev, ...toAdd])
-      setManualNumbers(["", "", ""])
-    } else if (manualNumbers.some(m => m.trim())) {
-      setError("Enter valid 10-digit phone numbers")
+    } else if (manualNumberInput.trim()) {
+      setError("Enter valid 10-digit phone number")
     }
   }
 
@@ -679,19 +665,19 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
       maxWidth="xl"
       fullWidth
       PaperProps={{
-        sx: { borderRadius: 3, maxHeight: '95vh' }
+        sx: { borderRadius: 2, maxHeight: '85vh' }
       }}
     >
-      <DialogTitle sx={{ pb: 1 }}>
+      <DialogTitle sx={{ py: 1.5, px: 2 }}>
         <Stack direction="row" justifyContent="space-between" alignItems="center">
-          <Stack direction="row" spacing={2} alignItems="center">
-            <Users size={24} color="#10b981" />
+          <Stack direction="row" spacing={1.5} alignItems="center">
+            <Users size={20} color="#10b981" />
             <Box>
-              <Typography variant="h6" fontWeight="bold">
+              <Typography variant="subtitle1" fontWeight="bold">
                 Create Broadcast List
               </Typography>
-              <Typography variant="caption" color="text.secondary">
-                Select farmers from all sources and manage your list
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', lineHeight: 1.2 }}>
+                Select farmers from all sources
               </Typography>
             </Box>
           </Stack>
@@ -703,88 +689,68 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
       
       <Divider />
 
-      <DialogContent sx={{ pt: 3, display: 'flex', flexDirection: 'column', gap: 2 }}>
+      <DialogContent sx={{ pt: 1.5, px: 2, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
         {error && (
           <Alert 
             severity="error" 
-            icon={<AlertCircle size={20} />}
-            sx={{ borderRadius: 2 }} 
+            icon={<AlertCircle size={18} />}
+            sx={{ borderRadius: 1, py: 0.75 }} 
             onClose={() => setError(null)}
           >
             {error}
           </Alert>
         )}
 
-        {/* List Name Input */}
+        {/* List Name + Add Manual */}
         <Card sx={{ boxShadow: 0, border: 1, borderColor: 'grey.200' }}>
-          <CardContent>
-            <TextField
-              fullWidth
-              label="Broadcast List Name"
-              placeholder="Enter a name for this broadcast list"
-              value={listName}
-              onChange={(e) => setListName(e.target.value)}
-              size="small"
-              sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
-            />
-          </CardContent>
-        </Card>
-
-        {/* Manual Number Entry */}
-        <Card sx={{ boxShadow: 0, border: 1, borderColor: 'primary.main', bgcolor: 'primary.50' }}>
-          <CardContent>
-            <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
-              <Plus size={18} color="#1976d2" />
-              <Typography variant="subtitle2" fontWeight="bold" color="primary.main">
-                Add numbers manually
-              </Typography>
+          <CardContent sx={{ py: 1, '&:last-child': { pb: 1 } }}>
+            <Stack direction="row" alignItems="center" spacing={1}>
+              <TextField
+                fullWidth
+                placeholder="List name"
+                value={listName}
+                onChange={(e) => setListName(e.target.value)}
+                size="small"
+                sx={{ '& .MuiOutlinedInput-root': { borderRadius: 1, fontSize: '0.875rem' } }}
+              />
+              <Button
+                size="small"
+                variant="outlined"
+                color="primary"
+                startIcon={<Plus size={14} />}
+                onClick={() => setManualAddExpanded(!manualAddExpanded)}
+                sx={{ minWidth: 'auto', px: 1.5, borderRadius: 1, fontSize: '0.75rem' }}
+              >
+                Add number
+              </Button>
             </Stack>
-            <Grid container spacing={2} alignItems="center">
-              {[0, 1, 2].map((idx) => (
-                <Grid item xs={12} sm={4} key={idx}>
-                  <TextField
-                    fullWidth
-                    placeholder={`Phone ${idx + 1} (10 digits)`}
-                    value={manualNumbers[idx]}
-                    onChange={(e) => {
-                      const v = e.target.value.replace(/\D/g, "").slice(0, 12)
-                      setManualNumbers(prev => {
-                        const next = [...prev]
-                        next[idx] = v
-                        return next
-                      })
-                    }}
-                    size="small"
-                    inputProps={{ maxLength: 12 }}
-                    sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
-                  />
-                </Grid>
-              ))}
-              <Grid item xs={12} sm="auto">
-                <Button
-                  variant="outlined"
-                  color="primary"
+            <Collapse in={manualAddExpanded}>
+              <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1, pt: 1, borderTop: 1, borderColor: 'divider' }}>
+                <TextField
+                  placeholder="10-digit phone"
+                  value={manualNumberInput}
+                  onChange={(e) => setManualNumberInput(e.target.value.replace(/\D/g, "").slice(0, 12))}
                   size="small"
-                  startIcon={<Plus size={16} />}
-                  onClick={handleAddManualNumbers}
-                  sx={{ borderRadius: 2 }}
-                >
-                  Add to list
+                  inputProps={{ maxLength: 12 }}
+                  sx={{ width: 140, '& .MuiOutlinedInput-root': { borderRadius: 1, fontSize: '0.8rem' } }}
+                />
+                <Button size="small" variant="contained" color="primary" onClick={handleAddManualNumber} sx={{ borderRadius: 1, fontSize: '0.75rem' }}>
+                  Add more
                 </Button>
-              </Grid>
-            </Grid>
+              </Stack>
+            </Collapse>
           </CardContent>
         </Card>
 
         {/* Selected Farmers Section */}
         {selectedFarmers.length > 0 && (
           <Card sx={{ boxShadow: 0, border: 1, borderColor: 'success.main', bgcolor: 'success.50' }}>
-            <CardContent>
-              <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+            <CardContent sx={{ py: 1, '&:last-child': { pb: 1 } }}>
+              <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
                 <Stack direction="row" spacing={1} alignItems="center">
-                  <CheckCircle size={18} color="#10b981" />
-                  <Typography variant="subtitle2" fontWeight="bold" color="success.main">
-                    Selected Farmers ({selectedFarmers.length})
+                  <CheckCircle size={16} color="#10b981" />
+                  <Typography variant="caption" fontWeight="bold" color="success.main">
+                    Selected ({selectedFarmers.length})
                   </Typography>
                 </Stack>
                 <Button
@@ -801,10 +767,10 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
               <Box sx={{ 
                 display: 'flex', 
                 flexWrap: 'wrap', 
-                gap: 1,
-                maxHeight: 120,
+                gap: 0.5,
+                maxHeight: 56,
                 overflowY: 'auto',
-                p: 1,
+                p: 0.75,
                 bgcolor: 'white',
                 borderRadius: 1
               }}>
@@ -817,6 +783,8 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
                     color="success"
                     variant="outlined"
                     sx={{ 
+                      height: 24,
+                      fontSize: '0.7rem',
                       '& .MuiChip-deleteIcon': { 
                         fontSize: '16px',
                         '&:hover': { color: 'error.main' }
@@ -830,8 +798,8 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
         )}
 
         {/* Source Tabs */}
-        <Card sx={{ boxShadow: 0, border: 1, borderColor: 'grey.200' }}>
-          <CardContent sx={{ p: 0 }}>
+        <Card sx={{ boxShadow: 0, border: 1, borderColor: 'grey.200', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+          <CardContent sx={{ p: 0, flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
             <Tabs
               value={activeTab}
               onChange={(e, newValue) => {
@@ -851,31 +819,16 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
                   fetchPublicLeads(selectedPublicLinkId || "all", "", 1, { district: "", taluka: "", village: "" })
                 }
               }}
-              sx={{ borderBottom: 1, borderColor: 'divider', px: 2 }}
+              sx={{ borderBottom: 1, borderColor: 'divider', px: 1, minHeight: 36 }}
             >
-              <Tab 
-                icon={<Database size={16} />} 
-                iconPosition="start"
-                label={`Old Farmers (${oldFarmersPagination.total || oldFarmersData.length})`}
-                sx={{ textTransform: 'none' }}
-              />
-              <Tab 
-                icon={<FileText size={16} />} 
-                iconPosition="start"
-                label={`Old Sales (${oldSalesPagination.total || oldSalesData.length})`}
-                sx={{ textTransform: 'none' }}
-              />
-              <Tab 
-                icon={<LinkIcon size={16} />} 
-                iconPosition="start"
-                label={`Public Leads (${publicLeadsPagination.total || publicLeadsData.length})`}
-                sx={{ textTransform: 'none' }}
-              />
+              <Tab icon={<Database size={14} />} iconPosition="start" label={`Farmers (${oldFarmersPagination.total || oldFarmersData.length})`} sx={{ textTransform: 'none', minHeight: 36, py: 0.5, fontSize: '0.8rem' }} />
+              <Tab icon={<FileText size={14} />} iconPosition="start" label={`Sales (${oldSalesPagination.total || oldSalesData.length})`} sx={{ textTransform: 'none', minHeight: 36, py: 0.5, fontSize: '0.8rem' }} />
+              <Tab icon={<LinkIcon size={14} />} iconPosition="start" label={`Leads (${publicLeadsPagination.total || publicLeadsData.length})`} sx={{ textTransform: 'none', minHeight: 36, py: 0.5, fontSize: '0.8rem' }} />
             </Tabs>
 
             {/* Public Link Selector for Public Leads Tab */}
             {activeTab === 2 && (
-              <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
+              <Box sx={{ px: 1, py: 0.75, borderBottom: 1, borderColor: 'divider' }}>
                 <FormControl fullWidth size="small">
                   <InputLabel>Public Link</InputLabel>
                   <Select
@@ -899,8 +852,8 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
             )}
 
             {/* Search and Filters - all tabs */}
-            <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
-                <Grid container spacing={2} alignItems="center">
+            <Box sx={{ px: 1, py: 0.75, borderBottom: 1, borderColor: 'divider' }}>
+                <Grid container spacing={1} alignItems="center">
                   <Grid item xs={12} md={4}>
                     <TextField
                       fullWidth
@@ -995,7 +948,7 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
                 </Grid>
                 {activeTab === 1 && moreFiltersExpanded && (
                   <Collapse in={moreFiltersExpanded}>
-                    <Grid container spacing={2} sx={{ mt: 1, pt: 2, borderTop: 1, borderColor: 'divider' }}>
+                    <Grid container spacing={1.5} sx={{ mt: 1, pt: 1.5, borderTop: 1, borderColor: 'divider' }}>
                       {[
                         { key: "plant", label: "Plant", options: filterOptions.plant },
                         { key: "variety", label: "Variety", options: filterOptions.variety },
@@ -1033,13 +986,11 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
                 )}
             </Box>
 
-            {/* Pagination - above table for visibility */}
-            <Box sx={{ px: 2, py: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1, borderBottom: 1, borderColor: 'divider', bgcolor: 'grey.50' }}>
+            {/* Pagination - above table */}
+            <Box sx={{ px: 1, py: 0.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 0.5, borderBottom: 1, borderColor: 'divider', bgcolor: 'grey.50' }}>
               {activeTab === 0 && (
                 <>
-                  <Typography variant="body2" color="text.secondary">
-                    {oldFarmersPagination.total || 0} total · Page {oldFarmersPage} of {oldFarmersPagination.totalPages || 1}
-                  </Typography>
+                  <Typography variant="caption" color="text.secondary">{oldFarmersPagination.total || 0} · {oldFarmersPage}/{oldFarmersPagination.totalPages || 1}</Typography>
                   <Pagination
                     count={Math.max(1, oldFarmersPagination.totalPages || 1)}
                     page={oldFarmersPage}
@@ -1054,9 +1005,7 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
               )}
               {activeTab === 1 && (
                 <>
-                  <Typography variant="body2" color="text.secondary">
-                    {oldSalesPagination.total || 0} total · Page {oldSalesPage} of {oldSalesPagination.totalPages || 1}
-                  </Typography>
+                  <Typography variant="caption" color="text.secondary">{oldSalesPagination.total || 0} · {oldSalesPage}/{oldSalesPagination.totalPages || 1}</Typography>
                   <Pagination
                     count={Math.max(1, oldSalesPagination.totalPages || 1)}
                     page={oldSalesPage}
@@ -1071,9 +1020,7 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
               )}
               {activeTab === 2 && (
                 <>
-                  <Typography variant="body2" color="text.secondary">
-                    {publicLeadsPagination.total || 0} total · Page {publicLeadsPage} of {publicLeadsPagination.totalPages || 1}
-                  </Typography>
+                  <Typography variant="caption" color="text.secondary">{publicLeadsPagination.total || 0} · {publicLeadsPage}/{publicLeadsPagination.totalPages || 1}</Typography>
                   <Pagination
                     count={Math.max(1, publicLeadsPagination.totalPages || 1)}
                     page={publicLeadsPage}
@@ -1089,26 +1036,26 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
             </Box>
 
             {/* Farmers List */}
-            <TableContainer sx={{ maxHeight: 320 }}>
+            <TableContainer sx={{ maxHeight: 200, flex: 1 }}>
               {getCurrentLoading() ? (
-                <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', py: 4 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', py: 2 }}>
                   <CircularProgress size={40} />
                   <Typography variant="body2" color="text.secondary" sx={{ ml: 2 }}>
                     Loading...
                   </Typography>
                 </Box>
               ) : (
-                <Table stickyHeader>
+                <Table stickyHeader size="small">
                   <TableHead>
-                    <TableRow>
-                      <TableCell padding="checkbox" sx={{ width: 50 }}>
+                    <TableRow sx={{ '& th': { py: 0.5, fontSize: '0.7rem' } }}>
+                      <TableCell padding="checkbox" sx={{ width: 36 }}>
                         <Checkbox
                           checked={filteredFarmers.length > 0 && filteredFarmers.every(f => isFarmerSelected(f._id || f.id))}
                           indeterminate={filteredFarmers.some(f => isFarmerSelected(f._id || f.id)) && !filteredFarmers.every(f => isFarmerSelected(f._id || f.id))}
                           onChange={handleSelectAll}
                         />
                       </TableCell>
-                      <TableCell sx={{ fontWeight: 'bold', width: 50 }}>Add</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold', width: 36 }}>Add</TableCell>
                       <TableCell sx={{ fontWeight: 'bold' }}>Name</TableCell>
                       <TableCell sx={{ fontWeight: 'bold' }}>Mobile</TableCell>
                       <TableCell sx={{ fontWeight: 'bold' }}>Opt-in</TableCell>
@@ -1121,7 +1068,7 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
                   <TableBody>
                     {filteredFarmers.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
+                        <TableCell colSpan={9} align="center" sx={{ py: 2 }}>
                           <Typography variant="body2" color="text.secondary">
                             {activeTab === 2
                               ? "No farmers registered on public links yet"
@@ -1133,7 +1080,7 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
                       filteredFarmers.map((farmer) => {
                         const isSelected = isFarmerSelected(farmer._id || farmer.id)
                         return (
-                          <TableRow key={farmer._id || farmer.id} hover>
+                          <TableRow key={farmer._id || farmer.id} hover sx={{ '& td': { py: 0.35, fontSize: '0.75rem' } }}>
                             <TableCell padding="checkbox">
                               <Checkbox
                                 checked={isSelected}
@@ -1175,11 +1122,11 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
                             <TableCell>{farmer.mobileNumber}</TableCell>
                             <TableCell>
                               {farmer.opt_in === true ? (
-                                <Chip label="Opted-in" size="small" color="success" variant="outlined" />
+                                <Chip label="Opted-in" size="small" color="success" variant="outlined" sx={{ height: 20, fontSize: '0.65rem' }} />
                               ) : farmer.opt_in === false ? (
-                                <Chip label="Opted-out" size="small" color="error" variant="outlined" />
+                                <Chip label="Opted-out" size="small" color="error" variant="outlined" sx={{ height: 20, fontSize: '0.65rem' }} />
                               ) : (
-                                <Chip label="Unknown" size="small" color="default" variant="outlined" />
+                                <Chip label="Unknown" size="small" color="default" variant="outlined" sx={{ height: 20, fontSize: '0.65rem' }} />
                               )}
                             </TableCell>
                             <TableCell>{farmer.village}</TableCell>
@@ -1189,6 +1136,7 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
                               <Chip 
                                 label={farmer.sourceLabel || farmer.source}
                                 size="small"
+                                sx={{ height: 20, fontSize: '0.65rem' }}
                                 color={
                                   farmer.source === "publicLead" ? "primary" :
                                   farmer.source === "oldSales" ? "warning" :
@@ -1206,7 +1154,7 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
               )}
             </TableContainer>
             {/* Pagination - below table */}
-            <Box sx={{ p: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2, borderTop: 1, borderColor: 'divider' }}>
+            <Box sx={{ px: 1, py: 0.5, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5, borderTop: 1, borderColor: 'divider' }}>
               {activeTab === 0 && (
                 <Pagination
                   count={Math.max(1, oldFarmersPagination.totalPages || 1)}
@@ -1250,7 +1198,7 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
 
       <Divider />
 
-      <DialogActions sx={{ p: 2.5 }}>
+      <DialogActions sx={{ px: 2, py: 1.5 }}>
         <Button onClick={onClose} disabled={saving} sx={{ borderRadius: 2 }}>
           Cancel
         </Button>

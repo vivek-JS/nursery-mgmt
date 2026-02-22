@@ -78,7 +78,8 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
   const [useListMode, setUseListMode] = useState(false)
   const [selectedListIds, setSelectedListIds] = useState([])
   const [showExcelModal, setShowExcelModal] = useState(false)
-  const [manualNumbers, setManualNumbers] = useState(["", "", ""])
+  const [manualNumberInput, setManualNumberInput] = useState("")
+  const [manualAddExpanded, setManualAddExpanded] = useState(false)
   const [campaignName, setCampaignName] = useState("")
 
   const [publicLinks, setPublicLinks] = useState([])
@@ -116,7 +117,8 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
       setSelectedFarmers([])
       setActiveTab(0)
       setSelectedPublicLinkId("")
-      setManualNumbers(["", "", ""])
+      setManualNumberInput("")
+      setManualAddExpanded(false)
       setCampaignName("")
       setSearchTerm("")
       setFilters({ district: "", taluka: "", village: "" })
@@ -532,29 +534,21 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
     }
   }
 
-  const handleAddManualNumbers = () => {
-    const toAdd = []
+  const handleAddManualNumber = () => {
+    const digits = String(manualNumberInput || "").replace(/\D/g, "")
+    const phone = digits.length === 10 ? digits : digits.length === 12 && digits.startsWith("91") ? digits.slice(2) : null
     const allFarmers = [...oldFarmersData, ...oldSalesData, ...publicLeadsData, ...selectedFarmers]
-    manualNumbers.forEach((val, idx) => {
-      const digits = String(val || "").replace(/\D/g, "")
-      const phone = digits.length === 10 ? digits : digits.length === 12 && digits.startsWith("91") ? digits.slice(2) : null
-      if (phone) {
-        const normalized = String(phone).slice(-10)
-        const alreadyExists = allFarmers.some(f => String(f.mobileNumber || "").replace(/\D/g, "").slice(-10) === normalized)
-        if (!alreadyExists) {
-          const id = `manual-${phone}-${idx}-${Date.now()}`
-          toAdd.push({
-            _id: id, id, name: "", mobileNumber: phone, village: "", taluka: "", district: "", source: "manual"
-          })
-        }
+    if (phone) {
+      const normalized = String(phone).slice(-10)
+      const alreadyExists = allFarmers.some(f => String(f.mobileNumber || "").replace(/\D/g, "").slice(-10) === normalized)
+      if (!alreadyExists) {
+        const id = `manual-${phone}-${Date.now()}`
+        setSelectedFarmers(prev => [...prev, { _id: id, id, name: "", mobileNumber: phone, village: "", taluka: "", district: "", source: "manual" }])
+        setManualNumberInput("")
+        setError(null)
       }
-    })
-    if (toAdd.length > 0) {
-      setSelectedFarmers(prev => [...prev, ...toAdd])
-      setManualNumbers(["", "", ""])
-      setError(null)
-    } else if (manualNumbers.some(m => m.trim())) {
-      setError("Enter valid 10-digit phone numbers")
+    } else if (manualNumberInput.trim()) {
+      setError("Enter valid 10-digit phone number")
     }
   }
 
@@ -712,7 +706,8 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
     setUseListMode(!!initialListId)
     setActiveTab(0)
     setSelectedPublicLinkId("")
-    setManualNumbers(["", "", ""])
+    setManualNumberInput("")
+    setManualAddExpanded(false)
     setCampaignName("")
     setSearchTerm("")
     setFilters({ district: "", taluka: "", village: "" })
@@ -770,33 +765,16 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
       maxWidth="lg"
       fullWidth
       PaperProps={{
-        sx: { 
-          borderRadius: 3, 
-          maxHeight: '90vh',
-          boxShadow: "0 25px 50px -12px rgba(0,0,0,0.25)",
-          overflow: "hidden"
-        }
+        sx: { borderRadius: 2, maxHeight: '85vh', boxShadow: "0 25px 50px -12px rgba(0,0,0,0.25)", overflow: "hidden" }
       }}
     >
-      <DialogTitle 
-        sx={{ 
-          pb: 0,
-          py: 2,
-          px: 3,
-          background: "linear-gradient(135deg, #25D366 0%, #128C7E 100%)",
-          color: "white"
-        }}
-      >
+      <DialogTitle sx={{ py: 1.5, px: 2, background: "linear-gradient(135deg, #25D366 0%, #128C7E 100%)", color: "white" }}>
         <Stack direction="row" justifyContent="space-between" alignItems="center">
-          <Stack direction="row" spacing={2} alignItems="center">
-            <Users size={28} />
+          <Stack direction="row" spacing={1.5} alignItems="center">
+            <Users size={22} />
             <Box>
-              <Typography variant="h6" fontWeight="bold">
-                Send Campaign
-              </Typography>
-              <Typography variant="caption" sx={{ opacity: 0.9 }}>
-                {template?.elementName || "Template"}
-              </Typography>
+              <Typography variant="subtitle1" fontWeight="bold">Send Campaign</Typography>
+              <Typography variant="caption" sx={{ opacity: 0.9, display: 'block', lineHeight: 1.2 }}>{template?.elementName || "Template"}</Typography>
             </Box>
           </Stack>
           <Stack direction="row" spacing={1} alignItems="center">
@@ -822,9 +800,9 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
         </Stack>
       </DialogTitle>
 
-      <DialogContent sx={{ pt: 3, bgcolor: "#f8fafc" }}>
+      <DialogContent sx={{ pt: 1.5, px: 2, bgcolor: "#f8fafc" }}>
         {approvedTemplates.length > 1 && (
-          <FormControl fullWidth size="small" sx={{ mb: 2 }}>
+          <FormControl fullWidth size="small" sx={{ mb: 1.5 }}>
             <InputLabel>Select Template</InputLabel>
             <Select
               value={template?.elementName || template?.name || template?.templateName || template?.id || ""}
@@ -850,30 +828,54 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
           </FormControl>
         )}
         {error && (
-          <Alert 
-            severity="error" 
-            icon={<AlertCircle size={20} />}
-            sx={{ mb: 2, borderRadius: 2 }} 
-            onClose={() => setError(null)}
-          >
+          <Alert severity="error" icon={<AlertCircle size={18} />} sx={{ mb: 1.5, borderRadius: 1, py: 0.75 }} onClose={() => setError(null)}>
             {error}
           </Alert>
         )}
 
-        {/* Campaign Name */}
-        <TextField
-          fullWidth
-          label="Campaign Name"
-          placeholder="e.g. Summer Sale 2025, Diwali Greetings"
-          value={campaignName}
-          onChange={(e) => setCampaignName(e.target.value)}
-          size="small"
-          sx={{ mb: 2, '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
-          helperText="Optional. Leave blank for auto-generated name."
-        />
+        {/* Campaign Name + Add Manual */}
+        <Card sx={{ mb: 1.5, borderRadius: 2, boxShadow: "0 2px 8px rgba(37,211,102,0.12)", border: 1, borderColor: "rgba(37,211,102,0.25)" }}>
+          <CardContent sx={{ py: 1, '&:last-child': { pb: 1 } }}>
+            <Stack direction="row" alignItems="center" spacing={1}>
+              <TextField
+                fullWidth
+                label="Campaign Name"
+                placeholder="e.g. Summer Sale 2025"
+                value={campaignName}
+                onChange={(e) => setCampaignName(e.target.value)}
+                size="small"
+                sx={{ '& .MuiOutlinedInput-root': { borderRadius: 1, fontSize: '0.875rem' } }}
+              />
+              <Button
+                size="small"
+                variant="outlined"
+                sx={{ minWidth: 'auto', px: 1.5, borderRadius: 1, fontSize: '0.75rem', borderColor: '#25D366', color: '#128C7E', '&:hover': { borderColor: '#128C7E', bgcolor: 'rgba(37,211,102,0.08)' } }}
+                startIcon={<Plus size={14} />}
+                onClick={() => setManualAddExpanded(!manualAddExpanded)}
+              >
+                Add number
+              </Button>
+            </Stack>
+            <Collapse in={manualAddExpanded}>
+              <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1, pt: 1, borderTop: 1, borderColor: 'divider' }}>
+                <TextField
+                  placeholder="10-digit phone"
+                  value={manualNumberInput}
+                  onChange={(e) => setManualNumberInput(e.target.value.replace(/\D/g, "").slice(0, 12))}
+                  size="small"
+                  inputProps={{ maxLength: 12 }}
+                  sx={{ width: 140, '& .MuiOutlinedInput-root': { borderRadius: 1, fontSize: '0.8rem' } }}
+                />
+                <Button size="small" variant="contained" onClick={handleAddManualNumber} sx={{ borderRadius: 1, fontSize: '0.75rem', bgcolor: '#25D366', '&:hover': { bgcolor: '#128C7E' } }}>
+                  Add more
+                </Button>
+              </Stack>
+            </Collapse>
+          </CardContent>
+        </Card>
 
         {/* Data Source Tabs */}
-        <Card sx={{ mb: 3, borderRadius: 2, boxShadow: "0 2px 8px rgba(37,211,102,0.15)", border: 1, borderColor: "rgba(37,211,102,0.3)" }}>
+        <Card sx={{ mb: 1.5, borderRadius: 2, boxShadow: "0 2px 8px rgba(37,211,102,0.15)", border: 1, borderColor: "rgba(37,211,102,0.3)" }}>
           <CardContent sx={{ p: 0 }}>
             <Tabs
               value={activeTab}
@@ -898,14 +900,14 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
                   setPublicLeadsData([])
                 }
               }}
-              sx={{ borderBottom: 1, borderColor: 'divider', px: 2 }}
+              sx={{ borderBottom: 1, borderColor: 'divider', px: 1, minHeight: 36 }}
             >
-              <Tab icon={<Database size={16} />} iconPosition="start" label={`Old Farmers (${oldFarmersPagination.total || oldFarmersData.length})`} sx={{ textTransform: 'none' }} />
-              <Tab icon={<FileText size={16} />} iconPosition="start" label={`Old Sales (${oldSalesPagination.total || oldSalesData.length})`} sx={{ textTransform: 'none' }} />
-              <Tab icon={<LinkIcon size={16} />} iconPosition="start" label={`Public Leads (${publicLeadsPagination.total || publicLeadsData.length})`} sx={{ textTransform: 'none' }} />
+              <Tab icon={<Database size={14} />} iconPosition="start" label={`Farmers (${oldFarmersPagination.total || oldFarmersData.length})`} sx={{ textTransform: 'none', minHeight: 36, py: 0.5, fontSize: '0.8rem' }} />
+              <Tab icon={<FileText size={14} />} iconPosition="start" label={`Sales (${oldSalesPagination.total || oldSalesData.length})`} sx={{ textTransform: 'none', minHeight: 36, py: 0.5, fontSize: '0.8rem' }} />
+              <Tab icon={<LinkIcon size={14} />} iconPosition="start" label={`Leads (${publicLeadsPagination.total || publicLeadsData.length})`} sx={{ textTransform: 'none', minHeight: 36, py: 0.5, fontSize: '0.8rem' }} />
             </Tabs>
             {activeTab === 2 && (
-              <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
+              <Box sx={{ px: 1, py: 0.75, borderBottom: 1, borderColor: 'divider' }}>
                 <FormControl fullWidth size="small">
                   <InputLabel>Public Link</InputLabel>
                   <Select
@@ -926,57 +928,11 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
           </CardContent>
         </Card>
 
-        {/* Manual Number Entry */}
-        <Card sx={{ mb: 3, borderRadius: 2, boxShadow: "0 2px 8px rgba(37,211,102,0.12)", border: 1, borderColor: "rgba(37,211,102,0.25)" }}>
-          <CardContent>
-            <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
-              <Plus size={18} color="#25D366" />
-              <Typography variant="subtitle2" fontWeight="bold" sx={{ color: "#128C7E" }}>
-                Add numbers manually
-              </Typography>
-            </Stack>
-            <Grid container spacing={2} alignItems="center">
-              {[0, 1, 2].map((idx) => (
-                <Grid item xs={12} sm={4} key={idx}>
-                  <TextField
-                    fullWidth
-                    placeholder={`Phone ${idx + 1} (10 digits)`}
-                    value={manualNumbers[idx]}
-                    onChange={(e) => {
-                      const v = e.target.value.replace(/\D/g, "").slice(0, 12)
-                      setManualNumbers(prev => {
-                        const next = [...prev]
-                        next[idx] = v
-                        return next
-                      })
-                    }}
-                    size="small"
-                    inputProps={{ maxLength: 12 }}
-                    sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
-                  />
-                </Grid>
-              ))}
-              <Grid item xs={12} sm="auto">
-                <Button
-                  variant="outlined"
-                  color="primary"
-                  size="small"
-                  startIcon={<Plus size={16} />}
-                  onClick={handleAddManualNumbers}
-                  sx={{ borderRadius: 2 }}
-                >
-                  Add to list
-                </Button>
-              </Grid>
-            </Grid>
-          </CardContent>
-        </Card>
-
         {/* List Selection - Only show for Old Farmers tab */}
         {activeTab === 0 && farmerLists.length > 0 && (
-          <Card sx={{ mb: 3, borderRadius: 2, boxShadow: "0 2px 8px rgba(59,130,246,0.12)", border: 1, borderColor: "rgba(59,130,246,0.3)" }}>
-            <CardContent>
-              <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 2 }}>
+          <Card sx={{ mb: 1.5, borderRadius: 2, boxShadow: "0 2px 8px rgba(59,130,246,0.12)", border: 1, borderColor: "rgba(59,130,246,0.3)" }}>
+            <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
+              <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 1 }}>
                 <Typography variant="subtitle2" fontWeight="bold" sx={{ color: "#2563eb" }}>
                   📋 Select from Saved Lists
                 </Typography>
@@ -1023,9 +979,9 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
         )}
 
         {/* Template Preview */}
-        <Card sx={{ mb: 3, borderRadius: 2, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", bgcolor: '#fafafa' }}>
-          <CardContent>
-            <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2 }}>
+        <Card sx={{ mb: 1.5, borderRadius: 2, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", bgcolor: '#fafafa' }}>
+          <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
+            <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
               <MessageSquare size={18} color="#6366f1" />
               <Typography variant="subtitle2" fontWeight="bold" color="primary">
                 Message Preview
@@ -1048,9 +1004,9 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
 
         {/* Template Parameters */}
         {variables.length > 0 && (
-          <Card sx={{ mb: 3, borderRadius: 2, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
-            <CardContent>
-              <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+          <Card sx={{ mb: 1.5, borderRadius: 2, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+            <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
+              <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
                 <Typography variant="subtitle2" fontWeight="bold">
                   Template Parameters ({variables.length})
                 </Typography>
@@ -1062,7 +1018,7 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
                   Clear All
                 </Button>
               </Stack>
-              <Grid container spacing={2}>
+              <Grid container spacing={1.5}>
                 {variables.map((variable, index) => (
                   <Grid item xs={12} md={6} key={index}>
                     <TextField
@@ -1085,9 +1041,9 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
 
         {/* Search and Filters - Hide when using list mode */}
         {!useListMode && (
-          <Box sx={{ mb: 3, p: 2, border: 1, borderColor: 'grey.200', borderRadius: 2 }}>
+          <Box sx={{ mb: 1.5, p: 1.5, border: 1, borderColor: 'grey.200', borderRadius: 2 }}>
 
-            <Grid container spacing={2} alignItems="center">
+            <Grid container spacing={1} alignItems="center">
               <Grid item xs={12} md={4}>
                 <TextField
                   fullWidth
@@ -1171,7 +1127,7 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
             </Grid>
             {activeTab === 1 && moreFiltersExpanded && (
               <Collapse in={moreFiltersExpanded}>
-                <Grid container spacing={2} sx={{ mt: 1, pt: 2, borderTop: 1, borderColor: 'divider' }}>
+                <Grid container spacing={1.5} sx={{ mt: 1, pt: 1.5, borderTop: 1, borderColor: 'divider' }}>
                   {[
                     { key: "plant", label: "Plant", options: filterOptions.plant },
                     { key: "variety", label: "Variety", options: filterOptions.variety },
@@ -1206,28 +1162,22 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
 
         {/* Pagination */}
         {!useListMode && (
-          <Box sx={{ mb: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
+          <Box sx={{ mb: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 0.5 }}>
             {activeTab === 0 && (
               <>
-                <Typography variant="body2" color="text.secondary">
-                  {oldFarmersPagination.total || 0} total · Page {oldFarmersPage} of {oldFarmersPagination.totalPages || 1}
-                </Typography>
+                <Typography variant="caption" color="text.secondary">{oldFarmersPagination.total || 0} · {oldFarmersPage}/{oldFarmersPagination.totalPages || 1}</Typography>
                 <Pagination count={Math.max(1, oldFarmersPagination.totalPages || 1)} page={oldFarmersPage} onChange={handleFarmersPageChange} color="primary" size="small" showFirstButton showLastButton disabled={loadingOldFarmers} />
               </>
             )}
             {activeTab === 1 && (
               <>
-                <Typography variant="body2" color="text.secondary">
-                  {oldSalesPagination.total || 0} total · Page {oldSalesPage} of {oldSalesPagination.totalPages || 1}
-                </Typography>
+                <Typography variant="caption" color="text.secondary">{oldSalesPagination.total || 0} · {oldSalesPage}/{oldSalesPagination.totalPages || 1}</Typography>
                 <Pagination count={Math.max(1, oldSalesPagination.totalPages || 1)} page={oldSalesPage} onChange={handleOldSalesPageChange} color="primary" size="small" showFirstButton showLastButton disabled={loadingOldSales} />
               </>
             )}
             {activeTab === 2 && (
               <>
-                <Typography variant="body2" color="text.secondary">
-                  {publicLeadsPagination.total || 0} total · Page {publicLeadsPage} of {publicLeadsPagination.totalPages || 1}
-                </Typography>
+                <Typography variant="caption" color="text.secondary">{publicLeadsPagination.total || 0} · {publicLeadsPage}/{publicLeadsPagination.totalPages || 1}</Typography>
                 <Pagination count={Math.max(1, publicLeadsPagination.totalPages || 1)} page={publicLeadsPage} onChange={handlePublicLeadsPageChange} color="primary" size="small" showFirstButton showLastButton disabled={loadingPublicLeads} />
               </>
             )}
@@ -1236,18 +1186,18 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
 
         {/* Farmers List */}
         <Card sx={{ borderRadius: 2, boxShadow: "0 2px 12px rgba(0,0,0,0.08)" }}>
-          <TableContainer sx={{ maxHeight: 400, minHeight: 200 }}>
+          <TableContainer sx={{ maxHeight: 240, minHeight: 120 }}>
             {getCurrentLoading() ? (
-              <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', py: 4 }}>
+              <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', py: 2 }}>
                 <CircularProgress size={40} />
                 <Typography variant="body2" color="text.secondary" sx={{ ml: 2 }}>
                   Loading...
                 </Typography>
               </Box>
             ) : (
-              <Table stickyHeader>
+              <Table stickyHeader size="small">
                 <TableHead>
-                  <TableRow>
+                  <TableRow sx={{ '& th': { py: 0.5, fontSize: '0.7rem' } }}>
                     <TableCell padding="checkbox">
                       {!useListMode && (
                         <Checkbox
@@ -1268,7 +1218,7 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
                 <TableBody>
                   {filteredFarmers.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
+                      <TableCell colSpan={7} align="center" sx={{ py: 2 }}>
                         <Typography variant="body2" color="text.secondary">
                           {useListMode 
                             ? "No farmers in selected list" 
@@ -1280,7 +1230,7 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
                     </TableRow>
                   ) : (
                     filteredFarmers.map((farmer) => (
-                      <TableRow key={farmer._id || farmer.id} hover>
+                      <TableRow key={farmer._id || farmer.id} hover sx={{ '& td': { py: 0.35, fontSize: '0.75rem' } }}>
                         <TableCell padding="checkbox">
                           {!useListMode && (
                             <Checkbox
@@ -1299,8 +1249,9 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
                         <TableCell>{farmer.district || farmer.districtName}</TableCell>
                         <TableCell>
                           <Chip 
-                            label={farmer.source === "publicLead" ? "Public Lead" : farmer.source === "manual" ? "Manual" : farmer.source === "oldSales" ? "Old Sales" : "Old Farmer"}
+                            label={farmer.source === "publicLead" ? "Lead" : farmer.source === "manual" ? "Manual" : farmer.source === "oldSales" ? "Sales" : "Farmer"}
                             size="small"
+                            sx={{ height: 20, fontSize: '0.65rem' }}
                             color={farmer.source === "publicLead" ? "primary" : farmer.source === "manual" ? "secondary" : "default"}
                             variant="outlined"
                           />
@@ -1316,11 +1267,11 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
 
         {/* Manually added numbers - show below list with Manual tag */}
         {selectedFarmers.filter(f => f.source === "manual").length > 0 && (
-          <Box sx={{ mt: 2, p: 2, border: 1, borderColor: 'grey.200', borderRadius: 2, bgcolor: 'grey.50' }}>
-            <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1.5, color: '#128C7E' }}>
+          <Box sx={{ mt: 1.5, p: 1, border: 1, borderColor: 'grey.200', borderRadius: 2, bgcolor: 'grey.50' }}>
+            <Typography variant="caption" fontWeight="bold" sx={{ mb: 1, color: '#128C7E' }}>
               Manually added numbers ({selectedFarmers.filter(f => f.source === "manual").length})
             </Typography>
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
               {selectedFarmers.filter(f => f.source === "manual").map((farmer) => (
                 <Chip
                   key={farmer._id || farmer.id}
@@ -1343,7 +1294,7 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
         )}
 
         {selectedFarmers.length > 0 && (
-          <Box sx={{ mt: 2 }}>
+          <Box sx={{ mt: 1.5 }}>
             <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap">
               <Chip 
                 icon={<CheckCircle size={16} />}
@@ -1365,7 +1316,7 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
         )}
       </DialogContent>
 
-      <DialogActions sx={{ p: 2.5, bgcolor: "#f1f5f9", gap: 1 }}>
+      <DialogActions sx={{ px: 2, py: 1.5, bgcolor: "#f1f5f9", gap: 1 }}>
         <Button onClick={onClose} disabled={loading} variant="outlined" sx={{ borderRadius: 2 }}>
           Cancel
         </Button>

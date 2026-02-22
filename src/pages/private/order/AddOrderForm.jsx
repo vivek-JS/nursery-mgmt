@@ -97,22 +97,23 @@ const useStyles = makeStyles()((theme) => ({
     }
   },
   formContainer: {
-    padding: "12px 16px",
-    maxWidth: 1000,
+    padding: "8px 12px",
+    maxWidth: 520,
     margin: "0 auto",
     background: "#fafafa",
     "& .MuiFormHelperText-root": {
       marginLeft: 0,
       paddingLeft: "14px",
-      marginTop: 4
+      marginTop: 2
     },
-    "& .MuiOutlinedInput-root:not(.MuiInputBase-sizeSmall) .MuiOutlinedInput-input": {
-      padding: "16px 14px",
+    "& .MuiOutlinedInput-root .MuiOutlinedInput-input": {
+      padding: "10px 12px",
+      fontSize: "0.875rem",
       boxSizing: "border-box"
     }
   },
   formCard: {
-    marginBottom: 10,
+    marginBottom: 8,
     borderRadius: 6,
     boxShadow: "0 1px 8px rgba(0,0,0,0.06)",
     border: "1px solid #e8e8e8",
@@ -123,7 +124,7 @@ const useStyles = makeStyles()((theme) => ({
   },
   cardHeader: {
     background: "linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%)",
-    padding: "8px 12px",
+    padding: "6px 10px",
     borderBottom: "1px solid #e0e0e0",
     borderRadius: "6px 6px 0 0"
   },
@@ -180,9 +181,9 @@ const useStyles = makeStyles()((theme) => ({
     }
   },
   formSection: {
-    padding: "6px 8px",
+    padding: "8px 12px",
     "& .MuiGrid-item": {
-      marginBottom: 4
+      marginBottom: 2
     }
   },
   infoChip: {
@@ -204,12 +205,12 @@ const useStyles = makeStyles()((theme) => ({
   farmerInfo: {
     display: "flex",
     alignItems: "center",
-    gap: 8,
-    padding: 8,
+    gap: 6,
+    padding: 6,
     backgroundColor: "#f0f8ff",
     borderRadius: 6,
     border: "1px solid #2196f3",
-    marginBottom: 8
+    marginBottom: 6
   },
   avatar: {
     backgroundColor: "#2196f3",
@@ -2081,6 +2082,22 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
         mobileNumber: parseInt(formData?.orderForMobileNumber) || 0
       } : undefined
 
+      // Product order snapshot - for future reference (not linked, just saved)
+      const productOrderSnapshot = formData?.productMappingId ? (() => {
+        const mapping = plantProductMappings.find(m => m._id === formData.productMappingId)
+        if (!mapping) return undefined
+        return {
+          productName: formData?.productName || mapping?.displayTitle || mapping?.productName,
+          productMappingId: formData?.productMappingId,
+          displayTitle: mapping?.displayTitle,
+          productId: mapping?.productId,
+          dateRange: mapping?.dateRange ? {
+            startDate: mapping.dateRange?.startDate,
+            endDate: mapping.dateRange?.endDate
+          } : undefined
+        }
+      })() : undefined
+
       let payload
       let endpoint
 
@@ -2113,6 +2130,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
           dealerOrder: true,
           productName: formData?.productName || undefined, // Product name reference for plant products
           productMappingId: formData?.productMappingId || undefined, // PlantProductMapping ID for ready plants products
+          productOrderSnapshot, // Snapshot for future reference (not linked)
           dealer: formData?.dealer || formData?.sales,
           // If dealer is selected, send dealer ID as salesPerson, otherwise send sales person ID
           salesPerson: formData?.dealer || formData?.sales,
@@ -2163,7 +2181,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
           screenshots: formData?.screenshots?.map(s => s.file) || [],
           productName: formData?.productName || undefined, // Product name reference for plant products
           productMappingId: formData?.productMappingId || undefined, // PlantProductMapping ID for ready plants products
-          // Ensure productMappingId is included for ready plants orders
+          productOrderSnapshot, // Snapshot for future reference (not linked)
         }
 
         // Add dealer field if dealer is selected for normal orders
@@ -2647,7 +2665,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
       PaperProps={{
         style: fullScreen
           ? { maxWidth: '100%', width: '100%', height: '100%', maxHeight: '100%', borderRadius: 0 }
-          : { maxHeight: '75vh', minHeight: '50vh' },
+          : { maxHeight: '75vh', minHeight: '50vh', maxWidth: 540 },
         sx: fullScreen ? { m: 0, maxWidth: '100vw', maxHeight: '100vh' } : undefined,
       }}
     >
@@ -2678,7 +2696,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
 
       <DialogContent
         sx={{
-          p: fullScreen ? 0 : 0.75,
+          p: fullScreen ? 0 : 0.5,
           overflowX: 'hidden',
           ...(fullScreen && {
             flex: 1,
@@ -2820,21 +2838,22 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                   </Box>
                 )}
 
-                <Grid container spacing={fullScreen ? 1 : 2}>
-                  <Grid item xs={12} md={6}>
+                <Grid container spacing={1}>
+                  <Grid item xs={12} sm={6}>
                     <LocalizationProvider dateAdapter={AdapterDateFns}>
                       <DatePicker
                         label="Order Date"
                         value={formData?.date}
                         onChange={(date) => handleInputChange("date", date)}
-                        renderInput={(params) => <TextField {...params} fullWidth />}
+                        renderInput={(params) => <TextField {...params} fullWidth size="small" />}
                       />
                     </LocalizationProvider>
                   </Grid>
 
-                  <Grid item xs={12} md={6}>
+                  <Grid item xs={12} sm={6}>
                     <TextField
                       fullWidth
+                      size="small"
                       label="Mobile Number"
                       value={formData?.mobileNumber}
                       onChange={(e) => {
@@ -2844,10 +2863,10 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                       inputProps={{ maxLength: 10, pattern: "[0-9]*" }}
                       InputProps={{
                         endAdornment: mobileLoading && (
-                          <CircularProgress size={20} color="primary" />
+                          <CircularProgress size={18} color="primary" />
                         ),
                         startAdornment: formData?.mobileNumber && (
-                          <Box sx={{ mr: 1, color: 'text.secondary', fontSize: '0.875rem' }}>
+                          <Box sx={{ mr: 1, color: 'text.secondary', fontSize: '0.8rem' }}>
                             +91
                           </Box>
                         )
@@ -2859,16 +2878,17 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                           : farmerData?.name
                           ? "✓ Farmer found - location auto-filled"
                           : mobileLoading
-                          ? "🔍 Searching for farmer..."
-                          : "Enter 10-digit mobile number to auto-fill farmer details"
+                          ? "🔍 Searching..."
+                          : "10 digits to auto-fill"
                       }
-                      placeholder="10-digit mobile number"
+                      placeholder="10-digit mobile"
                     />
                   </Grid>
 
-                  <Grid item xs={12} md={6}>
+                  <Grid item xs={12} sm={7}>
                     <TextField
                       fullWidth
+                      size="small"
                       label="Farmer Name"
                       value={formData?.name}
                       onChange={(e) => handleInputChange("name", e.target.value)}
@@ -2877,18 +2897,19 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                   </Grid>
 
                   {/* Order For Toggle - Beside Farmer Name */}
-                  <Grid item xs={12} md={6}>
-                    <Box sx={{ mt: 1 }}>
+                  <Grid item xs={12} sm={5}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', height: '100%', pt: 0.5 }}>
                       <FormControlLabel
                         control={
                           <Checkbox
+                            size="small"
                             checked={formData?.orderForEnabled}
                             onChange={(e) => handleInputChange("orderForEnabled", e.target.checked)}
                             color="primary"
                           />
                         }
                         label={
-                          <Typography variant="body2" fontWeight={600}>
+                          <Typography variant="body2">
                             Place order for someone else?
                           </Typography>
                         }
@@ -2900,52 +2921,50 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                   {formData?.orderForEnabled && (
                     <>
                       <Grid item xs={12}>
-                        <Divider sx={{ my: 1 }}>
+                        <Divider sx={{ my: 0.5 }}>
                           <Chip label="Order For Details" size="small" color="primary" />
                         </Divider>
                       </Grid>
                       
-                      <Grid item xs={12} md={6}>
+                      <Grid item xs={12} sm={6}>
                         <TextField
                           fullWidth
+                          size="small"
                           label="Name *"
                           value={formData?.orderForName}
                           onChange={(e) => handleInputChange("orderForName", e.target.value)}
-                          placeholder="Enter name of person order is for"
-                          size="small"
+                          placeholder="Name of person order is for"
                         />
                       </Grid>
                       
-                      <Grid item xs={12} md={6}>
+                      <Grid item xs={12} sm={6}>
                         <TextField
                           fullWidth
+                          size="small"
                           label="Mobile Number *"
                           value={formData?.orderForMobileNumber}
                           onChange={(e) => handleInputChange("orderForMobileNumber", e.target.value)}
-                          placeholder="Enter 10-digit mobile number"
+                          placeholder="10-digit mobile"
                           inputProps={{ maxLength: 10 }}
-                          size="small"
                         />
                       </Grid>
                       
                       <Grid item xs={12}>
                         <TextField
                           fullWidth
+                          size="small"
                           label="Address *"
                           value={formData?.orderForAddress}
                           onChange={(e) => handleInputChange("orderForAddress", e.target.value)}
-                          placeholder="Enter complete address"
+                          placeholder="Complete address"
                           multiline
                           rows={2}
-                          size="small"
                         />
                       </Grid>
                       
                       <Grid item xs={12}>
-                        <Alert severity="info" sx={{ mt: 1 }}>
-                          <Typography variant="body2">
-                            This information will be stored with the order and can be used for delivery and communication purposes.
-                          </Typography>
+                        <Alert severity="info" sx={{ py: 0.5, "& .MuiAlert-message": { fontSize: "0.75rem" } }}>
+                          Stored for delivery & communication.
                         </Alert>
                       </Grid>
                     </>
@@ -2955,14 +2974,14 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
 
                     {farmerData?.name ? (
                       // Show location as read-only when farmer is found
-                      <Box sx={{ mt: 2 }}>
+                      <Box sx={{ mt: 1 }}>
                         <Typography
                           variant="subtitle2"
-                          sx={{ mb: 2, fontWeight: 600, color: "#2c3e50" }}>
-                          Location (Auto-filled from farmer data)
+                          sx={{ mb: 1, fontWeight: 600, color: "#2c3e50", fontSize: "0.8rem" }}>
+                          Location (Auto-filled)
                         </Typography>
-                        <Grid container spacing={fullScreen ? 1 : 2}>
-                          <Grid item xs={12} md={3}>
+                        <Grid container spacing={1}>
+                          <Grid item xs={6} sm={3}>
                             <TextField
                               fullWidth
                               label="State"
@@ -2972,27 +2991,27 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                               size="small"
                             />
                           </Grid>
-                          <Grid item xs={12} md={3}>
+                          <Grid item xs={6} sm={3}>
                             <TextField
                               fullWidth
+                              size="small"
                               label="District"
                               value={formData?.district || ""}
                               disabled
                               variant="outlined"
-                              size="small"
                             />
                           </Grid>
-                          <Grid item xs={12} md={3}>
+                          <Grid item xs={6} sm={3}>
                             <TextField
                               fullWidth
+                              size="small"
                               label="Taluka"
                               value={formData?.taluka || ""}
                               disabled
                               variant="outlined"
-                              size="small"
                             />
                           </Grid>
-                          <Grid item xs={12} md={3}>
+                          <Grid item xs={6} sm={3}>
                             <TextField
                               fullWidth
                               label="Village"
@@ -3017,34 +3036,19 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                         onVillageChange={(value) => handleInputChange("village", value)}
                         required={true}
                         showLabels={false}
-                        className="mt-4"
+                        compact={true}
+                        className="mt-2"
                         disabled={false}
                         autoFill={true}
                       />
                     )}
                     {farmerData?.name ? (
-                      <Alert severity="success" sx={{ mt: 2 }}>
-                        <Typography variant="body2">
-                          <strong>Farmer Found:</strong> Location fields are auto-filled and
-                          disabled. You can modify them if needed by clearing the mobile number
-                          first.
-                        </Typography>
+                      <Alert severity="success" sx={{ mt: 1, py: 0.5, "& .MuiAlert-message": { fontSize: "0.75rem" } }}>
+                        Location auto-filled. Clear mobile to modify.
                       </Alert>
                     ) : (
-                      <Alert severity="info" sx={{ mt: 2 }}>
-                        <Typography variant="body2">
-                          {user?.defaultState ? (
-                            <>
-                              <strong>User Default Location:</strong> Using your saved location
-                              preferences. You can modify if needed.
-                            </>
-                          ) : (
-                            <>
-                              <strong>Default Location:</strong> Maharashtra state is pre-selected.
-                              Please select your district, taluka, and village.
-                            </>
-                          )}
-                        </Typography>
+                      <Alert severity="info" sx={{ mt: 1, py: 0.5, "& .MuiAlert-message": { fontSize: "0.75rem" } }}>
+                        {user?.defaultState ? "Using your saved location. Modify if needed." : "Maharashtra pre-selected. Select district, taluka & village."}
                       </Alert>
                     )}
                   </Grid>
@@ -3062,8 +3066,8 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
               </Typography>
             </div>
             <CardContent className={classes.formSection}>
-              <Grid container spacing={fullScreen ? 1 : 2}>
-                <Grid item xs={12} md={6}>
+              <Grid container spacing={1}>
+                <Grid item xs={12} sm={6}>
                   <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 1 }}>
                     <Box sx={{ flex: 1 }}>
                       <SearchableSelect
@@ -4463,7 +4467,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                   </Box>
                 )}
 
-                <Grid container spacing={fullScreen ? 1 : 2}>
+                <Grid container spacing={1}>
                   <Grid item xs={12} md={6}>
                     <TextField
                       fullWidth

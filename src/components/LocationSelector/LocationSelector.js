@@ -16,6 +16,7 @@ const LocationSelector = ({
   className = "",
   showLabels = true,
   autoFill = false,
+  compact = false,
   placeholder = {
     state: "Select State",
     district: "Select District",
@@ -238,10 +239,10 @@ const LocationSelector = ({
   }
 
   return (
-    <div className={`space-y-4 ${className}`}>
+    <div className={`${compact ? "space-y-2" : "space-y-4"} ${className}`}>
       {error && <div className="text-red-500 text-sm bg-red-50 p-2 rounded-md">{error}</div>}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 ${compact ? "gap-2" : "gap-4"}`}>
         {/* State Selection */}
         <div className="relative">
           {showLabels && (
@@ -254,7 +255,7 @@ const LocationSelector = ({
               value={selectedState}
               onChange={handleStateChange}
               disabled={disabled || loading.states}
-              className={`w-full p-3 border rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200 ${
+              className={`w-full ${compact ? "p-2 text-sm rounded-md" : "p-3 rounded-lg"} border shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200 ${
                 disabled || loading.states ? "bg-gray-100 cursor-not-allowed" : "bg-white"
               } ${required && !selectedState ? "border-red-300" : "border-gray-300"}`}>
               <option value="">{loading.states ? "Loading..." : placeholder.state}</option>
@@ -288,7 +289,7 @@ const LocationSelector = ({
               value={selectedDistrict}
               onChange={handleDistrictChange}
               disabled={disabled || loading.districts || !selectedState}
-              className={`w-full p-3 border rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200 ${
+              className={`w-full ${compact ? "p-2 text-sm rounded-md" : "p-3 rounded-lg"} border shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200 ${
                 disabled || loading.districts || !selectedState
                   ? "bg-gray-100 cursor-not-allowed"
                   : "bg-white"
@@ -324,7 +325,7 @@ const LocationSelector = ({
               value={selectedTaluka}
               onChange={handleTalukaChange}
               disabled={disabled || loading.talukas || !selectedDistrict}
-              className={`w-full p-3 border rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200 ${
+              className={`w-full ${compact ? "p-2 text-sm rounded-md" : "p-3 rounded-lg"} border shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200 ${
                 disabled || loading.talukas || !selectedDistrict
                   ? "bg-gray-100 cursor-not-allowed"
                   : "bg-white"
@@ -360,7 +361,7 @@ const LocationSelector = ({
               value={selectedVillage}
               onChange={handleVillageChange}
               disabled={disabled || loading.villages || !selectedTaluka}
-              className={`w-full p-3 border rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200 ${
+              className={`w-full ${compact ? "p-2 text-sm rounded-md" : "p-3 rounded-lg"} border shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200 ${
                 disabled || loading.villages || !selectedTaluka
                   ? "bg-gray-100 cursor-not-allowed"
                   : "bg-white"

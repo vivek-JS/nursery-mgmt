@@ -608,7 +608,8 @@ export const API = {
     NORMALIZE_CASE: new APIRouter("/old-sales/normalize-case", HTTP_METHODS.PATCH),
     GET_GEO_SUMMARY: new APIRouter("/old-sales/geo-summary", HTTP_METHODS.GET),
     GET_REPEAT_CUSTOMERS: new APIRouter("/old-sales/repeat-customers", HTTP_METHODS.GET),
-    GET_UNIQUE_CUSTOMERS: new APIRouter("/old-sales/unique-customers", HTTP_METHODS.GET)
+    GET_UNIQUE_CUSTOMERS: new APIRouter("/old-sales/unique-customers", HTTP_METHODS.GET),
+    EXPORT_FARMERS: new APIRouter("/old-sales/export-farmers", HTTP_METHODS.GET)
   },
   SLOTS: {
     GET_SLOTS: new APIRouter("slots/getslots", HTTP_METHODS.GET, OFFLINE.PROFILE),

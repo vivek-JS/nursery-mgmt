@@ -679,13 +679,33 @@ const OldSalesAnalytics = () => {
 
   const analyticsParams = useMemo(() => buildParams(appliedFilters), [appliedFilters]);
 
-  const fetchFilters = async () => {
+  const fetchFilters = async (districtValues = [], talukaValues = []) => {
     setLoadingFilters(true);
     try {
-      const instance = NetworkManager(API.OLD_SALES.GET_FILTERS);
-      const response = await instance.request();
+      const instance = NetworkManager(API.OLD_SALES.GET_FILTER_OPTIONS);
+      const params = {};
+      if (districtValues?.length) params.district = districtValues.join(",");
+      if (talukaValues?.length) params.taluka = talukaValues.join(",");
+      const response = await instance.request({}, params);
       if (response?.data?.success) {
-        setFilterOptions(response.data.data || {});
+        const d = response.data.data || {};
+        setFilterOptions({
+          district: Array.isArray(d.district) ? d.district : [],
+          taluka: Array.isArray(d.taluka) ? d.taluka : [],
+          village: Array.isArray(d.village) ? d.village : [],
+          plant: Array.isArray(d.plant) ? d.plant : [],
+          variety: Array.isArray(d.variety) ? d.variety : [],
+          media: Array.isArray(d.media) ? d.media : [],
+          batch: Array.isArray(d.batch) ? d.batch : [],
+          paymentMode: Array.isArray(d.paymentMode) ? d.paymentMode : [],
+          reference: Array.isArray(d.reference) ? d.reference : [],
+          marketingReference: Array.isArray(d.marketingReference) ? d.marketingReference : [],
+          billGivenOrNot: Array.isArray(d.billGivenOrNot) ? d.billGivenOrNot : [],
+          verifiedOrNot: Array.isArray(d.verifiedOrNot) ? d.verifiedOrNot : [],
+          shadeNo: Array.isArray(d.shadeNo) ? d.shadeNo : [],
+          vehicleNo: Array.isArray(d.vehicleNo) ? d.vehicleNo : [],
+          driverName: Array.isArray(d.driverName) ? d.driverName : [],
+        });
       }
     } catch (error) {
       console.error("Failed to fetch filter options:", error);
@@ -893,7 +913,7 @@ const OldSalesAnalytics = () => {
   };
 
   useEffect(() => {
-    fetchFilters();
+    fetchFilters([], []);
   }, []);
 
   useEffect(() => {
@@ -911,7 +931,24 @@ const OldSalesAnalytics = () => {
   }, [analyticsParams]);
 
   const handleFilterChange = (key, value) => {
-    setFilters((prev) => ({ ...prev, [key]: value }));
+    let districtForFetch = filters.district;
+    let talukaForFetch = filters.taluka;
+    setFilters((prev) => {
+      const next = { ...prev, [key]: value };
+      if (key === "district") {
+        next.taluka = [];
+        next.village = [];
+        districtForFetch = Array.isArray(value) ? value : [];
+        talukaForFetch = [];
+      } else if (key === "taluka") {
+        next.village = [];
+        talukaForFetch = Array.isArray(value) ? value : [];
+      }
+      return next;
+    });
+    if (["district", "taluka"].includes(key)) {
+      fetchFilters(districtForFetch || [], talukaForFetch || []);
+    }
   };
 
   const handleApplyFilters = () => {
@@ -1001,6 +1038,29 @@ const OldSalesAnalytics = () => {
     }
   };
 
+  const handleExportFarmers = async () => {
+    setExporting(true);
+    try {
+      const token = localStorage.getItem(CookieKeys.Auth);
+      const url = `${APIConfig.BASE_URL}${API.OLD_SALES.EXPORT_FARMERS.endpoint}`;
+      const response = await axios.get(url, {
+        params: analyticsParams,
+        responseType: "blob",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const blob = new Blob([response.data], { type: "text/csv" });
+      const link = document.createElement("a");
+      link.href = window.URL.createObjectURL(blob);
+      link.download = `old-sales-farmers-${Date.now()}.csv`;
+      link.click();
+      window.URL.revokeObjectURL(link.href);
+    } catch (error) {
+      console.error("Farmers export failed:", error);
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const handleExportDashboard = async () => {
     if (!chartsRef.current) return;
     setExporting(true);
@@ -1066,7 +1126,7 @@ const OldSalesAnalytics = () => {
       const pagination = data.pagination || {};
       setBroadcastCustomers(prev => [...prev, ...customers]);
       setBroadcastPage(nextPage);
-      setBroadcastTotal(pagination.total || (prev => prev.length + customers.length));
+      setBroadcastTotal(pagination.total ?? broadcastTotal);
     } catch (err) {
       console.error("Failed to load more broadcast customers:", err);
     } finally {
@@ -1178,6 +1238,15 @@ const OldSalesAnalytics = () => {
               sx={{ backgroundColor: "#38bdf8", color: "#0f172a", fontWeight: 600 }}
             >
               Export CSV
+            </Button>
+            <Button
+              variant="contained"
+              startIcon={<DownloadIcon />}
+              onClick={handleExportFarmers}
+              disabled={exporting}
+              sx={{ backgroundColor: "#8b5cf6", color: "#fff", fontWeight: 600, "&:hover": { backgroundColor: "#7c3aed" } }}
+            >
+              Export Farmers
             </Button>
             <Button
               variant="outlined"
@@ -1447,6 +1516,228 @@ const OldSalesAnalytics = () => {
           </Stack>
         </Paper>
       )}
+
+      <Paper
+        elevation={0}
+        sx={{
+          p: 2.5,
+          mb: 3,
+          borderRadius: 3,
+          background: "linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)",
+          boxShadow: "0 12px 24px rgba(15, 23, 42, 0.08)",
+          border: "1px solid rgba(148, 163, 184, 0.18)",
+        }}
+      >
+        <Stack
+          direction={{ xs: "column", md: "row" }}
+          spacing={2}
+          alignItems={{ xs: "flex-start", md: "center" }}
+          justifyContent="space-between"
+          sx={{ mb: 2 }}
+        >
+          <Box>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <InsightsIcon sx={{ color: "#6366F1" }} />
+              <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                Repeat Customer Spotlight
+              </Typography>
+            </Stack>
+            <Typography variant="caption" sx={{ color: "text.secondary" }}>
+              Customers with {repeatConfig.minOrders}+ orders sorted by total invoice.
+            </Typography>
+          </Box>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <TextField
+              label="Min Orders"
+              type="number"
+              size="small"
+              value={repeatConfig.minOrders}
+              onChange={(e) =>
+                setRepeatConfig((prev) => ({ ...prev, minOrders: Number(e.target.value) }))
+              }
+              inputProps={{ min: 2 }}
+            />
+            <TextField
+              label="Limit"
+              type="number"
+              size="small"
+              value={repeatConfig.limit}
+              onChange={(e) =>
+                setRepeatConfig((prev) => ({ ...prev, limit: Number(e.target.value) }))
+              }
+              inputProps={{ min: 5, max: 100 }}
+            />
+            <Button variant="contained" onClick={fetchRepeatCustomers}>
+              Refresh
+            </Button>
+          </Stack>
+        </Stack>
+
+        {loadingRepeatCustomers ? (
+          <Stack alignItems="center" justifyContent="center" sx={{ py: 4 }}>
+            <CircularProgress />
+          </Stack>
+        ) : (
+          <TableContainer sx={{ maxHeight: 360 }}>
+            <Table stickyHeader size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>#</TableCell>
+                  <TableCell>Customer</TableCell>
+                  <TableCell>Mobile</TableCell>
+                  <TableCell align="right">Orders</TableCell>
+                  <TableCell align="right">Invoice</TableCell>
+                  <TableCell align="right">Plant Qty</TableCell>
+                  <TableCell>First / Last</TableCell>
+                  <TableCell>Last Pay Mode</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {repeatCustomerRows.map((row, index) => (
+                  <TableRow key={`${row.customerName}-${row.mobileNo}`}>
+                    <TableCell>{index + 1}</TableCell>
+                    <TableCell>
+                      <Stack spacing={0.2}>
+                        <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                          {row.customerName}
+                        </Typography>
+                        <Chip
+                          size="small"
+                          label={`${row.totalRecords} orders`}
+                          sx={{
+                            width: "fit-content",
+                            backgroundColor: "#EEF2FF",
+                            color: "#4338CA",
+                          }}
+                        />
+                      </Stack>
+                    </TableCell>
+                    <TableCell>{row.mobileNo}</TableCell>
+                    <TableCell align="right">{formatNumber(row.totalRecords)}</TableCell>
+                    <TableCell align="right">{formatCurrency(row.totalInvoiceAmount)}</TableCell>
+                    <TableCell align="right">{formatNumber(row.totalPlantQty)}</TableCell>
+                    <TableCell>
+                      <Stack spacing={0.2}>
+                        <Typography variant="caption">
+                          {formatDate(row.firstDeliveryDate)}
+                        </Typography>
+                        <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                          {formatDate(row.lastDeliveryDate)}
+                        </Typography>
+                      </Stack>
+                    </TableCell>
+                    <TableCell>{row.lastPaymentMode || "-"}</TableCell>
+                  </TableRow>
+                ))}
+                {!repeatCustomerRows.length && (
+                  <TableRow>
+                    <TableCell colSpan={8} align="center">
+                      No repeat customers found.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        )}
+      </Paper>
+
+      <Paper
+        elevation={0}
+        sx={{
+          p: 2.5,
+          mb: 3,
+          borderRadius: 3,
+          background: "#fff",
+          boxShadow: "0 12px 24px rgba(15, 23, 42, 0.08)",
+        }}
+      >
+        <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2 }}>
+          <ReceiptLongIcon sx={{ color: "#6366f1" }} />
+          <Box>
+            <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+              Farmers / Recent Records (Old Sales)
+            </Typography>
+            <Typography variant="caption" sx={{ color: "text.secondary" }}>
+              Apply filters above, then use &quot;Create Broadcast from Filtered&quot; or &quot;Export Farmers&quot; to send WhatsApp or export name, mobile, village, taluka, district.
+            </Typography>
+          </Box>
+        </Stack>
+        <Divider sx={{ mb: 2 }} />
+        {loadingRecords ? (
+          <Stack alignItems="center" justifyContent="center" sx={{ py: 4 }}>
+            <CircularProgress />
+          </Stack>
+        ) : (
+          <>
+            <TableContainer sx={{ maxHeight: 360 }}>
+              <Table stickyHeader size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Delivery Date</TableCell>
+                    <TableCell>Customer</TableCell>
+                    <TableCell>Village / Taluka / District</TableCell>
+                    <TableCell>Plant</TableCell>
+                    <TableCell>Variety</TableCell>
+                    <TableCell align="right">Plant Qty</TableCell>
+                    <TableCell align="right">Invoice</TableCell>
+                    <TableCell>Payment Mode</TableCell>
+                    <TableCell align="right">Remaining</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {records.map((row) => (
+                    <TableRow key={row._id}>
+                      <TableCell>{formatDate(row.deliveryDate)}</TableCell>
+                      <TableCell>
+                        <Stack spacing={0.2}>
+                          <Typography variant="body2">{row.customerName || "-"}</Typography>
+                          <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                            {row.mobileNo || "-"}
+                          </Typography>
+                        </Stack>
+                      </TableCell>
+                      <TableCell>
+                        <Stack spacing={0.2}>
+                          <Typography variant="caption">{row.village || "-"}</Typography>
+                          <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                            {row.taluka || "-"} · {row.district || "-"}
+                          </Typography>
+                        </Stack>
+                      </TableCell>
+                      <TableCell>{row.plant || "-"}</TableCell>
+                      <TableCell>{row.variety || "-"}</TableCell>
+                      <TableCell align="right">{formatNumber(row.plantQty)}</TableCell>
+                      <TableCell align="right">{formatCurrency(row.totalInvoiceAmount)}</TableCell>
+                      <TableCell>{row.paymentMode || "-"}</TableCell>
+                      <TableCell align="right">{formatCurrency(row.remainingAmount)}</TableCell>
+                    </TableRow>
+                  ))}
+                  {!records.length && (
+                    <TableRow>
+                      <TableCell colSpan={9} align="center">
+                        No records found
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </TableContainer>
+            <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 2 }}>
+              <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                Showing page {pagination.page} of {pagination.totalPages || 1} · Total {pagination.total}
+              </Typography>
+              <Pagination
+                count={pagination.totalPages || 1}
+                page={pagination.page}
+                onChange={(_, value) => fetchRecords(value)}
+                color="primary"
+                size="small"
+              />
+            </Stack>
+          </>
+        )}
+      </Paper>
 
       <Paper
         elevation={0}
@@ -2085,219 +2376,6 @@ const OldSalesAnalytics = () => {
         </Stack>
 
         <OldSalesGeoSection filters={analyticsParams} metric={geoMetric} />
-      </Paper>
-
-      <Paper
-        elevation={0}
-        sx={{
-          p: 2.5,
-          mt: 3,
-          borderRadius: 3,
-          background: "linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)",
-          boxShadow: "0 12px 24px rgba(15, 23, 42, 0.08)",
-          border: "1px solid rgba(148, 163, 184, 0.18)",
-        }}
-      >
-        <Stack
-          direction={{ xs: "column", md: "row" }}
-          spacing={2}
-          alignItems={{ xs: "flex-start", md: "center" }}
-          justifyContent="space-between"
-          sx={{ mb: 2 }}
-        >
-          <Box>
-            <Stack direction="row" spacing={1} alignItems="center">
-              <InsightsIcon sx={{ color: "#6366F1" }} />
-              <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-                Repeat Customer Spotlight
-              </Typography>
-            </Stack>
-            <Typography variant="caption" sx={{ color: "text.secondary" }}>
-              Customers with {repeatConfig.minOrders}+ orders sorted by total invoice.
-            </Typography>
-          </Box>
-          <Stack direction="row" spacing={1} alignItems="center">
-            <TextField
-              label="Min Orders"
-              type="number"
-              size="small"
-              value={repeatConfig.minOrders}
-              onChange={(e) =>
-                setRepeatConfig((prev) => ({ ...prev, minOrders: Number(e.target.value) }))
-              }
-              inputProps={{ min: 2 }}
-            />
-            <TextField
-              label="Limit"
-              type="number"
-              size="small"
-              value={repeatConfig.limit}
-              onChange={(e) =>
-                setRepeatConfig((prev) => ({ ...prev, limit: Number(e.target.value) }))
-              }
-              inputProps={{ min: 5, max: 100 }}
-            />
-            <Button variant="contained" onClick={fetchRepeatCustomers}>
-              Refresh
-            </Button>
-          </Stack>
-        </Stack>
-
-        {loadingRepeatCustomers ? (
-          <Stack alignItems="center" justifyContent="center" sx={{ py: 4 }}>
-            <CircularProgress />
-          </Stack>
-        ) : (
-          <TableContainer sx={{ maxHeight: 360 }}>
-            <Table stickyHeader size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell>#</TableCell>
-                  <TableCell>Customer</TableCell>
-                  <TableCell>Mobile</TableCell>
-                  <TableCell align="right">Orders</TableCell>
-                  <TableCell align="right">Invoice</TableCell>
-                  <TableCell align="right">Plant Qty</TableCell>
-                  <TableCell>First / Last</TableCell>
-                  <TableCell>Last Pay Mode</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {repeatCustomerRows.map((row, index) => (
-                  <TableRow key={`${row.customerName}-${row.mobileNo}`}>
-                    <TableCell>{index + 1}</TableCell>
-                    <TableCell>
-                      <Stack spacing={0.2}>
-                        <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                          {row.customerName}
-                        </Typography>
-                        <Chip
-                          size="small"
-                          label={`${row.totalRecords} orders`}
-                          sx={{
-                            width: "fit-content",
-                            backgroundColor: "#EEF2FF",
-                            color: "#4338CA",
-                          }}
-                        />
-                      </Stack>
-                    </TableCell>
-                    <TableCell>{row.mobileNo}</TableCell>
-                    <TableCell align="right">{formatNumber(row.totalRecords)}</TableCell>
-                    <TableCell align="right">{formatCurrency(row.totalInvoiceAmount)}</TableCell>
-                    <TableCell align="right">{formatNumber(row.totalPlantQty)}</TableCell>
-                    <TableCell>
-                      <Stack spacing={0.2}>
-                        <Typography variant="caption">
-                          {formatDate(row.firstDeliveryDate)}
-                        </Typography>
-                        <Typography variant="caption" sx={{ color: "text.secondary" }}>
-                          {formatDate(row.lastDeliveryDate)}
-                        </Typography>
-                      </Stack>
-                    </TableCell>
-                    <TableCell>{row.lastPaymentMode || "-"}</TableCell>
-                  </TableRow>
-                ))}
-                {!repeatCustomerRows.length && (
-                  <TableRow>
-                    <TableCell colSpan={8} align="center">
-                      No repeat customers found.
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </TableContainer>
-        )}
-      </Paper>
-
-      <Paper
-        elevation={0}
-        sx={{
-          p: 2.5,
-          mt: 3,
-          borderRadius: 3,
-          background: "#fff",
-          boxShadow: "0 12px 24px rgba(15, 23, 42, 0.08)",
-        }}
-      >
-        <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2 }}>
-          <ReceiptLongIcon sx={{ color: "#6366f1" }} />
-          <Box>
-            <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-              Farmers / Recent Records (Old Sales)
-            </Typography>
-            <Typography variant="caption" sx={{ color: "text.secondary" }}>
-              Apply filters above, then use &quot;Create Broadcast from Filtered&quot; to send WhatsApp to these farmers.
-            </Typography>
-          </Box>
-        </Stack>
-        <Divider sx={{ mb: 2 }} />
-        {loadingRecords ? (
-          <Stack alignItems="center" justifyContent="center" sx={{ py: 4 }}>
-            <CircularProgress />
-          </Stack>
-        ) : (
-          <>
-            <TableContainer sx={{ maxHeight: 360 }}>
-              <Table stickyHeader size="small">
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Delivery Date</TableCell>
-                    <TableCell>Customer</TableCell>
-                    <TableCell>Plant</TableCell>
-                    <TableCell>Variety</TableCell>
-                    <TableCell align="right">Plant Qty</TableCell>
-                    <TableCell align="right">Invoice</TableCell>
-                    <TableCell>Payment Mode</TableCell>
-                    <TableCell align="right">Remaining</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {records.map((row) => (
-                    <TableRow key={row._id}>
-                      <TableCell>{formatDate(row.deliveryDate)}</TableCell>
-                      <TableCell>
-                        <Stack spacing={0.2}>
-                          <Typography variant="body2">{row.customerName || "-"}</Typography>
-                          <Typography variant="caption" sx={{ color: "text.secondary" }}>
-                            {row.mobileNo || "-"}
-                          </Typography>
-                        </Stack>
-                      </TableCell>
-                      <TableCell>{row.plant || "-"}</TableCell>
-                      <TableCell>{row.variety || "-"}</TableCell>
-                      <TableCell align="right">{formatNumber(row.plantQty)}</TableCell>
-                      <TableCell align="right">{formatCurrency(row.totalInvoiceAmount)}</TableCell>
-                      <TableCell>{row.paymentMode || "-"}</TableCell>
-                      <TableCell align="right">{formatCurrency(row.remainingAmount)}</TableCell>
-                    </TableRow>
-                  ))}
-                  {!records.length && (
-                    <TableRow>
-                      <TableCell colSpan={8} align="center">
-                        No records found
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </TableContainer>
-            <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 2 }}>
-              <Typography variant="caption" sx={{ color: "text.secondary" }}>
-                Showing page {pagination.page} of {pagination.totalPages || 1} · Total {pagination.total}
-              </Typography>
-              <Pagination
-                count={pagination.totalPages || 1}
-                page={pagination.page}
-                onChange={(_, value) => fetchRecords(value)}
-                color="primary"
-                size="small"
-              />
-            </Stack>
-          </>
-        )}
       </Paper>
 
       <Dialog open={broadcastModalOpen} onClose={() => setBroadcastModalOpen(false)} maxWidth="sm" fullWidth>
