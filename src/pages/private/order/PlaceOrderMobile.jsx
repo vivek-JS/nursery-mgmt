@@ -60,6 +60,7 @@ import {
   SwapHoriz as SwapIcon,
   Inventory as InventoryIcon,
   FilterList as FilterIcon,
+  History as HistoryIcon,
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
   KeyboardArrowRight as ArrowRightIcon,
@@ -182,6 +183,9 @@ function PlaceOrderMobile() {
   const [txnPage, setTxnPage] = useState(1)
   const [txnTotal, setTxnTotal] = useState(0)
   const [txnTypeFilter, setTxnTypeFilter] = useState("")
+  const [plantLedgerEntries, setPlantLedgerEntries] = useState([])
+  const [plantLedgerLoading, setPlantLedgerLoading] = useState(false)
+  const [plantLedgerPage, setPlantLedgerPage] = useState(1)
 
   useEffect(() => {
     const handler = debounce(() => setDebouncedSearchTerm(searchTerm), 400)
@@ -198,6 +202,7 @@ function PlaceOrderMobile() {
     }
   }, [userId])
   useEffect(() => { if (userId) loadTransactions() }, [txnPage, txnTypeFilter])
+  useEffect(() => { if (userId && walletSubTab === 1) loadPlantLedger() }, [userId, walletSubTab, plantLedgerPage])
 
   const loadDealerWallet = async (dealerId) => {
     setWalletLoading(true)
@@ -256,6 +261,17 @@ function PlaceOrderMobile() {
       setTransactions(txns || [])
       setTxnTotal(pagination?.total || 0)
     } catch (err) { console.error("Error loading transactions:", err); setTransactions([]) } finally { setTxnLoading(false) }
+  }
+
+  const loadPlantLedger = async () => {
+    if (!userId) return
+    setPlantLedgerLoading(true)
+    try {
+      const instance = NetworkManager(API.USER.GET_DEALER_PLANT_LEDGER)
+      const response = await instance.request({}, [userId, "plant-ledger"], { params: { page: plantLedgerPage, limit: 15 } })
+      const entries = response?.data?.data?.entries || []
+      setPlantLedgerEntries(entries)
+    } catch (err) { console.error("Error loading plant ledger:", err); setPlantLedgerEntries([]) } finally { setPlantLedgerLoading(false) }
   }
 
   const getTotalPaid = (payment) => {
@@ -1038,7 +1054,55 @@ function PlaceOrderMobile() {
           </Box>
         )}
 
-        <Button size="small" variant="outlined" fullWidth onClick={() => { loadDealerWallet(userId); loadDealerDetail(userId); loadDealerStats(userId) }}
+        {/* Plant Ledger */}
+        <Typography sx={{ fontWeight: 800, color: C.textPrimary, fontSize: "0.82rem", mb: 0.75, mt: 1.5, display: "flex", alignItems: "center", gap: 0.5 }}>
+          <HistoryIcon sx={{ fontSize: 16, color: C.primary }} /> Plant Ledger
+        </Typography>
+        {plantLedgerLoading ? (
+          <Box sx={{ py: 2, display: "flex", justifyContent: "center" }}><CircularProgress size={24} /></Box>
+        ) : plantLedgerEntries.length === 0 ? (
+          <Box sx={{ py: 2, textAlign: "center", bgcolor: C.bg, borderRadius: 2 }}>
+            <HistoryIcon sx={{ fontSize: 28, color: C.textMuted, mb: 0.5 }} />
+            <Typography sx={{ fontSize: "0.78rem", color: C.textMuted }}>No plant ledger entries yet</Typography>
+          </Box>
+        ) : (
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 0.6 }}>
+            {plantLedgerEntries.map((entry) => {
+              const isAdd = entry.transactionType === "INVENTORY_ADD"
+              const isRelease = entry.transactionType === "INVENTORY_RELEASE"
+              const plantName = entry.plantType?.name || "Plant"
+              return (
+                <Card key={entry._id} elevation={0} sx={{ borderRadius: 2, border: `1px solid ${C.border}` }}>
+                  <CardContent sx={{ py: 0.75, px: 1.25, "&:last-child": { pb: 0.75 } }}>
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 0.25 }}>
+                      <Chip label={entry.transactionType?.replace("INVENTORY_", "")} size="small"
+                        sx={{ height: 18, fontSize: "0.58rem", fontWeight: 700, bgcolor: isAdd || isRelease ? C.greenBg : C.redBg, color: isAdd || isRelease ? C.greenText : C.redText, borderRadius: 1 }} />
+                      <Typography sx={{ fontSize: "0.72rem", fontWeight: 800, color: isAdd || isRelease ? C.greenText : C.redText }}>
+                        {entry.transactionType === "INVENTORY_BOOK" ? "−" : "+"}{Math.abs(entry.quantity || 0).toLocaleString()}
+                      </Typography>
+                    </Box>
+                    <Typography sx={{ fontSize: "0.68rem", color: C.textSecondary }}>{plantName}</Typography>
+                    <Typography sx={{ fontSize: "0.6rem", color: C.textMuted, mt: 0.15 }}>{entry.description || "—"}</Typography>
+                    <Typography sx={{ fontSize: "0.58rem", color: C.textMuted, mt: 0.15 }}>
+                      {entry.createdAt ? moment(entry.createdAt).format("DD MMM, hh:mm A") : ""} · Bal: {entry.balanceBefore?.toLocaleString() || 0} → {entry.balanceAfter?.toLocaleString() || 0}
+                    </Typography>
+                  </CardContent>
+                </Card>
+              )
+            })}
+            {plantLedgerEntries.length >= 15 && (
+              <Box sx={{ display: "flex", justifyContent: "center", gap: 0.5, mt: 0.5 }}>
+                <Button size="small" disabled={plantLedgerPage <= 1} onClick={() => setPlantLedgerPage((p) => Math.max(1, p - 1))}
+                  sx={{ fontSize: "0.65rem", textTransform: "none", fontWeight: 700, color: C.primary }}>Prev</Button>
+                <Typography sx={{ fontSize: "0.68rem", color: C.textSecondary, py: 0.25 }}>Page {plantLedgerPage}</Typography>
+                <Button size="small" onClick={() => setPlantLedgerPage((p) => p + 1)}
+                  sx={{ fontSize: "0.65rem", textTransform: "none", fontWeight: 700, color: C.primary }}>Next</Button>
+              </Box>
+            )}
+          </Box>
+        )}
+
+        <Button size="small" variant="outlined" fullWidth onClick={() => { loadDealerWallet(userId); loadDealerDetail(userId); loadDealerStats(userId); loadPlantLedger() }}
           startIcon={<RefreshIcon sx={{ fontSize: 14 }} />}
           sx={{ mt: 1.5, fontSize: "0.72rem", textTransform: "none", borderRadius: 2, borderColor: C.primary, color: C.primary, fontWeight: 700, height: 34 }}>
           Refresh

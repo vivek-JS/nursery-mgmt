@@ -58,7 +58,8 @@ import {
   SwapHoriz as SwapIcon,
   Agriculture as PlantIcon,
   Refresh as RefreshIcon,
-  FilterList as FilterIcon
+  FilterList as FilterIcon,
+  History as HistoryIcon
 } from "@mui/icons-material"
 import DealerPDFExport from "./DealerPDFExport"
 import PlantTypeWithSubtypesCard from "./PlantTypeWithSubtypesCard"
@@ -191,6 +192,13 @@ const DealerDetails = () => {
   const [mobileTab, setMobileTab] = useState(0)
   const [expandedPlant, setExpandedPlant] = useState(null)
 
+  const [plantLedgerEntries, setPlantLedgerEntries] = useState([])
+  const [plantLedgerLoading, setPlantLedgerLoading] = useState(false)
+  const [plantLedgerPage, setPlantLedgerPage] = useState(0)
+  const [plantLedgerLimit, setPlantLedgerLimit] = useState(10)
+  const [plantLedgerTotal, setPlantLedgerTotal] = useState(0)
+  const [plantLedgerType, setPlantLedgerType] = useState("")
+
   useEffect(() => {
     if (id) {
       getDealerDetails(id)
@@ -203,6 +211,12 @@ const DealerDetails = () => {
       getDealerWalletTransactions(id, page + 1, rowsPerPage, transactionType)
     }
   }, [id, page, rowsPerPage, transactionType])
+
+  useEffect(() => {
+    if (id && (tabValue === 2 || mobileTab === 2)) {
+      getPlantLedger(id, plantLedgerPage + 1, plantLedgerLimit, plantLedgerType)
+    }
+  }, [id, tabValue, mobileTab, plantLedgerPage, plantLedgerLimit, plantLedgerType])
 
   const getDealerDetails = async (dealerId) => {
     setLoading(true)
@@ -274,6 +288,24 @@ const DealerDetails = () => {
       console.error("Error fetching dealer stats:", err)
     } finally {
       setStatsLoading(false)
+    }
+  }
+
+  const getPlantLedger = async (dealerId, pg = 1, limit = 10, type = "") => {
+    setPlantLedgerLoading(true)
+    try {
+      const instance = NetworkManager(API.USER.GET_DEALER_PLANT_LEDGER)
+      const queryParams = { page: pg, limit, ...(type && { type }) }
+      const response = await instance.request({}, [dealerId, "plant-ledger"], { params: queryParams })
+      if (response?.data?.data) {
+        setPlantLedgerEntries(response.data.data.entries || [])
+        setPlantLedgerTotal(response.data.data.pagination?.total || 0)
+      }
+    } catch (err) {
+      console.error("Error fetching plant ledger:", err)
+      setPlantLedgerEntries([])
+    } finally {
+      setPlantLedgerLoading(false)
     }
   }
 
@@ -514,6 +546,68 @@ const DealerDetails = () => {
       </Box>
     )
 
+    const renderMobilePlantLedger = () => (
+      <Box sx={{ px: 1.25, pb: 2 }}>
+        <FormControl size="small" sx={{ minWidth: 140, mb: 1 }}>
+          <InputLabel>Type</InputLabel>
+          <Select value={plantLedgerType} label="Type" onChange={(e) => { setPlantLedgerType(e.target.value); setPlantLedgerPage(0) }}>
+            <MenuItem value="">All</MenuItem>
+            <MenuItem value="INVENTORY_ADD">Add</MenuItem>
+            <MenuItem value="INVENTORY_BOOK">Book</MenuItem>
+            <MenuItem value="INVENTORY_RELEASE">Release</MenuItem>
+          </Select>
+        </FormControl>
+        {plantLedgerLoading ? (
+          <Box sx={{ py: 3, display: "flex", justifyContent: "center" }}><CircularProgress size={28} /></Box>
+        ) : plantLedgerEntries.length === 0 ? (
+          <Box sx={{ py: 4, textAlign: "center" }}>
+            <HistoryIcon sx={{ fontSize: 36, color: C.textMuted, mb: 0.5 }} />
+            <Typography sx={{ fontSize: "0.82rem", color: C.textMuted, fontWeight: 600 }}>No plant ledger entries</Typography>
+          </Box>
+        ) : (
+          <>
+            <Box sx={{ display: "flex", flexDirection: "column", gap: 0.75 }}>
+              {plantLedgerEntries.map((entry) => {
+                const isAdd = entry.transactionType === "INVENTORY_ADD"
+                const isRelease = entry.transactionType === "INVENTORY_RELEASE"
+                const isBook = entry.transactionType === "INVENTORY_BOOK"
+                const plantName = entry.plantType?.name || "Plant"
+                return (
+                  <Card key={entry._id} elevation={0} sx={{ borderRadius: 2, border: `1px solid ${C.border}` }}>
+                    <CardContent sx={{ py: 1, px: 1.25, "&:last-child": { pb: 1 } }}>
+                      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 0.5 }}>
+                        <Chip label={entry.transactionType?.replace("INVENTORY_", "")} size="small"
+                          sx={{ height: 20, fontSize: "0.6rem", fontWeight: 700, bgcolor: isAdd || isRelease ? C.greenBg : C.redBg, color: isAdd || isRelease ? C.greenText : C.redText, borderRadius: 1 }} />
+                        <Typography sx={{ fontSize: "0.75rem", fontWeight: 800, color: isAdd || isRelease ? C.greenText : C.redText }}>
+                          {isBook ? "-" : "+"}{Math.abs(entry.quantity || 0).toLocaleString()}
+                        </Typography>
+                      </Box>
+                      <Typography sx={{ fontSize: "0.7rem", color: C.textSecondary, mb: 0.25 }}>{plantName}</Typography>
+                      <Typography sx={{ fontSize: "0.62rem", color: C.textMuted }}>{entry.description || "—"}</Typography>
+                      <Typography sx={{ fontSize: "0.6rem", color: C.textMuted, mt: 0.25 }}>
+                        {formatDateShort(entry.createdAt)} · Bal: {entry.balanceBefore?.toLocaleString() || 0} → {entry.balanceAfter?.toLocaleString() || 0}
+                      </Typography>
+                    </CardContent>
+                  </Card>
+                )
+              })}
+            </Box>
+            {plantLedgerTotal > plantLedgerLimit && (
+              <Box sx={{ display: "flex", justifyContent: "center", gap: 1, mt: 1 }}>
+                <Button size="small" disabled={plantLedgerPage === 0} onClick={() => setPlantLedgerPage((p) => Math.max(0, p - 1))}
+                  sx={{ fontSize: "0.7rem", textTransform: "none", fontWeight: 700, color: C.primary }}>Prev</Button>
+                <Typography sx={{ fontSize: "0.72rem", color: C.textSecondary, py: 0.5 }}>
+                  {plantLedgerPage * plantLedgerLimit + 1}–{Math.min((plantLedgerPage + 1) * plantLedgerLimit, plantLedgerTotal)} of {plantLedgerTotal}
+                </Typography>
+                <Button size="small" disabled={(plantLedgerPage + 1) * plantLedgerLimit >= plantLedgerTotal} onClick={() => setPlantLedgerPage((p) => p + 1)}
+                  sx={{ fontSize: "0.7rem", textTransform: "none", fontWeight: 700, color: C.primary }}>Next</Button>
+              </Box>
+            )}
+          </>
+        )}
+      </Box>
+    )
+
     const renderMobileStats = () => (
       <Box sx={{ px: 1.25, pb: 2 }}>
         {statsLoading ? (
@@ -614,19 +708,21 @@ const DealerDetails = () => {
           }}>
           <Tab icon={<WalletIcon sx={{ fontSize: 15, mr: 0.3 }} />} iconPosition="start" label="Ledger" />
           <Tab icon={<InventoryIcon sx={{ fontSize: 15, mr: 0.3 }} />} iconPosition="start" label="Inventory" />
+          <Tab icon={<HistoryIcon sx={{ fontSize: 15, mr: 0.3 }} />} iconPosition="start" label="Plant Ledger" />
           <Tab icon={<PieChartIcon sx={{ fontSize: 15, mr: 0.3 }} />} iconPosition="start" label="Stats" />
         </Tabs>
 
         <Box sx={{ mx: 1.25, bgcolor: "white", borderRadius: "0 0 12px 12px", mb: 1.5, minHeight: 200 }}>
           {mobileTab === 0 && renderMobileLedger()}
           {mobileTab === 1 && renderMobileInventory()}
-          {mobileTab === 2 && renderMobileStats()}
+          {mobileTab === 2 && renderMobilePlantLedger()}
+          {mobileTab === 3 && renderMobileStats()}
         </Box>
 
         {/* Refresh */}
         <Box sx={{ px: 1.25, pb: 2 }}>
           <Button size="small" variant="outlined" fullWidth
-            onClick={() => { getDealerDetails(id); getDealersStats(id); getDealerWalletTransactions(id, page + 1, rowsPerPage, transactionType) }}
+            onClick={() => { getDealerDetails(id); getDealersStats(id); getDealerWalletTransactions(id, page + 1, rowsPerPage, transactionType); if (tabValue === 2 || mobileTab === 2) getPlantLedger(id, plantLedgerPage + 1, plantLedgerLimit, plantLedgerType) }}
             startIcon={<RefreshIcon sx={{ fontSize: 14 }} />}
             sx={{ fontSize: "0.72rem", textTransform: "none", borderRadius: 2, borderColor: C.primary, color: C.primary, fontWeight: 700, height: 36 }}>
             Refresh All Data
@@ -779,6 +875,7 @@ const DealerDetails = () => {
           sx={{ borderBottom: 1, borderColor: "divider", "& .MuiTab-root": { fontWeight: "bold" } }}>
           <Tab label="Wallet Transactions" icon={<WalletIcon />} iconPosition="start" />
           <Tab label="Inventory Details" icon={<InventoryIcon />} iconPosition="start" />
+          <Tab label="Plant Ledger" icon={<HistoryIcon />} iconPosition="start" />
         </Tabs>
       </Box>
 
@@ -934,6 +1031,80 @@ const DealerDetails = () => {
                 </Grid>
               ))}
             </Grid>
+          )}
+        </Box>
+      )}
+
+      {/* Plant Ledger Tab */}
+      {tabValue === 2 && (
+        <Box>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 2 }}>
+            <Typography variant="h6">Plant Inventory Ledger</Typography>
+            <FormControl sx={{ minWidth: 180 }} size="small">
+              <InputLabel>Filter by Type</InputLabel>
+              <Select value={plantLedgerType} label="Filter by Type" onChange={(e) => { setPlantLedgerType(e.target.value); setPlantLedgerPage(0) }}>
+                <MenuItem value="">All</MenuItem>
+                <MenuItem value="INVENTORY_ADD">INVENTORY_ADD</MenuItem>
+                <MenuItem value="INVENTORY_BOOK">INVENTORY_BOOK</MenuItem>
+                <MenuItem value="INVENTORY_RELEASE">INVENTORY_RELEASE</MenuItem>
+              </Select>
+            </FormControl>
+          </Box>
+          {plantLedgerLoading ? (
+            <Box sx={{ width: "100%", mt: 3 }}><LinearProgress /></Box>
+          ) : plantLedgerEntries.length === 0 ? (
+            <Paper sx={{ p: 4, textAlign: "center" }}>
+              <HistoryIcon sx={{ fontSize: 48, color: "text.secondary", mb: 2 }} />
+              <Typography variant="h6">No plant ledger entries</Typography>
+              <Typography variant="body2" color="text.secondary">Plant movements will appear here when orders are placed or rejected.</Typography>
+            </Paper>
+          ) : (
+            <TableContainer component={Paper} sx={{ boxShadow: "0 4px 20px rgba(0,0,0,0.08)", borderRadius: 2 }}>
+              <Table sx={{ minWidth: 650 }}>
+                <TableHead sx={{ bgcolor: "grey.100" }}>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: "bold" }}>Date</TableCell>
+                    <TableCell sx={{ fontWeight: "bold" }}>Type</TableCell>
+                    <TableCell sx={{ fontWeight: "bold" }}>Plant</TableCell>
+                    <TableCell sx={{ fontWeight: "bold" }}>Quantity</TableCell>
+                    <TableCell sx={{ fontWeight: "bold" }}>Balance Before</TableCell>
+                    <TableCell sx={{ fontWeight: "bold" }}>Balance After</TableCell>
+                    <TableCell sx={{ fontWeight: "bold" }}>Description</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {plantLedgerEntries.map((entry) => {
+                    const isAdd = entry.transactionType === "INVENTORY_ADD"
+                    const isRelease = entry.transactionType === "INVENTORY_RELEASE"
+                    const plantName = entry.plantType?.name || "—"
+                    return (
+                      <TableRow key={entry._id} hover sx={{ bgcolor: isAdd || isRelease ? "rgba(76, 175, 80, 0.04)" : "rgba(244, 67, 54, 0.04)" }}>
+                        <TableCell>{formatDate(entry.createdAt)}</TableCell>
+                        <TableCell>
+                          <Chip label={entry.transactionType?.replace("INVENTORY_", "")} size="small"
+                            color={isAdd || isRelease ? "success" : "error"} sx={{ fontWeight: "medium" }} />
+                        </TableCell>
+                        <TableCell>{plantName}</TableCell>
+                        <TableCell sx={{ fontWeight: "bold", color: isAdd || isRelease ? "success.main" : "error.main" }}>
+                          {entry.transactionType === "INVENTORY_BOOK" ? "-" : "+"}{Math.abs(entry.quantity || 0).toLocaleString()}
+                        </TableCell>
+                        <TableCell>{entry.balanceBefore?.toLocaleString() || 0}</TableCell>
+                        <TableCell>{entry.balanceAfter?.toLocaleString() || 0}</TableCell>
+                        <TableCell>
+                          <Tooltip title={entry.description} arrow>
+                            <Typography sx={{ maxWidth: 200, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                              {entry.description || "—"}
+                            </Typography>
+                          </Tooltip>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
+                </TableBody>
+              </Table>
+              <TablePagination rowsPerPageOptions={[10, 25, 50]} component="div" count={plantLedgerTotal} rowsPerPage={plantLedgerLimit} page={plantLedgerPage}
+                onPageChange={(_, p) => setPlantLedgerPage(p)} onRowsPerPageChange={() => {}} />
+            </TableContainer>
           )}
         </Box>
       )}

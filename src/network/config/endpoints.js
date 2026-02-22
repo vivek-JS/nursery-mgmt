@@ -77,7 +77,8 @@ export const API = {
     EXPORT_DEALER_WALLET_TRANSACTIONS_CSV: new APIRouter(
       "/user/dealers/transactions",
       HTTP_METHODS.GET
-    )
+    ),
+    GET_DEALER_PLANT_LEDGER: new APIRouter("/user/dealers", HTTP_METHODS.GET),
   },
   PATIENT: {
     ADD_PATIENT_LIST: new APIRouter("api/v2/users/", HTTP_METHODS.POST, OFFLINE.PROFILE),
