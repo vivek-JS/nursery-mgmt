@@ -117,8 +117,9 @@ export default function networkManager(router, withFile = false) {
       // Extract error message from response (backend may use message or error)
       const errorMessage = err?.response?.data?.message || err?.response?.data?.error || fullError?.message || "Unknown error"
       
-      // Show toast notification for the error
-      apiError(errorMessage)
+      // Show toast notification for the error (suppress for certain endpoints)
+      const suppressError = router?.endpoint?.includes("/dealers/transactions")
+      if (!suppressError) apiError(errorMessage)
 
       const isNetworkError = err.code === HTTP_STATUS.NETWORK_ERR
 

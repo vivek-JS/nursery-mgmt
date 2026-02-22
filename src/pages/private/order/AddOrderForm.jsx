@@ -102,6 +102,7 @@ const useStyles = makeStyles()((theme) => ({
     margin: "0 auto",
     background: "#fafafa",
     minWidth: 0,
+    overflowX: "hidden",
     "& .MuiFormHelperText-root": {
       marginLeft: 0,
       paddingLeft: "14px",
@@ -424,6 +425,14 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
       loadDealerWallet(user._id)
     }
   }, [user])
+
+  // Auto-set dealer and quota type when user is DEALER (selection only for SUPERADMIN/OFFICE_ADMIN)
+  useEffect(() => {
+    if (user?.jobTitle === "DEALER" && user?._id && !formData?.dealer) {
+      handleInputChange("dealer", user._id)
+      setQuotaType("dealer")
+    }
+  }, [user?.jobTitle, user?._id, formData?.dealer])
 
   // Debounced mobile number for farmer lookup
   const debouncedMobileNumber = useDebounce(formData?.mobileNumber || "", 500)
@@ -748,15 +757,13 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
               return null
             }
 
-            const start = moment(entry.startDay, "DD-MM-YYYY").format("D")
-            const end = moment(entry.endDay, "DD-MM-YYYY").format("D")
-            const monthYear = moment(entry.startDay, "DD-MM-YYYY").format("MMMM, YYYY")
+            const slotLabel = formatSlotPeriod(entry.startDay, entry.endDay)
 
             // Use dealer quota remaining quantity
             const available = entry.remainingQuantity || 0
 
             return {
-              label: `${start} - ${end} ${monthYear} (${available} available - DEALER QUOTA)`,
+              label: slotLabel ? `${slotLabel} (${available} available - DEALER QUOTA)` : `${entry.startDay} - ${entry.endDay} (${available} available - DEALER QUOTA)`,
               value: entry.bookingSlotId,
               availableQuantity: available,
               startDay: entry.startDay,
@@ -830,9 +837,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
 
             if (!startDateValid || !endDateValid) return null
 
-            const start = moment(startDay, "DD-MM-YYYY").format("D")
-            const end = moment(endDay, "DD-MM-YYYY").format("D")
-            const monthYear = moment(startDay, "DD-MM-YYYY").format("MMMM, YYYY")
+            const slotLabel = formatSlotPeriod(startDay, endDay)
 
             // Calculate available plants (can be negative for sowing-allowed plants)
             const available = availablePlants !== undefined ? availablePlants : totalPlants - (totalBookedPlants || 0)
@@ -841,7 +846,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
             const productStock = slot.productStock || []
             
             return {
-              label: `${start} - ${end} ${monthYear} (${available} available)`,
+              label: slotLabel ? `${slotLabel} (${available} available)` : `${startDay} - ${endDay} (${available} available)`,
               value: _id,
               availableQuantity: available,
               startDay,
@@ -1007,16 +1012,12 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
 
           if (entry && entry.startDay && entry.endDay && entry.month) {
 
-            // Format the slot label with dates
-            const startDate = moment(entry.startDay, "DD-MM-YYYY").format("D")
-            const endDate = moment(entry.endDay, "DD-MM-YYYY").format("D")
-            const monthYear = moment(entry.startDay, "DD-MM-YYYY").format("MMMM, YYYY")
+            // Format the slot label as "7 Jan to 15 Jan"
+            const slotLabel = formatSlotPeriod(entry.startDay, entry.endDay)
 
             const slotDetail = {
               value: slotId,
-              label: `${startDate} - ${endDate} ${monthYear} (${
-                entry.remainingQuantity || 0
-              } available)`,
+              label: slotLabel ? `${slotLabel} (${entry.remainingQuantity || 0} available)` : `${entry.startDay} - ${entry.endDay} (${entry.remainingQuantity || 0} available)`,
               availableQuantity: entry.remainingQuantity || 0,
               startDay: entry.startDay,
               endDay: entry.endDay,
@@ -1131,6 +1132,14 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
         stateName: prev.stateName || "Maharashtra"
       }))
     }
+  }
+
+  // Format slot period as "7 Jan to 15 Jan" (consistent for dealer and normal orders)
+  const formatSlotPeriod = (startDay, endDay) => {
+    if (!startDay || !endDay || !moment(startDay, "DD-MM-YYYY", true).isValid() || !moment(endDay, "DD-MM-YYYY", true).isValid()) return ""
+    const start = moment(startDay, "DD-MM-YYYY").format("D MMM")
+    const end = moment(endDay, "DD-MM-YYYY").format("D MMM")
+    return `${start} to ${end}`
   }
 
   // Helper function to get slot ID for a specific date
@@ -1782,23 +1791,26 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
       return false
     }
 
-    // Only validate quota type for dealer non-bulk orders or when dealer is selected
+    // Only validate quota type for SUPERADMIN/OFFICE_ADMIN when dealer is selected (dealers get default)
+    const isAdminOrOfficeAdmin = user?.jobTitle === "SUPERADMIN" || user?.jobTitle === "OFFICE_ADMIN"
     if (
-      (user?.jobTitle === "DEALER" && !bulkOrder && !quotaType) ||
-      (formData?.dealer && !bulkOrder && !quotaType)
+      isAdminOrOfficeAdmin &&
+      formData?.dealer &&
+      !bulkOrder &&
+      !quotaType
     ) {
       Toast.error("Please select quota type")
       return false
     }
 
-    // Validate that exactly one of dealer or sales person is selected
-    if (!formData?.dealer && !formData?.sales) {
+    // Validate dealer/sales selection only for SUPERADMIN and OFFICE_ADMIN (dealers auto-use self)
+    if (isAdminOrOfficeAdmin && !formData?.dealer && !formData?.sales) {
       Toast.error("Please select either a dealer or sales person")
       return false
     }
     
-    // Ensure only one is selected (this should not happen due to UI constraints, but double-check)
-    if (formData?.dealer && formData?.sales) {
+    // Ensure only one is selected (for admin/office admin only)
+    if (isAdminOrOfficeAdmin && formData?.dealer && formData?.sales) {
       Toast.error("Please select either a dealer OR a sales person, not both")
       return false
     }
@@ -1939,11 +1951,11 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
       } else if (isDealerQuotaSlot) {
         // Use dealer quota data
         availableQuantity = selectedSlot.availableQuantity
-        slotPeriod = `${selectedSlot.startDay} - ${selectedSlot.endDay} (DEALER QUOTA)`
+        slotPeriod = selectedSlot ? `${formatSlotPeriod(selectedSlot.startDay, selectedSlot.endDay)} (DEALER QUOTA)` : ""
       } else if (available !== null) {
         // Use regular slot data
         availableQuantity = available
-        slotPeriod = selectedSlot ? `${selectedSlot.startDay} - ${selectedSlot.endDay}` : ""
+        slotPeriod = selectedSlot ? formatSlotPeriod(selectedSlot.startDay, selectedSlot.endDay) : ""
       }
 
       if (availableQuantity !== null && requestedQuantity > availableQuantity) {
@@ -2032,7 +2044,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
       plantSubtype: selectedSubtype?.label || "",
       numberOfPlants: formData?.noOfPlants || "",
       rate: formData?.rate || "",
-      slotPeriod: selectedSlot ? `${selectedSlot.startDay} - ${selectedSlot.endDay}` : "",
+      slotPeriod: selectedSlot ? formatSlotPeriod(selectedSlot.startDay, selectedSlot.endDay) : "",
       salesPerson: selectedDealer?.label || selectedSales?.label || "",
       location: `${formData?.village || ""}, ${formData?.taluka || ""}, ${formData?.district || ""}`,
       orderType: isInstantOrder ? "Instant Order" : bulkOrder ? "Bulk Order" : "Normal Order"
@@ -2144,9 +2156,9 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
           productName: formData?.productName || undefined, // Product name reference for plant products
           productMappingId: formData?.productMappingId || undefined, // PlantProductMapping ID for ready plants products
           productOrderSnapshot, // Snapshot for future reference (not linked)
-          dealer: formData?.dealer || formData?.sales,
+          dealer: formData?.dealer || formData?.sales || (user?.jobTitle === "DEALER" ? user?._id : null),
           // If dealer is selected, send dealer ID as salesPerson, otherwise send sales person ID
-          salesPerson: formData?.dealer || formData?.sales,
+          salesPerson: formData?.dealer || formData?.sales || (user?.jobTitle === "DEALER" ? user?._id : null),
           // Screenshots will be handled separately in FormData
           screenshots: formData?.screenshots?.map(s => s.file) || []
         }
@@ -2178,8 +2190,8 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
           numberOfPlants: parseInt(formData?.noOfPlants) || 0,
           rate: parseFloat(formData?.rate) || 0,
           paymentStatus: "not paid",
-          // If dealer is selected, send dealer ID as salesPerson, otherwise send sales person ID
-          salesPerson: formData?.dealer || formData?.sales,
+          // If dealer is selected, send dealer ID as salesPerson, otherwise send sales person ID (dealers auto-use self)
+          salesPerson: formData?.dealer || formData?.sales || (user?.jobTitle === "DEALER" ? user?._id : null),
           orderStatus: isInstantOrder ? "DISPATCHED" : "ACCEPTED",
           plantName: formData?.plant || "",
           plantSubtype: formData?.subtype || "",
@@ -2197,9 +2209,9 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
           productOrderSnapshot, // Snapshot for future reference (not linked)
         }
 
-        // Add dealer field if dealer is selected for normal orders
-        if (formData?.dealer) {
-          payload.dealer = formData?.dealer
+        // Add dealer field if dealer is selected for normal orders (or when user is DEALER)
+        if (formData?.dealer || user?.jobTitle === "DEALER") {
+          payload.dealer = formData?.dealer || user?._id
         }
 
         // Add company quota flag for dealer regular orders
@@ -2723,6 +2735,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
         <Box
           className={`${classes.formContainer} ${fullScreen ? classes.compactForm : ''}`.trim()}
           sx={{
+            overflowX: 'hidden',
             ...(fullScreen && {
               padding: '10px 14px',
               maxWidth: '100%',
@@ -2748,7 +2761,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
               py: 0,
               background: 'transparent',
               width: '100%',
-              ...(fullScreen && { overflowX: 'auto', overflowY: 'hidden', minWidth: 0, WebkitOverflowScrolling: 'touch' }),
+              ...(fullScreen && { overflowX: 'hidden', overflowY: 'hidden', minWidth: 0 }),
             }}
           >
             <Stepper activeStep={activeStep} className={classes.stepper} size="small">
@@ -3070,8 +3083,8 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
             </Card>
           )}
 
-          {/* Sales Person Selection - hidden for DEALER and SALES */}
-          {user?.jobTitle !== "DEALER" && user?.jobTitle !== "SALES" && (
+          {/* Sales Person Selection - only for SUPERADMIN and OFFICE_ADMIN (dealers auto-use self) */}
+          {(user?.jobTitle === "SUPERADMIN" || user?.jobTitle === "OFFICE_ADMIN") && (
           <Card className={classes.formCard}>
             <div className={classes.cardHeader}>
               <Typography variant="h6" className={classes.sectionTitle}>
@@ -3248,17 +3261,9 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                                       entry.remainingQuantity || 0
                                     } available)`
                                   } else if (entry.startDay && entry.endDay && entry.month) {
-                                    // Use dates from wallet data
-                                    const startDate = moment(entry.startDay, "DD-MM-YYYY").format(
-                                      "D"
-                                    )
-                                    const endDate = moment(entry.endDay, "DD-MM-YYYY").format("D")
-                                    const monthYear = moment(entry.startDay, "DD-MM-YYYY").format(
-                                      "MMMM, YYYY"
-                                    )
-                                    slotLabel = `${startDate} - ${endDate} ${monthYear} (${
-                                      entry.remainingQuantity || 0
-                                    } available)`
+                                    // Use dates from wallet data - format as "7 Jan to 15 Jan"
+                                    const period = formatSlotPeriod(entry.startDay, entry.endDay)
+                                    slotLabel = period ? `${period} (${entry.remainingQuantity || 0} available)` : `${entry.startDay} - ${entry.endDay} (${entry.remainingQuantity || 0} available)`
                                   } else {
                                     // Fallback to slot ID
                                     slotLabel = `Slot ${entry.bookingSlotId} (${
@@ -3762,7 +3767,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                                     {plant.slotDetails.map((slot, sIdx) => (
                                       <Chip
                                         key={sIdx}
-                                        label={`${slot.dates?.startDay || ''} to ${slot.dates?.endDay || ''} • ${slot.remainingQuantity || 0}`}
+                                        label={`${formatSlotPeriod(slot.dates?.startDay, slot.dates?.endDay) || `${slot.dates?.startDay || ''} to ${slot.dates?.endDay || ''}`} • ${slot.remainingQuantity || 0}`}
                                         size="medium"
                                         variant="outlined"
                                         sx={{ 
@@ -3892,7 +3897,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                               return (
                                 <Chip
                                   key={slot.value}
-                                  label={`${slot.startDay.split('-')[0]}-${slot.endDay.split('-')[0]} ${directionText} (${slot.calculatedAvailability})`}
+                                  label={`${formatSlotPeriod(slot.startDay, slot.endDay) || `${slot.startDay} - ${slot.endDay}`} ${directionText} (${slot.calculatedAvailability})`}
                                   onClick={() => {
                                     handleInputChange("transferredSlotId", slot.value)
                                     const availableQty = getAvailableQuantityForDate(
@@ -3901,7 +3906,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                                       formData?.productName
                                     )
                                     setAvailable(availableQty)
-                                    Toast.success(`Booking transferred to: ${slot.startDay} - ${slot.endDay}`)
+                                    Toast.success(`Booking transferred to: ${formatSlotPeriod(slot.startDay, slot.endDay)}`)
                                   }}
                                   sx={{
                                     cursor: "pointer",

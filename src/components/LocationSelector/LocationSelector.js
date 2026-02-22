@@ -89,10 +89,11 @@ const LocationSelector = ({
     setLoading((prev) => ({ ...prev, states: true }))
     setError("")
     try {
-      const instance = NetworkManager(API.LOCATION.GET_CASCADING_LOCATION)
-      const response = await instance.request({})
-      if (response?.data?.status === "success" && Array.isArray(response.data.data.states)) {
-        setStates(response.data.data.states.map((s) => ({ id: s.id, name: s.name, code: s.code })))
+      // Use states-only endpoint - cascade requires state identifier
+      const instance = NetworkManager(API.LOCATION.GET_STATES_ONLY)
+      const response = await instance.request()
+      if (response?.data?.status === "success" && Array.isArray(response.data.data)) {
+        setStates(response.data.data.map((s) => ({ id: s.id, name: s.name, code: s.code })))
       } else {
         setStates([])
       }
