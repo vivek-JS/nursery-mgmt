@@ -210,19 +210,54 @@ export default function PrivateLayout(props) {
     // Check both role and jobTitle, prioritizing jobTitle
     const isAccountant = userData?.jobTitle === "ACCOUNTANT" || userRole === "ACCOUNTANT"
     if (!isAccountant || isSuperAdmin) return
-    
+
     const p = location.pathname
+    // Restrict ACCOUNTANT to Orders (dashboard), Orders list, Payments and Dealers
     const allowed =
       p === "/u/dashboard" ||
       p === "/u/orders" ||
-      p === "/u/inventory" ||
-      p.startsWith("/u/inventory/") ||
+      p.startsWith("/u/orders") ||
       p === "/u/payments" ||
-      p.startsWith("/u/payments/")
-    
+      p.startsWith("/u/payments/") ||
+      p === "/u/dealers" ||
+      p.startsWith("/u/dealers")
+
     if (!allowed) {
       console.log(`[PrivateLayout] ACCOUNTANT user accessing ${p}, redirecting to /u/dashboard`)
       accountantRedirectRef.current = true
+      navigate("/u/dashboard", { replace: true })
+    }
+  }, [userRole, isSuperAdmin, location.pathname, navigate, userData])
+
+  // OFFICEADMIN: restrict sidebar & routes to a subset of menus
+  useEffect(() => {
+    if (!userData) return
+    // jobTitle or role may indicate OFFICEADMIN
+    const isOfficeAdmin = userData?.jobTitle === "OFFICEADMIN" || userRole === "OFFICEADMIN"
+    if (!isOfficeAdmin || isSuperAdmin) return
+
+    const p = location.pathname
+    const allowed =
+      // Orders / Dashboard
+      p === "/u/dashboard" ||
+      p === "/u/orders" ||
+      p.startsWith("/u/orders") ||
+      // Plants and Products
+      p === "/u/plants" ||
+      p.startsWith("/u/plants") ||
+      // CMS
+      p === "/u/cms" ||
+      p.startsWith("/u/cms") ||
+      // Inventory + Ram Agri Input
+      p === "/u/inventory" ||
+      p.startsWith("/u/inventory") ||
+      p === "/u/inventory/ram-agri-sales-dashboard" ||
+      // Farmers
+      p === "/u/farmers" ||
+      p.startsWith("/u/farmers")
+
+    if (!allowed) {
+      console.log(`[PrivateLayout] OFFICEADMIN user accessing ${p}, redirecting to /u/dashboard`)
       navigate("/u/dashboard", { replace: true })
     }
   }, [userRole, isSuperAdmin, location.pathname, navigate, userData])
@@ -278,9 +313,33 @@ export default function PrivateLayout(props) {
     // Check both role and jobTitle, prioritizing jobTitle
     const isAccountant = userData?.jobTitle === "ACCOUNTANT" || userRole === "ACCOUNTANT"
     if (isAccountant) {
-      const allowedTitles = ["Orders", "Order", "Inventory", "Payments"]
-      const allowedRoutes = ["/u/orders", "/u/dashboard", "/u/inventory", "/u/payments"]
-      // Check both title and route to ensure we catch all variations
+      // ACCOUNTANT should only see Orders (dashboard), Orders list, Payments and Dealers in sidebar
+      const allowedTitles = ["Orders", "Order", "Payments", "Dealers"]
+      const allowedRoutes = ["/u/orders", "/u/dashboard", "/u/payments", "/u/dealers"]
+      const hasAccess = allowedTitles.includes(menuItem.title) || allowedRoutes.includes(menuItem.route)
+      return hasAccess
+    }
+
+    // OFFICEADMIN: allow only a specific subset of menu items in the sidebar
+    const isOfficeAdmin = userData?.jobTitle === "OFFICEADMIN" || userRole === "OFFICEADMIN"
+    if (isOfficeAdmin) {
+      const allowedTitles = [
+        "Orders",
+        "Plants and Products",
+        "CMS",
+        "Inventory",
+        "Ram Agri Input",
+        "Farmers"
+      ]
+      const allowedRoutes = [
+        "/u/dashboard",
+        "/u/orders",
+        "/u/plants",
+        "/u/cms",
+        "/u/inventory",
+        "/u/inventory/ram-agri-sales-dashboard",
+        "/u/farmers"
+      ]
       const hasAccess = allowedTitles.includes(menuItem.title) || allowedRoutes.includes(menuItem.route)
       return hasAccess
     }
