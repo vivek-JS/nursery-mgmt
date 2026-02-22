@@ -727,9 +727,13 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
     if (!plantId || !subtypeId) return
     setSlotsLoading(true)
     try {
-      // Check if dealer quota should be used
+      // For dealer orders (bulkOrder): always use slots API - ensures slots load on mobile when dealer selects plant/subtype
+      // For normal orders with dealer quota: use dealer wallet when we have matching entries
       const shouldUseDealerQuota =
-        formData?.dealer && quotaType === "dealer" && dealerWallet?.entries
+        !bulkOrder &&
+        formData?.dealer &&
+        quotaType === "dealer" &&
+        dealerWallet?.entries?.length > 0
 
       if (shouldUseDealerQuota) {
         // Filter dealer wallet entries for the selected plant and subtype
@@ -771,13 +775,16 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
           })
           .filter((slot) => slot !== null && slot.availableQuantity > 0)
 
-        setAllSlots(dealerQuotaSlots)
-        setSlots(dealerQuotaSlots)
-        setFilteredSlotsByProduct([])
-        return
+        // Only use dealer wallet slots if we got some; otherwise fall through to API
+        if (dealerQuotaSlots.length > 0) {
+          setAllSlots(dealerQuotaSlots)
+          setSlots(dealerQuotaSlots)
+          setFilteredSlotsByProduct([])
+          return
+        }
       }
 
-      // Use fast simple slots endpoint for non-dealer quota
+      // Use fast simple slots endpoint (for dealer orders, normal orders, or when dealer quota has no matching slots)
       // Fetch slots for both 2025 and 2026
       const instance = NetworkManager(API.slots.GET_SIMPLE_SLOTS)
       const years = [2026, 2027]
@@ -2613,7 +2620,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
   }
 
   const renderQuotaTypeSelector = () => {
-    if (user?.jobTitle === "DEALER") {
+    if (user?.jobTitle === "DEALER" && !bulkOrder) {
       return (
         <Card className={classes.formCard}>
           <div className={classes.cardHeader}>
