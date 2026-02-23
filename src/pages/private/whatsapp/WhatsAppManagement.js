@@ -789,6 +789,7 @@ const WhatsAppManagement = () => {
       template={selectedTemplate}
       templates={templates}
       farmerLists={farmerLists}
+      excelContactLists={excelContactLists}
       onListUpdate={fetchFarmerLists}
       initialListId={farmerCampaignInitialListId}
       onSuccess={() => setCampaignRefreshTrigger((t) => t + 1)}

@@ -54,7 +54,7 @@ import { sendTemplateMessages } from "network/core/wati"
 import { API, NetworkManager } from "network/core"
 import ExcelSendModal from "pages/private/whatsapp/ExcelSendModal"
 
-const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templates = [], farmerLists = [], onListUpdate, initialListId, onSuccess }) => {
+const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templates = [], farmerLists = [], excelContactLists = [], onListUpdate, initialListId, onSuccess }) => {
   const approvedTemplates = (templates || []).filter((t) => t.status === "APPROVED")
   const [selectedTemplate, setSelectedTemplate] = useState(null)
   const template = selectedTemplate || initialTemplate || approvedTemplates[0] || null
@@ -325,6 +325,12 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
       const allFarmers = []
       for (const listId of listIds) {
         try {
+          // Only attempt to load farmer lists via farmer-list endpoint.
+          const farmerListExists = (farmerLists || []).some(l => (l._id || l.id) === listId)
+          if (!farmerListExists) {
+            // Skip contact lists (they are handled elsewhere); continue quietly.
+            continue
+          }
           const endpoint = { ...API.FARMER_LIST.GET_LIST_BY_ID, endpoint: `farmer-list/${listId}` }
           const listInstance = NetworkManager(endpoint)
           const response = await listInstance.request()
@@ -931,7 +937,7 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
         {/* List Selection - Only show for Old Farmers tab */}
         {activeTab === 0 && farmerLists.length > 0 && (
           <Card sx={{ mb: 1.5, borderRadius: 2, boxShadow: "0 2px 8px rgba(59,130,246,0.12)", border: 1, borderColor: "rgba(59,130,246,0.3)" }}>
-            <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
+        <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
               <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 1 }}>
                 <Typography variant="subtitle2" fontWeight="bold" sx={{ color: "#2563eb" }}>
                   📋 Select from Saved Lists
@@ -940,24 +946,27 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
               <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap">
                 <FormControl size="small" sx={{ minWidth: 300 }}>
                   <InputLabel>Choose Lists (multi-select)</InputLabel>
-                  <Select
-                    multiple
-                    value={selectedListIds}
-                    onChange={(e) => {
-                      const v = e.target.value
-                      setSelectedListIds(v)
-                      setUseListMode(v && v.length > 0)
-                    }}
-                    label="Choose Lists"
-                    renderValue={(v) => `${v.length} selected`}
-                    sx={{ borderRadius: 2 }}>
-                    {farmerLists.map((list) => (
-                      <MenuItem key={list._id} value={list._id}>
-                        <Checkbox checked={selectedListIds.indexOf(list._id) > -1} />
-                        <ListItemText primary={`${list.name} (${list.farmers?.length || 0})`} />
-                      </MenuItem>
-                    ))}
-                  </Select>
+              <Select
+                multiple
+                value={selectedListIds}
+                onChange={(e) => {
+                  const v = e.target.value
+                  setSelectedListIds(v)
+                  setUseListMode(v && v.length > 0)
+                }}
+                label="Choose Lists"
+                renderValue={(v) => `${v.length} selected`}
+                sx={{ borderRadius: 2 }}>
+                {([
+                  ...(farmerLists || []).map((list) => ({ ...list, __type: "farmer" })),
+                  ...(excelContactLists || []).map((list) => ({ ...list, __type: "contact" }))
+                ]).map((list) => (
+                  <MenuItem key={list._id} value={list._id}>
+                    <Checkbox checked={selectedListIds.indexOf(list._id) > -1} />
+                    <ListItemText primary={`${list.name} (${(list.farmers?.length || list.contacts?.length) || 0})`} secondary={list.__type === "farmer" ? "Farmer list" : "Contact list"} />
+                  </MenuItem>
+                ))}
+              </Select>
                 </FormControl>
                 <Button variant="outlined" size="small" onClick={() => setShowExcelModal(true)}>
                   Upload Excel
