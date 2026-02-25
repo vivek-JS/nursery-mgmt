@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react"
+import { alpha } from "@mui/material/styles"
 import {
   Dialog,
   DialogTitle,
@@ -53,6 +54,18 @@ import {
 import { sendTemplateMessages } from "network/core/wati"
 import { API, NetworkManager } from "network/core"
 import ExcelSendModal from "pages/private/whatsapp/ExcelSendModal"
+
+const theme = {
+  primary: "#25D366",
+  primaryDark: "#128C7E",
+  primaryLight: "#dcfce7",
+  accent: "#075e54",
+  surface: "#ffffff",
+  surfaceSubtle: "#f8fafc",
+  border: "rgba(18, 140, 126, 0.12)",
+  shadow: "0 4px 24px -4px rgba(0,0,0,0.08), 0 8px 16px -8px rgba(0,0,0,0.04)",
+  shadowHover: "0 12px 40px -8px rgba(37,211,102,0.2)",
+}
 
 const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templates = [], farmerLists = [], excelContactLists = [], onListUpdate, initialListId, onSuccess }) => {
   const approvedTemplates = (templates || []).filter((t) => t.status === "APPROVED")
@@ -325,17 +338,38 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
       const allFarmers = []
       for (const listId of listIds) {
         try {
-          // Only attempt to load farmer lists via farmer-list endpoint.
-          const farmerListExists = (farmerLists || []).some(l => (l._id || l.id) === listId)
-          if (!farmerListExists) {
-            // Skip contact lists (they are handled elsewhere); continue quietly.
-            continue
+          const isFarmerList = (farmerLists || []).some(l => (l._id || l.id) === listId)
+          const isContactList = (excelContactLists || []).some(l => (l._id || l.id) === listId)
+
+          if (isFarmerList) {
+            const endpoint = { ...API.FARMER_LIST.GET_LIST_BY_ID, endpoint: `farmer-list/${listId}` }
+            const listInstance = NetworkManager(endpoint)
+            const response = await listInstance.request()
+            const listFarmers = response.data?.data?.farmers || []
+            allFarmers.push(...listFarmers.map(f => ({ ...f, _id: f._id || f.id, id: f._id || f.id, source: "oldFarmer" })))
+          } else if (isContactList) {
+            const endpoint = { ...API.WHATSAPP_CONTACT_LIST.GET_BY_ID, endpoint: `whatsapp-contact-list/${listId}` }
+            const listInstance = NetworkManager(endpoint)
+            const response = await listInstance.request()
+            const list = response?.data?.data
+            const contacts = list?.contacts || []
+            const normalized = contacts.map((c, idx) => {
+              const phone = String(c.phone || "").replace(/\D/g, "").replace(/^91/, "").replace(/^0+/, "") || ""
+              const id = c._id || `contact-${listId}-${idx}-${phone || idx}`
+              return {
+                _id: id,
+                id,
+                name: c.name || "",
+                mobileNumber: phone || c.phone || "",
+                village: c.village || "",
+                taluka: c.taluka || "",
+                district: c.district || "",
+                state: c.state || "",
+                source: "contact"
+              }
+            }).filter(c => c.mobileNumber)
+            allFarmers.push(...normalized)
           }
-          const endpoint = { ...API.FARMER_LIST.GET_LIST_BY_ID, endpoint: `farmer-list/${listId}` }
-          const listInstance = NetworkManager(endpoint)
-          const response = await listInstance.request()
-          const listFarmers = response.data?.data?.farmers || []
-          allFarmers.push(...listFarmers)
         } catch (e) {
           console.error("Failed to load list", listId, e)
         }
@@ -346,7 +380,7 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
         const key = (f.mobileNumber || f._id || "").toString()
         if (!seen.has(key)) {
           seen.add(key)
-          unique.push({ ...f, _id: f._id || f.id, id: f._id || f.id, source: "oldFarmer" })
+          unique.push({ ...f, _id: f._id || f.id, id: f._id || f.id, source: f.source || "oldFarmer" })
         }
       }
       setOldFarmersData(unique)
@@ -741,21 +775,61 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
   if (!open) return null
   if (approvedTemplates.length === 0) {
     return (
-      <Dialog 
-        open 
+      <Dialog
+        open
         onClose={onClose}
-        PaperProps={{ sx: { borderRadius: 3, boxShadow: "0 25px 50px -12px rgba(0,0,0,0.25)" } }}
+        PaperProps={{
+          sx: {
+            borderRadius: 3,
+            boxShadow: theme.shadowHover,
+            overflow: "hidden",
+            border: `1px solid ${theme.border}`,
+          },
+        }}
       >
-        <DialogTitle sx={{ background: "linear-gradient(135deg, #25D366 0%, #128C7E 100%)", color: "white" }}>
+        <DialogTitle
+          sx={{
+            background: `linear-gradient(135deg, ${theme.primary} 0%, ${theme.primaryDark} 50%, ${theme.accent} 100%)`,
+            color: "white",
+            fontWeight: 700,
+            letterSpacing: "-0.02em",
+            py: 2,
+          }}
+        >
           Send Campaign
         </DialogTitle>
-        <DialogContent sx={{ py: 4 }}>
-          <Alert severity="info" sx={{ borderRadius: 2 }}>
+        <DialogContent sx={{ py: 4, bgcolor: theme.surfaceSubtle }}>
+          <Alert
+            severity="info"
+            sx={{
+              borderRadius: 2,
+              boxShadow: theme.shadow,
+              "& .MuiAlert-message": { fontWeight: 500 },
+            }}
+          >
             No approved templates. Please add and approve templates in the Templates tab first.
           </Alert>
         </DialogContent>
-        <DialogActions sx={{ bgcolor: "#f1f5f9" }}>
-          <Button onClick={onClose} variant="contained" sx={{ bgcolor: "#25D366", "&:hover": { bgcolor: "#128C7E" } }}>
+        <DialogActions
+          sx={{
+            bgcolor: alpha(theme.primary, 0.04),
+            borderTop: `1px solid ${theme.border}`,
+            py: 2,
+          }}
+        >
+          <Button
+            onClick={onClose}
+            variant="contained"
+            sx={{
+              borderRadius: 2,
+              px: 3,
+              textTransform: "none",
+              fontWeight: 600,
+              boxShadow: `0 4px 14px ${alpha(theme.primary, 0.4)}`,
+              bgcolor: theme.primary,
+              "&:hover": { bgcolor: theme.primaryDark, boxShadow: `0 6px 20px ${alpha(theme.primary, 0.5)}` },
+            }}
+          >
             Close
           </Button>
         </DialogActions>
@@ -765,22 +839,52 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
   if (!template) return null
 
   return (
-    <Dialog 
-      open={open} 
+    <Dialog
+      open={open}
       onClose={onClose}
       maxWidth="lg"
       fullWidth
       PaperProps={{
-        sx: { borderRadius: 2, maxHeight: '85vh', boxShadow: "0 25px 50px -12px rgba(0,0,0,0.25)", overflow: "hidden" }
+        sx: {
+          borderRadius: 3,
+          maxHeight: "85vh",
+          boxShadow: theme.shadowHover,
+          overflow: "hidden",
+          border: `1px solid ${theme.border}`,
+        },
       }}
     >
-      <DialogTitle sx={{ py: 1.5, px: 2, background: "linear-gradient(135deg, #25D366 0%, #128C7E 100%)", color: "white" }}>
+      <DialogTitle
+        sx={{
+          py: 2,
+          px: 2.5,
+          background: `linear-gradient(135deg, ${theme.primary} 0%, ${theme.primaryDark} 50%, ${theme.accent} 100%)`,
+          color: "white",
+          boxShadow: `0 4px 20px ${alpha("#000", 0.15)}`,
+        }}
+      >
         <Stack direction="row" justifyContent="space-between" alignItems="center">
           <Stack direction="row" spacing={1.5} alignItems="center">
-            <Users size={22} />
+            <Box
+              sx={{
+                width: 40,
+                height: 40,
+                borderRadius: 2,
+                bgcolor: "rgba(255,255,255,0.2)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Users size={22} strokeWidth={2.5} />
+            </Box>
             <Box>
-              <Typography variant="subtitle1" fontWeight="bold">Send Campaign</Typography>
-              <Typography variant="caption" sx={{ opacity: 0.9, display: 'block', lineHeight: 1.2 }}>{template?.elementName || "Template"}</Typography>
+              <Typography variant="subtitle1" fontWeight={700} letterSpacing="-0.02em">
+                Send Campaign
+              </Typography>
+              <Typography variant="caption" sx={{ opacity: 0.92, display: "block", lineHeight: 1.3, fontWeight: 500 }}>
+                {template?.elementName || "Template"}
+              </Typography>
             </Box>
           </Stack>
           <Stack direction="row" spacing={1} alignItems="center">
@@ -790,25 +894,54 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
               startIcon={<RotateCcw size={16} />}
               onClick={handleNewCampaign}
               disabled={loading}
-              sx={{ 
-                borderRadius: 2, 
-                color: "white", 
-                borderColor: "rgba(255,255,255,0.5)",
-                "&:hover": { borderColor: "white", bgcolor: "rgba(255,255,255,0.1)" }
+              sx={{
+                borderRadius: 2,
+                color: "white",
+                borderColor: "rgba(255,255,255,0.6)",
+                textTransform: "none",
+                fontWeight: 600,
+                transition: "all 0.2s",
+                "&:hover": {
+                  borderColor: "white",
+                  bgcolor: "rgba(255,255,255,0.15)",
+                  transform: "translateY(-1px)",
+                },
               }}
             >
               New Campaign
             </Button>
-            <Button onClick={onClose} size="small" sx={{ minWidth: 'auto', p: 1, color: "white" }}>
+            <Button
+              onClick={onClose}
+              size="small"
+              sx={{
+                minWidth: "auto",
+                p: 1,
+                color: "white",
+                borderRadius: 1.5,
+                "&:hover": { bgcolor: "rgba(255,255,255,0.15)" },
+              }}
+            >
               <X size={20} />
             </Button>
           </Stack>
         </Stack>
       </DialogTitle>
 
-      <DialogContent sx={{ pt: 1.5, px: 2, bgcolor: "#f8fafc" }}>
+      <DialogContent sx={{ pt: 2, px: 2.5, bgcolor: theme.surfaceSubtle }}>
         {approvedTemplates.length > 1 && (
-          <FormControl fullWidth size="small" sx={{ mb: 1.5 }}>
+          <FormControl
+            fullWidth
+            size="small"
+            sx={{
+              mb: 1.5,
+              "& .MuiOutlinedInput-root": {
+                borderRadius: 2,
+                bgcolor: "white",
+                boxShadow: theme.shadow,
+                "&:hover": { "& fieldset": { borderColor: theme.primary } },
+              },
+            }}
+          >
             <InputLabel>Select Template</InputLabel>
             <Select
               value={template?.elementName || template?.name || template?.templateName || template?.id || ""}
@@ -834,15 +967,36 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
           </FormControl>
         )}
         {error && (
-          <Alert severity="error" icon={<AlertCircle size={18} />} sx={{ mb: 1.5, borderRadius: 1, py: 0.75 }} onClose={() => setError(null)}>
+          <Alert
+            severity="error"
+            icon={<AlertCircle size={18} />}
+            sx={{
+              mb: 1.5,
+              borderRadius: 2,
+              py: 0.75,
+              boxShadow: "0 2px 12px rgba(239,68,68,0.15)",
+              "& .MuiAlert-message": { fontWeight: 500 },
+            }}
+            onClose={() => setError(null)}
+          >
             {error}
           </Alert>
         )}
 
         {/* Campaign Name + Add Manual */}
-        <Card sx={{ mb: 1.5, borderRadius: 2, boxShadow: "0 2px 8px rgba(37,211,102,0.12)", border: 1, borderColor: "rgba(37,211,102,0.25)" }}>
-          <CardContent sx={{ py: 1, '&:last-child': { pb: 1 } }}>
-            <Stack direction="row" alignItems="center" spacing={1}>
+        <Card
+          sx={{
+            mb: 1.5,
+            borderRadius: 2.5,
+            boxShadow: theme.shadow,
+            border: `1px solid ${theme.border}`,
+            bgcolor: "white",
+            transition: "box-shadow 0.2s",
+            "&:hover": { boxShadow: theme.shadowHover },
+          }}
+        >
+          <CardContent sx={{ py: 1.5, "&:last-child": { pb: 1.5 } }}>
+            <Stack direction="row" alignItems="center" spacing={1.5}>
               <TextField
                 fullWidth
                 label="Campaign Name"
@@ -850,29 +1004,73 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
                 value={campaignName}
                 onChange={(e) => setCampaignName(e.target.value)}
                 size="small"
-                sx={{ '& .MuiOutlinedInput-root': { borderRadius: 1, fontSize: '0.875rem' } }}
+                sx={{
+                  "& .MuiOutlinedInput-root": {
+                    borderRadius: 2,
+                    fontSize: "0.9rem",
+                    bgcolor: theme.surfaceSubtle,
+                    "&:hover fieldset": { borderColor: theme.primary },
+                  },
+                }}
               />
               <Button
                 size="small"
                 variant="outlined"
-                sx={{ minWidth: 'auto', px: 1.5, borderRadius: 1, fontSize: '0.75rem', borderColor: '#25D366', color: '#128C7E', '&:hover': { borderColor: '#128C7E', bgcolor: 'rgba(37,211,102,0.08)' } }}
                 startIcon={<Plus size={14} />}
                 onClick={() => setManualAddExpanded(!manualAddExpanded)}
+                sx={{
+                  minWidth: "auto",
+                  px: 2,
+                  borderRadius: 2,
+                  fontSize: "0.8rem",
+                  fontWeight: 600,
+                  textTransform: "none",
+                  borderColor: theme.primary,
+                  color: theme.primaryDark,
+                  "&:hover": {
+                    borderColor: theme.primaryDark,
+                    bgcolor: alpha(theme.primary, 0.08),
+                  },
+                }}
               >
                 Add number
               </Button>
             </Stack>
             <Collapse in={manualAddExpanded}>
-              <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1, pt: 1, borderTop: 1, borderColor: 'divider' }}>
+              <Stack
+                direction="row"
+                spacing={1.5}
+                alignItems="center"
+                sx={{ mt: 1.5, pt: 1.5, borderTop: 1, borderColor: "divider" }}
+              >
                 <TextField
                   placeholder="10-digit phone"
                   value={manualNumberInput}
                   onChange={(e) => setManualNumberInput(e.target.value.replace(/\D/g, "").slice(0, 12))}
                   size="small"
                   inputProps={{ maxLength: 12 }}
-                  sx={{ width: 140, '& .MuiOutlinedInput-root': { borderRadius: 1, fontSize: '0.8rem' } }}
+                  sx={{
+                    width: 160,
+                    "& .MuiOutlinedInput-root": { borderRadius: 2, fontSize: "0.85rem" },
+                  }}
                 />
-                <Button size="small" variant="contained" onClick={handleAddManualNumber} sx={{ borderRadius: 1, fontSize: '0.75rem', bgcolor: '#25D366', '&:hover': { bgcolor: '#128C7E' } }}>
+                <Button
+                  size="small"
+                  variant="contained"
+                  onClick={handleAddManualNumber}
+                  sx={{
+                    borderRadius: 2,
+                    fontSize: "0.8rem",
+                    fontWeight: 600,
+                    textTransform: "none",
+                    boxShadow: `0 2px 8px ${alpha(theme.primary, 0.35)}`,
+                    bgcolor: theme.primary,
+                    "&:hover": {
+                      bgcolor: theme.primaryDark,
+                      boxShadow: `0 4px 12px ${alpha(theme.primary, 0.45)}`,
+                    },
+                  }}
+                >
                   Add more
                 </Button>
               </Stack>
@@ -881,7 +1079,16 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
         </Card>
 
         {/* Data Source Tabs */}
-        <Card sx={{ mb: 1.5, borderRadius: 2, boxShadow: "0 2px 8px rgba(37,211,102,0.15)", border: 1, borderColor: "rgba(37,211,102,0.3)" }}>
+        <Card
+          sx={{
+            mb: 1.5,
+            borderRadius: 2.5,
+            boxShadow: theme.shadow,
+            border: `1px solid ${theme.border}`,
+            bgcolor: "white",
+            overflow: "hidden",
+          }}
+        >
           <CardContent sx={{ p: 0 }}>
             <Tabs
               value={activeTab}
@@ -906,11 +1113,28 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
                   setPublicLeadsData([])
                 }
               }}
-              sx={{ borderBottom: 1, borderColor: 'divider', px: 1, minHeight: 36 }}
+              sx={{
+                borderBottom: 1,
+                borderColor: "divider",
+                px: 1,
+                minHeight: 44,
+                "& .MuiTab-root": {
+                  textTransform: "none",
+                  minHeight: 44,
+                  fontSize: "0.85rem",
+                  fontWeight: 600,
+                },
+                "& .Mui-selected": { color: theme.primaryDark },
+                "& .MuiTabs-indicator": {
+                  height: 3,
+                  borderRadius: "3px 3px 0 0",
+                  bgcolor: theme.primary,
+                },
+              }}
             >
-              <Tab icon={<Database size={14} />} iconPosition="start" label={`Farmers (${oldFarmersPagination.total || oldFarmersData.length})`} sx={{ textTransform: 'none', minHeight: 36, py: 0.5, fontSize: '0.8rem' }} />
-              <Tab icon={<FileText size={14} />} iconPosition="start" label={`Sales (${oldSalesPagination.total || oldSalesData.length})`} sx={{ textTransform: 'none', minHeight: 36, py: 0.5, fontSize: '0.8rem' }} />
-              <Tab icon={<LinkIcon size={14} />} iconPosition="start" label={`Leads (${publicLeadsPagination.total || publicLeadsData.length})`} sx={{ textTransform: 'none', minHeight: 36, py: 0.5, fontSize: '0.8rem' }} />
+              <Tab icon={<Database size={16} />} iconPosition="start" label={`Farmers (${oldFarmersPagination.total || oldFarmersData.length})`} />
+              <Tab icon={<FileText size={16} />} iconPosition="start" label={`Sales (${oldSalesPagination.total || oldSalesData.length})`} />
+              <Tab icon={<LinkIcon size={16} />} iconPosition="start" label={`Leads (${publicLeadsPagination.total || publicLeadsData.length})`} />
             </Tabs>
             {activeTab === 2 && (
               <Box sx={{ px: 1, py: 0.75, borderBottom: 1, borderColor: 'divider' }}>
@@ -925,7 +1149,9 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
                   >
                     <MenuItem value="all"><em>All links</em></MenuItem>
                     {publicLinks.map((link) => (
-                      <MenuItem key={link._id} value={link._id}>{link.name} ({link.slug})</MenuItem>
+                      <MenuItem key={link._id} value={link._id}>
+                        {link.name} ({(link.leadCount ?? link.leads?.length ?? 0)} · {link.slug})
+                      </MenuItem>
                     ))}
                   </Select>
                 </FormControl>
@@ -934,9 +1160,17 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
           </CardContent>
         </Card>
 
-        {/* List Selection - Only show for Old Farmers tab */}
-        {activeTab === 0 && farmerLists.length > 0 && (
-          <Card sx={{ mb: 1.5, borderRadius: 2, boxShadow: "0 2px 8px rgba(59,130,246,0.12)", border: 1, borderColor: "rgba(59,130,246,0.3)" }}>
+        {/* List Selection - Only show for Old Farmers tab when we have farmer and/or contact lists */}
+        {activeTab === 0 && (farmerLists.length > 0 || excelContactLists.length > 0) && (
+          <Card
+            sx={{
+              mb: 1.5,
+              borderRadius: 2.5,
+              boxShadow: theme.shadow,
+              border: `1px solid ${alpha("#2563eb", 0.2)}`,
+              bgcolor: alpha("#2563eb", 0.02),
+            }}
+          >
         <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
               <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 1 }}>
                 <Typography variant="subtitle2" fontWeight="bold" sx={{ color: "#2563eb" }}>
@@ -968,7 +1202,19 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
                 ))}
               </Select>
                 </FormControl>
-                <Button variant="outlined" size="small" onClick={() => setShowExcelModal(true)}>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={() => setShowExcelModal(true)}
+                  sx={{
+                    borderRadius: 2,
+                    fontWeight: 600,
+                    textTransform: "none",
+                    borderColor: "#2563eb",
+                    color: "#2563eb",
+                    "&:hover": { borderColor: "#1d4ed8", bgcolor: alpha("#2563eb", 0.06) },
+                  }}
+                >
                   Upload Excel
                 </Button>
                 {selectedListIds.length > 0 && (
@@ -988,22 +1234,45 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
         )}
 
         {/* Template Preview */}
-        <Card sx={{ mb: 1.5, borderRadius: 2, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", bgcolor: '#fafafa' }}>
-          <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
+        <Card
+          sx={{
+            mb: 1.5,
+            borderRadius: 2.5,
+            boxShadow: theme.shadow,
+            border: `1px solid ${theme.border}`,
+            bgcolor: "white",
+          }}
+        >
+          <CardContent sx={{ py: 1.5, "&:last-child": { pb: 1.5 } }}>
             <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
-              <MessageSquare size={18} color="#6366f1" />
-              <Typography variant="subtitle2" fontWeight="bold" color="primary">
+              <Box
+                sx={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 1.5,
+                  bgcolor: alpha("#6366f1", 0.1),
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <MessageSquare size={18} color="#6366f1" />
+              </Box>
+              <Typography variant="subtitle2" fontWeight={700} color="primary">
                 Message Preview
               </Typography>
             </Stack>
-            <Typography 
-              variant="body2" 
-              sx={{ 
+            <Typography
+              variant="body2"
+              sx={{
                 whiteSpace: "pre-wrap",
-                fontFamily: "monospace",
-                fontSize: '13px',
-                lineHeight: 1.6,
-                color: 'text.secondary'
+                fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+                fontSize: "13px",
+                lineHeight: 1.7,
+                color: "text.secondary",
+                bgcolor: theme.surfaceSubtle,
+                p: 1.5,
+                borderRadius: 2,
               }}
             >
               {templateContent}
@@ -1013,7 +1282,15 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
 
         {/* Template Parameters */}
         {variables.length > 0 && (
-          <Card sx={{ mb: 1.5, borderRadius: 2, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+          <Card
+            sx={{
+              mb: 1.5,
+              borderRadius: 2.5,
+              boxShadow: theme.shadow,
+              border: `1px solid ${theme.border}`,
+              bgcolor: "white",
+            }}
+          >
             <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
               <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
                 <Typography variant="subtitle2" fontWeight="bold">
@@ -1050,7 +1327,16 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
 
         {/* Search and Filters - Hide when using list mode */}
         {!useListMode && (
-          <Box sx={{ mb: 1.5, p: 1.5, border: 1, borderColor: 'grey.200', borderRadius: 2 }}>
+          <Box
+            sx={{
+              mb: 1.5,
+              p: 1.5,
+              border: `1px solid ${theme.border}`,
+              borderRadius: 2.5,
+              bgcolor: "white",
+              boxShadow: theme.shadow,
+            }}
+          >
 
             <Grid container spacing={1} alignItems="center">
               <Grid item xs={12} md={4}>
@@ -1063,11 +1349,17 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
                   InputProps={{
                     startAdornment: (
                       <InputAdornment position="start">
-                        <Search size={20} />
+                        <Search size={20} color={theme.primary} />
                       </InputAdornment>
-                    )
+                    ),
                   }}
-                  sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+                  sx={{
+                    "& .MuiOutlinedInput-root": {
+                      borderRadius: 2,
+                      bgcolor: theme.surfaceSubtle,
+                      "&:hover fieldset": { borderColor: theme.primary },
+                    },
+                  }}
                 />
               </Grid>
               <Grid item xs={12} md={2.5}>
@@ -1194,19 +1486,48 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
         )}
 
         {/* Farmers List */}
-        <Card sx={{ borderRadius: 2, boxShadow: "0 2px 12px rgba(0,0,0,0.08)" }}>
-          <TableContainer sx={{ maxHeight: 240, minHeight: 120 }}>
+        <Card
+          sx={{
+            borderRadius: 2.5,
+            boxShadow: theme.shadow,
+            border: `1px solid ${theme.border}`,
+            overflow: "hidden",
+            bgcolor: "white",
+          }}
+        >
+          <TableContainer sx={{ maxHeight: 260, minHeight: 140 }}>
             {getCurrentLoading() ? (
-              <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', py: 2 }}>
-                <CircularProgress size={40} />
-                <Typography variant="body2" color="text.secondary" sx={{ ml: 2 }}>
+              <Box
+                sx={{
+                  display: "flex",
+                  flexDirection: "column",
+                  justifyContent: "center",
+                  alignItems: "center",
+                  py: 4,
+                  gap: 1.5,
+                }}
+              >
+                <CircularProgress size={44} sx={{ color: theme.primary }} />
+                <Typography variant="body2" color="text.secondary" fontWeight={500}>
                   Loading...
                 </Typography>
               </Box>
             ) : (
               <Table stickyHeader size="small">
                 <TableHead>
-                  <TableRow sx={{ '& th': { py: 0.5, fontSize: '0.7rem' } }}>
+                  <TableRow
+                    sx={{
+                      "& th": {
+                        py: 1,
+                        fontSize: "0.75rem",
+                        fontWeight: 700,
+                        letterSpacing: "0.03em",
+                        textTransform: "uppercase",
+                        bgcolor: theme.surfaceSubtle,
+                        color: "text.secondary",
+                      },
+                    }}
+                  >
                     <TableCell padding="checkbox">
                       {!useListMode && (
                         <Checkbox
@@ -1227,10 +1548,10 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
                 <TableBody>
                   {filteredFarmers.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} align="center" sx={{ py: 2 }}>
-                        <Typography variant="body2" color="text.secondary">
-                          {useListMode 
-                            ? "No farmers in selected list" 
+                      <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
+                        <Typography variant="body2" color="text.secondary" fontWeight={500}>
+                          {useListMode
+                            ? "No farmers in selected list"
                             : activeTab === 2 && !selectedPublicLinkId && publicLinks.length > 0
                             ? "Select 'All links' or a specific link to view leads"
                             : "No farmers found"}
@@ -1238,8 +1559,16 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
                       </TableCell>
                     </TableRow>
                   ) : (
-                    filteredFarmers.map((farmer) => (
-                      <TableRow key={farmer._id || farmer.id} hover sx={{ '& td': { py: 0.35, fontSize: '0.75rem' } }}>
+                    filteredFarmers.map((farmer, idx) => (
+                      <TableRow
+                        key={farmer._id || farmer.id}
+                        hover
+                        sx={{
+                          "& td": { py: 0.75, fontSize: "0.8rem" },
+                          bgcolor: idx % 2 === 0 ? "transparent" : alpha(theme.primary, 0.02),
+                          "&:hover": { bgcolor: alpha(theme.primary, 0.06) },
+                        }}
+                      >
                         <TableCell padding="checkbox">
                           {!useListMode && (
                             <Checkbox
@@ -1257,11 +1586,16 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
                         <TableCell>{farmer.taluka || farmer.talukaName}</TableCell>
                         <TableCell>{farmer.district || farmer.districtName}</TableCell>
                         <TableCell>
-                          <Chip 
+                          <Chip
                             label={farmer.source === "publicLead" ? "Lead" : farmer.source === "manual" ? "Manual" : farmer.source === "oldSales" ? "Sales" : "Farmer"}
                             size="small"
-                            sx={{ height: 20, fontSize: '0.65rem' }}
-                            color={farmer.source === "publicLead" ? "primary" : farmer.source === "manual" ? "secondary" : "default"}
+                            sx={{
+                              height: 22,
+                              fontSize: "0.7rem",
+                              fontWeight: 600,
+                              borderRadius: 1.5,
+                            }}
+                            color={farmer.source === "publicLead" ? "primary" : farmer.source === "manual" ? "secondary" : farmer.source === "contact" ? "secondary" : "default"}
                             variant="outlined"
                           />
                         </TableCell>
@@ -1275,10 +1609,19 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
         </Card>
 
         {/* Manually added numbers - show below list with Manual tag */}
-        {selectedFarmers.filter(f => f.source === "manual").length > 0 && (
-          <Box sx={{ mt: 1.5, p: 1, border: 1, borderColor: 'grey.200', borderRadius: 2, bgcolor: 'grey.50' }}>
-            <Typography variant="caption" fontWeight="bold" sx={{ mb: 1, color: '#128C7E' }}>
-              Manually added numbers ({selectedFarmers.filter(f => f.source === "manual").length})
+        {selectedFarmers.filter((f) => f.source === "manual").length > 0 && (
+          <Box
+            sx={{
+              mt: 1.5,
+              p: 1.5,
+              border: `1px solid ${theme.border}`,
+              borderRadius: 2.5,
+              bgcolor: alpha(theme.primary, 0.04),
+              boxShadow: theme.shadow,
+            }}
+          >
+            <Typography variant="caption" fontWeight={700} sx={{ mb: 1, color: theme.primaryDark }}>
+              Manually added numbers ({selectedFarmers.filter((f) => f.source === "manual").length})
             </Typography>
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
               {selectedFarmers.filter(f => f.source === "manual").map((farmer) => (
@@ -1292,8 +1635,14 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
                       </Typography>
                     </Stack>
                   }
-                  onDelete={() => setSelectedFarmers(prev => prev.filter(s => (s._id || s.id) !== (farmer._id || farmer.id)))}
+                  onDelete={() => setSelectedFarmers((prev) => prev.filter((s) => (s._id || s.id) !== (farmer._id || farmer.id)))}
                   size="small"
+                  sx={{
+                    fontWeight: 600,
+                    borderRadius: 1.5,
+                    borderColor: theme.primary,
+                    color: theme.primaryDark,
+                  }}
                   color="secondary"
                   variant="outlined"
                 />
@@ -1303,13 +1652,22 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
         )}
 
         {selectedFarmers.length > 0 && (
-          <Box sx={{ mt: 1.5 }}>
+          <Box
+            sx={{
+              mt: 1.5,
+              p: 1.5,
+              borderRadius: 2,
+              bgcolor: alpha(theme.primary, 0.06),
+              border: `1px solid ${theme.border}`,
+            }}
+          >
             <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap">
-              <Chip 
+              <Chip
                 icon={<CheckCircle size={16} />}
                 label={`${selectedFarmers.length} farmers selected`}
                 color="primary"
                 variant="outlined"
+                sx={{ fontWeight: 600 }}
               />
               {activeTab === 0 && (
                 <Chip label="Source: Old Farmers" size="small" color="default" variant="outlined" />
@@ -1325,8 +1683,27 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
         )}
       </DialogContent>
 
-      <DialogActions sx={{ px: 2, py: 1.5, bgcolor: "#f1f5f9", gap: 1 }}>
-        <Button onClick={onClose} disabled={loading} variant="outlined" sx={{ borderRadius: 2 }}>
+      <DialogActions
+        sx={{
+          px: 2.5,
+          py: 2,
+          bgcolor: alpha(theme.primary, 0.04),
+          borderTop: `1px solid ${theme.border}`,
+          gap: 1.5,
+        }}
+      >
+        <Button
+          onClick={onClose}
+          disabled={loading}
+          variant="outlined"
+          sx={{
+            borderRadius: 2,
+            fontWeight: 600,
+            textTransform: "none",
+            borderColor: theme.border,
+            "&:hover": { borderColor: theme.primaryDark, bgcolor: alpha(theme.primary, 0.06) },
+          }}
+        >
           Cancel
         </Button>
         <Button
@@ -1334,11 +1711,19 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
           startIcon={loading ? <CircularProgress size={18} color="inherit" /> : <Send size={18} />}
           onClick={handleSendCampaign}
           disabled={loading || selectedFarmers.length === 0}
-          sx={{ 
+          sx={{
             borderRadius: 2,
             px: 3,
-            bgcolor: '#25D366',
-            '&:hover': { bgcolor: '#128C7E' }
+            fontWeight: 600,
+            textTransform: "none",
+            boxShadow: `0 4px 14px ${alpha(theme.primary, 0.4)}`,
+            bgcolor: theme.primary,
+            "&:hover": {
+              bgcolor: theme.primaryDark,
+              boxShadow: `0 6px 20px ${alpha(theme.primary, 0.5)}`,
+              transform: "translateY(-1px)",
+            },
+            "&:disabled": { bgcolor: alpha(theme.primary, 0.5) },
           }}
         >
           {loading ? "Sending..." : `Send to ${selectedFarmers.length} Farmers`}

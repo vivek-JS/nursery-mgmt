@@ -79,6 +79,7 @@ export const API = {
       HTTP_METHODS.GET
     ),
     GET_DEALER_PLANT_LEDGER: new APIRouter("/user/dealers", HTTP_METHODS.GET),
+    GET_DEALER_LEDGER: new APIRouter("/user/dealers", HTTP_METHODS.GET),
   },
   PATIENT: {
     ADD_PATIENT_LIST: new APIRouter("api/v2/users/", HTTP_METHODS.POST, OFFLINE.PROFILE),
@@ -427,7 +428,10 @@ export const API = {
     // Payment Activity Logs
     CREATE_PAYMENT_ACTIVITY: new APIRouter("/order/payment-activity", HTTP_METHODS.POST, OFFLINE.PROFILE),
     GET_PAYMENT_ACTIVITIES: new APIRouter("/order/payment-activity", HTTP_METHODS.GET, OFFLINE.PROFILE),
-    GET_TODAYS_PAYMENT_ACTIVITIES: new APIRouter("/order/payment-activity/today", HTTP_METHODS.GET, OFFLINE.PROFILE)
+    GET_TODAYS_PAYMENT_ACTIVITIES: new APIRouter("/order/payment-activity/today", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_UNCLEARED_PAYMENTS: new APIRouter("/order/payments/uncleared", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_PAYMENTS_FOR_APPROVAL: new APIRouter("/order/payments/for-approval", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    POST_RECONCILE_PAYMENTS: new APIRouter("/order/payments/reconcile", HTTP_METHODS.POST, OFFLINE.PROFILE)
   },
   plantCms: {
     POST_NEWPLANT: new APIRouter("/plantcms/plants", HTTP_METHODS.POST, OFFLINE.PROFILE),

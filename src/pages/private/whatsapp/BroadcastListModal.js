@@ -843,7 +843,7 @@ const BroadcastListModal = ({ open, onClose, onListCreated }) => {
                     </MenuItem>
                     {publicLinks.map((link) => (
                       <MenuItem key={link._id} value={link._id}>
-                        {link.name} ({link.slug})
+                        {link.name} ({(link.leadCount ?? 0)} · {link.slug})
                       </MenuItem>
                     ))}
                   </Select>

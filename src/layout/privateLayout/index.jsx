@@ -203,7 +203,7 @@ export default function PrivateLayout(props) {
     }
   }, [isRamAgriSalesManager, isSuperAdmin, isAdmin, location.pathname, navigate, userData])
   
-  // ACCOUNTANT can ONLY access: Orders (/u/dashboard or /u/orders), Inventory (/u/inventory), and Payment (/u/payments)
+  // ACCOUNTANT can ONLY access: Orders, Payments, Dealers (sidebar + route-level)
   useEffect(() => {
     if (!userData) return
     if (accountantRedirectRef.current) return
@@ -212,7 +212,7 @@ export default function PrivateLayout(props) {
     if (!isAccountant || isSuperAdmin) return
 
     const p = location.pathname
-    // Restrict ACCOUNTANT to Orders (dashboard), Orders list, Payments and Dealers
+    // Restrict ACCOUNTANT to Orders (dashboard), Order list, Payments, Dealers only
     const allowed =
       p === "/u/dashboard" ||
       p === "/u/orders" ||
@@ -229,11 +229,11 @@ export default function PrivateLayout(props) {
     }
   }, [userRole, isSuperAdmin, location.pathname, navigate, userData])
 
-  // OFFICEADMIN: restrict sidebar & routes to a subset of menus
+  // OFFICEADMIN / OFFICE_ADMIN: restrict sidebar & routes to a subset of menus
   useEffect(() => {
     if (!userData) return
-    // jobTitle or role may indicate OFFICEADMIN
-    const isOfficeAdmin = userData?.jobTitle === "OFFICEADMIN" || userRole === "OFFICEADMIN"
+    // jobTitle or role may indicate OFFICEADMIN or OFFICE_ADMIN
+    const isOfficeAdmin = userData?.jobTitle === "OFFICEADMIN" || userRole === "OFFICEADMIN" || userData?.jobTitle === "OFFICE_ADMIN" || userRole === "OFFICE_ADMIN"
     if (!isOfficeAdmin || isSuperAdmin) return
 
     const p = location.pathname
@@ -320,11 +320,12 @@ export default function PrivateLayout(props) {
       return hasAccess
     }
 
-    // OFFICEADMIN: allow only a specific subset of menu items in the sidebar
-    const isOfficeAdmin = userData?.jobTitle === "OFFICEADMIN" || userRole === "OFFICEADMIN"
+    // OFFICEADMIN / OFFICE_ADMIN: allow only Orders, Plants, Products, CMS, Inventory, RAM Agri Input, Farmers (sidebar)
+    const isOfficeAdmin = userData?.jobTitle === "OFFICEADMIN" || userRole === "OFFICEADMIN" || userData?.jobTitle === "OFFICE_ADMIN" || userRole === "OFFICE_ADMIN"
     if (isOfficeAdmin) {
       const allowedTitles = [
         "Orders",
+        "Order",
         "Plants and Products",
         "CMS",
         "Inventory",

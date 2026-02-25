@@ -23,7 +23,16 @@ import {
   CircularProgress,
   Collapse,
   Zoom,
-  Slide
+  Slide,
+  Tabs,
+  Tab,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Paper
 } from "@mui/material"
 import { makeStyles } from "tss-react/mui"
 import {
@@ -539,6 +548,17 @@ const PaymentsPage = () => {
   const [allActivities, setAllActivities] = useState([])
   const [loadingActivities, setLoadingActivities] = useState(false)
 
+  const [mainTab, setMainTab] = useState(0)
+  const [unclearedList, setUnclearedList] = useState([])
+  const [forApprovalList, setForApprovalList] = useState([])
+  const [reconcileLoading, setReconcileLoading] = useState(false)
+  const [reconcileResult, setReconcileResult] = useState(null)
+  const [reconcileDateFrom, setReconcileDateFrom] = useState(moment().subtract(7, "days").format("YYYY-MM-DD"))
+  const [reconcileDateTo, setReconcileDateTo] = useState(moment().format("YYYY-MM-DD"))
+  const [loadingUncleared, setLoadingUncleared] = useState(false)
+  const [loadingForApproval, setLoadingForApproval] = useState(false)
+  const [updatingPaymentId, setUpdatingPaymentId] = useState(null)
+
   const [startDate, endDate] = selectedDateRange
   
   // Track date string for comparison
@@ -563,6 +583,76 @@ const PaymentsPage = () => {
   const clearDates = () => {
     setSelectedDateRange([null, null])
   }
+
+  const fetchUncleared = async () => {
+    setLoadingUncleared(true)
+    try {
+      const instance = NetworkManager(API.ORDER.GET_UNCLEARED_PAYMENTS)
+      const res = await instance.request({}, { dateFrom: reconcileDateFrom, dateTo: reconcileDateTo })
+      setUnclearedList(res?.data?.data ?? [])
+    } catch (e) {
+      Toast.error(e?.response?.data?.message || "Failed to load uncleared payments")
+      setUnclearedList([])
+    } finally {
+      setLoadingUncleared(false)
+    }
+  }
+
+  const fetchForApproval = async () => {
+    setLoadingForApproval(true)
+    try {
+      const instance = NetworkManager(API.ORDER.GET_PAYMENTS_FOR_APPROVAL)
+      const res = await instance.request({}, { dateFrom: reconcileDateFrom, dateTo: reconcileDateTo })
+      setForApprovalList(res?.data?.data ?? [])
+    } catch (e) {
+      Toast.error(e?.response?.data?.message || "Failed to load payments for approval")
+      setForApprovalList([])
+    } finally {
+      setLoadingForApproval(false)
+    }
+  }
+
+  const handleReconcile = async () => {
+    setReconcileLoading(true)
+    setReconcileResult(null)
+    try {
+      const instance = NetworkManager(API.ORDER.POST_RECONCILE_PAYMENTS)
+      const res = await instance.request({ dateFrom: reconcileDateFrom, dateTo: reconcileDateTo })
+      setReconcileResult(res?.data ?? {})
+      Toast.success(res?.data?.updatedCount ? `${res.data.updatedCount} payment(s) verified by bank` : "Reconciliation complete")
+      fetchUncleared()
+      fetchForApproval()
+    } catch (e) {
+      Toast.error(e?.response?.data?.message || "Reconciliation failed")
+      setReconcileResult({ errors: [{ message: e?.response?.data?.message || "Reconciliation failed" }] })
+    } finally {
+      setReconcileLoading(false)
+    }
+  }
+
+  const handleApproveOrReject = async (orderIdNum, paymentId, newStatus, source, orderMongoId, paymentIndex) => {
+    setUpdatingPaymentId(paymentId)
+    try {
+      if (source === "agriSales") {
+        const instance = NetworkManager(API.INVENTORY.UPDATE_AGRI_SALES_ORDER_PAYMENT_STATUS)
+        await instance.request({ paymentStatus: newStatus }, [`${orderMongoId}/payment/${paymentIndex}/status`])
+      } else {
+        const instance = NetworkManager(API.ORDER.UPDATE_PAYMENT_STATUS)
+        await instance.request({ orderId: orderIdNum, paymentId, paymentStatus: newStatus })
+      }
+      Toast.success(newStatus === "COLLECTED" ? "Payment approved" : "Payment rejected")
+      fetchForApproval()
+    } catch (e) {
+      Toast.error(e?.response?.data?.message || "Update failed")
+    } finally {
+      setUpdatingPaymentId(null)
+    }
+  }
+
+  useEffect(() => {
+    if (mainTab === 1) fetchUncleared()
+    if (mainTab === 2) fetchForApproval()
+  }, [mainTab])
 
   // Debounce search term
   useEffect(() => {
@@ -1426,6 +1516,82 @@ const PaymentsPage = () => {
         </Box>
       </Box>
 
+      <Tabs value={mainTab} onChange={(_, v) => setMainTab(v)} sx={{ mb: 2, bgcolor: "white", borderRadius: 2, px: 1 }}>
+        <Tab label="All payments" />
+        <Tab label="Statement" />
+        <Tab label="Accountant approval" />
+      </Tabs>
+
+      {mainTab === 1 && (
+        <Card sx={{ mb: 2, borderRadius: 2 }}>
+          <CardContent>
+            <Typography variant="h6" gutterBottom>Statement – Unverified entries</Typography>
+            <Box display="flex" flexWrap="wrap" gap={2} alignItems="center" mb={2}>
+              <TextField type="date" size="small" label="From" value={reconcileDateFrom} onChange={(e) => setReconcileDateFrom(e.target.value)} InputLabelProps={{ shrink: true }} />
+              <TextField type="date" size="small" label="To" value={reconcileDateTo} onChange={(e) => setReconcileDateTo(e.target.value)} InputLabelProps={{ shrink: true }} />
+              <Button variant="contained" onClick={fetchUncleared} disabled={loadingUncleared}>Refresh</Button>
+              <Button variant="contained" color="primary" onClick={handleReconcile} disabled={reconcileLoading}>
+                {reconcileLoading ? <CircularProgress size={24} /> : "Reconcile with bank"}
+              </Button>
+            </Box>
+            {reconcileResult && (
+              <Box sx={{ mb: 2, p: 1.5, borderRadius: 1, bgcolor: reconcileResult.updatedCount > 0 ? "success.light" : "info.light" }}>
+                <Typography variant="body2">{reconcileResult.updatedCount > 0 ? `${reconcileResult.updatedCount} payment(s) verified by bank.` : "No new matches."}</Typography>
+              </Box>
+            )}
+            {loadingUncleared ? <CircularProgress /> : (
+              <TableContainer component={Paper} variant="outlined">
+                <Table size="small">
+                  <TableHead><TableRow><TableCell>Order</TableCell><TableCell>Date</TableCell><TableCell>Amount</TableCell><TableCell>Mode</TableCell><TableCell>UTR / Cheque</TableCell><TableCell>Source</TableCell></TableRow></TableHead>
+                  <TableBody>
+                    {unclearedList.length === 0 ? (
+                      <TableRow><TableCell colSpan={6} align="center">No unverified entries</TableCell></TableRow>
+                    ) : unclearedList.map((p) => (
+                      <TableRow key={p.paymentId}><TableCell>{p.orderId}</TableCell><TableCell>{moment(p.paymentDate).format("DD-MM-YYYY")}</TableCell><TableCell>{p.paidAmount}</TableCell><TableCell>{p.modeOfPayment}</TableCell><TableCell>{p.transactionId || p.chequeNumber || p.ref}</TableCell><TableCell>{p.source}</TableCell></TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {mainTab === 2 && (
+        <Card sx={{ mb: 2, borderRadius: 2 }}>
+          <CardContent>
+            <Typography variant="h6" gutterBottom>Accountant approval – Verified by bank</Typography>
+            <Box display="flex" flexWrap="wrap" gap={2} alignItems="center" mb={2}>
+              <TextField type="date" size="small" label="From" value={reconcileDateFrom} onChange={(e) => setReconcileDateFrom(e.target.value)} InputLabelProps={{ shrink: true }} />
+              <TextField type="date" size="small" label="To" value={reconcileDateTo} onChange={(e) => setReconcileDateTo(e.target.value)} InputLabelProps={{ shrink: true }} />
+              <Button variant="contained" onClick={fetchForApproval} disabled={loadingForApproval}>Refresh</Button>
+            </Box>
+            {loadingForApproval ? <CircularProgress /> : (
+              <TableContainer component={Paper} variant="outlined">
+                <Table size="small">
+                  <TableHead><TableRow><TableCell>Order</TableCell><TableCell>Date</TableCell><TableCell>Amount</TableCell><TableCell>UTR / Cheque</TableCell><TableCell>Customer</TableCell><TableCell>Actions</TableCell></TableRow></TableHead>
+                  <TableBody>
+                    {forApprovalList.length === 0 ? (
+                      <TableRow><TableCell colSpan={6} align="center">No payments pending approval</TableCell></TableRow>
+                    ) : forApprovalList.map((p) => (
+                      <TableRow key={p.paymentId}>
+                        <TableCell>{p.orderId}</TableCell><TableCell>{moment(p.paymentDate).format("DD-MM-YYYY")}</TableCell><TableCell>{p.paidAmount}</TableCell><TableCell>{p.transactionId || p.chequeNumber}</TableCell><TableCell>{p.farmerName || p.customerName || "-"}</TableCell>
+                        <TableCell>
+                          <Button size="small" color="success" onClick={() => handleApproveOrReject(p.orderId, p.paymentId, "COLLECTED", p.source, p.orderMongoId, p.paymentIndex)} disabled={updatingPaymentId === p.paymentId}>Approve</Button>
+                          <Button size="small" color="error" onClick={() => handleApproveOrReject(p.orderId, p.paymentId, "REJECTED", p.source, p.orderMongoId, p.paymentIndex)} disabled={updatingPaymentId === p.paymentId}>Reject</Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {mainTab === 0 && (
+        <>
       {/* Today's Activity Widget */}
       {todaysActivities.length > 0 && (
         <Card 
@@ -2337,6 +2503,8 @@ const PaymentsPage = () => {
             </Box>
           </Fade>
         )}
+        </>
+      )}
         </>
       )}
 

@@ -264,7 +264,9 @@ const PublicFarmerLinks = () => {
                     </div>
                     <div className="text-xs text-gray-500 mt-1 flex flex-wrap gap-x-4 gap-y-1">
                       <span>
-                        Slug: <span className="font-mono">{link.slug}</span>
+                        <span className="font-semibold text-gray-700">{link.leadCount ?? 0}</span>
+                        {" · "}
+                        <span className="font-mono">{link.slug}</span>
                       </span>
                       <span>
                         Rules: {Array.isArray(link.locationRules) ? link.locationRules.length : 0}

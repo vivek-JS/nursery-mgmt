@@ -585,7 +585,7 @@ const CallAssignmentList = () => {
                   <MenuItem value="">All forms</MenuItem>
                   {publicLinks.map((l) => (
                     <MenuItem key={l._id} value={l._id}>
-                      {l.name} ({l.slug})
+                      {l.name} ({(l.leadCount ?? 0)} · {l.slug})
                     </MenuItem>
                   ))}
                 </Select>

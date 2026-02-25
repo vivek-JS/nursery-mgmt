@@ -493,7 +493,7 @@ const FarmerComponent = () => {
               <Select value={selectedLinkId} onChange={handleLinkChange} label="Select farmer form">
                 <MenuItem value="">All forms</MenuItem>
                 {publicLinks.map((l) => (
-                  <MenuItem key={l._id} value={l._id}>{l.name} ({l.slug})</MenuItem>
+                  <MenuItem key={l._id} value={l._id}>{l.name} ({(l.leadCount ?? 0)} · {l.slug})</MenuItem>
                 ))}
               </Select>
             </FormControl>
