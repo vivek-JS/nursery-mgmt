@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react"
-import { useNavigate } from "react-router-dom"
+import { useLocation, useNavigate } from "react-router-dom"
 import { useSelector } from "react-redux"
 import {
   Box,
@@ -64,6 +64,7 @@ import {
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
   KeyboardArrowRight as ArrowRightIcon,
+  WhatsApp as WhatsAppIcon,
 } from "@mui/icons-material"
 import DatePicker from "react-datepicker"
 import "react-datepicker/dist/react-datepicker.css"
@@ -141,6 +142,7 @@ const txnTypeColors = {
 function PlaceOrderMobile() {
   const theme = useTheme()
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"))
+  const location = useLocation()
   const navigate = useNavigate()
   const userData = useSelector((state) => state?.userData?.userData)
   const appUser = useSelector((state) => state?.app?.user)
@@ -186,6 +188,9 @@ function PlaceOrderMobile() {
   const [plantLedgerEntries, setPlantLedgerEntries] = useState([])
   const [plantLedgerLoading, setPlantLedgerLoading] = useState(false)
   const [plantLedgerPage, setPlantLedgerPage] = useState(1)
+  const [orderMode, setOrderMode] = useState(location.state?.orderMode === "plant" ? "plant" : null)
+  const [shareOrderDialogOpen, setShareOrderDialogOpen] = useState(false)
+  const [shareOrderPayload, setShareOrderPayload] = useState(null)
 
   useEffect(() => {
     const handler = debounce(() => setDebouncedSearchTerm(searchTerm), 400)
@@ -195,14 +200,16 @@ function PlaceOrderMobile() {
 
   useEffect(() => {
     if (userId) {
-      loadDealerWallet(userId)
-      loadDealerDetail(userId)
-      loadDealerStats(userId)
       loadTransactions()
+      if (isDealer) {
+        loadDealerWallet(userId)
+        loadDealerDetail(userId)
+        loadDealerStats(userId)
+      }
     }
-  }, [userId])
+  }, [userId, isDealer])
   useEffect(() => { if (userId) loadTransactions() }, [txnPage, txnTypeFilter])
-  useEffect(() => { if (userId && walletSubTab === 1) loadPlantLedger() }, [userId, walletSubTab, plantLedgerPage])
+  useEffect(() => { if (isDealer && userId && walletSubTab === 1) loadPlantLedger() }, [isDealer, userId, walletSubTab, plantLedgerPage])
 
   const loadDealerWallet = async (dealerId) => {
     setWalletLoading(true)
@@ -326,7 +333,14 @@ function PlaceOrderMobile() {
   }, [selectedDateRange, debouncedSearchTerm, statusFilter, isDealerOrSales, userId])
 
   useEffect(() => { fetchOrders() }, [fetchOrders])
-  const handleSuccess = () => { setShowForm(false); fetchOrders() }
+  const handleSuccess = (createdOrderPayload) => {
+    setShowForm(false)
+    fetchOrders()
+    if (createdOrderPayload) {
+      setShareOrderPayload(createdOrderPayload)
+      setShareOrderDialogOpen(true)
+    }
+  }
 
   const getStatus = (status) => STATUS_MAP[(status || "").toUpperCase()] || { label: status, color: "#9CA3B8", bg: "#F0F1F5", text: "#6B7185" }
   const getStatusColor = (status) => {
@@ -422,6 +436,9 @@ function PlaceOrderMobile() {
   const renderHeader = () => (
     <Box sx={{ position: "sticky", top: 0, zIndex: 1100, flexShrink: 0, background: C.gradient, boxShadow: "0 4px 20px rgba(91,95,199,0.25)" }}>
       <Box sx={{ display: "flex", alignItems: "center", px: 2, py: 1.25, gap: 1.5 }}>
+        <IconButton size="small" onClick={() => navigate("/u/mobile")} sx={{ color: "white", p: 0.5, mr: 0.5 }} aria-label="Back to dashboard">
+          <ArrowBackIcon sx={{ fontSize: 26 }} />
+        </IconButton>
         <Avatar sx={{ width: 40, height: 40, bgcolor: "rgba(255,255,255,0.2)", fontSize: "1rem", fontWeight: 800, border: "2.5px solid rgba(255,255,255,0.35)", letterSpacing: 0 }}>
           {userInitial}
         </Avatar>
@@ -430,10 +447,28 @@ function PlaceOrderMobile() {
             {userName}
           </Typography>
           <Typography sx={{ color: "rgba(255,255,255,0.7)", fontSize: "0.7rem", fontWeight: 500, lineHeight: 1.2 }}>
-            {userRole}
+            {userRole} · Plant orders
           </Typography>
         </Box>
-        {dealerWallet && (
+        <Button
+          size="small"
+          variant="outlined"
+          onClick={() => navigate("/u/mobile/agri-sales-order")}
+          startIcon={<InventoryIcon sx={{ fontSize: 18 }} />}
+          sx={{
+            borderColor: "rgba(255,255,255,0.8)",
+            color: "white",
+            fontSize: "0.7rem",
+            fontWeight: 700,
+            textTransform: "none",
+            borderRadius: 2,
+            py: 0.5,
+            px: 1,
+            "&:hover": { borderColor: "white", bgcolor: "rgba(255,255,255,0.1)" },
+          }}>
+          Agri orders
+        </Button>
+        {isDealer && dealerWallet && (
           <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, bgcolor: "rgba(255,255,255,0.15)", backdropFilter: "blur(10px)", borderRadius: 2, px: 1.25, py: 0.5 }}>
             <WalletIcon sx={{ fontSize: 16, color: "rgba(255,255,255,0.8)" }} />
             <Typography sx={{ color: "white", fontWeight: 800, fontSize: "0.8rem" }}>
@@ -457,8 +492,8 @@ function PlaceOrderMobile() {
           "& .MuiBottomNavigationAction-label": { fontSize: "0.65rem", fontWeight: 600, mt: 0.25, "&.Mui-selected": { fontSize: "0.65rem", fontWeight: 700 } },
         }}>
         <BottomNavigationAction label="Orders" icon={<Badge badgeContent={orders.length > 99 ? "99+" : orders.length || null} color="error" max={999} sx={{ "& .MuiBadge-badge": { fontSize: "0.5rem", height: 14, minWidth: 14 } }}><OrdersIcon sx={{ fontSize: 24 }} /></Badge>} />
-        <BottomNavigationAction label="Ledger" icon={<LedgerIcon sx={{ fontSize: 24 }} />} />
-        <BottomNavigationAction label="Wallet" icon={<WalletIcon sx={{ fontSize: 24 }} />} />
+        {isDealer && <BottomNavigationAction label="Ledger" icon={<LedgerIcon sx={{ fontSize: 24 }} />} />}
+        {isDealer && <BottomNavigationAction label="Wallet" icon={<WalletIcon sx={{ fontSize: 24 }} />} />}
         <BottomNavigationAction label="Profile" icon={<PersonIcon sx={{ fontSize: 24 }} />} />
       </BottomNavigation>
     </Paper>
@@ -692,7 +727,28 @@ function PlaceOrderMobile() {
                           #{row.order}
                           {row.dealerOrder && <Box component="span" sx={{ ml: 0.5, px: 0.5, py: 0.1, bgcolor: C.blueBg, color: C.blueText, borderRadius: 0.5, fontSize: "0.55rem", fontWeight: 700 }}>DEALER</Box>}
                         </Typography>
-                        <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                        <Box sx={{ display: "flex", alignItems: "center", gap: 0.25 }}>
+                          <IconButton size="small" onClick={(e) => {
+                            e.stopPropagation()
+                            setShareOrderPayload({
+                              order: row.order,
+                              farmerName: row.farmerName,
+                              farmerMobile: row.farmerMobile,
+                              farmerVillage: row.farmerVillage,
+                              plantType: row.plantType,
+                              plantSubtype: row.plantSubtype,
+                              totalPlants: row.totalPlants,
+                              quantity: row.totalPlants,
+                              rate: row.rate,
+                              total: row.total,
+                              paidAmt: row.paidAmt,
+                              remainingAmt: row.remainingAmt,
+                              deliveryDate: row.deliveryDate,
+                            })
+                            setShareOrderDialogOpen(true)
+                          }} sx={{ color: "#25D366", p: 0.25 }} aria-label="Share on WhatsApp">
+                            <WhatsAppIcon sx={{ fontSize: 22 }} />
+                          </IconButton>
                           <Chip label={st.label} size="small"
                             sx={{ height: 20, fontSize: "0.6rem", fontWeight: 700, bgcolor: st.bg, color: st.text, borderRadius: 1 }} />
                           {expanded ? <ExpandLessIcon sx={{ fontSize: 20, color: C.primary }} /> : <ExpandMoreIcon sx={{ fontSize: 20, color: C.textMuted }} />}
@@ -1193,6 +1249,26 @@ function PlaceOrderMobile() {
             </Box>
           </Box>
           <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+            <IconButton size="small" onClick={() => {
+              setShareOrderPayload({
+                order: o.order,
+                farmerName: o.farmerName,
+                farmerMobile: o.farmerMobile,
+                farmerVillage: o.farmerVillage,
+                plantType: o.plantType,
+                plantSubtype: o.plantSubtype,
+                totalPlants: o.totalPlants,
+                quantity: o.totalPlants,
+                rate: o.rate,
+                total: o.total,
+                paidAmt: o.paidAmt,
+                remainingAmt: o.remainingAmt,
+                deliveryDate: o.deliveryDate,
+              })
+              setShareOrderDialogOpen(true)
+            }} sx={{ color: "rgba(255,255,255,0.95)" }} aria-label="Share on WhatsApp">
+              <WhatsAppIcon sx={{ fontSize: 20 }} />
+            </IconButton>
             <Chip label={st.label} size="small" sx={{ bgcolor: "rgba(255,255,255,0.2)", color: "white", fontWeight: 700, height: 22, fontSize: "0.62rem" }} />
             <IconButton onClick={refreshOrderDetail} size="small" sx={{ color: "white" }}><RefreshIcon sx={{ fontSize: 16 }} /></IconButton>
           </Box>
@@ -1340,21 +1416,117 @@ function PlaceOrderMobile() {
     </Box>
   )
 
+  const renderOrderTypeSelection = () => (
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", px: 2, py: 4 }}>
+      <Typography sx={{ fontSize: "1.1rem", fontWeight: 800, color: C.textPrimary, mb: 1, textAlign: "center" }}>Select order type</Typography>
+      <Typography sx={{ fontSize: "0.78rem", color: C.textSecondary, mb: 3, textAlign: "center" }}>Plant orders and Agri input orders are separate — choose one to continue</Typography>
+      <Box sx={{ display: "flex", flexDirection: "column", gap: 2, width: "100%", maxWidth: 320 }}>
+        <Card elevation={0} sx={{ borderRadius: 3, border: "2px solid", borderColor: C.primary, overflow: "hidden", cursor: "pointer", "&:active": { bgcolor: C.gradientSoft } }} onClick={() => setOrderMode("plant")}>
+          <CardContent sx={{ py: 2.5, px: 2, display: "flex", alignItems: "center", gap: 2 }}>
+            <Box sx={{ width: 48, height: 48, borderRadius: 2, background: C.gradient, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <PlantIcon sx={{ fontSize: 28, color: "white" }} />
+            </Box>
+            <Box>
+              <Typography sx={{ fontWeight: 800, fontSize: "1rem", color: C.textPrimary }}>Plant Order</Typography>
+              <Typography sx={{ fontSize: "0.78rem", color: C.textSecondary }}>Nursery plants (farmer / dealer)</Typography>
+            </Box>
+          </CardContent>
+        </Card>
+        <Card elevation={0} sx={{ borderRadius: 3, border: "2px solid", borderColor: C.border, overflow: "hidden", cursor: "pointer", "&:active": { bgcolor: C.bg } }} onClick={() => navigate("/u/mobile/agri-sales-order")}>
+          <CardContent sx={{ py: 2.5, px: 2, display: "flex", alignItems: "center", gap: 2 }}>
+            <Box sx={{ width: 48, height: 48, borderRadius: 2, bgcolor: C.greenBg, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <InventoryIcon sx={{ fontSize: 28, color: C.green }} />
+            </Box>
+            <Box>
+              <Typography sx={{ fontWeight: 800, fontSize: "1rem", color: C.textPrimary }}>Agri Input Orders</Typography>
+              <Typography sx={{ fontSize: "0.78rem", color: C.textSecondary }}>Ram Agri products</Typography>
+            </Box>
+          </CardContent>
+        </Card>
+      </Box>
+    </Box>
+  )
+
+  const getShareOrderMessage = (payload) => {
+    if (!payload) return ""
+    return `👋 नमस्कार *${payload.farmerName || "Farmer"}*
+आपली ऑर्डर प्लेस झाली आहे!:
+
+📝 ऑर्डर तपशील:
+🆔 ऑर्डर आयडी: *${payload.order || "N/A"}*
+👤 नाव: *${payload.farmerName || "N/A"}*
+🏡 गाव: *${payload.farmerVillage || "N/A"}*
+📞 मोबाईल नंबर: *${payload.farmerMobile || "N/A"}*
+🌱 रोप प्रकार: *${payload.plantType || "N/A"}*
+🔖 उप-प्रकार: *${payload.plantSubtype || "N/A"}*
+🌿 बुक केलेली एकूण रोपे: *${payload.totalPlants || payload.quantity || 0}*
+
+💰 पेमेंट तपशील:
+प्रति रोप दर: *₹${payload.rate || 0}*
+एकूण रक्कम: *₹${payload.total || 0}*
+प्राप्त रक्कम: *₹${payload.paidAmt || 0}*
+शिल्लक रक्कम: *₹${payload.remainingAmt || 0}*
+
+🚚 डिलिव्हरी तारीख:
+ *${payload.deliveryDate || "To be confirmed"}*
+
+आभार! 🙏
+राम बायोटेक,
+7276386452`
+  }
+
   // =========================================================
   // MAIN RENDER
   // =========================================================
   return (
     <Box sx={{ minHeight: "100vh", display: "flex", flexDirection: "column", bgcolor: C.bg, width: "100%", maxWidth: "100vw", overflowX: "hidden" }}>
-      {renderHeader()}
-      <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-        {activeTab === 0 && renderOrdersTab()}
-        {activeTab === 1 && renderLedgerTab()}
-        {activeTab === 2 && renderWalletTab()}
-        {activeTab === 3 && renderProfileTab()}
-      </Box>
-      {renderBottomNav()}
+      {orderMode === null ? (
+        <>
+          <Box sx={{ px: 2, py: 1.5, borderBottom: `1px solid ${C.border}` }}>
+            <Typography sx={{ fontSize: "0.9rem", fontWeight: 700, color: C.textPrimary }}>Place Order</Typography>
+          </Box>
+          {renderOrderTypeSelection()}
+        </>
+      ) : (
+        <>
+          {renderHeader()}
+          <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            {activeTab === 0 && renderOrdersTab()}
+            {isDealer && activeTab === 1 && renderLedgerTab()}
+            {isDealer && activeTab === 2 && renderWalletTab()}
+            {(isDealer ? activeTab === 3 : activeTab >= 1) && renderProfileTab()}
+          </Box>
+          {renderBottomNav()}
+        </>
+      )}
       <AddOrderForm open={showForm} onClose={() => setShowForm(false)} onSuccess={handleSuccess} fullScreen={isMobile} />
       {renderOrderDetail()}
+      {shareOrderDialogOpen && shareOrderPayload && (
+        <Dialog open onClose={() => { setShareOrderDialogOpen(false); setShareOrderPayload(null) }} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3 } }} sx={{ zIndex: 99999 }}>
+          <Box sx={{ p: 2, bgcolor: "#22C55E", color: "white" }}>
+            <Typography sx={{ fontWeight: 800, fontSize: "1.1rem" }}>Share order via WhatsApp?</Typography>
+            <Typography sx={{ fontSize: "0.8rem", opacity: 0.9 }}>Order placed successfully</Typography>
+          </Box>
+          <Box sx={{ p: 2, maxHeight: 280, overflow: "auto" }}>
+            <Typography sx={{ fontSize: "0.7rem", color: "text.secondary", mb: 1 }}>Message preview:</Typography>
+            <Box component="pre" sx={{ bgcolor: "#f8fafc", p: 2, borderRadius: 2, fontSize: "0.75rem", whiteSpace: "pre-wrap", fontFamily: "inherit", border: "1px solid #e2e8f0" }}>
+              {getShareOrderMessage(shareOrderPayload)}
+            </Box>
+          </Box>
+          <Box sx={{ p: 2, display: "flex", gap: 1, justifyContent: "flex-end", borderTop: "1px solid #e2e8f0" }}>
+            <Button variant="outlined" onClick={() => { setShareOrderDialogOpen(false); setShareOrderPayload(null) }} sx={{ borderRadius: 2 }}>Cancel</Button>
+            <Button variant="contained" color="success" onClick={() => {
+              const mobile = String(shareOrderPayload.farmerMobile || "").replace(/\D/g, "").slice(-10)
+              const num = mobile.length === 10 ? `91${mobile}` : ""
+              const text = encodeURIComponent(getShareOrderMessage(shareOrderPayload))
+              const url = num ? `https://wa.me/${num}?text=${text}` : `https://wa.me/?text=${text}`
+              window.open(url, "_blank")
+              setShareOrderDialogOpen(false)
+              setShareOrderPayload(null)
+            }} sx={{ borderRadius: 2 }}>Share on WhatsApp</Button>
+          </Box>
+        </Dialog>
+      )}
       {watiDialogOpen && selectedOrder && (
         <Dialog open onClose={() => setWatiDialogOpen(false)} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3 } }} sx={{ zIndex: 99999 }}>
           <Box sx={{ p: 2, bgcolor: "#22C55E", color: "white" }}>

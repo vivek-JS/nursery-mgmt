@@ -73,6 +73,7 @@ const TaskManagement = React.lazy(() => import("pages/private/tasks"))
 const DispatchOrderList = React.lazy(() => import("pages/private/Dispatch/DispatchOrderList"))
 const DispatchedListPage = React.lazy(() => import("pages/private/Dispatch/DispatchedListPage"))
 const PlaceOrderMobile = React.lazy(() => import("pages/private/order/PlaceOrderMobile"))
+const MobileDashboard = React.lazy(() => import("pages/private/order/MobileDashboard"))
 const CallAssignmentList = React.lazy(() => import("pages/private/callAssignment/CallAssignmentList"))
 
 export const PrivateRoutes = [
@@ -151,9 +152,9 @@ export const PrivateRoutes = [
   { path: "/u/follow-ups", component: FollowUpManagement },
   { path: "/u/tasks", component: TaskManagement },
   { path: "/u/dispatch-orders", component: DispatchedListPage },
-  // Mobile-friendly Agri Sales Order form (private route, no sidebar)
+  // Mobile dashboard — two buttons: Agri Input (agri sales) and Plant order
+  { path: "/u/mobile", component: MobileDashboard },
   { path: "/u/mobile/agri-sales-order", component: AgriSalesOrderMobile },
-  // Mobile Place Order - regular orders (farmer/dealer, quota, wallet); no sidebar; DEALER/SALES redirect
   { path: "/u/mobile/place-order", component: PlaceOrderMobile },
   { path: "/u/call-assignment", component: CallAssignmentList }
 ]

@@ -77,6 +77,8 @@ const AgriSalesOrderMobile = () => {
   const userId = userData?._id || userData?.id;
   const isAgriInputDealer = userJobTitle === "AGRI_INPUT_DEALER";
   const [showForm, setShowForm] = useState(false);
+  const [shareOrderDialogOpen, setShareOrderDialogOpen] = useState(false);
+  const [shareOrderPayload, setShareOrderPayload] = useState(null);
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
@@ -487,7 +489,7 @@ const AgriSalesOrderMobile = () => {
     setShowForm(false);
   };
 
-  const handleSuccess = () => {
+  const handleSuccess = (createdAgriOrderPayload) => {
     Toast.success("Order created successfully!");
     setShowForm(false);
     if (activeTab === 0) {
@@ -499,6 +501,34 @@ const AgriSalesOrderMobile = () => {
     } else if (activeTab === 5) {
       fetchRankboard();
     }
+    if (createdAgriOrderPayload) {
+      setShareOrderPayload(createdAgriOrderPayload);
+      setShareOrderDialogOpen(true);
+    }
+  };
+
+  const getAgriShareOrderMessage = (payload) => {
+    if (!payload) return "";
+    return `👋 नमस्कार *${payload.customerName || "Customer"}*
+आपली Ram Agri ऑर्डर प्लेस झाली आहे!:
+
+📝 ऑर्डर तपशील:
+🆔 ऑर्डर नंबर: *${payload.orderNumber || "N/A"}*
+👤 ग्राहक: *${payload.customerName || "N/A"}*
+🏡 गाव: *${payload.customerVillage || "N/A"}*
+📞 मोबाईल: *${payload.customerMobile || "N/A"}*
+🌾 प्रॉडक्ट: *${payload.productName || ""} - ${payload.varietyName || ""}*
+📦 प्रमाण: *${payload.quantity || 0}*
+💰 दर: *₹${payload.rate || 0}*
+एकूण रक्कम: *₹${payload.total || 0}*
+प्राप्त: *₹${payload.paidAmt || 0}*
+शिल्लक: *₹${payload.remainingAmt || 0}*
+
+🚚 डिलिव्हरी: *${payload.deliveryDate || "To be confirmed"}*
+
+आभार! 🙏
+राम बायोटेक,
+7276386452`;
   };
 
   const handleOrderClick = (order) => {
@@ -1840,7 +1870,13 @@ const AgriSalesOrderMobile = () => {
             gap: 1,
           }}>
           <IconButton
-            onClick={() => navigate(-1)}
+            onClick={() => {
+              if (userJobTitle === "DEALER" || userJobTitle === "SALES") {
+                navigate("/u/mobile", { replace: false });
+              } else {
+                navigate(-1);
+              }
+            }}
             size="small"
             sx={{
               color: "white",
@@ -1850,6 +1886,27 @@ const AgriSalesOrderMobile = () => {
             }}>
             <ArrowBackIcon fontSize="small" />
           </IconButton>
+
+          {(userJobTitle === "DEALER" || userJobTitle === "SALES") && (
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={() => navigate("/u/mobile")}
+              sx={{
+                borderColor: "rgba(255, 255, 255, 0.7)",
+                color: "white",
+                fontSize: "0.68rem",
+                fontWeight: 600,
+                textTransform: "none",
+                borderRadius: 1.5,
+                py: 0.4,
+                px: 1,
+                minWidth: 0,
+                "&:hover": { borderColor: "white", bgcolor: "rgba(255, 255, 255, 0.1)" },
+              }}>
+              Plant orders
+            </Button>
+          )}
 
           <Box sx={{ flex: 1 }}>
             <Typography
@@ -4169,6 +4226,67 @@ const AgriSalesOrderMobile = () => {
           />
         </DialogContent>
       </Dialog>
+
+      {/* Share order via WhatsApp dialog (after place) */}
+      {shareOrderDialogOpen && shareOrderPayload && (
+        <Dialog
+          open
+          onClose={() => {
+            setShareOrderDialogOpen(false);
+            setShareOrderPayload(null);
+          }}
+          maxWidth="sm"
+          fullWidth
+          PaperProps={{ sx: { borderRadius: "12px" } }}
+          sx={{ zIndex: 99999 }}>
+          <Box sx={{ p: 2, background: "linear-gradient(135deg, #22C55E 0%, #1a9e47 100%)", color: "white" }}>
+            <Typography sx={{ fontWeight: 800, fontSize: "1.1rem" }}>Share order via WhatsApp?</Typography>
+            <Typography sx={{ fontSize: "0.8rem", opacity: 0.9 }}>Order placed successfully</Typography>
+          </Box>
+          <Box sx={{ p: 2, maxHeight: 320, overflow: "auto" }}>
+            <Typography sx={{ fontSize: "0.7rem", color: "text.secondary", mb: 1 }}>Message preview:</Typography>
+            <Box
+              component="pre"
+              sx={{
+                bgcolor: "#f8fafc",
+                p: 2,
+                borderRadius: 2,
+                fontSize: "0.75rem",
+                whiteSpace: "pre-wrap",
+                fontFamily: "inherit",
+                border: "1px solid #e2e8f0",
+              }}>
+              {getAgriShareOrderMessage(shareOrderPayload)}
+            </Box>
+          </Box>
+          <Box sx={{ p: 2, display: "flex", gap: 1, justifyContent: "flex-end", borderTop: "1px solid #e2e8f0" }}>
+            <Button
+              variant="outlined"
+              onClick={() => {
+                setShareOrderDialogOpen(false);
+                setShareOrderPayload(null);
+              }}
+              sx={{ borderRadius: 2 }}>
+              Cancel
+            </Button>
+            <Button
+              variant="contained"
+              color="success"
+              onClick={() => {
+                const mobile = String(shareOrderPayload.customerMobile || "").replace(/\D/g, "").slice(-10);
+                const num = mobile.length === 10 ? `91${mobile}` : "";
+                const text = encodeURIComponent(getAgriShareOrderMessage(shareOrderPayload));
+                const url = num ? `https://wa.me/${num}?text=${text}` : `https://wa.me/?text=${text}`;
+                window.open(url, "_blank");
+                setShareOrderDialogOpen(false);
+                setShareOrderPayload(null);
+              }}
+              sx={{ borderRadius: 2 }}>
+              Share on WhatsApp
+            </Button>
+          </Box>
+        </Dialog>
+      )}
 
       {/* Payment Modal */}
       <Dialog

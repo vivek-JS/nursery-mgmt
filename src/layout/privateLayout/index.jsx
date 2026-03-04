@@ -162,8 +162,8 @@ export default function PrivateLayout(props) {
     }
   }, [isDispatchManager, isSuperAdmin, isAdmin, location.pathname, navigate, userData])
   
-  // RAM_AGRI_SALES users can ONLY access /u/mobile/agri-sales-order route
-  // Redirect them immediately if they try to access any other route
+  // RAM_AGRI_SALES users can access /u/mobile (dashboard), /u/mobile/place-order, and /u/mobile/agri-sales-order
+  // Redirect them if they try to access any other route
   // SUPER_ADMIN can access all routes, so don't redirect them
   useEffect(() => {
     // Only run redirect if user data is loaded (to prevent infinite loops)
@@ -174,13 +174,15 @@ export default function PrivateLayout(props) {
     
     if (isRamAgriSales && !isSuperAdmin && !isAdmin) {
       const currentPath = location.pathname
+      const isMobileDashboard = currentPath === "/u/mobile"
+      const isPlaceOrderRoute = currentPath === "/u/mobile/place-order" || currentPath.includes("/u/mobile/place-order")
       const isAgriSalesOrderRoute = currentPath === "/u/mobile/agri-sales-order" || currentPath.includes("/u/mobile/agri-sales-order")
-      
-      if (!isAgriSalesOrderRoute) {
-        // Redirect RAM_AGRI_SALES users to agri sales order page
-        console.log(`[PrivateLayout] RAM_AGRI_SALES user accessing ${currentPath}, redirecting to /u/mobile/agri-sales-order`)
+
+      if (!isMobileDashboard && !isPlaceOrderRoute && !isAgriSalesOrderRoute) {
+        // Redirect RAM_AGRI_SALES users to mobile dashboard
+        console.log(`[PrivateLayout] RAM_AGRI_SALES user accessing ${currentPath}, redirecting to /u/mobile`)
         ramAgriSalesRedirectRef.current = true
-        navigate("/u/mobile/agri-sales-order", { replace: true })
+        navigate("/u/mobile", { replace: true })
       }
     }
   }, [isRamAgriSales, isSuperAdmin, isAdmin, location.pathname, navigate, userData])
@@ -262,23 +264,25 @@ export default function PrivateLayout(props) {
     }
   }, [userRole, isSuperAdmin, location.pathname, navigate, userData])
 
-  // DEALER and SALES users can ONLY access /u/mobile/place-order (mobile place order page)
+  // DEALER and SALES users can ONLY access /u/mobile (dashboard), /u/mobile/place-order, and /u/mobile/agri-sales-order
   useEffect(() => {
     if (!userData) return
     if (dealerSalesRedirectRef.current) return
     if (!isDealerOrSales || isSuperAdmin || isAdmin) return
     const currentPath = location.pathname
+    const isMobileDashboard = currentPath === "/u/mobile"
     const isPlaceOrderRoute = currentPath === "/u/mobile/place-order" || currentPath.includes("/u/mobile/place-order")
-    if (!isPlaceOrderRoute) {
-      console.log(`[PrivateLayout] DEALER/SALES user accessing ${currentPath}, redirecting to /u/mobile/place-order`)
+    const isAgriSalesOrderRoute = currentPath === "/u/mobile/agri-sales-order" || currentPath.includes("/u/mobile/agri-sales-order")
+    if (!isMobileDashboard && !isPlaceOrderRoute && !isAgriSalesOrderRoute) {
+      console.log(`[PrivateLayout] DEALER/SALES user accessing ${currentPath}, redirecting to /u/mobile`)
       dealerSalesRedirectRef.current = true
-      navigate("/u/mobile/place-order", { replace: true })
+      navigate("/u/mobile", { replace: true })
     }
   }, [isDealerOrSales, isSuperAdmin, isAdmin, location.pathname, navigate, userData])
   
   // Hide sidebar for primary sowing entry route, dispatch orders route, mobile agri sales order route, and mobile place order route
   // With BrowserRouter, pathname is the actual route path
-  const hideSidebar = location.pathname === "/u/primary-sowing-entry" || location.pathname === "/u/dispatch-orders" || location.pathname === "/u/mobile/agri-sales-order" || location.pathname === "/u/mobile/place-order"
+  const hideSidebar = location.pathname === "/u/primary-sowing-entry" || location.pathname === "/u/dispatch-orders" || location.pathname === "/u/mobile" || location.pathname === "/u/mobile/agri-sales-order" || location.pathname === "/u/mobile/place-order"
   
   const { 
     handleLogout, 

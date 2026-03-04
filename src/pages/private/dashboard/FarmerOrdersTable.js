@@ -223,6 +223,12 @@ const customStyles = `
     color: #9a3412;
   }
 
+  .status-cancelled {
+    background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
+    border-color: #ef4444;
+    color: #991b1b;
+  }
+
   /* Order For highlighting */
   .order-for-highlight {
     background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
@@ -800,9 +806,12 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
   const orderStatusOptions = [
     { label: "Pending", value: "PENDING" },
     { label: "Accepted", value: "ACCEPTED" },
+    { label: "Rejected", value: "REJECTED" },
     { label: "Assigned", value: "ASSIGNED" },
     { label: "Dispatched", value: "DISPATCHED" },
-    { label: "Completed", value: "COMPLETED" }
+    { label: "Completed", value: "COMPLETED" },
+    { label: "Cancelled", value: "CANCELLED" },
+    { label: "Temporary Cancelled", value: "TEMPORARY_CANCELLED" }
   ]
 
 

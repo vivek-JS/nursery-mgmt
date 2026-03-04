@@ -776,8 +776,26 @@ const AddAgriSalesOrderForm = ({ open = true, onClose, onSuccess, isStandalone =
 
       if (response?.data) {
         Toast.success("Agri Sales Order created successfully");
+        const orderDoc = response?.data?.data || response?.data;
+        const totalAmount = parseFloat(formData.quantity || 0) * parseFloat(formData.rate || 0);
+        const paidAmt = parseFloat(paymentData.paidAmount || 0);
+        const createdAgriOrderPayload = {
+          _id: orderDoc?._id,
+          orderNumber: orderDoc?.orderNumber || orderDoc?.orderId,
+          customerName: formData.customerName?.trim() || orderDoc?.customerName || "",
+          customerMobile: formData.customerMobile || orderDoc?.customerMobile || "",
+          customerVillage: formData.customerVillage || "",
+          productName: formData.ramAgriCropName || "",
+          varietyName: formData.ramAgriVarietyName || "",
+          quantity: parseFloat(formData.quantity) || 0,
+          rate: parseFloat(formData.rate) || 0,
+          total: totalAmount,
+          paidAmt,
+          remainingAmt: totalAmount - paidAmt,
+          deliveryDate: formData.deliveryDate ? (formData.deliveryDate instanceof Date ? formData.deliveryDate.toLocaleDateString() : formData.deliveryDate) : "",
+        };
         handleClose();
-        onSuccess?.();
+        onSuccess?.(createdAgriOrderPayload);
       }
     } catch (error) {
       console.error("Error creating order:", error);

@@ -106,7 +106,7 @@ export const useLoginController = () => {
           // Determine redirect path based on user role
           let redirectPath = "/u/dashboard"
           if (isDispatchManager) redirectPath = "/u/dispatch-orders"
-          else if (isDealerOrSales) redirectPath = "/u/mobile/place-order"
+          else if (isDealerOrSales) redirectPath = "/u/mobile"
 
           // Navigate to appropriate page if password is already set and no reset required
           setTimeout(() => {
@@ -145,7 +145,7 @@ export const useLoginController = () => {
     // Determine redirect path based on user role
     let redirectPath = "/u/dashboard"
     if (isDispatchManager) redirectPath = "/u/dispatch-orders"
-    else if (isDealerOrSales) redirectPath = "/u/mobile/place-order"
+    else if (isDealerOrSales) redirectPath = "/u/mobile"
     
     setTimeout(() => {
       navigate(redirectPath, { replace: true })

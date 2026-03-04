@@ -2322,7 +2322,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
             console.error("Order ID not found in response. Cannot add payment.")
             console.error("Full response:", response)
             Toast.error("Order created but payment could not be added - Order ID missing")
-            onSuccess?.()
+            onSuccess?.(undefined)
             handleClose()
             return
           }
@@ -2379,7 +2379,24 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
           Toast.success("👋 ऑर्डर यशस्वीरित्या प्लेस झाली! आभार! 🙏")
         }
 
-        onSuccess?.()
+        const orderDoc = response?.data?.data?.order || response?.data?.data || response?.data
+        const createdOrderPayload = {
+          _id: orderIdStr,
+          order: orderDoc?.orderId ?? orderIdStr,
+          farmerName: formData?.name || orderDoc?.farmer?.name || "",
+          farmerMobile: formData?.mobileNumber || orderDoc?.farmer?.mobileNumber || "",
+          farmerVillage: formData?.village || "",
+          plantType: confirmationData?.plantName || plants.find((p) => p.value === formData?.plant)?.label || "",
+          plantSubtype: confirmationData?.plantSubtype || "",
+          totalPlants: parseInt(formData?.noOfPlants, 10) || 0,
+          quantity: parseInt(formData?.noOfPlants, 10) || 0,
+          rate: parseFloat(formData?.rate) || 0,
+          total: getTotalOrderAmount(),
+          paidAmt: hasPaymentData ? parseFloat(newPayment.paidAmount) || 0 : 0,
+          remainingAmt: getBalanceAmount(),
+          deliveryDate: orderDoc?.deliveryDate || formData?.deliveryDate || (selectedSlotDetails?.startDay ? formatSlotPeriod(selectedSlotDetails.startDay, selectedSlotDetails.endDay) : "")
+        }
+        onSuccess?.(createdOrderPayload)
         handleClose()
       }
     } catch (error) {
@@ -4247,7 +4264,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                     <Typography variant="body2" color="text.secondary">Balance:</Typography>
                     <Typography variant="body1" fontWeight={600} color={getBalanceAmount() >= 0 ? "#2c3e50" : "#f44336"}>₹{getBalanceAmount().toLocaleString()}</Typography>
                   </Box>
-                  {formData?.dealer && dealerWallet && (
+                  {formData?.dealer && user?.jobTitle === "DEALER" && dealerWallet && (
                     <Box sx={{ display: "flex", alignItems: "baseline", gap: 0.5 }}>
                       <Typography variant="body2" color="text.secondary">Wallet:</Typography>
                       <Typography variant="body1" fontWeight={600} color="#ff9800">₹{dealerWallet.availableAmount?.toLocaleString() || 0}</Typography>
@@ -4282,8 +4299,8 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                   )}
                 </AccordionSummary>
                 <AccordionDetails sx={{ pt: 0 }}>
-                {/* Wallet Payment Option - Only when dealer is selected in order */}
-                {formData?.dealer && (
+                {/* Wallet Payment Option - Only when dealer is selected and logged-in user is DEALER (not SALES) */}
+                {formData?.dealer && user?.jobTitle === "DEALER" && (
                   <Box
                     sx={{
                       mb: 2,
