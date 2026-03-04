@@ -2170,8 +2170,8 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
           productMappingId: formData?.productMappingId || undefined, // PlantProductMapping ID for ready plants products
           productOrderSnapshot, // Snapshot for future reference (not linked)
           dealer: formData?.dealer || formData?.sales || (user?.jobTitle === "DEALER" ? user?._id : null),
-          // If dealer is selected, send dealer ID as salesPerson, otherwise send sales person ID
-          salesPerson: formData?.dealer || formData?.sales || (user?.jobTitle === "DEALER" ? user?._id : null),
+          // If dealer/sales selected, use that; otherwise use logged-in user ID when they are DEALER, SALES, or RAM_AGRI_SALES
+          salesPerson: formData?.dealer || formData?.sales || (["DEALER", "SALES", "RAM_AGRI_SALES"].includes(user?.jobTitle) ? (user?._id || user?.id) : null),
           // Screenshots will be handled separately in FormData
           screenshots: formData?.screenshots?.map(s => s.file) || []
         }
@@ -2203,8 +2203,8 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
           numberOfPlants: parseInt(formData?.noOfPlants) || 0,
           rate: parseFloat(formData?.rate) || 0,
           paymentStatus: "not paid",
-          // If dealer is selected, send dealer ID as salesPerson, otherwise send sales person ID (dealers auto-use self)
-          salesPerson: formData?.dealer || formData?.sales || (user?.jobTitle === "DEALER" ? user?._id : null),
+          // If dealer/sales selected, use that; otherwise use logged-in user ID when they are DEALER, SALES, or RAM_AGRI_SALES (plant order)
+          salesPerson: formData?.dealer || formData?.sales || (["DEALER", "SALES", "RAM_AGRI_SALES"].includes(user?.jobTitle) ? (user?._id || user?.id) : null),
           orderStatus: isInstantOrder ? "DISPATCHED" : "PENDING",
           plantName: formData?.plant || "",
           plantSubtype: formData?.subtype || "",

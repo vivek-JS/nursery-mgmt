@@ -84,7 +84,7 @@ const Login = () => {
                   width: { xs: "100%", sm: "auto" },
                   marginTop: { xs: "8px", sm: "0" }
                 }}>
-                Nursery Management Reimagineds
+                Nursery Management Reimagined
               </Typography>
             </Grid>
             <Grid sx={styles.form} container spacing={{ xs: 2, sm: 2, md: 2 }}>
