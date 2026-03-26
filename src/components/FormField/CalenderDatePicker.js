@@ -3,7 +3,7 @@ import { makeStyles } from "tss-react/mui"
 
 import Stack from "@mui/material/Stack"
 import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFns"
-import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider"
+import { LocalizationProvider } from "lib/muiLocalizationProvider"
 import { DatePicker } from "@mui/x-date-pickers/DatePicker"
 import rightArrow from "assets/icons/rightArrow.svg"
 import { Grid } from "@mui/material"

@@ -48,7 +48,9 @@ import {
   CheckCircle as CheckCircleIcon,
   Cancel as CancelIcon,
   Pending as PendingIcon,
-  AccessTime as AccessTimeIcon
+  AccessTime as AccessTimeIcon,
+  ExpandMore as ExpandMoreIcon,
+  ExpandLess as ExpandLessIcon
 } from "@mui/icons-material"
 
 import { colorScheme } from "constants/colorScheme"
@@ -549,6 +551,14 @@ const PaymentsPage = () => {
   const [loadingActivities, setLoadingActivities] = useState(false)
 
   const [mainTab, setMainTab] = useState(0)
+  const [paymentsViewMode, setPaymentsViewMode] = useState("bulk")
+  const [bulkPayments, setBulkPayments] = useState([])
+  const [loadingBulk, setLoadingBulk] = useState(false)
+  const [bulkPage, setBulkPage] = useState(1)
+  const [bulkTotal, setBulkTotal] = useState(0)
+  const [bulkStatusFilter, setBulkStatusFilter] = useState("")
+  const [expandedBulkId, setExpandedBulkId] = useState(null)
+  const [acceptingBulkId, setAcceptingBulkId] = useState(null)
   const [unclearedList, setUnclearedList] = useState([])
   const [forApprovalList, setForApprovalList] = useState([])
   const [reconcileLoading, setReconcileLoading] = useState(false)
@@ -793,6 +803,52 @@ const PaymentsPage = () => {
     }
   }
 
+  const fetchBulkPayments = async () => {
+    setLoadingBulk(true)
+    try {
+      const params = { page: bulkPage, limit: rowsPerPage }
+      if (bulkStatusFilter) params.paymentStatus = bulkStatusFilter
+      if (startDate && endDate && !isNaN(startDate.getTime()) && !isNaN(endDate.getTime())) {
+        params.startDate = moment(startDate).format("YYYY-MM-DD")
+        params.endDate = moment(endDate).format("YYYY-MM-DD")
+      }
+      if (debouncedSearchTerm) params.search = debouncedSearchTerm
+      const instance = NetworkManager(API.ORDER.GET_BULK_PAYMENTS)
+      const response = await instance.request({}, params)
+      const data = response?.data?.data
+      if (data?.data) {
+        setBulkPayments(Array.isArray(data.data) ? data.data : [])
+        setBulkTotal(data.total ?? data.data.length)
+      } else {
+        setBulkPayments([])
+        setBulkTotal(0)
+      }
+    } catch (err) {
+      console.error("Error fetching bulk payments:", err)
+      Toast.error("Failed to fetch bulk payments")
+      setBulkPayments([])
+      setBulkTotal(0)
+    } finally {
+      setLoadingBulk(false)
+    }
+  }
+
+  const handleAcceptBulkPayment = async (bulkId) => {
+    setAcceptingBulkId(bulkId)
+    try {
+      const instance = NetworkManager(API.ORDER.ACCEPT_BULK_PAYMENT)
+      await instance.request({}, { pathParams: [bulkId] })
+      Toast.success("Bulk payment accepted. Allocations applied.")
+      setExpandedBulkId(null)
+      fetchBulkPayments()
+    } catch (err) {
+      console.error("Error accepting bulk payment:", err)
+      Toast.error(err?.response?.data?.message || "Failed to accept bulk payment")
+    } finally {
+      setAcceptingBulkId(null)
+    }
+  }
+
   // Fetch pending payments count for Ram Agri Sales
   const fetchPendingPaymentsCount = async () => {
     if (paymentType === "ram-agri-sales") {
@@ -978,7 +1034,14 @@ const PaymentsPage = () => {
   // Track previous filter values to reset page only when filters actually change
   const prevFiltersRef = useRef({ debouncedSearchTerm, activeTab, startDateStr, endDateStr, paymentType, showOutstanding, outstandingView })
 
-  // Fetch payments when filters or page change
+  // Fetch bulk payments when in bulk view
+  useEffect(() => {
+    if (mainTab === 0 && paymentsViewMode === "bulk") {
+      fetchBulkPayments()
+    }
+  }, [mainTab, paymentsViewMode, bulkPage, bulkStatusFilter, startDateStr, endDateStr, debouncedSearchTerm])
+
+  // Fetch payments when filters or page change (order payments view)
   useEffect(() => {
     const currentFilters = { debouncedSearchTerm, activeTab, startDateStr, endDateStr, paymentType, showOutstanding, outstandingView }
     const filtersChanged = 
@@ -1000,14 +1063,14 @@ const PaymentsPage = () => {
     // Update ref after checking
     prevFiltersRef.current = currentFilters
 
-    if (!showOutstanding && outstandingView !== "orders") {
+    if (mainTab === 0 && paymentsViewMode === "order" && !showOutstanding && outstandingView !== "orders") {
       fetchPayments()
     }
     fetchPendingPaymentsCount()
     if (paymentType === "ram-agri-sales") {
       fetchEmployeeOrders()
     }
-  }, [debouncedSearchTerm, activeTab, startDateStr, endDateStr, paymentType, showOutstanding, outstandingView, page])
+  }, [debouncedSearchTerm, activeTab, startDateStr, endDateStr, paymentType, showOutstanding, outstandingView, page, mainTab, paymentsViewMode])
 
   // Fetch outstanding data when outstanding view is enabled
   useEffect(() => {
@@ -1592,8 +1655,140 @@ const PaymentsPage = () => {
 
       {mainTab === 0 && (
         <>
-      {/* Today's Activity Widget */}
-      {todaysActivities.length > 0 && (
+      {/* View mode: Bulk (main entries) vs Order payments */}
+      <Box className={classes.tabContainer} sx={{ mb: 2 }}>
+        <Box display="flex" flexWrap="wrap" gap={1.5} alignItems="center">
+          <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, mr: 1 }}>
+            View:
+          </Typography>
+          <Button
+            className={`${classes.tabButton} ${paymentsViewMode === "bulk" ? "active" : ""}`}
+            onClick={() => setPaymentsViewMode("bulk")}
+            size="small">
+            Bulk (main entries)
+          </Button>
+          <Button
+            className={`${classes.tabButton} ${paymentsViewMode === "order" ? "active" : ""}`}
+            onClick={() => setPaymentsViewMode("order")}
+            size="small">
+            Order payments
+          </Button>
+        </Box>
+      </Box>
+
+      {/* Bulk payments: main entries with expandable sub-entries, Accept only on main */}
+      {paymentsViewMode === "bulk" && (
+        <Card className={classes.filterSection} sx={{ mb: 2 }}>
+          <Grid container spacing={2} alignItems="center" sx={{ mb: 2 }}>
+            <Grid item xs={12} sm={6} md={2}>
+              <Typography variant="caption" color="textSecondary" mb={0.5} display="block" fontWeight={500}>Start Date</Typography>
+              <input type="date" value={startDate ? moment(startDate).format("YYYY-MM-DD") : ""} onChange={handleStartDateChange} className={classes.dateInput} />
+            </Grid>
+            <Grid item xs={12} sm={6} md={2}>
+              <Typography variant="caption" color="textSecondary" mb={0.5} display="block" fontWeight={500}>End Date</Typography>
+              <input type="date" value={endDate ? moment(endDate).format("YYYY-MM-DD") : ""} onChange={handleEndDateChange} className={classes.dateInput} />
+            </Grid>
+            <Grid item xs={12} sm={4} md={2}>
+              <Typography variant="caption" color="textSecondary" mb={0.5} display="block" fontWeight={500}>Status</Typography>
+              <FormControl size="small" fullWidth>
+                <Select value={bulkStatusFilter || "all"} onChange={(e) => setBulkStatusFilter(e.target.value === "all" ? "" : e.target.value)} displayEmpty sx={{ borderRadius: "10px", backgroundColor: "#f8fafc" }}>
+                  <MenuItem value="all">All</MenuItem>
+                  <MenuItem value="PENDING">Pending</MenuItem>
+                  <MenuItem value="ACCEPTED">Accepted</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} md={4}>
+              <TextField fullWidth size="small" placeholder="Search by payment ID or amount" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className={classes.searchBox} InputProps={{ startAdornment: <SearchIcon sx={{ mr: 1, color: "#64748b", fontSize: 20 }} /> }} />
+            </Grid>
+            <Grid item xs={12} md={2}>
+              <Button variant="outlined" onClick={() => { setBulkPage(1); fetchBulkPayments(); }} fullWidth size="small" sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 600 }}>Refresh</Button>
+            </Grid>
+          </Grid>
+          {loadingBulk ? (
+            <Box display="flex" justifyContent="center" py={4}><CircularProgress /></Box>
+          ) : (
+            <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
+              <Table size="small" stickyHeader>
+                <TableHead>
+                  <TableRow sx={{ "& th": { fontWeight: 600, backgroundColor: "#f8fafc" } }}>
+                    <TableCell width={48} />
+                    <TableCell>Main payment ID</TableCell>
+                    <TableCell align="right">Total (₹)</TableCell>
+                    <TableCell>Date</TableCell>
+                    <TableCell>Mode</TableCell>
+                    <TableCell>Status</TableCell>
+                    <TableCell>Receipt</TableCell>
+                    <TableCell align="center">Actions</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {bulkPayments.length === 0 ? (
+                    <TableRow><TableCell colSpan={8} align="center" sx={{ py: 4 }}>No bulk payments found</TableCell></TableRow>
+                  ) : bulkPayments.map((row) => (
+                    <React.Fragment key={row._id}>
+                      <TableRow sx={{ "&:hover": { backgroundColor: "action.hover" } }}>
+                        <TableCell>
+                          <IconButton size="small" onClick={() => setExpandedBulkId(expandedBulkId === row._id ? null : row._id)}>
+                            {expandedBulkId === row._id ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                          </IconButton>
+                        </TableCell>
+                        <TableCell sx={{ fontFamily: "monospace", fontSize: "0.8rem" }}>{String(row._id).slice(-8)}</TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 600 }}>₹{Number(row.totalAmount || 0).toLocaleString("en-IN")}</TableCell>
+                        <TableCell>{moment(row.paymentDate).format("DD-MM-YYYY")}</TableCell>
+                        <TableCell>{row.modeOfPayment || "—"}</TableCell>
+                        <TableCell>
+                          <Chip size="small" label={row.paymentStatus === "ACCEPTED" ? "Accepted" : "Pending"} color={row.paymentStatus === "ACCEPTED" ? "success" : "warning"} sx={{ fontWeight: 600 }} />
+                        </TableCell>
+                        <TableCell>
+                          {row.receiptPhoto && row.receiptPhoto.length > 0 ? (
+                            <IconButton size="small" onClick={() => openImageModal(row.receiptPhoto, "Receipt")}>
+                              <ReceiptIcon fontSize="small" color="primary" />
+                            </IconButton>
+                          ) : "—"}
+                        </TableCell>
+                        <TableCell align="center">
+                          {row.paymentStatus === "PENDING" && (
+                            <Button size="small" variant="contained" color="primary" startIcon={<CheckCircleIcon />} disabled={!!acceptingBulkId} onClick={() => handleAcceptBulkPayment(row._id)}>
+                              {acceptingBulkId === row._id ? "Accepting…" : "Accept"}
+                            </Button>
+                          )}
+                          {row.paymentStatus === "ACCEPTED" && <Typography variant="caption" color="text.secondary">Applied</Typography>}
+                        </TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell colSpan={8} sx={{ py: 0, borderBottom: expandedBulkId === row._id ? 1 : 0, borderColor: "divider" }}>
+                          <Collapse in={expandedBulkId === row._id} timeout="auto" unmountOnExit>
+                            <Box sx={{ backgroundColor: "#f8fafc", py: 1.5, px: 2 }}>
+                              <Typography variant="subtitle2" color="text.secondary" gutterBottom>Sub-entries (reference main payment)</Typography>
+                              <Table size="small">
+                                <TableHead><TableRow><TableCell>Order #</TableCell><TableCell>Customer / Farmer</TableCell><TableCell align="right">Amount (₹)</TableCell><TableCell>Type</TableCell></TableRow></TableHead>
+                                <TableBody>
+                                  {(row.allocations || []).map((a, idx) => (
+                                    <TableRow key={idx}><TableCell>{a.orderNumber ?? a.orderId ?? "—"}</TableCell><TableCell>{a.customerName ?? "—"}</TableCell><TableCell align="right">₹{Number(a.amount || 0).toLocaleString("en-IN")}</TableCell><TableCell>{a.orderType === "AgriSalesOrder" ? "Agri" : "Plant"}</TableCell></TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                            </Box>
+                          </Collapse>
+                        </TableCell>
+                      </TableRow>
+                    </React.Fragment>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          )}
+          {bulkTotal > rowsPerPage && (
+            <Box display="flex" justifyContent="center" py={2}>
+              <Pagination count={Math.ceil(bulkTotal / rowsPerPage)} page={bulkPage} onChange={(_, p) => setBulkPage(p)} color="primary" size="small" />
+            </Box>
+          )}
+        </Card>
+      )}
+
+      {/* Today's Activity Widget - show only in order payments view */}
+      {paymentsViewMode === "order" && todaysActivities.length > 0 && (
         <Card 
           sx={{ 
             mb: 2, 
@@ -1662,7 +1857,9 @@ const PaymentsPage = () => {
         </Card>
       )}
 
-      {/* Payment Type & Status Tabs - Combined */}
+      {/* Payment Type & Status Tabs - Combined (order payments only) */}
+      {paymentsViewMode === "order" && (
+      <>
       <Box className={classes.tabContainer}>
         <Box display="flex" flexWrap="wrap" gap={1.5} alignItems="center">
           <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, mr: 1 }}>
@@ -2503,9 +2700,11 @@ const PaymentsPage = () => {
             </Box>
           </Fade>
         )}
-        </>
+      </>
       )}
-        </>
+      </>
+      )}
+      </>
       )}
 
       {/* Confirmation Dialog */}

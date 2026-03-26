@@ -35,7 +35,7 @@ import {
   AccordionDetails
 } from "@mui/material"
 import { DatePicker } from "@mui/x-date-pickers/DatePicker"
-import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider"
+import { LocalizationProvider } from "lib/muiLocalizationProvider"
 import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFns"
 import { API, NetworkManager } from "network/core"
 import { Toast } from "helpers/toasts/toastHelper"
@@ -4575,13 +4575,13 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
         <DialogTitle className={classes.dialogTitle}>
           <Box display="flex" alignItems="center" gap={2}>
             <CheckIcon />
-            Confirm Order Details
+            Review order
           </Box>
         </DialogTitle>
         <DialogContent sx={{ p: 2 }}>
           <Box sx={{ mb: 2 }}>
             <Typography variant="h6" sx={{ mb: 2, color: "#2c3e50" }}>
-              Please confirm the following order details:
+              Verify details below, then confirm to create the order.
             </Typography>
 
             <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>

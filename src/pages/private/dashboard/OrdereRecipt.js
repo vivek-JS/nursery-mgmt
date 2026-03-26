@@ -1195,27 +1195,13 @@ const DownloadPDFButton = ({ order }) => {
   return (
     <div className="flex gap-1">
       <button
-        onClick={handleClick}
+        onClick={(e) => {
+          e.stopPropagation()
+          handleClick()
+        }}
         className="text-gray-700 hover:text-gray-900 focus:outline-none inline-flex items-center gap-1 p-2 rounded-md hover:bg-gray-100 transition-colors">
         <DownloadIcon size={16} />
         <span className="text-sm font-medium">Receipt</span>
-      </button>
-      <button
-        onClick={() => {
-          const htmlContent = generateMarathiReceiptHTML(order)
-          showHTMLReceipt(htmlContent, "Receipt")
-        }}
-        className="text-green-700 hover:text-green-900 focus:outline-none inline-flex items-center gap-1 p-2 rounded-md hover:bg-green-100 transition-colors"
-        title="Download Receipt (A8) - Compact Format">
-        <DownloadIcon size={16} />
-        <span className="text-sm font-medium">A8</span>
-      </button>
-      <button
-        onClick={() => printMarathiReceiptDirectly(order)}
-        className="text-orange-700 hover:text-orange-900 focus:outline-none inline-flex items-center gap-1 p-2 rounded-md hover:bg-orange-100 transition-colors"
-        title="Print Receipt Directly (A4 - 2 Receipts)">
-        <DownloadIcon size={16} />
-        <span className="text-sm font-medium">🖨️</span>
       </button>
     </div>
   )

@@ -40,7 +40,7 @@ import {
   Search as SearchIcon,
   FilterList as FilterIcon,
 } from "@mui/icons-material";
-import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
+import { LocalizationProvider } from "lib/muiLocalizationProvider";
 import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFns";
 import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 import moment from "moment";

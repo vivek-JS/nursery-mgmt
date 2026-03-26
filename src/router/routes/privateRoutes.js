@@ -55,6 +55,7 @@ const Dealers = React.lazy(() => import("pages/private/dealers/Dealer"))
 const DealersDetails = React.lazy(() => import("pages/private/dealers/DelaerDetails"))
 const CapacityInsights = React.lazy(() => import("pages/private/capacityinsights/CapacityInsights"))
 const Payments = React.lazy(() => import("pages/private/payments"))
+const AccountantDashboard = React.lazy(() => import("pages/private/accountant-dashboard"))
 const WhatsAppManagement = React.lazy(() => import("pages/private/whatsapp/WhatsAppManagement"))
 const WhatsAppCampaignsList = React.lazy(() => import("modules/whatsapp-automation/CampaignList"))
 const WhatsAppCampaignCreate = React.lazy(() => import("modules/whatsapp-automation/CampaignCreate"))
@@ -65,6 +66,8 @@ const SowingManagement = React.lazy(() => import("pages/private/Sowing/SowingMan
 const PlantAvailability = React.lazy(() => import("pages/private/Sowing/PlantAvailability"))
 const SowingGapAnalysis = React.lazy(() => import("pages/private/Sowing/SowingGapAnalysis"))
 const PrimarySowingEntry = React.lazy(() => import("pages/private/Sowing/PrimarySowingEntry"))
+const PrimaryMobileOps = React.lazy(() => import("pages/private/primary/PrimaryMobileOps"))
+const SecondaryMobileOps = React.lazy(() => import("pages/private/secondary/SecondaryMobileOps"))
 const PublicFarmerLinks = React.lazy(() => import("pages/private/publicLinks/PublicFarmerLinks"))
 const FlowCharts = React.lazy(() => import("pages/private/FlowCharts"))
 const OrderBucketing = React.lazy(() => import("pages/private/OrderBucketing"))
@@ -136,6 +139,7 @@ export const PrivateRoutes = [
   { path: "/u/dealers/:id", component: DealersDetails },
   { path: "/u/capacity-insights", component: CapacityInsights },
   { path: "/u/payments", component: Payments },
+  { path: "/u/accountant-dashboard", component: AccountantDashboard },
   { path: "/u/whatsapp", component: WhatsAppManagement },
   { path: "/u/whatsapp-automation", component: WhatsAppCampaignsList },
   { path: "/u/whatsapp-automation/create", component: WhatsAppCampaignCreate },
@@ -146,6 +150,9 @@ export const PrivateRoutes = [
   { path: "/u/plant-availability", component: PlantAvailability },
   { path: "/u/sowing-gap-analysis", component: SowingGapAnalysis },
   { path: "/u/primary-sowing-entry", component: PrimarySowingEntry },
+  { path: "/u/primary-mobile", component: PrimaryMobileOps },
+  { path: "/u/secondary-sowing-entry", component: SecondaryMobileOps },
+  { path: "/u/secondary-mobile", component: SecondaryMobileOps },
   { path: "/u/public-links", component: PublicFarmerLinks },
   { path: "/u/flow-charts", component: FlowCharts },
   { path: "/u/order-bucketing", component: OrderBucketing },

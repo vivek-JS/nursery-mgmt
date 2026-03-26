@@ -14,9 +14,16 @@ import {
   AccordionSummary,
   AccordionDetails,
   Box,
-  Typography
+  Typography,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  TextField,
+  Button
 } from "@mui/material"
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore"
+import CloudUploadOutlinedIcon from "@mui/icons-material/CloudUploadOutlined"
 import DownloadPDFButton from "./OrdereRecipt"
 import DispatchForm from "./DispatchedForm"
 import DispatchList from "./DispatchedList"
@@ -25,6 +32,7 @@ import { Toast } from "helpers/toasts/toastHelper"
 import { faHourglassEmpty } from "@fortawesome/free-solid-svg-icons"
 import { FaUser, FaCreditCard, FaEdit, FaFileAlt } from "react-icons/fa"
 import ConfirmDialog from "components/Modals/ConfirmDialog"
+import PaymentQRModal from "components/Modals/PaymentQRModal"
 import {
   useCanAddPayment,
   useIsOfficeAdmin,
@@ -729,6 +737,28 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   const [assignToUser, setAssignToUser] = useState("")
   const [assignmentNotes, setAssignmentNotes] = useState("")
   const [assignLoading, setAssignLoading] = useState(false)
+  // Bulk payment (main entry + allocations; accept only on /payments page)
+  const [showBulkPaymentDialog, setShowBulkPaymentDialog] = useState(false)
+  const [bulkPaymentMain, setBulkPaymentMain] = useState({
+    totalAmount: "",
+    paymentDate: moment().format("YYYY-MM-DD"),
+    modeOfPayment: "", // Same as normal: "Select Mode" until user selects
+    bankName: "",
+    remark: "",
+    transactionId: "",
+    chequeNumber: "",
+    receiptPhoto: []
+  })
+  const [bulkAllocations, setBulkAllocations] = useState([])
+  const [bulkPaymentSubmitting, setBulkPaymentSubmitting] = useState(false)
+  const [pendingBulkAmounts, setPendingBulkAmounts] = useState({})
+  const [bulkOrderSearch, setBulkOrderSearch] = useState("")
+  const [bulkOrderSearchResults, setBulkOrderSearchResults] = useState([])
+  const [bulkOrderSearchLoading, setBulkOrderSearchLoading] = useState(false)
+  const bulkOrderSearchTimerRef = useRef(null)
+  const [paymentQRModalOpen, setPaymentQRModalOpen] = useState(false)
+  const [paymentQRModalData, setPaymentQRModalData] = useState(null)
+  const [generateQRLoading, setGenerateQRLoading] = useState(false)
 
   // Inject custom CSS for blinking animation and enhanced dropdowns
   useEffect(() => {
@@ -2025,10 +2055,52 @@ const loadFilterOptions = async () => {
   }
   const paymentSummary = React.useMemo(() => {
     if (!selectedOrder) return { total: 0, paid: 0, balance: 0 }
-    const total = (selectedOrder?.rate || 0) * (selectedOrderCounts?.total || 0)
-    const paid = getTotalPaidAmount(selectedOrder?.details?.payment || [])
+    const isAgri = selectedOrder?.isAgriSalesOrder || selectedOrder?.details?.isRamAgriProduct
+    const total = isAgri ? (Number(selectedOrder?.details?.totalAmount) || 0) : (selectedOrder?.rate || 0) * (selectedOrderCounts?.total || 0)
+    const paid = isAgri ? (Number(selectedOrder?.details?.totalPaidAmount) || getTotalPaidAmount(selectedOrder?.details?.payment || [])) : getTotalPaidAmount(selectedOrder?.details?.payment || [])
     return { total, paid, balance: Math.max(0, total - paid) }
   }, [selectedOrder, selectedOrderCounts])
+
+  const hasActiveQR = React.useMemo(() => {
+    const payments = selectedOrder?.details?.payment || []
+    const now = new Date()
+    return payments.some((p) => p.paymentStatus === "PENDING" && p.qrReferenceId && p.qrExpiresAt && new Date(p.qrExpiresAt) > now)
+  }, [selectedOrder?.details?.payment])
+
+  const handleGeneratePaymentQR = async () => {
+    const orderId = selectedOrder?.details?._id
+    if (!orderId) {
+      Toast.error("Order not found")
+      return
+    }
+    const isAgri = selectedOrder?.isAgriSalesOrder || selectedOrder?.details?.isRamAgriProduct
+    setGenerateQRLoading(true)
+    try {
+      const api = isAgri ? API.INVENTORY.GENERATE_PAYMENT_QR_AGRI : API.ORDER.GENERATE_PAYMENT_QR
+      const instance = NetworkManager(api)
+      const res = await instance.request({}, [orderId])
+      const data = res?.data
+      if (data?.success && data?.qrImageOrString != null) {
+        setPaymentQRModalData({
+          qrImageOrString: data.qrImageOrString,
+          amount: data.amount,
+          orderId: data.orderId,
+          customerName: data.customerName,
+          mobileNumber: data.mobileNumber,
+          expiresAt: data.expiresAt,
+        })
+        setPaymentQRModalOpen(true)
+        Toast.success("QR generated")
+        refreshModalData()
+      } else {
+        Toast.error(data?.message || "Failed to generate QR")
+      }
+    } catch (err) {
+      Toast.error(err?.response?.data?.message || "Failed to generate payment QR")
+    } finally {
+      setGenerateQRLoading(false)
+    }
+  }
 
 const currentYear = new Date().getFullYear()
 
@@ -3204,7 +3276,189 @@ const mapSlotForUi = (slotData) => {
     })
   }
 
+  const handleBulkPaymentSubmit = async () => {
+    const total = Number(bulkPaymentMain.totalAmount)
+    if (!total || total <= 0) {
+      Toast.error("Please fill in payment amount")
+      return
+    }
+    const mode = bulkPaymentMain.modeOfPayment
+    if (!mode) {
+      Toast.error("Please select payment mode")
+      return
+    }
+    // Same as normal payment: receipt mandatory for UPI, Cheque, 1341, 434, etc. (not Cash, not NEFT/RTGS)
+    if (mode !== "Cash" && mode !== "NEFT/RTGS") {
+      if (!bulkPaymentMain.receiptPhoto || bulkPaymentMain.receiptPhoto.length === 0) {
+        Toast.error(`Payment image is mandatory for ${mode} payments`)
+        return
+      }
+    }
+    const sum = bulkAllocations.reduce((s, a) => s + (Number(a.amount) || 0), 0)
+    if (Math.abs(sum - total) > 0.01) {
+      Toast.error(`Sum of allocations (₹${sum}) must equal total amount (₹${total})`)
+      return
+    }
+    if (bulkAllocations.length === 0) {
+      Toast.error("Add at least one order with amount")
+      return
+    }
+    const txnOrCheque = mode === "Cheque" ? (bulkPaymentMain.chequeNumber || bulkPaymentMain.transactionId) : bulkPaymentMain.transactionId
+    setBulkPaymentSubmitting(true)
+    try {
+      const instance = NetworkManager(API.ORDER.POST_BULK_PAYMENT)
+      const payload = {
+        totalAmount: total,
+        paymentDate: bulkPaymentMain.paymentDate,
+        modeOfPayment: mode,
+        bankName: bulkPaymentMain.bankName || undefined,
+        remark: bulkPaymentMain.remark || undefined,
+        transactionId: txnOrCheque || undefined,
+        receiptPhoto: Array.isArray(bulkPaymentMain.receiptPhoto) ? bulkPaymentMain.receiptPhoto : [],
+        allocations: bulkAllocations.map((a) => ({
+          orderId: a.orderId,
+          amount: Number(a.amount),
+          orderType: a.orderType === "AgriSalesOrder" ? "AgriSalesOrder" : "ORDER"
+        })),
+        source: bulkAllocations.every((a) => a.orderType === "AgriSalesOrder")
+          ? "AGRI"
+          : bulkAllocations.every((a) => a.orderType !== "AgriSalesOrder")
+            ? "PLANT"
+            : "MIXED"
+      }
+      await instance.request(payload)
+      Toast.success("Bulk payment saved as Pending. Go to Payments page to Accept.")
+      setShowBulkPaymentDialog(false)
+      setBulkAllocations([])
+      setPendingBulkAmounts({})
+      setBulkPaymentMain({
+        totalAmount: "",
+        paymentDate: moment().format("YYYY-MM-DD"),
+        modeOfPayment: "",
+        bankName: "",
+        remark: "",
+        transactionId: "",
+        chequeNumber: "",
+        receiptPhoto: []
+      })
+      getOrders()
+    } catch (err) {
+      console.error("Bulk payment error:", err)
+      Toast.error(err?.response?.data?.message || "Failed to create bulk payment")
+    } finally {
+      setBulkPaymentSubmitting(false)
+    }
+  }
 
+  // API search for bulk payment: same API pattern (search by number, name, id) for plant and agri
+  const searchBulkOrders = React.useCallback(
+    async (q) => {
+      const query = (q || "").trim()
+      if (query.length < 2) {
+        setBulkOrderSearchResults([])
+        return
+      }
+      setBulkOrderSearchLoading(true)
+      try {
+        if (showAgriSalesOrders) {
+          const instance = NetworkManager(API.INVENTORY.GET_ALL_AGRI_SALES_ORDERS)
+          const res = await instance.request({}, { search: query, limit: 30, page: 1 })
+          const raw = res?.data?.data?.data ?? res?.data?.data ?? []
+          const list = Array.isArray(raw) ? raw : []
+          const normalized = list.map((o) => ({
+            _id: o._id,
+            order: o.orderNumber ?? o._id,
+            farmerName: o.customerName,
+            details: {
+              orderid: o._id,
+              orderNumber: o.orderNumber,
+              customerName: o.customerName,
+              customerVillage: o.customerVillage,
+              customerTaluka: o.customerTaluka,
+              customerDistrict: o.customerDistrict,
+            },
+            outstanding: o.balanceAmount ?? (Number(o.totalAmount || 0) - Number(o.totalPaidAmount || 0)),
+            createdByName: o.createdBy?.name || "",
+            assignedToName: o.assignedTo?.name || o.assignedToName || "",
+          }))
+          setBulkOrderSearchResults(normalized)
+        } else {
+          const instance = NetworkManager(API.ORDER.GET_ORDERS)
+          const res = await instance.request({}, { search: query, limit: 30, page: 1 })
+          const raw = res?.data?.data?.data ?? res?.data?.data ?? []
+          const list = Array.isArray(raw) ? raw : []
+          const normalized = list.map((o) => {
+            const id = o.id ?? o._id
+            const farmer = o.farmer && (Array.isArray(o.farmer) ? o.farmer[0] : o.farmer)
+            const salesPerson = o.salesPerson && (Array.isArray(o.salesPerson) ? o.salesPerson[0] : o.salesPerson)
+            const total = Number((o.rate || 0) * (o.totalPlants || o.numberOfPlants || 0))
+            const paid = Array.isArray(o.payment)
+              ? o.payment.filter((p) => p?.paymentStatus === "COLLECTED").reduce((s, p) => s + Number(p?.paidAmount || 0), 0)
+              : 0
+            const outstanding = total - paid
+            return {
+              _id: id,
+              id,
+              order: o.orderId,
+              farmerName: farmer?.name,
+              details: {
+                orderid: id,
+                farmer: farmer ? { name: farmer.name, village: farmer.village, taluka: farmer.taluka, district: farmer.district } : {},
+                salesPerson: salesPerson ? { name: salesPerson.name, jobTitle: salesPerson.jobTitle } : null,
+                dealerOrder: o.dealerOrder,
+              },
+              salesPersonName: salesPerson?.name || "",
+              salesPersonJobTitle: salesPerson?.jobTitle || "",
+              outstanding: outstanding > 0 ? outstanding : 0,
+            }
+          })
+          setBulkOrderSearchResults(normalized)
+        }
+      } catch (err) {
+        console.error("Bulk order search error:", err)
+        Toast.error("Search failed")
+        setBulkOrderSearchResults([])
+      } finally {
+        setBulkOrderSearchLoading(false)
+      }
+    },
+    [showAgriSalesOrders]
+  )
+
+  useEffect(() => {
+    if (!showBulkPaymentDialog) return
+    const q = (bulkOrderSearch || "").trim()
+    if (q.length < 2) {
+      setBulkOrderSearchResults([])
+      return
+    }
+    if (bulkOrderSearchTimerRef.current) clearTimeout(bulkOrderSearchTimerRef.current)
+    bulkOrderSearchTimerRef.current = setTimeout(() => searchBulkOrders(bulkOrderSearch), 350)
+    return () => {
+      if (bulkOrderSearchTimerRef.current) clearTimeout(bulkOrderSearchTimerRef.current)
+    }
+  }, [showBulkPaymentDialog, bulkOrderSearch, searchBulkOrders])
+
+  const addOrderToBulkAllocation = (order, amount) => {
+    const orderId = order.details?.orderid ?? order._id ?? order.id
+    if (!orderId) return
+    const amt = Number(amount)
+    if (!amt || amt <= 0) return
+    const orderType = showAgriSalesOrders ? "AgriSalesOrder" : "ORDER"
+    const label = showAgriSalesOrders
+      ? (order.details?.customerName || order.farmerName || `Order #${order.details?.orderNumber ?? order.order ?? orderId}`)
+      : (order.details?.farmer?.name || order.farmerName || `Order #${order.order ?? orderId}`)
+    setBulkAllocations((prev) => {
+      const exists = prev.find((a) => String(a.orderId) === String(orderId))
+      if (exists) return prev.map((a) => (String(a.orderId) === String(orderId) ? { ...a, amount: amt, orderType } : a))
+      return [...prev, { orderId, orderLabel: label, amount: amt, orderType }]
+    })
+    setPendingBulkAmounts((p) => ({ ...p, [String(orderId)]: "" }))
+  }
+
+  const removeBulkAllocation = (orderId) => {
+    setBulkAllocations((prev) => prev.filter((a) => String(a.orderId) !== String(orderId)))
+  }
 
   return (
     <div className="w-full p-4 bg-gray-50">
@@ -3263,6 +3517,14 @@ const mapSlotForUi = (slotData) => {
                     className="px-3 py-1 text-sm bg-brand-600 text-white rounded hover:bg-brand-700 transition-colors whitespace-nowrap">
                     Last 2 Days
                   </button>
+                  {canAddPayment && (
+                    <button
+                      type="button"
+                      onClick={() => setShowBulkPaymentDialog(true)}
+                      className="px-3 py-1 text-sm bg-teal-600 text-white rounded hover:bg-teal-700 transition-colors whitespace-nowrap">
+                      Bulk payment
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => {
@@ -3878,6 +4140,9 @@ const mapSlotForUi = (slotData) => {
                     <th className="px-2 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider min-w-[100px] bg-gray-50">
                       Order #
                     </th>
+                    <th className="px-2 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider min-w-[70px] bg-gray-50">
+                      SR No
+                    </th>
                     <th className="px-2 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider min-w-[160px] bg-gray-50">
                       Farmer / Customer
                     </th>
@@ -3946,7 +4211,8 @@ const mapSlotForUi = (slotData) => {
                       onClick={() => {
                         setSelectedOrder(row)
                         setIsOrderModalOpen(true)
-                      }}>
+                      }}
+                      >
                       {/* Dispatch Selection Checkbox for Agri Sales */}
                       {showAgriSalesOrders && (
                         <td className="px-2 py-2 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
@@ -4024,6 +4290,9 @@ const mapSlotForUi = (slotData) => {
                           )}
                         </div>
                         <div className="text-[10px] text-gray-500 mt-0.5">{row.orderDate}</div>
+                      </td>
+                      <td className="px-2 py-2 whitespace-nowrap">
+                        <div className="text-xs font-medium text-gray-900">{index + 1}</div>
                       </td>
                       <td className="px-2 py-2">
                         <div className="text-xs font-medium text-gray-900 leading-tight">
@@ -4371,7 +4640,8 @@ const mapSlotForUi = (slotData) => {
                       onClick={() => {
                         setSelectedOrder(row)
                         setIsOrderModalOpen(true)
-                      }}>
+                      }}
+                      >
                       {/* Card Header */}
                       <div className="p-3 border-b border-gray-100">
                         <div className="flex items-start justify-between mb-2">
@@ -5472,17 +5742,29 @@ const mapSlotForUi = (slotData) => {
                           sx={{ boxShadow: "none", border: "1px solid #e5e7eb", borderRadius: 1, "&:before": { display: "none" } }}
                         >
                           <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={{ bgcolor: "#f0fdf4", minHeight: 48 }}>
-                            <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", pr: 1 }}>
+                            <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", pr: 1, flexWrap: "wrap", gap: 1 }}>
                               <Typography variant="subtitle2" fontWeight={600} color="success.dark">Add Payment</Typography>
                               {canAddPayment && (
-                                <button
-                                  type="button"
-                                  onClick={(e) => { e.stopPropagation(); if (!expandedAddPaymentAccordion) { if (!showPaymentForm) initializePaymentForm(); setShowPaymentForm(true); setExpandedAddPaymentAccordion(true); } }}
-                                  className="bg-green-500 text-white px-3 py-1 rounded-lg hover:bg-green-600 text-sm"
-                                >
-                                  + Add Payment
-                                  {isOfficeAdmin && <span className="ml-1 text-xs">(PENDING only)</span>}
-                                </button>
+                                <>
+                                  {paymentSummary?.balance > 0 && !hasActiveQR && (
+                                    <button
+                                      type="button"
+                                      disabled={generateQRLoading}
+                                      onClick={(e) => { e.stopPropagation(); handleGeneratePaymentQR(); }}
+                                      className="bg-teal-600 text-white px-3 py-1 rounded-lg hover:bg-teal-700 text-sm disabled:opacity-50"
+                                    >
+                                      {generateQRLoading ? "Generating…" : "Generate Payment QR"}
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); if (!expandedAddPaymentAccordion) { if (!showPaymentForm) initializePaymentForm(); setShowPaymentForm(true); setExpandedAddPaymentAccordion(true); } }}
+                                    className="bg-green-500 text-white px-3 py-1 rounded-lg hover:bg-green-600 text-sm"
+                                  >
+                                    + Add Payment
+                                    {isOfficeAdmin && <span className="ml-1 text-xs">(PENDING only)</span>}
+                                  </button>
+                                </>
                               )}
                             </Box>
                           </AccordionSummary>
@@ -6886,6 +7168,268 @@ const mapSlotForUi = (slotData) => {
         </div>
       )}
 
+      {/* Bulk Payment Dialog – same payment entry as inside order (parent entry) + select orders from list by search */}
+      <Dialog open={showBulkPaymentDialog} onClose={() => { setShowBulkPaymentDialog(false); setPendingBulkAmounts({}); setBulkOrderSearch(""); setBulkOrderSearchResults([]) }} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 2 } }}>
+        <DialogTitle>Bulk payment (parent entry)</DialogTitle>
+        <DialogContent>
+          {/* Same payment form as "Add New Payment" inside order – parent entry */}
+          <div className="bg-gray-50 rounded-lg p-4 border">
+            <h4 className="font-medium text-gray-900 mb-3 text-sm">
+              Add New Payment
+            </h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+              <div>
+                <label className="text-sm text-gray-500 font-medium">
+                  Amount (₹)
+                </label>
+                <input
+                  type="number"
+                  value={bulkPaymentMain.totalAmount}
+                  onChange={(e) => setBulkPaymentMain((p) => ({ ...p, totalAmount: e.target.value }))}
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 mt-1"
+                  placeholder="Enter amount"
+                />
+              </div>
+              <div>
+                <label className="text-sm text-gray-500 font-medium">
+                  Payment Date
+                </label>
+                <input
+                  type="date"
+                  value={bulkPaymentMain.paymentDate}
+                  onChange={(e) => setBulkPaymentMain((p) => ({ ...p, paymentDate: e.target.value }))}
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 mt-1"
+                />
+              </div>
+              <div>
+                <label className="text-sm text-gray-500 font-medium">
+                  Payment Mode
+                </label>
+                <select
+                  value={bulkPaymentMain.modeOfPayment}
+                  onChange={(e) => setBulkPaymentMain((p) => ({ ...p, modeOfPayment: e.target.value }))}
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 mt-1">
+                  <option value="">Select Mode</option>
+                  <option value="Cash">Cash</option>
+                  <option value="UPI">UPI</option>
+                  <option value="Cheque">Cheque</option>
+                  <option value="NEFT/RTGS">NEFT/RTGS</option>
+                  <option value="1341">1341</option>
+                  <option value="434">434</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-sm text-gray-500 font-medium">
+                  Payment Status
+                </label>
+                <div className="w-full px-3 py-2 border rounded-lg mt-1 text-sm bg-gray-100 text-gray-700 border-gray-200">
+                  PENDING (Accept on Payments page)
+                </div>
+              </div>
+              <div>
+                <label className="text-sm text-gray-500 font-medium">
+                  Bank Name
+                </label>
+                <input
+                  type="text"
+                  value={bulkPaymentMain.bankName}
+                  onChange={(e) => setBulkPaymentMain((p) => ({ ...p, bankName: e.target.value }))}
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 mt-1"
+                  placeholder={
+                    bulkPaymentMain.modeOfPayment === "Cheque" || bulkPaymentMain.modeOfPayment === "NEFT/RTGS"
+                      ? "Enter bank name"
+                      : "N/A"
+                  }
+                  disabled={
+                    bulkPaymentMain.modeOfPayment !== "Cheque" && bulkPaymentMain.modeOfPayment !== "NEFT/RTGS"
+                  }
+                />
+              </div>
+            </div>
+            <div className="mt-4">
+              <label className="text-sm text-gray-500 font-medium">Remark</label>
+              <input
+                type="text"
+                value={bulkPaymentMain.remark}
+                onChange={(e) => setBulkPaymentMain((p) => ({ ...p, remark: e.target.value }))}
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 mt-1"
+                placeholder="Optional remark"
+              />
+            </div>
+
+            {/* Payment Receipt Photo Upload – same as inside order */}
+            <div className="mt-4">
+              <label className="text-sm text-gray-500 font-medium">
+                Payment Receipt Photo {bulkPaymentMain.modeOfPayment && bulkPaymentMain.modeOfPayment !== "Cash" && bulkPaymentMain.modeOfPayment !== "NEFT/RTGS" ? "*" : "(Optional)"}
+              </label>
+              <div className="mt-2">
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={async (e) => {
+                    const files = Array.from(e.target.files)
+                    if (files.length > 0) {
+                      try {
+                        setLoading(true)
+                        const uploadedUrls = await Promise.all(
+                          files.map(async (file) => {
+                            const formData = new FormData()
+                            formData.append("media_key", file)
+                            formData.append("media_type", "IMAGE")
+                            formData.append("content_type", "multipart/form-data")
+                            const instance = NetworkManager(API.MEDIA.UPLOAD)
+                            const response = await instance.request(formData)
+                            return response.data.media_url
+                          })
+                        )
+                        setBulkPaymentMain((p) => ({ ...p, receiptPhoto: [...(p.receiptPhoto || []), ...uploadedUrls] }))
+                        Toast.success("Images uploaded successfully")
+                      } catch (error) {
+                        console.error("Error uploading images:", error)
+                        Toast.error("Failed to upload images")
+                      } finally {
+                        setLoading(false)
+                      }
+                    }
+                  }}
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
+                />
+                {bulkPaymentMain.modeOfPayment && bulkPaymentMain.modeOfPayment !== "Cash" && bulkPaymentMain.modeOfPayment !== "NEFT/RTGS" && (
+                  <p className="text-xs text-red-600 mt-1">
+                    Payment image is mandatory for {bulkPaymentMain.modeOfPayment} payments
+                  </p>
+                )}
+                <p className="text-xs text-gray-500 mt-1">
+                  Upload payment confirmation screenshots or photos
+                </p>
+                {bulkPaymentMain.receiptPhoto && bulkPaymentMain.receiptPhoto.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {bulkPaymentMain.receiptPhoto.map((photo, index) => (
+                      <div key={index} className="relative">
+                        <img
+                          src={photo}
+                          alt={`Receipt ${index + 1}`}
+                          className="w-16 h-16 object-cover rounded border"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setBulkPaymentMain((p) => ({ ...p, receiptPhoto: (p.receiptPhoto || []).filter((_, i) => i !== index) }))}
+                          className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-xs">
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Added orders: cards above search bar */}
+          {bulkAllocations.length > 0 && (
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="caption" fontWeight={700} color="text.secondary" sx={{ display: "block", mb: 1 }}>
+                Added · {bulkAllocations.length} order{bulkAllocations.length !== 1 ? "s" : ""} · ₹{bulkAllocations.reduce((s, a) => s + (Number(a.amount) || 0), 0).toLocaleString()} total
+              </Typography>
+              <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
+                {bulkAllocations.map((a) => (
+                  <Box
+                    key={String(a.orderId)}
+                    sx={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 0.75,
+                      px: 1.25,
+                      py: 0.75,
+                      borderRadius: 2,
+                      bgcolor: "#dcfce7",
+                      color: "#166534",
+                      border: "1px solid #22c55e",
+                    }}
+                  >
+                    <Typography variant="caption" fontWeight={600} noWrap sx={{ maxWidth: 140 }}>{a.orderLabel}</Typography>
+                    <Typography variant="caption" fontWeight={700}>₹{Number(a.amount).toLocaleString()}</Typography>
+                    <button type="button" onClick={() => removeBulkAllocation(a.orderId)} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, lineHeight: 1, color: "inherit", opacity: 0.9, fontSize: "0.85rem" }} title="Remove">×</button>
+                  </Box>
+                ))}
+              </Box>
+            </Box>
+          )}
+
+          {/* Search bar then results */}
+          <Typography variant="subtitle2" sx={{ mb: 0.5 }}>Add orders</Typography>
+          <TextField size="small" fullWidth placeholder={showAgriSalesOrders ? "Search by order number, name, ID…" : "Search by order number, farmer name, ID…"} value={bulkOrderSearch} onChange={(e) => setBulkOrderSearch(e.target.value)} sx={{ mb: 1, "& .MuiOutlinedInput-root": { borderRadius: 2 } }} />
+          <Box sx={{ maxHeight: 240, overflowY: "auto", border: "1px solid", borderColor: "divider", borderRadius: 2, p: 1, bgcolor: "grey.50" }}>
+            {bulkOrderSearchLoading ? (
+              <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: "center" }}>Searching…</Typography>
+            ) : bulkOrderSearch.trim().length < 2 ? (
+              <Typography variant="body2" color="text.secondary" sx={{ py: 1.5, px: 0.5 }}>
+                Type 2+ characters to search. Results show outstanding, salesman/dealer & user.
+              </Typography>
+            ) : bulkOrderSearchResults.length > 0 ? (
+              bulkOrderSearchResults.map((order) => {
+                const orderId = order.details?.orderid ?? order._id ?? order.id
+                const idStr = String(orderId)
+                const orderNum = showAgriSalesOrders ? (order.details?.orderNumber ?? order.order ?? idStr) : (order.order != null ? order.order : idStr)
+                const name = showAgriSalesOrders ? (order.details?.customerName || order.farmerName || "—") : (order.details?.farmer?.name || order.farmerName || "—")
+                const village = showAgriSalesOrders ? (order.details?.customerVillage || "") : (order.details?.farmer?.village || "")
+                const taluka = showAgriSalesOrders ? (order.details?.customerTaluka || "") : (order.details?.farmer?.taluka || "")
+                const district = showAgriSalesOrders ? (order.details?.customerDistrict || "") : (order.details?.farmer?.district || "")
+                const location = [village, taluka, district].filter(Boolean).join(" · ") || "—"
+                const outstanding = order.outstanding != null ? Number(order.outstanding) : 0
+                const salesLabel = showAgriSalesOrders
+                  ? [order.createdByName, order.assignedToName].filter(Boolean).join(" · ") || ""
+                  : (order.salesPersonJobTitle === "DEALER" ? `Dealer: ${order.salesPersonName || ""}` : order.salesPersonName ? `Sales: ${order.salesPersonName}` : "")
+                const pendingVal = pendingBulkAmounts[idStr] ?? ""
+                return (
+                  <Box
+                    key={idStr}
+                    sx={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 1,
+                      mb: 1,
+                      p: 1,
+                      borderRadius: 2,
+                      borderBottom: "1px solid",
+                      borderColor: "divider",
+                      bgcolor: "background.paper",
+                      "&:last-child": { borderBottom: 0 },
+                    }}
+                  >
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Typography variant="body2" fontWeight={600} noWrap>#{orderNum} {name}</Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>{location}</Typography>
+                      <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, mt: 0.25 }}>
+                        {outstanding > 0 && (
+                          <Typography component="span" variant="caption" sx={{ color: "warning.dark", fontWeight: 600 }}>Outstanding ₹{outstanding.toLocaleString()}</Typography>
+                        )}
+                        {salesLabel && (
+                          <Typography component="span" variant="caption" sx={{ color: "text.secondary" }}>{outstanding > 0 ? " · " : ""}{salesLabel}</Typography>
+                        )}
+                      </Box>
+                    </Box>
+                    <TextField type="number" size="small" placeholder="₹" value={pendingVal} onChange={(e) => setPendingBulkAmounts((p) => ({ ...p, [idStr]: e.target.value }))} sx={{ width: 72 }} inputProps={{ min: 0, step: 0.01 }} />
+                    <Button size="small" variant="outlined" onClick={() => { const amt = Number(pendingVal); if (amt > 0) addOrderToBulkAllocation(order, amt); else Toast.error("Enter amount first") }}>Add</Button>
+                  </Box>
+                )
+              })
+            ) : (
+              <Typography variant="body2" color="text.secondary" sx={{ py: 1.5 }}>No orders found. Try another search.</Typography>
+            )}
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ px: 2, pb: 2, flexDirection: "column", gap: 1, alignItems: "stretch" }}>
+          <Button fullWidth variant="contained" onClick={handleBulkPaymentSubmit} disabled={bulkPaymentSubmitting} startIcon={bulkPaymentSubmitting ? null : <CheckIcon size={18} />} sx={{ height: 40, textTransform: "none", fontWeight: 700, borderRadius: 2, background: "linear-gradient(135deg, #5B5FC7 0%, #8B5CF6 100%)" }}>
+            {bulkPaymentSubmitting ? "Saving…" : "Submit Payment"}
+          </Button>
+          <Button fullWidth variant="outlined" onClick={() => setShowBulkPaymentDialog(false)} sx={{ textTransform: "none", borderRadius: 2, height: 38, borderColor: "#7c3aed", color: "#7c3aed" }}>
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       {/* Add Agri Sales Order Dialog */}
       <AddAgriSalesOrderForm
         open={showAddAgriSalesOrderForm}
@@ -7455,6 +7999,17 @@ const mapSlotForUi = (slotData) => {
           </div>
         </div>
       )}
+
+      <PaymentQRModal
+        open={paymentQRModalOpen}
+        onClose={() => { setPaymentQRModalOpen(false); setPaymentQRModalData(null) }}
+        qrImageOrString={paymentQRModalData?.qrImageOrString}
+        amount={paymentQRModalData?.amount}
+        orderId={paymentQRModalData?.orderId}
+        customerName={paymentQRModalData?.customerName}
+        mobileNumber={paymentQRModalData?.mobileNumber}
+        expiresAt={paymentQRModalData?.expiresAt}
+      />
     </div>
   )
 }

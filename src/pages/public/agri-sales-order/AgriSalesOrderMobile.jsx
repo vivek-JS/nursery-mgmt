@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useSelector } from "react-redux";
 import {
@@ -25,6 +25,11 @@ import {
   Tabs,
   Tab,
   Fab,
+  Collapse,
+  Checkbox,
+  FormControlLabel,
+  Paper,
+  Skeleton,
 } from "@mui/material";
 import {
   ArrowBack as ArrowBackIcon,
@@ -53,6 +58,10 @@ import {
   CheckBoxOutlineBlank as CheckBoxOutlineBlankIcon,
   Inventory2 as InventoryIcon,
   Logout as LogoutIcon,
+  Check as CheckIcon,
+  CloudUpload as UploadIcon,
+  FilterList as FilterIcon,
+  Refresh as RefreshIcon,
 } from "@mui/icons-material";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
@@ -60,12 +69,37 @@ import AddAgriSalesOrderForm from "../../private/inventory/AddAgriSalesOrderForm
 import { Toast } from "helpers/toasts/toastHelper";
 import { useIsLoggedIn } from "hooks/state";
 import { API, NetworkManager } from "network/core";
+import PaymentQRModal from "components/Modals/PaymentQRModal";
 import { useLogoutModel } from "layout/privateLayout/privateLayout.model";
 import moment from "moment";
 
+// Theme constants (match plant booking UI)
+const C = {
+  primary: "#5B5FC7",
+  gradient: "linear-gradient(135deg, #5B5FC7 0%, #8B5CF6 100%)",
+  bg: "#F7F8FC",
+  textPrimary: "#1A1D2E",
+  textSecondary: "#6B7185",
+  textMuted: "#9CA3AF",
+  border: "#E8EBF0",
+  borderLight: "#F0F2F5",
+  green: "#22C55E",
+  greenBg: "#ECFDF5",
+  greenText: "#15803D",
+  red: "#EF4444",
+  redBg: "#FEF2F2",
+  redText: "#B91C1C",
+  orange: "#F59E0B",
+  orangeBg: "#FFFBEB",
+  orangeText: "#B45309",
+  primaryLight: "#5B5FC7",
+  blueBg: "#EFF6FF",
+  blueText: "#1D4ED8",
+};
+
 /**
  * Mobile-Only Agri Sales Order Page
- * Shows employee's orders with filters and payment management
+ * Shows employee's orders with filters and payment management (UI aligned with plant booking)
  */
 const AgriSalesOrderMobile = () => {
   const navigate = useNavigate();
@@ -110,6 +144,11 @@ const AgriSalesOrderMobile = () => {
   const [outstandingView, setOutstandingView] = useState("total"); // total, district, taluka, village
   const [filteredFromOutstanding, setFilteredFromOutstanding] = useState(false); // Track if orders are filtered from outstanding
   const [expandedOrderId, setExpandedOrderId] = useState(null); // For order payment accordion
+  const [addPaymentOpenOrderId, setAddPaymentOpenOrderId] = useState(null); // Inline add payment (plant-style)
+  const [paymentQRModalOpen, setPaymentQRModalOpen] = useState(false);
+  const [paymentQRModalData, setPaymentQRModalData] = useState(null);
+  const [generateQRLoading, setGenerateQRLoading] = useState(false);
+  const [showFilters, setShowFilters] = useState(false); // Plant-style filter bar
   const [expandedFarmerId, setExpandedFarmerId] = useState(null); // For farmer outstanding accordion
   const [farmerOutstandingData, setFarmerOutstandingData] = useState([]); // Farmer-wise outstanding data
   const [showActivityLog, setShowActivityLog] = useState(false); // For activity log modal
@@ -168,6 +207,25 @@ const AgriSalesOrderMobile = () => {
     startDate: new Date(new Date().setMonth(new Date().getMonth() - 1)).toISOString().split('T')[0],
     endDate: new Date().toISOString().split('T')[0],
   });
+  // Bulk payment (same flow as desktop: form + API search + added cards)
+  const [showBulkPaymentDialog, setShowBulkPaymentDialog] = useState(false);
+  const [bulkPaymentMain, setBulkPaymentMain] = useState({
+    totalAmount: "",
+    paymentDate: moment().format("YYYY-MM-DD"),
+    modeOfPayment: "",
+    bankName: "",
+    remark: "",
+    transactionId: "",
+    chequeNumber: "",
+    receiptPhoto: [],
+  });
+  const [bulkAllocations, setBulkAllocations] = useState([]);
+  const [pendingBulkAmounts, setPendingBulkAmounts] = useState({});
+  const [bulkPaymentSubmitting, setBulkPaymentSubmitting] = useState(false);
+  const [bulkOrderSearch, setBulkOrderSearch] = useState("");
+  const [bulkOrderSearchResults, setBulkOrderSearchResults] = useState([]);
+  const [bulkOrderSearchLoading, setBulkOrderSearchLoading] = useState(false);
+  const bulkOrderSearchTimerRef = useRef(null);
 
   useEffect(() => {
     if (isLoggedIn === false) {
@@ -217,6 +275,147 @@ const AgriSalesOrderMobile = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleBulkPaymentSubmit = async () => {
+    const total = Number(bulkPaymentMain.totalAmount);
+    if (!total || total <= 0) {
+      Toast.error("Please fill in payment amount");
+      return;
+    }
+    const mode = bulkPaymentMain.modeOfPayment;
+    if (!mode) {
+      Toast.error("Please select payment mode");
+      return;
+    }
+    if (mode !== "Cash" && mode !== "NEFT/RTGS") {
+      if (!bulkPaymentMain.receiptPhoto || bulkPaymentMain.receiptPhoto.length === 0) {
+        Toast.error(`Payment image is mandatory for ${mode} payments`);
+        return;
+      }
+    }
+    const sum = bulkAllocations.reduce((s, a) => s + (Number(a.amount) || 0), 0);
+    if (Math.abs(sum - total) > 0.01) {
+      Toast.error(`Sum of allocations (₹${sum}) must equal total (₹${total})`);
+      return;
+    }
+    if (bulkAllocations.length === 0) {
+      Toast.error("Add at least one order with amount");
+      return;
+    }
+    const txnOrCheque = mode === "Cheque" ? (bulkPaymentMain.chequeNumber || bulkPaymentMain.transactionId) : bulkPaymentMain.transactionId;
+    setBulkPaymentSubmitting(true);
+    try {
+      const instance = NetworkManager(API.ORDER.POST_BULK_PAYMENT);
+      await instance.request({
+        totalAmount: total,
+        paymentDate: bulkPaymentMain.paymentDate,
+        modeOfPayment: mode,
+        bankName: bulkPaymentMain.bankName || undefined,
+        remark: bulkPaymentMain.remark || undefined,
+        transactionId: txnOrCheque || undefined,
+        receiptPhoto: Array.isArray(bulkPaymentMain.receiptPhoto) ? bulkPaymentMain.receiptPhoto : [],
+        source: "AGRI",
+        allocations: bulkAllocations.map((a) => ({
+          orderId: a.orderId,
+          amount: Number(a.amount),
+          orderType: "AgriSalesOrder",
+        })),
+      });
+      Toast.success("Bulk payment saved as Pending. Accept on Payments page.");
+      setShowBulkPaymentDialog(false);
+      setBulkAllocations([]);
+      setPendingBulkAmounts({});
+      setBulkOrderSearch("");
+      setBulkOrderSearchResults([]);
+      setBulkPaymentMain({
+        totalAmount: "",
+        paymentDate: moment().format("YYYY-MM-DD"),
+        modeOfPayment: "",
+        bankName: "",
+        remark: "",
+        transactionId: "",
+        chequeNumber: "",
+        receiptPhoto: [],
+      });
+      fetchOrders();
+    } catch (err) {
+      console.error("Bulk payment error:", err);
+      Toast.error(err?.response?.data?.message || "Failed to create bulk payment");
+    } finally {
+      setBulkPaymentSubmitting(false);
+    }
+  };
+
+  // API search for bulk payment (agri orders by number, name, ID)
+  const searchBulkOrders = useCallback(async (q) => {
+    const query = (q || "").trim();
+    if (query.length < 2) {
+      setBulkOrderSearchResults([]);
+      return;
+    }
+    setBulkOrderSearchLoading(true);
+    try {
+      const instance = NetworkManager(API.INVENTORY.GET_ALL_AGRI_SALES_ORDERS);
+      const res = await instance.request({}, { search: query, limit: 30, page: 1, myOrders: "true" });
+      const raw = res?.data?.data?.data ?? res?.data?.data ?? [];
+      const list = Array.isArray(raw) ? raw : [];
+      const normalized = list.map((o) => ({
+        _id: o._id,
+        order: o.orderNumber ?? o._id,
+        farmerName: o.customerName,
+        details: {
+          orderid: o._id,
+          orderNumber: o.orderNumber,
+          customerName: o.customerName,
+          customerVillage: o.customerVillage,
+          customerTaluka: o.customerTaluka,
+          customerDistrict: o.customerDistrict,
+        },
+        outstanding: o.balanceAmount ?? (Number(o.totalAmount || 0) - Number(o.totalPaidAmount || 0)),
+        createdByName: o.createdBy?.name || "",
+        assignedToName: o.assignedTo?.name || o.assignedToName || "",
+      }));
+      setBulkOrderSearchResults(normalized);
+    } catch (err) {
+      console.error("Bulk order search error:", err);
+      Toast.error("Search failed");
+      setBulkOrderSearchResults([]);
+    } finally {
+      setBulkOrderSearchLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!showBulkPaymentDialog) return;
+    const q = (bulkOrderSearch || "").trim();
+    if (q.length < 2) {
+      setBulkOrderSearchResults([]);
+      return;
+    }
+    if (bulkOrderSearchTimerRef.current) clearTimeout(bulkOrderSearchTimerRef.current);
+    bulkOrderSearchTimerRef.current = setTimeout(() => searchBulkOrders(bulkOrderSearch), 350);
+    return () => {
+      if (bulkOrderSearchTimerRef.current) clearTimeout(bulkOrderSearchTimerRef.current);
+    };
+  }, [showBulkPaymentDialog, bulkOrderSearch, searchBulkOrders]);
+
+  const addOrderToBulkAllocation = (order, amount) => {
+    const orderId = order._id || order.details?.orderid || order.id;
+    if (!orderId) return;
+    const amt = Number(amount);
+    if (!amt || amt <= 0) return;
+    const label = order.details?.customerName || order.customerName || order.farmerName || order.orderNumber || `#${orderId}`;
+    setBulkAllocations((prev) => {
+      const exists = prev.find((a) => String(a.orderId) === String(orderId));
+      if (exists) return prev.map((a) => (String(a.orderId) === String(orderId) ? { ...a, amount: amt, orderType: "AgriSalesOrder" } : a));
+      return [...prev, { orderId, orderLabel: label, amount: amt, orderType: "AgriSalesOrder" }];
+    });
+    setPendingBulkAmounts((p) => ({ ...p, [String(orderId)]: "" }));
+  };
+
+  const removeBulkAllocation = (orderId) => {
+    setBulkAllocations((prev) => prev.filter((a) => String(a.orderId) !== String(orderId)));
   };
 
   // Fetch assigned orders (orders assigned to this sales person for dispatch)
@@ -862,6 +1061,7 @@ const AgriSalesOrderMobile = () => {
         Toast.success("Payment added successfully");
         setShowPaymentModal(false);
         setSelectedOrder(null);
+        setAddPaymentOpenOrderId(null); // Close inline add payment (plant-style)
         if (activeTab === 0) {
           fetchOrders();
         } else {
@@ -875,6 +1075,39 @@ const AgriSalesOrderMobile = () => {
       Toast.error("Failed to add payment");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleGeneratePaymentQR = async (order) => {
+    if (!order?._id) {
+      Toast.error("Order not found");
+      return;
+    }
+    setGenerateQRLoading(true);
+    try {
+      const instance = NetworkManager(API.INVENTORY.GENERATE_PAYMENT_QR_AGRI);
+      const res = await instance.request({}, [order._id]);
+      const data = res?.data;
+      if (data?.success && data?.qrImageOrString != null) {
+        setPaymentQRModalData({
+          qrImageOrString: data.qrImageOrString,
+          amount: data.amount,
+          orderId: data.orderId,
+          customerName: data.customerName,
+          mobileNumber: data.mobileNumber,
+          expiresAt: data.expiresAt,
+        });
+        setPaymentQRModalOpen(true);
+        Toast.success("QR generated");
+        if (activeTab === 0) fetchOrders();
+        else fetchOutstandingAnalysis();
+      } else {
+        Toast.error(data?.message || "Failed to generate QR");
+      }
+    } catch (err) {
+      Toast.error(err?.response?.data?.message || "Failed to generate payment QR");
+    } finally {
+      setGenerateQRLoading(false);
     }
   };
 
@@ -1205,6 +1438,12 @@ const AgriSalesOrderMobile = () => {
       default:
         return { bg: "#f5f5f5", color: "#666" };
     }
+  };
+
+  // Plant-style: total paid from payments array (for summary strip)
+  const getTotalPaidAllAgri = (payments) => {
+    if (!payments || !Array.isArray(payments)) return 0;
+    return payments.reduce((t, p) => t + (Number(p.paidAmount) || 0), 0);
   };
 
   const handleLogout = async () => {
@@ -2871,6 +3110,15 @@ const AgriSalesOrderMobile = () => {
               </Card>
             ) : (
               <>
+                {/* Bulk payment – always visible on Orders tab (same as plant order view) */}
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<PaymentIcon sx={{ fontSize: "1rem" }} />}
+                  onClick={() => setShowBulkPaymentDialog(true)}
+                  sx={{ mb: 1.5, textTransform: "none", fontWeight: 700, borderRadius: 2, borderColor: C.primary, color: C.primary }}>
+                  Bulk payment
+                </Button>
                 {/* Order Status Subtabs - Compact */}
                 <Box
                   sx={{
@@ -3097,397 +3345,164 @@ const AgriSalesOrderMobile = () => {
                       ? `${order.ramAgriCropName || ""} – ${order.ramAgriVarietyName}`.trim()
                       : order.ramAgriCropName || "—");
                   const balance = order.balanceAmount ?? (Number(order.totalAmount || 0) - Number(order.totalPaidAmount || 0));
-                  
-                  // Debug logging for product name
-                  console.log("🔍 Product Name Debug (Order Tab):", {
-                    orderId: order._id,
-                    orderNumber: order.orderNumber,
-                    productName: order.productName,
-                    ramAgriCropName: order.ramAgriCropName,
-                    ramAgriVarietyName: order.ramAgriVarietyName,
-                    productLabel: productLabel
-                  });
+                  const totalPayments = order.payment?.length || 0;
+                  const collectedCount = (order.payment || []).filter((p) => p.paymentStatus === "COLLECTED").length;
+                  const paidPercent = order.totalAmount > 0 ? Math.round((getTotalPaidAllAgri(order.payment) / order.totalAmount) * 100) : 0;
 
                   return (
                     <Card
                       key={order._id}
+                      elevation={0}
                       sx={{
-                        transition: "all 0.2s",
+                        transition: "all 0.2s ease",
                         backgroundColor: isSelected ? "#e3f2fd" : isSelectedForComplete ? "#e8f5e9" : "white",
-                        borderRadius: "12px",
-                        boxShadow: isExpanded ? "0 4px 12px rgba(0,0,0,0.15)" : "0 2px 8px rgba(0,0,0,0.08)",
+                        borderRadius: 3,
                         overflow: "hidden",
-                        border: isSelected ? "2px solid #1976d2" : isSelectedForComplete ? "2px solid #2e7d32" : "1px solid #e0e0e0",
+                        border: `1px solid ${isExpanded ? C.primary + "40" : C.border}`,
+                        boxShadow: isExpanded ? `0 4px 20px ${C.primary}15` : "0 1px 3px rgba(0,0,0,0.04)",
                         width: "100%",
                         maxWidth: "100%",
                         boxSizing: "border-box",
-                        mb: 1.5,
+                        mb: 0.75,
                       }}>
-                      {/* Order Header */}
-                      <CardContent sx={{ p: 1, "&:last-child": { pb: 1 }, overflow: "hidden" }}>
-                        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 0.75, gap: 0.75 }}>
-                          <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1, flex: 1 }}>
-                            {/* Selection Checkbox for Dispatch */}
+                      {/* Order Header - plant-style: tap to expand */}
+                      <CardContent
+                        onClick={() => setExpandedOrderId(isExpanded ? null : order._id)}
+                        sx={{ p: 1, "&:last-child": { pb: 1 }, overflow: "hidden", cursor: "pointer", "&:active": { bgcolor: C.bg } }}>
+                        {/* Row 1: Order # + Status + Expand (plant-style) */}
+                        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 0.5 }}>
+                          <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: C.textMuted, letterSpacing: "0.02em" }}>
+                            #{order.orderNumber}
+                          </Typography>
+                          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }} onClick={(e) => e.stopPropagation()}>
                             {selectionMode && canDispatch && (
-                              <IconButton
-                                size="small"
-                                onClick={() => toggleOrderSelection(order._id)}
-                                sx={{ p: 0, mt: 0.5 }}>
-                                {isSelected ? (
-                                  <CheckBoxIcon sx={{ color: "#1976d2", fontSize: "1.2rem" }} />
-                                ) : (
-                                  <CheckBoxOutlineBlankIcon sx={{ color: "#9e9e9e", fontSize: "1.2rem" }} />
-                                )}
+                              <IconButton size="small" onClick={() => toggleOrderSelection(order._id)} sx={{ p: 0 }}>
+                                {isSelected ? <CheckBoxIcon sx={{ color: "#1976d2", fontSize: "1.1rem" }} /> : <CheckBoxOutlineBlankIcon sx={{ color: "#9e9e9e", fontSize: "1.1rem" }} />}
                               </IconButton>
                             )}
-                            {/* Selection Checkbox for Complete */}
                             {completeSelectionMode && canComplete && (
-                              <IconButton
-                                size="small"
-                                onClick={() => toggleCompleteOrderSelection(order._id)}
-                                sx={{ p: 0, mt: 0.5 }}>
-                                {isSelectedForComplete ? (
-                                  <CheckBoxIcon sx={{ color: "#2e7d32", fontSize: "1.2rem" }} />
-                                ) : (
-                                  <CheckBoxOutlineBlankIcon sx={{ color: "#9e9e9e", fontSize: "1.2rem" }} />
-                                )}
+                              <IconButton size="small" onClick={() => toggleCompleteOrderSelection(order._id)} sx={{ p: 0 }}>
+                                {isSelectedForComplete ? <CheckBoxIcon sx={{ color: "#2e7d32", fontSize: "1.1rem" }} /> : <CheckBoxOutlineBlankIcon sx={{ color: "#9e9e9e", fontSize: "1.1rem" }} />}
                               </IconButton>
                             )}
-                            <Box sx={{ flex: 1, minWidth: 0 }}>
-                              <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
-                                <Typography
-                                  variant="body2"
-                                  fontWeight="bold"
-                                  sx={{
-                                    fontSize: "0.85rem",
-                                    color: "#212121",
-                                    fontWeight: 600,
-                                    wordBreak: "break-word",
-                                  }}>
-                                  {order.customerName}
-                                </Typography>
-                                <Typography
-                                  variant="caption"
-                                  sx={{
-                                    fontSize: "0.65rem",
-                                    color: "#999",
-                                    fontWeight: 500,
-                                  }}>
-                                  {order.orderNumber}
-                                </Typography>
-                              </Box>
-                              {order.customerVillage && (
-                                <Typography variant="caption" color="textSecondary" sx={{ fontSize: "0.65rem", display: "block", mt: 0.25 }}>
-                                  {order.customerVillage}, {order.customerTaluka}
-                                </Typography>
-                              )}
-                            </Box>
-                          </Box>
-                          <Box sx={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 0.5, flexShrink: 0 }}>
-                            <Chip
-                              label={order.orderStatus}
-                              size="small"
-                              sx={{
-                                fontSize: "0.6rem",
-                                height: "18px",
-                                backgroundColor: statusColors.bg,
-                                color: statusColors.color,
-                                fontWeight: 600,
-                              }}
-                            />
-                            {/* Dispatch Status Chip */}
-                            {order.dispatchStatus && order.dispatchStatus !== "NOT_DISPATCHED" && (
-                              <Chip
-                                icon={order.dispatchMode === "COURIER" 
-                                  ? <InventoryIcon sx={{ fontSize: "0.65rem !important" }} />
-                                  : <LocalShippingIcon sx={{ fontSize: "0.65rem !important" }} />
-                                }
-                                label={`${dispatchInfo.label}${order.dispatchMode === "COURIER" ? "" : ""}`}
-                                size="small"
-                                sx={{
-                                  fontSize: "0.6rem",
-                                  height: "18px",
-                                  backgroundColor: order.dispatchMode === "COURIER" ? "#f3e5f5" : dispatchInfo.bg,
-                                  color: order.dispatchMode === "COURIER" ? "#7b1fa2" : dispatchInfo.color,
-                                  fontWeight: 600,
-                                  "& .MuiChip-icon": { color: order.dispatchMode === "COURIER" ? "#7b1fa2" : dispatchInfo.color },
-                                }}
-                              />
-                            )}
+                            <Chip label={order.orderStatus} size="small" sx={{ height: 20, fontSize: "0.6rem", fontWeight: 700, bgcolor: statusColors.bg, color: statusColors.color, borderRadius: 1 }} />
+                            {isExpanded ? <ExpandLessIcon sx={{ fontSize: 20, color: C.primary }} /> : <ExpandMoreIcon sx={{ fontSize: 20, color: C.textMuted }} />}
                           </Box>
                         </Box>
-
-                        {/* Product name - Compact */}
-                        {productLabel && productLabel !== "—" ? (
-                          <Box sx={{ 
-                            mb: 0.75, 
-                            mt: 0.75,
-                            p: 1, 
-                            backgroundColor: "#f8f9fa",
-                            borderRadius: "8px", 
-                            borderLeft: "4px solid #757575",
-                          }}>
-                            <Typography 
-                              variant="body2" 
-                              fontWeight="bold" 
-                              sx={{ 
-                                fontSize: "0.8rem", 
-                                color: "#212121",
-                                fontWeight: 600,
-                                lineHeight: 1.4,
-                                wordBreak: "break-word",
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                                display: "-webkit-box",
-                                WebkitLineClamp: 2,
-                                WebkitBoxOrient: "vertical",
-                              }}>
-                              {productLabel}
-                            </Typography>
+                        {/* Row 2: Name + Amount */}
+                        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", mb: 0.25 }}>
+                          <Typography sx={{ fontSize: "0.92rem", fontWeight: 800, color: C.textPrimary, flex: 1, pr: 1.5 }} noWrap>{order.customerName}</Typography>
+                          <Typography sx={{ fontSize: "0.95rem", fontWeight: 900, color: C.primary }}>₹{Number(order.totalAmount || 0).toLocaleString()}</Typography>
+                        </Box>
+                        {/* Row 3: Product · qty · rate */}
+                        <Typography sx={{ fontSize: "0.72rem", color: C.textSecondary, mb: 0.75 }}>
+                          <Box component="span" sx={{ fontWeight: 600, color: C.textPrimary }}>{productLabel}</Box>
+                          {" · "}{order.quantity} · ₹{Number(order.rate || 0).toLocaleString()} · {order.createdAt ? moment(order.createdAt).format("DD MMM YY") : ""}
+                        </Typography>
+                        {/* Row 4: Payment bar + % + due chip + payment count (plant-style) */}
+                        <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+                          <Box sx={{ flex: 1, height: 4, bgcolor: C.border, borderRadius: 2, overflow: "hidden" }}>
+                            <Box sx={{ width: `${Math.min(paidPercent, 100)}%`, height: "100%", bgcolor: paidPercent >= 100 ? C.green : paidPercent > 50 ? C.primary : C.orange, borderRadius: 2, transition: "width 0.3s ease" }} />
                           </Box>
-                        ) : null}
-
-                        {/* Quantity, Rate - Compact */}
-                        <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, mb: 0.5, mt: 0.5 }}>
-                          <Chip
-                            label={
-                              <Box component="span">
-                                Qty: <strong style={{ fontSize: "0.75rem", fontWeight: 700 }}>{order.quantity}</strong>
-                              </Box>
-                            }
-                            size="small"
-                            sx={{ fontSize: "0.65rem", height: "18px", fontWeight: 600, backgroundColor: "#f5f5f5", color: "#424242" }}
-                          />
-                          <Chip
-                            label={
-                              <Box component="span">
-                                Rate: ₹<strong style={{ fontSize: "0.75rem", fontWeight: 700 }}>{Number(order.rate || 0).toLocaleString()}</strong>
-                              </Box>
-                            }
-                            size="small"
-                            sx={{ fontSize: "0.65rem", height: "18px", fontWeight: 600, backgroundColor: "#f5f5f5", color: "#424242" }}
-                          />
+                          <Typography sx={{ fontSize: "0.62rem", fontWeight: 700, color: paidPercent >= 100 ? C.greenText : C.textSecondary, minWidth: 28 }}>{paidPercent}%</Typography>
+                          {balance > 0 && (
+                            <Chip label={`₹${Number(balance).toLocaleString()} due`} size="small" sx={{ height: 18, fontSize: "0.58rem", fontWeight: 700, bgcolor: C.redBg, color: C.redText, borderRadius: 1 }} />
+                          )}
+                          {totalPayments > 0 && (
+                            <Chip icon={<ReceiptIcon sx={{ fontSize: "11px !important", color: C.primary + " !important" }} />} label={`${collectedCount}/${totalPayments}`} size="small" sx={{ height: 18, fontSize: "0.55rem", fontWeight: 700, bgcolor: C.primaryLight + "15", color: C.primary, borderRadius: 1, "& .MuiChip-icon": { ml: 0.25, mr: -0.25 } }} />
+                          )}
                         </Box>
 
-                        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mt: 0.5, flexWrap: "wrap", gap: 0.5 }}>
-                          <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", alignItems: "center" }}>
-                            <Typography 
-                              variant="body2" 
-                              fontWeight="bold" 
-                              sx={{ 
-                                fontSize: "0.85rem",
-                                color: "#424242",
-                                px: 1,
-                                py: 0.35,
-                                borderRadius: "6px",
-                                fontWeight: 700,
-                              }}>
-                              Total: ₹{Number(order.totalAmount || 0).toLocaleString()}
-                            </Typography>
-                            <Typography 
-                              variant="caption" 
-                              fontWeight="bold" 
-                              sx={{ 
-                                fontSize: "0.75rem",
-                                color: order.balanceAmount > 0 ? "#d32f2f" : "#424242",
-                                px: 1,
-                                py: 0.35,
-                                borderRadius: "6px",
-                                fontWeight: 700,
-                              }}>
-                              Balance: ₹{Number(order.balanceAmount || 0).toLocaleString()}
-                            </Typography>
-                            {/* Show final quantity info for completed orders */}
-                            {order.orderStatus === "COMPLETED" && order.deliveredQuantity > 0 && order.deliveredQuantity !== order.quantity && (
-                              <Typography variant="caption" sx={{ fontSize: "0.65rem", color: "#0f766e", display: "block", mt: 0.5, fontWeight: 600 }}>
-                                Final Amount (Qty: <strong>{order.deliveredQuantity}</strong> × ₹<strong>{order.rate}</strong>)
-                              </Typography>
-                            )}
-                          </Box>
-                          <Chip
-                            label={order.paymentStatus}
-                            size="small"
-                            sx={{
-                              fontSize: "0.65rem",
-                              height: "18px",
-                              backgroundColor: "#f5f5f5",
-                              color: "#424242",
-                              fontWeight: 600,
-                            }}
-                          />
-                        </Box>
-
-                        {/* Dispatch Info Row (if dispatched) */}
-                        {order.dispatchStatus && order.dispatchStatus !== "NOT_DISPATCHED" && (
-                          <Box
-                            sx={{
-                              mt: 0.5,
-                              p: 0.75,
-                              backgroundColor: order.dispatchMode === "COURIER" ? "#f3e5f5" : dispatchInfo.bg,
-                              borderRadius: "6px",
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 0.75,
-                            }}>
-                            {order.dispatchMode === "COURIER" ? (
-                              <InventoryIcon sx={{ fontSize: "1rem", color: "#7b1fa2" }} />
-                            ) : (
-                              <LocalShippingIcon sx={{ fontSize: "1rem", color: dispatchInfo.color }} />
-                            )}
-                            <Box sx={{ flex: 1 }}>
-                              {order.dispatchMode === "COURIER" ? (
-                                <>
-                                  <Typography variant="caption" sx={{ fontSize: "0.7rem", color: "#7b1fa2", fontWeight: 600 }}>
-                                    📦 {order.courierName}
-                                    {order.courierTrackingId && ` • ${order.courierTrackingId}`}
-                                  </Typography>
-                                  {order.courierContact && (
-                                    <Typography variant="caption" sx={{ fontSize: "0.6rem", color: "#666", display: "block" }}>
-                                      Contact: {order.courierContact}
-                                    </Typography>
-                                  )}
-                                </>
-                              ) : (
-                                <>
-                                  <Typography variant="caption" sx={{ fontSize: "0.7rem", color: dispatchInfo.color, fontWeight: 600 }}>
-                                    🚚 {order.vehicleNumber} • {order.driverName}
-                                  </Typography>
-                                  {order.driverMobile && (
-                                    <Typography variant="caption" sx={{ fontSize: "0.6rem", color: "#666", display: "block" }}>
-                                      📱 {order.driverMobile}
-                                    </Typography>
-                                  )}
-                                </>
-                              )}
-                              {order.dispatchedAt && (
-                                <Typography variant="caption" sx={{ fontSize: "0.6rem", color: "#666", display: "block" }}>
-                                  {moment(order.dispatchedAt).format("DD MMM, hh:mm A")}
-                                </Typography>
-                              )}
-                            </Box>
-                          </Box>
-                        )}
-
-                        {/* Action Buttons Row */}
-                        <Box sx={{ display: "flex", gap: 1, mt: 1.5, pt: 1, borderTop: "1px solid #f0f0f0" }}>
-                          <Button
-                            size="small"
-                            variant="contained"
-                            startIcon={<PaymentIcon sx={{ fontSize: "0.9rem" }} />}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleOrderClick(order);
-                            }}
-                            sx={{
-                              flex: 1,
-                              fontSize: "0.7rem",
-                              textTransform: "none",
-                              py: 0.5,
-                              backgroundColor: "#4caf50",
-                              "&:hover": { backgroundColor: "#43a047" },
-                            }}>
-                            Add Payment
-                          </Button>
-                          {/* Dispatch Button */}
-                          {canDispatch && !selectionMode && !completeSelectionMode && (
-                            <Button
-                              size="small"
-                              variant="outlined"
-                              startIcon={<LocalShippingIcon sx={{ fontSize: "0.9rem" }} />}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setSelectionMode(true);
-                                setSelectedOrdersForDispatch([order._id]);
-                              }}
-                              sx={{
-                                flex: 1,
-                                fontSize: "0.7rem",
-                                textTransform: "none",
-                                py: 0.5,
-                                borderColor: "#1565c0",
-                                color: "#1565c0",
-                              }}>
-                              Dispatch
-                            </Button>
-                          )}
-                          {/* Sales Return Button - for orders dispatched by sales person */}
-                          {(order.dispatchStatus === "DISPATCHED" || order.dispatchStatus === "IN_TRANSIT") && 
-                           order.assignedTo && 
-                           !selectionMode && !completeSelectionMode && (
-                            <Button
-                              size="small"
-                              variant="outlined"
-                              startIcon={<InventoryIcon sx={{ fontSize: "0.9rem" }} />}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                openSalesReturnModal(order);
-                              }}
-                              sx={{
-                                flex: 1,
-                                fontSize: "0.7rem",
-                                textTransform: "none",
-                                py: 0.5,
-                                borderColor: "#7c3aed",
-                                color: "#7c3aed",
-                              }}>
-                              Sales Return
-                            </Button>
-                          )}
-                          {/* Complete Button - for dispatched/in-transit orders */}
-                          {(order.dispatchStatus === "DISPATCHED" || order.dispatchStatus === "IN_TRANSIT") && 
-                           !selectionMode && !completeSelectionMode && (
-                            <Button
-                              size="small"
-                              variant="outlined"
-                              startIcon={<CheckCircleIcon sx={{ fontSize: "0.9rem" }} />}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setCompleteSelectionMode(true);
-                                setSelectedOrdersForComplete([order._id]);
-                              }}
-                              sx={{
-                                flex: 1,
-                                fontSize: "0.7rem",
-                                textTransform: "none",
-                                py: 0.5,
-                                borderColor: "#2e7d32",
-                                color: "#2e7d32",
-                              }}>
-                              Complete
-                            </Button>
-                          )}
-                          {hasPayments && (
-                            <Button
-                              size="small"
-                              variant="outlined"
-                              endIcon={isExpanded ? <ExpandLessIcon sx={{ fontSize: "0.9rem" }} /> : <ExpandMoreIcon sx={{ fontSize: "0.9rem" }} />}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setExpandedOrderId(isExpanded ? null : order._id);
-                              }}
-                              sx={{
-                                flex: 1,
-                                fontSize: "0.7rem",
-                                textTransform: "none",
-                                py: 0.5,
-                                borderColor: "#1976d2",
-                                color: "#1976d2",
-                              }}>
-                              {order.payment.length} Payment{order.payment.length > 1 ? "s" : ""}
-                            </Button>
-                          )}
-                        </Box>
                       </CardContent>
 
-                      {/* Expanded Payment Records */}
-                      {isExpanded && hasPayments && (
-                        <Box sx={{ backgroundColor: "#fafafa", borderTop: "1px solid #e0e0e0" }}>
-                          <Box sx={{ px: 1.5, py: 1 }}>
-                            <Typography variant="caption" fontWeight="bold" sx={{ fontSize: "0.7rem", color: "#666" }}>
-                              PAYMENT HISTORY
-                            </Typography>
+                      {/* Expanded: Summary strip (plant-style) + Payment History + Inline Add Payment */}
+                      {isExpanded && (
+                        <Box sx={{ borderTop: "1px solid #e0e0e0", bgcolor: C.bg + "80", px: 1.5, py: 1.25 }}>
+                          {/* Summary: Total | Paid | Due */}
+                          <Box sx={{ display: "flex", borderRadius: 2, overflow: "hidden", mb: 1.25, border: `1px solid ${C.border}` }}>
+                            <Box sx={{ flex: 1, textAlign: "center", py: 0.75, bgcolor: "white" }}>
+                              <Typography sx={{ fontSize: "0.6rem", color: C.textMuted, fontWeight: 600 }}>Total</Typography>
+                              <Typography sx={{ fontSize: "0.82rem", fontWeight: 800, color: C.textPrimary }}>₹{Number(order.totalAmount || 0).toLocaleString()}</Typography>
+                            </Box>
+                            <Box sx={{ flex: 1, textAlign: "center", py: 0.75, bgcolor: "white", borderLeft: `1px solid ${C.border}` }}>
+                              <Typography sx={{ fontSize: "0.6rem", color: C.textMuted, fontWeight: 600 }}>Paid</Typography>
+                              <Typography sx={{ fontSize: "0.82rem", fontWeight: 800, color: C.green }}>₹{(getTotalPaidAllAgri(order.payment) || 0).toLocaleString()}</Typography>
+                            </Box>
+                            <Box sx={{ flex: 1, textAlign: "center", py: 0.75, bgcolor: "white", borderLeft: `1px solid ${C.border}` }}>
+                              <Typography sx={{ fontSize: "0.6rem", color: C.textMuted, fontWeight: 600 }}>Due</Typography>
+                              <Typography sx={{ fontSize: "0.82rem", fontWeight: 800, color: balance > 0 ? C.red : C.green }}>₹{Number(balance || 0).toLocaleString()}</Typography>
+                            </Box>
                           </Box>
-                          {order.payment.map((payment, idx) => {
+                          {/* Inline Add Payment form (plant-style) */}
+                          {addPaymentOpenOrderId === order._id && selectedOrder?._id === order._id && (
+                            <Collapse in>
+                              <Box sx={{ p: 1.25, bgcolor: "white", borderRadius: 2, border: `1px solid ${C.border}`, mb: 1.25 }}>
+                                <Box sx={{ display: "flex", gap: 0.75, mb: 0.75 }}>
+                                  <TextField size="small" placeholder="Amount ₹" type="number" value={paymentForm.paidAmount} onChange={(e) => handlePaymentInputChange("paidAmount", e.target.value)} sx={{ flex: 1, "& .MuiOutlinedInput-root": { borderRadius: 2 } }} />
+                                  <TextField size="small" type="date" value={paymentForm.paymentDate} onChange={(e) => handlePaymentInputChange("paymentDate", e.target.value)} InputLabelProps={{ shrink: true }} sx={{ width: 130, "& .MuiOutlinedInput-root": { borderRadius: 2 } }} />
+                                </Box>
+                                <Box sx={{ display: "flex", gap: 0.75, mb: 0.75 }}>
+                                  <FormControl size="small" sx={{ flex: 1 }}>
+                                    <Select value={paymentForm.modeOfPayment} displayEmpty onChange={(e) => handlePaymentInputChange("modeOfPayment", e.target.value)} sx={{ fontSize: "0.78rem", height: 36, borderRadius: 2, bgcolor: "white" }}>
+                                      <MenuItem value=""><em>Mode</em></MenuItem>
+                                      {["Cash", "UPI", "Cheque", "NEFT/RTGS", "1341", "434", "Wallet"].map((m) => <MenuItem key={m} value={m}>{m}</MenuItem>)}
+                                    </Select>
+                                  </FormControl>
+                                  <Button variant="outlined" component="label" size="small" startIcon={<UploadIcon sx={{ fontSize: 13 }} />} disabled={uploadingImages} sx={{ fontSize: "0.65rem", textTransform: "none", borderRadius: 2, height: 36, minWidth: 80, borderColor: C.border, color: C.textSecondary }}>
+                                    {uploadingImages ? "..." : "Receipt"}<input type="file" hidden accept="image/*" multiple onChange={handleImageUpload} />
+                                  </Button>
+                                </Box>
+                                {(paymentForm.receiptPhoto?.length > 0) && (
+                                  <Box sx={{ display: "flex", gap: 0.5, mb: 0.75, flexWrap: "wrap" }}>
+                                    {paymentForm.receiptPhoto.map((url, idx) => (
+                                      <Box key={idx} sx={{ position: "relative" }}>
+                                        <Box component="img" src={url} sx={{ width: 40, height: 40, borderRadius: 1, objectFit: "cover", border: `1px solid ${C.border}` }} />
+                                        <IconButton size="small" onClick={() => handlePaymentInputChange("receiptPhoto", (paymentForm.receiptPhoto || []).filter((_, i) => i !== idx))} sx={{ position: "absolute", top: -6, right: -6, bgcolor: C.red, color: "white", width: 16, height: 16 }}><DeleteIcon sx={{ fontSize: 9 }} /></IconButton>
+                                      </Box>
+                                    ))}
+                                  </Box>
+                                )}
+                                <TextField size="small" fullWidth placeholder="Remark (optional)" value={paymentForm.remark} onChange={(e) => handlePaymentInputChange("remark", e.target.value)} sx={{ mb: 0.75, "& .MuiOutlinedInput-root": { borderRadius: 2 } }} />
+                                <Button fullWidth variant="contained" size="small" disabled={loading || !paymentForm.paidAmount || !paymentForm.modeOfPayment} onClick={handleAddPayment} startIcon={loading ? <CircularProgress size={14} /> : <CheckIcon sx={{ fontSize: 15 }} />} sx={{ height: 36, fontSize: "0.78rem", textTransform: "none", fontWeight: 700, borderRadius: 2, background: C.gradient }}>
+                                  {loading ? "Adding..." : "Submit Payment"}
+                                </Button>
+                              </Box>
+                            </Collapse>
+                          )}
+                          {/* Action row: Generate QR, Add Payment, Dispatch, Sales Return, Complete (plant-style) */}
+                          <Box sx={{ display: "flex", gap: 0.75, mt: 1, pt: 0.75, borderTop: `1px solid ${C.borderLight}`, flexWrap: "wrap" }} onClick={(e) => e.stopPropagation()}>
+                            {(() => {
+                              const balance = order.balanceAmount ?? (Number(order.totalAmount || 0) - Number(order.totalPaidAmount || 0));
+                              const now = new Date();
+                              const hasActiveQR = (order.payment || []).some((p) => p.paymentStatus === "PENDING" && p.qrReferenceId && p.qrExpiresAt && new Date(p.qrExpiresAt) > now);
+                              return balance > 0 && !hasActiveQR ? (
+                                <Button size="small" variant="outlined" disabled={generateQRLoading} startIcon={<PaymentIcon sx={{ fontSize: 15 }} />} onClick={(e) => { e.stopPropagation(); handleGeneratePaymentQR(order); }} sx={{ fontSize: "0.75rem", fontWeight: 700, textTransform: "none", borderRadius: 2, height: 34, borderColor: "#0d9488", color: "#0d9488" }}>{generateQRLoading ? "…" : "Generate Payment QR"}</Button>
+                              ) : null;
+                            })()}
+                            <Button size="small" variant={addPaymentOpenOrderId === order._id ? "contained" : "outlined"} startIcon={<PaymentIcon sx={{ fontSize: 15 }} />} onClick={(e) => { e.stopPropagation(); if (addPaymentOpenOrderId === order._id) setAddPaymentOpenOrderId(null); else { setSelectedOrder(order); setAddPaymentOpenOrderId(order._id); setPaymentForm({ paidAmount: "", paymentDate: moment().format("YYYY-MM-DD"), modeOfPayment: "", bankName: "", transactionId: "", remark: "", receiptPhoto: [] }); } }} sx={{ fontSize: "0.75rem", fontWeight: 700, textTransform: "none", borderRadius: 2, height: 34, ...(addPaymentOpenOrderId === order._id ? { background: C.gradient } : { borderColor: C.primary, color: C.primary }) }}>{addPaymentOpenOrderId === order._id ? "Close" : "Add Payment"}</Button>
+                            {canDispatch && !selectionMode && !completeSelectionMode && (
+                              <Button size="small" variant="outlined" startIcon={<LocalShippingIcon sx={{ fontSize: 15 }} />} onClick={(e) => { e.stopPropagation(); setSelectionMode(true); setSelectedOrdersForDispatch([order._id]); }} sx={{ fontSize: "0.7rem", textTransform: "none", borderRadius: 2, height: 34, borderColor: "#1565c0", color: "#1565c0" }}>Dispatch</Button>
+                            )}
+                            {(order.dispatchStatus === "DISPATCHED" || order.dispatchStatus === "IN_TRANSIT") && order.assignedTo && !selectionMode && !completeSelectionMode && (
+                              <Button size="small" variant="outlined" startIcon={<InventoryIcon sx={{ fontSize: 15 }} />} onClick={(e) => { e.stopPropagation(); openSalesReturnModal(order); }} sx={{ fontSize: "0.7rem", textTransform: "none", borderRadius: 2, height: 34, borderColor: "#7c3aed", color: "#7c3aed" }}>Sales Return</Button>
+                            )}
+                            {(order.dispatchStatus === "DISPATCHED" || order.dispatchStatus === "IN_TRANSIT") && !selectionMode && !completeSelectionMode && (
+                              <Button size="small" variant="outlined" startIcon={<CheckCircleIcon sx={{ fontSize: 15 }} />} onClick={(e) => { e.stopPropagation(); setCompleteSelectionMode(true); setSelectedOrdersForComplete([order._id]); }} sx={{ fontSize: "0.7rem", textTransform: "none", borderRadius: 2, height: 34, borderColor: "#2e7d32", color: "#2e7d32" }}>Complete</Button>
+                            )}
+                          </Box>
+                          {/* Payment History */}
+                          <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, color: C.textPrimary, mb: 0.75, display: "flex", alignItems: "center", gap: 0.5 }}>
+                            <ReceiptIcon sx={{ fontSize: 16, color: C.primary }} /> Payment History
+                            <Chip label={order.payment?.length || 0} size="small" sx={{ height: 18, fontSize: "0.6rem", fontWeight: 700, bgcolor: C.primaryLight + "20", color: C.primary, ml: 0.5 }} />
+                          </Typography>
+                          {(!order.payment || order.payment.length === 0) ? (
+                            <Box sx={{ py: 1.5, textAlign: "center", bgcolor: "white", borderRadius: 2 }}>
+                              <Typography sx={{ fontSize: "0.75rem", color: C.textMuted }}>No payments recorded yet</Typography>
+                            </Box>
+                          ) : null}
+                          {order.payment && order.payment.length > 0 && (
+                            <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5, mb: 1 }}>
+                              {order.payment.map((payment, idx) => {
                             const paymentStatusColor = 
                               payment.paymentStatus === "COLLECTED" ? "#4caf50" :
                               payment.paymentStatus === "PENDING" ? "#ff9800" : "#f44336";
@@ -3592,6 +3607,8 @@ const AgriSalesOrderMobile = () => {
                               </Box>
                             );
                           })}
+                            </Box>
+                          )}
                         </Box>
                       )}
                     </Card>
@@ -4185,6 +4202,166 @@ const AgriSalesOrderMobile = () => {
           <LocalShippingIcon />
         </Fab>
       )}
+
+      {/* Bulk Payment Dialog – same UI as Ram Agri / plant order view */}
+      <Dialog
+        open={showBulkPaymentDialog}
+        onClose={() => {
+          setShowBulkPaymentDialog(false);
+          setPendingBulkAmounts({});
+          setBulkOrderSearch("");
+          setBulkOrderSearchResults([]);
+        }}
+        fullScreen
+        PaperProps={{ sx: { borderRadius: 0, bgcolor: C.bg } }}>
+        <DialogTitle
+          sx={{
+            background: C.gradient,
+            color: "white",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            py: 1.5,
+            px: 2,
+          }}>
+          <Typography sx={{ fontSize: "0.95rem", fontWeight: 800, color: "white" }}>Bulk payment</Typography>
+          <IconButton onClick={() => { setShowBulkPaymentDialog(false); setPendingBulkAmounts({}); setBulkOrderSearch(""); setBulkOrderSearchResults([]); }} sx={{ color: "white", p: 0.5 }} size="small"><CloseIcon /></IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ p: 1.5, bgcolor: C.bg, "&:first-of-type": { pt: 1.5 } }}>
+          {/* Payment form card – same style as order cards (plant/Ram Agri) */}
+          <Card elevation={0} sx={{ borderRadius: 3, border: `1px solid ${C.border}`, boxShadow: "0 1px 3px rgba(0,0,0,0.04)", mb: 1.5, overflow: "hidden" }}>
+            <CardContent sx={{ p: 1.25, "&:last-child": { pb: 1.25 } }}>
+              <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: C.textMuted, letterSpacing: "0.02em", mb: 1 }}>Payment details</Typography>
+              <Box sx={{ display: "flex", gap: 0.75, mb: 0.75 }}>
+                <TextField size="small" placeholder="Amount ₹" type="number" value={bulkPaymentMain.totalAmount} onChange={(e) => setBulkPaymentMain((p) => ({ ...p, totalAmount: e.target.value }))} sx={{ flex: 1, "& .MuiOutlinedInput-root": { borderRadius: 2 } }} inputProps={{ min: 0, step: 0.01 }} />
+                <TextField size="small" type="date" value={bulkPaymentMain.paymentDate} onChange={(e) => setBulkPaymentMain((p) => ({ ...p, paymentDate: e.target.value }))} InputLabelProps={{ shrink: true }} sx={{ width: 130, "& .MuiOutlinedInput-root": { borderRadius: 2 } }} />
+              </Box>
+              <Box sx={{ display: "flex", gap: 0.75, mb: 0.75 }}>
+                <FormControl size="small" sx={{ flex: 1 }}>
+                  <Select value={bulkPaymentMain.modeOfPayment} displayEmpty onChange={(e) => setBulkPaymentMain((p) => ({ ...p, modeOfPayment: e.target.value }))} sx={{ fontSize: "0.78rem", height: 36, borderRadius: 2, bgcolor: "white" }} renderValue={(v) => v || "Mode"}>
+                    <MenuItem value="">Mode</MenuItem>
+                    <MenuItem value="Cash">Cash</MenuItem>
+                    <MenuItem value="UPI">UPI</MenuItem>
+                    <MenuItem value="Cheque">Cheque</MenuItem>
+                    <MenuItem value="NEFT/RTGS">NEFT/RTGS</MenuItem>
+                    <MenuItem value="1341">1341</MenuItem>
+                    <MenuItem value="434">434</MenuItem>
+                    <MenuItem value="Wallet">Wallet</MenuItem>
+                  </Select>
+                </FormControl>
+                <Button variant="outlined" component="label" size="small" startIcon={<UploadIcon sx={{ fontSize: 13 }} />} sx={{ fontSize: "0.65rem", textTransform: "none", borderRadius: 2, height: 36, minWidth: 80, borderColor: C.border, color: C.textSecondary }}>
+                  {bulkPaymentMain.receiptPhoto?.length ? `${bulkPaymentMain.receiptPhoto.length} Receipt` : "Receipt"}
+                  <input type="file" hidden accept="image/*" multiple onChange={async (e) => {
+                    const files = Array.from(e.target.files || []);
+                    if (files.length === 0) return;
+                    try {
+                      const urls = await Promise.all(files.map(async (file) => {
+                        const formData = new FormData();
+                        formData.append("media_key", file);
+                        formData.append("media_type", "IMAGE");
+                        formData.append("content_type", "multipart/form-data");
+                        const instance = NetworkManager(API.MEDIA.UPLOAD);
+                        const res = await instance.request(formData);
+                        return res.data?.data?.media_url || res.data?.media_url;
+                      }));
+                      setBulkPaymentMain((p) => ({ ...p, receiptPhoto: [...(p.receiptPhoto || []), ...urls.filter(Boolean)] }));
+                      Toast.success("Uploaded");
+                    } catch (err) {
+                      Toast.error("Upload failed");
+                    }
+                  }} />
+                </Button>
+              </Box>
+              {bulkPaymentMain.receiptPhoto?.length > 0 && (
+                <Box sx={{ display: "flex", gap: 0.5, mb: 0.75, flexWrap: "wrap" }}>
+                  {bulkPaymentMain.receiptPhoto.map((url, idx) => (
+                    <Box key={idx} sx={{ position: "relative" }}>
+                      <Box component="img" src={url} sx={{ width: 40, height: 40, borderRadius: 1, objectFit: "cover", border: `1px solid ${C.border}` }} />
+                      <IconButton size="small" onClick={() => setBulkPaymentMain((p) => ({ ...p, receiptPhoto: (p.receiptPhoto || []).filter((_, i) => i !== idx) }))} sx={{ position: "absolute", top: -6, right: -6, bgcolor: C.red, color: "white", width: 16, height: 16 }}><DeleteIcon sx={{ fontSize: 9 }} /></IconButton>
+                    </Box>
+                  ))}
+                </Box>
+              )}
+              {(bulkPaymentMain.modeOfPayment === "Cheque" || bulkPaymentMain.modeOfPayment === "NEFT/RTGS") && (
+                <TextField size="small" label="Bank" value={bulkPaymentMain.bankName} onChange={(e) => setBulkPaymentMain((p) => ({ ...p, bankName: e.target.value }))} fullWidth sx={{ mb: 0.75, "& .MuiOutlinedInput-root": { borderRadius: 2 } }} />
+              )}
+              {bulkPaymentMain.modeOfPayment === "Cheque" && (
+                <TextField size="small" label="Cheque No" value={bulkPaymentMain.chequeNumber} onChange={(e) => setBulkPaymentMain((p) => ({ ...p, chequeNumber: e.target.value }))} fullWidth sx={{ mb: 0.75, "& .MuiOutlinedInput-root": { borderRadius: 2 } }} />
+              )}
+              {bulkPaymentMain.modeOfPayment && bulkPaymentMain.modeOfPayment !== "Cheque" && (
+                <TextField size="small" placeholder="Txn ID (optional)" value={bulkPaymentMain.transactionId} onChange={(e) => setBulkPaymentMain((p) => ({ ...p, transactionId: e.target.value }))} fullWidth sx={{ mb: 0.75, "& .MuiOutlinedInput-root": { borderRadius: 2 } }} />
+              )}
+              <TextField size="small" fullWidth placeholder="Remark (optional)" value={bulkPaymentMain.remark} onChange={(e) => setBulkPaymentMain((p) => ({ ...p, remark: e.target.value }))} sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2 } }} />
+            </CardContent>
+          </Card>
+
+          {/* Added orders – chips above search (same as plant order chips) */}
+          {bulkAllocations.length > 0 && (
+            <Box sx={{ mb: 1.5 }}>
+              <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: C.textMuted, mb: 0.75 }}>Added · {bulkAllocations.length} order(s) · ₹{bulkAllocations.reduce((s, a) => s + (Number(a.amount) || 0), 0).toLocaleString()}</Typography>
+              <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
+                {bulkAllocations.map((a) => (
+                  <Chip
+                    key={String(a.orderId)}
+                    label={`${a.orderLabel} ₹${Number(a.amount).toLocaleString()}`}
+                    size="small"
+                    onDelete={() => removeBulkAllocation(a.orderId)}
+                    sx={{ height: 24, fontSize: "0.65rem", fontWeight: 700, bgcolor: C.greenBg, color: C.greenText, borderRadius: 1, border: `1px solid ${C.green}` }}
+                  />
+                ))}
+              </Box>
+            </Box>
+          )}
+
+          {/* Search + results – card list like order list */}
+          <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: C.textMuted, letterSpacing: "0.02em", mb: 0.5 }}>Add orders</Typography>
+          <TextField size="small" fullWidth placeholder="Search by order number, name, ID…" value={bulkOrderSearch} onChange={(e) => setBulkOrderSearch(e.target.value)} sx={{ mb: 1, "& .MuiOutlinedInput-root": { borderRadius: 2 } }} />
+          <Box sx={{ maxHeight: 280, overflowY: "auto" }}>
+            {bulkOrderSearchLoading ? (
+              <Box sx={{ py: 3, textAlign: "center" }}><CircularProgress size={24} sx={{ color: C.primary }} /></Box>
+            ) : bulkOrderSearch.trim().length < 2 ? (
+              <Typography sx={{ fontSize: "0.75rem", color: C.textMuted, py: 1.5 }}>Type 2+ characters. Results show outstanding & user.</Typography>
+            ) : bulkOrderSearchResults.length > 0 ? (
+              bulkOrderSearchResults.map((order) => {
+                const orderId = order._id || order.details?.orderid;
+                const idStr = String(orderId);
+                const orderNum = order.details?.orderNumber ?? order.order ?? idStr;
+                const name = order.details?.customerName || order.farmerName || "—";
+                const location = [order.details?.customerVillage, order.details?.customerTaluka, order.details?.customerDistrict].filter(Boolean).join(" · ") || "—";
+                const outstanding = order.outstanding != null ? Number(order.outstanding) : 0;
+                const userLabel = [order.createdByName, order.assignedToName].filter(Boolean).join(" · ") || "";
+                const pendingVal = pendingBulkAmounts[idStr] ?? "";
+                return (
+                  <Card key={idStr} elevation={0} sx={{ borderRadius: 3, border: `1px solid ${C.border}`, boxShadow: "0 1px 3px rgba(0,0,0,0.04)", mb: 0.75, overflow: "hidden" }}>
+                    <CardContent sx={{ p: 1, "&:last-child": { pb: 1 } }}>
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                        <Box sx={{ flex: 1, minWidth: 0 }}>
+                          <Typography sx={{ fontSize: "0.92rem", fontWeight: 800, color: C.textPrimary }} noWrap>#{orderNum} {name}</Typography>
+                          <Typography sx={{ fontSize: "0.72rem", color: C.textSecondary }}>{location}</Typography>
+                          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, mt: 0.25 }}>
+                            {outstanding > 0 && <Chip label={`₹${outstanding.toLocaleString()} due`} size="small" sx={{ height: 18, fontSize: "0.58rem", fontWeight: 700, bgcolor: C.redBg, color: C.redText, borderRadius: 1 }} />}
+                            {userLabel && <Typography component="span" sx={{ fontSize: "0.65rem", color: C.textMuted }}>{userLabel}</Typography>}
+                          </Box>
+                        </Box>
+                        <TextField type="number" size="small" placeholder="₹" value={pendingVal} onChange={(e) => setPendingBulkAmounts((p) => ({ ...p, [idStr]: e.target.value }))} sx={{ width: 72 }} inputProps={{ min: 0, step: 0.01 }} />
+                        <Button size="small" variant="contained" onClick={() => { const amt = Number(pendingVal); if (amt > 0) addOrderToBulkAllocation(order, amt); else Toast.error("Enter amount first"); }} sx={{ fontSize: "0.7rem", textTransform: "none", fontWeight: 700, borderRadius: 2, background: C.gradient }}>Add</Button>
+                      </Box>
+                    </CardContent>
+                  </Card>
+                );
+              })
+            ) : (
+              <Typography sx={{ fontSize: "0.75rem", color: C.textMuted, py: 1.5 }}>No orders found.</Typography>
+            )}
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ px: 2, pb: 2, pt: 1, borderTop: `1px solid ${C.border}`, bgcolor: "white" }}>
+          <Button onClick={() => { setShowBulkPaymentDialog(false); setPendingBulkAmounts({}); setBulkOrderSearch(""); setBulkOrderSearchResults([]); }} sx={{ textTransform: "none", fontWeight: 700 }}>Cancel</Button>
+          <Button variant="contained" onClick={handleBulkPaymentSubmit} disabled={bulkPaymentSubmitting} startIcon={bulkPaymentSubmitting ? <CircularProgress size={18} color="inherit" /> : <CheckIcon />} sx={{ textTransform: "none", fontWeight: 700, borderRadius: 2, background: C.gradient }}>
+            {bulkPaymentSubmitting ? "Saving…" : "Submit Payment"}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Add Order Form Dialog */}
       <Dialog
@@ -5334,6 +5511,16 @@ const AgriSalesOrderMobile = () => {
           </DialogContent>
         </Dialog>
       )}
+      <PaymentQRModal
+        open={paymentQRModalOpen}
+        onClose={() => { setPaymentQRModalOpen(false); setPaymentQRModalData(null); }}
+        qrImageOrString={paymentQRModalData?.qrImageOrString}
+        amount={paymentQRModalData?.amount}
+        orderId={paymentQRModalData?.orderId}
+        customerName={paymentQRModalData?.customerName}
+        mobileNumber={paymentQRModalData?.mobileNumber}
+        expiresAt={paymentQRModalData?.expiresAt}
+      />
     </Box>
   );
 };

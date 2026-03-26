@@ -1,4 +1,4 @@
-import { DateTimePicker } from "@mui/x-date-pickers"
+import { DateTimePicker } from "@mui/x-date-pickers/DateTimePicker"
 import { styled } from "@mui/material/styles"
 
 const NewDateTimePicker = styled(DateTimePicker)(({ theme }) => ({

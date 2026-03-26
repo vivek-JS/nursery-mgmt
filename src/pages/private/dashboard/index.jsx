@@ -19,13 +19,29 @@ function Dashboard() {
   }
 
   // Keyboard shortcut: Ctrl + Shift to open Add Order dialog
+  // Keyboard shortcut: Ctrl + O to open Add Order dialog
   useEffect(() => {
     const handleKeyDown = (event) => {
+      const tag = event.target?.tagName?.toLowerCase?.() || ""
+      const isTextField =
+        tag === "input" || tag === "textarea" || tag === "select" || event.target?.isContentEditable
+
+      if (isTextField) return
+
       // Check for Ctrl + Shift (or Cmd + Shift on Mac)
       if ((event.ctrlKey || event.metaKey) && event.shiftKey) {
         // Prevent default browser behavior
         event.preventDefault()
         // Open the Add Order dialog
+        setIsAddOrderOpen(true)
+      } else if (
+        (event.ctrlKey || event.metaKey) &&
+        !event.shiftKey &&
+        event.key &&
+        event.key.toLowerCase() === "o"
+      ) {
+        // Prevent default browser behavior (Ctrl+O often opens the browser "Open" dialog)
+        event.preventDefault()
         setIsAddOrderOpen(true)
       }
     }

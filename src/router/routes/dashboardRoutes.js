@@ -23,6 +23,8 @@ import TaskIcon from "@mui/icons-material/Task"
 import CloudUploadIcon from "@mui/icons-material/CloudUpload"
 import DashboardIcon from "@mui/icons-material/Dashboard"
 import PhoneIcon from "@mui/icons-material/Phone"
+import ParkIcon from "@mui/icons-material/Park"
+import AccountBalanceIcon from "@mui/icons-material/AccountBalance"
 
 export const DashboardMenus = [
   new MenuPath("Orders", <HomeIcon />, "/u/dashboard"),
@@ -38,6 +40,8 @@ export const DashboardMenus = [
   new MenuPath("Backup & Import", <BiotechIcon />, "/u/data"),
   new MenuPath("Farmers", <BiotechIcon />, "/u/farmers"),
   new MenuPath("Call Assignment", <PhoneIcon />, "/u/call-assignment"),
+  new MenuPath("Primary ops", <GrassIcon />, "/u/primary-mobile", null, ["SUPER_ADMIN", "ADMIN"]),
+  new MenuPath("Secondary ops", <ParkIcon />, "/u/secondary-sowing-entry", null, ["SUPER_ADMIN", "ADMIN"]),
   // new MenuPath("Weekly", <DateRangeOutlinedIcon />, "/u/weekly"),
   // new MenuPath("Transactions", <PaidIcon />, "/u/transactions"),
   new MenuPath("Employees", <GroupIcon />, "/u/employeese"),
@@ -53,7 +57,8 @@ export const DashboardMenus = [
   new MenuPath("Order Bucketing", <AccountTreeIcon />, "/u/order-bucketing"),
   new MenuPath("Excel Import", <CloudUploadIcon />, "/u/upload-orders"),
   new MenuPath("Dealers", <ListAltIcon />, "/u/dealers"),
-  new MenuPath("Payments", <PaymentIcon />, "/u/payments", ["ACCOUNTANT", "SUPER_ADMIN"]),
+  new MenuPath("Accountant Dashboard", <AccountBalanceIcon />, "/u/accountant-dashboard", null, ["ACCOUNTANT", "SUPER_ADMIN"]),
+  new MenuPath("Payments", <PaymentIcon />, "/u/payments", null, ["ACCOUNTANT", "SUPER_ADMIN"]),
   new MenuPath("WhatsApp Management", <WhatsAppIcon />, "/u/whatsapp", ["SUPER_ADMIN"]),
   new MenuPath("WhatsApp Automation", <WhatsAppIcon />, "/u/whatsapp-automation", ["SUPER_ADMIN"]),
   new MenuPath("Automation", <TaskIcon />, "/u/automation", ["SUPER_ADMIN","ADMIN"]),

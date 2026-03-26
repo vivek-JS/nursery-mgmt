@@ -16,8 +16,10 @@ const BatchTable = () => {
     batchNumber: "",
     dateAdded: new Date().toISOString().split("T")[0],
     primaryPlantReadyDays: "",
-    secondaryPlantReadyDays: ""
+    secondaryPlantReadyDays: "",
+    plantReadyDaysChangeReason: ""
   })
+  const [initialEditDays, setInitialEditDays] = useState(null)
   const [currentPage, setCurrentPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [refresh, setRefresh] = useState(false)
@@ -65,6 +67,17 @@ const BatchTable = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
+    if (editingBatch && initialEditDays) {
+      const daysChanged =
+        Number(formData.primaryPlantReadyDays) !==
+          Number(initialEditDays.primary) ||
+        Number(formData.secondaryPlantReadyDays) !==
+          Number(initialEditDays.secondary)
+      if (daysChanged && !formData.plantReadyDaysChangeReason?.trim()) {
+        alert("Please enter a reason for changing plant ready days.")
+        return
+      }
+    }
     setLoading(true)
     try {
       const instance = NetworkManager(
@@ -77,9 +90,13 @@ const BatchTable = () => {
       if (response.data) {
         setIsFormOpen(false)
         setEditingBatch(null)
+        setInitialEditDays(null)
         setFormData({
           batchNumber: "",
-          dateAdded: new Date().toISOString().split("T")[0]
+          dateAdded: new Date().toISOString().split("T")[0],
+          primaryPlantReadyDays: "",
+          secondaryPlantReadyDays: "",
+          plantReadyDaysChangeReason: ""
         })
         setRefresh(!refresh)
       }
@@ -94,11 +111,19 @@ const BatchTable = () => {
       batchNumber: "",
       dateAdded: new Date().toISOString().split("T")[0],
       primaryPlantReadyDays: "",
-      secondaryPlantReadyDays: ""
+      secondaryPlantReadyDays: "",
+      plantReadyDaysChangeReason: ""
     })
     setEditingBatch(null)
+    setInitialEditDays(null)
     setIsFormOpen(false)
   }
+
+  const daysDirty =
+    editingBatch &&
+    initialEditDays &&
+    (Number(formData.primaryPlantReadyDays) !== Number(initialEditDays.primary) ||
+      Number(formData.secondaryPlantReadyDays) !== Number(initialEditDays.secondary))
   return (
     <div className="p-6">
       {loading && <PageLoader />}
@@ -158,11 +183,16 @@ const BatchTable = () => {
                   <button
                     onClick={() => {
                       setEditingBatch(batch)
+                      setInitialEditDays({
+                        primary: batch.primaryPlantReadyDays,
+                        secondary: batch.secondaryPlantReadyDays
+                      })
                       setFormData({
                         batchNumber: batch.batchNumber,
                         dateAdded: batch.dateAdded.split("T")[0],
                         primaryPlantReadyDays: batch.primaryPlantReadyDays,
-                        secondaryPlantReadyDays: batch.secondaryPlantReadyDays
+                        secondaryPlantReadyDays: batch.secondaryPlantReadyDays,
+                        plantReadyDaysChangeReason: ""
                       })
                       setIsFormOpen(true)
                     }}
@@ -246,9 +276,13 @@ const BatchTable = () => {
         onClose={() => {
           setIsFormOpen(false)
           setEditingBatch(null)
+          setInitialEditDays(null)
           setFormData({
             batchNumber: "",
-            dateAdded: new Date().toISOString().split("T")[0]
+            dateAdded: new Date().toISOString().split("T")[0],
+            primaryPlantReadyDays: "",
+            secondaryPlantReadyDays: "",
+            plantReadyDaysChangeReason: ""
           })
         }}
         maxWidth="sm"
@@ -309,6 +343,37 @@ const BatchTable = () => {
                   className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2"
                 />
               </div>
+              {editingBatch && daysDirty && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">
+                    Reason for changing plant ready days <span className="text-red-600">*</span>
+                  </label>
+                  <textarea
+                    required
+                    rows={3}
+                    value={formData.plantReadyDaysChangeReason}
+                    onChange={(e) =>
+                      setFormData({ ...formData, plantReadyDaysChangeReason: e.target.value })
+                    }
+                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2"
+                    placeholder="Required for audit log"
+                  />
+                </div>
+              )}
+              {editingBatch && editingBatch.plantReadyDaysAudit?.length > 0 && (
+                <div className="text-xs text-gray-600 border rounded p-2 max-h-32 overflow-y-auto">
+                  <div className="font-medium text-gray-700 mb-1">Recent changes</div>
+                  {(editingBatch.plantReadyDaysAudit || [])
+                    .slice(-5)
+                    .reverse()
+                    .map((a, i) => (
+                      <div key={i} className="mb-1 border-b border-gray-100 pb-1">
+                        {a.field}: {a.oldValue} → {a.newValue}
+                        {a.reason && ` — ${a.reason}`}
+                      </div>
+                    ))}
+                </div>
+              )}
             </div>
           </DialogContent>
           <DialogActions className="p-4 border-t">

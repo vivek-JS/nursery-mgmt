@@ -311,6 +311,7 @@ export const API = {
     REJECT_AGRI_SALES_ORDER: new APIRouter("/inventory/agri-sales-orders/:id/reject", HTTP_METHODS.PATCH),
     CANCEL_AGRI_SALES_ORDER: new APIRouter("/inventory/agri-sales-orders/:id/cancel", HTTP_METHODS.PATCH),
     ADD_AGRI_SALES_ORDER_PAYMENT: new APIRouter("/inventory/agri-sales-orders", HTTP_METHODS.PATCH), // /:id/payment
+    GENERATE_PAYMENT_QR_AGRI: new APIRouter("/inventory/agri-sales-orders/:id/generate-payment-qr", HTTP_METHODS.POST),
     UPDATE_AGRI_SALES_ORDER_PAYMENT_STATUS: new APIRouter("/inventory/agri-sales-orders", HTTP_METHODS.PATCH), // /:id/payment/:paymentIndex/status
     GET_AGRI_SALES_CUSTOMER_BY_MOBILE: new APIRouter("/inventory/agri-sales-orders/customer/:mobileNumber", HTTP_METHODS.GET),
     GET_AGRI_SALES_PENDING_PAYMENTS: new APIRouter("/inventory/agri-sales-pending-payments", HTTP_METHODS.GET),
@@ -420,6 +421,7 @@ export const API = {
       OFFLINE.PROFILE
     ),
     ADD_PAYMENT: new APIRouter("order/payment/:orderId", HTTP_METHODS.PATCH, OFFLINE.PROFILE),
+    GENERATE_PAYMENT_QR: new APIRouter("order/:orderId/generate-payment-qr", HTTP_METHODS.POST, OFFLINE.PROFILE),
     SEND_ACCEPTED_WHATSAPP: new APIRouter("order/:orderId/send-accepted-whatsapp", HTTP_METHODS.POST, OFFLINE.PROFILE),
     GET_CSV: new APIRouter("order/getCSV", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_SLOTS: new APIRouter("slots/getslots", HTTP_METHODS.GET, OFFLINE.PROFILE),
@@ -431,7 +433,12 @@ export const API = {
     GET_TODAYS_PAYMENT_ACTIVITIES: new APIRouter("/order/payment-activity/today", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_UNCLEARED_PAYMENTS: new APIRouter("/order/payments/uncleared", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_PAYMENTS_FOR_APPROVAL: new APIRouter("/order/payments/for-approval", HTTP_METHODS.GET, OFFLINE.PROFILE),
-    POST_RECONCILE_PAYMENTS: new APIRouter("/order/payments/reconcile", HTTP_METHODS.POST, OFFLINE.PROFILE)
+    POST_RECONCILE_PAYMENTS: new APIRouter("/order/payments/reconcile", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    GET_BULK_PAYMENTS: new APIRouter("/order/bulk-payments", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    POST_BULK_PAYMENT: new APIRouter("/order/bulk-payment", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    ACCEPT_BULK_PAYMENT: new APIRouter("/order/bulk-payment/:id/accept", HTTP_METHODS.PATCH, OFFLINE.PROFILE),
+    /** Farmer plant orders — append-only ledger (parallel to Ram Agri customer ledger) */
+    GET_FARMER_PLANT_LEDGER: new APIRouter("/order/farmer-plant-ledger", HTTP_METHODS.GET, OFFLINE.PROFILE)
   },
   plantCms: {
     POST_NEWPLANT: new APIRouter("/plantcms/plants", HTTP_METHODS.POST, OFFLINE.PROFILE),
@@ -537,7 +544,56 @@ export const API = {
   PLANT_OUTWARD: {
     ADD_LAB: new APIRouter("laboutward/batch/labs", HTTP_METHODS.POST),
     UPDATE_LAB: new APIRouter("batch/outward/lab", HTTP_METHODS.PUT),
-    GET_OUTWARDS: new APIRouter("laboutward/outwards", HTTP_METHODS.GET)
+    GET_OUTWARDS: new APIRouter("laboutward/outwards", HTTP_METHODS.GET),
+    GET_BY_BATCH: new APIRouter("laboutward/batch/:batchId", HTTP_METHODS.GET),
+    PRIMARY_MOBILE_DASHBOARD: new APIRouter(
+      "laboutward/primary-mobile-dashboard",
+      HTTP_METHODS.GET
+    ),
+    SECONDARY_MOBILE_DASHBOARD: new APIRouter(
+      "laboutward/secondary-mobile-dashboard",
+      HTTP_METHODS.GET
+    ),
+    ACCEPTED_LAB_LINES: new APIRouter("laboutward/accepted-lab-lines", HTTP_METHODS.GET),
+    LAB_REVIEW: new APIRouter(
+      "laboutward/batch/:batchId/lab/:labId/review",
+      HTTP_METHODS.PATCH
+    ),
+    LAB_TO_PRIMARY_INWARD: new APIRouter(
+      "laboutward/lab-to-primaryInward/:batchId",
+      HTTP_METHODS.POST
+    ),
+    /** Alias — primary mobile (same handler as LAB_TO_PRIMARY_INWARD) */
+    PRIMARY_LAB_TO_PRIMARY_INWARD: new APIRouter(
+      "laboutward/primary/lab-to-primary-inward/:batchId",
+      HTTP_METHODS.POST
+    ),
+    PRIMARY_INWARD_TO_OUTWARD: new APIRouter(
+      "laboutward/primaryInward-to-primaryOutward/:batchId",
+      HTTP_METHODS.POST
+    ),
+    PRIMARY_PRIMARY_INWARD_TO_OUTWARD: new APIRouter(
+      "laboutward/primary/primary-inward-to-primary-outward/:batchId",
+      HTTP_METHODS.POST
+    ),
+    PRIMARY_TO_SECONDARY: new APIRouter(
+      "laboutward/primary-to-secondary/:batchId",
+      HTTP_METHODS.POST
+    ),
+    /** Alias — secondary mobile (same handler as PRIMARY_TO_SECONDARY) */
+    SECONDARY_FROM_PRIMARY_OUTWARD: new APIRouter(
+      "laboutward/secondary/from-primary-outward/:batchId",
+      HTTP_METHODS.POST
+    ),
+    SECONDARY_INWARD_TO_OUTWARD: new APIRouter(
+      "laboutward/secondaryInward-to-secondaryOutward/:batchId",
+      HTTP_METHODS.POST
+    ),
+    /** Alias — secondary mobile (same handler) */
+    SECONDARY_INWARD_TO_OUTWARD_NS: new APIRouter(
+      "laboutward/secondary/secondary-inward-to-outward/:batchId",
+      HTTP_METHODS.POST
+    )
   },
   POLLY_HOUSE: {
     CREATE_HOUSE: new APIRouter("pollyhouse/create", HTTP_METHODS.POST),

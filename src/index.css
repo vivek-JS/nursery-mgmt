@@ -2,6 +2,9 @@
 @tailwind components;
 @tailwind utilities;
 
+@import "./styles/agri-ledger-variables.css";
+@import "./styles/agri-ledger-theme.css";
+
 /* React DatePicker Styles */
 .react-datepicker {
   font-family: inherit;

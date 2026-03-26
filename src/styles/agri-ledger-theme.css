@@ -1,0 +1,145 @@
+/* AgriERP ledger dashboard — component surfaces (variables live in agri-ledger-variables.css) */
+
+.agri-ledger-dashboard {
+  font-family: Inter, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.agri-ledger-dashboard .tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes agri-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+    filter: blur(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+@keyframes agri-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes agri-slide-in-right {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.agri-ledger-dashboard .animate-fade-up {
+  animation: agri-fade-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.agri-ledger-dashboard .animate-fade-in {
+  animation: agri-fade-in 0.4s ease-out both;
+}
+.agri-ledger-dashboard .animate-slide-in-right {
+  animation: agri-slide-in-right 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.agri-ledger-dashboard .stagger-1 {
+  animation-delay: 60ms;
+}
+.agri-ledger-dashboard .stagger-2 {
+  animation-delay: 120ms;
+}
+.agri-ledger-dashboard .stagger-3 {
+  animation-delay: 180ms;
+}
+.agri-ledger-dashboard .stagger-4 {
+  animation-delay: 240ms;
+}
+.agri-ledger-dashboard .stagger-5 {
+  animation-delay: 300ms;
+}
+
+.agri-ledger-dashboard .data-table th {
+  @apply text-xs font-semibold uppercase tracking-wider text-muted-foreground bg-muted/60 border-b border-border;
+  padding: 10px 14px;
+  white-space: nowrap;
+}
+.agri-ledger-dashboard .data-table td {
+  padding: 11px 14px;
+  @apply border-b border-border text-sm;
+  vertical-align: middle;
+}
+.agri-ledger-dashboard .data-table tr:last-child td {
+  @apply border-b-0;
+}
+.agri-ledger-dashboard .data-table tr:hover td {
+  @apply bg-primary-light/40;
+}
+.agri-ledger-dashboard .data-table {
+  @apply w-full border-collapse;
+}
+
+.agri-ledger-dashboard .badge-pending {
+  background: hsl(var(--status-pending-bg));
+  color: hsl(var(--status-pending));
+}
+.agri-ledger-dashboard .badge-collected {
+  background: hsl(var(--status-collected-bg));
+  color: hsl(var(--status-collected));
+}
+.agri-ledger-dashboard .badge-rejected {
+  background: hsl(var(--status-rejected-bg));
+  color: hsl(var(--status-rejected));
+}
+.agri-ledger-dashboard .badge-accepted {
+  background: hsl(var(--status-accepted-bg));
+  color: hsl(var(--status-accepted));
+}
+
+.agri-ledger-dashboard .erp-card {
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+}
+
+.agri-ledger-dashboard .btn-primary {
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  border: 1px solid hsl(var(--primary));
+  border-radius: var(--radius);
+  font-weight: 500;
+  font-size: 0.875rem;
+  padding: 7px 14px;
+  cursor: pointer;
+  transition: background 0.15s ease-out, box-shadow 0.15s ease-out;
+}
+.agri-ledger-dashboard .btn-primary:hover {
+  background: hsl(var(--primary-hover));
+  box-shadow: var(--shadow-sm);
+}
+.agri-ledger-dashboard .btn-primary:active {
+  transform: scale(0.98);
+}
+
+.agri-ledger-dashboard .erp-input {
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  background: hsl(var(--surface));
+  color: hsl(var(--foreground));
+  font-size: 0.875rem;
+  padding: 7px 12px;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.agri-ledger-dashboard .erp-input:focus {
+  border-color: hsl(var(--ring));
+  box-shadow: 0 0 0 3px hsl(var(--ring) / 0.12);
+}

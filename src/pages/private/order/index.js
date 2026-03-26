@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Grid, Button, TextField, Chip } from '@mui/material';
 import { makeStyles } from 'tss-react/mui';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
-import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
+import { LocalizationProvider } from 'lib/muiLocalizationProvider';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import format from 'date-fns/format';
 

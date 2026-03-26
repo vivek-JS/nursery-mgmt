@@ -13,7 +13,7 @@ import {
   useMediaQuery,
   MenuItem,
 } from "@mui/material";
-import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
+import { LocalizationProvider } from "lib/muiLocalizationProvider";
 import { AdapterMoment } from "@mui/x-date-pickers/AdapterMoment";
 import moment from "moment";
 import { NetworkManager, API } from "network/core";

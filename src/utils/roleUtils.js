@@ -20,8 +20,8 @@ export const useUserRole = () => {
 }
 
 /**
- * Check if user has payment access (ACCOUNTANT or SUPER_ADMIN)
- * This is for changing payment status only
+ * Check if user has payment access – for Accept/Collected only (ACCOUNTANT or SUPER_ADMIN).
+ * Adding payment: any user can add (e.g. who placed order). Collected is done by accountant.
  * All checks prioritize jobTitle over role
  */
 export const useHasPaymentAccess = () => {
@@ -51,11 +51,12 @@ export const useHasPaymentAddAccess = () => {
 }
 
 /**
- * Check if user can add payments - ANYONE can add payments now
- * All new payments will be added with PENDING status
+ * Check if user can add payments. Any user can add payment (e.g. who placed the order).
+ * Accept/Collected is restricted to accountant (useHasPaymentAccess).
+ * All new payments are added as PENDING; accountant marks as collected.
  */
 export const useCanAddPayment = () => {
-  return true // Anyone can add payments
+  return true // Any user can add payments
 }
 
 /**

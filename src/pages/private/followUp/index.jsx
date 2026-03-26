@@ -57,7 +57,7 @@ import {
   Language as LanguageIcon,
 } from "@mui/icons-material";
 import { DatePicker } from "@mui/x-date-pickers/DatePicker";
-import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
+import { LocalizationProvider } from "lib/muiLocalizationProvider";
 import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFns";
 import { API, NetworkManager } from "network/core";
 import { Toast } from "helpers/toasts/toastHelper";

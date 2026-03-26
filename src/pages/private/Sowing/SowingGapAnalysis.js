@@ -77,7 +77,7 @@ import {
   Line,
 } from "recharts";
 import { NetworkManager, API } from "network/core";
-import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
+import { LocalizationProvider } from "lib/muiLocalizationProvider";
 import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFns";
 import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 import moment from "moment";

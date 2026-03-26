@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react"
+import React, { useState, useEffect, useCallback, useRef } from "react"
 import { useLocation, useNavigate } from "react-router-dom"
 import { useSelector } from "react-redux"
 import {
@@ -19,6 +19,9 @@ import {
   InputLabel,
   Select,
   Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
   Button,
   Divider,
   Tabs,
@@ -65,6 +68,7 @@ import {
   ExpandLess as ExpandLessIcon,
   KeyboardArrowRight as ArrowRightIcon,
   WhatsApp as WhatsAppIcon,
+  Close as CloseIcon,
 } from "@mui/icons-material"
 import DatePicker from "react-datepicker"
 import "react-datepicker/dist/react-datepicker.css"
@@ -73,6 +77,7 @@ import debounce from "lodash.debounce"
 import { API, NetworkManager } from "network/core"
 import { Toast } from "helpers/toasts/toastHelper"
 import AddOrderForm from "./AddOrderForm"
+import PaymentQRModal from "components/Modals/PaymentQRModal"
 
 // ================================================================
 // THEME COLORS
@@ -164,6 +169,9 @@ function PlaceOrderMobile() {
   const [showFilters, setShowFilters] = useState(false)
   const [expandedOrder, setExpandedOrder] = useState(null)
   const [addPaymentOpen, setAddPaymentOpen] = useState(null)
+  const [paymentQRModalOpen, setPaymentQRModalOpen] = useState(false)
+  const [paymentQRModalData, setPaymentQRModalData] = useState(null)
+  const [generateQRLoading, setGenerateQRLoading] = useState(false)
   const [selectedOrder, setSelectedOrder] = useState(null)
   const [detailOpen, setDetailOpen] = useState(false)
   const [detailTab, setDetailTab] = useState(0)
@@ -191,6 +199,25 @@ function PlaceOrderMobile() {
   const [orderMode, setOrderMode] = useState(location.state?.orderMode === "plant" ? "plant" : null)
   const [shareOrderDialogOpen, setShareOrderDialogOpen] = useState(false)
   const [shareOrderPayload, setShareOrderPayload] = useState(null)
+  // Bulk payment (plant orders – same flow as agri mobile)
+  const [showBulkPaymentDialog, setShowBulkPaymentDialog] = useState(false)
+  const [bulkPaymentMain, setBulkPaymentMain] = useState({
+    totalAmount: "",
+    paymentDate: moment().format("YYYY-MM-DD"),
+    modeOfPayment: "",
+    bankName: "",
+    remark: "",
+    transactionId: "",
+    chequeNumber: "",
+    receiptPhoto: [],
+  })
+  const [bulkAllocations, setBulkAllocations] = useState([])
+  const [pendingBulkAmounts, setPendingBulkAmounts] = useState({})
+  const [bulkPaymentSubmitting, setBulkPaymentSubmitting] = useState(false)
+  const [bulkOrderSearch, setBulkOrderSearch] = useState("")
+  const [bulkOrderSearchResults, setBulkOrderSearchResults] = useState([])
+  const [bulkOrderSearchLoading, setBulkOrderSearchLoading] = useState(false)
+  const bulkOrderSearchTimerRef = useRef(null)
 
   useEffect(() => {
     const handler = debounce(() => setDebouncedSearchTerm(searchTerm), 400)
@@ -333,6 +360,129 @@ function PlaceOrderMobile() {
   }, [selectedDateRange, debouncedSearchTerm, statusFilter, isDealerOrSales, userId])
 
   useEffect(() => { fetchOrders() }, [fetchOrders])
+
+  const searchBulkOrders = useCallback(async (search) => {
+    if (!search || String(search).trim().length < 2) {
+      setBulkOrderSearchResults([])
+      return
+    }
+    setBulkOrderSearchLoading(true)
+    try {
+      const instance = NetworkManager(API.ORDER.GET_ORDERS)
+      const params = { search: String(search).trim(), limit: 30, page: 1 }
+      if (isDealerOrSales && userId) params.salesPerson = userId
+      const response = await instance.request({}, params)
+      const rawData = response?.data?.data?.data || []
+      const mapped = rawData.map((data) => {
+        const { farmer, numberOfPlants = 0, additionalPlants = 0, totalPlants, rate, salesPerson, id, payment, orderId } = data || {}
+        const totalPlantCount = typeof totalPlants === "number" ? totalPlants : (numberOfPlants || 0) + (additionalPlants || 0)
+        const totalOrderAmount = Number(rate || 0) * totalPlantCount
+        const paid = getTotalPaid(payment)
+        const outstanding = Math.max(0, totalOrderAmount - paid)
+        return {
+          orderId: id,
+          orderNumber: orderId,
+          farmerName: farmer?.name || "—",
+          village: farmer?.village || farmer?.villageName || "—",
+          taluka: farmer?.talukaName || farmer?.taluka || "—",
+          district: farmer?.districtName || farmer?.district || "—",
+          salesPersonName: salesPerson?.name || "—",
+          outstanding,
+        }
+      }).filter((o) => o && o.orderId)
+      setBulkOrderSearchResults(mapped)
+    } catch (e) {
+      console.error("Bulk order search:", e)
+      setBulkOrderSearchResults([])
+    } finally {
+      setBulkOrderSearchLoading(false)
+    }
+  }, [isDealerOrSales, userId])
+
+  useEffect(() => {
+    if (!showBulkPaymentDialog) return
+    if (bulkOrderSearchTimerRef.current) clearTimeout(bulkOrderSearchTimerRef.current)
+    const q = String(bulkOrderSearch).trim()
+    if (q.length < 2) {
+      setBulkOrderSearchResults([])
+      return
+    }
+    bulkOrderSearchTimerRef.current = setTimeout(() => searchBulkOrders(q), 350)
+    return () => { if (bulkOrderSearchTimerRef.current) clearTimeout(bulkOrderSearchTimerRef.current) }
+  }, [showBulkPaymentDialog, bulkOrderSearch, searchBulkOrders])
+
+  const addOrderToBulkAllocation = (item, amount) => {
+    const amt = parseFloat(amount)
+    if (!item?.orderId || isNaN(amt) || amt <= 0) return
+    const orderLabel = `#${item.orderNumber || item.orderId}`
+    setBulkAllocations((prev) => {
+      if (prev.some((a) => a.orderId === item.orderId)) return prev
+      return [...prev, { ...item, amount: amt, orderLabel }]
+    })
+    setPendingBulkAmounts((prev) => ({ ...prev, [item.orderId]: "" }))
+  }
+
+  const removeBulkAllocation = (orderId) => {
+    setBulkAllocations((prev) => prev.filter((a) => a.orderId !== orderId))
+    setPendingBulkAmounts((prev) => { const next = { ...prev }; delete next[orderId]; return next })
+  }
+
+  const handleBulkPaymentSubmit = async () => {
+    if (!bulkAllocations.length) {
+      Toast.error("Add at least one order")
+      return
+    }
+    const totalAmount = bulkAllocations.reduce((s, a) => s + (Number(a.amount) || 0), 0)
+    if (!totalAmount || totalAmount <= 0) {
+      Toast.error("Enter valid amounts for orders")
+      return
+    }
+    const { modeOfPayment, paymentDate, receiptPhoto, bankName, remark, transactionId, chequeNumber } = bulkPaymentMain
+    if (!modeOfPayment) {
+      Toast.error("Select payment mode")
+      return
+    }
+    const needsReceipt = modeOfPayment && !["Cash", "NEFT/RTGS", "Wallet"].includes(modeOfPayment)
+    if (needsReceipt && (!receiptPhoto || !receiptPhoto.length)) {
+      Toast.error("Receipt photo required for this payment mode")
+      return
+    }
+    setBulkPaymentSubmitting(true)
+    try {
+      const allocations = bulkAllocations.map((a) => ({
+        orderId: a.orderId,
+        amount: Number(a.amount),
+        orderType: "ORDER",
+        source: "PLANT",
+      }))
+      const payload = {
+        totalAmount,
+        paymentDate: paymentDate || moment().format("YYYY-MM-DD"),
+        modeOfPayment,
+        bankName: bankName || "",
+        remark: remark || "",
+        receiptPhoto: receiptPhoto || [],
+        transactionId: transactionId || undefined,
+        chequeNumber: chequeNumber || undefined,
+        allocations,
+      }
+      const instance = NetworkManager(API.ORDER.POST_BULK_PAYMENT)
+      await instance.request(payload)
+      Toast.success("Bulk payment added")
+      setShowBulkPaymentDialog(false)
+      setBulkAllocations([])
+      setPendingBulkAmounts({})
+      setBulkPaymentMain({ totalAmount: "", paymentDate: moment().format("YYYY-MM-DD"), modeOfPayment: "", bankName: "", remark: "", transactionId: "", chequeNumber: "", receiptPhoto: [] })
+      setBulkOrderSearch("")
+      setBulkOrderSearchResults([])
+      fetchOrders()
+    } catch (err) {
+      Toast.error(err?.response?.data?.message || "Bulk payment failed")
+    } finally {
+      setBulkPaymentSubmitting(false)
+    }
+  }
+
   const handleSuccess = (createdOrderPayload) => {
     setShowForm(false)
     fetchOrders()
@@ -395,6 +545,21 @@ function PlaceOrderMobile() {
       setNewPayment({ paidAmount: "", paymentDate: moment().format("YYYY-MM-DD"), modeOfPayment: "", bankName: "", remark: "", receiptPhoto: [], paymentStatus: "PENDING", isWalletPayment: false })
       if (userId) loadDealerWallet(userId); await refreshOrderDetail()
     } catch (err) { Toast.error(err?.response?.data?.message || "Failed to add payment") } finally { setPaymentLoading(false) }
+  }
+  const handleGeneratePaymentQR = async (row) => {
+    if (!row?._id) { Toast.error("Order not found"); return }
+    setGenerateQRLoading(true)
+    try {
+      const inst = NetworkManager(API.ORDER.GENERATE_PAYMENT_QR)
+      const res = await inst.request({}, [row._id])
+      const data = res?.data
+      if (data?.success && data?.qrImageOrString != null) {
+        setPaymentQRModalData({ qrImageOrString: data.qrImageOrString, amount: data.amount, orderId: data.orderId, customerName: data.customerName, mobileNumber: data.mobileNumber, expiresAt: data.expiresAt })
+        setPaymentQRModalOpen(true)
+        Toast.success("QR generated")
+        refreshOrderDetail()
+      } else { Toast.error(data?.message || "Failed to generate QR") }
+    } catch (err) { Toast.error(err?.response?.data?.message || "Failed to generate payment QR") } finally { setGenerateQRLoading(false) }
   }
   const handleSaveEdit = async () => {
     if (!selectedOrder) return; setEditLoading(true)
@@ -565,18 +730,37 @@ function PlaceOrderMobile() {
             )}
           </Box>
 
-          {/* Add Payment */}
+          {/* Add Payment / Generate QR */}
           {row.orderStatus !== "DISPATCHED" && row.orderStatus !== "REJECTED" && (
             <Box>
-              <Button fullWidth size="small"
-                variant={addPaymentOpen === row._id ? "contained" : "outlined"}
-                startIcon={<PaymentIcon sx={{ fontSize: 15 }} />}
-                onClick={(e) => { e.stopPropagation(); setAddPaymentOpen(addPaymentOpen === row._id ? null : row._id); setSelectedOrder(row) }}
-                sx={{ fontSize: "0.75rem", fontWeight: 700, textTransform: "none", borderRadius: 2, height: 34, mb: 0.5,
-                  ...(addPaymentOpen === row._id ? { background: C.gradient, boxShadow: "0 2px 8px rgba(91,95,199,0.3)" } : { borderColor: C.primary, color: C.primary })
-                }}>
-                {addPaymentOpen === row._id ? "Close" : "Add Payment"}
-              </Button>
+              {(() => {
+                const totalAmt = (row.rate || 0) * ((row.numberOfPlants || 0) + (row.additionalPlants || 0))
+                const paidAmt = (row.payment || []).reduce((s, p) => s + (p?.paymentStatus === "COLLECTED" ? Number(p?.paidAmount || 0) : 0), 0)
+                const balance = Math.max(0, totalAmt - paidAmt)
+                const now = new Date()
+                const hasActiveQR = (row.payment || []).some((p) => p.paymentStatus === "PENDING" && p.qrReferenceId && p.qrExpiresAt && new Date(p.qrExpiresAt) > now)
+                return (
+                  <Box sx={{ display: "flex", gap: 0.5, mb: 0.5 }}>
+                    {balance > 0 && !hasActiveQR && (
+                      <Button size="small" variant="outlined" disabled={generateQRLoading}
+                        startIcon={<PaymentIcon sx={{ fontSize: 15 }} />}
+                        onClick={(e) => { e.stopPropagation(); handleGeneratePaymentQR(row) }}
+                        sx={{ flex: 1, fontSize: "0.7rem", fontWeight: 700, textTransform: "none", borderRadius: 2, height: 34, borderColor: "#0d9488", color: "#0d9488" }}>
+                        {generateQRLoading ? "…" : "QR Pay"}
+                      </Button>
+                    )}
+                    <Button fullWidth={balance <= 0 || hasActiveQR} size="small"
+                      variant={addPaymentOpen === row._id ? "contained" : "outlined"}
+                      startIcon={<PaymentIcon sx={{ fontSize: 15 }} />}
+                      onClick={(e) => { e.stopPropagation(); setAddPaymentOpen(addPaymentOpen === row._id ? null : row._id); setSelectedOrder(row) }}
+                      sx={{ flex: 1, fontSize: "0.75rem", fontWeight: 700, textTransform: "none", borderRadius: 2, height: 34,
+                        ...(addPaymentOpen === row._id ? { background: C.gradient, boxShadow: "0 2px 8px rgba(91,95,199,0.3)" } : { borderColor: C.primary, color: C.primary })
+                      }}>
+                      {addPaymentOpen === row._id ? "Close" : "Add Payment"}
+                    </Button>
+                  </Box>
+                )
+              })()}
               <Collapse in={addPaymentOpen === row._id}>
                 <Box sx={{ p: 1.25, bgcolor: C.bg, borderRadius: 2, border: `1px solid ${C.border}`, mt: 0.5 }}>
                   {isDealer && dealerWallet && (
@@ -672,6 +856,11 @@ function PlaceOrderMobile() {
             <IconButton size="small" onClick={fetchOrders} disabled={loading} sx={{ bgcolor: C.bg, width: 38, height: 38, borderRadius: 2.5, border: `1px solid ${C.border}` }}>
               <RefreshIcon sx={{ fontSize: 18, color: C.textSecondary }} />
             </IconButton>
+            <Button size="small" variant="contained" startIcon={<PaymentIcon sx={{ fontSize: 16 }} />}
+              onClick={() => { setShowBulkPaymentDialog(true); setBulkOrderSearch(""); setBulkOrderSearchResults([]); setBulkAllocations([]); setPendingBulkAmounts({}); setBulkPaymentMain({ totalAmount: "", paymentDate: moment().format("YYYY-MM-DD"), modeOfPayment: "", bankName: "", remark: "", transactionId: "", chequeNumber: "", receiptPhoto: [] }) }}
+              sx={{ height: 38, borderRadius: 2.5, textTransform: "none", fontSize: "0.75rem", fontWeight: 700, bgcolor: "#0D9488", "&:hover": { bgcolor: "#0F766E" } }}>
+              Bulk payment
+            </Button>
           </Box>
           {showFilters && (
             <Box sx={{ mt: 1, display: "flex", gap: 0.75, alignItems: "center", flexWrap: "wrap" }}>
@@ -807,6 +996,141 @@ function PlaceOrderMobile() {
           sx={{ position: "fixed", bottom: 72, right: 16, width: 52, height: 52, background: C.gradient, boxShadow: "0 6px 20px rgba(91,95,199,0.35)", zIndex: 1150, "&:hover": { boxShadow: "0 8px 25px rgba(91,95,199,0.45)" } }}>
           <AddIcon sx={{ color: "white", fontSize: 26 }} />
         </Fab>
+
+        {/* Bulk Payment Dialog – same UI as Ram Agri mobile */}
+        <Dialog
+          open={showBulkPaymentDialog}
+          onClose={() => { setShowBulkPaymentDialog(false); setPendingBulkAmounts({}); setBulkOrderSearch(""); setBulkOrderSearchResults([]) }}
+          fullScreen
+          PaperProps={{ sx: { borderRadius: 0, bgcolor: C.bg } }}>
+          <DialogTitle sx={{ background: C.gradient, color: "white", display: "flex", alignItems: "center", justifyContent: "space-between", py: 1.5, px: 2 }}>
+            <Typography sx={{ fontSize: "0.95rem", fontWeight: 800, color: "white" }}>Bulk payment</Typography>
+            <IconButton onClick={() => { setShowBulkPaymentDialog(false); setPendingBulkAmounts({}); setBulkOrderSearch(""); setBulkOrderSearchResults([]) }} sx={{ color: "white", p: 0.5 }} size="small"><CloseIcon /></IconButton>
+          </DialogTitle>
+          <DialogContent sx={{ p: 1.5, bgcolor: C.bg, "&:first-of-type": { pt: 1.5 } }}>
+            <Card elevation={0} sx={{ borderRadius: 3, border: `1px solid ${C.border}`, boxShadow: "0 1px 3px rgba(0,0,0,0.04)", mb: 1.5, overflow: "hidden" }}>
+              <CardContent sx={{ p: 1.25, "&:last-child": { pb: 1.25 } }}>
+                <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: C.textMuted, letterSpacing: "0.02em", mb: 1 }}>Payment details</Typography>
+                <Box sx={{ display: "flex", gap: 0.75, mb: 0.75 }}>
+                  <TextField size="small" placeholder="Amount ₹" type="number" value={bulkPaymentMain.totalAmount} onChange={(e) => setBulkPaymentMain((p) => ({ ...p, totalAmount: e.target.value }))} sx={{ flex: 1, "& .MuiOutlinedInput-root": { borderRadius: 2 } }} inputProps={{ min: 0, step: 0.01 }} />
+                  <TextField size="small" type="date" value={bulkPaymentMain.paymentDate} onChange={(e) => setBulkPaymentMain((p) => ({ ...p, paymentDate: e.target.value }))} InputLabelProps={{ shrink: true }} sx={{ width: 130, "& .MuiOutlinedInput-root": { borderRadius: 2 } }} />
+                </Box>
+                <Box sx={{ display: "flex", gap: 0.75, mb: 0.75 }}>
+                  <FormControl size="small" sx={{ flex: 1 }}>
+                    <Select value={bulkPaymentMain.modeOfPayment} displayEmpty onChange={(e) => setBulkPaymentMain((p) => ({ ...p, modeOfPayment: e.target.value }))} sx={{ fontSize: "0.78rem", height: 36, borderRadius: 2, bgcolor: "white" }} renderValue={(v) => v || "Mode"}>
+                      <MenuItem value="">Mode</MenuItem>
+                      <MenuItem value="Cash">Cash</MenuItem>
+                      <MenuItem value="UPI">UPI</MenuItem>
+                      <MenuItem value="Cheque">Cheque</MenuItem>
+                      <MenuItem value="NEFT/RTGS">NEFT/RTGS</MenuItem>
+                      <MenuItem value="1341">1341</MenuItem>
+                      <MenuItem value="434">434</MenuItem>
+                      <MenuItem value="Wallet">Wallet</MenuItem>
+                    </Select>
+                  </FormControl>
+                  <Button variant="outlined" component="label" size="small" startIcon={<UploadIcon sx={{ fontSize: 13 }} />} sx={{ fontSize: "0.65rem", textTransform: "none", borderRadius: 2, height: 36, minWidth: 80, borderColor: C.border, color: C.textSecondary }}>
+                    {bulkPaymentMain.receiptPhoto?.length ? `${bulkPaymentMain.receiptPhoto.length} Receipt` : "Receipt"}
+                    <input type="file" hidden accept="image/*" multiple onChange={async (e) => {
+                      const files = Array.from(e.target.files || []);
+                      if (!files.length) return;
+                      try {
+                        const urls = await Promise.all(files.map(async (file) => {
+                          const fd = new FormData();
+                          fd.append("media_key", file);
+                          fd.append("media_type", "IMAGE");
+                          fd.append("content_type", "multipart/form-data");
+                          const inst = NetworkManager(API.MEDIA.UPLOAD);
+                          const res = await inst.request(fd);
+                          return res.data?.data?.media_url || res.data?.media_url;
+                        }));
+                        setBulkPaymentMain((p) => ({ ...p, receiptPhoto: [...(p.receiptPhoto || []), ...urls.filter(Boolean)] }));
+                        Toast.success("Uploaded");
+                      } catch { Toast.error("Upload failed"); }
+                    }} />
+                  </Button>
+                </Box>
+                {bulkPaymentMain.receiptPhoto?.length > 0 && (
+                  <Box sx={{ display: "flex", gap: 0.5, mb: 0.75, flexWrap: "wrap" }}>
+                    {bulkPaymentMain.receiptPhoto.map((url, idx) => (
+                      <Box key={idx} sx={{ position: "relative" }}>
+                        <Box component="img" src={url} sx={{ width: 40, height: 40, borderRadius: 1, objectFit: "cover", border: `1px solid ${C.border}` }} />
+                        <IconButton size="small" onClick={() => setBulkPaymentMain((p) => ({ ...p, receiptPhoto: (p.receiptPhoto || []).filter((_, i) => i !== idx) }))} sx={{ position: "absolute", top: -6, right: -6, bgcolor: C.red, color: "white", width: 16, height: 16 }}><DeleteIcon sx={{ fontSize: 9 }} /></IconButton>
+                      </Box>
+                    ))}
+                  </Box>
+                )}
+                {(bulkPaymentMain.modeOfPayment === "Cheque" || bulkPaymentMain.modeOfPayment === "NEFT/RTGS") && (
+                  <TextField size="small" label="Bank" value={bulkPaymentMain.bankName} onChange={(e) => setBulkPaymentMain((p) => ({ ...p, bankName: e.target.value }))} fullWidth sx={{ mb: 0.75, "& .MuiOutlinedInput-root": { borderRadius: 2 } }} />
+                )}
+                {bulkPaymentMain.modeOfPayment === "Cheque" && (
+                  <TextField size="small" label="Cheque No" value={bulkPaymentMain.chequeNumber} onChange={(e) => setBulkPaymentMain((p) => ({ ...p, chequeNumber: e.target.value }))} fullWidth sx={{ mb: 0.75, "& .MuiOutlinedInput-root": { borderRadius: 2 } }} />
+                )}
+                {bulkPaymentMain.modeOfPayment && bulkPaymentMain.modeOfPayment !== "Cheque" && (
+                  <TextField size="small" placeholder="Txn ID (optional)" value={bulkPaymentMain.transactionId} onChange={(e) => setBulkPaymentMain((p) => ({ ...p, transactionId: e.target.value }))} fullWidth sx={{ mb: 0.75, "& .MuiOutlinedInput-root": { borderRadius: 2 } }} />
+                )}
+                <TextField size="small" fullWidth placeholder="Remark (optional)" value={bulkPaymentMain.remark} onChange={(e) => setBulkPaymentMain((p) => ({ ...p, remark: e.target.value }))} sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2 } }} />
+              </CardContent>
+            </Card>
+
+            {bulkAllocations.length > 0 && (
+              <Box sx={{ mb: 1.5 }}>
+                <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: C.textMuted, mb: 0.75 }}>Added · {bulkAllocations.length} order(s) · ₹{bulkAllocations.reduce((s, a) => s + (Number(a.amount) || 0), 0).toLocaleString()}</Typography>
+                <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
+                  {bulkAllocations.map((a) => (
+                    <Chip key={String(a.orderId)} label={`${a.orderLabel} ₹${Number(a.amount).toLocaleString()}`} size="small" onDelete={() => removeBulkAllocation(a.orderId)}
+                      sx={{ height: 24, fontSize: "0.65rem", fontWeight: 700, bgcolor: C.greenBg, color: C.greenText, borderRadius: 1, border: `1px solid ${C.green}` }} />
+                  ))}
+                </Box>
+              </Box>
+            )}
+
+            <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: C.textMuted, letterSpacing: "0.02em", mb: 0.5 }}>Add orders</Typography>
+            <TextField size="small" fullWidth placeholder="Search by order number, name, ID…" value={bulkOrderSearch} onChange={(e) => setBulkOrderSearch(e.target.value)} sx={{ mb: 1, "& .MuiOutlinedInput-root": { borderRadius: 2 } }} />
+            <Box sx={{ maxHeight: 280, overflowY: "auto" }}>
+              {bulkOrderSearchLoading ? (
+                <Box sx={{ py: 3, textAlign: "center" }}><CircularProgress size={24} sx={{ color: C.primary }} /></Box>
+              ) : bulkOrderSearch.trim().length < 2 ? (
+                <Typography sx={{ fontSize: "0.75rem", color: C.textMuted, py: 1.5 }}>Type 2+ characters. Results show outstanding & salesman.</Typography>
+              ) : bulkOrderSearchResults.length > 0 ? (
+                bulkOrderSearchResults.map((order) => {
+                  const idStr = String(order.orderId);
+                  const orderNum = order.orderNumber || idStr;
+                  const name = order.farmerName || "—";
+                  const location = [order.village, order.taluka, order.district].filter(Boolean).join(" · ") || "—";
+                  const outstanding = order.outstanding != null ? Number(order.outstanding) : 0;
+                  const userLabel = order.salesPersonName || "";
+                  const pendingVal = pendingBulkAmounts[idStr] ?? "";
+                  return (
+                    <Card key={idStr} elevation={0} sx={{ borderRadius: 3, border: `1px solid ${C.border}`, boxShadow: "0 1px 3px rgba(0,0,0,0.04)", mb: 0.75, overflow: "hidden" }}>
+                      <CardContent sx={{ p: 1, "&:last-child": { pb: 1 } }}>
+                        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                          <Box sx={{ flex: 1, minWidth: 0 }}>
+                            <Typography sx={{ fontSize: "0.92rem", fontWeight: 800, color: C.textPrimary }} noWrap>#{orderNum} {name}</Typography>
+                            <Typography sx={{ fontSize: "0.72rem", color: C.textSecondary }}>{location}</Typography>
+                            <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, mt: 0.25 }}>
+                              {outstanding > 0 && <Chip label={`₹${outstanding.toLocaleString()} due`} size="small" sx={{ height: 18, fontSize: "0.58rem", fontWeight: 700, bgcolor: C.redBg, color: C.redText, borderRadius: 1 }} />}
+                              {userLabel && <Typography component="span" sx={{ fontSize: "0.65rem", color: C.textMuted }}>{userLabel}</Typography>}
+                            </Box>
+                          </Box>
+                          <TextField type="number" size="small" placeholder="₹" value={pendingVal} onChange={(e) => setPendingBulkAmounts((p) => ({ ...p, [idStr]: e.target.value }))} sx={{ width: 72 }} inputProps={{ min: 0, step: 0.01 }} />
+                          <Button size="small" variant="contained" onClick={() => { const amt = Number(pendingVal); if (amt > 0) addOrderToBulkAllocation(order, amt); else Toast.error("Enter amount first"); }} sx={{ fontSize: "0.7rem", textTransform: "none", fontWeight: 700, borderRadius: 2, background: C.gradient }}>Add</Button>
+                        </Box>
+                      </CardContent>
+                    </Card>
+                  );
+                })
+              ) : (
+                <Typography sx={{ fontSize: "0.75rem", color: C.textMuted, py: 1.5 }}>No orders found.</Typography>
+              )}
+            </Box>
+          </DialogContent>
+          <DialogActions sx={{ px: 2, pb: 2, pt: 1, borderTop: `1px solid ${C.border}`, bgcolor: "white" }}>
+            <Button onClick={() => { setShowBulkPaymentDialog(false); setPendingBulkAmounts({}); setBulkOrderSearch(""); setBulkOrderSearchResults([]); }} sx={{ textTransform: "none", fontWeight: 700 }}>Cancel</Button>
+            <Button variant="contained" onClick={handleBulkPaymentSubmit} disabled={bulkPaymentSubmitting} startIcon={bulkPaymentSubmitting ? <CircularProgress size={18} color="inherit" /> : <CheckIcon />} sx={{ textTransform: "none", fontWeight: 700, borderRadius: 2, background: C.gradient }}>
+              {bulkPaymentSubmitting ? "Saving…" : "Submit Payment"}
+            </Button>
+          </DialogActions>
+        </Dialog>
       </>
     )
   }
@@ -1577,6 +1901,16 @@ function PlaceOrderMobile() {
           </Box>
         </Dialog>
       )}
+      <PaymentQRModal
+        open={paymentQRModalOpen}
+        onClose={() => { setPaymentQRModalOpen(false); setPaymentQRModalData(null) }}
+        qrImageOrString={paymentQRModalData?.qrImageOrString}
+        amount={paymentQRModalData?.amount}
+        orderId={paymentQRModalData?.orderId}
+        customerName={paymentQRModalData?.customerName}
+        mobileNumber={paymentQRModalData?.mobileNumber}
+        expiresAt={paymentQRModalData?.expiresAt}
+      />
     </Box>
   )
 }
