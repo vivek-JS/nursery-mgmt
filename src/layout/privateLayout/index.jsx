@@ -80,6 +80,7 @@ export default function PrivateLayout(props) {
   const userRole = useUserRole()
   const userData = useSelector((state) => state?.userData?.userData)
   const primaryRedirectRef = useRef(false)
+  const secondaryRedirectRef = useRef(false)
   const dispatchRedirectRef = useRef(false)
   const ramAgriSalesRedirectRef = useRef(false)
   const ramAgriSalesManagerRedirectRef = useRef(false)
@@ -91,6 +92,7 @@ export default function PrivateLayout(props) {
   
   // Check if user is PRIMARY employee
   const isPrimaryEmployee = userType && (userType.toUpperCase() === "PRIMARY")
+  const isSecondaryEmployee = userType && (userType.toUpperCase() === "SECONDARY")
   const isSuperAdmin = userRole === "SUPER_ADMIN" || userRole === "SUPERADMIN"
   const isAdmin = userRole === "ADMIN"
   // Check dispatch manager by both role and jobTitle (since some users have role=FARMER but jobTitle=DISPATCH_MANAGER)
@@ -107,6 +109,7 @@ export default function PrivateLayout(props) {
   useEffect(() => {
     if (lastPathRef.current !== location.pathname) {
       primaryRedirectRef.current = false
+      secondaryRedirectRef.current = false
       dispatchRedirectRef.current = false
       ramAgriSalesRedirectRef.current = false
       ramAgriSalesManagerRedirectRef.current = false
@@ -138,7 +141,28 @@ export default function PrivateLayout(props) {
       }
     }
   }, [isPrimaryEmployee, isSuperAdmin, isAdmin, location.pathname, navigate, userData])
-  
+
+  // SECONDARY users land on /u/secondary-sowing-entry (parallel to /u/primary-sowing-entry); /u/secondary-mobile is an alias
+  useEffect(() => {
+    if (!userData) return
+    if (secondaryRedirectRef.current) return
+    if (isSecondaryEmployee && !isSuperAdmin && !isAdmin) {
+      const currentPath = location.pathname
+      const isSecondaryAllowedRoute =
+        currentPath === "/u/secondary-sowing-entry" ||
+        currentPath.includes("/u/secondary-sowing-entry") ||
+        currentPath === "/u/secondary-mobile" ||
+        currentPath.includes("/u/secondary-mobile")
+      if (!isSecondaryAllowedRoute) {
+        console.log(
+          `[PrivateLayout] SECONDARY user accessing ${currentPath}, redirecting to /u/secondary-sowing-entry`
+        )
+        secondaryRedirectRef.current = true
+        navigate("/u/secondary-sowing-entry", { replace: true })
+      }
+    }
+  }, [isSecondaryEmployee, isSuperAdmin, isAdmin, location.pathname, navigate, userData])
+
   // DISPATCH_MANAGER users can ONLY access /u/dispatch-orders route
   // Redirect them immediately if they try to access any other route
   // SUPER_ADMIN can access all routes, so don't redirect them
@@ -205,7 +229,7 @@ export default function PrivateLayout(props) {
     }
   }, [isRamAgriSalesManager, isSuperAdmin, isAdmin, location.pathname, navigate, userData])
   
-  // ACCOUNTANT can ONLY access: Orders, Payments, Dealers (sidebar + route-level)
+  // ACCOUNTANT can ONLY access: Orders, Payments, Accountant Dashboard (sidebar + route-level)
   useEffect(() => {
     if (!userData) return
     if (accountantRedirectRef.current) return
@@ -214,15 +238,15 @@ export default function PrivateLayout(props) {
     if (!isAccountant || isSuperAdmin) return
 
     const p = location.pathname
-    // Restrict ACCOUNTANT to Orders (dashboard), Order list, Payments, Dealers only
+    // Restrict ACCOUNTANT to Orders (dashboard), Order list, Payments, Accountant Dashboard only
     const allowed =
       p === "/u/dashboard" ||
       p === "/u/orders" ||
       p.startsWith("/u/orders") ||
       p === "/u/payments" ||
       p.startsWith("/u/payments/") ||
-      p === "/u/dealers" ||
-      p.startsWith("/u/dealers")
+      p === "/u/accountant-dashboard" ||
+      p.startsWith("/u/accountant-dashboard/")
 
     if (!allowed) {
       console.log(`[PrivateLayout] ACCOUNTANT user accessing ${p}, redirecting to /u/dashboard`)
@@ -280,9 +304,17 @@ export default function PrivateLayout(props) {
     }
   }, [isDealerOrSales, isSuperAdmin, isAdmin, location.pathname, navigate, userData])
   
-  // Hide sidebar for primary sowing entry route, dispatch orders route, mobile agri sales order route, and mobile place order route
+  // Hide sidebar for primary sowing entry, primary/secondary mobile ops, dispatch orders, mobile agri sales
   // With BrowserRouter, pathname is the actual route path
-  const hideSidebar = location.pathname === "/u/primary-sowing-entry" || location.pathname === "/u/dispatch-orders" || location.pathname === "/u/mobile" || location.pathname === "/u/mobile/agri-sales-order" || location.pathname === "/u/mobile/place-order"
+  const hideSidebar =
+    location.pathname === "/u/primary-sowing-entry" ||
+    location.pathname === "/u/primary-mobile" ||
+    location.pathname === "/u/secondary-sowing-entry" ||
+    location.pathname === "/u/secondary-mobile" ||
+    location.pathname === "/u/dispatch-orders" ||
+    location.pathname === "/u/mobile" ||
+    location.pathname === "/u/mobile/agri-sales-order" ||
+    location.pathname === "/u/mobile/place-order"
   
   const { 
     handleLogout, 
@@ -317,9 +349,9 @@ export default function PrivateLayout(props) {
     // Check both role and jobTitle, prioritizing jobTitle
     const isAccountant = userData?.jobTitle === "ACCOUNTANT" || userRole === "ACCOUNTANT"
     if (isAccountant) {
-      // ACCOUNTANT should only see Orders (dashboard), Orders list, Payments and Dealers in sidebar
-      const allowedTitles = ["Orders", "Order", "Payments", "Dealers"]
-      const allowedRoutes = ["/u/orders", "/u/dashboard", "/u/payments", "/u/dealers"]
+      // ACCOUNTANT should only see Orders (dashboard), Orders list, Payments and Accountant Dashboard in sidebar
+      const allowedTitles = ["Orders", "Order", "Payments", "Accountant Dashboard"]
+      const allowedRoutes = ["/u/orders", "/u/dashboard", "/u/payments", "/u/accountant-dashboard"]
       const hasAccess = allowedTitles.includes(menuItem.title) || allowedRoutes.includes(menuItem.route)
       return hasAccess
     }
@@ -419,6 +451,10 @@ export default function PrivateLayout(props) {
                 // PRIMARY users should only see menu items that lead to primary-sowing-entry
                 // Since PRIMARY users are redirected to primary-sowing-entry, hide all menu items
                 if (isPrimaryEmployee && !isSuperAdmin && !isAdmin) {
+                  return false
+                }
+
+                if (isSecondaryEmployee && !isSuperAdmin && !isAdmin) {
                   return false
                 }
                 

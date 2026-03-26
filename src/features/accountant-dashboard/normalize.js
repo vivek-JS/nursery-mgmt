@@ -1,0 +1,343 @@
+/** Farmer order row from GET /order/payments aggregation */
+export function normalizeFarmerPayment(raw) {
+  const payment = raw.payment || {}
+  const farmer = raw.farmer
+  const plantType = raw.plantType || { id: "", name: "" }
+  const salesPerson = raw.salesPerson || { name: "—", phoneNumber: "" }
+  // This table is payment-centric: show the payment status when present.
+  const st = payment.paymentStatus || raw.orderPaymentStatus || "PENDING"
+
+  return {
+    id: String(payment._id || `${raw.orderId}-${raw.createdAt || ""}`),
+    orderId: Number(raw.orderId) || 0,
+    dealerOrder: Boolean(raw.dealerOrder),
+    numberOfPlants: Number(raw.numberOfPlants) || 0,
+    rate: Number(raw.rate) || 0,
+    orderPaymentStatus: st,
+    payment: {
+      paidAmount: Number(payment.paidAmount) || 0,
+      paymentStatus: payment.paymentStatus || st,
+      paymentDate: payment.paymentDate ? String(payment.paymentDate) : new Date().toISOString(),
+      bankName: payment.bankName,
+      receiptPhoto: Array.isArray(payment.receiptPhoto) ? payment.receiptPhoto : [],
+      modeOfPayment: String(payment.modeOfPayment || "—"),
+      remark: payment.remark,
+      isWalletPayment: payment.isWalletPayment,
+      _id: String(payment._id || ""),
+      createdAt: payment.createdAt ? String(payment.createdAt) : undefined,
+      updatedAt: payment.updatedAt ? String(payment.updatedAt) : undefined
+    },
+    screenshots: Array.isArray(raw.screenshots) ? raw.screenshots : [],
+    orderStatus: raw.orderStatus || "PENDING",
+    orderBookingDate: raw.orderBookingDate ? String(raw.orderBookingDate) : "",
+    createdAt: raw.createdAt ? String(raw.createdAt) : "",
+    totalOrderAmount: Number(raw.totalOrderAmount) || 0,
+    farmer,
+    plantType,
+    salesPerson,
+    __source: "farmer",
+    __raw: raw
+  }
+}
+
+/** Ram Agri row from GET /inventory/agri-sales-pending-payments */
+export function normalizeAgriPayment(raw) {
+  const payment = raw.payment || {}
+  const paid = Number(payment.paidAmount) || 0
+  const bal = Number(raw.balanceAmount) || 0
+  const total = Number(raw.totalAmount) || paid + bal
+  const st = payment.paymentStatus || "PENDING"
+
+  return {
+    id: `${String(raw._id)}-${Number(raw.paymentIndex) || 0}`,
+    orderId: Number(raw.orderNumber) || 0,
+    dealerOrder: false,
+    numberOfPlants: Number(raw.quantity) || 1,
+    rate: Number(raw.rate) || paid,
+    orderPaymentStatus: st,
+    payment: {
+      paidAmount: paid,
+      paymentStatus: st,
+      paymentDate: payment.paymentDate ? String(payment.paymentDate) : new Date().toISOString(),
+      bankName: payment.bankName,
+      receiptPhoto: Array.isArray(payment.receiptPhoto) ? payment.receiptPhoto : [],
+      modeOfPayment: String(payment.modeOfPayment || "—"),
+      remark: payment.remark,
+      _id: String(payment._id || ""),
+      createdAt: payment.createdAt ? String(payment.createdAt) : undefined,
+      updatedAt: payment.updatedAt ? String(payment.updatedAt) : undefined
+    },
+    screenshots: Array.isArray(raw.screenshots) ? raw.screenshots : [],
+    orderStatus: raw.orderStatus || "PENDING",
+    orderBookingDate: raw.orderDate ? String(raw.orderDate) : "",
+    createdAt: raw.createdAt ? String(raw.createdAt) : "",
+    totalOrderAmount: total,
+    farmer: {
+      name: String(raw.customerName || "—"),
+      mobileNumber: raw.customerMobile,
+      village: String(raw.customerVillage || ""),
+      taluka: String(raw.customerTaluka || ""),
+      district: String(raw.customerDistrict || "")
+    },
+    plantType: { id: String(raw.productId || ""), name: String(raw.productName || "Product") },
+    salesPerson: {
+      name: String((raw.createdBy && raw.createdBy.name) || "—"),
+      phoneNumber: raw.createdBy && raw.createdBy.phoneNumber
+    },
+    __source: "agri",
+    __raw: raw
+  }
+}
+
+/** Map GET_RAM_AGRI_CUSTOMER_LEDGER API payload to LedgerPanel shape */
+export function mapApiToCustomerLedger(apiData) {
+  if (!apiData || !apiData.customer) return null
+  const customer = apiData.customer
+  const summary = apiData.summary || {}
+  const rawEntries = apiData.entries || apiData.transactions || []
+  const entries = rawEntries.map((e) => ({
+    date: String(e.date || e.createdAt || ""),
+    type: e.type || "CREDIT",
+    category: String(e.category || e.type || "—"),
+    reference: String(e.reference || e.ref || "—"),
+    description: String(e.description || e.narration || "—"),
+    amount: Number(e.amount) || 0,
+    balance: Number(e.balance ?? e.runningBalance) || 0,
+    details: e.details
+  }))
+  return {
+    customer: {
+      name: String(customer.name || ""),
+      mobile: String(customer.mobile || customer.mobileNumber || ""),
+      village: String(customer.village || ""),
+      taluka: String(customer.taluka || ""),
+      district: String(customer.district || "")
+    },
+    summary: {
+      totalOrders: Number(summary.totalOrders) || 0,
+      openingBalance: Number(summary.openingBalance) || 0,
+      totalDebit: Number(summary.totalDebit) || 0,
+      totalCredit: Number(summary.totalCredit) || 0,
+      outstanding: Number(summary.outstanding) || 0
+    },
+    entries
+  }
+}
+
+/** Map GET_FARMER_LEDGER (/inventory/sell-orders/farmer-ledger) payload to LedgerPanel shape */
+export function mapFarmerLedgerToPanelLedger(apiData) {
+  if (!apiData || !apiData.farmer) return null
+  const farmer = apiData.farmer
+  const summary = apiData.summary || {}
+  const payments = Array.isArray(apiData.payments) ? apiData.payments : []
+  const entries = payments.map((p) => ({
+    date: String(p.paymentDate || p.date || ""),
+    type: "CREDIT",
+    category: String(p.paymentStatus || "Payment"),
+    reference: String(p.orderNumber ?? p.orderId ?? p.transactionId ?? "—"),
+    description: [p.modeOfPayment, p.bankName, p.transactionId].filter(Boolean).join(" · ") || "Payment",
+    amount: Math.abs(Number(p.paidAmount) || 0),
+    balance: Number(p.runningBalance ?? p.balanceAfter ?? 0) || 0
+  }))
+  const totalPaid = Number(summary.totalPaidAmount) || 0
+  const totalOrderVal = Number(summary.totalOrderValue) || 0
+  const outstandingAmt = Number(summary.outstandingAmount ?? summary.outstanding) || 0
+  return {
+    customer: {
+      name: String(farmer.name || ""),
+      mobile: String(farmer.mobileNumber || farmer.mobile || ""),
+      village: String(farmer.village || ""),
+      taluka: String(farmer.taluka || ""),
+      district: String(farmer.district || "")
+    },
+    summary: {
+      totalOrders: Number(summary.totalOrders) || 0,
+      openingBalance: Number(summary.openingBalance) || 0,
+      totalDebit: Math.max(0, totalOrderVal - totalPaid) || Number(summary.totalDebit) || 0,
+      totalCredit: totalPaid || Number(summary.totalCredit) || 0,
+      outstanding: outstandingAmt
+    },
+    entries
+  }
+}
+
+const LEDGER_REF_RANK = { ORDER: 0, PAYMENT: 1, ADJUSTMENT: 2, REVERSAL: 3 }
+
+/** Order lines before payments when entryDate ties (matches backend). */
+function sortFarmerPlantLedgerEntriesCanonical(arr) {
+  return [...arr].sort((a, b) => {
+    const da = new Date(a.date || a.entryDate).getTime()
+    const db = new Date(b.date || b.entryDate).getTime()
+    if (da !== db) return da - db
+    const ra = LEDGER_REF_RANK[a.refType] ?? 99
+    const rb = LEDGER_REF_RANK[b.refType] ?? 99
+    if (ra !== rb) return ra - rb
+    const ca = a.createdAt ? new Date(a.createdAt).getTime() : 0
+    const cb = b.createdAt ? new Date(b.createdAt).getTime() : 0
+    if (ca !== cb) return ca - cb
+    return String(a._id || "").localeCompare(String(b._id || ""))
+  })
+}
+
+/**
+ * Positive = farmer owes nursery; negative = advance / overpaid.
+ */
+export function formatFarmerLedgerRunningBalance(n) {
+  const v = Number(n) || 0
+  const abs = `₹${Math.abs(v).toLocaleString("en-IN")}`
+  if (v > 0) return { label: "Due", text: abs, tone: "due" }
+  if (v < 0) return { label: "Advance", text: abs, tone: "advance" }
+  return { label: "Settled", text: "₹0", tone: "zero" }
+}
+
+/**
+ * Map GET /order/farmer-plant-ledger (line entries included by default) to LedgerPanel shape.
+ */
+export function mapFarmerPlantLedgerApiToPanel(apiData) {
+  if (!apiData) return null
+  const farmer = apiData.farmer
+  const summary = apiData.summary || {}
+  const rawEntries = Array.isArray(apiData.entries) ? apiData.entries : []
+  const orders = Array.isArray(apiData.orders) ? apiData.orders : []
+
+  const sortedRaw = sortFarmerPlantLedgerEntriesCanonical(rawEntries)
+
+  let totalBilled = Number(summary.totalBilled) || 0
+  let totalCollected = Number(summary.totalCollected) || 0
+  let outstanding = Number(summary.outstanding) || 0
+  const orderCount = Number(summary.orderCount) || orders.length || 0
+
+  const allHaveStored =
+    sortedRaw.length > 0 &&
+    sortedRaw.every(
+      (e) =>
+        e.outstandingBefore != null &&
+        e.outstandingAfter != null &&
+        !Number.isNaN(Number(e.outstandingBefore)) &&
+        !Number.isNaN(Number(e.outstandingAfter))
+    )
+
+  let openingBalance = 0
+  if (sortedRaw.length > 0 && !allHaveStored) {
+    const first = sortedRaw[0]
+    const net = (Number(first.debit) || 0) - (Number(first.credit) || 0)
+    openingBalance = (Number(first.balance) || 0) - net
+  } else if (sortedRaw.length > 0 && allHaveStored) {
+    openingBalance = Number(sortedRaw[0].outstandingBefore) || 0
+  }
+
+  /**
+   * API totals come from orders whose createdAt is in the date range. Ledger lines are filtered by
+   * entry date — so you can have payments in-range for older orders and get summary 0. Reconstruct
+   * purchase / collected from lines when the API summary is empty but lines exist.
+   */
+  let summaryDerivedFromLines = false
+  if (sortedRaw.length > 0 && totalBilled === 0 && totalCollected === 0) {
+    let sumDebit = 0
+    let sumCredit = 0
+    for (const e of sortedRaw) {
+      sumDebit += Number(e.debit) || 0
+      sumCredit += Number(e.credit) || 0
+    }
+    totalBilled = Math.round(sumDebit * 100) / 100
+    totalCollected = Math.round(sumCredit * 100) / 100
+    summaryDerivedFromLines = true
+  }
+
+  let running = openingBalance
+  const entriesChrono = sortedRaw.map((e) => {
+    const isDebit = e.type === "DEBIT" || (Number(e.debit) || 0) > 0
+    const debit = Number(e.debit) || 0
+    const credit = Number(e.credit) || 0
+    const amount = isDebit ? debit : credit
+    const ref =
+      e.refType === "ORDER"
+        ? "ORDER"
+        : e.refType === "PAYMENT"
+          ? "PAYMENT"
+          : e.refType === "REVERSAL"
+            ? "REVERSAL"
+            : String(e.refType || "—")
+    const walletHint =
+      e.metadata && e.metadata.isWalletPayment ? " · Dealer wallet" : ""
+
+    let balanceBefore
+    let balanceAfter
+    if (allHaveStored) {
+      balanceBefore = Number(e.outstandingBefore) || 0
+      balanceAfter = Number(e.outstandingAfter) || 0
+      running = balanceAfter
+    } else {
+      balanceBefore = running
+      running += debit - credit
+      balanceAfter = running
+    }
+
+    return {
+      date: String(e.date || ""),
+      type: isDebit ? "DEBIT" : "CREDIT",
+      category: String(e.refType || e.category || "—"),
+      reference: ref,
+      description: String(e.description || "—") + walletHint,
+      amount,
+      balance: balanceAfter,
+      balanceBefore,
+      balanceAfter,
+      raw: e
+    }
+  })
+
+  // Final outstanding must be taken from the chronological chain end (last processed row),
+  // not from the display-sorted array.
+  if (entriesChrono.length > 0) {
+    outstanding = Math.round(
+      (Number(entriesChrono[entriesChrono.length - 1].balanceAfter) || 0) * 100
+    ) / 100
+  }
+
+  // Display newest-first by ledger row creation time. Balances are computed in chronological order above.
+  const entries = [...entriesChrono]
+  entries.sort((a, b) => {
+    const ta = a.raw?.createdAt ? new Date(a.raw.createdAt).getTime() : 0
+    const tb = b.raw?.createdAt ? new Date(b.raw.createdAt).getTime() : 0
+    if (ta !== tb) return tb - ta
+    const ea = a.raw?.date || a.raw?.entryDate
+    const eb = b.raw?.date || b.raw?.entryDate
+    const da = ea ? new Date(ea).getTime() : 0
+    const db = eb ? new Date(eb).getTime() : 0
+    if (da !== db) return db - da
+    const ia = String(a.raw?._id || "")
+    const ib = String(b.raw?._id || "")
+    return ib.localeCompare(ia)
+  })
+
+  return {
+    meta: { variant: "farmerPlant", orders },
+    customer: farmer
+      ? {
+          name: String(farmer.name || ""),
+          mobile: String(farmer.mobileNumber ?? farmer.mobile ?? ""),
+          village: String(farmer.village || ""),
+          taluka: String(farmer.taluka || ""),
+          district: String(farmer.district || "")
+        }
+      : {
+          name: "—",
+          mobile: "",
+          village: "",
+          taluka: "",
+          district: ""
+        },
+    summary: {
+      totalOrders: orderCount,
+      openingBalance,
+      totalDebit: totalBilled,
+      totalCredit: totalCollected,
+      outstanding,
+      totalBilled,
+      totalCollected,
+      summaryDerivedFromLines
+    },
+    entries
+  }
+}
