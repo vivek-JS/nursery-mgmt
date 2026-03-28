@@ -1,7 +1,5 @@
 import React, { useState, useEffect } from "react"
 import {
-  ChevronDown,
-  ChevronUp,
   Edit2,
   Trash2,
   Calendar,
@@ -15,9 +13,6 @@ import {
   CheckCircle2,
   Plus,
   Minus,
-  TrendingDown,
-  Eye,
-  MoreHorizontal,
   X,
   UserCheck,
   Shield,
@@ -48,7 +43,6 @@ import {
   Backdrop,
   Fade,
   Checkbox,
-  FormControlLabel,
   List,
   ListItem,
   ListItemText,

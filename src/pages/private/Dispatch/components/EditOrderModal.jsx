@@ -16,6 +16,11 @@ import {
 import { LocalizationProvider } from "lib/muiLocalizationProvider";
 import { AdapterMoment } from "@mui/x-date-pickers/AdapterMoment";
 import moment from "moment";
+import {
+  formatDateForDisplay,
+  parseOrderDate,
+  toDeliveryDateISOString,
+} from "../utils/dateUtils";
 import { NetworkManager, API } from "network/core";
 import { Toast } from "helpers/toasts/toastHelper";
 import DeliveryDateModal from "./DeliveryDateModal";
@@ -138,11 +143,12 @@ const EditOrderModal = ({ open, onClose, order, onSuccess }) => {
       setFormData({
         rate: order.rate || "",
         quantity: order.numberOfPlants || order.quantity || "",
-        deliveryDate: order.deliveryDate
-          ? moment(order.deliveryDate).toDate()
-          : order.farmReadyDate
-          ? moment(order.farmReadyDate).toDate()
-          : null,
+        deliveryDate: (() => {
+          const raw = order.deliveryDate || order.farmReadyDate;
+          if (!raw) return null;
+          const m = parseOrderDate(raw);
+          return m?.isValid() ? m.toDate() : null;
+        })(),
         bookingSlot: order.bookingSlot?.[0]?.slotId || 
                     order.bookingSlot?.slotId || 
                     order.bookingSlot || 
@@ -185,7 +191,8 @@ const EditOrderModal = ({ open, onClose, order, onSuccess }) => {
 
       // Add delivery date and booking slot if provided
       if (formData.deliveryDate) {
-        updateData.deliveryDate = moment(formData.deliveryDate).toISOString();
+        const iso = toDeliveryDateISOString(formData.deliveryDate);
+        if (iso) updateData.deliveryDate = iso;
       }
       
       // Add booking slot if provided (mapped from delivery date)
@@ -326,7 +333,7 @@ const EditOrderModal = ({ open, onClose, order, onSuccess }) => {
                   }}
                 >
                   {formData.deliveryDate
-                    ? moment(formData.deliveryDate).format("DD MMM YYYY")
+                    ? formatDateForDisplay(formData.deliveryDate)
                     : "Click to select delivery date"}
                 </Button>
               )}
@@ -393,7 +400,7 @@ const EditOrderModal = ({ open, onClose, order, onSuccess }) => {
               >
                 Current Delivery Date:{" "}
                 {order?.deliveryDate || order?.farmReadyDate
-                  ? moment(order.deliveryDate || order.farmReadyDate).format("DD-MMM-YYYY")
+                  ? formatDateForDisplay(order.deliveryDate || order.farmReadyDate)
                   : "N/A"}
               </Typography>
             </Box>
@@ -409,8 +416,11 @@ const EditOrderModal = ({ open, onClose, order, onSuccess }) => {
           <Button
             onClick={onClose}
             disabled={loading}
+            size={isMobile ? "medium" : "medium"}
             sx={{
-              fontSize: isMobile ? "0.875rem" : "0.9rem",
+              fontSize: isMobile ? "0.95rem" : "0.95rem",
+              minHeight: 44,
+              px: 2,
             }}
           >
             Cancel

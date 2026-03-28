@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react"
-import { Plus, Pencil, Trash2, ChevronDown, Settings } from "lucide-react"
+import { Plus, Pencil, Trash2, ChevronDown } from "lucide-react"
 import { API, NetworkManager } from "network/core"
 import { Formik, Form, FieldArray } from "formik"
 import * as Yup from "yup"

@@ -14,7 +14,6 @@ import {
   TableCell,
   Stack,
   Button,
-  LinearProgress,
   CircularProgress,
   Paper,
   Alert,
@@ -25,9 +24,6 @@ import {
   Select,
   MenuItem,
   IconButton,
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
 } from "@mui/material";
 import {
   Inventory as InventoryIcon,
@@ -38,7 +34,6 @@ import {
   ExpandLess,
   Clear as ClearIcon,
   Search as SearchIcon,
-  FilterList as FilterIcon,
 } from "@mui/icons-material";
 import { LocalizationProvider } from "lib/muiLocalizationProvider";
 import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFns";

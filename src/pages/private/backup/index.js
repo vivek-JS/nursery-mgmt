@@ -14,7 +14,6 @@ import BackupIcon from '@mui/icons-material/Backup'
 import RestoreIcon from '@mui/icons-material/Restore'
 import SaveIcon from '@mui/icons-material/Save'
 import { API } from 'network/core'
-import NetworkManager from 'network/core/networkManager'
 import axios from 'axios'
 import { CookieKeys } from "constants/cookieKeys"
 

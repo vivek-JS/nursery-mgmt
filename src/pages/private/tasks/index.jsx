@@ -1,571 +1,378 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
+  Alert,
+  Avatar,
   Box,
+  Button,
   Card,
   CardContent,
-  Typography,
-  TextField,
-  Button,
-  Autocomplete,
+  Checkbox,
   Chip,
-  IconButton,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
-  Fab,
-  Paper,
-  Divider,
-  Tooltip,
   CircularProgress,
-  Alert,
-  Fade,
-  Slide,
-  Grow,
-  Zoom,
-  Grid,
-  Avatar,
-  AvatarGroup,
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  Divider,
+  Drawer,
+  FormControl,
+  IconButton,
+  InputAdornment,
+  LinearProgress,
+  MenuItem,
+  Select,
+  Stack,
+  TextField,
+  Typography,
 } from "@mui/material";
 import {
-  Add as AddIcon,
-  Edit as EditIcon,
-  Delete as DeleteIcon,
-  CheckCircle as CheckIcon,
-  Cancel as CancelIcon,
-  AccessTime as TimeIcon,
-  Flag as FlagIcon,
-  Person as PersonIcon,
-  Comment as CommentIcon,
-  CalendarToday as CalendarIcon,
+  Add,
+  AssignmentTurnedInRounded,
+  CalendarToday,
+  ChevronRight,
+  Close,
+  ErrorOutline,
+  EventBusy,
+  PlaylistAddCheckCircle,
+  TaskAlt,
+  Timer,
 } from "@mui/icons-material";
-import { DatePicker } from "@mui/x-date-pickers/DatePicker";
-import { LocalizationProvider } from "lib/muiLocalizationProvider";
-import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFns";
 import { API, NetworkManager } from "network/core";
 import { Toast } from "helpers/toasts/toastHelper";
-import { format } from "date-fns";
-import { useLanguage } from "contexts/LanguageContext";
-import { getTranslation } from "translations/taskTranslations";
+import { useNavigate } from "react-router-dom";
 
-const getPriorityColor = (priority) => {
-  const colors = {
-    low: "info",
-    medium: "warning",
-    high: "error",
-    urgent: "error",
-  };
-  return colors[priority] || "default";
+const CARD_ICON_BG = {
+  total: "#E8F2FF",
+  todo: "#EEF2FF",
+  inProgress: "#E6F7FF",
+  completed: "#EAF8EE",
+  urgent: "#FDECEC",
+  overdue: "#FFF5E6",
 };
 
-const getStatusColor = (status) => {
-  const colors = {
-    pending: "warning",
-    in_progress: "info",
-    completed: "success",
-    cancelled: "default",
-  };
-  return colors[status] || "default";
+const priorities = ["low", "medium", "high", "urgent"];
+
+const normalizeId = (value) => {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "object") return String(value._id || value.id || "");
+  return String(value);
 };
 
-const TaskCard = ({ task, onEdit, onDelete, onViewDetails, t }) => {
-  const [expanded, setExpanded] = useState(false);
+const getAssignmentEmployeeId = (assignment) =>
+  normalizeId(assignment?.employeeId || assignment?.employee || assignment?.assignee);
 
-  return (
-    <Grow in={true} timeout={500}>
-      <Card
-        sx={{
-          mb: 2,
-          borderRadius: 3,
-          boxShadow: 2,
-          transition: "all 0.3s ease",
-          "&:hover": {
-            boxShadow: 6,
-            transform: "translateY(-4px)",
-          },
-          background: "linear-gradient(135deg, #ffffff 0%, #f5f7fa 100%)",
-        }}
-      >
-        <CardContent>
-          <Box display="flex" justifyContent="space-between" alignItems="start" mb={2}>
-            <Box flex={1}>
-              <Typography variant="h6" fontWeight={600} mb={1}>
-                {task.title}
-              </Typography>
-              {task.description && (
-                <Typography variant="body2" color="text.secondary" mb={1.5}>
-                  {task.description}
-                </Typography>
-              )}
-              <Box display="flex" gap={1} flexWrap="wrap" mb={1.5}>
-                <Chip
-                  label={task.priority}
-                  color={getPriorityColor(task.priority)}
-                  size="small"
-                  icon={<FlagIcon />}
-                  sx={{ fontWeight: 600, textTransform: "capitalize" }}
-                />
-                <Chip
-                  label={task.status}
-                  color={getStatusColor(task.status)}
-                  size="small"
-                  sx={{ fontWeight: 600, textTransform: "capitalize" }}
-                />
-              </Box>
-            </Box>
-            <Box display="flex" gap={0.5}>
-              <Tooltip title={t("edit")}>
-                <IconButton
-                  size="small"
-                  onClick={() => onEdit(task)}
-                  sx={{
-                    transition: "all 0.3s ease",
-                    "&:hover": {
-                      transform: "scale(1.2) rotate(15deg)",
-                      color: "primary.main",
-                    },
-                  }}
-                >
-                  <EditIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-              <Tooltip title={t("delete")}>
-                <IconButton
-                  size="small"
-                  onClick={() => onDelete(task)}
-                  sx={{
-                    transition: "all 0.3s ease",
-                    "&:hover": {
-                      transform: "scale(1.2)",
-                      color: "error.main",
-                    },
-                  }}
-                >
-                  <DeleteIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-            </Box>
-          </Box>
-
-          <Divider sx={{ my: 1.5 }} />
-
-          <Box display="flex" flexWrap="wrap" gap={2} mb={1.5}>
-            <Box display="flex" alignItems="center" gap={0.5}>
-              <CalendarIcon fontSize="small" color="action" />
-              <Typography variant="body2">{task.dueDate}</Typography>
-            </Box>
-            {task.dueTime && (
-              <Box display="flex" alignItems="center" gap={0.5}>
-                <TimeIcon fontSize="small" color="action" />
-                <Typography variant="body2">{task.dueTime}</Typography>
-              </Box>
-            )}
-            <Box display="flex" alignItems="center" gap={0.5}>
-              <PersonIcon fontSize="small" color="action" />
-              <Typography variant="body2">
-                {task.assignedEmployees?.length || 0} {t("assignedEmployees")}
-              </Typography>
-            </Box>
-            {task.comments?.length > 0 && (
-              <Box display="flex" alignItems="center" gap={0.5}>
-                <CommentIcon fontSize="small" color="action" />
-                <Typography variant="body2">{task.comments.length} {t("comments")}</Typography>
-              </Box>
-            )}
-          </Box>
-
-          {task.assignedEmployees && task.assignedEmployees.length > 0 && (
-            <Box mb={1.5}>
-              <Typography variant="caption" color="text.secondary" display="block" mb={0.5}>
-                {t("assignedTo")}:
-              </Typography>
-              <Box display="flex" flexWrap="wrap" gap={0.5}>
-                {task.assignedEmployees.slice(0, 3).map((emp) => (
-                  <Chip
-                    key={emp._id || emp}
-                    label={emp.name || emp}
-                    size="small"
-                    variant="outlined"
-                    sx={{ fontSize: "0.7rem" }}
-                  />
-                ))}
-                {task.assignedEmployees.length > 3 && (
-                  <Chip
-                    label={`+${task.assignedEmployees.length - 3} more`}
-                    size="small"
-                    variant="outlined"
-                    sx={{ fontSize: "0.7rem" }}
-                  />
-                )}
-              </Box>
-            </Box>
-          )}
-
-          <Button
-            variant="outlined"
-            size="small"
-            onClick={() => setExpanded(!expanded)}
-            sx={{ mt: 1, textTransform: "none" }}
-          >
-            {expanded ? t("close") : t("viewDetails")}
-          </Button>
-
-          {expanded && (
-            <Box mt={2}>
-              <Divider sx={{ mb: 2 }} />
-              <Typography variant="subtitle2" fontWeight={600} mb={1}>
-                {t("comments")} ({task.comments?.length || 0})
-              </Typography>
-              {task.comments && task.comments.length > 0 ? (
-                <Box>
-                  {task.comments.map((comment, idx) => (
-                    <Paper key={idx} sx={{ p: 1.5, mb: 1, bgcolor: "grey.50" }}>
-                      <Typography variant="body2" fontWeight={600}>
-                        {comment.name}
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        {comment.comment}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        {format(new Date(comment.createdAt), "MMM dd, yyyy HH:mm")}
-                      </Typography>
-                    </Paper>
-                  ))}
-                </Box>
-              ) : (
-                <Typography variant="body2" color="text.secondary">
-                  {t("noComments")}
-                </Typography>
-              )}
-            </Box>
-          )}
-        </CardContent>
-      </Card>
-    </Grow>
-  );
+const statusForAssignment = (status) => {
+  if (status === "done" || status === "completed") return "done";
+  if (status === "in_progress") return "in_progress";
+  return "todo";
 };
 
-const CreateTaskModal = ({ open, onClose, onSuccess, employees, task, t }) => {
-  const [formData, setFormData] = useState({
+const priorityChipStyle = (priority) => {
+  const p = String(priority || "medium").toLowerCase();
+  if (p === "urgent") return { bgcolor: "#FFE8EC", color: "#E53935" };
+  if (p === "high") return { bgcolor: "#FFF4E5", color: "#F57C00" };
+  if (p === "low") return { bgcolor: "#E8F5E9", color: "#2E7D32" };
+  return { bgcolor: "#E3F2FD", color: "#0288D1" };
+};
+
+const TaskModal = ({ open, onClose, employees, onSaved }) => {
+  const [loading, setLoading] = useState(false);
+  const [callLists, setCallLists] = useState([]);
+  const [callListsLoading, setCallListsLoading] = useState(false);
+  const [form, setForm] = useState({
     title: "",
     description: "",
-    dueDate: null,
-    dueTime: "",
     priority: "medium",
+    dueDate: "",
+    tags: "",
     assignedEmployees: [],
+    sourceType: "manual",
+    callAssignmentListId: "",
   });
-  const [loading, setLoading] = useState(false);
-  const [taskSuggestions, setTaskSuggestions] = useState([]);
-
-  // Load task suggestions from localStorage
-  useEffect(() => {
-    if (!task && open) {
-      const stored = localStorage.getItem("taskSuggestions");
-      if (stored) {
-        try {
-          const suggestions = JSON.parse(stored);
-          setTaskSuggestions(suggestions);
-        } catch (e) {
-          console.error("Error loading task suggestions:", e);
-        }
-      }
-    }
-  }, [open, task]);
-
-  // Save task template to localStorage
-  const saveTaskTemplate = (title, description) => {
-    if (!title || !title.trim()) return;
-    
-    const stored = localStorage.getItem("taskSuggestions");
-    let suggestions = stored ? JSON.parse(stored) : [];
-    
-    // Check if this title already exists
-    const existingIndex = suggestions.findIndex(s => s.title.toLowerCase() === title.toLowerCase());
-    
-    const template = {
-      title: title.trim(),
-      description: description?.trim() || "",
-      lastUsed: new Date().toISOString(),
-    };
-    
-    if (existingIndex >= 0) {
-      // Update existing suggestion
-      suggestions[existingIndex] = template;
-    } else {
-      // Add new suggestion
-      suggestions.push(template);
-    }
-    
-    // Sort by lastUsed (most recent first) and limit to 20
-    suggestions.sort((a, b) => new Date(b.lastUsed) - new Date(a.lastUsed));
-    suggestions = suggestions.slice(0, 20);
-    
-    localStorage.setItem("taskSuggestions", JSON.stringify(suggestions));
-    setTaskSuggestions(suggestions);
-  };
 
   useEffect(() => {
-    if (task) {
-      setFormData({
-        title: task.title || "",
-        description: task.description || "",
-        dueDate: task.dueDate ? new Date(task.dueDate) : null,
-        dueTime: task.dueTime || "",
-        priority: task.priority || "medium",
-        assignedEmployees: task.assignedEmployees || [],
-      });
-    } else {
-      setFormData({
+    if (open) {
+      setForm({
         title: "",
         description: "",
-        dueDate: null,
-        dueTime: "",
         priority: "medium",
+        dueDate: "",
+        tags: "",
         assignedEmployees: [],
+        sourceType: "manual",
+        callAssignmentListId: "",
       });
     }
-  }, [task, open]);
+  }, [open]);
 
-  const handleSubmit = async () => {
-    if (!formData.title || !formData.dueDate) {
-      Toast.error(t("titleRequired") + " & " + t("dueDateRequired"));
-      return;
-    }
+  useEffect(() => {
+    if (!open || form.sourceType !== "call_assignment") return;
+    const loadLists = async () => {
+      setCallListsLoading(true);
+      try {
+        const instance = NetworkManager(API.CALL_ASSIGNMENT.GET_LISTS);
+        const res = await instance.request({});
+        const listData = res?.data?.data?.lists || res?.data?.lists || [];
+        setCallLists(Array.isArray(listData) ? listData : []);
+      } catch (error) {
+        Toast.error("Failed to load call assignment lists");
+        setCallLists([]);
+      } finally {
+        setCallListsLoading(false);
+      }
+    };
+    loadLists();
+  }, [open, form.sourceType]);
 
-    if (formData.assignedEmployees.length === 0) {
-      Toast.error(t("atLeastOneEmployee"));
-      return;
+  const toggleEmployee = (id) => {
+    setForm((prev) => ({
+      ...prev,
+      assignedEmployees: prev.assignedEmployees.includes(id)
+        ? prev.assignedEmployees.filter((e) => e !== id)
+        : [...prev.assignedEmployees, id],
+    }));
+  };
+
+  const submit = async () => {
+    if (!form.title.trim()) return Toast.error("Title is required");
+    if (!form.dueDate) return Toast.error("Deadline is required");
+    if (!form.assignedEmployees.length) return Toast.error("Assign at least one employee");
+    if (form.sourceType === "call_assignment" && !form.callAssignmentListId) {
+      return Toast.error("Select a call assignment list");
     }
 
     setLoading(true);
     try {
-      const payload = {
-        title: formData.title,
-        description: formData.description,
-        dueDate: format(formData.dueDate, "yyyy-MM-dd"),
-        dueTime: formData.dueTime || "",
-        priority: formData.priority,
-        assignedEmployees: formData.assignedEmployees.map((emp) =>
-          typeof emp === "object" ? emp._id : emp
-        ),
-      };
-
-      let response;
-      if (task) {
-        const instance = NetworkManager(API.TASK.UPDATE);
-        response = await instance.request(payload, [task._id]);
-      } else {
-        const instance = NetworkManager(API.TASK.CREATE);
-        response = await instance.request(payload);
-      }
-
+      const instance = NetworkManager(API.TASK.CREATE);
+      const response = await instance.request({
+        title: form.title.trim(),
+        description: form.description.trim(),
+        dueDate: form.dueDate,
+        dueTime: "",
+        priority: form.priority,
+        tags: form.tags,
+        assignedEmployees: form.assignedEmployees,
+        sourceType: form.sourceType,
+        callAssignmentListId:
+          form.sourceType === "call_assignment" ? form.callAssignmentListId : null,
+      });
       if (response?.data?.status === "success") {
-        Toast.success(task ? t("taskUpdated") : t("taskCreated"));
-        
-        // Save task template for future suggestions (only for new tasks)
-        if (!task && formData.title) {
-          saveTaskTemplate(formData.title, formData.description);
-        }
-        
-        onSuccess();
+        Toast.success("Task created");
+        onSaved();
         onClose();
       }
     } catch (error) {
-      Toast.error(
-        error?.response?.data?.message || (task ? t("failedToUpdate") : t("failedToCreate"))
-      );
+      Toast.error(error?.response?.data?.message || "Failed to create task");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
-      <DialogTitle sx={{ background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)", color: "white" }}>
-        {task ? t("editTask") : t("createTask")}
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="md">
+      <DialogTitle sx={{ px: 3, pt: 2.5, pb: 1.5, fontWeight: 800, fontSize: "1.9rem" }}>
+        Create New Task
+        <IconButton onClick={onClose} sx={{ position: "absolute", top: 14, right: 14 }}>
+          <Close />
+        </IconButton>
       </DialogTitle>
-      <DialogContent sx={{ pt: 3 }}>
-        <Box sx={{ display: "flex", flexDirection: "column", gap: 2.5 }}>
-          <Autocomplete
-            freeSolo
-            options={taskSuggestions}
-            getOptionLabel={(option) => typeof option === "string" ? option : option.title}
-            value={formData.title}
-            onInputChange={(event, newInputValue) => {
-              setFormData({ ...formData, title: newInputValue });
-            }}
-            onChange={(event, newValue) => {
-              if (newValue && typeof newValue === "object") {
-                setFormData({
-                  ...formData,
-                  title: newValue.title,
-                  description: newValue.description || "",
-                });
-              } else if (typeof newValue === "string") {
-                setFormData({ ...formData, title: newValue });
-              }
-            }}
-            renderInput={(params) => (
+      <DialogContent sx={{ px: 3, pb: 3 }}>
+        <Stack spacing={2}>
+          <Box>
+            <Typography fontWeight={700} mb={0.75}>Title</Typography>
+            <TextField
+              fullWidth
+              placeholder="Enter task title"
+              value={form.title}
+              onChange={(e) => setForm((p) => ({ ...p, title: e.target.value }))}
+            />
+          </Box>
+
+          <Box>
+            <Typography fontWeight={700} mb={0.75}>Description</Typography>
+            <TextField
+              fullWidth
+              multiline
+              minRows={3}
+              placeholder="Describe the task..."
+              value={form.description}
+              onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))}
+            />
+          </Box>
+
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+            <Box flex={1}>
+              <Typography fontWeight={700} mb={0.75}>Task Type</Typography>
+              <FormControl fullWidth>
+                <Select
+                  value={form.sourceType}
+                  onChange={(e) =>
+                    setForm((p) => ({
+                      ...p,
+                      sourceType: e.target.value,
+                      callAssignmentListId: "",
+                      assignedEmployees: [],
+                    }))
+                  }
+                >
+                  <MenuItem value="manual">Manual</MenuItem>
+                  <MenuItem value="call_assignment">Call assignment</MenuItem>
+                </Select>
+              </FormControl>
+            </Box>
+            <Box flex={1}>
+              <Typography fontWeight={700} mb={0.75}>Priority</Typography>
+              <FormControl fullWidth>
+                <Select
+                  value={form.priority}
+                  onChange={(e) => setForm((p) => ({ ...p, priority: e.target.value }))}
+                >
+                  {priorities.map((p) => (
+                    <MenuItem key={p} value={p}>
+                      {p.charAt(0).toUpperCase() + p.slice(1)}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Box>
+            <Box flex={1}>
+              <Typography fontWeight={700} mb={0.75}>Deadline</Typography>
               <TextField
-                {...params}
                 fullWidth
-                label={t("title")}
-                required
-                sx={{ borderRadius: 2 }}
+                type="date"
+                value={form.dueDate}
+                onChange={(e) => setForm((p) => ({ ...p, dueDate: e.target.value }))}
+                InputProps={{
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <CalendarToday fontSize="small" />
+                    </InputAdornment>
+                  ),
+                }}
               />
-            )}
-            renderOption={(props, option) => (
+            </Box>
+          </Stack>
+
+          {form.sourceType === "call_assignment" && (
+            <Box>
+              <Typography fontWeight={700} mb={0.75}>Call Assignment List</Typography>
+              <FormControl fullWidth>
+                <Select
+                  value={form.callAssignmentListId}
+                  onChange={(e) => {
+                    const selectedId = e.target.value;
+                    const selectedList = callLists.find((l) => String(l._id) === String(selectedId));
+                    const assignedToId =
+                      selectedList?.assignedTo?._id ||
+                      selectedList?.assignedTo?.id ||
+                      selectedList?.assignedTo;
+                    setForm((p) => ({
+                      ...p,
+                      callAssignmentListId: selectedId,
+                      assignedEmployees: assignedToId ? [String(assignedToId)] : [],
+                    }));
+                  }}
+                  displayEmpty
+                >
+                  <MenuItem value="">Select list</MenuItem>
+                  {callLists.map((l) => (
+                    <MenuItem key={l._id} value={String(l._id)}>
+                      {l.name} - {l.assignedTo?.name || "Unassigned"}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              {callListsLoading && (
+                <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: "block" }}>
+                  Loading lists...
+                </Typography>
+              )}
+            </Box>
+          )}
+
+          <Box>
+            <Typography fontWeight={700} mb={0.75}>Tags (comma separated)</Typography>
+            <TextField
+              fullWidth
+              placeholder="frontend, design, urgent"
+              value={form.tags}
+              onChange={(e) => setForm((p) => ({ ...p, tags: e.target.value }))}
+            />
+          </Box>
+
+          <Box>
+            <Typography fontWeight={700} mb={0.75}>Assign to Employees</Typography>
+            {form.sourceType === "call_assignment" ? (
+              <Alert severity="info" sx={{ fontSize: "0.8rem" }}>
+                For call-assignment tasks, assignee comes from the selected call list.
+              </Alert>
+            ) : (
               <Box
-                component="li"
-                {...props}
                 sx={{
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "flex-start",
-                  py: 1.5,
-                  px: 2,
-                  "&:hover": {
-                    bgcolor: "action.hover",
-                  },
+                  border: "1px solid #E5E7EB",
+                  borderRadius: 2,
+                  p: 1,
+                  maxHeight: 210,
+                  overflowY: "auto",
+                  display: "grid",
+                  gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" },
+                  gap: 0.5,
                 }}
               >
-                <Typography variant="body2" fontWeight={600}>
-                  {option.title}
-                </Typography>
-                {option.description && (
-                  <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
-                    {option.description}
-                  </Typography>
-                )}
+                {employees.map((emp) => (
+                  <Box
+                    key={emp._id || emp.id}
+                    onClick={() => toggleEmployee(emp._id || emp.id)}
+                    sx={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      borderRadius: 1.5,
+                      px: 0.5,
+                      py: 0.25,
+                      cursor: "pointer",
+                      "&:hover": { bgcolor: "#F9FAFB" },
+                    }}
+                  >
+                    <Box display="flex" alignItems="center" gap={0.25}>
+                      <Checkbox checked={form.assignedEmployees.includes(emp._id || emp.id)} />
+                      <Typography fontWeight={600}>{emp.name}</Typography>
+                    </Box>
+                    <Typography color="text.secondary">{emp.department || emp.designation || "-"}</Typography>
+                  </Box>
+                ))}
               </Box>
             )}
-            filterOptions={(options, { inputValue }) => {
-              if (!inputValue) return options;
-              const lowerInput = inputValue.toLowerCase();
-              return options.filter(
-                (option) =>
-                  option.title.toLowerCase().includes(lowerInput) ||
-                  (option.description && option.description.toLowerCase().includes(lowerInput))
-              );
-            }}
-          />
+          </Box>
 
-          <TextField
-            fullWidth
-            label={t("description")}
-            value={formData.description}
-            onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-            multiline
-            rows={3}
-            sx={{ borderRadius: 2 }}
-          />
-
-          <LocalizationProvider dateAdapter={AdapterDateFns}>
-            <DatePicker
-              label={t("dueDate")}
-              value={formData.dueDate}
-              onChange={(date) => setFormData({ ...formData, dueDate: date })}
-              renderInput={(params) => <TextField {...params} fullWidth required sx={{ borderRadius: 2 }} />}
-            />
-          </LocalizationProvider>
-
-          <TextField
-            fullWidth
-            label={t("dueTime")}
-            type="time"
-            value={formData.dueTime}
-            onChange={(e) => setFormData({ ...formData, dueTime: e.target.value })}
-            InputLabelProps={{ shrink: true }}
-            sx={{ borderRadius: 2 }}
-          />
-
-          <FormControl fullWidth>
-            <InputLabel>{t("priority")}</InputLabel>
-            <Select
-              value={formData.priority}
-              onChange={(e) => setFormData({ ...formData, priority: e.target.value })}
-              label={t("priority")}
-            >
-              <MenuItem value="low">{t("low")}</MenuItem>
-              <MenuItem value="medium">{t("medium")}</MenuItem>
-              <MenuItem value="high">{t("high")}</MenuItem>
-              <MenuItem value="urgent">{t("urgent")}</MenuItem>
-            </Select>
-          </FormControl>
-
-          <Autocomplete
-            multiple
-            options={employees}
-            getOptionLabel={(option) => option.name || option}
-            value={formData.assignedEmployees}
-            onChange={(event, newValue) => {
-              setFormData({ ...formData, assignedEmployees: newValue });
-            }}
-            renderInput={(params) => (
-              <TextField {...params} label={t("assignedEmployees")} required />
-            )}
-            renderTags={(value, getTagProps) =>
-              value.map((option, index) => (
-                <Chip
-                  label={option.name || option}
-                  {...getTagProps({ index })}
-                  key={option._id || option}
-                />
-              ))
-            }
-          />
-        </Box>
+          <Button
+            variant="contained"
+            disabled={loading}
+            onClick={submit}
+            sx={{ textTransform: "none", minHeight: 46, fontSize: "1rem", borderRadius: 2, mt: 1 }}
+          >
+            {loading ? <CircularProgress size={20} color="inherit" /> : "Create & Assign Task"}
+          </Button>
+        </Stack>
       </DialogContent>
-      <DialogActions sx={{ p: 2.5, pt: 1 }}>
-        <Button onClick={onClose} sx={{ borderRadius: 2, textTransform: "none", px: 3 }}>
-          {t("cancel")}
-        </Button>
-        <Button
-          onClick={handleSubmit}
-          variant="contained"
-          disabled={loading}
-          startIcon={loading ? <CircularProgress size={20} /> : <AddIcon />}
-          sx={{
-            borderRadius: 2,
-            textTransform: "none",
-            px: 3,
-            background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-            "&:hover": {
-              transform: "scale(1.05)",
-            },
-          }}
-        >
-          {task ? t("update") : t("create")}
-        </Button>
-      </DialogActions>
     </Dialog>
   );
 };
 
 const TaskManagement = () => {
-  const { language } = useLanguage();
-  const t = (key) => getTranslation(key, language);
+  const navigate = useNavigate();
   const [tasks, setTasks] = useState([]);
   const [employees, setEmployees] = useState([]);
+  const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [createModalOpen, setCreateModalOpen] = useState(false);
-  const [editModalOpen, setEditModalOpen] = useState(false);
-  const [editingTask, setEditingTask] = useState(null);
-  const [statusFilter, setStatusFilter] = useState("");
-  const [priorityFilter, setPriorityFilter] = useState("");
-
-  useEffect(() => {
-    fetchEmployees();
-    fetchTasks();
-  }, []);
-
-  useEffect(() => {
-    fetchTasks();
-  }, [statusFilter, priorityFilter]);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [taskFilter, setTaskFilter] = useState("all");
+  const [priorityFilter, setPriorityFilter] = useState("all");
+  const [sourceFilter, setSourceFilter] = useState("all");
+  const [drawerEmployee, setDrawerEmployee] = useState(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [taskSearch, setTaskSearch] = useState("");
+  const [memberSearch, setMemberSearch] = useState("");
 
   const fetchEmployees = async () => {
     try {
@@ -573,176 +380,454 @@ const TaskManagement = () => {
       const response = await instance.request({});
       setEmployees(response?.data?.data || []);
     } catch (error) {
-      Toast.error(t("failedToFetchEmployees"));
+      Toast.error("Failed to load employees");
+    }
+  };
+
+  const fetchStats = async () => {
+    try {
+      const instance = NetworkManager(API.TASK.STATS);
+      const response = await instance.request({});
+      if (response?.data?.status === "success") {
+        setStats(response?.data?.data || null);
+      }
+    } catch (error) {
+      console.error(error);
     }
   };
 
   const fetchTasks = async () => {
     setLoading(true);
     try {
-      const params = {};
-      if (statusFilter) params.status = statusFilter;
-      if (priorityFilter) params.priority = priorityFilter;
-
       const instance = NetworkManager(API.TASK.GET_ALL);
-      const response = await instance.request(params);
+      const response = await instance.request({});
       if (response?.data?.status === "success") {
         setTasks(response.data.data.tasks || []);
       }
     } catch (error) {
-      Toast.error(t("failedToFetchTasks"));
+      Toast.error("Failed to load tasks");
     } finally {
       setLoading(false);
     }
   };
 
-  const handleEdit = (task) => {
-    setEditingTask(task);
-    setEditModalOpen(true);
-  };
+  useEffect(() => {
+    fetchEmployees();
+    fetchTasks();
+    fetchStats();
+  }, []);
 
-  const handleDelete = async (task) => {
-    if (!window.confirm(`Are you sure you want to delete "${task.title}"?`)) {
-      return;
+  const cards = useMemo(() => {
+    const fallback = {
+      total: tasks.length,
+      todo: 0,
+      inProgress: 0,
+      completed: 0,
+      urgent: 0,
+      overdue: 0,
+    };
+    if (stats) return stats;
+    tasks.forEach((task) => {
+      if ((task.priority || "").toLowerCase() === "urgent") fallback.urgent += 1;
+      if (task.dueDate && new Date(task.dueDate) < new Date()) fallback.overdue += 1;
+      const statuses = (task.assignments || []).map((a) => statusForAssignment(a.status));
+      if (!statuses.length || statuses.includes("todo")) fallback.todo += 1;
+      if (statuses.includes("in_progress")) fallback.inProgress += 1;
+      if (statuses.length && statuses.every((s) => s === "done")) fallback.completed += 1;
+    });
+    return fallback;
+  }, [stats, tasks]);
+
+  const list = useMemo(() => {
+    let output = tasks;
+    if (taskFilter !== "all") {
+      output = output.filter((t) => {
+        const statuses = (t.assignments || []).map((a) => statusForAssignment(a.status));
+        if (taskFilter === "todo") return statuses.includes("todo") || !statuses.length;
+        if (taskFilter === "in_progress") return statuses.includes("in_progress");
+        if (taskFilter === "done") return statuses.length && statuses.every((s) => s === "done");
+        return true;
+      });
     }
-
-    try {
-      const instance = NetworkManager(API.TASK.DELETE);
-      const response = await instance.request({}, [task._id]);
-      if (response?.data?.status === "success") {
-        Toast.success(t("taskDeleted"));
-        fetchTasks();
-      }
-    } catch (error) {
-      Toast.error(t("failedToDelete"));
+    if (priorityFilter !== "all") {
+      output = output.filter((t) => String(t.priority || "medium").toLowerCase() === priorityFilter);
     }
+    if (sourceFilter !== "all") {
+      output = output.filter(
+        (t) => String(t.sourceType || "manual").toLowerCase() === sourceFilter
+      );
+    }
+    const q = taskSearch.trim().toLowerCase();
+    if (q) {
+      output = output.filter((t) => {
+        const tags = Array.isArray(t.tags) ? t.tags.join(", ") : (t.tags || "");
+        return (
+          String(t.title || "").toLowerCase().includes(q) ||
+          String(t.description || "").toLowerCase().includes(q) ||
+          String(tags).toLowerCase().includes(q)
+        );
+      });
+    }
+    return output;
+  }, [tasks, taskFilter, priorityFilter, sourceFilter, taskSearch]);
+
+  const drawerTasks = useMemo(() => {
+    if (!drawerEmployee) return [];
+    const targetId = normalizeId(drawerEmployee._id || drawerEmployee.id);
+    return tasks
+      .filter((t) =>
+        (t.assignments || []).some(
+          (a) => getAssignmentEmployeeId(a) === targetId
+        )
+      )
+      .sort((a, b) => {
+        const da = a?.dueDate ? new Date(a.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
+        const db = b?.dueDate ? new Date(b.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
+        return da - db;
+      });
+  }, [tasks, drawerEmployee]);
+
+  const employeeStats = (employeeId) => {
+    const targetId = normalizeId(employeeId);
+    const related = tasks.filter((t) =>
+      (t.assignments || []).some((a) => getAssignmentEmployeeId(a) === targetId)
+    );
+    let active = 0;
+    let done = 0;
+    related.forEach((t) => {
+      const row = (t.assignments || []).find((a) => getAssignmentEmployeeId(a) === targetId);
+      const s = statusForAssignment(row?.status);
+      if (s === "done") done += 1;
+      if (s === "in_progress") active += 1;
+    });
+    return { total: related.length, active, done };
   };
 
-  const handleViewDetails = (task) => {
-    // Could open a detailed view modal here
-    console.log("View details for task:", task);
-  };
-
-  const filteredTasks = tasks;
+  const visibleMembers = useMemo(() => {
+    const q = memberSearch.trim().toLowerCase();
+    return employees.filter((emp) => {
+      const es = employeeStats(emp._id || emp.id);
+      if (es.total === 0) return false; // show only assigned members
+      if (!q) return true;
+      return String(emp.name || "").toLowerCase().includes(q);
+    });
+  }, [employees, tasks, memberSearch]);
 
   return (
-    <Fade in={true} timeout={500}>
-      <Box sx={{ p: { xs: 2, md: 3 }, maxWidth: 1400, mx: "auto" }}>
-        <Box
-          display="flex"
-          justifyContent="space-between"
-          alignItems="center"
-          mb={3}
-          flexWrap="wrap"
-          gap={2}
-        >
-          <Typography variant="h4" fontWeight={700} sx={{ background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
-            {t("taskManagement")}
-          </Typography>
+    <Box sx={{ minHeight: "100vh", bgcolor: "#F8FAFC" }}>
+      <Box sx={{ borderBottom: "1px solid #E5E7EB", bgcolor: "white", position: "sticky", top: 0, zIndex: 20 }}>
+        <Box sx={{ maxWidth: 1400, mx: "auto", px: { xs: 2, md: 3 }, py: 1.8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <Stack direction="row" spacing={1.5} alignItems="center">
+            <Box sx={{ width: 38, height: 38, borderRadius: 2, bgcolor: "#1E64D8", color: "white", display: "grid", placeItems: "center" }}>
+              <AssignmentTurnedInRounded fontSize="small" />
+            </Box>
+            <Box>
+              <Typography fontWeight={800} fontSize="1.15rem">Task Manager</Typography>
+              <Typography variant="caption" color="text.secondary">ERP · Real-time Task Tracking</Typography>
+            </Box>
+          </Stack>
           <Button
             variant="contained"
-            startIcon={<AddIcon />}
-            onClick={() => setCreateModalOpen(true)}
-            sx={{
-              borderRadius: 2,
-              textTransform: "none",
-              px: 3,
-              background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-              boxShadow: "0 4px 15px rgba(102, 126, 234, 0.3)",
-              transition: "all 0.3s ease",
-              "&:hover": {
-                transform: "scale(1.05)",
-                boxShadow: "0 6px 20px rgba(102, 126, 234, 0.4)",
-              },
-            }}
+            startIcon={<Add />}
+            onClick={() => setCreateOpen(true)}
+            sx={{ textTransform: "none", borderRadius: 2, px: 2.25, py: 1, fontWeight: 700 }}
           >
-            {t("createTask")}
+            Create Task
           </Button>
         </Box>
-
-        <Card sx={{ mb: 3, borderRadius: 3, boxShadow: 2 }}>
-          <CardContent>
-            <Grid container spacing={2}>
-              <Grid item xs={12} sm={6} md={4}>
-                <FormControl fullWidth>
-                  <InputLabel>{t("filterByStatus")}</InputLabel>
-                  <Select
-                    value={statusFilter}
-                    onChange={(e) => setStatusFilter(e.target.value)}
-                    label={t("filterByStatus")}
-                  >
-                    <MenuItem value="">{t("allStatuses")}</MenuItem>
-                    <MenuItem value="pending">{t("pending")}</MenuItem>
-                    <MenuItem value="in_progress">{t("inProgress")}</MenuItem>
-                    <MenuItem value="completed">{t("completed")}</MenuItem>
-                    <MenuItem value="cancelled">{t("cancelled")}</MenuItem>
-                  </Select>
-                </FormControl>
-              </Grid>
-              <Grid item xs={12} sm={6} md={4}>
-                <FormControl fullWidth>
-                  <InputLabel>{t("filterByPriority")}</InputLabel>
-                  <Select
-                    value={priorityFilter}
-                    onChange={(e) => setPriorityFilter(e.target.value)}
-                    label={t("filterByPriority")}
-                  >
-                    <MenuItem value="">{t("allPriorities")}</MenuItem>
-                    <MenuItem value="low">{t("low")}</MenuItem>
-                    <MenuItem value="medium">{t("medium")}</MenuItem>
-                    <MenuItem value="high">{t("high")}</MenuItem>
-                    <MenuItem value="urgent">{t("urgent")}</MenuItem>
-                  </Select>
-                </FormControl>
-              </Grid>
-            </Grid>
-          </CardContent>
-        </Card>
-
-        {loading ? (
-          <Box display="flex" justifyContent="center" p={4}>
-            <CircularProgress />
-          </Box>
-        ) : filteredTasks.length === 0 ? (
-          <Alert severity="info" sx={{ borderRadius: 2 }}>
-            {t("noTasks")}
-          </Alert>
-        ) : (
-          <Box>
-            {filteredTasks.map((task) => (
-              <TaskCard
-                key={task._id}
-                task={task}
-                onEdit={handleEdit}
-                onDelete={handleDelete}
-                onViewDetails={handleViewDetails}
-                t={t}
-              />
-            ))}
-          </Box>
-        )}
-
-        <CreateTaskModal
-          open={createModalOpen}
-          onClose={() => setCreateModalOpen(false)}
-          onSuccess={fetchTasks}
-          employees={employees}
-          t={t}
-        />
-
-        <CreateTaskModal
-          open={editModalOpen}
-          onClose={() => {
-            setEditModalOpen(false);
-            setEditingTask(null);
-          }}
-          onSuccess={fetchTasks}
-          employees={employees}
-          task={editingTask}
-          t={t}
-        />
       </Box>
-    </Fade>
+
+      <Box sx={{ maxWidth: 1400, mx: "auto", p: { xs: 2, md: 3 } }}>
+        <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr 1fr", md: "repeat(6,1fr)" }, gap: 1.5, mb: 2.5 }}>
+          {[
+            { key: "total", label: "Total Tasks", icon: <AssignmentTurnedInRounded fontSize="small" /> },
+            { key: "todo", label: "To Do", icon: <PlaylistAddCheckCircle fontSize="small" /> },
+            { key: "inProgress", label: "In Progress", icon: <Timer fontSize="small" /> },
+            { key: "completed", label: "Completed", icon: <TaskAlt fontSize="small" /> },
+            { key: "urgent", label: "Urgent", icon: <ErrorOutline fontSize="small" /> },
+            { key: "overdue", label: "Overdue", icon: <EventBusy fontSize="small" /> },
+          ].map((it) => (
+            <Card key={it.key} sx={{ borderRadius: 3, boxShadow: 0, border: "1px solid #E5E7EB" }}>
+              <CardContent sx={{ p: 1.5 }}>
+                <Box sx={{ width: 32, height: 32, borderRadius: 2, display: "grid", placeItems: "center", bgcolor: CARD_ICON_BG[it.key], color: "#1E64D8", mb: 1 }}>
+                  {it.icon}
+                </Box>
+                <Typography fontWeight={800} fontSize="1.35rem">{cards?.[it.key] ?? 0}</Typography>
+                <Typography color="text.secondary" fontWeight={600} fontSize="0.82rem">{it.label}</Typography>
+              </CardContent>
+            </Card>
+          ))}
+        </Box>
+
+        <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", lg: "2fr 1fr" }, gap: 2 }}>
+          <Card sx={{ borderRadius: 3, boxShadow: 0, border: "1px solid #E5E7EB" }}>
+            <CardContent sx={{ p: 0 }}>
+              <Box sx={{ p: 2, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <Typography fontWeight={800} fontSize="1.05rem">All Tasks</Typography>
+                <Stack direction="row" spacing={0.75}>
+                  {["all", "todo", "in_progress", "done"].map((s) => (
+                    <Button
+                      key={s}
+                      size="small"
+                      variant={taskFilter === s ? "contained" : "text"}
+                      onClick={() => setTaskFilter(s)}
+                      sx={{ textTransform: "none", borderRadius: 2, minWidth: 64, fontWeight: 700 }}
+                    >
+                      {s === "all" ? "All" : s === "todo" ? "To Do" : s === "in_progress" ? "In Progress" : "Done"}
+                    </Button>
+                  ))}
+                </Stack>
+              </Box>
+              <Box sx={{ px: 2, pb: 1.25 }}>
+                <TextField
+                  fullWidth
+                  size="small"
+                  placeholder="Search tasks by title, description, tag..."
+                  value={taskSearch}
+                  onChange={(e) => setTaskSearch(e.target.value)}
+                />
+                <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ mt: 1 }}>
+                  <FormControl size="small" sx={{ minWidth: 130 }}>
+                    <Select
+                      value={priorityFilter}
+                      onChange={(e) => setPriorityFilter(e.target.value)}
+                      displayEmpty
+                    >
+                      <MenuItem value="all">All priorities</MenuItem>
+                      <MenuItem value="urgent">Urgent</MenuItem>
+                      <MenuItem value="high">High</MenuItem>
+                      <MenuItem value="medium">Medium</MenuItem>
+                      <MenuItem value="low">Low</MenuItem>
+                    </Select>
+                  </FormControl>
+                  <FormControl size="small" sx={{ minWidth: 150 }}>
+                    <Select
+                      value={sourceFilter}
+                      onChange={(e) => setSourceFilter(e.target.value)}
+                      displayEmpty
+                    >
+                      <MenuItem value="all">All sources</MenuItem>
+                      <MenuItem value="manual">Manual</MenuItem>
+                      <MenuItem value="call_assignment">Call assignment</MenuItem>
+                    </Select>
+                  </FormControl>
+                  <Chip
+                    clickable
+                    color={priorityFilter === "urgent" ? "error" : "default"}
+                    label={`Urgent ${cards?.urgent ?? 0}`}
+                    onClick={() =>
+                      setPriorityFilter((prev) => (prev === "urgent" ? "all" : "urgent"))
+                    }
+                    sx={{ alignSelf: { xs: "flex-start", sm: "center" }, fontWeight: 700 }}
+                  />
+                </Stack>
+              </Box>
+              <Divider />
+
+              {loading ? (
+                <Box py={6} display="flex" justifyContent="center"><CircularProgress /></Box>
+              ) : list.length === 0 ? (
+                <Box p={2}><Alert severity="info">No tasks found.</Alert></Box>
+              ) : (
+                list.map((task) => {
+                  const doneCount = (task.assignments || []).filter((a) => statusForAssignment(a.status) === "done").length;
+                  const totalCount = task.assignments?.length || 0;
+                  const pct = totalCount ? Math.round((doneCount / totalCount) * 100) : 0;
+                  const dueObj = task?.dueDate ? new Date(task.dueDate) : null;
+                  const isOverdue = dueObj && !Number.isNaN(dueObj.getTime()) && dueObj < new Date() && pct < 100;
+                  const taskStatus =
+                    pct === 100 ? "Done" : pct > 0 ? "In Progress" : "To Do";
+                  return (
+                    <Box key={task._id} sx={{ p: 1.5, borderBottom: "1px solid #F1F5F9" }}>
+                      <Box display="flex" alignItems="center" gap={0.75} mb={0.35} flexWrap="wrap">
+                        <Typography fontWeight={700} fontSize="0.95rem">{task.title}</Typography>
+                        <Chip
+                          size="small"
+                          label={String(task.priority || "medium").toUpperCase()}
+                          sx={{ ...priorityChipStyle(task.priority), fontWeight: 700, borderRadius: 6 }}
+                        />
+                        <Chip
+                          size="small"
+                          label={taskStatus}
+                          color={taskStatus === "Done" ? "success" : taskStatus === "In Progress" ? "primary" : "default"}
+                          sx={{ height: 20 }}
+                        />
+                        {isOverdue && (
+                          <Chip size="small" color="error" label="Overdue" sx={{ height: 20 }} />
+                        )}
+                        {task.sourceType === "call_assignment" && (
+                          <Chip size="small" color="secondary" variant="outlined" label="Call Assignment" sx={{ height: 20 }} />
+                        )}
+                      </Box>
+                      <Typography color="text.secondary" fontSize="0.8rem" mb={0.8}>
+                        {task.description || "No description"}
+                      </Typography>
+
+                      <Box display="flex" alignItems="center" gap={1.2} flexWrap="wrap">
+                        <Stack direction="row" spacing={0.5} alignItems="center" color="text.secondary">
+                          <CalendarToday sx={{ fontSize: 14 }} />
+                          <Typography fontSize="0.78rem">{task.dueDate || "-"}</Typography>
+                        </Stack>
+                        <Typography variant="caption" color="text.secondary">
+                          Assignees: {totalCount}
+                        </Typography>
+                        <Stack direction="row" spacing={0.5}>
+                          {(task.assignedEmployees || []).slice(0, 3).map((emp, idx) => (
+                            <Avatar key={emp._id || idx} sx={{ width: 22, height: 22, fontSize: "1rem", bgcolor: "#EEF2FF", color: "#1E64D8" }}>
+                              {(emp?.name || emp || "U").slice(0, 2).toUpperCase()}
+                            </Avatar>
+                          ))}
+                        </Stack>
+                        <Box ml="auto" minWidth={120} display="flex" alignItems="center" gap={1}>
+                          <LinearProgress variant="determinate" value={pct} sx={{ flex: 1, height: 6, borderRadius: 99 }} />
+                          <Typography variant="caption" color="text.secondary" fontWeight={700}>{doneCount}/{totalCount}</Typography>
+                        </Box>
+                        {task.sourceType === "call_assignment" && task.callAssignmentListId && (
+                          <Button
+                            size="small"
+                            variant="text"
+                            onClick={() => navigate(`/u/call-assignment?listId=${task.callAssignmentListId}`)}
+                            sx={{ textTransform: "none", ml: "auto", mt: 0.5 }}
+                          >
+                            Open call list
+                          </Button>
+                        )}
+                      </Box>
+                    </Box>
+                  );
+                })
+              )}
+            </CardContent>
+          </Card>
+
+          <Card sx={{ borderRadius: 3, boxShadow: 0, border: "1px solid #E5E7EB", overflow: "hidden" }}>
+            <Box sx={{ p: 2, borderBottom: "1px solid #EEF2F7" }}>
+              <Typography fontWeight={800} fontSize="1.05rem">Team Members</Typography>
+              <Typography color="text.secondary" fontSize="0.8rem">Click to view employee&apos;s tasks</Typography>
+              <TextField
+                fullWidth
+                size="small"
+                placeholder="Search team member..."
+                value={memberSearch}
+                onChange={(e) => setMemberSearch(e.target.value)}
+                sx={{ mt: 1.25 }}
+              />
+            </Box>
+            <Box>
+              {visibleMembers.map((emp) => {
+                const es = employeeStats(emp._id || emp.id);
+                return (
+                  <Box
+                    key={emp._id || emp.id}
+                    onClick={() => {
+                      setDrawerEmployee(emp);
+                      setDrawerOpen(true);
+                    }}
+                    sx={{
+                      px: 2,
+                      py: 1.25,
+                      borderBottom: "1px solid #F1F5F9",
+                      cursor: "pointer",
+                      "&:hover": { bgcolor: "#FAFBFD" },
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 1.25,
+                    }}
+                  >
+                    <Avatar sx={{ width: 34, height: 34, bgcolor: "#EFF6FF", color: "#1E64D8", fontWeight: 700 }}>
+                      {(emp.name || "U").split(" ").map((x) => x[0]).join("").slice(0, 2).toUpperCase()}
+                    </Avatar>
+                    <Box flex={1} minWidth={0}>
+                      <Typography fontWeight={700} noWrap>{emp.name}</Typography>
+                      <Typography color="text.secondary" fontSize="0.78rem" noWrap>{emp.department || emp.designation || "-"}</Typography>
+                    </Box>
+                    <Stack direction="row" spacing={1.1} alignItems="center">
+                      <Typography variant="caption" color="text.secondary">{es.total} tasks</Typography>
+                      <Typography variant="caption" color="#03A9F4" fontWeight={700}>{es.active} active</Typography>
+                      <Typography variant="caption" color="#4CAF50" fontWeight={700}>{es.done} done</Typography>
+                      <ChevronRight sx={{ fontSize: 16, color: "#9CA3AF" }} />
+                    </Stack>
+                  </Box>
+                );
+              })}
+              {visibleMembers.length === 0 && (
+                <Box sx={{ p: 2 }}>
+                  <Alert severity="info">No assigned team member found.</Alert>
+                </Box>
+              )}
+            </Box>
+          </Card>
+        </Box>
+      </Box>
+
+      <Drawer anchor="right" open={drawerOpen} onClose={() => setDrawerOpen(false)}>
+        <Box sx={{ width: { xs: 320, sm: 380 }, p: 2 }}>
+          <Stack direction="row" alignItems="center" justifyContent="space-between" mb={1}>
+            <Typography fontWeight={800} fontSize="1.05rem">
+              {drawerEmployee?.name || "Employee"} Tasks
+            </Typography>
+            <IconButton size="small" onClick={() => setDrawerOpen(false)}>
+              <Close fontSize="small" />
+            </IconButton>
+          </Stack>
+          <Typography variant="caption" color="text.secondary">
+            {drawerEmployee?.department || drawerEmployee?.designation || "-"}
+          </Typography>
+          <Divider sx={{ my: 1.5 }} />
+
+          {drawerTasks.length === 0 ? (
+            <Alert severity="info" sx={{ fontSize: "0.8rem" }}>
+              No tasks assigned.
+            </Alert>
+          ) : (
+            <Stack spacing={1.25}>
+              {drawerTasks.map((task) => {
+                const row = (task.assignments || []).find(
+                  (a) =>
+                    getAssignmentEmployeeId(a) ===
+                    normalizeId(drawerEmployee?._id || drawerEmployee?.id)
+                );
+                const state = statusForAssignment(row?.status);
+                return (
+                  <Card key={task._id} sx={{ boxShadow: 0, border: "1px solid #E5E7EB" }}>
+                    <CardContent sx={{ p: 1.2 }}>
+                      <Typography fontWeight={700} fontSize="0.9rem" mb={0.4}>
+                        {task.title}
+                      </Typography>
+                      <Stack direction="row" spacing={0.5} alignItems="center" mb={0.6} flexWrap="wrap" useFlexGap>
+                        <Chip
+                          size="small"
+                          label={String(task.priority || "medium").toUpperCase()}
+                          sx={{ ...priorityChipStyle(task.priority), fontWeight: 700, borderRadius: 6 }}
+                        />
+                        <Chip
+                          size="small"
+                          label={state === "done" ? "Done" : state === "in_progress" ? "In Progress" : "To Do"}
+                          color={state === "done" ? "success" : state === "in_progress" ? "primary" : "default"}
+                        />
+                      </Stack>
+                      <Typography variant="caption" color="text.secondary">
+                        Due: {task.dueDate || "-"}
+                      </Typography>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </Stack>
+          )}
+        </Box>
+      </Drawer>
+
+      <TaskModal
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        employees={employees}
+        onSaved={async () => {
+          await fetchTasks();
+          await fetchStats();
+        }}
+      />
+    </Box>
   );
 };
 

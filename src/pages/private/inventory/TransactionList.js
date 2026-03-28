@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Filter, TrendingUp, TrendingDown, BarChart3 } from 'lucide-react';
+import { Filter, TrendingUp, TrendingDown, BarChart3 } from 'lucide-react';
 import axiosInstance from '../../../services/axiosConfig';
 import { formatDisplayDate } from '../../../utils/dateUtils';
 

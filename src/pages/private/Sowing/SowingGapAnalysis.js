@@ -73,8 +73,6 @@ import {
   Tooltip as RechartsTooltip,
   Legend,
   ResponsiveContainer,
-  LineChart,
-  Line,
 } from "recharts";
 import { NetworkManager, API } from "network/core";
 import { LocalizationProvider } from "lib/muiLocalizationProvider";

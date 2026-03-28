@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, CheckCircle, XCircle, CreditCard, Package, FileText, Upload, X, DollarSign } from 'lucide-react';
+import { ArrowLeft, CheckCircle, CreditCard, Package, FileText, X, DollarSign } from 'lucide-react';
 import { API, NetworkManager } from '../../../network/core';
 import { formatDisplayDate } from '../../../utils/dateUtils';
-import { formatDecimal, formatCurrency } from '../../../utils/numberUtils';
+import { formatCurrency } from '../../../utils/numberUtils';
 import { Toast } from 'helpers/toasts/toastHelper';
 
 const SellOrderDetails = () => {

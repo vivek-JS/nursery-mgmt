@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from "react";
+import React, { useState, useEffect, useCallback, useRef, lazy, Suspense } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   Box,
@@ -16,10 +16,17 @@ import {
   Alert,
   InputAdornment,
   Chip,
+  Skeleton,
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
+  FormControl,
+  FormControlLabel,
+  FormLabel,
+  Radio,
+  RadioGroup,
+  Checkbox,
 } from "@mui/material";
 import {
   Logout,
@@ -44,12 +51,19 @@ import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 import { LocalizationProvider } from "lib/muiLocalizationProvider";
 import { AdapterMoment } from "@mui/x-date-pickers/AdapterMoment";
 import moment from "moment";
+import {
+  formatDateForAPI,
+  formatDateForDisplay,
+  parseOrderDate,
+  toDeliveryDateISOString,
+  isOrderPastDue,
+} from "./utils/dateUtils";
 import { NetworkManager, API } from "network/core";
 import { Toast } from "helpers/toasts/toastHelper";
 import { useUserRole, useIsDispatchManager, useUserData } from "utils/roleUtils";
 import { useLogoutModel } from "layout/privateLayout/privateLayout.model";
 import { Loader } from "redux/dispatcher/Loader";
-import EditOrderModal from "./components/EditOrderModal";
+import DispatchForm from "../dashboard/DispatchedForm";
 
 // Dynamically import OrderMapView to avoid SSR issues with Leaflet
 const OrderMapView = lazy(() => import("./components/OrderMapView"));
@@ -90,9 +104,19 @@ const DispatchedListPage = () => {
   const [displayMode, setDisplayMode] = useState("list"); // "list" or "map"
   const [expandedOrderId, setExpandedOrderId] = useState(null);
   const [statusChange, setStatusChange] = useState("");
+  const [dispatchDayKey, setDispatchDayKey] = useState("");
   const [showCallModal, setShowCallModal] = useState(false);
   const [callNote, setCallNote] = useState("");
   const [callOrderId, setCallOrderId] = useState(null);
+  const [selectedReadyRows, setSelectedReadyRows] = useState(new Map());
+  const [isDispatchFormOpen, setIsDispatchFormOpen] = useState(false);
+  const [readyDispatchGroups, setReadyDispatchGroups] = useState([]);
+  const [clubLoading, setClubLoading] = useState(false);
+  const [readyGroupApiUnavailable, setReadyGroupApiUnavailable] = useState(false);
+  const [dispatchList, setDispatchList] = useState([]);
+  const [dispatchListLoading, setDispatchListLoading] = useState(false);
+  const [dispatchPreviewOpen, setDispatchPreviewOpen] = useState(false);
+  const [selectedDispatchPreview, setSelectedDispatchPreview] = useState(null);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(!isMobile);
   const [dateRange, setDateRange] = useState(() => {
     // Default to last 7 days
@@ -118,17 +142,34 @@ const DispatchedListPage = () => {
     }
   }, [userData, userRole, hasAccess, navigate]);
 
-  // Format date for API (DD-MM-YYYY)
-  const formatDateForAPI = (date) => {
-    return moment(date).format("DD-MM-YYYY");
-  };
-
-  // Check if order is past due
+  // Check if order is past due (calendar day vs today; avoids ISO TZ shift)
   const isPastDue = (order) => {
     const dueDate = order.deliveryDate || order.orderBookingDate;
     if (!dueDate) return false;
-    const due = moment(dueDate);
-    return due.isBefore(moment(), "day");
+    return isOrderPastDue(dueDate);
+  };
+
+  const getDispatchDayBadge = (order) => {
+    if (!order?.dispatchTargetDate) return null;
+    const target = moment(order.dispatchTargetDate).startOf("day");
+    if (!target.isValid()) return null;
+    const today = moment().startOf("day");
+    const diff = target.diff(today, "days");
+    const isNotDispatched = !["DISPATCHED", "COMPLETED"].includes(order?.orderStatus);
+
+    if (diff < 0 && isNotDispatched) {
+      return { label: "Kaal", bg: "rgba(211,47,47,0.15)", color: "#b71c1c", border: "rgba(211,47,47,0.45)", blink: true };
+    }
+    if (diff === 0) {
+      return { label: "Aaj", bg: "rgba(211,47,47,0.12)", color: "#b71c1c", border: "rgba(211,47,47,0.4)", blink: true };
+    }
+    if (diff === 1) {
+      return { label: "Udya", bg: "rgba(46,125,50,0.12)", color: "#1b5e20", border: "rgba(46,125,50,0.4)", blink: false };
+    }
+    if (diff === 2) {
+      return { label: "Parva", bg: "rgba(0,121,107,0.12)", color: "#00695c", border: "rgba(0,121,107,0.4)", blink: false };
+    }
+    return null;
   };
 
   // Fetch orders from API
@@ -186,15 +227,17 @@ const DispatchedListPage = () => {
 
         // Sort past due orders by due date (ascending - oldest first)
         pastDueOrders.sort((a, b) => {
-          const dateA = moment(a.deliveryDate || a.orderBookingDate);
-          const dateB = moment(b.deliveryDate || b.orderBookingDate);
+          const dateA = parseOrderDate(a.deliveryDate || a.orderBookingDate);
+          const dateB = parseOrderDate(b.deliveryDate || b.orderBookingDate);
+          if (!dateA || !dateB) return 0;
           return dateA.diff(dateB);
         });
 
         // Sort current orders by due date (ascending)
         currentOrders.sort((a, b) => {
-          const dateA = moment(a.deliveryDate || a.orderBookingDate);
-          const dateB = moment(b.deliveryDate || b.orderBookingDate);
+          const dateA = parseOrderDate(a.deliveryDate || a.orderBookingDate);
+          const dateB = parseOrderDate(b.deliveryDate || b.orderBookingDate);
+          if (!dateA || !dateB) return 0;
           return dateA.diff(dateB);
         });
 
@@ -221,6 +264,256 @@ const DispatchedListPage = () => {
       setLoading(false);
     }
   }, [hasAccess, userData, dateRange.startDate, dateRange.endDate, debouncedSearchTerm, viewMode]);
+
+  const fetchDispatchList = useCallback(async () => {
+    if (!hasAccess || userData === undefined) return;
+    setDispatchListLoading(true);
+    try {
+      const instance = NetworkManager(API.DISPATCHED.GET_TRAYS);
+      const response = await instance.request();
+      const rows = response?.data?.data || [];
+      setDispatchList(Array.isArray(rows) ? rows : []);
+    } catch (error) {
+      console.error("[DispatchedListPage] Error fetching dispatch list:", error);
+      Toast.error(error?.response?.data?.message || "Failed to fetch dispatch list");
+      setDispatchList([]);
+    } finally {
+      setDispatchListLoading(false);
+    }
+  }, [hasAccess, userData]);
+
+  const getDispatchCardSummary = useCallback((dispatch) => {
+    const ordersInDispatch = Array.isArray(dispatch?.orderIds) ? dispatch.orderIds : [];
+    const orderDispatchDetails = Array.isArray(dispatch?.orderDispatchDetails) ? dispatch.orderDispatchDetails : [];
+    const qtyByOrderId = new Map(
+      orderDispatchDetails
+        .filter((d) => d?.orderId)
+        .map((d) => [String(d.orderId), Number(d.dispatchQuantity || 0)])
+    );
+
+    const totalPlantsFromDetails = orderDispatchDetails.reduce(
+      (sum, d) => sum + Number(d?.dispatchQuantity || 0),
+      0
+    );
+    const totalPlantsFromPlants = Array.isArray(dispatch?.plantsDetails)
+      ? dispatch.plantsDetails.reduce((sum, p) => sum + Number(p?.quantity || 0), 0)
+      : 0;
+    const plantsDispatched = totalPlantsFromDetails || totalPlantsFromPlants || 0;
+
+    const totals = ordersInDispatch.reduce(
+      (acc, o) => {
+        const oid = String(o?._id || "");
+        const dispatchedQty = qtyByOrderId.has(oid)
+          ? Number(qtyByOrderId.get(oid) || 0)
+          : Number(o?.quantity || 0);
+        const rate = Number(o?.rate || 0);
+        acc.total += dispatchedQty * rate;
+
+        const paidFromPaymentArray = Array.isArray(o?.payment)
+          ? o.payment
+              .filter((p) => p?.paymentStatus === "COLLECTED")
+              .reduce((sum, p) => sum + Number(p?.paidAmount || 0), 0)
+          : 0;
+        const paidFromLegacyFields = Number(o?.PaidAmt || o?.["Paid Amt"] || 0);
+        acc.paid += paidFromPaymentArray || paidFromLegacyFields;
+        return acc;
+      },
+      { total: 0, paid: 0 }
+    );
+    const totalAmount = Number(totals.total || 0);
+    const paidAmount = Number(totals.paid || 0);
+    const remainingAmount = Math.max(0, totalAmount - paidAmount);
+
+    const pickupRows = (Array.isArray(dispatch?.plantsDetails) ? dispatch.plantsDetails : [])
+      .flatMap((plant) => (Array.isArray(plant?.pickupDetails) ? plant.pickupDetails : []))
+      .map((p) => {
+        const shade = p?.shadeName || p?.shade || "";
+        const cavity = p?.cavityName || "";
+        return `${shade}${shade && cavity ? " - " : ""}${cavity}`.trim();
+      })
+      .filter(Boolean);
+    const uniquePickupRows = [...new Set(pickupRows)];
+    const pickupSummary = uniquePickupRows.length
+      ? `${uniquePickupRows.slice(0, 2).join(", ")}${uniquePickupRows.length > 2 ? ` +${uniquePickupRows.length - 2}` : ""}`
+      : "N/A";
+
+    return { plantsDispatched, totalAmount, paidAmount, remainingAmount, pickupSummary };
+  }, []);
+
+  const mapOrderToDispatchRow = (order) => {
+    const quantity = Number(order.numberOfPlants || order.totalPlants || 0);
+    return {
+      order: order.orderId,
+      farmerName: order.farmer?.name || "Unknown",
+      plantType: `${order.plantType?.name || "Unknown"} -> ${order.plantSubtype?.name || "Unknown"}`,
+      quantity,
+      Delivery: order.deliveryDate ? formatDateForDisplay(order.deliveryDate) : "-",
+      orderDate: order.orderBookingDate ? formatDateForDisplay(order.orderBookingDate) : "-",
+      details: {
+        orderid: order._id || order.id,
+        remainingPlants: Number(order.remainingPlants ?? quantity),
+        plantID: order.plantType?._id || order.plantType?.id,
+        plantSubtypeID: order.plantSubtype?._id || order.plantSubtype?.id,
+        cavityId: order.cavity?._id || order.cavity?.id,
+        cavityName: order.cavity?.name || order.cavity?.cavity || "N/A",
+        farmer: order.farmer || null,
+      },
+    };
+  };
+
+  const toggleReadySelection = (order) => {
+    const key = String(order._id || order.id || "");
+    if (!key) return;
+    setSelectedReadyRows((prev) => {
+      const next = new Map(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.set(key, mapOrderToDispatchRow(order));
+      }
+      return next;
+    });
+  };
+
+  const getReadyDispatchGroups = useCallback(async () => {
+    try {
+      const instance = NetworkManager(API.READY_DISPATCH_GROUP.GET_ALL);
+      const response = await instance.request({}, { status: "DRAFT" });
+      const groups = response?.data?.data || [];
+      setReadyDispatchGroups(Array.isArray(groups) ? groups : []);
+      setReadyGroupApiUnavailable(false);
+    } catch (error) {
+      if (error?.response?.status === 404) {
+        setReadyGroupApiUnavailable(true);
+        setReadyDispatchGroups([]);
+        return;
+      }
+      console.error("Error fetching ready dispatch groups:", error);
+      setReadyDispatchGroups([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (viewMode === "ready_for_dispatch") {
+      getReadyDispatchGroups();
+    } else {
+      setSelectedReadyRows(new Map());
+    }
+  }, [viewMode, getReadyDispatchGroups]);
+
+  const handleCreateDraftGroup = async () => {
+    const selected = Array.from(selectedReadyRows.values());
+    if (selected.length === 0) {
+      Toast.error("Select at least one order to make draft");
+      return;
+    }
+
+    setClubLoading(true);
+    try {
+      const orderIds = selected.map((row) => row?.details?.orderid).filter(Boolean);
+      const totalPlants = selected.reduce((sum, row) => sum + Number(row?.quantity || 0), 0);
+      if (!readyGroupApiUnavailable) {
+        const instance = NetworkManager(API.READY_DISPATCH_GROUP.CREATE);
+        await instance.request({
+          groups: [
+            {
+              orderIds,
+              capacityMeta: { type: "PLANTS", unit: "plants", max: totalPlants || 0 },
+            },
+          ],
+        });
+      } else {
+        const localGroup = {
+          _id: `local-${Date.now()}`,
+          groupCode: `LOCAL-${String(Date.now()).slice(-5)}`,
+          orderIds,
+          totalPlants,
+          capacityMeta: { type: "PLANTS", unit: "plants", max: totalPlants || 0 },
+          updatedAt: new Date().toISOString(),
+        };
+        setReadyDispatchGroups((prev) => [localGroup, ...(Array.isArray(prev) ? prev : [])]);
+      }
+      Toast.success("Draft group created");
+      setSelectedReadyRows(new Map());
+      if (!readyGroupApiUnavailable) {
+        await getReadyDispatchGroups();
+      }
+    } catch (error) {
+      if (error?.response?.status === 404) {
+        setReadyGroupApiUnavailable(true);
+        const orderIds = selected.map((row) => row?.details?.orderid).filter(Boolean);
+        const totalPlants = selected.reduce((sum, row) => sum + Number(row?.quantity || 0), 0);
+        const localGroup = {
+          _id: `local-${Date.now()}`,
+          groupCode: `LOCAL-${String(Date.now()).slice(-5)}`,
+          orderIds,
+          totalPlants,
+          capacityMeta: { type: "PLANTS", unit: "plants", max: totalPlants || 0 },
+          updatedAt: new Date().toISOString(),
+        };
+        setReadyDispatchGroups((prev) => [localGroup, ...(Array.isArray(prev) ? prev : [])]);
+        setSelectedReadyRows(new Map());
+        Toast.success("Draft group created (local)");
+        return;
+      }
+      console.error("Error creating draft group:", error);
+      Toast.error(error?.response?.data?.message || "Failed to create draft group");
+    } finally {
+      setClubLoading(false);
+    }
+  };
+
+  const handleProceedDispatch = () => {
+    console.log("[DispatchedListPage] Proceed clicked", {
+      selectedCount: selectedReadyRows.size,
+      selectedOrderIds: Array.from(selectedReadyRows.keys()),
+      viewMode,
+      isMobileDispatchEntry,
+    });
+    if (selectedReadyRows.size === 0) {
+      Toast.error("Select at least one order first, then tap Proceed Dispatch");
+      return;
+    }
+    setIsDispatchFormOpen(true);
+  };
+
+  const handleOpenGroupInDispatch = async (group) => {
+    try {
+      const gid = group?._id || group?.id;
+      if (!gid) return;
+      if (!readyGroupApiUnavailable && !String(gid).startsWith("local-")) {
+        const convertInstance = NetworkManager(API.READY_DISPATCH_GROUP.CONVERT_TO_DISPATCH);
+        await convertInstance.request({}, [gid]);
+      }
+
+      const groupedIds = (group?.orderIds || [])
+        .map((o) => (typeof o === "string" ? o : o?._id))
+        .filter(Boolean)
+        .map(String);
+
+      const preselected = new Map();
+      (filteredOrders || []).forEach((order) => {
+        const oid = String(order._id || order.id || "");
+        if (groupedIds.includes(oid)) {
+          preselected.set(oid, mapOrderToDispatchRow(order));
+        }
+      });
+
+      if (!preselected.size) {
+        Toast.error("No valid orders found in this view for selected group");
+        return;
+      }
+
+      setSelectedReadyRows(preselected);
+      setIsDispatchFormOpen(true);
+    } catch (error) {
+      if (error?.response?.status === 404) {
+        setReadyGroupApiUnavailable(true);
+      }
+      console.error("Error opening group in dispatch:", error);
+      Toast.error(error?.response?.data?.message || "Failed to open group");
+    }
+  };
 
   // Debounce search term - update debouncedSearchTerm after user stops typing
   useEffect(() => {
@@ -270,9 +563,13 @@ const DispatchedListPage = () => {
   // Fetch orders on mount and when filters change
   useEffect(() => {
     if (hasAccess && userData !== undefined) {
-      fetchOrders();
+      if (viewMode === "dispatch_list") {
+        fetchDispatchList();
+      } else {
+        fetchOrders();
+      }
     }
-  }, [hasAccess, userData, dateRange.startDate, dateRange.endDate, debouncedSearchTerm, viewMode, fetchOrders]);
+  }, [hasAccess, userData, dateRange.startDate, dateRange.endDate, debouncedSearchTerm, viewMode, fetchOrders, fetchDispatchList]);
 
   // Handle logout
   const handleLogout = async () => {
@@ -500,7 +797,8 @@ const DispatchedListPage = () => {
   const getSlotDetailsForDate = (selectedDate) => {
     if (!selectedDate || slots.length === 0) return null;
 
-    const selectedMoment = moment(selectedDate);
+    const selectedMoment = parseOrderDate(selectedDate);
+    if (!selectedMoment) return null;
 
     for (const slot of slots) {
       if (!slot.startDay || !slot.endDay) continue;
@@ -536,9 +834,9 @@ const DispatchedListPage = () => {
           ? Number(dataToSend.numberOfPlants)
           : Number(dataToSend.quantity);
 
-      // Convert deliveryDate to ISO format if it's a Date object
-      if (dataToSend.deliveryDate && dataToSend.deliveryDate instanceof Date) {
-        dataToSend.deliveryDate = dataToSend.deliveryDate.toISOString();
+      if (dataToSend.deliveryDate) {
+        const iso = toDeliveryDateISOString(dataToSend.deliveryDate);
+        if (iso) dataToSend.deliveryDate = iso;
       }
 
       // Validate slot capacity if booking slot is being changed
@@ -604,6 +902,7 @@ const DispatchedListPage = () => {
     setEditingOrder(order);
     setQuantityChange(0);
     setRateChange(0);
+    setDispatchDayKey(order?.dispatchDayKey || "");
     setIsEditModalOpen(true);
     
     // Load slots for this order (API often returns _id, not id)
@@ -621,6 +920,7 @@ const DispatchedListPage = () => {
     setQuantityChange(0);
     setRateChange(0);
     setStatusChange("");
+    setDispatchDayKey("");
     setSlots([]);
   };
 
@@ -678,11 +978,9 @@ const DispatchedListPage = () => {
       rate: newRate,
     };
 
-    // Include delivery date and booking slot if changed
     if (editingOrder.deliveryDate) {
-      updateData.deliveryDate = editingOrder.deliveryDate instanceof Date 
-        ? editingOrder.deliveryDate.toISOString()
-        : editingOrder.deliveryDate;
+      const iso = toDeliveryDateISOString(editingOrder.deliveryDate);
+      if (iso) updateData.deliveryDate = iso;
     }
     
     if (editingOrder.bookingSlot?.[0]?.slotId) {
@@ -691,7 +989,14 @@ const DispatchedListPage = () => {
 
     // Include status change if selected
     if (statusChange) {
+      if (statusChange === "READY_FOR_DISPATCH" && !dispatchDayKey) {
+        Toast.error("Please select Aaj / Udya / Parva before setting Ready for dispatch");
+        return;
+      }
       updateData.orderStatus = statusChange;
+      if (statusChange === "READY_FOR_DISPATCH") {
+        updateData.dispatchDayKey = dispatchDayKey;
+      }
     }
 
     patchOrder(orderId, updateData, editingOrder);
@@ -707,7 +1012,7 @@ const DispatchedListPage = () => {
       bookingSlot: [{ slotId }],
     });
     setShowDeliveryDateModal(false);
-    Toast.success(`Delivery date set to ${moment(date).format("DD - MMM-YYYY").toUpperCase()}`);
+    Toast.success(`Delivery date set to ${formatDateForDisplay(date)}`);
   };
 
   // Show loading while user data is being fetched
@@ -823,12 +1128,16 @@ const DispatchedListPage = () => {
               <Button
                 variant="contained"
                 size="small"
-                onClick={fetchOrders}
-                disabled={loading}
-                startIcon={loading ? <CircularProgress size={14} color="inherit" /> : <Refresh sx={{ fontSize: "0.95rem" }} />}
+                onClick={viewMode === "dispatch_list" ? fetchDispatchList : fetchOrders}
+                disabled={viewMode === "dispatch_list" ? dispatchListLoading : loading}
+                startIcon={
+                  viewMode === "dispatch_list"
+                    ? (dispatchListLoading ? <CircularProgress size={14} color="inherit" /> : <Refresh sx={{ fontSize: "0.95rem" }} />)
+                    : (loading ? <CircularProgress size={14} color="inherit" /> : <Refresh sx={{ fontSize: "0.95rem" }} />)
+                }
                 sx={{ minWidth: isMobile ? 88 : 100, textTransform: "none", borderRadius: 2, py: 0.8 }}
               >
-                Refresh
+                {viewMode === "dispatch_list" ? "Refresh List" : "Refresh"}
               </Button>
             </Box>
 
@@ -850,6 +1159,14 @@ const DispatchedListPage = () => {
                 Ready
               </Button>
               <Button
+                variant={viewMode === "dispatch_list" ? "contained" : "outlined"}
+                size="small"
+                onClick={() => setViewMode("dispatch_list")}
+                sx={{ textTransform: "none", borderRadius: 5, px: 1.5 }}
+              >
+                Dispatch List
+              </Button>
+              <Button
                 variant="text"
                 size="small"
                 onClick={() => setShowAdvancedFilters((prev) => !prev)}
@@ -860,7 +1177,14 @@ const DispatchedListPage = () => {
               </Button>
             </Box>
 
-            {showAdvancedFilters && (
+            {viewMode === "dispatch_list" && (
+              <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", mt: 0.5 }}>
+                <Chip size="small" label="View: Grid" sx={{ fontSize: "0.72rem", height: 24 }} />
+                <Chip size="small" label="Order Type: Regular Orders" sx={{ fontSize: "0.72rem", height: 24 }} />
+              </Box>
+            )}
+
+            {showAdvancedFilters && viewMode !== "dispatch_list" && (
               <Box sx={{ pt: 0.5 }}>
                 <Box
                   sx={{
@@ -953,12 +1277,185 @@ const DispatchedListPage = () => {
           </Paper>
 
           {/* Orders List or Map View */}
-          {loading ? (
-            <Box sx={{ textAlign: "center", py: 4 }}>
-              <CircularProgress size={32} />
-              <Typography variant="body2" color="textSecondary" sx={{ mt: 1.5, fontSize: "0.875rem" }}>
-                Loading orders...
-              </Typography>
+          {viewMode === "dispatch_list" ? (
+            dispatchListLoading ? (
+              <Box sx={{ py: 1 }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1.5 }}>
+                  <CircularProgress size={18} />
+                  <Typography variant="body2" color="textSecondary" sx={{ fontSize: "0.82rem", fontWeight: 600 }}>
+                    Loading dispatch list...
+                  </Typography>
+                </Box>
+                <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)" }, gap: 2 }}>
+                  {[...Array(isMobile ? 4 : 6)].map((_, idx) => (
+                    <Paper key={`dispatch-loading-${idx}`} sx={{ p: 1.5, borderRadius: 2, border: "1px solid rgba(0,0,0,0.08)" }}>
+                      <Skeleton variant="text" width="55%" height={24} />
+                      <Skeleton variant="text" width="75%" height={18} />
+                      <Skeleton variant="rounded" width="100%" height={70} sx={{ mt: 0.8 }} />
+                    </Paper>
+                  ))}
+                </Box>
+              </Box>
+            ) : dispatchList.length === 0 ? (
+              <Alert severity="info" sx={{ borderRadius: 2 }}>
+                <Typography variant="body2" sx={{ fontSize: isMobile ? "0.875rem" : "0.9rem" }}>
+                  No dispatches found.
+                </Typography>
+              </Alert>
+            ) : (
+              <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "repeat(2,1fr)" }, gap: 1.5 }}>
+                {dispatchList.map((dispatch, idx) => {
+                  const ordersInDispatch = Array.isArray(dispatch?.orderIds) ? dispatch.orderIds : [];
+                  const dispatchName = (dispatch?.name || "").trim() || "Unnamed Dispatch";
+                  const farmerNames = [
+                    ...new Set(
+                      ordersInDispatch
+                        .map((o) => o?.farmerName || o?.details?.farmer?.name || o?.farmer?.name || "")
+                        .filter(Boolean)
+                    ),
+                  ];
+                  const farmerNamesLabel = farmerNames.length ? farmerNames.join(", ") : "N/A";
+                  const { plantsDispatched, pickupSummary } = getDispatchCardSummary(dispatch);
+                  const status = dispatch?.dispatchStatus || dispatch?.status || "PENDING";
+                  const statusStyles =
+                    status === "DELIVERED"
+                      ? { bg: "rgba(46,125,50,0.14)", color: "#1b5e20", border: "rgba(46,125,50,0.32)" }
+                      : status === "IN_TRANSIT"
+                        ? { bg: "rgba(2,136,209,0.14)", color: "#01579b", border: "rgba(2,136,209,0.32)" }
+                        : status === "CANCELLED"
+                          ? { bg: "rgba(211,47,47,0.14)", color: "#b71c1c", border: "rgba(211,47,47,0.35)" }
+                          : { bg: "rgba(245,124,0,0.14)", color: "#e65100", border: "rgba(245,124,0,0.3)" };
+
+                  return (
+                    <Paper
+                      key={dispatch?._id || dispatch?.transportId || idx}
+                      onClick={() => {
+                        setSelectedDispatchPreview(dispatch);
+                        setDispatchPreviewOpen(true);
+                      }}
+                      sx={{
+                        p: 1.45,
+                        borderRadius: 2.5,
+                        border: "1px solid rgba(46,125,50,0.18)",
+                        cursor: "pointer",
+                        background: "linear-gradient(180deg, #ffffff 0%, #f2fbf5 100%)",
+                        transition: "all 0.2s ease",
+                        position: "relative",
+                        overflow: "hidden",
+                        "&::before": {
+                          content: '""',
+                          position: "absolute",
+                          top: 0,
+                          left: 0,
+                          right: 0,
+                          height: 3,
+                          background: "linear-gradient(90deg, #2e7d32, #66bb6a)",
+                        },
+                        "&:hover": {
+                          transform: "translateY(-2px)",
+                          boxShadow: "0 10px 24px rgba(46,125,50,0.17)",
+                          borderColor: "rgba(46,125,50,0.3)",
+                        },
+                      }}
+                    >
+                      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 0.95 }}>
+                        <Typography sx={{ fontWeight: 900, fontSize: "0.9rem", color: "#133c26" }}>
+                          Dispatch #{dispatch?.transportId || idx + 1}
+                        </Typography>
+                        <Chip
+                          size="small"
+                          label={status}
+                          sx={{
+                            height: 21,
+                            fontSize: "0.65rem",
+                            fontWeight: 800,
+                            bgcolor: statusStyles.bg,
+                            color: statusStyles.color,
+                            border: `1px solid ${statusStyles.border}`,
+                          }}
+                        />
+                      </Box>
+                      <Typography sx={{ fontSize: "0.78rem", color: "#1f2937", fontWeight: 700, mb: 0.6 }}>
+                        Farmers: <span style={{ color: "#2e7d32", fontWeight: 800 }}>{farmerNamesLabel}</span>
+                      </Typography>
+                      <Typography sx={{ fontSize: "0.7rem", color: "#2e7d32", fontWeight: 800, mb: 0.5 }}>
+                        {dispatchName}
+                      </Typography>
+                      <Box sx={{ display: "flex", gap: 0.6, flexWrap: "wrap", mb: 0.65 }}>
+                        <Chip
+                          size="small"
+                          label={`${ordersInDispatch.length} orders`}
+                          sx={{ height: 20, fontSize: "0.64rem", fontWeight: 700, bgcolor: "rgba(13,71,161,0.10)", color: "#0d47a1" }}
+                        />
+                        <Chip
+                          size="small"
+                          label={`${plantsDispatched.toLocaleString()} plants`}
+                          sx={{ height: 20, fontSize: "0.64rem", fontWeight: 700, bgcolor: "rgba(46,125,50,0.10)", color: "#1b5e20" }}
+                        />
+                      </Box>
+                      <Typography sx={{ fontSize: "0.69rem", color: "#455a64", mb: 0.4 }}>
+                        <strong>Driver:</strong> {dispatch?.driverName || "N/A"} • <strong>Vehicle:</strong> {dispatch?.vehicleName || "N/A"}
+                      </Typography>
+                      <Typography sx={{ fontSize: "0.69rem", color: "#455a64", mb: 0.85 }}>
+                        <strong>Pickup:</strong> {pickupSummary}
+                      </Typography>
+                      <Typography sx={{ fontSize: "0.65rem", color: "#607d8b", mb: 0.7 }}>
+                        {dispatch?.createdAt ? moment(dispatch.createdAt).format("DD MMM, hh:mm A") : "N/A"}
+                      </Typography>
+                      <Chip
+                        size="small"
+                        label="Tap to view full details"
+                        sx={{
+                          height: 23,
+                          fontSize: "0.66rem",
+                          fontWeight: 800,
+                          bgcolor: "rgba(46,125,50,0.12)",
+                          color: "#1b5e20",
+                          border: "1px solid rgba(46,125,50,0.24)",
+                        }}
+                      />
+                    </Paper>
+                  );
+                })}
+              </Box>
+            )
+          ) : loading ? (
+            <Box sx={{ py: 1 }}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1.5 }}>
+                <CircularProgress size={18} />
+                <Typography variant="body2" color="textSecondary" sx={{ fontSize: "0.82rem", fontWeight: 600 }}>
+                  Loading {viewMode === "ready_for_dispatch" ? "Ready" : "All"} orders...
+                </Typography>
+              </Box>
+              <Box
+                sx={{
+                  display: "grid",
+                  gridTemplateColumns: {
+                    xs: "1fr",
+                    sm: "repeat(2, 1fr)",
+                    md: "repeat(3, 1fr)",
+                  },
+                  gap: 2,
+                }}
+              >
+                {[...Array(isMobile ? 4 : 6)].map((_, idx) => (
+                  <Paper
+                    key={`loading-card-${idx}`}
+                    sx={{
+                      p: 1.5,
+                      borderRadius: 2,
+                      border: "1px solid rgba(0,0,0,0.08)",
+                      boxShadow: "0 2px 8px rgba(0,0,0,0.05)",
+                    }}
+                  >
+                    <Skeleton variant="text" width="72%" height={26} />
+                    <Skeleton variant="text" width="46%" height={18} sx={{ mt: -0.4 }} />
+                    <Skeleton variant="rounded" width="100%" height={44} sx={{ mt: 0.8 }} />
+                    <Skeleton variant="rounded" width="100%" height={32} sx={{ mt: 0.8 }} />
+                    <Skeleton variant="rounded" width="100%" height={40} sx={{ mt: 0.8 }} />
+                  </Paper>
+                ))}
+              </Box>
             </Box>
           ) : filteredOrders.length === 0 ? (
             <Alert severity="info" sx={{ borderRadius: 2 }}>
@@ -1003,6 +1500,20 @@ const DispatchedListPage = () => {
                 >
                   Total: <span style={{ color: "#2e7d32" }}>{filteredOrders.length}</span> orders
                 </Typography>
+                {viewMode === "ready_for_dispatch" && (
+                  <Chip
+                    label={`Selected ${selectedReadyRows.size}`}
+                    size="small"
+                    sx={{
+                      fontSize: "0.72rem",
+                      height: 24,
+                      fontWeight: 700,
+                      bgcolor: "rgba(13,71,161,0.12)",
+                      color: "#0d47a1",
+                      border: "1px solid rgba(13,71,161,0.25)",
+                    }}
+                  />
+                )}
                 {filteredOrders.filter(isPastDue).length > 0 && (
                   <Chip
                     label={`${filteredOrders.filter(isPastDue).length} Past Due`}
@@ -1133,6 +1644,77 @@ const DispatchedListPage = () => {
                 );
               })()}
 
+              {viewMode === "ready_for_dispatch" && (
+                <Box sx={{ mb: isMobile ? 1 : 2, display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center" }}>
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    onClick={handleCreateDraftGroup}
+                    disabled={clubLoading || selectedReadyRows.size === 0}
+                    sx={{ textTransform: "none", borderRadius: 2, fontWeight: 700 }}
+                  >
+                    {clubLoading ? "Saving..." : `Make Draft (${selectedReadyRows.size})`}
+                  </Button>
+                  <Button
+                    variant="contained"
+                    size="small"
+                    color="success"
+                    onClick={handleProceedDispatch}
+                    sx={{ textTransform: "none", borderRadius: 2, fontWeight: 700 }}
+                  >
+                    Proceed Dispatch
+                  </Button>
+                </Box>
+              )}
+
+              {viewMode === "ready_for_dispatch" && readyDispatchGroups.length > 0 && (
+                <Box sx={{ mb: 2 }}>
+                  <Typography sx={{ fontSize: "0.85rem", fontWeight: 700, color: "#1b5e20", mb: 1 }}>
+                    Clubbed groups
+                  </Typography>
+                  <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "repeat(2,1fr)" }, gap: 1 }}>
+                    {readyDispatchGroups.map((group) => {
+                      const gOrders = Array.isArray(group?.orderIds) ? group.orderIds : [];
+                      const orderLabels = gOrders
+                        .map((o) => {
+                          if (typeof o === "string") return o.slice(-6).toUpperCase();
+                          return (o?.orderId || o?._id || "").toString().slice(-6).toUpperCase();
+                        })
+                        .filter(Boolean);
+                      return (
+                        <Paper key={group?._id || group?.id} sx={{ p: 1.2, borderRadius: 2, border: "1px solid rgba(0,0,0,0.08)" }}>
+                          <Typography sx={{ fontSize: "0.78rem", fontWeight: 700 }}>{group?.groupCode || "Group"}</Typography>
+                          <Typography sx={{ fontSize: "0.7rem", color: "text.secondary", mt: 0.3 }}>
+                            {gOrders.length} orders • {Number(group?.totalPlants || 0).toLocaleString()} plants
+                          </Typography>
+                          <Typography sx={{ fontSize: "0.66rem", color: "text.secondary", mt: 0.2 }}>
+                            Capacity: {Number(group?.capacityMeta?.max || 0).toLocaleString()} {group?.capacityMeta?.unit || "plants"}
+                          </Typography>
+                          {orderLabels.length > 0 && (
+                            <Typography sx={{ fontSize: "0.63rem", color: "#546e7a", mt: 0.25 }}>
+                              IDs: {orderLabels.slice(0, 3).join(", ")}{orderLabels.length > 3 ? ` +${orderLabels.length - 3}` : ""}
+                            </Typography>
+                          )}
+                          {group?.updatedAt && (
+                            <Typography sx={{ fontSize: "0.62rem", color: "#78909c", mt: 0.2 }}>
+                              Updated: {moment(group.updatedAt).format("DD MMM, hh:mm A")}
+                            </Typography>
+                          )}
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            sx={{ mt: 0.8, textTransform: "none", borderRadius: 1.5 }}
+                            onClick={() => handleOpenGroupInDispatch(group)}
+                          >
+                            Open In Dispatch
+                          </Button>
+                        </Paper>
+                      );
+                    })}
+                  </Box>
+                </Box>
+              )}
+
               {/* Orders Cards - Grid Layout */}
               <Box 
                 sx={{ 
@@ -1151,6 +1733,12 @@ const DispatchedListPage = () => {
                   const pastDue = isPastDue(order);
                   const dueDate = order.deliveryDate || order.orderBookingDate;
                   const bookingDate = order.orderBookingDate || order.createdAt;
+                  const dispatchMetaDriver =
+                    order.assignedDriver?.name || order.assignedDriver?.fullName || order.driverName || "N/A";
+                  const dispatchMetaVehicle = order.assignedVehicle || order.vehicleName || "N/A";
+                  const dispatchMetaRoute = order.routeId || "N/A";
+                  const pickupMeta =
+                    order.pickupPoint || order.pickupLocation || order.pickupAddress || order.farmer?.village || "N/A";
                   const farmerName = order.farmer?.name || "N/A";
                   const phoneNumber = order.farmer?.mobileNumber?.toString() || "N/A";
                   const village = order.farmer?.village || "N/A";
@@ -1159,6 +1747,7 @@ const DispatchedListPage = () => {
                   const total = quantity * rate;
                   const totalAmount = order?.totalAmount || total;
                   const payments = Array.isArray(order?.payment) ? order.payment : [];
+                  const dispatchDayBadge = getDispatchDayBadge(order);
                   const receivedAmount = payments
                     .filter((p) => p?.paymentStatus === "COLLECTED")
                     .reduce((sum, p) => sum + (p?.paidAmount || 0), 0);
@@ -1167,7 +1756,13 @@ const DispatchedListPage = () => {
                   return (
                     <Paper
                       key={orderKey}
-                      onClick={() => setExpandedOrderId((prev) => (prev === orderKey ? null : orderKey))}
+                      onClick={() => {
+                        if (isMobileDispatchEntry || viewMode === "ready_for_dispatch") {
+                          handleOpenEditModal(order);
+                        } else {
+                          setExpandedOrderId((prev) => (prev === orderKey ? null : orderKey));
+                        }
+                      }}
                       sx={{
                         p: 2,
                         bgcolor: pastDue ? "rgba(255, 152, 0, 0.08)" : "white",
@@ -1231,6 +1826,43 @@ const DispatchedListPage = () => {
                           />
                         </Box>
                         <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                          {viewMode === "ready_for_dispatch" && (
+                            <Checkbox
+                              size="medium"
+                              checked={selectedReadyRows.has(String(order._id || order.id || ""))}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleReadySelection(order);
+                              }}
+                              sx={{
+                                p: 0.7,
+                                mr: 0.25,
+                                "& .MuiSvgIcon-root": { fontSize: "1.25rem" },
+                                bgcolor: "rgba(13,71,161,0.06)",
+                                borderRadius: 1,
+                              }}
+                            />
+                          )}
+                          {dispatchDayBadge && (
+                            <Chip
+                              label={dispatchDayBadge.label}
+                              size="small"
+                              sx={{
+                                fontSize: "0.68rem",
+                                height: 22,
+                                fontWeight: 800,
+                                bgcolor: dispatchDayBadge.bg,
+                                color: dispatchDayBadge.color,
+                                border: `1px solid ${dispatchDayBadge.border}`,
+                                animation: dispatchDayBadge.blink ? "dispatchBlink 1.1s linear infinite" : "none",
+                                "@keyframes dispatchBlink": {
+                                  "0%": { opacity: 1 },
+                                  "50%": { opacity: 0.35 },
+                                  "100%": { opacity: 1 },
+                                },
+                              }}
+                            />
+                          )}
                           {pastDue && (
                             <Chip
                               label="Past Due"
@@ -1332,45 +1964,49 @@ const DispatchedListPage = () => {
                           </Box>
                         )}
 
-                        {/* Due date & booking */}
-                        <Box 
-                          sx={{ 
-                            display: "flex", 
-                            alignItems: "center", 
-                            gap: 0.75, 
-                            flexWrap: "wrap",
-                            py: 0.65,
-                            px: 0.85,
-                            bgcolor: "rgba(46, 125, 50, 0.08)",
+                        {/* Delivery date above plant/qty — slightly larger */}
+                        <Box
+                          sx={{
+                            py: 1,
+                            px: 1,
+                            mb: 0.5,
+                            bgcolor: pastDue ? "rgba(255, 152, 0, 0.12)" : "rgba(46, 125, 50, 0.1)",
                             borderRadius: 1.25,
-                            border: "1px solid rgba(46, 125, 50, 0.2)",
+                            border: `1px solid ${pastDue ? "rgba(255, 152, 0, 0.45)" : "rgba(46, 125, 50, 0.28)"}`,
                           }}
                         >
-                          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                            <CalendarToday sx={{ fontSize: "0.85rem", color: "#2e7d32" }} />
-                            <Typography 
-                              variant="body2" 
-                              sx={{ 
-                                fontSize: "0.78rem",
-                                fontWeight: 700,
-                                color: "#1a1a1a",
-                              }}
-                            >
-                              {dueDate ? moment(dueDate).format("DD - MMM-YYYY").toUpperCase() : "N/A"}
-                            </Typography>
-                          </Box>
-                          <Typography variant="body2" sx={{ fontSize: "0.7rem", color: "rgba(0,0,0,0.3)", mx: 0.5 }}>
-                            •
-                          </Typography>
-                          <Typography 
-                            variant="body2" 
-                            sx={{ 
-                              fontSize: "0.76rem",
+                          <Typography
+                            variant="caption"
+                            sx={{
+                              display: "block",
                               fontWeight: 700,
-                              color: "#6a1b9a",
+                              color: "text.secondary",
+                              fontSize: "0.68rem",
+                              letterSpacing: "0.04em",
+                              textTransform: "uppercase",
+                              mb: 0.35,
                             }}
                           >
-                            Booking: {bookingDate ? moment(bookingDate).format("DD-MMM-YYYY").toUpperCase() : "N/A"}
+                            Delivery date
+                          </Typography>
+                          <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+                            <CalendarToday sx={{ fontSize: "1rem", color: pastDue ? "#e65100" : "#2e7d32" }} />
+                            <Typography
+                              sx={{
+                                fontSize: { xs: "0.95rem", sm: "1rem" },
+                                fontWeight: 800,
+                                color: pastDue ? "#e65100" : "#1b5e20",
+                                lineHeight: 1.2,
+                              }}
+                            >
+                              {dueDate ? formatDateForDisplay(dueDate) : "N/A"}
+                            </Typography>
+                          </Box>
+                          <Typography
+                            variant="body2"
+                            sx={{ fontSize: "0.72rem", fontWeight: 600, color: "#6a1b9a", mt: 0.75 }}
+                          >
+                            Booking: {bookingDate ? formatDateForDisplay(bookingDate) : "N/A"}
                           </Typography>
                         </Box>
 
@@ -1453,8 +2089,8 @@ const DispatchedListPage = () => {
                           sx={{
                             p: 0.9,
                             borderRadius: 1.5,
-                            border: "1px solid rgba(211,47,47,0.35)",
-                            bgcolor: "rgba(211,47,47,0.08)",
+                            border: "1px solid rgba(46,125,50,0.25)",
+                            bgcolor: "rgba(46,125,50,0.06)",
                             display: "flex",
                             alignItems: "center",
                             justifyContent: "space-between",
@@ -1462,12 +2098,22 @@ const DispatchedListPage = () => {
                             flexWrap: "wrap",
                           }}
                         >
-                          <Typography sx={{ fontSize: "0.76rem", fontWeight: 700, color: "#b71c1c" }}>
-                            Outstanding
-                          </Typography>
-                          <Typography sx={{ fontSize: "0.9rem", fontWeight: 800, color: "#d32f2f" }}>
-                            ₹{outstandingAmount.toLocaleString("en-IN")}
-                          </Typography>
+                          <Box>
+                            <Typography sx={{ fontSize: "0.66rem", fontWeight: 700, color: "#1b5e20" }}>
+                              Paid
+                            </Typography>
+                            <Typography sx={{ fontSize: "0.84rem", fontWeight: 800, color: "#2e7d32" }}>
+                              ₹{receivedAmount.toLocaleString("en-IN")}
+                            </Typography>
+                          </Box>
+                          <Box sx={{ textAlign: "right" }}>
+                            <Typography sx={{ fontSize: "0.66rem", fontWeight: 700, color: "#b71c1c" }}>
+                              Outstanding
+                            </Typography>
+                            <Typography sx={{ fontSize: "0.9rem", fontWeight: 800, color: "#d32f2f" }}>
+                              ₹{outstandingAmount.toLocaleString("en-IN")}
+                            </Typography>
+                          </Box>
                         </Box>
 
                         {/* Cavity + Salesperson + expand trigger */}
@@ -1508,6 +2154,65 @@ const DispatchedListPage = () => {
                           </Button>
                         </Box>
 
+                        {/* Dispatch metadata row */}
+                        <Box
+                          sx={{
+                            p: 0.75,
+                            borderRadius: 1.25,
+                            border: "1px solid rgba(0,0,0,0.1)",
+                            bgcolor: "rgba(0,0,0,0.02)",
+                          }}
+                        >
+                          <Typography sx={{ fontSize: "0.62rem", fontWeight: 700, color: "text.secondary", mb: 0.35 }}>
+                            Dispatch info
+                          </Typography>
+                          <Typography sx={{ fontSize: "0.7rem", color: "text.primary" }}>
+                            Driver: <strong>{dispatchMetaDriver}</strong> • Vehicle: <strong>{dispatchMetaVehicle}</strong>
+                          </Typography>
+                          <Typography sx={{ fontSize: "0.68rem", color: "text.secondary", mt: 0.2 }}>
+                            Route: {dispatchMetaRoute}
+                          </Typography>
+                          <Typography sx={{ fontSize: "0.68rem", color: "text.secondary", mt: 0.2 }}>
+                            Pickup: {pickupMeta}
+                          </Typography>
+                        </Box>
+
+                        {/* Call History - always visible, no expand needed */}
+                        <Box sx={{ p: 0.85, bgcolor: "rgba(46, 125, 50, 0.06)", borderRadius: 1, border: "1px solid rgba(46, 125, 50, 0.15)" }}>
+                          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 0.35 }}>
+                            <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, color: "#1b5e20" }}>
+                              Calls ({order.callHistory?.length || 0})
+                            </Typography>
+                            {phoneNumber !== "N/A" && (
+                              <Button
+                                size="small"
+                                variant="text"
+                                color="success"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setCallOrderId(order._id || order.id);
+                                  setCallNote("");
+                                  setShowCallModal(true);
+                                }}
+                                sx={{ fontSize: "0.62rem", px: 0.5, py: 0.2, minWidth: "auto", textTransform: "none" }}
+                              >
+                                + Add
+                              </Button>
+                            )}
+                          </Box>
+                          {(order.callHistory || [])
+                            .filter((call) => call.note && call.note.trim() !== "")
+                            .slice(-3)
+                            .map((call, idx) => (
+                              <Typography key={idx} sx={{ fontSize: "0.66rem", color: "text.secondary", display: "block", mb: 0.25 }}>
+                                {moment(call.date).format("DD-MM-YYYY HH:mm")} • {call.note}
+                              </Typography>
+                            ))}
+                          {!(order.callHistory || []).some((call) => call.note && call.note.trim() !== "") && (
+                            <Typography sx={{ fontSize: "0.66rem", color: "text.secondary" }}>No call notes yet.</Typography>
+                          )}
+                        </Box>
+
                         {isExpanded && (
                           <Box sx={{ mt: 0.5, display: "flex", flexDirection: "column", gap: 1 }}>
                             {/* Payment entries */}
@@ -1528,42 +2233,6 @@ const DispatchedListPage = () => {
                                 ))
                               ) : (
                                 <Typography sx={{ fontSize: "0.68rem", color: "text.secondary" }}>No payment entries yet.</Typography>
-                              )}
-                            </Box>
-
-                            {/* Call History */}
-                            <Box sx={{ p: 0.85, bgcolor: "rgba(46, 125, 50, 0.06)", borderRadius: 1, border: "1px solid rgba(46, 125, 50, 0.15)" }}>
-                              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 0.35 }}>
-                                <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, color: "#1b5e20" }}>
-                                  Calls ({order.callHistory?.length || 0})
-                                </Typography>
-                                {phoneNumber !== "N/A" && (
-                                  <Button
-                                    size="small"
-                                    variant="text"
-                                    color="success"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setCallOrderId(order._id || order.id);
-                                      setCallNote("");
-                                      setShowCallModal(true);
-                                    }}
-                                    sx={{ fontSize: "0.62rem", px: 0.5, py: 0.2, minWidth: "auto", textTransform: "none" }}
-                                  >
-                                    + Add
-                                  </Button>
-                                )}
-                              </Box>
-                              {(order.callHistory || [])
-                                .filter((call) => call.note && call.note.trim() !== "")
-                                .slice(-3)
-                                .map((call, idx) => (
-                                  <Typography key={idx} sx={{ fontSize: "0.66rem", color: "text.secondary", display: "block", mb: 0.25 }}>
-                                    {moment(call.date).format("DD-MM-YYYY HH:mm")} • {call.note}
-                                  </Typography>
-                                ))}
-                              {!(order.callHistory || []).some((call) => call.note && call.note.trim() !== "") && (
-                                <Typography sx={{ fontSize: "0.66rem", color: "text.secondary" }}>No call notes yet.</Typography>
                               )}
                             </Box>
                           </Box>
@@ -1629,6 +2298,131 @@ const DispatchedListPage = () => {
                   <Typography sx={{ fontWeight: 700, fontSize: "0.95rem", color: "#1a1a1a", mt: 0.25 }}>
                     {editingOrder.farmer?.name || "N/A"}
                   </Typography>
+                </Box>
+
+                {/* Delivery Date Section */}
+                <Box
+                  sx={{
+                    p: 1.25,
+                    borderRadius: 2,
+                    bgcolor: "white",
+                    border: "1px solid rgba(46, 125, 50, 0.18)",
+                  }}
+                >
+                  <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 600, fontSize: "0.65rem", textTransform: "uppercase", display: "block", mb: 0.75 }}>
+                    Delivery date
+                  </Typography>
+                  {slotsLoading ? (
+                    <Box sx={{ p: 1.25, textAlign: "center", bgcolor: "rgba(0,0,0,0.03)", borderRadius: 2 }}>
+                      <CircularProgress size={18} sx={{ color: "#2e7d32" }} />
+                      <Typography variant="caption" sx={{ ml: 1, fontSize: "0.72rem", color: "text.secondary" }}>
+                        Loading slots…
+                      </Typography>
+                    </Box>
+                  ) : (
+                    <Button
+                      variant="outlined"
+                      fullWidth
+                      size="small"
+                      onClick={() => {
+                        const plantId = editingOrder.plantType?._id || editingOrder.plantType?.id;
+                        const subtypeId = editingOrder.plantSubtype?._id || editingOrder.plantSubtype?.id;
+                        if (!plantId || !subtypeId) {
+                          Toast.error("Plant or subtype missing on this order.");
+                          return;
+                        }
+                        setShowDeliveryDateModal(true);
+                        if (slots.length === 0 && !slotsLoading) {
+                          getSlots(plantId, subtypeId);
+                        }
+                      }}
+                      disabled={!(editingOrder.plantType?._id || editingOrder.plantType?.id) || !(editingOrder.plantSubtype?._id || editingOrder.plantSubtype?.id)}
+                      sx={{
+                        justifyContent: "flex-start",
+                        mb: 0.25,
+                        borderRadius: 2,
+                        textTransform: "none",
+                        fontWeight: 600,
+                        borderColor: "rgba(46, 125, 50, 0.45)",
+                        color: "#1b5e20",
+                        py: 0.75,
+                        "&:hover": { borderColor: "#2e7d32", bgcolor: "rgba(46, 125, 50, 0.06)" },
+                      }}
+                    >
+                      <CalendarToday sx={{ mr: 1, fontSize: "1rem", color: "#2e7d32" }} />
+                    {editingOrder.deliveryDate
+                      ? formatDateForDisplay(editingOrder.deliveryDate)
+                      : "Choose delivery date"}
+                    </Button>
+                  )}
+                  
+                  {slots.length === 0 && !slotsLoading && (editingOrder.plantType?._id || editingOrder.plantType?.id) && (editingOrder.plantSubtype?._id || editingOrder.plantSubtype?.id) && (
+                    <Typography variant="caption" sx={{ display: "block", mt: 0.5, color: "text.secondary", fontSize: "0.68rem" }}>
+                      No open slots for this plant. Tap above to retry or pick another window when slots exist.
+                    </Typography>
+                  )}
+
+                  {/* Show selected date slot information */}
+                  {editingOrder?.deliveryDate && (() => {
+                    const slotDetails = getSlotDetailsForDate(editingOrder.deliveryDate);
+                    if (slotDetails) {
+                      const requestedQuantity = (editingOrder.numberOfPlants || editingOrder.totalPlants || 0) + quantityChange;
+                      const currentQuantity = editingOrder.numberOfPlants || editingOrder.totalPlants || 0;
+                      const quantityChangeAmount = quantityChange;
+                      const adjustedAvailable = slotDetails.available + currentQuantity;
+
+                      return (
+                        <Box sx={{ mt: 1.25, p: 1.25, bgcolor: "rgba(232, 245, 233, 0.9)", borderRadius: 1.5, border: "1px solid rgba(46, 125, 50, 0.28)" }}>
+                          <Typography variant="caption" sx={{ fontWeight: 700, color: "#1b5e20", display: "block", mb: 0.75, fontSize: "0.7rem" }}>
+                            Slot window: {slotDetails.startDay} – {slotDetails.endDay}
+                          </Typography>
+                          <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1, mb: 1 }}>
+                            <Box>
+                              <Typography variant="caption" color="text.secondary" display="block">
+                                Available Capacity:
+                              </Typography>
+                              <Typography variant="body2" sx={{ fontWeight: "bold", color: "success.main" }}>
+                                {adjustedAvailable.toLocaleString()}
+                              </Typography>
+                            </Box>
+                            <Box>
+                              <Typography variant="caption" color="text.secondary" display="block">
+                                Requested Quantity:
+                              </Typography>
+                              <Typography variant="body2" sx={{ fontWeight: "bold" }}>
+                                {requestedQuantity.toLocaleString()}
+                              </Typography>
+                            </Box>
+                          </Box>
+                          {quantityChangeAmount !== 0 && (
+                            <Typography variant="caption" sx={{ color: quantityChangeAmount > 0 ? "warning.main" : "success.main", display: "block", mb: 1 }}>
+                              {quantityChangeAmount > 0 ? "⚠️" : "✅"} Quantity change: {quantityChangeAmount > 0 ? "+" : ""}{quantityChangeAmount.toLocaleString()}
+                            </Typography>
+                          )}
+                          {requestedQuantity > adjustedAvailable && (
+                            <Box sx={{ bgcolor: "error.light", p: 1, borderRadius: 0.5, mt: 1 }}>
+                              <Typography variant="caption" color="error" sx={{ fontWeight: "bold" }}>
+                                ❌ Insufficient capacity! Only {adjustedAvailable.toLocaleString()} available.
+                              </Typography>
+                            </Box>
+                          )}
+                          {requestedQuantity <= adjustedAvailable && requestedQuantity > 0 && (
+                            <Typography variant="caption" sx={{ color: "success.main", fontWeight: "bold", display: "block", mt: 1 }}>
+                              ✅ Sufficient capacity available
+                            </Typography>
+                          )}
+                        </Box>
+                      );
+                    } else {
+                      return (
+                        <Box sx={{ mt: 2, p: 1.5, bgcolor: "error.light", borderRadius: 1, border: "1px solid", borderColor: "error.main" }}>
+                          <Typography variant="caption" color="error">
+                            ⚠️ Selected date does not fall within any available slot
+                          </Typography>
+                        </Box>
+                      );
+                    }
+                  })()}
                 </Box>
 
                 {/* Quantity Section */}
@@ -1759,131 +2553,6 @@ const DispatchedListPage = () => {
                   </Typography>
                 </Box>
 
-                {/* Delivery Date Section */}
-                <Box
-                  sx={{
-                    p: 1.25,
-                    borderRadius: 2,
-                    bgcolor: "white",
-                    border: "1px solid rgba(46, 125, 50, 0.18)",
-                  }}
-                >
-                  <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 600, fontSize: "0.65rem", textTransform: "uppercase", display: "block", mb: 0.75 }}>
-                    Delivery date
-                  </Typography>
-                  {slotsLoading ? (
-                    <Box sx={{ p: 1.25, textAlign: "center", bgcolor: "rgba(0,0,0,0.03)", borderRadius: 2 }}>
-                      <CircularProgress size={18} sx={{ color: "#2e7d32" }} />
-                      <Typography variant="caption" sx={{ ml: 1, fontSize: "0.72rem", color: "text.secondary" }}>
-                        Loading slots…
-                      </Typography>
-                    </Box>
-                  ) : (
-                    <Button
-                      variant="outlined"
-                      fullWidth
-                      size="small"
-                      onClick={() => {
-                        const plantId = editingOrder.plantType?._id || editingOrder.plantType?.id;
-                        const subtypeId = editingOrder.plantSubtype?._id || editingOrder.plantSubtype?.id;
-                        if (!plantId || !subtypeId) {
-                          Toast.error("Plant or subtype missing on this order.");
-                          return;
-                        }
-                        setShowDeliveryDateModal(true);
-                        if (slots.length === 0 && !slotsLoading) {
-                          getSlots(plantId, subtypeId);
-                        }
-                      }}
-                      disabled={!(editingOrder.plantType?._id || editingOrder.plantType?.id) || !(editingOrder.plantSubtype?._id || editingOrder.plantSubtype?.id)}
-                      sx={{
-                        justifyContent: "flex-start",
-                        mb: 0.25,
-                        borderRadius: 2,
-                        textTransform: "none",
-                        fontWeight: 600,
-                        borderColor: "rgba(46, 125, 50, 0.45)",
-                        color: "#1b5e20",
-                        py: 0.75,
-                        "&:hover": { borderColor: "#2e7d32", bgcolor: "rgba(46, 125, 50, 0.06)" },
-                      }}
-                    >
-                      <CalendarToday sx={{ mr: 1, fontSize: "1rem", color: "#2e7d32" }} />
-                    {editingOrder.deliveryDate
-                      ? moment(editingOrder.deliveryDate).format("DD - MMM-YYYY").toUpperCase()
-                      : "Choose delivery date"}
-                    </Button>
-                  )}
-                  
-                  {slots.length === 0 && !slotsLoading && (editingOrder.plantType?._id || editingOrder.plantType?.id) && (editingOrder.plantSubtype?._id || editingOrder.plantSubtype?.id) && (
-                    <Typography variant="caption" sx={{ display: "block", mt: 0.5, color: "text.secondary", fontSize: "0.68rem" }}>
-                      No open slots for this plant. Tap above to retry or pick another window when slots exist.
-                    </Typography>
-                  )}
-
-                  {/* Show selected date slot information */}
-                  {editingOrder?.deliveryDate && (() => {
-                    const slotDetails = getSlotDetailsForDate(editingOrder.deliveryDate);
-                    if (slotDetails) {
-                      const requestedQuantity = (editingOrder.numberOfPlants || editingOrder.totalPlants || 0) + quantityChange;
-                      const currentQuantity = editingOrder.numberOfPlants || editingOrder.totalPlants || 0;
-                      const quantityChangeAmount = quantityChange;
-                      const adjustedAvailable = slotDetails.available + currentQuantity;
-
-                      return (
-                        <Box sx={{ mt: 1.25, p: 1.25, bgcolor: "rgba(232, 245, 233, 0.9)", borderRadius: 1.5, border: "1px solid rgba(46, 125, 50, 0.28)" }}>
-                          <Typography variant="caption" sx={{ fontWeight: 700, color: "#1b5e20", display: "block", mb: 0.75, fontSize: "0.7rem" }}>
-                            Slot window: {slotDetails.startDay} – {slotDetails.endDay}
-                          </Typography>
-                          <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1, mb: 1 }}>
-                            <Box>
-                              <Typography variant="caption" color="text.secondary" display="block">
-                                Available Capacity:
-                              </Typography>
-                              <Typography variant="body2" sx={{ fontWeight: "bold", color: "success.main" }}>
-                                {adjustedAvailable.toLocaleString()}
-                              </Typography>
-                            </Box>
-                            <Box>
-                              <Typography variant="caption" color="text.secondary" display="block">
-                                Requested Quantity:
-                              </Typography>
-                              <Typography variant="body2" sx={{ fontWeight: "bold" }}>
-                                {requestedQuantity.toLocaleString()}
-                              </Typography>
-                            </Box>
-                          </Box>
-                          {quantityChangeAmount !== 0 && (
-                            <Typography variant="caption" sx={{ color: quantityChangeAmount > 0 ? "warning.main" : "success.main", display: "block", mb: 1 }}>
-                              {quantityChangeAmount > 0 ? "⚠️" : "✅"} Quantity change: {quantityChangeAmount > 0 ? "+" : ""}{quantityChangeAmount.toLocaleString()}
-                            </Typography>
-                          )}
-                          {requestedQuantity > adjustedAvailable && (
-                            <Box sx={{ bgcolor: "error.light", p: 1, borderRadius: 0.5, mt: 1 }}>
-                              <Typography variant="caption" color="error" sx={{ fontWeight: "bold" }}>
-                                ❌ Insufficient capacity! Only {adjustedAvailable.toLocaleString()} available.
-                              </Typography>
-                            </Box>
-                          )}
-                          {requestedQuantity <= adjustedAvailable && requestedQuantity > 0 && (
-                            <Typography variant="caption" sx={{ color: "success.main", fontWeight: "bold", display: "block", mt: 1 }}>
-                              ✅ Sufficient capacity available
-                            </Typography>
-                          )}
-                        </Box>
-                      );
-                    } else {
-                      return (
-                        <Box sx={{ mt: 2, p: 1.5, bgcolor: "error.light", borderRadius: 1, border: "1px solid", borderColor: "error.main" }}>
-                          <Typography variant="caption" color="error">
-                            ⚠️ Selected date does not fall within any available slot
-                          </Typography>
-                        </Box>
-                      );
-                    }
-                  })()}
-                </Box>
-
                 {/* Status Change Section */}
                 <Box
                   sx={{
@@ -1896,28 +2565,60 @@ const DispatchedListPage = () => {
                   <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 600, fontSize: "0.65rem", textTransform: "uppercase", display: "block", mb: 0.75 }}>
                     Status
                   </Typography>
-                  <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap" }}>
+                  <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
                     <Button
                       variant={statusChange === "CANCELLED" ? "contained" : "outlined"}
                       color="error"
-                      size="small"
+                      size="medium"
                       onClick={() => setStatusChange(statusChange === "CANCELLED" ? "" : "CANCELLED")}
                       disabled={patchLoading}
-                      sx={{ fontSize: "0.72rem", textTransform: "none", borderRadius: 2, py: 0.5 }}
+                      sx={{
+                        fontSize: "0.92rem",
+                        textTransform: "none",
+                        borderRadius: 2,
+                        py: 1.05,
+                        px: 1.8,
+                        minHeight: 46,
+                        fontWeight: 700,
+                      }}
                     >
                       Cancel
                     </Button>
                     <Button
                       variant={statusChange === "READY_FOR_DISPATCH" ? "contained" : "outlined"}
                       color="success"
-                      size="small"
+                      size="medium"
                       onClick={() => setStatusChange(statusChange === "READY_FOR_DISPATCH" ? "" : "READY_FOR_DISPATCH")}
                       disabled={patchLoading}
-                      sx={{ fontSize: "0.72rem", textTransform: "none", borderRadius: 2, py: 0.5 }}
+                      sx={{
+                        fontSize: "0.92rem",
+                        textTransform: "none",
+                        borderRadius: 2,
+                        py: 1.05,
+                        px: 1.8,
+                        minHeight: 46,
+                        fontWeight: 700,
+                      }}
                     >
                       Ready for dispatch
                     </Button>
                   </Box>
+                  {statusChange === "READY_FOR_DISPATCH" && (
+                    <FormControl sx={{ mt: 1.1 }}>
+                      <FormLabel sx={{ fontSize: "0.72rem", color: "text.secondary", mb: 0.4 }}>
+                        Dispatch day (required)
+                      </FormLabel>
+                      <RadioGroup
+                        row
+                        value={dispatchDayKey}
+                        onChange={(e) => setDispatchDayKey(e.target.value)}
+                      >
+                        <FormControlLabel value="TODAY" control={<Radio size="small" />} label="Aaj" />
+                        <FormControlLabel value="TOMORROW" control={<Radio size="small" />} label="Udya" />
+                        <FormControlLabel value="DAY_AFTER" control={<Radio size="small" />} label="Parva" />
+                      </RadioGroup>
+                    </FormControl>
+                  )}
                   {statusChange && (
                     <Typography variant="caption" color="text.secondary" sx={{ mt: 0.75, display: "block", fontSize: "0.68rem" }}>
                       {editingOrder.orderStatus || "N/A"} → {statusChange}
@@ -1970,7 +2671,18 @@ const DispatchedListPage = () => {
               borderTop: "1px solid rgba(0,0,0,0.06)",
             }}
           >
-            <Button onClick={handleCloseEditModal} disabled={patchLoading} size="small" sx={{ textTransform: "none", color: "text.secondary" }}>
+            <Button
+              onClick={handleCloseEditModal}
+              disabled={patchLoading}
+              size="medium"
+              sx={{
+                textTransform: "none",
+                color: "text.secondary",
+                fontSize: "0.95rem",
+                minHeight: 44,
+                px: 2,
+              }}
+            >
               Cancel
             </Button>
             <Button
@@ -1993,6 +2705,254 @@ const DispatchedListPage = () => {
             </Button>
           </DialogActions>
         </Dialog>
+
+        {isDispatchFormOpen && (
+          <DispatchForm
+            open={isDispatchFormOpen}
+            onClose={() => {
+              setIsDispatchFormOpen(false);
+              setSelectedReadyRows(new Map());
+              fetchOrders();
+              getReadyDispatchGroups();
+            }}
+            selectedOrders={selectedReadyRows}
+            orders={filteredOrders}
+          />
+        )}
+
+        <Dialog
+          open={dispatchPreviewOpen}
+          onClose={() => {
+            setDispatchPreviewOpen(false);
+            setSelectedDispatchPreview(null);
+          }}
+          fullScreen={isMobile}
+          maxWidth="sm"
+          fullWidth
+          PaperProps={{ sx: { borderRadius: isMobile ? 0 : 2.5, overflow: "hidden" } }}
+        >
+          <DialogTitle
+            sx={{
+              py: 1.2,
+              px: 1.8,
+              background: "linear-gradient(135deg, #2e7d32 0%, #1b5e20 100%)",
+              color: "white",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+            }}
+          >
+            <Typography sx={{ fontWeight: 800, fontSize: "0.95rem" }}>
+              Dispatch #{selectedDispatchPreview?.transportId || "N/A"} details
+            </Typography>
+            <IconButton
+              size="small"
+              onClick={() => {
+                setDispatchPreviewOpen(false);
+                setSelectedDispatchPreview(null);
+              }}
+              sx={{ color: "white" }}
+            >
+              <Close fontSize="small" />
+            </IconButton>
+          </DialogTitle>
+          <DialogContent sx={{ p: 1.5, bgcolor: "#f7faf8" }}>
+            {selectedDispatchPreview && (() => {
+              const ordersInDispatch = Array.isArray(selectedDispatchPreview?.orderIds) ? selectedDispatchPreview.orderIds : [];
+              const dispatchName = (selectedDispatchPreview?.name || "").trim() || "Unnamed Dispatch";
+              const { plantsDispatched, totalAmount, paidAmount, remainingAmount, pickupSummary } =
+                getDispatchCardSummary(selectedDispatchPreview);
+              const farmerRows = ordersInDispatch.map((o) => ({
+                name: o?.farmerName || o?.details?.farmer?.name || o?.farmer?.name || "N/A",
+                phone: o?.details?.farmer?.mobileNumber || o?.farmer?.mobileNumber || o?.contact || "N/A",
+                village: o?.details?.farmer?.village || o?.farmer?.village || "N/A",
+              }));
+              const uniqueFarmers = [...new Map(farmerRows.map((f) => [`${f.name}-${f.phone}`, f])).values()];
+              const pickupRows = (Array.isArray(selectedDispatchPreview?.plantsDetails) ? selectedDispatchPreview.plantsDetails : [])
+                .flatMap((plant) => (Array.isArray(plant?.pickupDetails) ? plant.pickupDetails : []))
+                .map((p) => ({
+                  shade: p?.shadeName || p?.shade || "N/A",
+                  cavity: p?.cavityName || "N/A",
+                  qty: Number(p?.quantity || 0),
+                }));
+              const plantRows = (Array.isArray(selectedDispatchPreview?.plantsDetails) ? selectedDispatchPreview.plantsDetails : []).map((p) => ({
+                name: p?.name || p?.plantName || "Plant",
+                qty: Number(p?.quantity || 0),
+                subtype: p?.subTypeName || p?.subtypeName || "N/A",
+              }));
+              const orderRows = ordersInDispatch.map((o) => {
+                const qty = Number(o?.quantity || 0);
+                const rate = Number(o?.rate || 0);
+                return {
+                  orderNo: o?.order || o?.orderId || "N/A",
+                  farmer: o?.farmerName || o?.details?.farmer?.name || "N/A",
+                  village: o?.details?.farmer?.village || "N/A",
+                  qty,
+                  rate,
+                  amount: qty * rate,
+                  status: o?.orderStatus || "N/A",
+                };
+              });
+
+              return (
+                <Box sx={{ display: "flex", flexDirection: "column", gap: 1.1 }}>
+                  <Paper
+                    sx={{
+                      p: 1.2,
+                      borderRadius: 2,
+                      border: "1px solid rgba(46,125,50,0.2)",
+                      background: "linear-gradient(135deg, #e8f5e9 0%, #f1f8e9 100%)",
+                    }}
+                  >
+                    <Typography sx={{ fontSize: "0.72rem", fontWeight: 800, color: "#1b5e20", mb: 0.45 }}>
+                      Transport overview
+                    </Typography>
+                    <Typography sx={{ fontSize: "0.74rem", color: "#2e7d32", fontWeight: 800, mb: 0.3 }}>
+                      Name: {dispatchName}
+                    </Typography>
+                    <Typography sx={{ fontSize: "0.76rem", color: "text.primary" }}>
+                      Driver: <strong>{selectedDispatchPreview?.driverName || "N/A"}</strong> • Vehicle: <strong>{selectedDispatchPreview?.vehicleName || "N/A"}</strong>
+                    </Typography>
+                    <Typography sx={{ fontSize: "0.68rem", color: "text.secondary", mt: 0.2 }}>
+                      Date: {selectedDispatchPreview?.createdAt ? moment(selectedDispatchPreview.createdAt).format("DD MMM YYYY, hh:mm A") : "N/A"}
+                    </Typography>
+                    <Typography sx={{ fontSize: "0.68rem", color: "text.secondary", mt: 0.2 }}>
+                      Orders: {ordersInDispatch.length} • Plants: {plantsDispatched.toLocaleString()}
+                    </Typography>
+                  </Paper>
+
+                  <Paper sx={{ p: 1.1, borderRadius: 2, border: "1px solid rgba(0,0,0,0.1)", bgcolor: "white" }}>
+                    <Typography sx={{ fontSize: "0.7rem", fontWeight: 800, color: "#0d47a1", mb: 0.45 }}>
+                      Farmer details ({uniqueFarmers.length})
+                    </Typography>
+                    {uniqueFarmers.map((f, i) => (
+                      <Typography key={`${f.name}-${i}`} sx={{ fontSize: "0.72rem", color: "text.secondary", mb: 0.2 }}>
+                        {f.name} ({f.phone}) • {f.village}
+                      </Typography>
+                    ))}
+                  </Paper>
+
+                  <Paper sx={{ p: 1.1, borderRadius: 2, border: "1px solid rgba(0,0,0,0.1)", bgcolor: "white" }}>
+                    <Typography sx={{ fontSize: "0.7rem", fontWeight: 800, color: "#6a1b9a", mb: 0.45 }}>
+                      Pickup details (from shed)
+                    </Typography>
+                    <Typography sx={{ fontSize: "0.7rem", color: "text.secondary", mb: 0.4 }}>
+                      {pickupSummary}
+                    </Typography>
+                    {pickupRows.slice(0, 6).map((p, i) => (
+                      <Typography key={`${p.shade}-${p.cavity}-${i}`} sx={{ fontSize: "0.68rem", color: "text.secondary" }}>
+                        {p.shade} • {p.cavity} • {p.qty.toLocaleString()} plants
+                      </Typography>
+                    ))}
+                  </Paper>
+
+                  <Paper sx={{ p: 1.1, borderRadius: 2, border: "1px solid rgba(0,0,0,0.1)", bgcolor: "white" }}>
+                    <Typography sx={{ fontSize: "0.7rem", fontWeight: 800, color: "#2e7d32", mb: 0.5 }}>
+                      Plant details ({plantRows.length})
+                    </Typography>
+                    {plantRows.length === 0 ? (
+                      <Typography sx={{ fontSize: "0.7rem", color: "text.secondary" }}>No plant rows</Typography>
+                    ) : (
+                      plantRows.map((p, i) => (
+                        <Box key={`${p.name}-${i}`} sx={{ display: "flex", justifyContent: "space-between", py: 0.25, borderBottom: i !== plantRows.length - 1 ? "1px dashed rgba(0,0,0,0.08)" : "none" }}>
+                          <Typography sx={{ fontSize: "0.7rem", fontWeight: 600, color: "#1f2937" }}>{p.name}</Typography>
+                          <Typography sx={{ fontSize: "0.68rem", color: "text.secondary" }}>
+                            {p.qty.toLocaleString()} • {p.subtype}
+                          </Typography>
+                        </Box>
+                      ))
+                    )}
+                  </Paper>
+
+                  <Paper sx={{ p: 1.1, borderRadius: 2, border: "1px solid rgba(0,0,0,0.1)", bgcolor: "white" }}>
+                    <Typography sx={{ fontSize: "0.7rem", fontWeight: 800, color: "#37474f", mb: 0.5 }}>
+                      Order details ({orderRows.length})
+                    </Typography>
+                    {orderRows.map((o, i) => (
+                      <Box
+                        key={`${o.orderNo}-${i}`}
+                        sx={{
+                          p: 0.75,
+                          borderRadius: 1.3,
+                          mb: i === orderRows.length - 1 ? 0 : 0.65,
+                          bgcolor: "rgba(236,239,241,0.55)",
+                          border: "1px solid rgba(0,0,0,0.06)",
+                        }}
+                      >
+                        <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: "#1f2937" }}>
+                          #{o.orderNo} • {o.farmer}
+                        </Typography>
+                        <Typography sx={{ fontSize: "0.66rem", color: "text.secondary", mt: 0.2 }}>
+                          Village: {o.village} • Qty: {o.qty.toLocaleString()} • Rate: ₹{o.rate.toLocaleString()}
+                        </Typography>
+                        <Box sx={{ display: "flex", justifyContent: "space-between", mt: 0.2 }}>
+                          <Typography sx={{ fontSize: "0.66rem", color: "text.secondary" }}>Status: {o.status}</Typography>
+                          <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, color: "#0d47a1" }}>₹{o.amount.toLocaleString()}</Typography>
+                        </Box>
+                      </Box>
+                    ))}
+                  </Paper>
+
+                  <Box sx={{ display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 0.7 }}>
+                    <Paper variant="outlined" sx={{ p: 0.9, borderRadius: 1.5, textAlign: "center", bgcolor: "white" }}>
+                      <Typography sx={{ fontSize: "0.63rem", color: "text.secondary" }}>Total</Typography>
+                      <Typography sx={{ fontSize: "0.8rem", fontWeight: 800 }}>₹{totalAmount.toLocaleString()}</Typography>
+                    </Paper>
+                    <Paper variant="outlined" sx={{ p: 0.9, borderRadius: 1.5, textAlign: "center", bgcolor: "white" }}>
+                      <Typography sx={{ fontSize: "0.63rem", color: "text.secondary" }}>Paid</Typography>
+                      <Typography sx={{ fontSize: "0.8rem", fontWeight: 800, color: "#1b5e20" }}>₹{paidAmount.toLocaleString()}</Typography>
+                    </Paper>
+                    <Paper variant="outlined" sx={{ p: 0.9, borderRadius: 1.5, textAlign: "center", bgcolor: "white" }}>
+                      <Typography sx={{ fontSize: "0.63rem", color: "text.secondary" }}>Remaining</Typography>
+                      <Typography sx={{ fontSize: "0.8rem", fontWeight: 800, color: "#b71c1c" }}>₹{remainingAmount.toLocaleString()}</Typography>
+                    </Paper>
+                  </Box>
+
+                </Box>
+              );
+            })()}
+          </DialogContent>
+        </Dialog>
+
+        {viewMode === "ready_for_dispatch" && isMobileDispatchEntry && !isDispatchFormOpen && (
+          <Box
+            sx={{
+              position: "fixed",
+              left: 0,
+              right: 0,
+              bottom: 0,
+              zIndex: 1200,
+              bgcolor: "rgba(255,255,255,0.97)",
+              borderTop: "1px solid rgba(0,0,0,0.1)",
+              boxShadow: "0 -3px 12px rgba(0,0,0,0.1)",
+              p: 1,
+              pb: "calc(10px + env(safe-area-inset-bottom))",
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              gap: 1,
+              pointerEvents: "auto",
+            }}
+          >
+            <Button
+              variant="outlined"
+              fullWidth
+              onClick={handleCreateDraftGroup}
+              disabled={clubLoading || selectedReadyRows.size === 0}
+              sx={{ textTransform: "none", fontWeight: 700, minHeight: 46 }}
+            >
+              Make Draft
+            </Button>
+            <Button
+              variant="contained"
+              color="success"
+              fullWidth
+              onClick={handleProceedDispatch}
+              sx={{ textTransform: "none", fontWeight: 700, minHeight: 46 }}
+            >
+              Proceed Dispatch
+            </Button>
+          </Box>
+        )}
 
         {/* Delivery date picker — Dialog stacks above edit Dialog (portal + z-index) */}
         <Dialog
@@ -2114,10 +3074,13 @@ const DispatchedListPage = () => {
                           }}
                         >
                           {dates.map((date) => {
+                            const selectedM = editingOrder?.deliveryDate
+                              ? parseOrderDate(editingOrder.deliveryDate)
+                              : null;
                             const isSelected =
-                              editingOrder?.deliveryDate &&
-                              moment(editingOrder.deliveryDate).format("YYYY-MM-DD") ===
-                                date.format("YYYY-MM-DD");
+                              selectedM &&
+                              selectedM.isValid() &&
+                              date.format("YYYY-MM-DD") === selectedM.format("YYYY-MM-DD");
                             const isToday = date.isSame(today, "day");
 
                             return (

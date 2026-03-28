@@ -15,23 +15,16 @@ import {
   Grid,
   Typography,
   Chip,
-  Alert,
   IconButton,
-  InputAdornment,
-  Divider,
   CircularProgress,
   useMediaQuery,
   useTheme,
-  Stack,
 } from "@mui/material";
 import {
   Close,
   Add as AddIcon,
   CalendarToday,
-  LocationOn,
   Inventory,
-  Notes,
-  Save,
 } from "@mui/icons-material";
 import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 import { LocalizationProvider } from "lib/muiLocalizationProvider";
@@ -39,7 +32,6 @@ import { AdapterMoment } from "@mui/x-date-pickers/AdapterMoment";
 import moment from "moment";
 import { NetworkManager, API } from "network/core";
 import { Toast } from "helpers/toasts/toastHelper";
-import { useSelector } from "react-redux";
 
 const AddSowingModal = ({ open, onClose, plants = [], onSuccess, userData, appUser }) => {
   const theme = useTheme();

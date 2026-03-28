@@ -160,19 +160,15 @@ export const API = {
       OFFLINE.PROFILE
     ),
     GET_FOLLOW_UP: new APIRouter("api/v2/followup/getFollowup", HTTP_METHODS.GET, OFFLINE.PROFILE),
-    CREATE: new APIRouter("/employees/:employeeId/follow-ups", HTTP_METHODS.POST),
-    GET_ALL: new APIRouter("/employees/:employeeId/follow-ups", HTTP_METHODS.GET),
-    GET_ALL_FOLLOW_UPS: new APIRouter("/employees/follow-ups/all", HTTP_METHODS.GET),
-    UPDATE: new APIRouter("/employees/:employeeId/follow-ups/:followUpId", HTTP_METHODS.PUT),
-    DELETE: new APIRouter("/employees/:employeeId/follow-ups/:followUpId", HTTP_METHODS.DEL),
-    GET_PUBLIC: new APIRouter("/public/follow-up/:token", HTTP_METHODS.GET),
-    ADD_COMMENT: new APIRouter("/public/follow-up/:token/comment", HTTP_METHODS.POST)
   },
+  // Paths omit /api/v1 — axios interceptor prepends exactly one /api/v1 (see services/axiosConfig.js)
   TASK: {
     CREATE: new APIRouter("/tasks", HTTP_METHODS.POST),
     GET_ALL: new APIRouter("/tasks", HTTP_METHODS.GET),
+    STATS: new APIRouter("/tasks/stats", HTTP_METHODS.GET),
     GET_BY_ID: new APIRouter("/tasks/:taskId", HTTP_METHODS.GET),
     UPDATE: new APIRouter("/tasks/:taskId", HTTP_METHODS.PUT),
+    UPDATE_MY_ASSIGNMENT: new APIRouter("/tasks/:taskId/my-assignment", HTTP_METHODS.PATCH),
     DELETE: new APIRouter("/tasks/:taskId", HTTP_METHODS.DEL),
     ADD_COMMENT: new APIRouter("/tasks/:taskId/comment", HTTP_METHODS.POST),
     GET_PUBLIC_BY_EMPLOYEE: new APIRouter("/tasks/public/employee/:employeeId", HTTP_METHODS.GET),
@@ -537,6 +533,13 @@ export const API = {
     CREATE_TRAY: new APIRouter("dispatched", HTTP_METHODS.POST),
     DELETE_TRANSPORT: new APIRouter("dispatched/transport", HTTP_METHODS.DEL),
     UPDATE_COMPLETE: new APIRouter("dispatched/complete", HTTP_METHODS.PATCH)
+  },
+  READY_DISPATCH_GROUP: {
+    SUGGEST: new APIRouter("ready-dispatch-groups/suggest", HTTP_METHODS.POST),
+    CREATE: new APIRouter("ready-dispatch-groups", HTTP_METHODS.POST),
+    GET_ALL: new APIRouter("ready-dispatch-groups", HTTP_METHODS.GET),
+    UPDATE: new APIRouter("ready-dispatch-groups/:id", HTTP_METHODS.PATCH),
+    CONVERT_TO_DISPATCH: new APIRouter("ready-dispatch-groups/:id/convert-to-dispatch", HTTP_METHODS.POST),
   },
   BATCH: {
     CREATE_BATCH: new APIRouter("batch/create", HTTP_METHODS.POST),

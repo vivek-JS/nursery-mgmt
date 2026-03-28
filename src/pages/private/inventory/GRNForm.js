@@ -1,18 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-  Package,
   Plus,
   Trash2,
   Save,
   ArrowLeft,
   Search,
-  CheckCircle,
-  AlertCircle,
-  FileText,
   Camera,
   X,
-  Upload,
 } from 'lucide-react';
 import { API, NetworkManager } from '../../../network/core';
 

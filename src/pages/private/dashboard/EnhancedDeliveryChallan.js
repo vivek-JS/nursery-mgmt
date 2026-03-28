@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react"
 import { Document, Page, Text, View, StyleSheet, Font } from "@react-pdf/renderer"
 import { Dialog, DialogTitle, DialogContent, DialogActions, Button } from "@mui/material"
-import { FileText, Download, Printer } from "lucide-react"
+import { FileText, Download } from "lucide-react"
 
 // Register fonts
 Font.register({

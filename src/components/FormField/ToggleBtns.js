@@ -7,8 +7,9 @@ import React, {
   useCallback
 } from "react"
 
-import { identity } from "ramda"
 import { ButtonGroup } from "@mui/material"
+
+const identity = (x) => x
 
 const ControlledButtonGroupToggle = ({ children, selected = 0, onChange = identity, ...props }) => {
   const buttons = useMemo(

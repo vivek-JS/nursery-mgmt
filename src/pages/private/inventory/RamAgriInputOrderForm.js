@@ -6,7 +6,6 @@ import {
   Trash2,
   Save,
   Package,
-  ShoppingCart,
 } from 'lucide-react';
 import { API, NetworkManager } from '../../../network/core';
 import { formatCurrency } from '../../../utils/numberUtils';

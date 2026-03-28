@@ -10,7 +10,6 @@ import {
   MenuItem,
   Chip,
   Tooltip,
-  LinearProgress,
 } from "@mui/material";
 import moment from "moment";
 

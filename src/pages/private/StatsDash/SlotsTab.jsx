@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { 
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
-  LineChart, Line, ComposedChart, Area
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Line, ComposedChart
 } from 'recharts';
 import { Calendar } from 'lucide-react';
 import ChartCard from '../common/ChartCard';

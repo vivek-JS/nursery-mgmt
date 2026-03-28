@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react"
 import { NetworkManager, API } from "network/core"
-import { Truck, Trash2, CheckCircle } from "lucide-react"
+import { Truck } from "lucide-react"
 import DispatchForm from "./DispatchedForm"
 import CollectSlipPDF from "./CollectSlipPDF"
 import DeliveryChallanPDF from "./DeliveryChallan"
@@ -108,6 +108,7 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false 
     })
 
     return {
+      name: dispatchData.name || "",
       driverName: dispatchData.driverName,
       driverMobile: dispatchData.driverMobile,
       vehicleName: dispatchData.vehicleName,

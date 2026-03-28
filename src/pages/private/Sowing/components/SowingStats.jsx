@@ -15,7 +15,6 @@ import {
   CheckCircle,
   Schedule,
   Refresh,
-  Info,
 } from "@mui/icons-material";
 
 const SowingStats = ({ stats, reminders = [], alerts, onRefresh, loading = false }) => {

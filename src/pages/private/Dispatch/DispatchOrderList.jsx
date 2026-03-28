@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from "react";
 import {
   Box,
-  TextField,
   Button,
   Paper,
   Typography,
@@ -13,23 +12,11 @@ import {
   Toolbar,
   IconButton,
   Alert,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Chip,
-  Tooltip,
 } from "@mui/material";
 import {
   ArrowBack,
   Refresh,
   Logout,
-  Phone,
-  Call,
-  Edit,
-  LocationOn,
 } from "@mui/icons-material";
 import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 import { LocalizationProvider } from "lib/muiLocalizationProvider";
@@ -37,14 +24,13 @@ import { AdapterMoment } from "@mui/x-date-pickers/AdapterMoment";
 import moment from "moment";
 import { NetworkManager, API } from "network/core";
 import { Toast } from "helpers/toasts/toastHelper";
-import { useSelector } from "react-redux";
 import { useNavigate } from "react-router-dom";
 import { useUserData, useUserRole, useIsDispatchManager } from "utils/roleUtils";
 import { useLogoutModel } from "layout/privateLayout/privateLayout.model";
 import { Loader } from "redux/dispatcher/Loader";
 import EditOrderModal from "./components/EditOrderModal";
 import OrderCard from "./components/OrderCard";
-import { getDefaultDateRange, formatDateForAPI, isDueDatePassed, formatDateForDisplay } from "./utils/dateUtils";
+import { getDefaultDateRange, formatDateForAPI } from "./utils/dateUtils";
 
 const DispatchOrderList = () => {
   const theme = useTheme();

@@ -25,7 +25,6 @@ import {
   useTheme,
   Stack,
   Checkbox,
-  FormControlLabel,
   alpha,
 } from "@mui/material";
 import {
@@ -50,10 +49,7 @@ import { NetworkManager, API } from "network/core";
 import { Toast } from "helpers/toasts/toastHelper";
 import moment from "moment";
 import {
-  calendarDaysRemaining,
-  formatCountdownTo,
   normBatchKey,
-  getPlantReadyFromMap,
   getMilestoneForBatch,
   buildPlantReadyBatchIdMap,
   resolvePlantReady,

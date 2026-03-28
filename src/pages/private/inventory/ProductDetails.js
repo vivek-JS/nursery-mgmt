@@ -5,8 +5,6 @@ import {
   Edit2,
   Package,
   TrendingUp,
-  TrendingDown,
-  Calendar,
   DollarSign,
   Box,
 } from 'lucide-react';

@@ -5,7 +5,6 @@ import {
 import { Users } from 'lucide-react';
 import ChartCard from '../common/ChartCard';
 import SimpleTable from '../common/SimpleTable';
-import DataCard from '../common/DataCard';
 import CustomTooltip from '../common/CustomTooltip';
 import { formatCurrency, formatPercentage } from '../../utils/formatters';
 

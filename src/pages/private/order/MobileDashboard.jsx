@@ -2,7 +2,8 @@ import React from "react"
 import { useNavigate } from "react-router-dom"
 import { useSelector } from "react-redux"
 import { Box, Typography, Card, CardContent, Avatar, IconButton } from "@mui/material"
-import { Agriculture as PlantIcon, Inventory2 as InventoryIcon, LocalShipping as DispatchIcon, ArrowBack } from "@mui/icons-material"
+import { Agriculture as PlantIcon, Inventory2 as InventoryIcon, LocalShipping as DispatchIcon, ArrowBack, AssignmentTurnedIn as TasksIcon, Logout } from "@mui/icons-material"
+import { useLogoutModel } from "layout/privateLayout/privateLayout.model"
 
 const C = {
   primary: "#5B5FC7",
@@ -21,6 +22,7 @@ const C = {
  */
 function MobileDashboard() {
   const navigate = useNavigate()
+  const logoutModel = useLogoutModel()
   const userData = useSelector((state) => state?.userData?.userData)
   const appUser = useSelector((state) => state?.app?.user)
   const user = userData || appUser || {}
@@ -32,6 +34,23 @@ function MobileDashboard() {
     effectiveRole === "ADMIN" ||
     effectiveRole === "SUPER_ADMIN" ||
     effectiveRole === "SUPERADMIN"
+
+  const openTasks = () => {
+    navigate("/u/mobile/tasks", {
+      state: { from: "mobile_dashboard_tasks" },
+    })
+  }
+
+  const openDispatch = () => {
+    navigate("/u/mobile/dispatch-orders", {
+      state: { from: "mobile_dashboard_dispatch" },
+    })
+  }
+
+  const handleLogout = async () => {
+    await logoutModel.logout()
+    navigate("/auth/login", { replace: true })
+  }
 
   return (
     <Box sx={{ minHeight: "100vh", display: "flex", flexDirection: "column", bgcolor: C.bg, width: "100%", maxWidth: "100vw" }}>
@@ -50,6 +69,16 @@ function MobileDashboard() {
           <Box>
             <Typography sx={{ color: "white", fontWeight: 800, fontSize: "1.05rem" }}>{userName}</Typography>
             <Typography sx={{ color: "rgba(255,255,255,0.85)", fontSize: "0.75rem" }}>Mobile Dashboard</Typography>
+          </Box>
+          <Box sx={{ ml: "auto" }}>
+            <IconButton
+              onClick={handleLogout}
+              sx={{ color: "white", bgcolor: "rgba(255,255,255,0.12)", "&:hover": { bgcolor: "rgba(255,255,255,0.2)" } }}
+              aria-label="Logout"
+              title="Logout"
+            >
+              <Logout />
+            </IconButton>
           </Box>
         </Box>
       </Box>
@@ -101,6 +130,28 @@ function MobileDashboard() {
               </Box>
             </CardContent>
           </Card>
+          <Card
+            elevation={0}
+            sx={{
+              borderRadius: 3,
+              border: "2px solid",
+              borderColor: "#EDE9FE",
+              overflow: "hidden",
+              cursor: "pointer",
+              "&:active": { bgcolor: "#f5f3ff" },
+            }}
+            onClick={openTasks}>
+            <CardContent sx={{ py: 2.5, px: 2, display: "flex", alignItems: "center", gap: 2 }}>
+              <Box sx={{ width: 52, height: 52, borderRadius: 2, bgcolor: "#EDE9FE", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <TasksIcon sx={{ fontSize: 28, color: "#6D28D9" }} />
+              </Box>
+              <Box>
+                <Typography sx={{ fontWeight: 800, fontSize: "1.05rem", color: C.textPrimary }}>Tasks</Typography>
+                <Typography sx={{ fontSize: "0.78rem", color: C.textSecondary }}>ERP tasks assigned to you</Typography>
+              </Box>
+            </CardContent>
+          </Card>
+
           {canAccessDispatch && (
             <Card
               elevation={0}
@@ -112,7 +163,7 @@ function MobileDashboard() {
                 cursor: "pointer",
                 "&:active": { bgcolor: "#eef5ff" },
               }}
-              onClick={() => navigate("/u/mobile/dispatch-orders")}>
+              onClick={openDispatch}>
               <CardContent sx={{ py: 2.5, px: 2, display: "flex", alignItems: "center", gap: 2 }}>
                 <Box sx={{ width: 52, height: 52, borderRadius: 2, bgcolor: "#EAF3FF", display: "flex", alignItems: "center", justifyContent: "center" }}>
                   <DispatchIcon sx={{ fontSize: 28, color: "#1976d2" }} />

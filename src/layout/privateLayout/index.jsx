@@ -163,7 +163,7 @@ export default function PrivateLayout(props) {
     }
   }, [isSecondaryEmployee, isSuperAdmin, isAdmin, location.pathname, navigate, userData])
 
-  // DISPATCH_MANAGER users can access dispatch routes + full mobile flow
+  // DISPATCH_MANAGER users can access dispatch routes + full mobile flow (including tasks)
   // Redirect them immediately if they try to access any other route
   // SUPER_ADMIN can access all routes, so don't redirect them
   useEffect(() => {
@@ -180,13 +180,14 @@ export default function PrivateLayout(props) {
         currentPath === "/u/mobile" ||
         currentPath.includes("/u/mobile/place-order") ||
         currentPath.includes("/u/mobile/agri-sales-order") ||
-        currentPath.includes("/u/mobile/dispatch-orders")
+        currentPath.includes("/u/mobile/dispatch-orders") ||
+        currentPath.includes("/u/mobile/tasks")
       
       if (!isDispatchOrdersRoute && !isMobileDispatchRoute) {
-        // Redirect DISPATCH_MANAGER users to dispatch orders page
-        console.log(`[PrivateLayout] DISPATCH_MANAGER user accessing ${currentPath}, redirecting to /u/dispatch-orders`)
+        // Default dispatch manager fallback should be mobile chooser screen
+        console.log(`[PrivateLayout] DISPATCH_MANAGER user accessing ${currentPath}, redirecting to /u/mobile`)
         dispatchRedirectRef.current = true
-        navigate("/u/dispatch-orders", { replace: true })
+        navigate("/u/mobile", { replace: true })
       }
     }
   }, [isDispatchManager, isSuperAdmin, isAdmin, location.pathname, navigate, userData])
@@ -305,7 +306,7 @@ export default function PrivateLayout(props) {
     }
   }, [isDealerOrSales, isSuperAdmin, isAdmin, location.pathname, navigate, userData])
   
-  // Hide sidebar for primary sowing entry, primary/secondary mobile ops, dispatch orders, mobile agri sales
+  // Hide sidebar for primary sowing entry, primary/secondary mobile ops, and all mobile routes
   // With BrowserRouter, pathname is the actual route path
   const hideSidebar =
     location.pathname === "/u/primary-sowing-entry" ||
@@ -313,10 +314,7 @@ export default function PrivateLayout(props) {
     location.pathname === "/u/secondary-sowing-entry" ||
     location.pathname === "/u/secondary-mobile" ||
     location.pathname === "/u/dispatch-orders" ||
-    location.pathname === "/u/mobile" ||
-    location.pathname === "/u/mobile/agri-sales-order" ||
-    location.pathname === "/u/mobile/place-order" ||
-    location.pathname === "/u/mobile/dispatch-orders"
+    location.pathname.startsWith("/u/mobile")
   
   const { 
     handleLogout, 

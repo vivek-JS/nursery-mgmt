@@ -10,7 +10,6 @@ import {
   Crop,
   Package,
   Search,
-  Check,
   AlertCircle,
   ChevronDown,
   ChevronUp,

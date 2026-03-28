@@ -18,24 +18,20 @@ import {
   TableHead,
   TableRow,
   Paper,
-  LinearProgress,
   Stepper,
   Step,
   StepLabel,
   FormControl,
   InputLabel,
   Select,
-  MenuItem,
-  Chip
+  MenuItem
 } from "@mui/material"
 import {
   Upload,
   FileSpreadsheet,
   Save,
   Send,
-  X,
-  CheckCircle,
-  AlertCircle
+  X
 } from "lucide-react"
 import * as XLSX from "xlsx"
 import { sendTemplateMessages } from "network/core/wati"

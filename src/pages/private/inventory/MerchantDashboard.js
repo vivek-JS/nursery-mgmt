@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, CreditCard, Package, BarChart3, DollarSign, TrendingUp } from 'lucide-react';
+import { ArrowLeft, CreditCard, Package, BarChart3, TrendingUp } from 'lucide-react';
 import { API, NetworkManager } from 'network/core';
 
 const MerchantDashboard = () => {

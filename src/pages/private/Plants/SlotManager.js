@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react"
-import { Plus, Pencil, Trash2, ChevronDown, Calendar, Settings, Save, X, Leaf, Sparkles, Clock, Target } from "lucide-react"
+import { Trash2, Calendar, Settings, Save, X, Leaf, Sparkles, Clock, Target } from "lucide-react"
 import { API, NetworkManager } from "network/core"
 import { Formik, Form, FieldArray } from "formik"
 import * as Yup from "yup"

@@ -23,7 +23,7 @@ module.exports = {
       presets: ["@babel/preset-react"]
     }
   },
-  plugins: ["react"],
+  plugins: ["react", "unused-imports"],
   rules: {
     quotes: 0,
     curly: 0,
@@ -45,7 +45,8 @@ module.exports = {
     "space-infix-ops": 0,
     "space-unary-ops": 0,
     "no-console": "off",
-    "no-unused-vars": 0 // Disabled unused variable check
+    "no-unused-vars": "off",
+    "unused-imports/no-unused-imports": "warn"
   },
   settings: {
     "import/resolver": {

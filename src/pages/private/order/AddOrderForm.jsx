@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react"
+import React, { useState, useEffect } from "react"
 import {
   Grid,
   TextField,
@@ -18,17 +18,14 @@ import {
   DialogActions,
   Chip,
   Divider,
-  Paper,
   Avatar,
   IconButton,
   Tooltip,
   Checkbox,
-  ImageList,
-  ImageListItem,
-  ImageListItemBar,
   Accordion,
   AccordionSummary,
-  AccordionDetails
+  AccordionDetails,
+  FormControl
 } from "@mui/material"
 import { DatePicker } from "@mui/x-date-pickers/DatePicker"
 import { LocalizationProvider } from "lib/muiLocalizationProvider"
@@ -48,7 +45,6 @@ import {
   CheckCircle as CheckIcon,
   Info as InfoIcon,
   FlashOn as FlashIcon,
-  PhotoCamera as CameraIcon,
   Delete as DeleteIcon,
   CloudUpload as UploadIcon,
   ExpandMore as ExpandMoreIcon

@@ -10,8 +10,6 @@ import {
   User,
   MapPin,
   CreditCard,
-  Upload,
-  Camera,
   X,
   CheckCircle,
 } from 'lucide-react';

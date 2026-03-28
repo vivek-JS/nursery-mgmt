@@ -26,7 +26,6 @@ import { API, NetworkManager } from "network/core"
 import * as XLSX from "xlsx"
 import SendIcon from "@mui/icons-material/Send"
 import CloudUploadIcon from "@mui/icons-material/CloudUpload"
-import WhatsAppIcon from "@mui/icons-material/WhatsApp"
 
 const CampaignCreateModal = ({ open, onClose, onCreated }) => {
   const [name, setName] = useState("")

@@ -17,7 +17,6 @@ import {
   Warning,
   DeleteForever,
   Close,
-  CheckCircle,
 } from "@mui/icons-material";
 import { NetworkManager, API } from "network/core";
 import { Toast } from "helpers/toasts/toastHelper";

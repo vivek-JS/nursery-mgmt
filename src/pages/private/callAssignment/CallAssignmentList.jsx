@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react"
+import { useSearchParams } from "react-router-dom"
 import {
   Box,
   Button,
@@ -23,12 +24,11 @@ import {
   Grid,
   InputAdornment,
   Collapse,
-  CircularProgress,
   IconButton,
   Link,
   alpha,
 } from "@mui/material"
-import { UserPlus, Copy, ExternalLink, Filter, Users, UserPlus as LeadIcon, Link2, Search, Plus, Database, FileText } from "lucide-react"
+import { UserPlus, Copy, ExternalLink, Link2, Search, Plus, Database, FileText } from "lucide-react"
 import { API, NetworkManager } from "network/core"
 
 const PAGE_SIZE = 20
@@ -65,6 +65,8 @@ const CallAssignmentList = () => {
   const [viewListData, setViewListData] = useState(null)
   const [viewLoading, setViewLoading] = useState(false)
   const [entryActionLoading, setEntryActionLoading] = useState(false)
+  const [searchParams] = useSearchParams()
+  const preOpenListRef = useRef(false)
 
   const fetchData = async (source, page = 1, linkIdParam) => {
     setLoading(true)
@@ -342,6 +344,13 @@ const CallAssignmentList = () => {
     fetchPublicLinks()
     fetchFilterOptions("farmer")
   }, [])
+
+  useEffect(() => {
+    const listId = searchParams.get("listId")
+    if (!listId || preOpenListRef.current) return
+    preOpenListRef.current = true
+    openListDetails(listId)
+  }, [searchParams])
 
   useEffect(() => {
     const t = setTimeout(() => fetchData("all"), 400)

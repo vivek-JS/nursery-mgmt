@@ -8,7 +8,6 @@ import {
   ArrowLeft,
   Search,
   CheckCircle,
-  AlertCircle,
   Info,
   Calendar,
 } from 'lucide-react';

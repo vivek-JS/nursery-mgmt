@@ -16,15 +16,11 @@ import {
   AccordionSummary,
   AccordionDetails,
   IconButton,
-  Paper,
   Grid,
-  Avatar,
   Divider,
   CircularProgress,
   TextField,
   InputAdornment,
-  Tooltip,
-  LinearProgress,
   Alert,
 } from "@mui/material";
 import {
@@ -33,15 +29,12 @@ import {
   History,
   Person,
   AccessTime,
-  LocationOn,
   CalendarToday,
   Edit,
   Add,
   Refresh,
   Search,
   Inventory,
-  CheckCircle,
-  ExpandLess,
 } from "@mui/icons-material";
 import moment from "moment";
 import { NetworkManager, API } from "network/core";

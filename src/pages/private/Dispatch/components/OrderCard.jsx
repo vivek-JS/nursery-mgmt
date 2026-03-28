@@ -9,8 +9,7 @@ import {
   useMediaQuery,
 } from "@mui/material";
 import { Phone, Call, Edit, LocationOn, AccountBalanceWallet, PendingActions } from "@mui/icons-material";
-import moment from "moment";
-import { formatDateForDisplay } from "../utils/dateUtils";
+import { formatDateForDisplay, isOrderPastDue } from "../utils/dateUtils";
 
 const OrderCard = ({ order, onCall, onEdit }) => {
   const theme = useTheme();
@@ -59,8 +58,7 @@ const OrderCard = ({ order, onCall, onEdit }) => {
 
   const deliveryDate = order?.deliveryDate || order?.farmReadyDate || order?.dueDate;
   const formattedDeliveryDate = formatDateForDisplay(deliveryDate);
-  // Check if delivery date has passed (compare dates only, not time)
-  const isPastDue = deliveryDate && moment(deliveryDate).startOf("day").isBefore(moment().startOf("day"));
+  const isPastDue = isOrderPastDue(deliveryDate);
 
   // Calculate payment information
   const totalAmount = order?.totalAmount || order?.rate * (order?.numberOfPlants || 0) || 0;
@@ -192,6 +190,41 @@ const OrderCard = ({ order, onCall, onEdit }) => {
         </Box>
       </Box>
 
+      {/* Delivery date above plant / quantity — slightly larger */}
+      <Box
+        sx={{
+          p: isMobile ? 0.85 : 0.75,
+          mb: 0.75,
+          bgcolor: isPastDue ? "#ffebee" : "#e8f5e9",
+          borderRadius: 0.75,
+          border: `1px solid ${isPastDue ? "#f44336" : "#4caf50"}`,
+        }}
+      >
+        <Typography
+          variant="caption"
+          sx={{
+            color: "#999",
+            fontSize: isMobile ? "0.62rem" : "0.65rem",
+            display: "block",
+            mb: 0.25,
+            fontWeight: 600,
+          }}
+        >
+          Delivery date
+        </Typography>
+        <Typography
+          variant="body2"
+          sx={{
+            fontWeight: 700,
+            color: isPastDue ? "#d32f2f" : "#2e7d32",
+            fontSize: isMobile ? "0.92rem" : "0.95rem",
+            lineHeight: 1.25,
+          }}
+        >
+          {formattedDeliveryDate}
+        </Typography>
+      </Box>
+
       {/* Compact Details - Inline */}
       <Box
         sx={{
@@ -250,42 +283,6 @@ const OrderCard = ({ order, onCall, onEdit }) => {
             }}
           >
             {order?.numberOfPlants || order?.quantity || 0} plants
-          </Typography>
-        </Box>
-      </Box>
-
-      {/* Highlighted Delivery Date - Compact */}
-      <Box
-        sx={{
-          p: 0.75,
-          mb: 0.75,
-          bgcolor: isPastDue ? "#ffebee" : "#e8f5e9",
-          borderRadius: 0.75,
-          border: `1px solid ${isPastDue ? "#f44336" : "#4caf50"}`,
-        }}
-      >
-        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <Typography
-            variant="caption"
-            sx={{
-              color: "#999",
-              fontSize: isMobile ? "0.6rem" : "0.65rem",
-              mr: 1,
-            }}
-          >
-            Due:
-          </Typography>
-          <Typography
-            variant="body2"
-            sx={{
-              fontWeight: 700,
-              color: isPastDue ? "#d32f2f" : "#2e7d32",
-              fontSize: isMobile ? "0.8rem" : "0.9rem",
-              flex: 1,
-              textAlign: "right",
-            }}
-          >
-            {formattedDeliveryDate}
           </Typography>
         </Box>
       </Box>

@@ -31,7 +31,6 @@ import {
   Tabs,
   Tab,
   IconButton,
-  Paper,
   Pagination,
   Collapse
 } from "@mui/material"

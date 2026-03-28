@@ -1,7 +1,6 @@
 import { useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { useLoginModel } from "./login.model"
-import PasswordChangeModal from "components/Modals/PasswordChangeModal"
 import { NetworkManager, API } from "network/core"
 import { hasSeenTodaysQuote, markQuoteAsSeen } from "utils/quoteUtils"
 

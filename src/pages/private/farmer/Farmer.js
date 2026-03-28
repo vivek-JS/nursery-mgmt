@@ -16,7 +16,6 @@ import {
   Box,
   Chip,
   useTheme,
-  OutlinedInput,
   Select,
   MenuItem,
   FormControl,

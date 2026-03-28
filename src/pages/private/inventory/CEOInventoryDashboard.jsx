@@ -1,29 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import {
   Package,
-  TrendingUp,
   DollarSign,
-  BarChart3,
   RefreshCw,
   FileText,
-  Users,
   ShoppingCart,
   ArrowLeft,
-  Database,
-  PieChart,
-  Activity,
   AlertCircle,
   CheckCircle,
   XCircle,
   Calendar,
-  Filter,
-  Download,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { API, NetworkManager } from '../../../network/core';
 import {
-  LineChart,
-  Line,
   BarChart,
   Bar,
   PieChart as RechartsPieChart,
@@ -33,7 +23,6 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  Legend,
   ResponsiveContainer,
   AreaChart,
   Area,

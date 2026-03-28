@@ -24,7 +24,6 @@ import {
   Tab,
   Checkbox,
   FormControlLabel,
-  Alert,
   Slide,
   Avatar,
   BottomNavigation,

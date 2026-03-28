@@ -2,9 +2,7 @@ import React, { useEffect, useState } from "react"
 import {
   Leaf,
   CheckCircle,
-  AlertCircle,
   TrendingUp,
-  Calendar,
   Package,
   Activity,
   BarChart3,
@@ -27,7 +25,6 @@ import {
   Box
 } from "@mui/material"
 import { API, NetworkManager } from "network/core"
-import { PageLoader } from "components"
 import Subtypes from "./Subtypes"
 
 const SlotAccordionView = ({ plantId, year }) => {

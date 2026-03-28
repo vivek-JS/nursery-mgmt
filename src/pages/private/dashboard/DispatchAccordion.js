@@ -9,7 +9,6 @@ import {
   AlertCircle,
   Eye,
   FileText,
-  Truck as TruckIcon,
   Trash2,
   Download
 } from "lucide-react"
@@ -192,6 +191,7 @@ const DispatchAccordion = ({
   }
 
   const isDelivered = dispatch?.transportStatus === "DELIVERED"
+  const dispatchName = (dispatch?.name || "").trim() || "Unnamed Dispatch"
 
   return (
     <div className={`border rounded-lg mb-4 shadow-sm ${isDelivered ? 'border-green-300 bg-green-50/30' : 'border-gray-200 bg-white'}`}>
@@ -208,6 +208,9 @@ const DispatchAccordion = ({
           <div>
             <div className="flex items-center gap-2">
               <h3 className="font-semibold text-gray-900">Dispatch #{dispatch.transportId}</h3>
+              <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-50 text-green-700 border border-green-200">
+                {dispatchName}
+              </span>
               {isDelivered && (
                 <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 border border-green-200">
                   DELIVERED

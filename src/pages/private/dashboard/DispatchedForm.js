@@ -5,14 +5,20 @@ import {
   DialogContent,
   DialogActions,
   Button,
-  IconButton
+  IconButton,
+  useTheme,
+  useMediaQuery
 } from "@mui/material"
 import { Leaf, Truck, Trash2, ChevronDown, ChevronUp } from "lucide-react"
+import { ArrowLeft, X } from "lucide-react"
 
 import { NetworkManager, API } from "network/core"
 
 const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatchData = null }) => {
+  const theme = useTheme()
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"))
   const [formData, setFormData] = useState({
+    name: "",
     driverName: "",
     vehicleName: "",
     plants: []
@@ -28,6 +34,7 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
   // Track dispatch quantities per order (orderId -> quantity to dispatch)
   const [orderQuantities, setOrderQuantities] = useState(new Map())
   const orderQuantitiesRef = useRef(new Map())
+  const getId = (obj) => String(obj?._id || obj?.id || "")
 
   // Fetch functions for each dropdown
   const getDrivers = async () => {
@@ -335,6 +342,7 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
     })
 
     return {
+      name: formData.name?.trim() || "",
       driverName: formattedDriverName,
       driverMobile: selectedDriver?.phoneNumber?.toString() || "",
       vehicleName: formData.vehicleName,
@@ -349,11 +357,12 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
     setLoading(true)
     try {
       validateForm()
+      const payload = transformDispatchData(formData, selectedOrders)
+      console.log("[DispatchForm] Creating dispatch with payload:", payload)
       const instance = NetworkManager(API.DISPATCHED.CREATE_TRAY)
-      const response = await instance.request({
-        ...transformDispatchData(formData, selectedOrders)
-      })
+      const response = await instance.request(payload)
       if (response.data) {
+        console.log("[DispatchForm] Dispatch created successfully:", response.data)
         // Trigger refresh of parent components
         if (typeof window !== "undefined") {
           window.dispatchEvent(new CustomEvent("dispatchCreated"))
@@ -361,8 +370,18 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
         onClose()
       }
     } catch (error) {
-      console.error("Error:", error)
-      setError(error.message || "Error creating dispatch")
+      const apiMessage =
+        error?.response?.data?.message ||
+        error?.response?.data?.error ||
+        error?.message ||
+        "Error creating dispatch"
+      console.error("[DispatchForm] Failed to create dispatch", {
+        message: apiMessage,
+        status: error?.response?.status,
+        responseData: error?.response?.data,
+        validationError: error?.name === "Error" ? error?.message : null,
+      })
+      setError(apiMessage)
     } finally {
       setLoading(false)
     }
@@ -432,7 +451,7 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
       
       // If cavity is auto-selected, initialize with one pickup detail
       if (autoSelectedCavity) {
-        const selectedCavity = cavities.find(c => c.id === autoSelectedCavity || c._id === autoSelectedCavity)
+          const selectedCavity = cavities.find((c) => getId(c) === String(autoSelectedCavity))
         if (selectedCavity) {
           newCavityGroup.cavitySize = selectedCavity.cavity || 1
           newCavityGroup.numberPerCrate = selectedCavity.numberPerCrate || 1
@@ -481,11 +500,11 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
   const handleCavityChange = (plantIndex, groupIndex, value) => {
     setFormData((prev) => {
       const updatedPlants = [...prev.plants]
-      const selectedCavity = cavities.find((cavity) => cavity.id === value)
+      const selectedCavity = cavities.find((cavity) => getId(cavity) === String(value))
 
       // Check if this cavity is already selected in another group
       const isDuplicate = updatedPlants[plantIndex].cavityGroups.some(
-        (group, idx) => idx !== groupIndex && group.cavity === value
+        (group, idx) => idx !== groupIndex && String(group.cavity) === String(value)
       )
 
       if (isDuplicate) {
@@ -556,7 +575,7 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
       const cavityGroup = updatedPlants[plantIndex].cavityGroups[groupIndex]
 
       if (field === "shade") {
-        const selectedShade = shades.find((shade) => shade.id === value)
+        const selectedShade = shades.find((shade) => getId(shade) === String(value))
         cavityGroup.pickupDetails[detailIndex][field] = value
         cavityGroup.pickupDetails[detailIndex].shadeName = selectedShade?.name || ""
 
@@ -777,6 +796,7 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
       }
 
       setFormData({
+        name: dispatchData.name || "",
         driverName: formattedDriverName,
         vehicleName: dispatchData.vehicleName,
         plants: transformedPlants
@@ -852,26 +872,49 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
   }
 
   const isViewMode = mode === "view"
+  const handleHeaderClose = () => {
+    if (isEditing) {
+      handleCancelEdit()
+      return
+    }
+    onClose()
+  }
+  const handleDialogClose = (_event, reason) => {
+    // Prevent accidental immediate close when opening from mobile sticky actions.
+    if (reason === "backdropClick") return
+    onClose()
+  }
 
   return (
     <Dialog
       open={open}
-      onClose={onClose}
+      onClose={handleDialogClose}
+      fullScreen={isMobile}
       maxWidth="md"
       fullWidth
       PaperProps={{
-        className: "max-h-[90vh] overflow-y-auto"
+        className: isMobile ? "max-h-[100vh] overflow-y-auto" : "max-h-[90vh] overflow-y-auto"
       }}>
-      <DialogTitle className="bg-green-50 border-b border-green-100 flex items-center gap-2">
-        <Truck className="text-green-600" size={24} />
-        <span className="text-green-800">
-          {!isViewMode ? "Create New Dispatch" : isEditing ? "Edit Dispatch" : "View Dispatch"}
-        </span>
+      <DialogTitle className={`bg-green-50 border-b border-green-100 flex items-center justify-between ${isMobile ? "py-3 px-3" : ""}`}>
+        <div className="flex items-center gap-2">
+          <Truck className="text-green-600" size={24} />
+          <span className={`text-green-800 ${isMobile ? "text-base font-semibold" : ""}`}>
+            {!isViewMode ? "Create New Dispatch" : isEditing ? "Edit Dispatch" : "View Dispatch"}
+          </span>
+        </div>
+        <IconButton
+          onClick={handleHeaderClose}
+          size="small"
+          className="text-green-700"
+          aria-label={isMobile ? "Back" : "Close"}
+        >
+          {isMobile ? <ArrowLeft size={18} /> : <X size={18} />}
+        </IconButton>
       </DialogTitle>
 
-      <DialogContent className="space-y-6 mt-6 bg-gray-50">
+      <DialogContent className={`space-y-6 bg-gray-50 ${isMobile ? "mt-2 px-2 pb-2" : "mt-6"}`}>
         {/* Order Summary Cards with Quantity Input */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div className={`grid grid-cols-1 md:grid-cols-2 ${isMobile ? "gap-2" : "gap-3"}`}>
           {Array.from(selectedOrders.values()).map((order) => {
             const orderId = order.details.orderid
             const totalQty = order.quantity || 0
@@ -885,7 +928,7 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
                 className={`bg-white rounded-lg border ${
                   isPartialDispatch ? "border-orange-200" : "border-green-100"
                 } hover:border-green-200 transition-colors shadow-sm`}>
-                <div className="p-3">
+                <div className={isMobile ? "p-2.5" : "p-3"}>
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between items-start">
                       <span className="font-medium text-gray-900">{order.farmerName}</span>
@@ -933,7 +976,7 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
                         <label className="block text-xs text-gray-600 mb-1">
                           Dispatch Quantity {isPartialDispatch && <span className="text-orange-600">(Split Order)</span>}
                         </label>
-                        <div className="flex gap-2 items-center">
+                        <div className={`flex gap-2 items-center ${isMobile ? "flex-wrap" : ""}`}>
                           <input
                             type="number"
                             min="0"
@@ -942,12 +985,12 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
                             onChange={(e) => {
                               handleOrderQuantityChange(orderId, e.target.value, remainingQty)
                             }}
-                            className="flex-1 px-2 py-1 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                            className={`flex-1 px-2 ${isMobile ? "py-2 text-base" : "py-1 text-sm"} border border-gray-300 rounded focus:ring-2 focus:ring-green-500 focus:border-green-500`}
                             placeholder="Enter quantity"
                           />
                           <button
                             onClick={() => handleOrderQuantityChange(orderId, remainingQty, remainingQty)}
-                            className="text-xs px-2 py-1 bg-green-50 text-green-600 rounded hover:bg-green-100"
+                            className={`text-xs px-2 ${isMobile ? "py-2 min-w-[64px]" : "py-1"} bg-green-50 text-green-600 rounded hover:bg-green-100`}
                             title="Use full quantity">
                             Full
                           </button>
@@ -976,10 +1019,18 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
         )}
 
         <div className="space-y-6">
-          {/* Driver and Vehicle Selection */}
-          <div className="grid grid-cols-2 gap-4">
+          {/* Dispatch meta + transport selection */}
+          <div className={`grid ${isMobile ? "grid-cols-1 gap-2" : "grid-cols-3 gap-4"}`}>
+            <input
+              type="text"
+              className={`${isMobile ? "p-3 text-base" : "p-2"} border rounded-lg`}
+              value={formData.name}
+              onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
+              disabled={isViewMode && !isEditing}
+              placeholder="Dispatch Name (e.g., Nashik Morning Run)"
+            />
             <select
-              className="p-2 border rounded-lg"
+              className={`${isMobile ? "p-3 text-base" : "p-2"} border rounded-lg`}
               value={formData.driverName}
               onChange={(e) => setFormData((prev) => ({ ...prev, driverName: e.target.value }))}
               disabled={isViewMode && !isEditing}>
@@ -992,7 +1043,7 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
             </select>
 
             <select
-              className="p-2 border rounded-lg"
+              className={`${isMobile ? "p-3 text-base" : "p-2"} border rounded-lg`}
               value={formData.vehicleName}
               onChange={(e) => setFormData((prev) => ({ ...prev, vehicleName: e.target.value }))}
               disabled={isViewMode && !isEditing}>
@@ -1074,15 +1125,16 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
                                   onChange={(e) =>
                                     handleCavityChange(plantIndex, groupIndex, e.target.value)
                                   }
-                                  disabled={(isViewMode && !isEditing) || cavityGroup.cavity}>
+                                  disabled={isViewMode && !isEditing}>
                                   <option value="">Select Cavity</option>
                                   {cavities?.map((cavity) => (
                                     <option
-                                      key={cavity.id}
-                                      value={cavity.id}
+                                      key={getId(cavity)}
+                                      value={getId(cavity)}
                                       disabled={plant.cavityGroups.some(
                                         (group, idx) =>
-                                          idx !== groupIndex && group.cavity === cavity.id
+                                          idx !== groupIndex &&
+                                          String(group.cavity) === String(getId(cavity))
                                       )}>
                                       {cavity.name}
                                     </option>
@@ -1124,7 +1176,7 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
                                       disabled={isViewMode && !isEditing}>
                                       <option value="">Select Shade</option>
                                       {shades?.map((shade) => (
-                                        <option key={shade.id} value={shade.id}>
+                                        <option key={getId(shade)} value={getId(shade)}>
                                           {shade.name}
                                         </option>
                                       ))}
@@ -1205,11 +1257,11 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
         </div>
       </DialogContent>
 
-      <DialogActions className="p-4 bg-gray-50 border-t">
+      <DialogActions className={`${isMobile ? "p-2 pb-3" : "p-4"} bg-gray-50 border-t`}>
         <Button
           onClick={isEditing ? handleCancelEdit : onClose}
           variant="outlined"
-          className="text-gray-600 border-gray-400 hover:bg-gray-100">
+          className={`text-gray-600 border-gray-400 hover:bg-gray-100 ${isMobile ? "flex-1 min-h-[42px]" : ""}`}>
           {isEditing || !isViewMode ? "Cancel" : "Close"}
         </Button>
         {isViewMode && !isEditing && (
@@ -1225,7 +1277,7 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
             onClick={handleUpdate}
             variant="contained"
             disabled={loading}
-            className="bg-green-600 hover:bg-green-700 text-white">
+            className={`bg-green-600 hover:bg-green-700 text-white ${isMobile ? "flex-1 min-h-[42px]" : ""}`}>
             {loading ? "Updating..." : "Save Changes"}
           </Button>
         )}
@@ -1234,7 +1286,7 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
             onClick={handleSubmit}
             variant="contained"
             disabled={loading}
-            className="bg-green-600 hover:bg-green-700 text-white">
+            className={`bg-green-600 hover:bg-green-700 text-white ${isMobile ? "flex-1 min-h-[42px]" : ""}`}>
             {loading ? "Creating..." : "Create Dispatch"}
           </Button>
         )}

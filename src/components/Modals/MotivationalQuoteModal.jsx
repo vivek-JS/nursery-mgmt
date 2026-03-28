@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from "react"
 import Dialog from "@mui/material/Dialog"
-import DialogContent from "@mui/material/DialogContent"
-import { Box, Typography, Button, Fade, Grow } from "@mui/material"
+import { Box, Typography, Button, Fade } from "@mui/material"
 import { styled, keyframes } from "@mui/material/styles"
 import CloseIcon from "@mui/icons-material/Close"
 import WbTwilightIcon from "@mui/icons-material/WbTwilight"

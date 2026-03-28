@@ -15,7 +15,6 @@ import {
   Chip
 } from "@mui/material"
 import { Download, FilterList } from "@mui/icons-material"
-import networkManager from "../../network/core/networkManager"
 import { API } from "../../network/config/endpoints"
 import { Toast } from "../../helpers/toasts/toastHelper"
 import { CookieKeys } from "../../constants/cookieKeys"

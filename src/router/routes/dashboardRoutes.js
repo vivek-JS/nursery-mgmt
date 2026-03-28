@@ -6,11 +6,7 @@ import AlignHorizontalLeftIcon from "@mui/icons-material/AlignHorizontalLeft"
 import AodIcon from "@mui/icons-material/Aod"
 import GroupIcon from "@mui/icons-material/Group"
 import InventoryIcon from "@mui/icons-material/Inventory"
-import SettingsSuggestIcon from "@mui/icons-material/SettingsSuggest"
-import AdminPanelSettingsIcon from "@mui/icons-material/AdminPanelSettings"
 import ListAltIcon from "@mui/icons-material/ListAlt"
-import DateRangeOutlinedIcon from "@mui/icons-material/DateRangeOutlined"
-import PaidIcon from "@mui/icons-material/Paid"
 import PaymentIcon from "@mui/icons-material/Payment"
 import WhatsAppIcon from "@mui/icons-material/WhatsApp"
 import LinkIcon from "@mui/icons-material/Link"
@@ -18,7 +14,6 @@ import GrassIcon from "@mui/icons-material/Grass"
 import AssessmentIcon from "@mui/icons-material/Assessment"
 import AccountTreeIcon from "@mui/icons-material/AccountTree"
 import TrendingDownIcon from "@mui/icons-material/TrendingDown"
-import AssignmentIcon from "@mui/icons-material/Assignment"
 import TaskIcon from "@mui/icons-material/Task"
 import CloudUploadIcon from "@mui/icons-material/CloudUpload"
 import DashboardIcon from "@mui/icons-material/Dashboard"
@@ -45,8 +40,7 @@ export const DashboardMenus = [
   // new MenuPath("Weekly", <DateRangeOutlinedIcon />, "/u/weekly"),
   // new MenuPath("Transactions", <PaidIcon />, "/u/transactions"),
   new MenuPath("Employees", <GroupIcon />, "/u/employeese"),
-  new MenuPath("Employee Follow-Up", <AssignmentIcon />, "/u/follow-ups"),
-  new MenuPath("Task Management", <TaskIcon />, "/u/tasks"),
+  new MenuPath("Task Manager", <TaskIcon />, "/u/task-manager", null, ["SUPER_ADMIN", "ADMIN"]),
   new MenuPath("Inventory", <InventoryIcon />, "/u/inventory"),
   new MenuPath("Ram Agri Input", <DashboardIcon />, "/u/inventory/ram-agri-sales-dashboard"),
   new MenuPath("Old Sales Analytics", <AssessmentIcon />, "/u/inventory/old-sales-analytics"),

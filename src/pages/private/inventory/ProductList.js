@@ -9,7 +9,6 @@ import {
   AlertCircle,
   Package,
   TrendingDown,
-  X,
 } from 'lucide-react';
 import { API, NetworkManager } from 'network/core';
 import { formatDecimal, formatCurrency } from '../../../utils/numberUtils';

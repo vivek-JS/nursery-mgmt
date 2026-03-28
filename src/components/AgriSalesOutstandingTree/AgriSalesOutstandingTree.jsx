@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import * as d3 from 'd3';
+import { select, tree, hierarchy, linkHorizontal, easeCubicInOut, easeCubicOut, easeElasticOut } from 'd3';
+const d3 = { select, tree, hierarchy, linkHorizontal, easeCubicInOut, easeCubicOut, easeElasticOut };
 import { API } from '../../network/config/endpoints';
 import NetworkManager from '../../network/core/networkManager';
 

@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from "react";
 import {
   Box,
-  Card,
-  CardContent,
   Typography,
   List,
   ListItem,
@@ -25,7 +23,6 @@ import {
   History,
   Person,
   AccessTime,
-  LocationOn,
   Edit,
   Add,
   Delete,

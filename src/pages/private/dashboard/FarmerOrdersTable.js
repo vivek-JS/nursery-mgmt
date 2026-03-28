@@ -17,8 +17,6 @@ import { PageLoader, ExcelExport } from "components"
 import moment from "moment"
 import debounce from "lodash.debounce"
 import {
-  MenuItem,
-  Select,
   Accordion,
   AccordionSummary,
   AccordionDetails,
@@ -29,10 +27,14 @@ import {
   DialogContent,
   DialogActions,
   TextField,
-  Button
+  Button,
+  FormControl,
+  FormControlLabel,
+  FormLabel,
+  Radio,
+  RadioGroup
 } from "@mui/material"
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore"
-import CloudUploadOutlinedIcon from "@mui/icons-material/CloudUploadOutlined"
 import DownloadPDFButton from "./OrdereRecipt"
 import DispatchForm from "./DispatchedForm"
 import DispatchList from "./DispatchedList"
@@ -79,6 +81,31 @@ const ORDER_STATUS_LABELS = {
   TEMPORARY_CANCELLED: "Temp. cancelled",
   PROCESSING: "Processing",
   PARTIALLY_COMPLETED: "Partially completed",
+}
+
+const getReadyDispatchMarathiBadge = (row) => {
+  const targetDate = row?.details?.dispatchTargetDate
+  if (!targetDate) return null
+
+  const target = moment(targetDate).startOf("day")
+  if (!target.isValid()) return null
+  const today = moment().startOf("day")
+  const diff = target.diff(today, "days")
+  const isNotDispatched = !["DISPATCHED", "COMPLETED"].includes(row?.orderStatus)
+
+  if (diff < 0 && isNotDispatched) {
+    return { label: "Kaal", className: "bg-red-100 text-red-700 border border-red-300 animate-pulse" }
+  }
+  if (diff === 0) {
+    return { label: "Aaj", className: "bg-red-100 text-red-700 border border-red-300 animate-pulse" }
+  }
+  if (diff === 1) {
+    return { label: "Udya", className: "bg-green-100 text-green-700 border border-green-300" }
+  }
+  if (diff === 2) {
+    return { label: "Parva", className: "bg-teal-100 text-teal-700 border border-teal-300" }
+  }
+  return null
 }
 
 // Custom CSS for blinking animation and enhanced dropdowns
@@ -480,10 +507,10 @@ const customStyles = `
   }
 
   .searchable-dropdown.status-dropdown .searchable-dropdown-button {
-    padding: 4px 10px;
-    min-height: 28px;
-    font-size: 11px;
-    font-weight: 600;
+    padding: 8px 12px;
+    min-height: 40px;
+    font-size: 12px;
+    font-weight: 700;
   }
 
   .searchable-dropdown.status-dropdown .searchable-dropdown-menu {
@@ -944,6 +971,13 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
   const [viewMode, setViewMode] = useState("booking")
   const [viewType, setViewType] = useState("table") // "table" or "grid"
   const [selectedRows, setSelectedRows] = useState(new Set())
+  const [readyDispatchGroups, setReadyDispatchGroups] = useState([])
+  const [clubDialogOpen, setClubDialogOpen] = useState(false)
+  const [clubCapacityMax, setClubCapacityMax] = useState(3000)
+  const [clubCapacityType, setClubCapacityType] = useState("PLANTS")
+  const [clubCapacityUnit, setClubCapacityUnit] = useState("plants")
+  const [clubSuggestedGroups, setClubSuggestedGroups] = useState([])
+  const [clubLoading, setClubLoading] = useState(false)
   const [isDispatchFormOpen, setIsDispatchFormOpen] = useState(false)
   const [isDispatchtab, setisDispatchtab] = useState(false)
   const [newRemark, setNewRemark] = useState("")
@@ -979,6 +1013,12 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
     title: "",
     description: "",
     onConfirm: null
+  })
+  const [readyDispatchDialog, setReadyDispatchDialog] = useState({
+    open: false,
+    row: null,
+    newStatus: "READY_FOR_DISPATCH",
+    dispatchDayKey: ""
   })
   const [watiDialogOpen, setWatiDialogOpen] = useState(false)
   const [watiDialogOrder, setWatiDialogOrder] = useState(null)
@@ -1368,7 +1408,9 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
               orderEditHistory: data?.orderEditHistory || [], // Include order edit history
               dealerOrder: dealerOrder || false,
               farmReadyDate: farmReadyDate,
-              deliveryDate: deliveryDate || null // Include deliveryDate in details
+              deliveryDate: deliveryDate || null, // Include deliveryDate in details
+              dispatchDayKey: data?.dispatchDayKey || null,
+              dispatchTargetDate: data?.dispatchTargetDate || null
               }
               }
             })
@@ -1589,6 +1631,116 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
       setSelectedRows(new Set(allOrderIds))
     }
   }
+
+  const getReadyDispatchGroups = async () => {
+    if (viewMode !== "ready_for_dispatch" || showAgriSalesOrders) return
+    try {
+      const instance = NetworkManager(API.READY_DISPATCH_GROUP.GET_ALL)
+      const response = await instance.request({}, { status: "DRAFT" })
+      const groups = response?.data?.data || []
+      setReadyDispatchGroups(Array.isArray(groups) ? groups : [])
+    } catch (error) {
+      console.error("Error fetching ready dispatch groups:", error)
+      setReadyDispatchGroups([])
+    }
+  }
+
+  const handleSuggestClubGroups = async () => {
+    if (!Number(clubCapacityMax) || Number(clubCapacityMax) <= 0) {
+      Toast.error("Please enter valid vehicle capacity")
+      return
+    }
+
+    const selectedFromMap = selectedRows instanceof Map ? Array.from(selectedRows.values()) : []
+    const readyRows = selectedFromMap.length > 0
+      ? selectedFromMap
+      : (orders || []).filter((r) => !r?.isAgriSalesOrder && r?.orderStatus === "READY_FOR_DISPATCH")
+
+    if (!readyRows.length) {
+      Toast.error("No ready-for-dispatch orders available for clubbing")
+      return
+    }
+
+    setClubLoading(true)
+    try {
+      const instance = NetworkManager(API.READY_DISPATCH_GROUP.SUGGEST)
+      const response = await instance.request({
+        orderIds: readyRows.map((r) => r?.details?.orderid).filter(Boolean),
+        capacityMeta: {
+          type: clubCapacityType,
+          unit: clubCapacityUnit,
+          max: Number(clubCapacityMax),
+        },
+      })
+      const groups = response?.data?.data?.groups || []
+      setClubSuggestedGroups(Array.isArray(groups) ? groups : [])
+    } catch (error) {
+      console.error("Error suggesting club groups:", error)
+      Toast.error(error?.response?.data?.message || "Failed to suggest club groups")
+    } finally {
+      setClubLoading(false)
+    }
+  }
+
+  const handleSaveClubGroups = async () => {
+    if (!clubSuggestedGroups.length) {
+      Toast.error("No suggested groups to save")
+      return
+    }
+
+    setClubLoading(true)
+    try {
+      const instance = NetworkManager(API.READY_DISPATCH_GROUP.CREATE)
+      await instance.request({
+        groups: clubSuggestedGroups.map((g) => ({
+          orderIds: g.orderIds,
+          capacityMeta: g.capacityMeta,
+        })),
+      })
+      Toast.success("Clubbed groups saved")
+      setClubDialogOpen(false)
+      setClubSuggestedGroups([])
+      await getReadyDispatchGroups()
+    } catch (error) {
+      console.error("Error saving club groups:", error)
+      Toast.error(error?.response?.data?.message || "Failed to save club groups")
+    } finally {
+      setClubLoading(false)
+    }
+  }
+
+  const handleConvertGroupToDispatch = async (group) => {
+    try {
+      const gid = group?._id || group?.id
+      if (!gid) return
+      const instance = NetworkManager(API.READY_DISPATCH_GROUP.CONVERT_TO_DISPATCH)
+      await instance.request({}, [gid])
+
+      const groupedOrderIds = (group?.orderIds || [])
+        .map((o) => (typeof o === "string" ? o : o?._id))
+        .filter(Boolean)
+        .map(String)
+
+      const preselected = new Map()
+      ;(orders || []).forEach((row) => {
+        const oid = String(row?.details?.orderid || "")
+        if (groupedOrderIds.includes(oid)) {
+          preselected.set(oid, row)
+        }
+      })
+
+      if (!preselected.size) {
+        Toast.error("No valid orders found for this group in current list")
+        return
+      }
+
+      setSelectedRows(preselected)
+      setIsDispatchFormOpen(true)
+    } catch (error) {
+      console.error("Error converting group to dispatch:", error)
+      Toast.error(error?.response?.data?.message || "Failed to open group for dispatch")
+    }
+  }
   // Load initial data
   useEffect(() => {
     getOrders()
@@ -1611,6 +1763,10 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
     agriDispatchStatusFilter, // Reload when status filter tab changes (Ram Agri Inputs)
     outstandingPage // Reload when outstanding page changes
   ])
+
+  useEffect(() => {
+    getReadyDispatchGroups()
+  }, [viewMode, showAgriSalesOrders, refresh])
 
   // Function to fetch sales person data
 
@@ -3037,6 +3193,8 @@ const mapSlotForUi = (slotData) => {
               farmReadyDate: farmReadyDate,
               farmReadyDateChanges: farmReadyDateChanges || [],
               deliveryDate: deliveryDate || null, // Include deliveryDate in details
+              dispatchDayKey: data?.dispatchDayKey || null,
+              dispatchTargetDate: data?.dispatchTargetDate || null,
               cavity: cavity || null, // Include cavity information
               cavityName: cavity?.name || null,
               cavityId: cavity?.id || cavity?._id || null,
@@ -3218,6 +3376,20 @@ const mapSlotForUi = (slotData) => {
               details: {
                 ...o.details,
                 deliveryDate: dataToSend?.deliveryDate || o?.details?.deliveryDate,
+                dispatchDayKey: dataToSend?.dispatchDayKey || o?.details?.dispatchDayKey || null,
+                dispatchTargetDate: dataToSend?.dispatchDayKey
+                  ? moment()
+                      .startOf("day")
+                      .add(
+                        dataToSend.dispatchDayKey === "TODAY"
+                          ? 0
+                          : dataToSend.dispatchDayKey === "TOMORROW"
+                          ? 1
+                          : 2,
+                        "days"
+                      )
+                      .toISOString()
+                  : o?.details?.dispatchTargetDate || null,
                 numberOfPlants: nextQty,
                 totalPlants,
               },
@@ -3427,6 +3599,16 @@ const mapSlotForUi = (slotData) => {
       return
     }
 
+    if (newStatus === "READY_FOR_DISPATCH") {
+      setReadyDispatchDialog({
+        open: true,
+        row,
+        newStatus,
+        dispatchDayKey: row?.details?.dispatchDayKey || ""
+      })
+      return
+    }
+
     // Handle regular orders (existing flow)
     setConfirmDialog({
       open: true,
@@ -3443,6 +3625,32 @@ const mapSlotForUi = (slotData) => {
         )
       }
     })
+  }
+
+  const handleConfirmReadyDispatchStatus = () => {
+    const row = readyDispatchDialog.row
+    const newStatus = readyDispatchDialog.newStatus
+    if (!row || !newStatus) return
+    if (!readyDispatchDialog.dispatchDayKey) {
+      Toast.error("Please select Aaj / Udya / Parva")
+      return
+    }
+
+    setReadyDispatchDialog({
+      open: false,
+      row: null,
+      newStatus: "READY_FOR_DISPATCH",
+      dispatchDayKey: ""
+    })
+
+    pacthOrders(
+      {
+        id: row?.details?.orderid,
+        orderStatus: newStatus,
+        dispatchDayKey: readyDispatchDialog.dispatchDayKey
+      },
+      row
+    )
   }
 
   // Payment add handler with confirmation
@@ -3954,10 +4162,18 @@ const mapSlotForUi = (slotData) => {
         )}
         {viewMode === "ready_for_dispatch" && !showAgriSalesOrders && (
           <div className="bg-brand-50 border border-brand-200 rounded-lg p-3 mb-4">
-            <p className="text-sm text-brand-800">
-              <span className="font-semibold">✅ Ready for Dispatch View:</span> Shows all orders with &ldquo;Ready for Dispatch&rdquo; status, irrespective of date. 
-              {isDispatchManager && <span className="ml-1 font-medium">You can change status and delivery date.</span>}
-            </p>
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <p className="text-sm text-brand-800">
+                <span className="font-semibold">✅ Ready for Dispatch View:</span> Shows all orders with &ldquo;Ready for Dispatch&rdquo; status, irrespective of date. 
+                {isDispatchManager && <span className="ml-1 font-medium">You can change status and delivery date.</span>}
+              </p>
+              <button
+                onClick={() => setClubDialogOpen(true)}
+                className="px-3 py-2 text-xs font-semibold rounded-md bg-brand-600 text-white hover:bg-brand-700 transition-colors"
+              >
+                Club Orders
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -4012,6 +4228,39 @@ const mapSlotForUi = (slotData) => {
           </div>
         );
       })()}
+
+      {viewMode === "ready_for_dispatch" && !showAgriSalesOrders && readyDispatchGroups.length > 0 && (
+        <div className="mb-4 bg-white rounded-lg border border-brand-100 p-3">
+          <h3 className="text-sm font-semibold text-gray-700 mb-2">🚚 Clubbed Groups</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+            {readyDispatchGroups.map((group) => {
+              const groupOrders = Array.isArray(group?.orderIds) ? group.orderIds : []
+              return (
+                <div key={group?._id || group?.id} className="border border-gray-200 rounded-lg p-2 bg-gray-50">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-gray-700">{group.groupCode || "Group"}</span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-brand-100 text-brand-700">{group.status || "DRAFT"}</span>
+                  </div>
+                  <div className="mt-1 text-[11px] text-gray-600">
+                    Orders: {groupOrders.length} • Plants: {Number(group?.totalPlants || 0).toLocaleString()}
+                  </div>
+                  <div className="mt-1 text-[11px] text-gray-500">
+                    Capacity: {group?.capacityMeta?.max || 0} {group?.capacityMeta?.unit || "plants"}
+                  </div>
+                  <div className="mt-2">
+                    <button
+                      onClick={() => handleConvertGroupToDispatch(group)}
+                      className="px-2.5 py-1.5 text-[11px] font-semibold rounded bg-green-600 text-white hover:bg-green-700"
+                    >
+                      Open In Dispatch
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* View Toggle and Tab Navigation */}
       <div className="bg-white rounded-lg shadow-sm border">
@@ -4594,6 +4843,15 @@ const mapSlotForUi = (slotData) => {
                                 {row.orderStatus === "READY_FOR_DISPATCH" && "📋"}
                                 {formatOrderStatusLabel(row.orderStatus)}
                               </span>
+                              {row.orderStatus === "READY_FOR_DISPATCH" && (() => {
+                                const badge = getReadyDispatchMarathiBadge(row)
+                                if (!badge) return null
+                                return (
+                                  <span className={`text-[9px] px-1.5 py-0.5 rounded font-semibold w-fit ${badge.className}`}>
+                                    {badge.label}
+                                  </span>
+                                )
+                              })()}
                               {/* Show outstanding indicator for COMPLETED orders with balance */}
                               {agriDispatchStatusFilter === "OUTSTANDING" && row.orderStatus === "COMPLETED" && (
                                 <span className="text-[9px] text-orange-600 font-medium bg-orange-50 px-1.5 py-0.5 rounded">
@@ -4623,12 +4881,23 @@ const mapSlotForUi = (slotData) => {
                             isStatusDropdown={true}
                           />
                         ) : (
-                          <span
-                            className={`status-badge-enhanced status-${toStatusBadgeCssClass(row.orderStatus)} inline-flex items-center gap-1 text-[10px] px-2 py-0.5`}>
-                            {row.orderStatus === "FARM_READY" && "🌱"}
-                            {row.orderStatus === "READY_FOR_DISPATCH" && "📋"}
-                            {formatOrderStatusLabel(row.orderStatus)}
-                          </span>
+                          <div className="flex flex-col gap-0.5">
+                            <span
+                              className={`status-badge-enhanced status-${toStatusBadgeCssClass(row.orderStatus)} inline-flex items-center gap-1 text-[10px] px-2 py-0.5`}>
+                              {row.orderStatus === "FARM_READY" && "🌱"}
+                              {row.orderStatus === "READY_FOR_DISPATCH" && "📋"}
+                              {formatOrderStatusLabel(row.orderStatus)}
+                            </span>
+                            {row.orderStatus === "READY_FOR_DISPATCH" && (() => {
+                              const badge = getReadyDispatchMarathiBadge(row)
+                              if (!badge) return null
+                              return (
+                                <span className={`text-[9px] px-1.5 py-0.5 rounded font-semibold w-fit ${badge.className}`}>
+                                  {badge.label}
+                                </span>
+                              )
+                            })()}
+                          </div>
                         )}
                       </td>
                       <td className="hidden px-2 py-2 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
@@ -4880,6 +5149,15 @@ const mapSlotForUi = (slotData) => {
                                   {row.orderStatus === "READY_FOR_DISPATCH" && "📋"}
                                   {formatOrderStatusLabel(row.orderStatus)}
                                 </span>
+                                {row.orderStatus === "READY_FOR_DISPATCH" && (() => {
+                                  const badge = getReadyDispatchMarathiBadge(row)
+                                  if (!badge) return null
+                                  return (
+                                    <span className={`text-[9px] px-1.5 py-0.5 rounded font-semibold w-fit ${badge.className}`}>
+                                      {badge.label}
+                                    </span>
+                                  )
+                                })()}
                                 {/* Show outstanding indicator for COMPLETED orders with balance */}
                                 {agriDispatchStatusFilter === "OUTSTANDING" && row.orderStatus === "COMPLETED" && (
                                   <span className="text-[9px] text-orange-600 font-medium bg-orange-50 px-1.5 py-0.5 rounded inline-block w-fit">
@@ -4920,6 +5198,15 @@ const mapSlotForUi = (slotData) => {
                                 {row.orderStatus === "READY_FOR_DISPATCH" && "📋"}
                                 {formatOrderStatusLabel(row.orderStatus)}
                               </span>
+                              {row.orderStatus === "READY_FOR_DISPATCH" && (() => {
+                                const badge = getReadyDispatchMarathiBadge(row)
+                                if (!badge) return null
+                                return (
+                                  <span className={`text-[9px] px-1.5 py-0.5 rounded font-semibold w-fit ${badge.className}`}>
+                                    {badge.label}
+                                  </span>
+                                )
+                              })()}
                               {/* Show outstanding indicator for COMPLETED orders with balance */}
                               {row.orderStatus === "COMPLETED" && agriDispatchStatusFilter === "OUTSTANDING" && (
                                 <span className="text-[9px] text-orange-600 font-medium bg-orange-50 px-1.5 py-0.5 rounded inline-block w-fit">
@@ -7142,6 +7429,141 @@ const mapSlotForUi = (slotData) => {
         onConfirm={confirmDialog.onConfirm}
         onCancel={() => setConfirmDialog((d) => ({ ...d, open: false }))}
       />
+      <Dialog
+        open={clubDialogOpen}
+        onClose={() => {
+          setClubDialogOpen(false)
+          setClubSuggestedGroups([])
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Club Ready Orders</DialogTitle>
+        <DialogContent>
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 1.2, mt: 0.5 }}>
+            <TextField
+              label="Vehicle Capacity Max"
+              type="number"
+              size="small"
+              value={clubCapacityMax}
+              onChange={(e) => setClubCapacityMax(e.target.value)}
+            />
+            <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1 }}>
+              <TextField
+                label="Capacity Type"
+                size="small"
+                value={clubCapacityType}
+                onChange={(e) => setClubCapacityType(e.target.value)}
+              />
+              <TextField
+                label="Unit"
+                size="small"
+                value={clubCapacityUnit}
+                onChange={(e) => setClubCapacityUnit(e.target.value)}
+              />
+            </Box>
+            <Box sx={{ display: "flex", gap: 1 }}>
+              <Button
+                variant="outlined"
+                onClick={handleSuggestClubGroups}
+                disabled={clubLoading}
+                sx={{ textTransform: "none" }}
+              >
+                {clubLoading ? "Suggesting..." : "Suggest Groups"}
+              </Button>
+              <Button
+                variant="contained"
+                onClick={handleSaveClubGroups}
+                disabled={clubLoading || !clubSuggestedGroups.length}
+                sx={{ textTransform: "none" }}
+              >
+                Save Groups
+              </Button>
+            </Box>
+            {clubSuggestedGroups.length > 0 && (
+              <Box sx={{ border: "1px solid #e5e7eb", borderRadius: 1.5, p: 1 }}>
+                <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, mb: 0.6 }}>
+                  Suggested Groups ({clubSuggestedGroups.length})
+                </Typography>
+                {clubSuggestedGroups.map((g) => (
+                  <Typography key={g.tempId} sx={{ fontSize: "0.72rem", color: "text.secondary" }}>
+                    {g.tempId}: {g.orderIds?.length || 0} orders • {Number(g.totalPlants || 0).toLocaleString()} plants
+                  </Typography>
+                ))}
+              </Box>
+            )}
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ px: 2, pb: 2 }}>
+          <Button
+            onClick={() => {
+              setClubDialogOpen(false)
+              setClubSuggestedGroups([])
+            }}
+            variant="outlined"
+            sx={{ textTransform: "none" }}
+          >
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
+      <Dialog
+        open={readyDispatchDialog.open}
+        onClose={() =>
+          setReadyDispatchDialog({
+            open: false,
+            row: null,
+            newStatus: "READY_FOR_DISPATCH",
+            dispatchDayKey: ""
+          })
+        }
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Select Dispatch Day</DialogTitle>
+        <DialogContent>
+          <FormControl sx={{ mt: 1 }}>
+            <FormLabel>Choose one (mandatory)</FormLabel>
+            <RadioGroup
+              value={readyDispatchDialog.dispatchDayKey}
+              onChange={(e) =>
+                setReadyDispatchDialog((prev) => ({
+                  ...prev,
+                  dispatchDayKey: e.target.value
+                }))
+              }
+            >
+              <FormControlLabel value="TODAY" control={<Radio />} label="Aaj" />
+              <FormControlLabel value="TOMORROW" control={<Radio />} label="Udya" />
+              <FormControlLabel value="DAY_AFTER" control={<Radio />} label="Parva" />
+            </RadioGroup>
+          </FormControl>
+        </DialogContent>
+        <DialogActions sx={{ px: 2, pb: 2 }}>
+          <Button
+            onClick={() =>
+              setReadyDispatchDialog({
+                open: false,
+                row: null,
+                newStatus: "READY_FOR_DISPATCH",
+                dispatchDayKey: ""
+              })
+            }
+            variant="outlined"
+            sx={{ textTransform: "none" }}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={handleConfirmReadyDispatchStatus}
+            variant="contained"
+            color="success"
+            sx={{ textTransform: "none", fontWeight: 700 }}
+          >
+            Apply
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* WATI Order Accepted Message Dialog - rendered in portal to appear above header */}
       {watiDialogOpen && watiDialogOrder && ReactDOM.createPortal(

@@ -57,9 +57,7 @@ import {
   TrendingUp as TrendingUpIcon,
   TrendingDown as TrendingDownIcon,
   SwapHoriz as SwapIcon,
-  Agriculture as PlantIcon,
   Refresh as RefreshIcon,
-  FilterList as FilterIcon,
   History as HistoryIcon
 } from "@mui/icons-material"
 import DealerPDFExport from "./DealerPDFExport"

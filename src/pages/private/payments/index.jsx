@@ -23,7 +23,6 @@ import {
   CircularProgress,
   Collapse,
   Zoom,
-  Slide,
   Tabs,
   Tab,
   Table,

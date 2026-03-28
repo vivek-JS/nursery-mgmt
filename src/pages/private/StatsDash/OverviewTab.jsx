@@ -8,7 +8,7 @@ import { Package, Plant, DollarSign, Truck } from 'lucide-react';
 import StatsCard from '../common/StatsCard';
 import ChartCard from '../common/ChartCard';
 import CustomTooltip from '../common/CustomTooltip';
-import { formatCurrency, formatPercentage } from '../../utils/formatters';
+import { formatCurrency } from '../../utils/formatters';
 import { STATUS_COLORS, COLORS } from '../../utils/constants';
 
 const OverviewTab = ({ data }) => {

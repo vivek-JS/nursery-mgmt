@@ -71,8 +71,8 @@ const SecondaryMobileOps = React.lazy(() => import("pages/private/secondary/Seco
 const PublicFarmerLinks = React.lazy(() => import("pages/private/publicLinks/PublicFarmerLinks"))
 const FlowCharts = React.lazy(() => import("pages/private/FlowCharts"))
 const OrderBucketing = React.lazy(() => import("pages/private/OrderBucketing"))
-const FollowUpManagement = React.lazy(() => import("pages/private/followUp"))
 const TaskManagement = React.lazy(() => import("pages/private/tasks"))
+const EmployeeTasksMobile = React.lazy(() => import("pages/private/taskManager/EmployeeTasksMobile"))
 const DispatchOrderList = React.lazy(() => import("pages/private/Dispatch/DispatchOrderList"))
 const DispatchedListPage = React.lazy(() => import("pages/private/Dispatch/DispatchedListPage"))
 const PlaceOrderMobile = React.lazy(() => import("pages/private/order/PlaceOrderMobile"))
@@ -156,8 +156,9 @@ export const PrivateRoutes = [
   { path: "/u/public-links", component: PublicFarmerLinks },
   { path: "/u/flow-charts", component: FlowCharts },
   { path: "/u/order-bucketing", component: OrderBucketing },
-  { path: "/u/follow-ups", component: FollowUpManagement },
   { path: "/u/tasks", component: TaskManagement },
+  { path: "/u/task-manager", component: TaskManagement },
+  { path: "/u/mobile/tasks", component: EmployeeTasksMobile },
   { path: "/u/dispatch-orders", component: DispatchedListPage },
   // Mobile dashboard — Plant, Agri Input, and role-based Dispatch option
   { path: "/u/mobile", component: MobileDashboard },
