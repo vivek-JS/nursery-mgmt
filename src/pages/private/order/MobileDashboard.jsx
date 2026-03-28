@@ -1,8 +1,8 @@
 import React from "react"
 import { useNavigate } from "react-router-dom"
 import { useSelector } from "react-redux"
-import { Box, Typography, Card, CardContent, Avatar } from "@mui/material"
-import { Agriculture as PlantIcon, Inventory2 as InventoryIcon, LocalShipping as DispatchIcon } from "@mui/icons-material"
+import { Box, Typography, Card, CardContent, Avatar, IconButton } from "@mui/material"
+import { Agriculture as PlantIcon, Inventory2 as InventoryIcon, LocalShipping as DispatchIcon, ArrowBack } from "@mui/icons-material"
 
 const C = {
   primary: "#5B5FC7",
@@ -37,6 +37,13 @@ function MobileDashboard() {
     <Box sx={{ minHeight: "100vh", display: "flex", flexDirection: "column", bgcolor: C.bg, width: "100%", maxWidth: "100vw" }}>
       <Box sx={{ background: C.gradient, px: 2, py: 2, boxShadow: "0 4px 20px rgba(91,95,199,0.25)" }}>
         <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+          <IconButton
+            onClick={() => navigate("/u/dashboard")}
+            sx={{ color: "white", bgcolor: "rgba(255,255,255,0.12)", "&:hover": { bgcolor: "rgba(255,255,255,0.2)" } }}
+            aria-label="Back to dashboard"
+          >
+            <ArrowBack />
+          </IconButton>
           <Avatar sx={{ width: 44, height: 44, bgcolor: "rgba(255,255,255,0.2)", fontSize: "1.1rem", fontWeight: 800, border: "2px solid rgba(255,255,255,0.4)" }}>
             {userInitial}
           </Avatar>

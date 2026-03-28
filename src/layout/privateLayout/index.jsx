@@ -163,7 +163,7 @@ export default function PrivateLayout(props) {
     }
   }, [isSecondaryEmployee, isSuperAdmin, isAdmin, location.pathname, navigate, userData])
 
-  // DISPATCH_MANAGER users can access dispatch routes + mobile dispatch hub
+  // DISPATCH_MANAGER users can access dispatch routes + full mobile flow
   // Redirect them immediately if they try to access any other route
   // SUPER_ADMIN can access all routes, so don't redirect them
   useEffect(() => {
@@ -176,7 +176,11 @@ export default function PrivateLayout(props) {
     if (isDispatchManager && !isSuperAdmin && !isAdmin) {
       const currentPath = location.pathname
       const isDispatchOrdersRoute = currentPath === "/u/dispatch-orders" || currentPath.includes("/u/dispatch-orders")
-      const isMobileDispatchRoute = currentPath === "/u/mobile" || currentPath.includes("/u/mobile/dispatch-orders")
+      const isMobileDispatchRoute =
+        currentPath === "/u/mobile" ||
+        currentPath.includes("/u/mobile/place-order") ||
+        currentPath.includes("/u/mobile/agri-sales-order") ||
+        currentPath.includes("/u/mobile/dispatch-orders")
       
       if (!isDispatchOrdersRoute && !isMobileDispatchRoute) {
         // Redirect DISPATCH_MANAGER users to dispatch orders page

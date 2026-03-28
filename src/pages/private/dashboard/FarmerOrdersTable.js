@@ -16,10 +16,6 @@ import { API, NetworkManager } from "network/core"
 import { PageLoader, ExcelExport } from "components"
 import moment from "moment"
 import debounce from "lodash.debounce"
-
-/** User-visible order dates in table/modals — e.g. 12-March-2025 (API payloads still use DD-MM-YYYY / YYYY-MM-DD). */
-const ORDER_DATE_DISPLAY = "DD-MMMM-YYYY"
-const ORDER_DATETIME_DISPLAY = "DD-MMMM-YYYY HH:mm"
 import {
   MenuItem,
   Select,
@@ -57,6 +53,33 @@ import {
   useUserData,
   useIsDispatchManager
 } from "utils/roleUtils"
+
+/** User-visible order dates in table/modals — e.g. 12-March-2025 (API payloads still use DD-MM-YYYY / YYYY-MM-DD). */
+const ORDER_DATE_DISPLAY = "DD-MMMM-YYYY"
+const ORDER_DATETIME_DISPLAY = "DD-MMMM-YYYY HH:mm"
+
+/** Maps orderStatus to CSS class suffix: READY_FOR_DISPATCH → ready-for-dispatch (all underscores → hyphens). */
+const toStatusBadgeCssClass = (status) => {
+  if (status == null || status === "") return "unknown"
+  return String(status).toLowerCase().replace(/_/g, "-")
+}
+
+/** Short labels for order status chips / grid (Farmer orders table). */
+const ORDER_STATUS_LABELS = {
+  PENDING: "Pending",
+  ACCEPTED: "Accepted",
+  ASSIGNED: "Assigned",
+  FARM_READY: "Farm ready",
+  READY_FOR_DISPATCH: "Ready for dispatch",
+  DISPATCH_PROCESS: "Dispatch in progress",
+  DISPATCHED: "Dispatched",
+  COMPLETED: "Completed",
+  CANCELLED: "Cancelled",
+  REJECTED: "Rejected",
+  TEMPORARY_CANCELLED: "Temp. cancelled",
+  PROCESSING: "Processing",
+  PARTIALLY_COMPLETED: "Partially completed",
+}
 
 // Custom CSS for blinking animation and enhanced dropdowns
 const customStyles = `
@@ -233,6 +256,12 @@ const customStyles = `
     color: #065f46;
   }
 
+  .status-ready-for-dispatch {
+    background: linear-gradient(135deg, #ccfbf1 0%, #99f6e4 100%);
+    border-color: #0d9488;
+    color: #115e59;
+  }
+
   .status-dispatch-process {
     background: linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%);
     border-color: #06b6d4;
@@ -249,6 +278,12 @@ const customStyles = `
     background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
     border-color: #ef4444;
     color: #991b1b;
+  }
+
+  .status-unknown {
+    background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
+    border-color: #9ca3af;
+    color: #4b5563;
   }
 
   /* Order For highlighting */
@@ -630,7 +665,7 @@ const SearchableDropdown = ({
         type="button"
         className={`searchable-dropdown-button ${
           isStatusDropdown
-            ? `status-badge-enhanced status-${value?.toLowerCase().replace("_", "-")}`
+            ? `status-badge-enhanced status-${toStatusBadgeCssClass(value)}`
             : ""
         } ${disabled ? "opacity-60 cursor-not-allowed" : ""}`}
         disabled={disabled}
@@ -891,10 +926,14 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
     { label: "Pending", value: "PENDING" },
     { label: "Accepted", value: "ACCEPTED" },
     { label: "Assigned", value: "ASSIGNED" },
+    { label: "Farm ready", value: "FARM_READY" },
+    { label: "Ready for dispatch", value: "READY_FOR_DISPATCH" },
+    { label: "Dispatch in progress", value: "DISPATCH_PROCESS" },
     { label: "Dispatched", value: "DISPATCHED" },
     { label: "Completed", value: "COMPLETED" },
     { label: "Cancelled", value: "CANCELLED" },
-    { label: "Temporary Cancelled", value: "TEMPORARY_CANCELLED" }
+    { label: "Rejected", value: "REJECTED" },
+    { label: "Temporary Cancelled", value: "TEMPORARY_CANCELLED" },
   ]
 
 
@@ -3253,11 +3292,19 @@ const mapSlotForUi = (slotData) => {
         return "bg-indigo-100 text-indigo-700"
       case "FARM_READY":
         return "bg-green-100 text-green-700 border border-green-300"
+      case "READY_FOR_DISPATCH":
+        return "bg-teal-100 text-teal-800 border border-teal-200"
       case "DISPATCH_PROCESS":
         return "bg-cyan-100 text-cyan-700"
       default:
         return "bg-gray-50 text-gray-600"
     }
+  }
+
+  const formatOrderStatusLabel = (s) => {
+    if (!s) return "N/A"
+    if (ORDER_STATUS_LABELS[s]) return ORDER_STATUS_LABELS[s]
+    return String(s).replace(/_/g, " ")
   }
 
   const toggleEditing = (index, row) => {
@@ -4542,11 +4589,10 @@ const mapSlotForUi = (slotData) => {
                           row.orderStatus === "COMPLETED" || !canChangeOrderStatus ? (
                             <div className="flex flex-col gap-0.5">
                               <span
-                                className={`status-badge-enhanced status-${row.orderStatus
-                                  .toLowerCase()
-                                  .replace("_", "-")} inline-flex items-center gap-1 text-[10px] px-2 py-0.5`}>
+                                className={`status-badge-enhanced status-${toStatusBadgeCssClass(row.orderStatus)} inline-flex items-center gap-1 text-[10px] px-2 py-0.5`}>
                                 {row.orderStatus === "FARM_READY" && "🌱"}
-                                {row.orderStatus === "DISPATCH_PROCESS" ? "Loading" : row.orderStatus}
+                                {row.orderStatus === "READY_FOR_DISPATCH" && "📋"}
+                                {formatOrderStatusLabel(row.orderStatus)}
                               </span>
                               {/* Show outstanding indicator for COMPLETED orders with balance */}
                               {agriDispatchStatusFilter === "OUTSTANDING" && row.orderStatus === "COMPLETED" && (
@@ -4578,11 +4624,10 @@ const mapSlotForUi = (slotData) => {
                           />
                         ) : (
                           <span
-                            className={`status-badge-enhanced status-${row.orderStatus
-                              .toLowerCase()
-                              .replace("_", "-")} inline-flex items-center gap-1 text-[10px] px-2 py-0.5`}>
+                            className={`status-badge-enhanced status-${toStatusBadgeCssClass(row.orderStatus)} inline-flex items-center gap-1 text-[10px] px-2 py-0.5`}>
                             {row.orderStatus === "FARM_READY" && "🌱"}
-                            {row.orderStatus === "DISPATCH_PROCESS" ? "Loading" : row.orderStatus}
+                            {row.orderStatus === "READY_FOR_DISPATCH" && "📋"}
+                            {formatOrderStatusLabel(row.orderStatus)}
                           </span>
                         )}
                       </td>
@@ -4830,11 +4875,10 @@ const mapSlotForUi = (slotData) => {
                             row.orderStatus === "COMPLETED" || !canChangeOrderStatus ? (
                               <div className="flex flex-col gap-1">
                                 <span
-                                  className={`status-badge-enhanced status-${row.orderStatus
-                                    .toLowerCase()
-                                    .replace("_", "-")} flex items-center gap-1`}>
+                                  className={`status-badge-enhanced status-${toStatusBadgeCssClass(row.orderStatus)} flex items-center gap-1`}>
                                   {row.orderStatus === "FARM_READY" && "🌱"}
-                                  {row.orderStatus === "DISPATCH_PROCESS" ? "Loading" : row.orderStatus}
+                                  {row.orderStatus === "READY_FOR_DISPATCH" && "📋"}
+                                  {formatOrderStatusLabel(row.orderStatus)}
                                 </span>
                                 {/* Show outstanding indicator for COMPLETED orders with balance */}
                                 {agriDispatchStatusFilter === "OUTSTANDING" && row.orderStatus === "COMPLETED" && (
@@ -4871,11 +4915,10 @@ const mapSlotForUi = (slotData) => {
                           ) : (
                             <div className="flex flex-col gap-1">
                               <span
-                                className={`status-badge-enhanced status-${row.orderStatus
-                                  .toLowerCase()
-                                  .replace("_", "-")} flex items-center gap-1`}>
+                                className={`status-badge-enhanced status-${toStatusBadgeCssClass(row.orderStatus)} flex items-center gap-1`}>
                                 {row.orderStatus === "FARM_READY" && "🌱"}
-                                {row.orderStatus === "DISPATCH_PROCESS" ? "Loading" : row.orderStatus}
+                                {row.orderStatus === "READY_FOR_DISPATCH" && "📋"}
+                                {formatOrderStatusLabel(row.orderStatus)}
                               </span>
                               {/* Show outstanding indicator for COMPLETED orders with balance */}
                               {row.orderStatus === "COMPLETED" && agriDispatchStatusFilter === "OUTSTANDING" && (

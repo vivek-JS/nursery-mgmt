@@ -36,6 +36,9 @@ import {
   FormatListBulleted,
   ArrowBack,
   Tune,
+  ExpandMore,
+  ExpandLess,
+  Edit,
 } from "@mui/icons-material";
 import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 import { LocalizationProvider } from "lib/muiLocalizationProvider";
@@ -85,6 +88,7 @@ const DispatchedListPage = () => {
   const [patchLoading, setPatchLoading] = useState(false);
   const [viewMode, setViewMode] = useState("all"); // "all" or "ready_for_dispatch"
   const [displayMode, setDisplayMode] = useState("list"); // "list" or "map"
+  const [expandedOrderId, setExpandedOrderId] = useState(null);
   const [statusChange, setStatusChange] = useState("");
   const [showCallModal, setShowCallModal] = useState(false);
   const [callNote, setCallNote] = useState("");
@@ -416,7 +420,8 @@ const DispatchedListPage = () => {
     setSlotsLoading(true);
     try {
       const instance = NetworkManager(API.slots.GET_SIMPLE_SLOTS);
-      const years = [2025, 2026];
+      const y = moment().year();
+      const years = [y - 1, y, y + 1];
       
       const responses = await Promise.all(
         years.map(year => instance.request({}, { plantId, subtypeId, year }))
@@ -476,7 +481,7 @@ const DispatchedListPage = () => {
               endDay: endDay
             };
           })
-          .filter((slot) => slot !== null && slot.available > 0);
+          .filter((slot) => slot !== null);
 
         setSlots(processedSlots);
       } else {
@@ -601,9 +606,11 @@ const DispatchedListPage = () => {
     setRateChange(0);
     setIsEditModalOpen(true);
     
-    // Load slots for this order
-    if (order.plantType?.id && order.plantSubtype?.id) {
-      getSlots(order.plantType.id, order.plantSubtype.id);
+    // Load slots for this order (API often returns _id, not id)
+    const plantId = order.plantType?._id || order.plantType?.id;
+    const subtypeId = order.plantSubtype?._id || order.plantSubtype?.id;
+    if (plantId && subtypeId) {
+      getSlots(plantId, subtypeId);
     }
   };
 
@@ -808,7 +815,7 @@ const DispatchedListPage = () => {
                 InputProps={{
                   startAdornment: (
                     <InputAdornment position="start">
-                      <Search sx={{ color: "#1976d2", fontSize: "1rem" }} />
+                      <Search sx={{ color: "#2e7d32", fontSize: "1rem" }} />
                     </InputAdornment>
                   ),
                 }}
@@ -1045,13 +1052,13 @@ const DispatchedListPage = () => {
                     <Typography 
                       variant="h6" 
                       sx={{ 
-                        mb: 2, 
-                        fontSize: "0.95rem", 
-                        fontWeight: 600,
-                        color: "#1976d2"
+                        mb: 1.5, 
+                        fontSize: "0.9rem", 
+                        fontWeight: 700,
+                        color: "#1b5e20"
                       }}
                     >
-                      📦 Delivery Summary by Plant Type
+                      Delivery summary by plant
                     </Typography>
                     <Box
                       sx={{
@@ -1069,16 +1076,16 @@ const DispatchedListPage = () => {
                         <Paper
                           key={index}
                           sx={{
-                            p: 1.2,
-                            background: "linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%)",
+                            p: 1,
+                            background: "linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%)",
                             borderRadius: 2,
-                            border: "1px solid rgba(25, 118, 210, 0.2)",
-                            boxShadow: "0 2px 4px rgba(25, 118, 210, 0.1)",
+                            border: "1px solid rgba(46, 125, 50, 0.22)",
+                            boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
                             transition: "all 0.2s",
-                            minWidth: 0, // Allow cards to shrink below minmax minimum
+                            minWidth: 0,
                             "&:hover": {
-                              boxShadow: "0 4px 8px rgba(25, 118, 210, 0.2)",
-                              transform: "translateY(-2px)",
+                              boxShadow: "0 4px 12px rgba(46, 125, 50, 0.15)",
+                              transform: "translateY(-1px)",
                             },
                           }}
                         >
@@ -1086,10 +1093,10 @@ const DispatchedListPage = () => {
                             variant="caption"
                             sx={{
                               display: "block",
-                              color: "#1565c0",
-                              fontWeight: 500,
-                              fontSize: "0.65rem",
-                              mb: 0.4,
+                              color: "#1b5e20",
+                              fontWeight: 600,
+                              fontSize: "0.62rem",
+                              mb: 0.35,
                               overflow: "hidden",
                               textOverflow: "ellipsis",
                               whiteSpace: "nowrap",
@@ -1139,19 +1146,28 @@ const DispatchedListPage = () => {
                 }}
               >
                 {filteredOrders.map((order, index) => {
+                  const orderKey = order._id || order.id || index;
+                  const isExpanded = expandedOrderId === orderKey;
                   const pastDue = isPastDue(order);
                   const dueDate = order.deliveryDate || order.orderBookingDate;
+                  const bookingDate = order.orderBookingDate || order.createdAt;
                   const farmerName = order.farmer?.name || "N/A";
                   const phoneNumber = order.farmer?.mobileNumber?.toString() || "N/A";
                   const village = order.farmer?.village || "N/A";
                   const quantity = order.numberOfPlants || order.totalPlants || 0;
                   const rate = order.rate || 0;
                   const total = quantity * rate;
+                  const totalAmount = order?.totalAmount || total;
+                  const payments = Array.isArray(order?.payment) ? order.payment : [];
+                  const receivedAmount = payments
+                    .filter((p) => p?.paymentStatus === "COLLECTED")
+                    .reduce((sum, p) => sum + (p?.paidAmount || 0), 0);
+                  const outstandingAmount = Math.max(0, totalAmount - receivedAmount);
 
                   return (
                     <Paper
-                      key={order._id || order.id || index}
-                      onClick={() => handleOpenEditModal(order)}
+                      key={orderKey}
+                      onClick={() => setExpandedOrderId((prev) => (prev === orderKey ? null : orderKey))}
                       sx={{
                         p: 2,
                         bgcolor: pastDue ? "rgba(255, 152, 0, 0.08)" : "white",
@@ -1214,19 +1230,32 @@ const DispatchedListPage = () => {
                             }}
                           />
                         </Box>
-                        {pastDue && (
-                          <Chip
-                            label="Past Due"
-                            color="error"
+                        <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                          {pastDue && (
+                            <Chip
+                              label="Past Due"
+                              color="error"
+                              size="small"
+                              sx={{ 
+                                fontSize: "0.7rem", 
+                                height: 24,
+                                fontWeight: 700,
+                                boxShadow: "0 2px 4px rgba(211, 47, 47, 0.2)",
+                              }}
+                            />
+                          )}
+                          <IconButton
                             size="small"
-                            sx={{ 
-                              fontSize: "0.7rem", 
-                              height: 24,
-                              fontWeight: 600,
-                              boxShadow: "0 2px 4px rgba(211, 47, 47, 0.2)",
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenEditModal(order);
                             }}
-                          />
-                        )}
+                            sx={{ p: 0.4 }}
+                            title="Edit order"
+                          >
+                            <Edit sx={{ fontSize: "1rem" }} />
+                          </IconButton>
+                        </Box>
                       </Box>
 
                       {/* Info Grid */}
@@ -1240,12 +1269,12 @@ const DispatchedListPage = () => {
                               gap: 0.5,
                             }}
                           >
-                            <Phone sx={{ fontSize: "0.9rem", color: phoneNumber !== "N/A" ? "#1976d2" : "text.secondary" }} />
+                            <Phone sx={{ fontSize: "0.9rem", color: phoneNumber !== "N/A" ? "#1b5e20" : "text.secondary" }} />
                             <Typography
                               variant="body2"
                               sx={{
                                 fontSize: "0.85rem",
-                                color: phoneNumber !== "N/A" ? "#1976d2" : "text.secondary",
+                                color: phoneNumber !== "N/A" ? "#1a1a1a" : "text.secondary",
                                 fontWeight: phoneNumber !== "N/A" ? 700 : 400,
                                 userSelect: "none",
                               }}
@@ -1264,64 +1293,67 @@ const DispatchedListPage = () => {
                         </Box>
 
                         {phoneNumber !== "N/A" && (
-                          <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+                          <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
                             <Button
                               size="small"
                               variant="contained"
                               color="success"
-                              startIcon={<Phone sx={{ fontSize: "0.9rem" }} />}
+                              startIcon={<Phone sx={{ fontSize: "0.85rem" }} />}
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handleCall(phoneNumber);
                               }}
                               sx={{
                                 textTransform: "none",
-                                borderRadius: 2,
-                                py: 0.35,
-                                px: 1.25,
-                                fontSize: "0.75rem",
+                                borderRadius: 1.5,
+                                py: 0.25,
+                                px: 1,
+                                fontSize: "0.72rem",
                                 fontWeight: 700,
+                                minHeight: 30,
                               }}
                             >
-                              Call Now
+                              Call
                             </Button>
                             <Button
                               size="small"
                               variant="outlined"
+                              color="success"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 setCallOrderId(order._id || order.id);
                                 setCallNote("");
                                 setShowCallModal(true);
                               }}
-                              sx={{ textTransform: "none", borderRadius: 2, py: 0.35, px: 1.25, fontSize: "0.75rem" }}
+                              sx={{ textTransform: "none", borderRadius: 1.5, py: 0.25, px: 1, fontSize: "0.72rem", minHeight: 30 }}
                             >
-                              Add Note
+                              Note
                             </Button>
                           </Box>
                         )}
 
-                        {/* Delivery Date & Plant */}
+                        {/* Due date & booking */}
                         <Box 
                           sx={{ 
                             display: "flex", 
                             alignItems: "center", 
-                            gap: 1, 
+                            gap: 0.75, 
                             flexWrap: "wrap",
-                            p: 1,
-                            bgcolor: "rgba(25, 118, 210, 0.05)",
-                            borderRadius: 1.5,
-                            border: "1px solid rgba(25, 118, 210, 0.15)",
+                            py: 0.65,
+                            px: 0.85,
+                            bgcolor: "rgba(46, 125, 50, 0.08)",
+                            borderRadius: 1.25,
+                            border: "1px solid rgba(46, 125, 50, 0.2)",
                           }}
                         >
-                          <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
-                            <CalendarToday sx={{ fontSize: "0.9rem", color: "#1976d2" }} />
+                          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                            <CalendarToday sx={{ fontSize: "0.85rem", color: "#2e7d32" }} />
                             <Typography 
                               variant="body2" 
                               sx={{ 
-                                fontSize: "0.8rem",
+                                fontSize: "0.78rem",
                                 fontWeight: 700,
-                                color: "#1976d2",
+                                color: "#1a1a1a",
                               }}
                             >
                               {dueDate ? moment(dueDate).format("DD - MMM-YYYY").toUpperCase() : "N/A"}
@@ -1333,123 +1365,177 @@ const DispatchedListPage = () => {
                           <Typography 
                             variant="body2" 
                             sx={{ 
-                              fontSize: "0.8rem",
-                              fontWeight: 600,
+                              fontSize: "0.76rem",
+                              fontWeight: 700,
+                              color: "#6a1b9a",
                             }}
                           >
-                            🌱 <span style={{ color: "#2e7d32", fontWeight: 700 }}>{order.plantType?.name || "N/A"}</span> - <span style={{ color: "#1b5e20", fontWeight: 700 }}>{order.plantSubtype?.name || "N/A"}</span>
+                            Booking: {bookingDate ? moment(bookingDate).format("DD-MMM-YYYY").toUpperCase() : "N/A"}
                           </Typography>
                         </Box>
 
-                        {/* Quantity, Rate, Total */}
-                        <Box 
-                          sx={{ 
-                            display: "flex", 
-                            flexWrap: "wrap", 
-                            gap: 1, 
-                            alignItems: "center",
-                            p: 1,
-                            bgcolor: "rgba(46, 125, 50, 0.05)",
+                        {/* Plant + Qty + Rate + Total — one row, block-wise */}
+                        <Box
+                          sx={{
+                            display: "flex",
+                            flexDirection: "row",
+                            alignItems: "stretch",
                             borderRadius: 1.5,
-                            border: "1px solid rgba(46, 125, 50, 0.15)",
+                            border: "1px solid rgba(46, 125, 50, 0.22)",
+                            bgcolor: "rgba(46, 125, 50, 0.07)",
+                            overflow: "hidden",
                           }}
                         >
-                          <Typography variant="body2" sx={{ fontSize: "0.8rem", fontWeight: 600, color: "#1a1a1a" }}>
-                            Qty: <span style={{ color: "#2e7d32", fontWeight: 700 }}>{quantity.toLocaleString()}</span>
-                          </Typography>
-                          <Typography variant="body2" sx={{ fontSize: "0.7rem", color: "rgba(0,0,0,0.3)" }}>
-                            •
-                          </Typography>
-                          <Typography variant="body2" sx={{ fontSize: "0.8rem", color: "text.secondary" }}>
-                            Rate: <span style={{ fontWeight: 600 }}>₹{rate}</span>
-                          </Typography>
-                          <Typography variant="body2" sx={{ fontSize: "0.7rem", color: "rgba(0,0,0,0.3)" }}>
-                            •
-                          </Typography>
-                          <Typography variant="body2" sx={{ fontSize: "0.85rem", fontWeight: 700, color: "#1976d2" }}>
-                            Total: ₹{total.toLocaleString()}
-                          </Typography>
-                        </Box>
-
-                        {/* Cavity & Sales Person */}
-                        <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, alignItems: "center" }}>
-                          <Typography variant="body2" sx={{ fontSize: "0.75rem", color: "text.secondary" }}>
-                            Cavity: <span style={{ fontWeight: 600, color: "#1a1a1a" }}>{order.cavity?.name || order.cavity?.cavity || "N/A"}</span>
-                          </Typography>
-                          {order.salesPerson?.name && (
-                            <>
-                              <Typography variant="body2" sx={{ fontSize: "0.7rem", color: "rgba(0,0,0,0.3)" }}>
-                                •
-                              </Typography>
-                              <Person sx={{ fontSize: "0.75rem", color: "info.main" }} />
-                              <Typography 
-                                variant="body2" 
-                                sx={{ 
-                                  fontSize: "0.75rem",
+                          {[
+                            {
+                              label: "Plant",
+                              value: `${order.plantType?.name || "N/A"} · ${order.plantSubtype?.name || "N/A"}`,
+                              valueSx: { color: "#2e7d32", fontWeight: 700 },
+                            },
+                            {
+                              label: "Qty",
+                              value: quantity.toLocaleString(),
+                              valueSx: { color: "#1a1a1a", fontWeight: 700 },
+                            },
+                            {
+                              label: "Rate",
+                              value: `₹${rate}`,
+                              valueSx: { color: "text.primary", fontWeight: 600 },
+                            },
+                            {
+                              label: "Total",
+                              value: `₹${total.toLocaleString()}`,
+                              valueSx: { color: "#1b5e20", fontWeight: 800 },
+                            },
+                          ].map((cell, cellIdx) => (
+                            <Box
+                              key={cell.label}
+                              sx={{
+                                flex: 1,
+                                minWidth: 0,
+                                px: { xs: 0.75, sm: 1 },
+                                py: 1,
+                                borderRight: cellIdx < 3 ? "1px solid rgba(0,0,0,0.1)" : "none",
+                                textAlign: "center",
+                                display: "flex",
+                                flexDirection: "column",
+                                justifyContent: "center",
+                                gap: 0.25,
+                              }}
+                            >
+                              <Typography
+                                variant="caption"
+                                sx={{
+                                  fontSize: "0.62rem",
                                   fontWeight: 600,
-                                  color: "info.main",
+                                  color: "text.secondary",
+                                  textTransform: "uppercase",
+                                  letterSpacing: "0.02em",
                                 }}
                               >
-                                {order.salesPerson.name}
+                                {cell.label}
                               </Typography>
-                            </>
-                          )}
+                              <Typography
+                                sx={{
+                                  fontSize: { xs: "0.72rem", sm: "0.8rem" },
+                                  lineHeight: 1.25,
+                                  wordBreak: "break-word",
+                                  ...cell.valueSx,
+                                }}
+                              >
+                                {cell.value}
+                              </Typography>
+                            </Box>
+                          ))}
                         </Box>
 
-                        {/* Call History */}
-                        <Box sx={{ mt: 1 }}>
-                          {order.callHistory && order.callHistory.length > 0 ? (
-                            <Box sx={{ p: 1, bgcolor: "rgba(25, 118, 210, 0.05)", borderRadius: 1, border: "1px solid rgba(25, 118, 210, 0.1)" }}>
-                              {/* Last Call Done - Prominent Display */}
-                              {(() => {
-                                // Find the last call with a note
-                                const callsWithNotes = order.callHistory.filter(call => call.note && call.note.trim() !== "");
-                                const lastCall = callsWithNotes.length > 0 ? callsWithNotes[callsWithNotes.length - 1] : null;
-                                
-                                if (!lastCall) return null;
-                                
-                                return (
-                                  <Box 
-                                    sx={{ 
-                                      mb: 1, 
-                                      p: 1, 
-                                      bgcolor: "rgba(46, 125, 50, 0.15)", 
-                                      borderRadius: 1, 
-                                      border: "1px solid rgba(46, 125, 50, 0.3)",
-                                    }}
-                                  >
-                                    <Typography 
-                                      variant="caption" 
-                                      sx={{ 
-                                        fontSize: "0.7rem", 
-                                        fontWeight: 700, 
-                                        color: "success.dark",
-                                        display: "block",
-                                      }}
-                                    >
-                                      ✓ Last call done on {moment(lastCall.date).format("DD - MMM-YYYY").toUpperCase()}
+                        <Box
+                          sx={{
+                            p: 0.9,
+                            borderRadius: 1.5,
+                            border: "1px solid rgba(211,47,47,0.35)",
+                            bgcolor: "rgba(211,47,47,0.08)",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            gap: 1,
+                            flexWrap: "wrap",
+                          }}
+                        >
+                          <Typography sx={{ fontSize: "0.76rem", fontWeight: 700, color: "#b71c1c" }}>
+                            Outstanding
+                          </Typography>
+                          <Typography sx={{ fontSize: "0.9rem", fontWeight: 800, color: "#d32f2f" }}>
+                            ₹{outstandingAmount.toLocaleString("en-IN")}
+                          </Typography>
+                        </Box>
+
+                        {/* Cavity + Salesperson + expand trigger */}
+                        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1 }}>
+                          <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap" }}>
+                            <Chip
+                              label={`Cavity: ${order.cavity?.name || order.cavity?.cavity || "N/A"}`}
+                              size="small"
+                              sx={{
+                                fontSize: "0.72rem",
+                                fontWeight: 700,
+                                height: 24,
+                                bgcolor: "rgba(121,85,72,0.12)",
+                                color: "#5d4037",
+                                border: "1px solid rgba(121,85,72,0.28)",
+                              }}
+                            />
+                            {order.salesPerson?.name && (
+                              <Box sx={{ display: "flex", alignItems: "center", gap: 0.35 }}>
+                                <Person sx={{ fontSize: "0.8rem", color: "text.secondary" }} />
+                                <Typography sx={{ fontSize: "0.7rem", color: "text.primary", fontWeight: 600 }}>
+                                  {order.salesPerson.name}
+                                </Typography>
+                              </Box>
+                            )}
+                          </Box>
+                          <Button
+                            size="small"
+                            variant="text"
+                            endIcon={isExpanded ? <ExpandLess /> : <ExpandMore />}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setExpandedOrderId((prev) => (prev === orderKey ? null : orderKey));
+                            }}
+                            sx={{ textTransform: "none", fontSize: "0.72rem", minWidth: "auto" }}
+                          >
+                            {isExpanded ? "Hide" : "Details"}
+                          </Button>
+                        </Box>
+
+                        {isExpanded && (
+                          <Box sx={{ mt: 0.5, display: "flex", flexDirection: "column", gap: 1 }}>
+                            {/* Payment entries */}
+                            <Box sx={{ p: 1, bgcolor: "rgba(211,47,47,0.04)", borderRadius: 1, border: "1px solid rgba(211,47,47,0.15)" }}>
+                              <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: "#b71c1c", mb: 0.6 }}>
+                                Payment Entries ({payments.length})
+                              </Typography>
+                              {payments.length > 0 ? (
+                                payments.slice().reverse().slice(0, 4).map((p, pIdx) => (
+                                  <Box key={pIdx} sx={{ display: "flex", justifyContent: "space-between", gap: 1, py: 0.35, borderBottom: pIdx < Math.min(payments.length, 4) - 1 ? "1px dashed rgba(0,0,0,0.1)" : "none" }}>
+                                    <Typography sx={{ fontSize: "0.68rem", color: "text.secondary" }}>
+                                      {p?.paymentDate ? moment(p.paymentDate).format("DD-MMM-YYYY") : "No date"} • {p?.paymentMethod || p?.mode || "N/A"}
                                     </Typography>
-                                    {lastCall.note && (
-                                      <Typography 
-                                        variant="caption" 
-                                        sx={{ 
-                                          fontSize: "0.65rem", 
-                                          color: "text.secondary",
-                                          display: "block",
-                                          mt: 0.5,
-                                          fontStyle: "italic",
-                                        }}
-                                      >
-                                        {lastCall.note}
-                                      </Typography>
-                                    )}
+                                    <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: p?.paymentStatus === "COLLECTED" ? "#2e7d32" : "#d32f2f" }}>
+                                      ₹{(p?.paidAmount || 0).toLocaleString("en-IN")} {p?.paymentStatus ? `(${p.paymentStatus})` : ""}
+                                    </Typography>
                                   </Box>
-                                );
-                              })()}
-                              
-                              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 0.5 }}>
-                                <Typography variant="caption" sx={{ fontSize: "0.7rem", fontWeight: 600, color: "primary.main" }}>
-                                  📞 Call History ({order.callHistory.length})
+                                ))
+                              ) : (
+                                <Typography sx={{ fontSize: "0.68rem", color: "text.secondary" }}>No payment entries yet.</Typography>
+                              )}
+                            </Box>
+
+                            {/* Call History */}
+                            <Box sx={{ p: 0.85, bgcolor: "rgba(46, 125, 50, 0.06)", borderRadius: 1, border: "1px solid rgba(46, 125, 50, 0.15)" }}>
+                              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 0.35 }}>
+                                <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, color: "#1b5e20" }}>
+                                  Calls ({order.callHistory?.length || 0})
                                 </Typography>
                                 {phoneNumber !== "N/A" && (
                                   <Button
@@ -1462,58 +1548,26 @@ const DispatchedListPage = () => {
                                       setCallNote("");
                                       setShowCallModal(true);
                                     }}
-                                    sx={{
-                                      fontSize: "0.6rem",
-                                      px: 0.75,
-                                      py: 0.25,
-                                      minWidth: "auto",
-                                      height: "20px",
-                                      textTransform: "none",
-                                    }}
+                                    sx={{ fontSize: "0.62rem", px: 0.5, py: 0.2, minWidth: "auto", textTransform: "none" }}
                                   >
                                     + Add
                                   </Button>
                                 )}
                               </Box>
-                              {order.callHistory
-                                .filter(call => call.note && call.note.trim() !== "") // Filter out empty notes
+                              {(order.callHistory || [])
+                                .filter((call) => call.note && call.note.trim() !== "")
                                 .slice(-3)
-                                .map((call, idx, arr) => {
-                                  const isLastCall = idx === arr.length - 1;
-                                  return (
-                                    <Box 
-                                      key={idx} 
-                                      sx={{ 
-                                        mb: 0.5, 
-                                        fontSize: "0.65rem",
-                                        p: isLastCall ? 0.75 : 0,
-                                        bgcolor: isLastCall ? "rgba(25, 118, 210, 0.15)" : "transparent",
-                                        borderRadius: isLastCall ? 0.75 : 0,
-                                        border: isLastCall ? "1px solid rgba(25, 118, 210, 0.3)" : "none",
-                                        fontWeight: isLastCall ? 600 : 400,
-                                      }}
-                                    >
-                                      <Typography 
-                                        variant="caption" 
-                                        sx={{ 
-                                          color: isLastCall ? "primary.main" : "text.secondary",
-                                          fontWeight: isLastCall ? 600 : 400,
-                                        }}
-                                      >
-                                        {isLastCall && "🟢 "}
-                                        {moment(call.date).format("DD-MM-YYYY HH:mm")}
-                                        {call.note && ` • ${call.note.substring(0, 30)}${call.note.length > 30 ? "..." : ""}`}
-                                      </Typography>
-                                    </Box>
-                                  );
-                                })}
+                                .map((call, idx) => (
+                                  <Typography key={idx} sx={{ fontSize: "0.66rem", color: "text.secondary", display: "block", mb: 0.25 }}>
+                                    {moment(call.date).format("DD-MM-YYYY HH:mm")} • {call.note}
+                                  </Typography>
+                                ))}
+                              {!(order.callHistory || []).some((call) => call.note && call.note.trim() !== "") && (
+                                <Typography sx={{ fontSize: "0.66rem", color: "text.secondary" }}>No call notes yet.</Typography>
+                              )}
                             </Box>
-                          ) : (
-                            <Typography variant="caption" sx={{ fontSize: "0.68rem", color: "text.secondary" }}>
-                              No call notes yet.
-                            </Typography>
-                          )}
-                        </Box>
+                          </Box>
+                        )}
                       </Box>
                     </Paper>
                   );
@@ -1531,102 +1585,123 @@ const DispatchedListPage = () => {
           fullWidth
           PaperProps={{
             sx: {
-              borderRadius: 2,
+              borderRadius: 3,
+              overflow: "hidden",
+              maxHeight: "92vh",
+              border: "1px solid rgba(46, 125, 50, 0.2)",
+              boxShadow: "0 12px 40px rgba(0,0,0,0.12)",
             },
           }}
         >
-          <DialogTitle sx={{ bgcolor: "primary.main", color: "white" }}>
+          <DialogTitle
+            sx={{
+              py: 1.25,
+              px: 2,
+              background: "linear-gradient(135deg, #2e7d32 0%, #1b5e20 100%)",
+              color: "white",
+              boxShadow: "0 2px 8px rgba(0,0,0,0.12)",
+            }}
+          >
             <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <Typography variant="h6">
+              <Typography sx={{ fontWeight: 700, fontSize: "1.05rem", letterSpacing: "-0.02em" }}>
                 Edit Order #{editingOrder?.orderId || "N/A"}
               </Typography>
-              <IconButton onClick={handleCloseEditModal} sx={{ color: "white" }}>
+              <IconButton onClick={handleCloseEditModal} sx={{ color: "white", p: 0.5 }} size="small">
                 <Close />
               </IconButton>
             </Box>
           </DialogTitle>
-          <DialogContent sx={{ mt: 2 }}>
+          <DialogContent sx={{ pt: 1.5, px: 2, pb: 1, bgcolor: "#f8faf8" }}>
             {editingOrder && (
-              <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
+              <Box sx={{ display: "flex", flexDirection: "column", gap: 1.25 }}>
                 {/* Order Info */}
-                <Box>
-                  <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                <Box
+                  sx={{
+                    p: 1.25,
+                    borderRadius: 2,
+                    bgcolor: "white",
+                    border: "1px solid rgba(0,0,0,0.08)",
+                  }}
+                >
+                  <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 600, fontSize: "0.65rem", textTransform: "uppercase" }}>
                     Farmer
                   </Typography>
-                  <Typography variant="body1" fontWeight="medium">
+                  <Typography sx={{ fontWeight: 700, fontSize: "0.95rem", color: "#1a1a1a", mt: 0.25 }}>
                     {editingOrder.farmer?.name || "N/A"}
                   </Typography>
                 </Box>
 
                 {/* Quantity Section */}
-                <Box>
-                  <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                    Quantity (Plants)
+                <Box
+                  sx={{
+                    p: 1.25,
+                    borderRadius: 2,
+                    bgcolor: "white",
+                    border: "1px solid rgba(46, 125, 50, 0.15)",
+                  }}
+                >
+                  <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 600, fontSize: "0.65rem", textTransform: "uppercase", display: "block", mb: 0.75 }}>
+                    Quantity (plants)
                   </Typography>
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 2 }}>
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mb: 1 }}>
                     <IconButton
                       color="error"
+                      size="small"
                       onClick={() => handleQuantityChange(-1)}
                       disabled={patchLoading}
-                      sx={{ border: "1px solid", borderColor: "error.main" }}
+                      sx={{ border: "1px solid", borderColor: "error.main", p: 0.5 }}
                     >
-                      <Remove />
+                      <Remove sx={{ fontSize: "1.1rem" }} />
                     </IconButton>
                     <TextField
                       type="number"
+                      size="small"
                       value={(editingOrder.numberOfPlants || editingOrder.totalPlants || 0) + quantityChange}
                       onChange={(e) => handleQuantityInput(e.target.value)}
-                      inputProps={{ min: 0, style: { textAlign: "center", fontSize: "1.2rem", fontWeight: "bold" } }}
-                      sx={{ flex: 1 }}
+                      inputProps={{ min: 0, style: { textAlign: "center", fontSize: "1rem", fontWeight: 700 } }}
+                      sx={{ flex: 1, "& .MuiOutlinedInput-root": { borderRadius: 2, bgcolor: "rgba(46,125,50,0.04)" } }}
                       disabled={patchLoading}
                     />
                     <IconButton
                       color="success"
+                      size="small"
                       onClick={() => handleQuantityChange(1)}
                       disabled={patchLoading}
-                      sx={{ border: "1px solid", borderColor: "success.main" }}
+                      sx={{ border: "1px solid", borderColor: "success.main", p: 0.5 }}
                     >
-                      <Add />
+                      <Add sx={{ fontSize: "1.1rem" }} />
                     </IconButton>
                   </Box>
                   
-                  {/* Quick Add/Subtract Buttons */}
-                  <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
-                    <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.7rem" }}>
-                      Quick Actions:
+                  {/* Compact quick adjust */}
+                  <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, alignItems: "center" }}>
+                    <Typography variant="caption" sx={{ fontSize: "0.62rem", fontWeight: 600, color: "text.secondary", width: "100%", mb: 0.25 }}>
+                      ± quick
                     </Typography>
-                    <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
-                      {[100, 500, 700, 1000].map((amount) => (
-                        <React.Fragment key={amount}>
-                          <Button
-                            size="small"
-                            variant="outlined"
-                            color="error"
-                            onClick={() => handleQuantityChange(-amount)}
-                            disabled={patchLoading}
-                            sx={{ minWidth: "60px", fontSize: "0.75rem" }}
-                          >
-                            -{amount}
-                          </Button>
-                          <Button
-                            size="small"
-                            variant="outlined"
-                            color="success"
-                            onClick={() => handleQuantityChange(amount)}
-                            disabled={patchLoading}
-                            sx={{ minWidth: "60px", fontSize: "0.75rem" }}
-                          >
-                            +{amount}
-                          </Button>
-                        </React.Fragment>
-                      ))}
-                    </Box>
+                    {[
+                      { delta: -500, color: "error" },
+                      { delta: -100, color: "error" },
+                      { delta: 100, color: "success" },
+                      { delta: 500, color: "success" },
+                    ].map(({ delta, color }) => (
+                      <Button
+                        key={delta}
+                        size="small"
+                        variant="outlined"
+                        color={color}
+                        onClick={() => handleQuantityChange(delta)}
+                        disabled={patchLoading}
+                        sx={{ minWidth: "44px", fontSize: "0.65rem", py: 0.2, px: 0.5, borderRadius: 1 }}
+                      >
+                        {delta > 0 ? `+${delta}` : delta}
+                      </Button>
+                    ))}
                   </Box>
                   
-                  <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: "block" }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ mt: 0.75, display: "block", fontSize: "0.7rem" }}>
                     Current: {(editingOrder.numberOfPlants || editingOrder.totalPlants || 0).toLocaleString()} plants
                     {quantityChange !== 0 && (
-                      <span style={{ color: quantityChange > 0 ? "green" : "red", fontWeight: "bold" }}>
+                      <span style={{ color: quantityChange > 0 ? "#2e7d32" : "#c62828", fontWeight: 700 }}>
                         {" "}({quantityChange > 0 ? "+" : ""}{quantityChange.toLocaleString()})
                       </span>
                     )}
@@ -1634,40 +1709,50 @@ const DispatchedListPage = () => {
                 </Box>
 
                 {/* Rate Section */}
-                <Box>
-                  <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                    Rate (₹ per plant)
+                <Box
+                  sx={{
+                    p: 1.25,
+                    borderRadius: 2,
+                    bgcolor: "white",
+                    border: "1px solid rgba(46, 125, 50, 0.18)",
+                  }}
+                >
+                  <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 600, fontSize: "0.65rem", textTransform: "uppercase", display: "block", mb: 0.75 }}>
+                    Rate (₹ / plant)
                   </Typography>
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
                     <IconButton
                       color="error"
+                      size="small"
                       onClick={() => handleRateChange(-0.5)}
                       disabled={patchLoading}
-                      sx={{ border: "1px solid", borderColor: "error.main" }}
+                      sx={{ border: "1px solid", borderColor: "error.main", p: 0.5 }}
                     >
-                      <Remove />
+                      <Remove sx={{ fontSize: "1.1rem" }} />
                     </IconButton>
                     <TextField
                       type="number"
+                      size="small"
                       value={((editingOrder.rate || 0) + rateChange).toFixed(2)}
                       onChange={(e) => handleRateInput(e.target.value)}
-                      inputProps={{ min: 0, step: 0.5, style: { textAlign: "center", fontSize: "1.2rem", fontWeight: "bold" } }}
-                      sx={{ flex: 1 }}
+                      inputProps={{ min: 0, step: 0.5, style: { textAlign: "center", fontSize: "1rem", fontWeight: 700 } }}
+                      sx={{ flex: 1, "& .MuiOutlinedInput-root": { borderRadius: 2, bgcolor: "rgba(46,125,50,0.06)" } }}
                       disabled={patchLoading}
                     />
                     <IconButton
                       color="success"
+                      size="small"
                       onClick={() => handleRateChange(0.5)}
                       disabled={patchLoading}
-                      sx={{ border: "1px solid", borderColor: "success.main" }}
+                      sx={{ border: "1px solid", borderColor: "success.main", p: 0.5 }}
                     >
-                      <Add />
+                      <Add sx={{ fontSize: "1.1rem" }} />
                     </IconButton>
                   </Box>
-                  <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: "block" }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ mt: 0.75, display: "block", fontSize: "0.7rem" }}>
                     Current: ₹{editingOrder.rate || 0}
                     {rateChange !== 0 && (
-                      <span style={{ color: rateChange > 0 ? "green" : "red", fontWeight: "bold" }}>
+                      <span style={{ color: rateChange > 0 ? "#2e7d32" : "#c62828", fontWeight: 700 }}>
                         {" "}({rateChange > 0 ? "+" : ""}₹{rateChange.toFixed(2)})
                       </span>
                     )}
@@ -1675,47 +1760,64 @@ const DispatchedListPage = () => {
                 </Box>
 
                 {/* Delivery Date Section */}
-                <Box>
-                  <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                    Delivery Date *
+                <Box
+                  sx={{
+                    p: 1.25,
+                    borderRadius: 2,
+                    bgcolor: "white",
+                    border: "1px solid rgba(46, 125, 50, 0.18)",
+                  }}
+                >
+                  <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 600, fontSize: "0.65rem", textTransform: "uppercase", display: "block", mb: 0.75 }}>
+                    Delivery date
                   </Typography>
                   {slotsLoading ? (
-                    <Box sx={{ p: 2, textAlign: "center", bgcolor: "grey.100", borderRadius: 1 }}>
-                      <CircularProgress size={20} />
-                      <Typography variant="caption" sx={{ ml: 1 }}>
-                        Loading available slots...
+                    <Box sx={{ p: 1.25, textAlign: "center", bgcolor: "rgba(0,0,0,0.03)", borderRadius: 2 }}>
+                      <CircularProgress size={18} sx={{ color: "#2e7d32" }} />
+                      <Typography variant="caption" sx={{ ml: 1, fontSize: "0.72rem", color: "text.secondary" }}>
+                        Loading slots…
                       </Typography>
                     </Box>
                   ) : (
                     <Button
                       variant="outlined"
                       fullWidth
+                      size="small"
                       onClick={() => {
-                        if (slots.length > 0) {
-                          setShowDeliveryDateModal(true);
-                        } else {
-                          Toast.info('No available slots found. Please select a different plant/subtype.');
+                        const plantId = editingOrder.plantType?._id || editingOrder.plantType?.id;
+                        const subtypeId = editingOrder.plantSubtype?._id || editingOrder.plantSubtype?.id;
+                        if (!plantId || !subtypeId) {
+                          Toast.error("Plant or subtype missing on this order.");
+                          return;
+                        }
+                        setShowDeliveryDateModal(true);
+                        if (slots.length === 0 && !slotsLoading) {
+                          getSlots(plantId, subtypeId);
                         }
                       }}
-                      disabled={slots.length === 0}
-                      sx={{ justifyContent: "flex-start", mb: 1 }}
+                      disabled={!(editingOrder.plantType?._id || editingOrder.plantType?.id) || !(editingOrder.plantSubtype?._id || editingOrder.plantSubtype?.id)}
+                      sx={{
+                        justifyContent: "flex-start",
+                        mb: 0.25,
+                        borderRadius: 2,
+                        textTransform: "none",
+                        fontWeight: 600,
+                        borderColor: "rgba(46, 125, 50, 0.45)",
+                        color: "#1b5e20",
+                        py: 0.75,
+                        "&:hover": { borderColor: "#2e7d32", bgcolor: "rgba(46, 125, 50, 0.06)" },
+                      }}
                     >
-                      <CalendarToday sx={{ mr: 1 }} />
+                      <CalendarToday sx={{ mr: 1, fontSize: "1rem", color: "#2e7d32" }} />
                     {editingOrder.deliveryDate
                       ? moment(editingOrder.deliveryDate).format("DD - MMM-YYYY").toUpperCase()
-                      : "Click to select delivery date"}
+                      : "Choose delivery date"}
                     </Button>
                   )}
                   
-                  {slots.length === 0 && !slotsLoading && (
-                    <Typography variant="caption" color="error" sx={{ display: "block", mt: 0.5 }}>
-                      No available slots found for this plant/subtype combination
-                    </Typography>
-                  )}
-                  
-                  {!slotsLoading && slots.length > 0 && (
-                    <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
-                      Click to select a delivery date from available slots
+                  {slots.length === 0 && !slotsLoading && (editingOrder.plantType?._id || editingOrder.plantType?.id) && (editingOrder.plantSubtype?._id || editingOrder.plantSubtype?.id) && (
+                    <Typography variant="caption" sx={{ display: "block", mt: 0.5, color: "text.secondary", fontSize: "0.68rem" }}>
+                      No open slots for this plant. Tap above to retry or pick another window when slots exist.
                     </Typography>
                   )}
 
@@ -1729,9 +1831,9 @@ const DispatchedListPage = () => {
                       const adjustedAvailable = slotDetails.available + currentQuantity;
 
                       return (
-                        <Box sx={{ mt: 2, p: 2, bgcolor: "info.light", borderRadius: 1, border: "1px solid", borderColor: "info.main" }}>
-                          <Typography variant="caption" sx={{ fontWeight: "bold", color: "info.dark", display: "block", mb: 1 }}>
-                            📅 Delivery Period: {slotDetails.startDay} - {slotDetails.endDay}
+                        <Box sx={{ mt: 1.25, p: 1.25, bgcolor: "rgba(232, 245, 233, 0.9)", borderRadius: 1.5, border: "1px solid rgba(46, 125, 50, 0.28)" }}>
+                          <Typography variant="caption" sx={{ fontWeight: 700, color: "#1b5e20", display: "block", mb: 0.75, fontSize: "0.7rem" }}>
+                            Slot window: {slotDetails.startDay} – {slotDetails.endDay}
                           </Typography>
                           <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1, mb: 1 }}>
                             <Box>
@@ -1783,20 +1885,27 @@ const DispatchedListPage = () => {
                 </Box>
 
                 {/* Status Change Section */}
-                <Box>
-                  <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                    Change Status
+                <Box
+                  sx={{
+                    p: 1.25,
+                    borderRadius: 2,
+                    bgcolor: "white",
+                    border: "1px solid rgba(0,0,0,0.08)",
+                  }}
+                >
+                  <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 600, fontSize: "0.65rem", textTransform: "uppercase", display: "block", mb: 0.75 }}>
+                    Status
                   </Typography>
-                  <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+                  <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap" }}>
                     <Button
                       variant={statusChange === "CANCELLED" ? "contained" : "outlined"}
                       color="error"
                       size="small"
                       onClick={() => setStatusChange(statusChange === "CANCELLED" ? "" : "CANCELLED")}
                       disabled={patchLoading}
-                      sx={{ fontSize: "0.8rem" }}
+                      sx={{ fontSize: "0.72rem", textTransform: "none", borderRadius: 2, py: 0.5 }}
                     >
-                      Cancel Order
+                      Cancel
                     </Button>
                     <Button
                       variant={statusChange === "READY_FOR_DISPATCH" ? "contained" : "outlined"}
@@ -1804,35 +1913,42 @@ const DispatchedListPage = () => {
                       size="small"
                       onClick={() => setStatusChange(statusChange === "READY_FOR_DISPATCH" ? "" : "READY_FOR_DISPATCH")}
                       disabled={patchLoading}
-                      sx={{ fontSize: "0.8rem" }}
+                      sx={{ fontSize: "0.72rem", textTransform: "none", borderRadius: 2, py: 0.5 }}
                     >
-                      Ready for Dispatch
+                      Ready for dispatch
                     </Button>
                   </Box>
                   {statusChange && (
-                    <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: "block" }}>
-                      Current: {editingOrder.orderStatus || "N/A"} → New: {statusChange}
+                    <Typography variant="caption" color="text.secondary" sx={{ mt: 0.75, display: "block", fontSize: "0.68rem" }}>
+                      {editingOrder.orderStatus || "N/A"} → {statusChange}
                     </Typography>
                   )}
                 </Box>
 
                 {/* Summary */}
-                <Box sx={{ bgcolor: "grey.100", p: 2, borderRadius: 1 }}>
-                  <Typography variant="subtitle2" gutterBottom>
-                    New Total
+                <Box
+                  sx={{
+                    p: 1.25,
+                    borderRadius: 2,
+                    background: "linear-gradient(135deg, rgba(232,245,233,0.95) 0%, rgba(200,230,201,0.5) 100%)",
+                    border: "1px solid rgba(46, 125, 50, 0.25)",
+                  }}
+                >
+                  <Typography variant="caption" sx={{ color: "#1b5e20", fontWeight: 700, fontSize: "0.65rem", textTransform: "uppercase" }}>
+                    New total
                   </Typography>
-                  <Typography variant="h6" color="primary">
+                  <Typography sx={{ fontSize: "1.25rem", fontWeight: 800, color: "#1b5e20", mt: 0.25 }}>
                     ₹{(
                       ((editingOrder.numberOfPlants || editingOrder.totalPlants || 0) + quantityChange) *
                       ((editingOrder.rate || 0) + rateChange)
                     ).toLocaleString(undefined, { maximumFractionDigits: 2 })}
                   </Typography>
-                  <Typography variant="caption" color="text.secondary">
+                  <Typography variant="caption" sx={{ color: "text.secondary", fontSize: "0.68rem", display: "block", mt: 0.25 }}>
                     {(editingOrder.numberOfPlants || editingOrder.totalPlants || 0).toLocaleString()} × ₹{editingOrder.rate || 0} = ₹{(
                       (editingOrder.numberOfPlants || editingOrder.totalPlants || 0) * (editingOrder.rate || 0)
                     ).toLocaleString(undefined, { maximumFractionDigits: 2 })}
                     {(quantityChange !== 0 || rateChange !== 0) && (
-                      <span style={{ color: "green", fontWeight: "bold" }}>
+                      <span style={{ color: "#2e7d32", fontWeight: 700 }}>
                         {" → "}
                         {((editingOrder.numberOfPlants || editingOrder.totalPlants || 0) + quantityChange).toLocaleString()} × ₹{((editingOrder.rate || 0) + rateChange).toFixed(2)} = ₹{(
                           ((editingOrder.numberOfPlants || editingOrder.totalPlants || 0) + quantityChange) *
@@ -1845,71 +1961,88 @@ const DispatchedListPage = () => {
               </Box>
             )}
           </DialogContent>
-          <DialogActions sx={{ p: 2, gap: 1 }}>
-            <Button onClick={handleCloseEditModal} disabled={patchLoading}>
+          <DialogActions
+            sx={{
+              px: 2,
+              py: 1.25,
+              gap: 1,
+              bgcolor: "rgba(0,0,0,0.02)",
+              borderTop: "1px solid rgba(0,0,0,0.06)",
+            }}
+          >
+            <Button onClick={handleCloseEditModal} disabled={patchLoading} size="small" sx={{ textTransform: "none", color: "text.secondary" }}>
               Cancel
             </Button>
             <Button
               variant="contained"
               onClick={handleSaveChanges}
               disabled={patchLoading || (quantityChange === 0 && rateChange === 0 && !editingOrder?.bookingSlot?.[0]?.slotId && !statusChange)}
-              startIcon={patchLoading ? <CircularProgress size={16} /> : null}
+              startIcon={patchLoading ? <CircularProgress size={14} color="inherit" /> : null}
+              size="small"
+              sx={{
+                textTransform: "none",
+                fontWeight: 700,
+                borderRadius: 2,
+                px: 2,
+                background: "linear-gradient(135deg, #2e7d32 0%, #1b5e20 100%)",
+                boxShadow: "0 2px 8px rgba(46,125,50,0.35)",
+                "&:hover": { background: "linear-gradient(135deg, #1b5e20 0%, #145214 100%)" },
+              }}
             >
-              Save Changes
+              Save
             </Button>
           </DialogActions>
         </Dialog>
 
-        {/* Delivery Date Picker Modal */}
-        {showDeliveryDateModal && (
-          <Box
+        {/* Delivery date picker — Dialog stacks above edit Dialog (portal + z-index) */}
+        <Dialog
+          open={showDeliveryDateModal}
+          onClose={() => setShowDeliveryDateModal(false)}
+          maxWidth="md"
+          fullWidth
+          scroll="paper"
+          PaperProps={{
+            sx: {
+              borderRadius: 3,
+              maxHeight: "min(90vh, 720px)",
+              border: "1px solid rgba(46, 125, 50, 0.22)",
+              boxShadow: "0 16px 48px rgba(0,0,0,0.18)",
+            },
+          }}
+        >
+          <DialogTitle
             sx={{
-              position: "fixed",
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              bgcolor: "rgba(0,0,0,0.5)",
+              py: 1.1,
+              px: 2,
+              background: "linear-gradient(135deg, #2e7d32 0%, #1b5e20 100%)",
+              color: "white",
               display: "flex",
+              justifyContent: "space-between",
               alignItems: "center",
-              justifyContent: "center",
-              zIndex: 1300,
-              p: 2,
             }}
-            onClick={() => setShowDeliveryDateModal(false)}
           >
-            <Paper
-              sx={{
-                maxWidth: "90vw",
-                maxHeight: "90vh",
-                overflow: "auto",
-                p: 3,
-                position: "relative",
-              }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
-                <Typography variant="h6">Select Delivery Date</Typography>
-                <IconButton onClick={() => setShowDeliveryDateModal(false)}>
-                  <Close />
-                </IconButton>
-              </Box>
-
+            <Typography sx={{ fontWeight: 700, fontSize: "0.95rem" }}>Select delivery date</Typography>
+            <IconButton onClick={() => setShowDeliveryDateModal(false)} sx={{ color: "white", p: 0.5 }} size="small">
+              <Close />
+            </IconButton>
+          </DialogTitle>
+          <DialogContent sx={{ p: 0, bgcolor: "#f8faf8" }}>
+            <Box sx={{ p: 1.5 }}>
               {slotsLoading ? (
-                <Box sx={{ textAlign: "center", py: 4 }}>
-                  <CircularProgress />
-                  <Typography variant="body2" sx={{ mt: 2 }}>
-                    Loading available slots...
+                <Box sx={{ textAlign: "center", py: 3 }}>
+                  <CircularProgress size={28} sx={{ color: "#2e7d32" }} />
+                  <Typography variant="body2" sx={{ mt: 1.5, color: "text.secondary", fontSize: "0.85rem" }}>
+                    Loading slots…
                   </Typography>
                 </Box>
               ) : slots.length === 0 ? (
-                <Box sx={{ textAlign: "center", py: 4 }}>
-                  <Typography variant="body1" color="text.secondary">
-                    No available slots found
+                <Box sx={{ textAlign: "center", py: 3 }}>
+                  <Typography variant="body2" sx={{ color: "text.secondary" }}>
+                    No slots returned for this plant. Close and try again, or check plant/subtype data.
                   </Typography>
                 </Box>
               ) : (
-                <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
                   {slots.map((slot) => {
                     if (!slot.startDay || !slot.endDay) return null;
 
@@ -1934,20 +2067,20 @@ const DispatchedListPage = () => {
                     const adjustedAvailable = slot.available + currentQuantity;
 
                     return (
-                      <Box key={slot.value} sx={{ borderBottom: "1px solid", borderColor: "divider", pb: 3, "&:last-child": { borderBottom: "none" } }}>
-                        {/* Slot Header */}
-                        <Box sx={{ display: "flex", alignItems: "center", mb: 2, pb: 1.5, borderBottom: "2px solid", borderColor: "primary.light" }}>
+                      <Box key={slot.value} sx={{ borderBottom: "1px solid", borderColor: "divider", pb: 2, "&:last-child": { borderBottom: "none", pb: 0 } }}>
+                        <Box sx={{ display: "flex", alignItems: "center", mb: 1.25, pb: 1, borderBottom: "1px solid", borderColor: "rgba(46,125,50,0.2)" }}>
                           <Box
                             sx={{
                               width: 8,
                               height: 8,
                               borderRadius: "50%",
-                              bgcolor: "primary.main",
-                              mr: 1.5,
+                              bgcolor: "#2e7d32",
+                              mr: 1.25,
+                              flexShrink: 0,
                             }}
                           />
-                          <Box sx={{ flex: 1 }}>
-                            <Typography variant="subtitle1" sx={{ fontWeight: 600, color: "primary.main" }}>
+                          <Box sx={{ flex: 1, minWidth: 0 }}>
+                            <Typography variant="subtitle2" sx={{ fontWeight: 700, color: "#1b5e20", fontSize: "0.82rem" }}>
                               {slot.label}
                             </Typography>
                             <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: "block" }}>
@@ -1975,9 +2108,9 @@ const DispatchedListPage = () => {
                             gridTemplateColumns: {
                               xs: "repeat(5, 1fr)",
                               sm: "repeat(7, 1fr)",
-                              md: "repeat(9, 1fr)",
+                              md: "repeat(8, 1fr)",
                             },
-                            gap: 1.5,
+                            gap: 1,
                           }}
                         >
                           {dates.map((date) => {
@@ -1991,51 +2124,51 @@ const DispatchedListPage = () => {
                               <Button
                                 key={date.format("YYYY-MM-DD")}
                                 variant={isSelected ? "contained" : "outlined"}
+                                color={isSelected ? "success" : "inherit"}
                                 onClick={() => {
                                   handleDeliveryDateSelect(date.toDate(), slot.value);
                                 }}
                                 sx={{
                                   minWidth: "auto",
-                                  p: 1.5,
+                                  p: 1,
                                   flexDirection: "column",
                                   position: "relative",
                                   bgcolor: isSelected
-                                    ? "primary.main"
+                                    ? "#2e7d32"
                                     : isToday
-                                    ? "warning.light"
-                                    : "transparent",
+                                    ? "rgba(255, 183, 77, 0.25)"
+                                    : "white",
                                   color: isSelected ? "white" : "text.primary",
-                                  borderColor: isToday ? "warning.main" : "divider",
+                                  borderColor: isToday ? "#f57c00" : "rgba(0,0,0,0.12)",
                                   borderWidth: isSelected ? 2 : 1,
                                   "&:hover": {
-                                    bgcolor: isSelected ? "primary.dark" : "action.hover",
-                                    borderColor: isSelected ? "primary.dark" : "primary.main",
+                                    bgcolor: isSelected ? "#1b5e20" : "rgba(46,125,50,0.08)",
+                                    borderColor: isSelected ? "#1b5e20" : "#2e7d32",
                                   },
-                                  transform: isSelected ? "scale(1.05)" : "scale(1)",
-                                  transition: "all 0.2s",
+                                  transition: "all 0.15s",
                                 }}
                               >
-                                <Typography variant="caption" sx={{ fontSize: "0.65rem", textTransform: "uppercase", fontWeight: 600 }}>
+                                <Typography variant="caption" sx={{ fontSize: "0.6rem", textTransform: "uppercase", fontWeight: 600 }}>
                                   {date.format("ddd")}
                                 </Typography>
-                                <Typography variant="h6" sx={{ fontSize: "1.25rem", fontWeight: 600, my: 0.5 }}>
+                                <Typography sx={{ fontSize: "1.05rem", fontWeight: 700, my: 0.35 }}>
                                   {date.format("DD")}
                                 </Typography>
-                                <Typography variant="caption" sx={{ fontSize: "0.65rem", textTransform: "uppercase", fontWeight: 600 }}>
+                                <Typography variant="caption" sx={{ fontSize: "0.58rem", textTransform: "uppercase", fontWeight: 600 }}>
                                   {date.format("MMM")}
                                 </Typography>
                                 {isToday && !isSelected && (
                                   <Chip
-                                    label="TODAY"
+                                    label="Today"
                                     size="small"
                                     sx={{
                                       position: "absolute",
-                                      top: 4,
-                                      right: 4,
-                                      height: 16,
-                                      fontSize: "0.6rem",
-                                      fontWeight: "bold",
-                                      bgcolor: "warning.main",
+                                      top: 2,
+                                      right: 2,
+                                      height: 14,
+                                      fontSize: "0.55rem",
+                                      fontWeight: 700,
+                                      bgcolor: "#f57c00",
                                       color: "white",
                                     }}
                                   />
@@ -2044,19 +2177,19 @@ const DispatchedListPage = () => {
                                   <Box
                                     sx={{
                                       position: "absolute",
-                                      top: 4,
-                                      right: 4,
-                                      width: 20,
-                                      height: 20,
+                                      top: 2,
+                                      right: 2,
+                                      width: 18,
+                                      height: 18,
                                       borderRadius: "50%",
                                       bgcolor: "white",
-                                      color: "primary.main",
+                                      color: "#2e7d32",
                                       display: "flex",
                                       alignItems: "center",
                                       justifyContent: "center",
                                     }}
                                   >
-                                    <Check sx={{ fontSize: 12 }} />
+                                    <Check sx={{ fontSize: 11 }} />
                                   </Box>
                                 )}
                               </Button>
@@ -2067,17 +2200,16 @@ const DispatchedListPage = () => {
                     );
                   })}
                   
-                  {/* Helper Text */}
-                  <Alert severity="info" sx={{ mt: 2 }}>
-                    <Typography variant="body2">
-                      💡 <strong>Tip:</strong> Click on any date to select it as the delivery date. Only dates within available slots are shown.
+                  <Alert severity="success" variant="outlined" sx={{ mt: 0.5, borderRadius: 2, py: 0.5, fontSize: "0.75rem", borderColor: "rgba(46,125,50,0.35)", bgcolor: "rgba(232,245,233,0.5)" }}>
+                    <Typography sx={{ fontSize: "0.75rem", color: "text.secondary" }}>
+                      Tap a date to apply. Only dates inside an open slot are listed.
                     </Typography>
                   </Alert>
                 </Box>
               )}
-            </Paper>
-          </Box>
-        )}
+            </Box>
+          </DialogContent>
+        </Dialog>
 
         {/* Call Modal */}
         <Dialog
@@ -2089,14 +2221,29 @@ const DispatchedListPage = () => {
           }}
           maxWidth="sm"
           fullWidth
+          PaperProps={{
+            sx: {
+              borderRadius: 3,
+              overflow: "hidden",
+              border: "1px solid rgba(46, 125, 50, 0.2)",
+              boxShadow: "0 12px 40px rgba(0,0,0,0.12)",
+            },
+          }}
         >
-          <DialogTitle>
+          <DialogTitle
+            sx={{
+              py: 1.25,
+              px: 2,
+              background: "linear-gradient(135deg, #2e7d32 0%, #1b5e20 100%)",
+              color: "white",
+            }}
+          >
             <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-              <Phone sx={{ color: "primary.main" }} />
-              <Typography variant="h6">Record Call</Typography>
+              <Phone sx={{ fontSize: "1.25rem" }} />
+              <Typography sx={{ fontWeight: 700, fontSize: "1.05rem" }}>Record call</Typography>
             </Box>
           </DialogTitle>
-          <DialogContent>
+          <DialogContent sx={{ pt: 1.5, px: 2, pb: 1, bgcolor: "#f8faf8" }}>
             {callOrderId && (() => {
               const order = orders.find(o => (o._id || o.id) === callOrderId);
               const phoneNumber = order?.farmer?.mobileNumber;
@@ -2113,95 +2260,128 @@ const DispatchedListPage = () => {
               ];
               
               return (
-                <Box sx={{ mt: 2 }}>
-                  <Box sx={{ mb: 2, p: 1.5, bgcolor: "rgba(25, 118, 210, 0.05)", borderRadius: 1 }}>
-                    <Typography variant="body2" color="text.secondary" gutterBottom>
-                      Calling
+                <Box sx={{ display: "flex", flexDirection: "column", gap: 1.25 }}>
+                  <Box
+                    sx={{
+                      p: 1.25,
+                      borderRadius: 2,
+                      bgcolor: "white",
+                      border: "1px solid rgba(46, 125, 50, 0.2)",
+                      borderLeft: "4px solid #2e7d32",
+                    }}
+                  >
+                    <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 600, fontSize: "0.65rem", textTransform: "uppercase" }}>
+                      Farmer
                     </Typography>
-                    <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                    <Typography sx={{ fontWeight: 700, fontSize: "1rem", mt: 0.25, color: "#1a1a1a" }}>
                       {farmerName}
                     </Typography>
-                    <Typography variant="body2" sx={{ color: "primary.main", fontWeight: 600, mt: 0.5 }}>
-                      📞 {phoneNumber || "N/A"}
-                    </Typography>
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, mt: 0.5 }}>
+                      <Phone sx={{ fontSize: "1rem", color: "#2e7d32" }} />
+                      <Typography sx={{ color: "#1a1a1a", fontWeight: 700, fontSize: "0.88rem" }}>
+                        {phoneNumber || "N/A"}
+                      </Typography>
+                    </Box>
                   </Box>
                   
-                  {/* Shortcut Notes */}
-                  <Box sx={{ mb: 2 }}>
-                    <Typography variant="body2" color="text.secondary" gutterBottom sx={{ mb: 1 }}>
-                      Quick Notes
+                  <Box sx={{ p: 1.25, borderRadius: 2, bgcolor: "white", border: "1px solid rgba(0,0,0,0.08)" }}>
+                    <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 600, fontSize: "0.65rem", textTransform: "uppercase", display: "block", mb: 0.75 }}>
+                      Quick notes
                     </Typography>
-                    <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
+                    <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
                       {shortcutNotes.map((note) => (
                         <Chip
                           key={note}
                           label={note}
+                          size="small"
                           onClick={() => handleShortcutNote(note)}
                           sx={{
                             cursor: "pointer",
-                            "&:hover": {
-                              bgcolor: "primary.light",
-                              color: "white",
-                            },
+                            fontSize: "0.68rem",
+                            height: 26,
+                            borderRadius: 1.5,
+                            "&:hover": { bgcolor: "rgba(46, 125, 50, 0.12)" },
                           }}
                           variant={callNote === note ? "filled" : "outlined"}
-                          color={callNote === note ? "primary" : "default"}
+                          color={callNote === note ? "success" : "default"}
                         />
                       ))}
                     </Box>
                   </Box>
                   
-                  <Typography variant="body2" color="text.secondary" gutterBottom>
-                    Call Note
-                  </Typography>
-                  <TextField
-                    fullWidth
-                    multiline
-                    rows={4}
-                    value={callNote}
-                    onChange={(e) => setCallNote(e.target.value)}
-                    placeholder="Enter call notes, conversation summary, or any important information..."
-                    variant="outlined"
-                  />
+                  <Box>
+                    <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 600, fontSize: "0.65rem", textTransform: "uppercase", display: "block", mb: 0.5 }}>
+                      Note
+                    </Typography>
+                    <TextField
+                      fullWidth
+                      multiline
+                      rows={3}
+                      size="small"
+                      value={callNote}
+                      onChange={(e) => setCallNote(e.target.value)}
+                      placeholder="Short summary after call..."
+                      variant="outlined"
+                      sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2, bgcolor: "white" } }}
+                    />
+                  </Box>
                 </Box>
               );
             })()}
           </DialogContent>
-          <DialogActions>
+          <DialogActions
+            sx={{
+              px: 2,
+              py: 1.25,
+              gap: 0.75,
+              flexWrap: "wrap",
+              bgcolor: "rgba(0,0,0,0.02)",
+              borderTop: "1px solid rgba(0,0,0,0.06)",
+            }}
+          >
             <Button
+              size="small"
               onClick={() => {
                 setShowCallModal(false);
                 setCallNote("");
                 setCallOrderId(null);
               }}
+              sx={{ textTransform: "none", color: "text.secondary" }}
             >
               Cancel
             </Button>
             <Button
               variant="outlined"
+              size="small"
               onClick={() => {
-                // Get the order to find phone number
                 const order = orders.find(o => (o._id || o.id) === callOrderId);
                 const phoneNumber = order?.farmer?.mobileNumber;
                 if (phoneNumber) {
                   handleCall(phoneNumber);
                 }
               }}
-              startIcon={<Phone />}
-              sx={{ textTransform: "none" }}
+              startIcon={<Phone sx={{ fontSize: "1rem" }} />}
+              sx={{ textTransform: "none", borderRadius: 2, borderColor: "#2e7d32", color: "#1b5e20" }}
             >
               Call
             </Button>
             <Button
               variant="contained"
-              color="success"
+              size="small"
               onClick={() => {
                 handleSaveCall();
               }}
-              startIcon={<Check />}
-              sx={{ textTransform: "none" }}
+              startIcon={<Check sx={{ fontSize: "1rem" }} />}
+              sx={{
+                textTransform: "none",
+                borderRadius: 2,
+                fontWeight: 700,
+                background: "linear-gradient(135deg, #2e7d32 0%, #1b5e20 100%)",
+                boxShadow: "0 2px 8px rgba(46,125,50,0.3)",
+                "&:hover": { background: "linear-gradient(135deg, #1b5e20 0%, #145214 100%)" },
+              }}
             >
-              Mark Call Done
+              Save note
             </Button>
           </DialogActions>
         </Dialog>

@@ -100,12 +100,12 @@ export const useLoginController = () => {
           // Check if user is dispatch manager (by role or jobTitle)
           const isDispatchManager = response.user?.role === "DISPATCH_MANAGER" ||
                                    response.user?.jobTitle === "DISPATCH_MANAGER"
-          // Check if user is DEALER or SALES (redirect to mobile place-order)
+          // Check if user is DEALER or SALES (redirect to mobile dashboard)
           const isDealerOrSales = response.user?.jobTitle === "DEALER" || response.user?.jobTitle === "SALES"
 
           // Determine redirect path based on user role
           let redirectPath = "/u/dashboard"
-          if (isDispatchManager) redirectPath = "/u/dispatch-orders"
+          if (isDispatchManager) redirectPath = "/u/mobile"
           else if (isDealerOrSales) redirectPath = "/u/mobile"
 
           // Navigate to appropriate page if password is already set and no reset required
@@ -139,12 +139,12 @@ export const useLoginController = () => {
     // Check if user is dispatch manager (by role or jobTitle)
     const isDispatchManager = loginResponse?.user?.role === "DISPATCH_MANAGER" ||
                              loginResponse?.user?.jobTitle === "DISPATCH_MANAGER"
-    // Check if user is DEALER or SALES (redirect to mobile place-order)
+    // Check if user is DEALER or SALES (redirect to mobile dashboard)
     const isDealerOrSales = loginResponse?.user?.jobTitle === "DEALER" || loginResponse?.user?.jobTitle === "SALES"
 
     // Determine redirect path based on user role
     let redirectPath = "/u/dashboard"
-    if (isDispatchManager) redirectPath = "/u/dispatch-orders"
+    if (isDispatchManager) redirectPath = "/u/mobile"
     else if (isDealerOrSales) redirectPath = "/u/mobile"
     
     setTimeout(() => {

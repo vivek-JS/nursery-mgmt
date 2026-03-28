@@ -189,6 +189,8 @@ const DispatchOrderList = () => {
         return "#4caf50";
       case "FARM_READY":
         return "#2196f3";
+      case "READY_FOR_DISPATCH":
+        return "#00897b";
       case "DISPATCHED":
         return "#ff9800";
       case "DELIVERED":
@@ -204,6 +206,8 @@ const DispatchOrderList = () => {
     switch (status?.toUpperCase()) {
       case "FARM_READY":
         return "Ready to Dispatch";
+      case "READY_FOR_DISPATCH":
+        return "Ready for dispatch";
       default:
         return status || "N/A";
     }

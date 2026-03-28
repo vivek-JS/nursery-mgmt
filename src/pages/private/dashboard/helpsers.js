@@ -16,6 +16,8 @@ const getStatusColor = (status) => {
       return "bg-gray-100 text-gray-700"
     case "FARM_READY":
       return "bg-amber-100 text-amber-700"
+    case "READY_FOR_DISPATCH":
+      return "bg-teal-100 text-teal-800 border border-teal-200"
     default:
       return "bg-gray-50 text-gray-600"
   }
