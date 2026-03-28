@@ -14,10 +14,6 @@ import {
   CircularProgress,
   useMediaQuery,
   useTheme,
-  MenuItem,
-  FormControl,
-  InputLabel,
-  Select,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -78,6 +74,7 @@ import { API, NetworkManager } from "network/core"
 import { Toast } from "helpers/toasts/toastHelper"
 import AddOrderForm from "./AddOrderForm"
 import PaymentQRModal from "components/Modals/PaymentQRModal"
+import SearchableSelectField from "components/Inputs/SearchableSelectField"
 
 // ================================================================
 // THEME COLORS
@@ -131,7 +128,16 @@ const getLatestSlot = (slotData) => {
 
 const mapSlotForUi = (slotData) => getLatestSlot(slotData)
 
-const statusOptions = Object.entries(STATUS_MAP).map(([value, v]) => ({ value, label: v.label, color: v.color }))
+// Keep REJECTED rendering support for legacy orders, but do not expose it as a selectable transition.
+const statusOptions = Object.entries(STATUS_MAP)
+  .filter(([value]) => value !== "REJECTED")
+  .map(([value, v]) => ({ value, label: v.label, color: v.color }))
+const isActionLockedStatus = (status) => ["DISPATCHED", "REJECTED", "CANCELLED"].includes((status || "").toUpperCase())
+const paymentModeOptions = ["Cash", "UPI", "Cheque", "NEFT/RTGS", "1341", "434"].map((m) => ({ label: m, value: m }))
+const txnTypeOptions = ["CREDIT", "DEBIT", "INVENTORY_ADD", "INVENTORY_BOOK", "INVENTORY_RELEASE"].map((t) => ({
+  label: t.replace("_", " "),
+  value: t,
+}))
 
 const txnTypeColors = {
   CREDIT: { bg: C.greenBg, color: C.greenText, icon: <TrendingUpIcon sx={{ fontSize: 15 }} /> },
@@ -177,8 +183,6 @@ function PlaceOrderMobile() {
   const [detailTab, setDetailTab] = useState(0)
   const [paymentLoading, setPaymentLoading] = useState(false)
   const [newPayment, setNewPayment] = useState({ paidAmount: "", paymentDate: moment().format("YYYY-MM-DD"), modeOfPayment: "", bankName: "", remark: "", receiptPhoto: [], paymentStatus: "PENDING", isWalletPayment: false })
-  const [editData, setEditData] = useState({})
-  const [editLoading, setEditLoading] = useState(false)
   const [newRemark, setNewRemark] = useState("")
   const [remarkLoading, setRemarkLoading] = useState(false)
   const [statusLoading, setStatusLoading] = useState(false)
@@ -507,7 +511,6 @@ function PlaceOrderMobile() {
 
   const openOrderDetail = (order) => {
     setSelectedOrder(order); setDetailTab(0)
-    setEditData({ rate: order.rate, quantity: order.quantity, deliveryDate: order.deliveryDateRaw ? new Date(order.deliveryDateRaw) : null })
     setNewPayment({ paidAmount: "", paymentDate: moment().format("YYYY-MM-DD"), modeOfPayment: "", bankName: "", remark: "", receiptPhoto: [], paymentStatus: "PENDING", isWalletPayment: false })
     setNewRemark(""); setDetailOpen(true)
   }
@@ -560,16 +563,6 @@ function PlaceOrderMobile() {
         refreshOrderDetail()
       } else { Toast.error(data?.message || "Failed to generate QR") }
     } catch (err) { Toast.error(err?.response?.data?.message || "Failed to generate payment QR") } finally { setGenerateQRLoading(false) }
-  }
-  const handleSaveEdit = async () => {
-    if (!selectedOrder) return; setEditLoading(true)
-    try {
-      const payload = { id: selectedOrder._id }
-      if (editData.rate !== selectedOrder.rate) payload.rate = parseFloat(editData.rate)
-      if (editData.quantity !== selectedOrder.quantity) payload.numberOfPlants = parseInt(editData.quantity)
-      if (editData.deliveryDate) payload.deliveryDate = editData.deliveryDate instanceof Date ? editData.deliveryDate.toISOString() : editData.deliveryDate
-      const inst = NetworkManager(API.ORDER.UPDATE_ORDER); await inst.request(payload); Toast.success("Order updated"); await refreshOrderDetail()
-    } catch (err) { Toast.error(err?.response?.data?.message || "Failed to update") } finally { setEditLoading(false) }
   }
   const [watiDialogOpen, setWatiDialogOpen] = useState(false)
   const [watiSending, setWatiSending] = useState(false)
@@ -731,7 +724,7 @@ function PlaceOrderMobile() {
           </Box>
 
           {/* Add Payment / Generate QR */}
-          {row.orderStatus !== "DISPATCHED" && row.orderStatus !== "REJECTED" && (
+          {!isActionLockedStatus(row.orderStatus) && (
             <Box>
               {(() => {
                 const totalAmt = (row.rate || 0) * ((row.numberOfPlants || 0) + (row.additionalPlants || 0))
@@ -777,13 +770,15 @@ function PlaceOrderMobile() {
                     <TextField size="small" type="date" value={newPayment.paymentDate} onChange={(e) => handlePaymentInputChange("paymentDate", e.target.value)} InputLabelProps={{ shrink: true }} sx={{ width: 130, ...fieldSx }} />
                   </Box>
                   <Box sx={{ display: "flex", gap: 0.75, mb: 0.75 }}>
-                    <FormControl size="small" sx={{ flex: 1 }}>
-                      <Select value={newPayment.modeOfPayment} displayEmpty onChange={(e) => handlePaymentInputChange("modeOfPayment", e.target.value)} disabled={newPayment.isWalletPayment}
-                        sx={{ fontSize: "0.78rem", height: 36, borderRadius: 2, bgcolor: "white" }}>
-                        <MenuItem value=""><em>Mode</em></MenuItem>
-                        {["Cash", "UPI", "Cheque", "NEFT/RTGS", "1341", "434"].map((m) => <MenuItem key={m} value={m}>{m}</MenuItem>)}
-                      </Select>
-                    </FormControl>
+                    <SearchableSelectField
+                      options={[{ label: "Mode", value: "" }, ...paymentModeOptions]}
+                      value={newPayment.modeOfPayment}
+                      onChange={(val) => handlePaymentInputChange("modeOfPayment", val)}
+                      placeholder="Search mode..."
+                      disabled={newPayment.isWalletPayment}
+                      size="small"
+                      sx={{ flex: 1 }}
+                    />
                     <Button variant="outlined" component="label" size="small" startIcon={<UploadIcon sx={{ fontSize: 13 }} />} disabled={paymentLoading}
                       sx={{ fontSize: "0.65rem", textTransform: "none", borderRadius: 2, height: 36, minWidth: 80, borderColor: C.border, color: C.textSecondary }}>
                       {paymentLoading ? "..." : "Receipt"}<input type="file" hidden accept="image/*" multiple onChange={handlePaymentImageUpload} />
@@ -819,22 +814,23 @@ function PlaceOrderMobile() {
               sx={{ fontSize: "0.7rem", fontWeight: 700, textTransform: "none", color: C.primary, flex: 1 }}>
               Full Details
             </Button>
-            {canChangeOrderStatus && row.orderStatus !== "DISPATCHED" && row.orderStatus !== "REJECTED" && (
-              <FormControl size="small" sx={{ minWidth: 95 }}>
-                <Select value="" displayEmpty onChange={(e) => { if (e.target.value) { setSelectedOrder(row); handleStatusChange(e.target.value) } }}
-                  disabled={statusLoading} onClick={(e) => e.stopPropagation()}
-                  sx={{ fontSize: "0.65rem", height: 28, borderRadius: 2, fontWeight: 600 }}
-                  renderValue={() => statusLoading ? "..." : "Status ▾"}>
-                  <MenuItem value="" disabled>Change Status</MenuItem>
-                  {statusOptions.filter((s) => s.value !== row.orderStatus).map((s) => (
-                    <MenuItem key={s.value} value={s.value} sx={{ fontSize: "0.78rem" }}>
-                      <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
-                        <Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: s.color }} />{s.label}
-                      </Box>
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
+            {canChangeOrderStatus && !isActionLockedStatus(row.orderStatus) && (
+              <Box sx={{ minWidth: 140 }} onClick={(e) => e.stopPropagation()}>
+                <SearchableSelectField
+                  options={[{ label: "Change Status", value: "" }, ...statusOptions.filter((s) => s.value !== row.orderStatus)]}
+                  value=""
+                  onChange={(val) => {
+                    if (val) {
+                      setSelectedOrder(row)
+                      handleStatusChange(val)
+                    }
+                  }}
+                  placeholder={statusLoading ? "..." : "Status"}
+                  disabled={statusLoading}
+                  clearable={false}
+                  size="small"
+                />
+              </Box>
             )}
           </Box>
         </Box>
@@ -864,12 +860,14 @@ function PlaceOrderMobile() {
           </Box>
           {showFilters && (
             <Box sx={{ mt: 1, display: "flex", gap: 0.75, alignItems: "center", flexWrap: "wrap" }}>
-              <FormControl size="small" sx={{ minWidth: 110 }}>
-                <Select value={statusFilter} displayEmpty onChange={(e) => setStatusFilter(e.target.value)} sx={{ fontSize: "0.78rem", height: 34, borderRadius: 2, bgcolor: C.bg }}>
-                  <MenuItem value="">All Status</MenuItem>
-                  {statusOptions.map((s) => <MenuItem key={s.value} value={s.value}>{s.label}</MenuItem>)}
-                </Select>
-              </FormControl>
+              <SearchableSelectField
+                options={[{ label: "All Status", value: "" }, ...statusOptions]}
+                value={statusFilter}
+                onChange={(val) => setStatusFilter(val)}
+                placeholder="Search status..."
+                size="small"
+                sx={{ minWidth: 180 }}
+              />
               <DatePicker selectsRange startDate={selectedDateRange[0]} endDate={selectedDateRange[1]} onChange={(dates) => setSelectedDateRange(dates || [])} dateFormat="dd/MM/yy"
                 customInput={<TextField size="small" InputProps={{ startAdornment: <InputAdornment position="start"><CalendarIcon sx={{ fontSize: 14, color: C.textMuted }} /></InputAdornment> }}
                   sx={{ width: 170, "& .MuiOutlinedInput-root": { height: 34, borderRadius: 2, bgcolor: C.bg }, "& .MuiOutlinedInput-input": { py: 0.25, fontSize: "0.72rem" } }} inputProps={{ readOnly: true }} />} />
@@ -1016,18 +1014,14 @@ function PlaceOrderMobile() {
                   <TextField size="small" type="date" value={bulkPaymentMain.paymentDate} onChange={(e) => setBulkPaymentMain((p) => ({ ...p, paymentDate: e.target.value }))} InputLabelProps={{ shrink: true }} sx={{ width: 130, "& .MuiOutlinedInput-root": { borderRadius: 2 } }} />
                 </Box>
                 <Box sx={{ display: "flex", gap: 0.75, mb: 0.75 }}>
-                  <FormControl size="small" sx={{ flex: 1 }}>
-                    <Select value={bulkPaymentMain.modeOfPayment} displayEmpty onChange={(e) => setBulkPaymentMain((p) => ({ ...p, modeOfPayment: e.target.value }))} sx={{ fontSize: "0.78rem", height: 36, borderRadius: 2, bgcolor: "white" }} renderValue={(v) => v || "Mode"}>
-                      <MenuItem value="">Mode</MenuItem>
-                      <MenuItem value="Cash">Cash</MenuItem>
-                      <MenuItem value="UPI">UPI</MenuItem>
-                      <MenuItem value="Cheque">Cheque</MenuItem>
-                      <MenuItem value="NEFT/RTGS">NEFT/RTGS</MenuItem>
-                      <MenuItem value="1341">1341</MenuItem>
-                      <MenuItem value="434">434</MenuItem>
-                      <MenuItem value="Wallet">Wallet</MenuItem>
-                    </Select>
-                  </FormControl>
+                  <SearchableSelectField
+                    options={[{ label: "Mode", value: "" }, ...paymentModeOptions, { label: "Wallet", value: "Wallet" }]}
+                    value={bulkPaymentMain.modeOfPayment}
+                    onChange={(val) => setBulkPaymentMain((p) => ({ ...p, modeOfPayment: val }))}
+                    placeholder="Search mode..."
+                    size="small"
+                    sx={{ flex: 1 }}
+                  />
                   <Button variant="outlined" component="label" size="small" startIcon={<UploadIcon sx={{ fontSize: 13 }} />} sx={{ fontSize: "0.65rem", textTransform: "none", borderRadius: 2, height: 36, minWidth: 80, borderColor: C.border, color: C.textSecondary }}>
                     {bulkPaymentMain.receiptPhoto?.length ? `${bulkPaymentMain.receiptPhoto.length} Receipt` : "Receipt"}
                     <input type="file" hidden accept="image/*" multiple onChange={async (e) => {
@@ -1143,12 +1137,14 @@ function PlaceOrderMobile() {
       <Box sx={{ px: 1.5, py: 1.25, bgcolor: "white", borderBottom: `1px solid ${C.border}` }}>
         <Typography sx={{ fontWeight: 800, color: C.textPrimary, fontSize: "1rem", mb: 0.75 }}>Transaction Ledger</Typography>
         <Box sx={{ display: "flex", gap: 0.75, alignItems: "center" }}>
-          <FormControl size="small" sx={{ flex: 1 }}>
-            <Select value={txnTypeFilter} displayEmpty onChange={(e) => { setTxnTypeFilter(e.target.value); setTxnPage(1) }} sx={{ fontSize: "0.78rem", height: 34, borderRadius: 2, bgcolor: C.bg }}>
-              <MenuItem value="">All Types</MenuItem>
-              {["CREDIT", "DEBIT", "INVENTORY_ADD", "INVENTORY_BOOK", "INVENTORY_RELEASE"].map((t) => <MenuItem key={t} value={t}>{t.replace("_", " ")}</MenuItem>)}
-            </Select>
-          </FormControl>
+          <SearchableSelectField
+            options={[{ label: "All Types", value: "" }, ...txnTypeOptions]}
+            value={txnTypeFilter}
+            onChange={(val) => { setTxnTypeFilter(val); setTxnPage(1) }}
+            placeholder="Search type..."
+            size="small"
+            sx={{ flex: 1 }}
+          />
           <IconButton size="small" onClick={loadTransactions} disabled={txnLoading} sx={{ bgcolor: C.bg, width: 34, height: 34, borderRadius: 2, border: `1px solid ${C.border}` }}>
             <RefreshIcon sx={{ fontSize: 16 }} />
           </IconButton>
@@ -1601,22 +1597,26 @@ function PlaceOrderMobile() {
           sx={{ minHeight: 40, borderBottom: `1px solid ${C.border}`, bgcolor: "white",
             "& .MuiTab-root": { minHeight: 40, py: 0, fontSize: "0.75rem", textTransform: "none", fontWeight: 700, minWidth: 0, color: C.textMuted, "&.Mui-selected": { color: C.primary } },
             "& .MuiTabs-indicator": { bgcolor: C.primary, height: 2.5, borderRadius: 2 } }}>
-          <Tab label="Details" /><Tab label="Payment" /><Tab label="Edit" /><Tab label="Remarks" /><Tab label="History" />
+          <Tab label="Details" /><Tab label="Payment" /><Tab label="Remarks" /><Tab label="History" />
         </Tabs>
         <Box sx={{ flex: 1, overflow: "auto", WebkitOverflowScrolling: "touch", bgcolor: C.bg }}>
-          {detailTab === 0 && renderODDetails(o)}{detailTab === 1 && renderODPayment(o)}{detailTab === 2 && renderODEdit(o)}{detailTab === 3 && renderODRemarks(o)}{detailTab === 4 && renderODHistory(o)}
+          {detailTab === 0 && renderODDetails(o)}{detailTab === 1 && renderODPayment(o)}{detailTab === 2 && renderODRemarks(o)}{detailTab === 3 && renderODHistory(o)}
         </Box>
-        {(o.orderStatus !== "DISPATCHED" && o.orderStatus !== "REJECTED") && (
+        {!isActionLockedStatus(o.orderStatus) && (
           <Box sx={{ px: 2, py: 1, borderTop: `1px solid ${C.border}`, bgcolor: "white", display: "flex", gap: 0.75 }}>
             <Button size="small" variant="outlined" startIcon={<PaymentIcon sx={{ fontSize: 15 }} />} onClick={() => setDetailTab(1)} sx={{ fontSize: "0.7rem", fontWeight: 700, textTransform: "none", flex: 1, borderRadius: 2, borderColor: C.primary, color: C.primary }}>Add Payment</Button>
             {canChangeOrderStatus && (
-              <FormControl size="small" sx={{ minWidth: 110 }}>
-                <Select value="" displayEmpty onChange={(e) => { if (e.target.value) handleStatusChange(e.target.value) }} disabled={statusLoading} sx={{ fontSize: "0.68rem", height: 32, borderRadius: 2, fontWeight: 600 }}
-                  renderValue={() => statusLoading ? "..." : "Status"}>
-                  <MenuItem value="" disabled>Change Status</MenuItem>
-                  {statusOptions.filter((s) => s.value !== o.orderStatus).map((s) => <MenuItem key={s.value} value={s.value}><Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}><Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: s.color }} />{s.label}</Box></MenuItem>)}
-                </Select>
-              </FormControl>
+              <Box sx={{ minWidth: 160 }}>
+                <SearchableSelectField
+                  options={[{ label: "Change Status", value: "" }, ...statusOptions.filter((s) => s.value !== o.orderStatus)]}
+                  value=""
+                  onChange={(val) => { if (val) handleStatusChange(val) }}
+                  placeholder={statusLoading ? "..." : "Status"}
+                  disabled={statusLoading}
+                  clearable={false}
+                  size="small"
+                />
+              </Box>
             )}
           </Box>
         )}
@@ -1676,11 +1676,15 @@ function PlaceOrderMobile() {
       <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
         <TextField fullWidth size="small" label="Amount (₹)" type="number" value={newPayment.paidAmount} onChange={(e) => handlePaymentInputChange("paidAmount", e.target.value)} sx={fieldSx} />
         <TextField fullWidth size="small" label="Date" type="date" value={newPayment.paymentDate} onChange={(e) => handlePaymentInputChange("paymentDate", e.target.value)} InputLabelProps={{ shrink: true }} sx={fieldSx} />
-        <FormControl fullWidth size="small"><InputLabel sx={{ fontSize: "0.82rem" }}>Mode</InputLabel>
-          <Select value={newPayment.modeOfPayment} onChange={(e) => handlePaymentInputChange("modeOfPayment", e.target.value)} label="Mode" disabled={newPayment.isWalletPayment} sx={{ borderRadius: 2, fontSize: "0.82rem" }}>
-            <MenuItem value="">Select</MenuItem>{["Cash", "UPI", "Cheque", "NEFT/RTGS", "1341", "434"].map((m) => <MenuItem key={m} value={m}>{m}</MenuItem>)}
-          </Select>
-        </FormControl>
+        <SearchableSelectField
+          options={[{ label: "Select", value: "" }, ...paymentModeOptions]}
+          value={newPayment.modeOfPayment}
+          onChange={(val) => handlePaymentInputChange("modeOfPayment", val)}
+          label="Mode"
+          placeholder="Search mode..."
+          disabled={newPayment.isWalletPayment}
+          size="small"
+        />
         {(newPayment.modeOfPayment === "Cheque" || newPayment.modeOfPayment === "NEFT/RTGS") && <TextField fullWidth size="small" label="Bank Name" value={newPayment.bankName} onChange={(e) => handlePaymentInputChange("bankName", e.target.value)} sx={fieldSx} />}
         <TextField fullWidth size="small" label="Remark" value={newPayment.remark} onChange={(e) => handlePaymentInputChange("remark", e.target.value)} multiline rows={2} sx={fieldSx} />
         <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
@@ -1689,25 +1693,6 @@ function PlaceOrderMobile() {
         </Box>
         <Button variant="contained" fullWidth onClick={handleAddPayment} disabled={paymentLoading || !newPayment.paidAmount} startIcon={paymentLoading ? <CircularProgress size={14} /> : <PaymentIcon sx={{ fontSize: 16 }} />}
           sx={{ background: C.gradient, textTransform: "none", fontWeight: 700, borderRadius: 2, height: 40, fontSize: "0.85rem", boxShadow: "0 2px 8px rgba(91,95,199,0.3)" }}>{paymentLoading ? "Adding..." : "Add Payment"}</Button>
-      </Box>
-    </Box>
-  )
-
-  const renderODEdit = (o) => (
-    <Box sx={{ p: 1.5 }}>
-      <Typography sx={{ fontWeight: 800, color: C.textPrimary, fontSize: "0.88rem", mb: 1 }}>Edit Order</Typography>
-      <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
-        <TextField fullWidth size="small" label="Rate (₹)" type="number" value={editData.rate || ""} onChange={(e) => setEditData((p) => ({ ...p, rate: e.target.value }))} sx={fieldSx} />
-        <TextField fullWidth size="small" label="Plants" type="number" value={editData.quantity || ""} onChange={(e) => setEditData((p) => ({ ...p, quantity: e.target.value }))} sx={fieldSx} />
-        <Box sx={{ p: 1, bgcolor: C.bg, borderRadius: 2, border: `1px solid ${C.border}` }}>
-          <Typography sx={{ fontSize: "0.72rem", color: C.textMuted }}>Estimated Total</Typography>
-          <Typography sx={{ fontSize: "1.1rem", fontWeight: 900, color: C.primary }}>₹{((parseInt(editData.quantity) || 0) * (parseFloat(editData.rate) || 0)).toLocaleString()}</Typography>
-        </Box>
-        <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1 }}>
-          <InfoRow label="Current Rate" value={`₹${o.rate}`} /><InfoRow label="Current Qty" value={`${o.totalPlants}`} />
-        </Box>
-        <Button variant="contained" fullWidth onClick={handleSaveEdit} disabled={editLoading} startIcon={editLoading ? <CircularProgress size={14} /> : <CheckIcon sx={{ fontSize: 16 }} />}
-          sx={{ background: C.gradient, textTransform: "none", fontWeight: 700, borderRadius: 2, height: 40, fontSize: "0.85rem", boxShadow: "0 2px 8px rgba(91,95,199,0.3)" }}>{editLoading ? "Saving..." : "Save Changes"}</Button>
       </Box>
     </Box>
   )

@@ -163,7 +163,7 @@ export default function PrivateLayout(props) {
     }
   }, [isSecondaryEmployee, isSuperAdmin, isAdmin, location.pathname, navigate, userData])
 
-  // DISPATCH_MANAGER users can ONLY access /u/dispatch-orders route
+  // DISPATCH_MANAGER users can access dispatch routes + mobile dispatch hub
   // Redirect them immediately if they try to access any other route
   // SUPER_ADMIN can access all routes, so don't redirect them
   useEffect(() => {
@@ -176,8 +176,9 @@ export default function PrivateLayout(props) {
     if (isDispatchManager && !isSuperAdmin && !isAdmin) {
       const currentPath = location.pathname
       const isDispatchOrdersRoute = currentPath === "/u/dispatch-orders" || currentPath.includes("/u/dispatch-orders")
+      const isMobileDispatchRoute = currentPath === "/u/mobile" || currentPath.includes("/u/mobile/dispatch-orders")
       
-      if (!isDispatchOrdersRoute) {
+      if (!isDispatchOrdersRoute && !isMobileDispatchRoute) {
         // Redirect DISPATCH_MANAGER users to dispatch orders page
         console.log(`[PrivateLayout] DISPATCH_MANAGER user accessing ${currentPath}, redirecting to /u/dispatch-orders`)
         dispatchRedirectRef.current = true
@@ -260,23 +261,23 @@ export default function PrivateLayout(props) {
 
     const p = location.pathname
     const allowed =
-      // Orders / Dashboard
       p === "/u/dashboard" ||
-      p === "/u/orders" ||
-      p.startsWith("/u/orders") ||
-      // Plants and Products
       p === "/u/plants" ||
-      p.startsWith("/u/plants") ||
-      // CMS
+      p.startsWith("/u/plants/") ||
+      p === "/u/sowing" ||
+      p.startsWith("/u/sowing/") ||
+      p === "/u/sowing-gap-analysis" ||
+      p.startsWith("/u/sowing-gap-analysis/") ||
+      p === "/u/slots" ||
+      p.startsWith("/u/slots/") ||
       p === "/u/cms" ||
-      p.startsWith("/u/cms") ||
-      // Inventory + Ram Agri Input
+      p.startsWith("/u/cms/") ||
+      p === "/u/employeese" ||
+      p.startsWith("/u/employeese/") ||
       p === "/u/inventory" ||
       p.startsWith("/u/inventory") ||
-      p === "/u/inventory/ram-agri-sales-dashboard" ||
-      // Farmers
-      p === "/u/farmers" ||
-      p.startsWith("/u/farmers")
+      p === "/u/dealers" ||
+      p.startsWith("/u/dealers/")
 
     if (!allowed) {
       console.log(`[PrivateLayout] OFFICEADMIN user accessing ${p}, redirecting to /u/dashboard`)
@@ -310,7 +311,8 @@ export default function PrivateLayout(props) {
     location.pathname === "/u/dispatch-orders" ||
     location.pathname === "/u/mobile" ||
     location.pathname === "/u/mobile/agri-sales-order" ||
-    location.pathname === "/u/mobile/place-order"
+    location.pathname === "/u/mobile/place-order" ||
+    location.pathname === "/u/mobile/dispatch-orders"
   
   const { 
     handleLogout, 
@@ -352,26 +354,32 @@ export default function PrivateLayout(props) {
       return hasAccess
     }
 
-    // OFFICEADMIN / OFFICE_ADMIN: allow only Orders, Plants, Products, CMS, Inventory, RAM Agri Input, Farmers (sidebar)
+    // OFFICEADMIN / OFFICE_ADMIN: sidebar order follows DashboardMenus — Orders, Plants, Sowing, Sowing gap, Slots, CMS, Employees, Inventory, Ram Agri Input, Dealers
     const isOfficeAdmin = userData?.jobTitle === "OFFICEADMIN" || userRole === "OFFICEADMIN" || userData?.jobTitle === "OFFICE_ADMIN" || userRole === "OFFICE_ADMIN"
     if (isOfficeAdmin) {
       const allowedTitles = [
         "Orders",
-        "Order",
         "Plants and Products",
+        "Sowing Management",
+        "Sowing Gap Analysis",
+        "Slots Managment",
         "CMS",
+        "Employees",
         "Inventory",
         "Ram Agri Input",
-        "Farmers"
+        "Dealers"
       ]
       const allowedRoutes = [
         "/u/dashboard",
-        "/u/orders",
         "/u/plants",
+        "/u/sowing",
+        "/u/sowing-gap-analysis",
+        "/u/slots",
         "/u/cms",
+        "/u/employeese",
         "/u/inventory",
         "/u/inventory/ram-agri-sales-dashboard",
-        "/u/farmers"
+        "/u/dealers"
       ]
       const hasAccess = allowedTitles.includes(menuItem.title) || allowedRoutes.includes(menuItem.route)
       return hasAccess

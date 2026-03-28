@@ -2,7 +2,7 @@ import React from "react"
 import { useNavigate } from "react-router-dom"
 import { useSelector } from "react-redux"
 import { Box, Typography, Card, CardContent, Avatar } from "@mui/material"
-import { Agriculture as PlantIcon, Inventory2 as InventoryIcon } from "@mui/icons-material"
+import { Agriculture as PlantIcon, Inventory2 as InventoryIcon, LocalShipping as DispatchIcon } from "@mui/icons-material"
 
 const C = {
   primary: "#5B5FC7",
@@ -17,8 +17,7 @@ const C = {
 }
 
 /**
- * Mobile dashboard at /u/mobile — two buttons: Agri Input (Agri sales) and Plant order.
- * DEALER/SALES land here after login; they choose one to go to agri-sales-order or place-order.
+ * Mobile dashboard at /u/mobile — Plant, Agri Input and role-based Dispatch option.
  */
 function MobileDashboard() {
   const navigate = useNavigate()
@@ -27,6 +26,12 @@ function MobileDashboard() {
   const user = userData || appUser || {}
   const userName = user?.name || user?.firstName || "User"
   const userInitial = (userName || "U").charAt(0).toUpperCase()
+  const effectiveRole = user?.jobTitle || user?.role
+  const canAccessDispatch =
+    effectiveRole === "DISPATCH_MANAGER" ||
+    effectiveRole === "ADMIN" ||
+    effectiveRole === "SUPER_ADMIN" ||
+    effectiveRole === "SUPERADMIN"
 
   return (
     <Box sx={{ minHeight: "100vh", display: "flex", flexDirection: "column", bgcolor: C.bg, width: "100%", maxWidth: "100vw" }}>
@@ -89,6 +94,29 @@ function MobileDashboard() {
               </Box>
             </CardContent>
           </Card>
+          {canAccessDispatch && (
+            <Card
+              elevation={0}
+              sx={{
+                borderRadius: 3,
+                border: "2px solid",
+                borderColor: "#E6F0FF",
+                overflow: "hidden",
+                cursor: "pointer",
+                "&:active": { bgcolor: "#eef5ff" },
+              }}
+              onClick={() => navigate("/u/mobile/dispatch-orders")}>
+              <CardContent sx={{ py: 2.5, px: 2, display: "flex", alignItems: "center", gap: 2 }}>
+                <Box sx={{ width: 52, height: 52, borderRadius: 2, bgcolor: "#EAF3FF", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <DispatchIcon sx={{ fontSize: 28, color: "#1976d2" }} />
+                </Box>
+                <Box>
+                  <Typography sx={{ fontWeight: 800, fontSize: "1.05rem", color: C.textPrimary }}>Dispatch</Typography>
+                  <Typography sx={{ fontSize: "0.78rem", color: C.textSecondary }}>Dispatch manager mobile panel</Typography>
+                </Box>
+              </CardContent>
+            </Card>
+          )}
         </Box>
       </Box>
     </Box>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react"
-import { Grid, Button, Box, Badge, Alert } from "@mui/material"
+import { Grid, Button, Box, Badge } from "@mui/material"
 import { makeStyles } from "tss-react/mui"
 import { Add as AddIcon, Phone as PhoneIcon } from "@mui/icons-material"
 import FarmerOrdersTable from "./FarmerOrdersTable"
@@ -18,8 +18,8 @@ function Dashboard() {
     window.location.reload()
   }
 
-  // Keyboard shortcut: Ctrl + Shift to open Add Order dialog
-  // Keyboard shortcut: Ctrl + O to open Add Order dialog
+  // Keyboard shortcut: Ctrl+A (Windows/Linux) or Cmd+A (Mac) opens Add Order when focus is not in an input.
+  // Cmd/Ctrl+Shift must never open (legacy behavior removed).
   useEffect(() => {
     const handleKeyDown = (event) => {
       const tag = event.target?.tagName?.toLowerCase?.() || ""
@@ -28,48 +28,29 @@ function Dashboard() {
 
       if (isTextField) return
 
-      // Check for Ctrl + Shift (or Cmd + Shift on Mac)
-      if ((event.ctrlKey || event.metaKey) && event.shiftKey) {
-        // Prevent default browser behavior
-        event.preventDefault()
-        // Open the Add Order dialog
-        setIsAddOrderOpen(true)
-      } else if (
-        (event.ctrlKey || event.metaKey) &&
-        !event.shiftKey &&
-        event.key &&
-        event.key.toLowerCase() === "o"
-      ) {
-        // Prevent default browser behavior (Ctrl+O often opens the browser "Open" dialog)
-        event.preventDefault()
-        setIsAddOrderOpen(true)
-      }
+      const mod = event.ctrlKey || event.metaKey
+      if (!mod) return
+
+      // Explicitly ignore any Cmd/Ctrl+Shift combo (Safari/Chrome shortcuts, old app behavior)
+      if (event.shiftKey) return
+      if (event.altKey) return
+
+      // Physical A key — avoids locale/layout quirks vs event.key
+      if (event.code !== "KeyA") return
+
+      event.preventDefault()
+      setIsAddOrderOpen(true)
     }
 
-    // Add event listener
-    window.addEventListener("keydown", handleKeyDown)
+    window.addEventListener("keydown", handleKeyDown, true)
 
-    // Cleanup
     return () => {
-      window.removeEventListener("keydown", handleKeyDown)
+      window.removeEventListener("keydown", handleKeyDown, true)
     }
   }, [])
 
   return (
     <Grid className={classes.padding14}>
-      {invalidPhoneCount > 0 && (
-        <Alert
-          severity="warning"
-          sx={{ mb: 2 }}
-          action={
-            <Button color="inherit" size="small" onClick={() => setIsFarmerPhoneModalOpen(true)}>
-              Fix Now
-            </Button>
-          }>
-          {invalidPhoneCount} farmer(s) have invalid phone numbers that need to be corrected.
-        </Alert>
-      )}
-
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
         <h1>Orders</h1>
         <Box display="flex" gap={2}>

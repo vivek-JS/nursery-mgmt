@@ -35,19 +35,11 @@ export const useHasPaymentAccess = () => {
 }
 
 /**
- * Check if user can add payments (ACCOUNTANT, SUPER_ADMIN, or OFFICE_ADMIN)
- * Office Admins can add payments but only with PENDING status
- * All checks prioritize jobTitle over role
+ * Whether the UI may offer “add payment” — matches API: any authenticated user can PATCH /order/payment/:orderId.
+ * (Marking payments collected / approval flows still use useHasPaymentAccess.)
  */
 export const useHasPaymentAddAccess = () => {
-  const userData = useUserData()
-  const jobTitle = userData?.jobTitle
-  const userRole = userData?.role
-  // Prioritize jobTitle for all checks
-  const isAccountant = jobTitle === "ACCOUNTANT" || userRole === "ACCOUNTANT"
-  const isOfficeAdmin = jobTitle === "OFFICE_ADMIN" || userRole === "OFFICE_ADMIN"
-  const isSuperAdmin = jobTitle === "SUPER_ADMIN" || jobTitle === "SUPERADMIN" || userRole === "SUPER_ADMIN" || userRole === "SUPERADMIN"
-  return isAccountant || isSuperAdmin || isOfficeAdmin
+  return true
 }
 
 /**

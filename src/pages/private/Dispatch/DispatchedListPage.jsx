@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   Box,
   TextField,
@@ -34,6 +34,8 @@ import {
   Person,
   Map as MapIcon,
   FormatListBulleted,
+  ArrowBack,
+  Tune,
 } from "@mui/icons-material";
 import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 import { LocalizationProvider } from "lib/muiLocalizationProvider";
@@ -53,14 +55,17 @@ const DispatchedListPage = () => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const navigate = useNavigate();
+  const location = useLocation();
   const userRole = useUserRole();
   const userData = useUserData();
   const isDispatchManager = useIsDispatchManager();
   const logoutModel = useLogoutModel();
 
-  // Check if user has access: DISPATCH_MANAGER or SUPER_ADMIN role
+  // Check if user has access: DISPATCH_MANAGER, ADMIN, or SUPER_ADMIN role
   const isSuperAdmin = userRole === "SUPER_ADMIN" || userRole === "SUPERADMIN";
-  const hasAccess = isDispatchManager || isSuperAdmin;
+  const isAdmin = userRole === "ADMIN";
+  const hasAccess = isDispatchManager || isSuperAdmin || isAdmin;
+  const isMobileDispatchEntry = location.pathname.includes("/u/mobile/dispatch-orders");
 
   const [orders, setOrders] = useState([]);
   const [filteredOrders, setFilteredOrders] = useState([]);
@@ -84,6 +89,7 @@ const DispatchedListPage = () => {
   const [showCallModal, setShowCallModal] = useState(false);
   const [callNote, setCallNote] = useState("");
   const [callOrderId, setCallOrderId] = useState(null);
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(!isMobile);
   const [dateRange, setDateRange] = useState(() => {
     // Default to last 7 days
     const endDate = moment();
@@ -94,12 +100,16 @@ const DispatchedListPage = () => {
     };
   });
 
+  useEffect(() => {
+    setShowAdvancedFilters(!isMobile);
+  }, [isMobile]);
+
   // Redirect if user doesn't have access
   useEffect(() => {
     if (userData === undefined || userRole === undefined) return;
     
     if (!hasAccess) {
-      Toast.error("Access denied. This page is only for DISPATCH_MANAGER or SUPER_ADMIN.");
+      Toast.error("Access denied. This page is only for DISPATCH_MANAGER, ADMIN, or SUPER_ADMIN.");
       navigate("/u/dashboard", { replace: true });
     }
   }, [userData, userRole, hasAccess, navigate]);
@@ -516,6 +526,10 @@ const DispatchedListPage = () => {
 
     try {
       const dataToSend = { ...patchObj };
+      const effectiveQuantity =
+        dataToSend.numberOfPlants !== undefined
+          ? Number(dataToSend.numberOfPlants)
+          : Number(dataToSend.quantity);
 
       // Convert deliveryDate to ISO format if it's a Date object
       if (dataToSend.deliveryDate && dataToSend.deliveryDate instanceof Date) {
@@ -523,10 +537,10 @@ const DispatchedListPage = () => {
       }
 
       // Validate slot capacity if booking slot is being changed
-      if (dataToSend.bookingSlot && dataToSend.quantity) {
+      if (dataToSend.bookingSlot && Number.isFinite(effectiveQuantity)) {
         const selectedSlot = slots.find((slot) => slot.value === dataToSend.bookingSlot);
         if (selectedSlot) {
-          const requestedQuantity = Number(dataToSend.quantity);
+          const requestedQuantity = effectiveQuantity;
           const availableCapacity = selectedSlot.available;
 
           // If this is the same order, add back its current quantity to available capacity
@@ -544,8 +558,8 @@ const DispatchedListPage = () => {
       }
 
       // Validate quantity changes
-      if (dataToSend.quantity) {
-        const newQuantity = Number(dataToSend.quantity);
+      if (Number.isFinite(effectiveQuantity)) {
+        const newQuantity = effectiveQuantity;
         if (newQuantity <= 0) {
           Toast.error("Quantity must be greater than 0");
           setPatchLoading(false);
@@ -554,9 +568,10 @@ const DispatchedListPage = () => {
       }
 
       const instance = NetworkManager(API.ORDER.UPDATE_ORDER);
+      delete dataToSend.quantity;
       const response = await instance.request({
         ...dataToSend,
-        numberOfPlants: dataToSend?.quantity,
+        numberOfPlants: effectiveQuantity,
         id: orderId,
       });
 
@@ -569,7 +584,11 @@ const DispatchedListPage = () => {
       }
     } catch (error) {
       console.error("Error updating order:", error);
-      Toast.error("Failed to update order");
+      const backendMessage =
+        error?.response?.data?.message ||
+        error?.response?.data?.error ||
+        error?.message;
+      Toast.error(backendMessage || "Failed to update order");
     } finally {
       setPatchLoading(false);
     }
@@ -648,7 +667,7 @@ const DispatchedListPage = () => {
     }
 
     const updateData = {
-      quantity: newQuantity,
+      numberOfPlants: newQuantity,
       rate: newRate,
     };
 
@@ -716,6 +735,16 @@ const DispatchedListPage = () => {
           }}
         >
           <Toolbar sx={{ px: isMobile ? 2 : 3, minHeight: 64 }}>
+            {isMobileDispatchEntry && (
+              <IconButton
+                color="inherit"
+                onClick={() => navigate("/u/mobile")}
+                sx={{ mr: 1, p: 1, borderRadius: 1.5 }}
+                title="Back to mobile dashboard"
+              >
+                <ArrowBack />
+              </IconButton>
+            )}
             <Typography
               variant="h6"
               sx={{
@@ -748,10 +777,10 @@ const DispatchedListPage = () => {
         </AppBar>
 
         <Container maxWidth="lg" sx={{ px: isMobile ? 1 : 1.5, pt: 1.5 }}>
-          {/* Search and Filters Section */}
+          {/* Compact Search and Filters Section */}
           <Paper
             sx={{
-              p: isMobile ? 2 : 2.5,
+              p: isMobile ? 1.25 : 2,
               mb: 2,
               bgcolor: "white",
               borderRadius: 2,
@@ -759,277 +788,161 @@ const DispatchedListPage = () => {
               border: "1px solid rgba(0,0,0,0.06)",
             }}
           >
-            {/* Search Bar */}
-            <TextField
-              fullWidth
-              placeholder="Search by name, phone, order number, or village..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              size="small"
-              sx={{
-                mb: 2,
-                "& .MuiOutlinedInput-root": {
-                  borderRadius: 2,
-                  bgcolor: "rgba(0,0,0,0.02)",
-                  transition: "all 0.2s",
-                  "&:hover": {
-                    bgcolor: "rgba(0,0,0,0.04)",
+            <Box sx={{ display: "flex", gap: 1, alignItems: "center", mb: 1 }}>
+              <TextField
+                fullWidth
+                placeholder="Search name, phone, order, village..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                size="small"
+                sx={{
+                  "& .MuiOutlinedInput-root": {
+                    borderRadius: 2,
+                    bgcolor: "rgba(0,0,0,0.02)",
                   },
-                  "&.Mui-focused": {
-                    bgcolor: "white",
-                    boxShadow: "0 0 0 3px rgba(25, 118, 210, 0.1)",
-                  },
-                },
-                "& .MuiInputBase-input": {
-                  fontSize: "0.9rem",
-                  py: 1,
-                },
-              }}
-              InputProps={{
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <Search sx={{ color: "#1976d2", fontSize: "1.1rem" }} />
-                  </InputAdornment>
-                ),
-              }}
-            />
-
-            {/* Date Filters */}
-            <Box
-              sx={{
-                display: "flex",
-                flexDirection: isMobile ? "column" : "row",
-                gap: 2,
-                mb: 2,
-              }}
-            >
-              <DatePicker
-                label="Start Date"
-                value={dateRange.startDate}
-                onChange={(newValue) => {
-                  setDateRange((prev) => ({
-                    ...prev,
-                    startDate: newValue || moment().subtract(7, "days"),
-                  }));
-                }}
-                slotProps={{
-                  textField: {
-                    fullWidth: true,
-                    size: "small",
-                    sx: {
-                      "& .MuiOutlinedInput-root": {
-                        borderRadius: 2,
-                        bgcolor: "rgba(0,0,0,0.02)",
-                        "&:hover": {
-                          bgcolor: "rgba(0,0,0,0.04)",
-                        },
-                        "&.Mui-focused": {
-                          bgcolor: "white",
-                          boxShadow: "0 0 0 3px rgba(25, 118, 210, 0.1)",
-                        },
-                      },
-                      "& .MuiInputBase-input": {
-                        fontSize: "0.9rem",
-                        py: 1,
-                      },
-                    },
+                  "& .MuiInputBase-input": {
+                    fontSize: "0.85rem",
+                    py: 0.85,
                   },
                 }}
-                format="DD-MM-YYYY"
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <Search sx={{ color: "#1976d2", fontSize: "1rem" }} />
+                    </InputAdornment>
+                  ),
+                }}
               />
-              <DatePicker
-                label="End Date"
-                value={dateRange.endDate}
-                onChange={(newValue) => {
-                  setDateRange((prev) => ({
-                    ...prev,
-                    endDate: newValue || moment(),
-                  }));
-                }}
-                slotProps={{
-                  textField: {
-                    fullWidth: true,
-                    size: "small",
-                    sx: {
-                      "& .MuiOutlinedInput-root": {
-                        borderRadius: 2,
-                        bgcolor: "rgba(0,0,0,0.02)",
-                        "&:hover": {
-                          bgcolor: "rgba(0,0,0,0.04)",
-                        },
-                        "&.Mui-focused": {
-                          bgcolor: "white",
-                          boxShadow: "0 0 0 3px rgba(25, 118, 210, 0.1)",
-                        },
-                      },
-                      "& .MuiInputBase-input": {
-                        fontSize: "0.9rem",
-                        py: 1,
-                      },
-                    },
-                  },
-                }}
-                format="DD-MM-YYYY"
-              />
+              <Button
+                variant="contained"
+                size="small"
+                onClick={fetchOrders}
+                disabled={loading}
+                startIcon={loading ? <CircularProgress size={14} color="inherit" /> : <Refresh sx={{ fontSize: "0.95rem" }} />}
+                sx={{ minWidth: isMobile ? 88 : 100, textTransform: "none", borderRadius: 2, py: 0.8 }}
+              >
+                Refresh
+              </Button>
             </Box>
 
-            {/* View Mode Tabs */}
-            <Box sx={{ mb: 2, display: "flex", gap: 1, borderBottom: 1, borderColor: "divider" }}>
+            <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center", mb: 1 }}>
               <Button
-                variant={viewMode === "all" ? "contained" : "text"}
+                variant={viewMode === "all" ? "contained" : "outlined"}
+                size="small"
                 onClick={() => setViewMode("all")}
-                sx={{
-                  borderRadius: 0,
-                  borderBottom: viewMode === "all" ? 2 : 0,
-                  borderColor: "primary.main",
-                  fontWeight: viewMode === "all" ? 600 : 400,
-                  textTransform: "none",
-                  px: 3,
-                  py: 1.5,
-                }}
+                sx={{ textTransform: "none", borderRadius: 5, px: 1.5 }}
               >
-                All Orders
+                All
               </Button>
               <Button
-                variant={viewMode === "ready_for_dispatch" ? "contained" : "text"}
+                variant={viewMode === "ready_for_dispatch" ? "contained" : "outlined"}
+                size="small"
                 onClick={() => setViewMode("ready_for_dispatch")}
-                sx={{
-                  borderRadius: 0,
-                  borderBottom: viewMode === "ready_for_dispatch" ? 2 : 0,
-                  borderColor: "primary.main",
-                  fontWeight: viewMode === "ready_for_dispatch" ? 600 : 400,
-                  textTransform: "none",
-                  px: 3,
-                  py: 1.5,
-                }}
+                sx={{ textTransform: "none", borderRadius: 5, px: 1.5 }}
               >
-                Ready for Dispatch
+                Ready
+              </Button>
+              <Button
+                variant="text"
+                size="small"
+                onClick={() => setShowAdvancedFilters((prev) => !prev)}
+                startIcon={<Tune sx={{ fontSize: "1rem" }} />}
+                sx={{ textTransform: "none", ml: "auto" }}
+              >
+                {showAdvancedFilters ? "Hide Filters" : "More Filters"}
               </Button>
             </Box>
 
-            {/* Info Alert & Action Buttons */}
-            <Box sx={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: 2, alignItems: isMobile ? "stretch" : "center" }}>
-              <Alert 
-                severity="info" 
-                sx={{ 
-                  flex: 1,
-                  borderRadius: 2,
-                  border: "1px solid rgba(25, 118, 210, 0.2)",
-                  bgcolor: "rgba(25, 118, 210, 0.05)",
-                  "& .MuiAlert-message": {
-                    fontSize: "0.85rem",
-                  },
-                }}
-              >
-                <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                  {viewMode === "ready_for_dispatch" 
-                    ? "Showing all orders ready for dispatch (no date filter)"
-                    : `${formatDateForAPI(dateRange.startDate)} to ${formatDateForAPI(dateRange.endDate)} • Past due orders shown at top`}
-                </Typography>
-              </Alert>
-
-              {/* Action Buttons */}
-              <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center" }}>
-                {/* Display Mode Toggle */}
-                <Button
-                  variant={displayMode === "list" ? "contained" : "outlined"}
-                  size="small"
-                  onClick={() => setDisplayMode("list")}
-                  startIcon={<FormatListBulleted />}
-                  sx={{ 
-                    fontSize: "0.8rem", 
-                    px: 2, 
-                    py: 0.75,
-                    borderRadius: 2,
-                  }}
-                >
-                  List
-                </Button>
-                <Button
-                  variant={displayMode === "map" ? "contained" : "outlined"}
-                  size="small"
-                  onClick={() => setDisplayMode("map")}
-                  startIcon={<MapIcon />}
-                  sx={{ 
-                    fontSize: "0.8rem", 
-                    px: 2, 
-                    py: 0.75,
-                    borderRadius: 2,
-                  }}
-                >
-                  Map
-                </Button>
-                <Button
-                  variant="outlined"
-                  size="small"
-                  onClick={() => {
-                    const endDate = moment();
-                    const startDate = moment().subtract(7, "days");
-                    setDateRange({ startDate, endDate });
-                  }}
-                  sx={{ 
-                    fontSize: "0.8rem", 
-                    px: 2, 
-                    py: 0.75,
-                    borderRadius: 2,
-                    borderColor: "rgba(0,0,0,0.2)",
-                    "&:hover": {
-                      borderColor: "#1976d2",
-                      bgcolor: "rgba(25, 118, 210, 0.05)",
-                    },
-                  }}
-                >
-                  7 Days
-                </Button>
-                <Button
-                  variant="outlined"
-                  size="small"
-                  onClick={() => {
-                    const endDate = moment();
-                    const startDate = moment().subtract(30, "days");
-                    setDateRange({ startDate, endDate });
-                  }}
-                  sx={{ 
-                    fontSize: "0.8rem", 
-                    px: 2, 
-                    py: 0.75,
-                    borderRadius: 2,
-                    borderColor: "rgba(0,0,0,0.2)",
-                    "&:hover": {
-                      borderColor: "#1976d2",
-                      bgcolor: "rgba(25, 118, 210, 0.05)",
-                    },
-                  }}
-                >
-                  30 Days
-                </Button>
-                <Button
-                  variant="contained"
-                  size="small"
-                  onClick={fetchOrders}
-                  disabled={loading}
-                  startIcon={loading ? <CircularProgress size={16} color="inherit" /> : <Refresh sx={{ fontSize: "1rem" }} />}
+            {showAdvancedFilters && (
+              <Box sx={{ pt: 0.5 }}>
+                <Box
                   sx={{
-                    bgcolor: "#2e7d32",
-                    fontSize: "0.85rem",
-                    px: 2.5,
-                    py: 0.75,
-                    borderRadius: 2,
-                    fontWeight: 600,
-                    boxShadow: "0 2px 8px rgba(46, 125, 50, 0.3)",
-                    "&:hover": { 
-                      bgcolor: "#1b5e20",
-                      boxShadow: "0 4px 12px rgba(46, 125, 50, 0.4)",
-                    },
-                    "&:disabled": {
-                      bgcolor: "rgba(46, 125, 50, 0.5)",
-                    },
+                    display: "flex",
+                    flexDirection: isMobile ? "column" : "row",
+                    gap: 1,
+                    mb: 1.25,
                   }}
                 >
-                  Refresh
-                </Button>
+                  <DatePicker
+                    label="Start Date"
+                    value={dateRange.startDate}
+                    onChange={(newValue) => {
+                      setDateRange((prev) => ({
+                        ...prev,
+                        startDate: newValue || moment().subtract(7, "days"),
+                      }));
+                    }}
+                    slotProps={{ textField: { fullWidth: true, size: "small" } }}
+                    format="DD-MM-YYYY"
+                  />
+                  <DatePicker
+                    label="End Date"
+                    value={dateRange.endDate}
+                    onChange={(newValue) => {
+                      setDateRange((prev) => ({
+                        ...prev,
+                        endDate: newValue || moment(),
+                      }));
+                    }}
+                    slotProps={{ textField: { fullWidth: true, size: "small" } }}
+                    format="DD-MM-YYYY"
+                  />
+                </Box>
+
+                <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center", mb: 1.25 }}>
+                  <Button
+                    variant={displayMode === "list" ? "contained" : "outlined"}
+                    size="small"
+                    onClick={() => setDisplayMode("list")}
+                    startIcon={<FormatListBulleted />}
+                    sx={{ fontSize: "0.75rem", textTransform: "none", borderRadius: 2 }}
+                  >
+                    List
+                  </Button>
+                  <Button
+                    variant={displayMode === "map" ? "contained" : "outlined"}
+                    size="small"
+                    onClick={() => setDisplayMode("map")}
+                    startIcon={<MapIcon />}
+                    sx={{ fontSize: "0.75rem", textTransform: "none", borderRadius: 2 }}
+                  >
+                    Map
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    onClick={() => {
+                      const endDate = moment();
+                      const startDate = moment().subtract(7, "days");
+                      setDateRange({ startDate, endDate });
+                    }}
+                    sx={{ fontSize: "0.75rem", textTransform: "none", borderRadius: 2 }}
+                  >
+                    7 Days
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    onClick={() => {
+                      const endDate = moment();
+                      const startDate = moment().subtract(30, "days");
+                      setDateRange({ startDate, endDate });
+                    }}
+                    sx={{ fontSize: "0.75rem", textTransform: "none", borderRadius: 2 }}
+                  >
+                    30 Days
+                  </Button>
+                </Box>
+
+                <Alert severity="info" sx={{ borderRadius: 2, py: 0.25 }}>
+                  <Typography variant="body2" sx={{ fontWeight: 500, fontSize: "0.78rem" }}>
+                    {viewMode === "ready_for_dispatch"
+                      ? "Showing all ready for dispatch orders (date filter skipped)."
+                      : `${formatDateForAPI(dateRange.startDate)} to ${formatDateForAPI(dateRange.endDate)} • Past due first`}
+                  </Typography>
+                </Alert>
               </Box>
-            </Box>
+            )}
           </Paper>
 
           {/* Orders List or Map View */}
@@ -1350,6 +1263,44 @@ const DispatchedListPage = () => {
                           </Typography>
                         </Box>
 
+                        {phoneNumber !== "N/A" && (
+                          <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+                            <Button
+                              size="small"
+                              variant="contained"
+                              color="success"
+                              startIcon={<Phone sx={{ fontSize: "0.9rem" }} />}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleCall(phoneNumber);
+                              }}
+                              sx={{
+                                textTransform: "none",
+                                borderRadius: 2,
+                                py: 0.35,
+                                px: 1.25,
+                                fontSize: "0.75rem",
+                                fontWeight: 700,
+                              }}
+                            >
+                              Call Now
+                            </Button>
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setCallOrderId(order._id || order.id);
+                                setCallNote("");
+                                setShowCallModal(true);
+                              }}
+                              sx={{ textTransform: "none", borderRadius: 2, py: 0.35, px: 1.25, fontSize: "0.75rem" }}
+                            >
+                              Add Note
+                            </Button>
+                          </Box>
+                        )}
+
                         {/* Delivery Date & Plant */}
                         <Box 
                           sx={{ 
@@ -1558,33 +1509,9 @@ const DispatchedListPage = () => {
                                 })}
                             </Box>
                           ) : (
-                            phoneNumber !== "N/A" && (
-                              <Button
-                                size="small"
-                                variant="outlined"
-                                color="success"
-                                fullWidth
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setCallOrderId(order._id || order.id);
-                                  setCallNote("");
-                                  setShowCallModal(true);
-                                }}
-                                sx={{
-                                  fontSize: "0.7rem",
-                                  py: 0.5,
-                                  textTransform: "none",
-                                  borderColor: "success.main",
-                                  color: "success.main",
-                                  "&:hover": {
-                                    bgcolor: "rgba(46, 125, 50, 0.1)",
-                                    borderColor: "success.dark",
-                                  },
-                                }}
-                              >
-                                ✓ Mark Call Done
-                              </Button>
-                            )
+                            <Typography variant="caption" sx={{ fontSize: "0.68rem", color: "text.secondary" }}>
+                              No call notes yet.
+                            </Typography>
                           )}
                         </Box>
                       </Box>

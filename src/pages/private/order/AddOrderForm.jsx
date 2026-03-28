@@ -3,10 +3,6 @@ import {
   Grid,
   TextField,
   Button,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
   Typography,
   Box,
   Card,
@@ -2241,13 +2237,25 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
       }
 
 
-      // Check if payment data exists (using same validation as FarmerOrdersTable)
       // Payment exists if there's an amount AND either a payment mode OR wallet payment
       const hasPaymentData = newPayment.paidAmount && (newPayment.modeOfPayment || newPayment.isWalletPayment)
 
-      // Don't include payment in order creation payload - we'll add it separately after order creation
-      // This is consistent with how payments are handled elsewhere in the app
-
+      if (hasPaymentData) {
+        const isWalletPayment = Boolean(newPayment.isWalletPayment)
+        let modeOfPayment = newPayment.modeOfPayment
+        if (isWalletPayment && !modeOfPayment) modeOfPayment = "Wallet"
+        payload.payment = [
+          {
+            paidAmount: Number(newPayment.paidAmount) || 0,
+            paymentDate: newPayment.paymentDate || new Date().toISOString().slice(0, 10),
+            bankName: newPayment.bankName || "",
+            receiptPhoto: Array.isArray(newPayment.receiptPhoto) ? newPayment.receiptPhoto : [],
+            modeOfPayment: modeOfPayment || "",
+            remark: newPayment.remark || "",
+            isWalletPayment: isWalletPayment,
+          },
+        ]
+      }
 
       // Create FormData for file uploads
 
@@ -2301,83 +2309,15 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
       const response = await instance.request(formDataForUpload)
 
       if (response?.data) {
-        let successMessage = "Order added successfully"
-        
-        // Get order ID from response - backend returns { data: { order, payments, walletTransactions } }
-        const orderId = response?.data?.data?.order?._id || 
-                       response?.data?.data?._id || 
-                       response?.data?._id || 
+        const orderId = response?.data?.data?.order?._id ||
+                       response?.data?.data?._id ||
+                       response?.data?._id ||
                        response?.data?.orderId ||
                        response?.data?.data?.orderId ||
                        response?._id
-        const orderIdStr = orderId ? (typeof orderId === 'string' ? orderId : orderId.toString?.() || String(orderId)) : null
+        const orderIdStr = orderId ? (typeof orderId === "string" ? orderId : orderId.toString?.() || String(orderId)) : null
 
-        console.log("Order creation response:", response?.data)
-        console.log("Extracted orderId:", orderId)
-        console.log("Has payment data:", hasPaymentData)
-
-        // Add payment separately if payment data exists (same flow as FarmerOrdersTable)
-        if (hasPaymentData) {
-          if (!orderIdStr) {
-            console.error("Order ID not found in response. Cannot add payment.")
-            console.error("Full response:", response)
-            Toast.error("Order created but payment could not be added - Order ID missing")
-            onSuccess?.(undefined)
-            handleClose()
-            return
-          }
-
-          try {
-            // Ensure isWalletPayment is a boolean and construct payload explicitly (matching FarmerOrdersTable)
-            const isWalletPayment = Boolean(newPayment.isWalletPayment)
-            const paymentStatus = newPayment.paymentStatus || "PENDING"
-
-            // Set modeOfPayment for wallet payments
-            let modeOfPayment = newPayment.modeOfPayment
-            if (newPayment.isWalletPayment && !modeOfPayment) {
-              modeOfPayment = "Wallet"
-            }
-
-            // Prepare payment payload (matching FarmerOrdersTable pattern exactly)
-            const paymentPayload = {
-              paidAmount: newPayment.paidAmount,
-              paymentDate: newPayment.paymentDate,
-              modeOfPayment: modeOfPayment,
-              bankName: newPayment.bankName || "",
-              remark: newPayment.remark || "",
-              receiptPhoto: newPayment.receiptPhoto || [],
-              isWalletPayment: isWalletPayment,
-              paymentStatus: paymentStatus
-            }
-
-            console.log("Payment payload:", paymentPayload)
-            console.log("isWalletPayment value:", isWalletPayment)
-            console.log("Order ID for payment:", orderIdStr)
-
-            // Call ADD_PAYMENT API (same as FarmerOrdersTable - receiptPhoto are pre-uploaded URLs)
-            const paymentInstance = NetworkManager(API.ORDER.ADD_PAYMENT)
-            const paymentResponse = await paymentInstance.request(paymentPayload, [orderIdStr])
-
-            console.log("Payment API response:", paymentResponse?.data)
-
-            if (paymentResponse?.data) {
-              successMessage += " with payment"
-              Toast.success("👋 ऑर्डर यशस्वीरित्या प्लेस झाली! आभार! 🙏")
-            } else {
-              console.warn("Payment API returned no data:", paymentResponse)
-              Toast.success("👋 ऑर्डर यशस्वीरित्या प्लेस झाली! आभार! 🙏")
-              if (hasPaymentData) Toast.warning("Payment response was empty")
-            }
-          } catch (paymentError) {
-            console.error("Error adding payment:", paymentError)
-            console.error("Payment error response:", paymentError?.response?.data)
-            console.error("Payment error status:", paymentError?.response?.status)
-            const errorMsg = paymentError?.response?.data?.message || paymentError?.message || "Unknown error"
-            Toast.error(`Order added successfully, but payment failed: ${errorMsg}`)
-          }
-        } else {
-          Toast.success("👋 ऑर्डर यशस्वीरित्या प्लेस झाली! आभार! 🙏")
-        }
+        Toast.success("👋 ऑर्डर यशस्वीरित्या प्लेस झाली! आभार! 🙏")
 
         const orderDoc = response?.data?.data?.order || response?.data?.data || response?.data
         const createdOrderPayload = {
@@ -3239,36 +3179,24 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
             <CardContent className={classes.formSection}>
               <Grid container spacing={2}>
                 <Grid item xs={12} md={6}>
-                  <FormControl fullWidth>
-                    <InputLabel>Select Plant</InputLabel>
-                    <Select
-                      value={formData?.plant || ""}
-                      onChange={(e) => handleInputChange("plant", e.target.value)}
-                      label="Select Plant">
-                      {plants.map((plant) => (
-                        <MenuItem key={plant.value} value={plant.value}>
-                          {plant.label}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
+                  <SearchableSelect
+                    label="Select Plant"
+                    items={plants || []}
+                    value={formData?.plant || ""}
+                    onChange={(e) => handleInputChange("plant", e.target.value)}
+                    placeholder="Search plant..."
+                  />
                 </Grid>
 
                 <Grid item xs={12} md={6}>
-                  <FormControl fullWidth>
-                    <InputLabel>Select Subtype</InputLabel>
-                    <Select
-                      value={formData?.subtype || ""}
-                      onChange={(e) => handleInputChange("subtype", e.target.value)}
-                      label="Select Subtype"
-                      disabled={!formData?.plant}>
-                      {subTypes.map((subtype) => (
-                        <MenuItem key={subtype.value} value={subtype.value}>
-                          {subtype.label}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
+                  <SearchableSelect
+                    label="Select Subtype"
+                    items={subTypes || []}
+                    value={formData?.subtype || ""}
+                    onChange={(e) => handleInputChange("subtype", e.target.value)}
+                    placeholder="Search subtype..."
+                    disabled={!formData?.plant}
+                  />
                 </Grid>
 
                 {/* Quota Type - after plant selection (DEALER or when dealer selected) */}
@@ -3479,25 +3407,18 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                 )}
 
                 <Grid item xs={12} md={6}>
-                  <FormControl fullWidth>
-                    <InputLabel>Select Cavity</InputLabel>
-                    <Select
-                      value={formData?.cavity || ""}
-                      onChange={(e) => handleInputChange("cavity", e.target.value)}
-                      label="Select Cavity"
-                      disabled={cavities.length === 0}>
-                      {cavities.length === 0 && (
-                        <MenuItem value="" disabled>
-                          {loading ? "Loading cavities..." : "No cavities available"}
-                        </MenuItem>
-                      )}
-                      {cavities.map((cavity) => (
-                        <MenuItem key={cavity.value} value={cavity.value}>
-                          {cavity.label}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
+                  <SearchableSelect
+                    label="Select Cavity"
+                    items={
+                      cavities.length === 0
+                        ? [{ label: loading ? "Loading cavities..." : "No cavities available", value: "" }]
+                        : cavities
+                    }
+                    value={formData?.cavity || ""}
+                    onChange={(e) => handleInputChange("cavity", e.target.value)}
+                    placeholder="Search cavity..."
+                    disabled={cavities.length === 0}
+                  />
                 </Grid>
 
                 {/* Order Booking Date - for dealer orders only (Farmer Details hidden) */}
@@ -3540,13 +3461,9 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                           {bulkOrder ? (
                             <>
                               <FormControl fullWidth size="small" sx={{ mb: 2 }}>
-                                <InputLabel>Select Month</InputLabel>
-                                <Select
-                                  value={selectedSlotMonth}
-                                  onChange={(e) => setSelectedSlotMonth(e.target.value)}
+                                <SearchableSelect
                                   label="Select Month"
-                                >
-                                  {(() => {
+                                  items={(() => {
                                     const byMonth = {}
                                     slots.forEach((slot) => {
                                       if (slot.startDay && moment(slot.startDay, "DD-MM-YYYY", true).isValid()) {
@@ -3558,11 +3475,12 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                                     })
                                     return Object.entries(byMonth)
                                       .sort(([a], [b]) => a.localeCompare(b))
-                                      .map(([key, { label }]) => (
-                                        <MenuItem key={key} value={key}>{label}</MenuItem>
-                                      ))
+                                      .map(([key, { label }]) => ({ value: key, label }))
                                   })()}
-                                </Select>
+                                  value={selectedSlotMonth}
+                                  onChange={(e) => setSelectedSlotMonth(e.target.value)}
+                                  placeholder="Search month..."
+                                />
                               </FormControl>
                               {!selectedSlotMonth && (
                                 <Typography variant="body2" color="text.secondary" sx={{ py: 1 }}>
@@ -3879,32 +3797,28 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                   if (hasProductStock) {
                     return (
                       <Grid item xs={12} md={6}>
-                        <FormControl fullWidth>
-                          <InputLabel>Select Product (From Other Nursery)</InputLabel>
-                          <Select
-                            value={formData?.productName || ""}
-                            onChange={(e) => handleInputChange("productName", e.target.value)}
-                            label="Select Product (From Other Nursery)"
-                          >
-                            <MenuItem value="">
-                              <em>None - Use Our Stock</em>
-                            </MenuItem>
-                            {selectedSlot.productStock.map((product) => {
+                        <SearchableSelect
+                          label="Select Product (From Other Nursery)"
+                          items={[
+                            { label: "None - Use Our Stock", value: "" },
+                            ...(selectedSlot.productStock || []).map((product) => {
                               const receivedAvailable = (product.available || 0) - (product.booked || 0)
                               const pendingAvailable = product.poQuantity || 0
                               const totalAvailable = receivedAvailable + pendingAvailable
-                              const statusText = product.received 
-                                ? `${receivedAvailable} available (received)` 
+                              const statusText = product.received
+                                ? `${receivedAvailable} available (received)`
                                 : `${pendingAvailable} pending (GRN not approved)`
-                              
-                              return (
-                                <MenuItem key={product.productName} value={product.productName}>
-                                  {product.productName} - {totalAvailable} available ({statusText})
-                                </MenuItem>
-                              )
-                            })}
-                          </Select>
-                          {formData?.productName && (() => {
+                              return {
+                                value: product.productName,
+                                label: `${product.productName} - ${totalAvailable} available (${statusText})`
+                              }
+                            })
+                          ]}
+                          value={formData?.productName || ""}
+                          onChange={(e) => handleInputChange("productName", e.target.value)}
+                          placeholder="Search product..."
+                        />
+                        {formData?.productName && (() => {
                             const product = selectedSlot.productStock.find(p => p.productName === formData.productName)
                             if (product) {
                               const receivedAvailable = (product.available || 0) - (product.booked || 0)
@@ -3927,7 +3841,6 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                             }
                             return null
                           })()}
-                        </FormControl>
                       </Grid>
                     )
                   }
@@ -4369,30 +4282,30 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                     />
                   </Grid>
                   <Grid item xs={12} md={6}>
-                    <FormControl fullWidth size="small">
-                      <InputLabel>Payment Mode</InputLabel>
-                      <Select
-                        value={newPayment.modeOfPayment}
-                        onChange={(e) => handlePaymentInputChange("modeOfPayment", e.target.value)}
-                        label="Payment Mode"
-                        disabled={newPayment.isWalletPayment}>
-                        <MenuItem value="">Select Mode</MenuItem>
-                        <MenuItem value="Cash">Cash</MenuItem>
-                        <MenuItem value="UPI">UPI</MenuItem>
-                        <MenuItem value="Cheque">Cheque</MenuItem>
-                        <MenuItem value="NEFT/RTGS">NEFT/RTGS</MenuItem>
-                        <MenuItem value="1341">1341</MenuItem>
-                        <MenuItem value="434">434</MenuItem>
-                      </Select>
-                      {newPayment.isWalletPayment && (
-                        <Typography
-                          variant="caption"
-                          color="text.secondary"
-                          sx={{ mt: 0.5, display: "block" }}>
-                          Payment mode not required for wallet payments
-                        </Typography>
-                      )}
-                    </FormControl>
+                    <SearchableSelect
+                      label="Payment Mode"
+                      items={[
+                        { label: "Select Mode", value: "" },
+                        { label: "Cash", value: "Cash" },
+                        { label: "UPI", value: "UPI" },
+                        { label: "Cheque", value: "Cheque" },
+                        { label: "NEFT/RTGS", value: "NEFT/RTGS" },
+                        { label: "1341", value: "1341" },
+                        { label: "434", value: "434" },
+                      ]}
+                      value={newPayment.modeOfPayment}
+                      onChange={(e) => handlePaymentInputChange("modeOfPayment", e.target.value)}
+                      placeholder="Search payment mode..."
+                      disabled={newPayment.isWalletPayment}
+                    />
+                    {newPayment.isWalletPayment && (
+                      <Typography
+                        variant="caption"
+                        color="text.secondary"
+                        sx={{ mt: 0.5, display: "block" }}>
+                        Payment mode not required for wallet payments
+                      </Typography>
+                    )}
                   </Grid>
                   <Grid item xs={12} md={6}>
                     <TextField

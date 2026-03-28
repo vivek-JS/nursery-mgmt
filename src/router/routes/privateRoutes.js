@@ -159,9 +159,10 @@ export const PrivateRoutes = [
   { path: "/u/follow-ups", component: FollowUpManagement },
   { path: "/u/tasks", component: TaskManagement },
   { path: "/u/dispatch-orders", component: DispatchedListPage },
-  // Mobile dashboard — two buttons: Agri Input (agri sales) and Plant order
+  // Mobile dashboard — Plant, Agri Input, and role-based Dispatch option
   { path: "/u/mobile", component: MobileDashboard },
   { path: "/u/mobile/agri-sales-order", component: AgriSalesOrderMobile },
   { path: "/u/mobile/place-order", component: PlaceOrderMobile },
+  { path: "/u/mobile/dispatch-orders", component: DispatchedListPage },
   { path: "/u/call-assignment", component: CallAssignmentList }
 ]

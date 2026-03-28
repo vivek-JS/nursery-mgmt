@@ -1,12 +1,25 @@
 import React, { useState, useEffect, useRef, useLayoutEffect } from "react"
 import ReactDOM from "react-dom"
-import { Edit2Icon, CheckIcon, XIcon, RefreshCw, Search, ChevronDown, X } from "lucide-react"
+import {
+  Edit2Icon,
+  CheckIcon,
+  XIcon,
+  RefreshCw,
+  Search,
+  ChevronDown,
+  X,
+  CalendarRange
+} from "lucide-react"
 import DatePicker from "react-datepicker"
 import "react-datepicker/dist/react-datepicker.css"
 import { API, NetworkManager } from "network/core"
 import { PageLoader, ExcelExport } from "components"
 import moment from "moment"
 import debounce from "lodash.debounce"
+
+/** User-visible order dates in table/modals — e.g. 12-March-2025 (API payloads still use DD-MM-YYYY / YYYY-MM-DD). */
+const ORDER_DATE_DISPLAY = "DD-MMMM-YYYY"
+const ORDER_DATETIME_DISPLAY = "DD-MMMM-YYYY HH:mm"
 import {
   MenuItem,
   Select,
@@ -37,6 +50,7 @@ import {
   useCanAddPayment,
   useIsOfficeAdmin,
   useIsSuperAdmin,
+  useIsAccountant,
   useIsDealer,
   useDealerWallet,
   useDealerWalletById,
@@ -669,6 +683,43 @@ const SearchableDropdown = ({
   )
 }
 
+/** Compact trigger for react-datepicker range in filters block */
+const OrderDateRangeField = React.forwardRef(function OrderDateRangeField(
+  { startDate, endDate, onClick, onKeyDown, disabled, id, placeholder },
+  ref
+) {
+  let primary = placeholder || "Choose date range"
+  if (startDate && endDate) {
+    const a = moment(startDate)
+    const b = moment(endDate)
+    primary = `${a.format(ORDER_DATE_DISPLAY)} — ${b.format(ORDER_DATE_DISPLAY)}`
+  } else if (startDate) {
+    primary = `${moment(startDate).format(ORDER_DATE_DISPLAY)} — pick end date`
+  }
+
+  return (
+    <button
+      type="button"
+      id={id}
+      ref={ref}
+      onClick={onClick}
+      onKeyDown={onKeyDown}
+      disabled={disabled}
+      aria-label={primary}
+      className="w-full flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-left shadow-sm transition hover:border-teal-400 hover:bg-teal-50/40 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50">
+      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-teal-100 text-teal-800">
+        <CalendarRange className="h-3.5 w-3.5" aria-hidden />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[9px] font-semibold uppercase tracking-wide text-gray-500">
+          Order date range
+        </span>
+        <span className="block truncate text-[12px] font-semibold text-gray-900">{primary}</span>
+      </span>
+    </button>
+  )
+})
+
 const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   const today = new Date()
   const [searchTerm, setSearchTerm] = useState("")
@@ -739,6 +790,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   const [assignLoading, setAssignLoading] = useState(false)
   // Bulk payment (main entry + allocations; accept only on /payments page)
   const [showBulkPaymentDialog, setShowBulkPaymentDialog] = useState(false)
+  const [filtersExpanded, setFiltersExpanded] = useState(true)
   const [bulkPaymentMain, setBulkPaymentMain] = useState({
     totalAmount: "",
     paymentDate: moment().format("YYYY-MM-DD"),
@@ -775,6 +827,8 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   const canAddPayment = useCanAddPayment() // Anyone can add payments
   const isOfficeAdmin = useIsOfficeAdmin()
   const isSuperAdmin = useIsSuperAdmin()
+  const isAccountant = useIsAccountant()
+  const canEditOrderCore = isOfficeAdmin || isSuperAdmin || isAccountant
   const isDealer = useIsDealer()
   const isDispatchManager = useIsDispatchManager()
   const { walletData, loading: walletLoading } = useDealerWallet()
@@ -836,7 +890,6 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
   const orderStatusOptions = [
     { label: "Pending", value: "PENDING" },
     { label: "Accepted", value: "ACCEPTED" },
-    { label: "Rejected", value: "REJECTED" },
     { label: "Assigned", value: "ASSIGNED" },
     { label: "Dispatched", value: "DISPATCHED" },
     { label: "Completed", value: "COMPLETED" },
@@ -848,6 +901,7 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
   const [slots, setSlots] = useState([])
   const [slotsLoading, setSlotsLoading] = useState(false)
   const [updatedObject, setUpdatedObject] = useState(null)
+  const [quantityDeltaInput, setQuantityDeltaInput] = useState("")
   const [viewMode, setViewMode] = useState("booking")
   const [viewType, setViewType] = useState("table") // "table" or "grid"
   const [selectedRows, setSelectedRows] = useState(new Set())
@@ -874,6 +928,12 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
     () => resolvePlantCounts(selectedOrder),
     [resolvePlantCounts, selectedOrder]
   )
+  const quantityDeltaParsed = React.useMemo(
+    () => parseDeltaInput(quantityDeltaInput),
+    [quantityDeltaInput]
+  )
+  const editBaseQuantity = Number(selectedOrderCounts?.base || 0)
+  const editFinalQuantity = editBaseQuantity + (quantityDeltaParsed?.delta || 0)
   const [activeTab, setActiveTab] = useState("overview")
   const [confirmDialog, setConfirmDialog] = useState({
     open: false,
@@ -1223,8 +1283,8 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
                 totalPlants: totalPlantCount,
                 additionalPlants: extraPlants,
                 basePlants,
-                orderDate: moment(orderBookingDate || createdAt).format("DD MMM YYYY"),
-                deliveryDate: deliveryDate ? moment(deliveryDate).format("DD MMM YYYY") : "-", // Specific delivery date
+                orderDate: moment(orderBookingDate || createdAt).format(ORDER_DATE_DISPLAY),
+                deliveryDate: deliveryDate ? moment(deliveryDate).format(ORDER_DATE_DISPLAY) : "-", // Specific delivery date
                 rate,
                 total: `₹ ${Number(totalOrderAmount).toFixed(2)}`,
                 "Paid Amt": `₹ ${Number(getTotalPaidAmount(payment)).toFixed(2)}`,
@@ -1235,7 +1295,7 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
                 Delivery: `${start} - ${end} ${monthYear}`,
                 "Farm Ready":
                   farmReadyDate && farmReadyDate.length > 0
-                    ? moment(farmReadyDate[0]).format("DD-MMM-YYYY")
+                    ? moment(farmReadyDate[0]).format(ORDER_DATE_DISPLAY)
                     : "-",
               details: {
                 farmer,
@@ -1443,10 +1503,7 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
   const refreshModalData = async () => {
     if (selectedOrder) {
       try {
-        // Refresh the orders to get updated data
-        await getOrders()
-
-        // Find the updated order data from the fresh orders array
+        // Fast refresh: hydrate modal from current orders state (avoid full list refetch).
         const updatedOrder = orders.find(
           (order) => order.details.orderid === selectedOrder.details.orderid
         )
@@ -1596,7 +1653,13 @@ useEffect(() => {
 
   // Initialize updatedObject when edit tab is active and selectedOrder changes
   useEffect(() => {
-    if (activeTab === "edit" && selectedOrder) {
+    if (activeTab === "edit" && !canEditOrderCore) {
+      setActiveTab("overview")
+    }
+  }, [activeTab, canEditOrderCore])
+
+  useEffect(() => {
+    if (activeTab === "edit" && selectedOrder && canEditOrderCore) {
       const { base } = resolvePlantCounts(selectedOrder)
       setUpdatedObject({
         rate: selectedOrder.rate,
@@ -1606,8 +1669,9 @@ useEffect(() => {
           ? new Date(selectedOrder.details.deliveryDate) 
           : null
       })
+      setQuantityDeltaInput("")
     }
-  }, [activeTab, selectedOrder, resolvePlantCounts])
+  }, [activeTab, selectedOrder, resolvePlantCounts, canEditOrderCore])
 
 const loadPlantOptions = async () => {
   try {
@@ -2472,8 +2536,8 @@ const mapSlotForUi = (slotData) => {
               totalPlants: displayQuantity,
               additionalPlants: 0,
               basePlants: quantity,
-              orderDate: moment(orderDate || createdAt).format("DD MMM YYYY"),
-              deliveryDate: deliveryDate ? moment(deliveryDate).format("DD MMM YYYY") : "-",
+              orderDate: moment(orderDate || createdAt).format(ORDER_DATE_DISPLAY),
+              deliveryDate: deliveryDate ? moment(deliveryDate).format(ORDER_DATE_DISPLAY) : "-",
               rate: rate,
               total: `₹ ${Number(totalAmount || 0).toFixed(2)}`,
               "Paid Amt": `₹ ${Number(totalPaidAmount || 0).toFixed(2)}`,
@@ -2651,8 +2715,8 @@ const mapSlotForUi = (slotData) => {
             totalPlants: displayQuantity, // Display quantity (final for completed orders)
             additionalPlants: 0,
             basePlants: quantity,
-            orderDate: moment(orderDate || createdAt).format("DD MMM YYYY"),
-            deliveryDate: deliveryDate ? moment(deliveryDate).format("DD MMM YYYY") : "-",
+            orderDate: moment(orderDate || createdAt).format(ORDER_DATE_DISPLAY),
+            deliveryDate: deliveryDate ? moment(deliveryDate).format(ORDER_DATE_DISPLAY) : "-",
             rate: rate,
             total: `₹ ${Number(totalAmount || 0).toFixed(2)}`,
             "Paid Amt": `₹ ${Number(totalPaidAmount || 0).toFixed(2)}`,
@@ -2782,6 +2846,12 @@ const mapSlotForUi = (slotData) => {
     if (selectedDistrict) {
       params.district = selectedDistrict
     }
+    if (selectedPlant) {
+      params.plantId = selectedPlant
+    }
+    if (selectedSubtype) {
+      params.subtypeId = selectedSubtype
+    }
 
     if (viewMode === "dispatched") {
       params.status = "ACCEPTED,FARM_READY"
@@ -2888,8 +2958,8 @@ const mapSlotForUi = (slotData) => {
             totalPlants: totalPlantCount,
             additionalPlants: extraPlants,
             basePlants,
-            orderDate: moment(orderBookingDate || createdAt).format("DD MMM YYYY"),
-            deliveryDate: deliveryDate ? moment(deliveryDate).format("DD MMM YYYY") : "-", // Specific delivery date
+            orderDate: moment(orderBookingDate || createdAt).format(ORDER_DATE_DISPLAY),
+            deliveryDate: deliveryDate ? moment(deliveryDate).format(ORDER_DATE_DISPLAY) : "-", // Specific delivery date
             rate,
             total: `₹ ${Number(totalOrderAmount).toFixed(2)}`,
             "Paid Amt": `₹ ${Number(getTotalPaidAmount(payment)).toFixed(2)}`,
@@ -2898,7 +2968,7 @@ const mapSlotForUi = (slotData) => {
             "returned Plants": returnedPlants || 0,
             orderStatus: orderStatus,
             Delivery: `${start} - ${end} ${monthYear}`,
-            "Farm Ready": farmReadyDate ? moment(farmReadyDate).format("DD-MMM-YYYY") : "-",
+            "Farm Ready": farmReadyDate ? moment(farmReadyDate).format(ORDER_DATE_DISPLAY) : "-",
             details: {
               farmer,
               contact: farmer?.mobileNumber,
@@ -3070,15 +3140,60 @@ const mapSlotForUi = (slotData) => {
 
         setEditingRows(new Set())
         setUpdatedObject(null)
+        setQuantityDeltaInput("")
+        const editedOrderId = String(dataToSend?.id || row?.details?.orderid || "")
+        const nextQty = Number(dataToSend?.quantity ?? row?.quantity ?? 0)
+        const nextRate = Number(dataToSend?.rate ?? row?.rate ?? 0)
+        const formatRupee = (amount) =>
+          `₹${Number(amount || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`
 
-        // Refresh the main list immediately
-        await getOrders()
+        let patchedOrderForModal = null
+        setOrders((prev) =>
+          (prev || []).map((o) => {
+            const oid = String(o?.details?.orderid || o?.id || o?._id || "")
+            if (!editedOrderId || oid !== editedOrderId) return o
 
-        // Also refresh modal data if modal is open
-        if (selectedOrder) {
-          setTimeout(() => {
-            refreshModalData()
-          }, 500)
+            const additional = Number(o?.additionalPlants || 0)
+            const totalPlants = Math.max(0, nextQty + additional)
+            const paidCollected = Array.isArray(o?.details?.payment)
+              ? o.details.payment
+                  .filter((p) => p?.paymentStatus === "COLLECTED")
+                  .reduce((sum, p) => sum + Number(p?.paidAmount || 0), 0)
+              : 0
+            const totalAmount = Number(nextRate || 0) * Number(totalPlants || 0)
+            const remainingAmount = totalAmount - paidCollected
+            const nextDeliveryDate = dataToSend?.deliveryDate
+              ? moment(dataToSend.deliveryDate).format(ORDER_DATE_DISPLAY)
+              : o?.deliveryDate
+
+            const patched = {
+              ...o,
+              rate: nextRate,
+              quantity: nextQty,
+              basePlants: nextQty,
+              totalPlants,
+              total: formatRupee(totalAmount),
+              ["Paid Amt"]: formatRupee(paidCollected),
+              ["remaining Amt"]: formatRupee(remainingAmount),
+              deliveryDate: nextDeliveryDate,
+              details: {
+                ...o.details,
+                deliveryDate: dataToSend?.deliveryDate || o?.details?.deliveryDate,
+                numberOfPlants: nextQty,
+                totalPlants,
+              },
+            }
+            patchedOrderForModal = patched
+            return patched
+          })
+        )
+
+        if (
+          selectedOrder &&
+          String(selectedOrder?.details?.orderid || "") === editedOrderId &&
+          patchedOrderForModal
+        ) {
+          setSelectedOrder(patchedOrderForModal)
         }
 
         // Refresh slots to get updated capacity (only for regular orders, not agri sales orders)
@@ -3154,6 +3269,7 @@ const mapSlotForUi = (slotData) => {
       bookingSlot: row?.details?.bookingSlot?.slotId,
       deliveryDate: row?.details?.deliveryDate ? new Date(row?.details?.deliveryDate) : null
     })
+    setQuantityDeltaInput("")
     // setSelectedRow(row)
     const newEditingRows = new Set(editingRows)
     if (newEditingRows.has(index)) {
@@ -3170,6 +3286,26 @@ const mapSlotForUi = (slotData) => {
     setUpdatedObject({ ...updatedObject, [key]: value })
   }
 
+  function parseDeltaInput(raw) {
+    const txt = (raw ?? "").toString().trim()
+    if (!txt) return { valid: true, delta: 0, display: "0" }
+
+    if (!/^[+-]?\d+$/.test(txt)) {
+      return { valid: false, delta: 0, error: "Enter delta like +500 or -300" }
+    }
+
+    const delta = Number(txt.startsWith("+") || txt.startsWith("-") ? txt : `+${txt}`)
+    if (!Number.isFinite(delta)) {
+      return { valid: false, delta: 0, error: "Invalid delta value" }
+    }
+
+    return {
+      valid: true,
+      delta,
+      display: `${delta > 0 ? "+" : ""}${delta.toLocaleString("en-IN")}`
+    }
+  }
+
   const refreshComponent = () => {
     setRefresh(!refresh)
   }
@@ -3178,6 +3314,7 @@ const mapSlotForUi = (slotData) => {
     newEditingRows.delete(index)
     setEditingRows(newEditingRows)
     setUpdatedObject(null)
+    setQuantityDeltaInput("")
     setSelectedRow(null)
   }
 
@@ -3466,236 +3603,206 @@ const mapSlotForUi = (slotData) => {
 
       {/* Header Controls */}
       <div className="mb-6 space-y-4">
-        {/* Date range picker and search box */}
-        <div className="flex flex-col lg:flex-row gap-4">
-          {!slotId && (
-            <div className="flex-1">
-              <div className="flex gap-4 items-center">
-                {/* Date Range Picker */}
-                <div className="flex-1">
-                  <DatePicker
-                    selectsRange={true}
-                    startDate={startDate}
-                    endDate={endDate}
-                    onChange={(update) => setSelectedDateRange(update)}
-                    isClearable={true}
-                    placeholderText="Select date range"
-                    className="w-full p-3 border rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-                    calendarClassName="custom-datepicker"
-                  />
-                </div>
+        {!slotId && (
+          <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setFiltersExpanded((prev) => !prev)}
+              className="w-full flex items-center justify-between px-3 py-2.5 text-left hover:bg-gray-50">
+              <span className="text-sm font-semibold text-gray-800">Filters</span>
+              <span className="text-xs text-gray-500">{filtersExpanded ? "Hide" : "Show"}</span>
+            </button>
 
-                {/* Date Shortcut Buttons */}
-                <div className="flex gap-2">
+            {filtersExpanded && (
+              <div className="border-t border-gray-200 p-3 space-y-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="w-full sm:w-[330px]">
+                    <DatePicker
+                      selectsRange
+                      startDate={startDate}
+                      endDate={endDate}
+                      onChange={(update) => setSelectedDateRange(update)}
+                      dateFormat="dd-MMMM-yyyy"
+                      monthsShown={1}
+                      showMonthDropdown
+                      showYearDropdown
+                      dropdownMode="select"
+                      calendarClassName="custom-datepicker"
+                      popperPlacement="bottom-start"
+                      shouldCloseOnSelect={false}
+                      customInput={
+                        <OrderDateRangeField
+                          startDate={startDate}
+                          endDate={endDate}
+                          placeholder="Select order date range"
+                        />
+                      }
+                    />
+                  </div>
                   <button
                     type="button"
                     onClick={() => {
-                      const today = new Date()
-                      setSelectedDateRange([today, today])
+                      const t = new Date()
+                      const from = new Date()
+                      from.setDate(from.getDate() - 6)
+                      setSelectedDateRange([from, t])
                     }}
-                    className="px-3 py-1 text-sm bg-brand-500 text-white rounded hover:bg-brand-600 transition-colors whitespace-nowrap">
-                    Today
+                    className="px-2 py-1 text-[11px] rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50">
+                    7 days
                   </button>
                   <button
                     type="button"
                     onClick={() => {
-                      const yesterday = new Date()
-                      yesterday.setDate(yesterday.getDate() - 1)
-                      setSelectedDateRange([yesterday, yesterday])
+                      const t = new Date()
+                      const from = new Date()
+                      from.setDate(from.getDate() - 13)
+                      setSelectedDateRange([from, t])
                     }}
-                    className="px-3 py-1 text-sm bg-brand-400 text-white rounded hover:bg-brand-500 transition-colors whitespace-nowrap">
-                    Yesterday
+                    className="px-2 py-1 text-[11px] rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50">
+                    14 days
                   </button>
                   <button
                     type="button"
                     onClick={() => {
-                      const today = new Date()
-                      const yesterday = new Date()
-                      yesterday.setDate(yesterday.getDate() - 1)
-                      setSelectedDateRange([yesterday, today])
+                      const t = new Date()
+                      const from = new Date()
+                      from.setDate(from.getDate() - 29)
+                      setSelectedDateRange([from, t])
                     }}
-                    className="px-3 py-1 text-sm bg-brand-600 text-white rounded hover:bg-brand-700 transition-colors whitespace-nowrap">
-                    Last 2 Days
+                    className="px-2 py-1 text-[11px] rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50">
+                    30 days
                   </button>
-                  {canAddPayment && (
+                  {startDate && endDate && (
                     <button
                       type="button"
-                      onClick={() => setShowBulkPaymentDialog(true)}
-                      className="px-3 py-1 text-sm bg-teal-600 text-white rounded hover:bg-teal-700 transition-colors whitespace-nowrap">
-                      Bulk payment
+                      onClick={() => setSelectedDateRange([null, null])}
+                      className="px-2 py-1 text-[11px] rounded-md border border-teal-300 bg-teal-50 text-teal-700 hover:bg-teal-100">
+                      Clear
                     </button>
                   )}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const today = new Date()
-                      const weekAgo = new Date()
-                      weekAgo.setDate(weekAgo.getDate() - 7)
-                      setSelectedDateRange([weekAgo, today])
-                    }}
-                    className="px-3 py-1 text-sm bg-brand-700 text-white rounded hover:bg-brand-800 transition-colors whitespace-nowrap">
-                    Last 7 Days
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedDateRange([null, null])}
-                    className="px-3 py-1 text-sm bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors whitespace-nowrap">
-                    Clear
-                  </button>
                 </div>
 
-                {/* Search Input */}
-                <div className="w-80">
-                  <input
-                    type="text"
-                    placeholder="Search orders..."
-                    value={searchTerm}
-                    onChange={(e) => handleSearchChange(e.target.value)}
-                    className="w-full p-3 enhanced-select"
-                  />
+                {/* Filter Dropdowns */}
+                <div className="bg-white rounded-lg border p-2.5">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-2.5">
+                    {/* Plant Filter - Hide for Agri Sales orders */}
+                    {!showAgriSalesOrders && (
+                      <>
+                        <SearchableDropdown
+                          label="Plant"
+                          value={selectedPlant}
+                          onChange={(val) => {
+                            setSelectedPlant(val)
+                            if (val === "") {
+                              setSelectedSubtype("")
+                            }
+                          }}
+                          options={[{ label: "All Plants", value: "" }, ...(plants || [])]}
+                          placeholder="Select Plant"
+                          showCount={true}
+                          maxHeight="500px"
+                        />
+
+                        {/* Plant Subtype Filter */}
+                        <SearchableDropdown
+                          label="Subtype"
+                          value={selectedSubtype}
+                          onChange={setSelectedSubtype}
+                          options={
+                            !selectedPlant
+                              ? []
+                              : [{ label: "All Subtypes", value: "" }, ...(subtypes || [])]
+                          }
+                          placeholder={
+                            !selectedPlant
+                              ? "Select a plant first"
+                              : subtypesLoading
+                              ? "Loading subtypes..."
+                              : "Select Subtype"
+                          }
+                          showCount={Boolean(selectedPlant && !subtypesLoading)}
+                          maxHeight="500px"
+                          disabled={!selectedPlant || subtypesLoading}
+                        />
+                      </>
+                    )}
+
+                    {/* Sales Person/Dealer Filter */}
+                    <SearchableDropdown
+                      label="Sales Person / Dealer"
+                      value={selectedSalesPerson}
+                      onChange={setSelectedSalesPerson}
+                      options={[{ label: "All Sales People & Dealers", value: "" }, ...(salesPeople || [])]}
+                      placeholder="Select Sales Person / Dealer"
+                      showCount={true}
+                      maxHeight="500px"
+                    />
+
+                    {/* Village Filter */}
+                    <SearchableDropdown
+                      label="Village"
+                      value={selectedVillage}
+                      onChange={setSelectedVillage}
+                      options={[
+                        { label: "All Villages", value: "" },
+                        ...(villages || []).map((village) => ({ label: village, value: village }))
+                      ]}
+                      placeholder="Select Village"
+                      showCount={true}
+                      maxHeight="500px"
+                    />
+
+                    {/* District Filter */}
+                    <SearchableDropdown
+                      label="District"
+                      value={selectedDistrict}
+                      onChange={setSelectedDistrict}
+                      options={[
+                        { label: "All Districts", value: "" },
+                        ...(districts || []).map((district) => ({ label: district, value: district }))
+                      ]}
+                      placeholder="Select District"
+                      showCount={true}
+                      maxHeight="500px"
+                    />
+                  </div>
+
+                  {/* Clear Filters and Export Buttons */}
+                  <div className="mt-2.5 flex justify-between items-center">
+                    <ExcelExport
+                      title="Export Orders"
+                      filters={{
+                        startDate: startDate ? moment(startDate).format("YYYY-MM-DD") : "",
+                        endDate: endDate ? moment(endDate).format("YYYY-MM-DD") : "",
+                        plantId: selectedPlant || "",
+                        subtypeId: selectedSubtype || "",
+                        salesPerson: selectedSalesPerson || "",
+                        village: selectedVillage || "",
+                        district: selectedDistrict || ""
+                      }}
+                      onExportComplete={() => {
+                        Toast.success("Orders exported successfully!")
+                      }}
+                    />
+                    <button
+                      onClick={() => {
+                        setSelectedSalesPerson("")
+                        setSelectedVillage("")
+                        setSelectedDistrict("")
+                        setSelectedPlant("")
+                        setSelectedSubtype("")
+                        setSubtypes([])
+                        setSelectedDateRange([null, null])
+                      }}
+                      className="px-3 py-1.5 text-xs font-medium text-gray-700 enhanced-select hover:bg-gray-50 focus:outline-none">
+                      Clear Filters
+                    </button>
+                  </div>
                 </div>
               </div>
-
-              {/* Status Indicators */}
-              {viewMode === "farmready" && startDate && endDate && (
-                <div className="mt-2 p-2 bg-brand-50 border border-brand-200 rounded-lg">
-                  <p className="text-sm text-brand-800">
-                    📅 Filtering farm ready orders from{" "}
-                    <span className="font-semibold">{moment(startDate).format("DD MMM YYYY")}</span>{" "}
-                    to <span className="font-semibold">{moment(endDate).format("DD MMM YYYY")}</span>
-                  </p>
-                </div>
-              )}
-              {viewMode === "farmready" && (!startDate || !endDate) && (
-                <div className="mt-2 p-2 bg-gray-50 border border-gray-200 rounded-lg">
-                  <p className="text-sm text-gray-600">
-                    📅 Showing all farm ready orders (no date filter applied)
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Filter Dropdowns */}
-        <div className="bg-white rounded-lg shadow-sm border p-3">
-          <h3 className="text-sm font-semibold text-gray-900 mb-2">Filters</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-            {/* Plant Filter - Hide for Agri Sales orders */}
-            {!showAgriSalesOrders && (
-              <>
-                <SearchableDropdown
-                  label="Plant"
-                  value={selectedPlant}
-                  onChange={(val) => {
-                    setSelectedPlant(val)
-                    if (val === "") {
-                      setSelectedSubtype("")
-                    }
-                  }}
-                  options={[{ label: "All Plants", value: "" }, ...(plants || [])]}
-                  placeholder="Select Plant"
-                  showCount={true}
-                  maxHeight="500px"
-                />
-
-                {/* Plant Subtype Filter */}
-                <SearchableDropdown
-                  label="Subtype"
-                  value={selectedSubtype}
-                  onChange={setSelectedSubtype}
-                  options={
-                    !selectedPlant
-                      ? []
-                      : [{ label: "All Subtypes", value: "" }, ...(subtypes || [])]
-                  }
-                  placeholder={
-                    !selectedPlant
-                      ? "Select a plant first"
-                      : subtypesLoading
-                      ? "Loading subtypes..."
-                      : "Select Subtype"
-                  }
-                  showCount={Boolean(selectedPlant && !subtypesLoading)}
-                  maxHeight="500px"
-                  disabled={!selectedPlant || subtypesLoading}
-                />
-              </>
             )}
-
-            {/* Sales Person/Dealer Filter */}
-            <SearchableDropdown
-              label="Sales Person / Dealer"
-              value={selectedSalesPerson}
-              onChange={setSelectedSalesPerson}
-              options={[{ label: "All Sales People & Dealers", value: "" }, ...(salesPeople || [])]}
-              placeholder="Select Sales Person / Dealer"
-              showCount={true}
-              maxHeight="500px"
-            />
-
-            {/* Village Filter */}
-            <SearchableDropdown
-              label="Village"
-              value={selectedVillage}
-              onChange={setSelectedVillage}
-              options={[
-                { label: "All Villages", value: "" },
-                ...(villages || []).map((village) => ({ label: village, value: village }))
-              ]}
-              placeholder="Select Village"
-              showCount={true}
-              maxHeight="500px"
-            />
-
-            {/* District Filter */}
-            <SearchableDropdown
-              label="District"
-              value={selectedDistrict}
-              onChange={setSelectedDistrict}
-              options={[
-                { label: "All Districts", value: "" },
-                ...(districts || []).map((district) => ({ label: district, value: district }))
-              ]}
-              placeholder="Select District"
-              showCount={true}
-              maxHeight="500px"
-            />
           </div>
-
-          {/* Clear Filters and Export Buttons */}
-          <div className="mt-3 flex justify-between items-center">
-            <ExcelExport
-              title="Export Orders"
-              filters={{
-                startDate: startDate ? moment(startDate).format("YYYY-MM-DD") : "",
-                endDate: endDate ? moment(endDate).format("YYYY-MM-DD") : "",
-                plantId: selectedPlant || "",
-                subtypeId: selectedSubtype || "",
-                salesPerson: selectedSalesPerson || "",
-                village: selectedVillage || "",
-                district: selectedDistrict || ""
-              }}
-              onExportComplete={() => {
-                Toast.success("Orders exported successfully!")
-              }}
-            />
-            <button
-              onClick={() => {
-                setSelectedSalesPerson("")
-                setSelectedVillage("")
-                setSelectedDistrict("")
-                setSelectedPlant("")
-                setSelectedSubtype("")
-                setSubtypes([])
-                setSelectedDateRange([null, null])
-              }}
-              className="px-3 py-1.5 text-xs font-medium text-gray-700 enhanced-select hover:bg-gray-50 focus:outline-none">
-              Clear Filters
-            </button>
-          </div>
-        </div>
-
+        )}
 
         {/* Ram Agri Inputs Action Bar - Only show when orders are selected */}
         {showAgriSalesOrders && (selectedAgriSalesOrders.length > 0 || selectedAgriOrdersForComplete.length > 0) && (
@@ -4137,17 +4244,20 @@ const mapSlotForUi = (slotData) => {
                         />
                       </th>
                     )}
-                    <th className="px-2 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider min-w-[100px] bg-gray-50">
-                      Order #
-                    </th>
                     <th className="px-2 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider min-w-[70px] bg-gray-50">
                       SR No
+                    </th>
+                    <th className="px-2 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider min-w-[120px] bg-gray-50">
+                      Order #
                     </th>
                     <th className="px-2 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider min-w-[160px] bg-gray-50">
                       Farmer / Customer
                     </th>
                     <th className="px-2 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider min-w-[140px] bg-gray-50">
                       Plant Type
+                    </th>
+                    <th className="px-2 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider min-w-[130px] bg-gray-50">
+                      Delivery
                     </th>
                     <th className="px-2 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider min-w-[90px] bg-gray-50">
                       Qty
@@ -4172,7 +4282,7 @@ const mapSlotForUi = (slotData) => {
                     <th className="px-2 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider min-w-[110px] bg-gray-50">
                       Status
                     </th>
-                    <th className="px-2 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider min-w-[80px] bg-gray-50">
+                    <th className="hidden px-2 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider min-w-[80px] bg-gray-50">
                       Actions
                     </th>
                   </tr>
@@ -4283,30 +4393,33 @@ const mapSlotForUi = (slotData) => {
                         </td>
                       )}
                       <td className="px-2 py-2 whitespace-nowrap">
+                        <div className="text-xs font-medium text-gray-900">{index + 1}</div>
+                      </td>
+                      <td className="px-2 py-2 whitespace-nowrap">
                         <div className="flex items-center gap-1.5">
                           <span className="text-xs font-bold text-gray-900">#{(row.isAgriSalesOrder || row.details?.isRamAgriProduct) ? String(row.order).padStart(5, '0') : row.order}</span>
                           {!(row.isAgriSalesOrder || row.details?.isRamAgriProduct) && (
                             <DownloadPDFButton order={row} />
                           )}
                         </div>
-                        <div className="text-[10px] text-gray-500 mt-0.5">{row.orderDate}</div>
-                      </td>
-                      <td className="px-2 py-2 whitespace-nowrap">
-                        <div className="text-xs font-medium text-gray-900">{index + 1}</div>
+                        <div className="mt-0.5 inline-flex items-center gap-1 rounded-md border border-sky-200 bg-sky-50 px-1.5 py-0.5">
+                          <span className="text-[10px] font-semibold text-sky-800">Booked</span>
+                          <span className="text-[10px] font-bold text-sky-900">{row.orderDate}</span>
+                        </div>
                       </td>
                       <td className="px-2 py-2">
-                        <div className="text-xs font-medium text-gray-900 leading-tight">
+                        <div className="text-xs text-gray-900 leading-tight">
                           {row.details?.orderFor ? (
                             <div className="space-y-0.5">
-                              <div className="farmer-name-highlight inline-block px-1.5 py-0.5 rounded text-[10px]">
+                              <div className="text-[12px] font-semibold text-gray-900">
                                 {row.details.farmer?.name || "Unknown"}
                               </div>
-                              <div className="order-for-highlight inline-block px-1.5 py-0.5 rounded text-[10px] ml-1">
-                                For: {row.details.orderFor.name}
+                              <div className="text-[11px] text-gray-700">
+                                Order For: {row.details.orderFor.name}
                               </div>
                             </div>
                           ) : (
-                            <span className="farmer-name-highlight inline-block px-1.5 py-0.5 rounded text-[10px]">
+                            <span className="text-[12px] font-semibold text-gray-900">
                               {row.farmerName}
                             </span>
                           )}
@@ -4318,11 +4431,25 @@ const mapSlotForUi = (slotData) => {
                           </div>
                         )}
                         {farmerLocation && (
-                          <div className="text-[10px] text-gray-500 mt-0.5 truncate max-w-[150px]">{farmerLocation}</div>
+                          <div className="text-[11px] font-semibold text-gray-800 mt-0.5 truncate max-w-[170px]">
+                            {farmerLocation}
+                          </div>
                         )}
                       </td>
                       <td className="px-2 py-2">
-                        <div className="text-xs text-gray-900 font-medium leading-tight">{row.plantType}</div>
+                        <div className="inline-flex items-center rounded-md border border-teal-200 bg-teal-50 px-2 py-0.5 text-[12px] font-bold text-teal-900 leading-tight">
+                          {row.plantType}
+                        </div>
+                      </td>
+                      <td className="px-2 py-2 whitespace-nowrap">
+                        {row.deliveryDate && row.deliveryDate !== "-" ? (
+                          <div className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-1.5 py-0.5">
+                            <span className="text-[10px] font-semibold text-amber-800">📅</span>
+                            <span className="text-[10px] font-bold text-amber-900">{row.deliveryDate}</span>
+                          </div>
+                        ) : (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">-</span>
+                        )}
                       </td>
                       <td className="px-2 py-2">
                         {/* Show final quantity for completed Agri Sales orders */}
@@ -4459,7 +4586,7 @@ const mapSlotForUi = (slotData) => {
                           </span>
                         )}
                       </td>
-                      <td className="px-2 py-2 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                      <td className="hidden px-2 py-2 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                         {viewMode !== "dispatch_process" &&
                           row?.orderStatus !== "COMPLETED" &&
                           row?.orderStatus !== "DISPATCH_PROCESS" &&
@@ -5087,6 +5214,7 @@ const mapSlotForUi = (slotData) => {
                         <FaCreditCard size={14} className="mr-1" />
                         Payments
                       </button>
+                      {canEditOrderCore && (
                       <button
                         onClick={() => {
                           setActiveTab("edit")
@@ -5100,6 +5228,7 @@ const mapSlotForUi = (slotData) => {
                                 ? new Date(selectedOrder.details.deliveryDate) 
                                 : null
                             })
+                            setQuantityDeltaInput("")
                           }
                         }}
                         className={`inline-flex items-center py-3 px-1 border-b-2 font-medium text-sm transition-colors ${
@@ -5110,6 +5239,7 @@ const mapSlotForUi = (slotData) => {
                         <FaEdit size={14} className="mr-1" />
                         Edit Order
                       </button>
+                      )}
                       <button
                         onClick={() => setActiveTab("remarks")}
                         className={`inline-flex items-center py-3 px-1 border-b-2 font-medium text-sm transition-colors ${
@@ -5276,7 +5406,7 @@ const mapSlotForUi = (slotData) => {
                                       <div className="flex flex-wrap items-center gap-3">
                                         <span className="inline-flex items-center gap-1.5">
                                           <span className="text-gray-500 text-xs">📅</span>
-                                          <span>{selectedOrder?.orderDate || (selectedOrder?.details?.orderBookingDate ? moment(selectedOrder.details.orderBookingDate).format("DD MMM YYYY") : (selectedOrder?.details?.createdAt ? moment(selectedOrder.details.createdAt).format("DD MMM YYYY") : "-"))}</span>
+                                          <span>{selectedOrder?.orderDate || (selectedOrder?.details?.orderBookingDate ? moment(selectedOrder.details.orderBookingDate).format(ORDER_DATE_DISPLAY) : (selectedOrder?.details?.createdAt ? moment(selectedOrder.details.createdAt).format(ORDER_DATE_DISPLAY) : "-"))}</span>
                                         </span>
                                         <span className="text-gray-300">|</span>
                                         <span className="inline-flex items-center gap-1.5">
@@ -5388,6 +5518,7 @@ const mapSlotForUi = (slotData) => {
                               <div className="flex flex-col space-y-1 bg-brand-50 p-2 rounded border border-brand-200">
                                 <div className="flex items-center justify-between">
                                   <span className="text-xs text-brand-700 font-medium">📅 Delivery Date</span>
+                                  {canEditOrderCore && (
                                   <button
                                     onClick={() => {
                                       setActiveTab("edit")
@@ -5400,10 +5531,12 @@ const mapSlotForUi = (slotData) => {
                                           ? new Date(selectedOrder.details.deliveryDate) 
                                           : null
                                       })
+                                      setQuantityDeltaInput("")
                                     }}
                                     className="text-xs text-brand-600 hover:text-brand-800 underline">
                                     Change
                                   </button>
+                                  )}
                                 </div>
                                 <span className="font-bold text-sm text-brand-900">
                                   {selectedOrder.deliveryDate}
@@ -5439,7 +5572,7 @@ const mapSlotForUi = (slotData) => {
                                         <div className="flex items-center justify-between">
                                           <span className="font-medium text-amber-900">
                                             {change.newDate
-                                              ? moment(change.newDate).format("DD MMMM, YYYY")
+                                              ? moment(change.newDate).format(ORDER_DATE_DISPLAY)
                                               : "Not set"}
                                           </span>
                                           {index === 0 && (
@@ -5451,7 +5584,7 @@ const mapSlotForUi = (slotData) => {
                                         {change.previousDate && (
                                           <div className="text-xs text-amber-700 mt-1">
                                             Changed from:{" "}
-                                            {moment(change.previousDate).format("DD MMMM, YYYY")}
+                                            {moment(change.previousDate).format(ORDER_DATE_DISPLAY)}
                                           </div>
                                         )}
                                         {change.reason && (
@@ -5471,7 +5604,7 @@ const mapSlotForUi = (slotData) => {
                                         )}
                                         <div className="text-xs text-amber-500 mt-1">
                                           {change.createdAt
-                                            ? moment(change.createdAt).format("DD MMM YYYY HH:mm")
+                                            ? moment(change.createdAt).format(ORDER_DATETIME_DISPLAY)
                                             : ""}
                                         </div>
                                       </div>
@@ -5501,7 +5634,7 @@ const mapSlotForUi = (slotData) => {
                                           {change.previousStatus} → {change.newStatus}
                                         </span>
                                         <span className="text-xs text-gray-500">
-                                          {moment(change.changedAt).format("DD MMM YYYY HH:mm")}
+                                          {moment(change.changedAt).format(ORDER_DATETIME_DISPLAY)}
                                         </span>
                                       </div>
                                       {change.changedBy && (
@@ -5544,7 +5677,7 @@ const mapSlotForUi = (slotData) => {
                                             Delivery Changed
                                           </span>
                                           <span className="text-xs text-gray-500">
-                                            {moment(change.changedAt).format("DD MMM YYYY")}
+                                            {moment(change.changedAt).format(ORDER_DATE_DISPLAY)}
                                           </span>
                                         </div>
                                         <div className="grid grid-cols-1 md:grid-cols-3 gap-2 items-center">
@@ -5614,7 +5747,7 @@ const mapSlotForUi = (slotData) => {
                                         </span>
                                         <span className="text-xs text-gray-500">
                                           {dispatchItem.date
-                                            ? moment(dispatchItem.date).format("DD MMM YYYY HH:mm")
+                                            ? moment(dispatchItem.date).format(ORDER_DATETIME_DISPLAY)
                                             : "N/A"}
                                         </span>
                                       </div>
@@ -5679,7 +5812,7 @@ const mapSlotForUi = (slotData) => {
                                         </span>
                                         <span className="text-xs text-gray-500">
                                           {returnItem.date
-                                            ? moment(returnItem.date).format("DD MMM YYYY")
+                                            ? moment(returnItem.date).format(ORDER_DATE_DISPLAY)
                                             : "N/A"}
                                         </span>
                                       </div>
@@ -6284,7 +6417,7 @@ const mapSlotForUi = (slotData) => {
                                         {payment.paymentStatus}
                                       </span>
                                       {payment.isWalletPayment && <span className="px-2 py-0.5 text-xs rounded-full bg-brand-100 text-brand-700">Wallet</span>}
-                                      <span className="text-xs text-gray-500">{moment(payment.paymentDate).format("DD MMM YYYY")}</span>
+                                      <span className="text-xs text-gray-500">{moment(payment.paymentDate).format(ORDER_DATE_DISPLAY)}</span>
                                     </div>
                                     {canAddPayment && (
                                       <button
@@ -6318,23 +6451,11 @@ const mapSlotForUi = (slotData) => {
                       </div>
                     )}
 
-                    {activeTab === "edit" && (
+                    {activeTab === "edit" && canEditOrderCore && (
                       <div className="space-y-6">
                         <div className="flex items-center justify-between">
                           <h3 className="text-lg font-medium text-gray-900">Edit Order Details</h3>
-                          {isDispatchManager && (
-                            <span className="text-sm bg-brand-100 text-brand-800 px-3 py-1 rounded-full font-medium">
-                              🚚 Dispatch Manager Access
-                            </span>
-                          )}
                         </div>
-                        {isDispatchManager && (
-                          <div className="bg-brand-50 border border-brand-200 rounded-lg p-4">
-                            <p className="text-sm text-brand-800">
-                              <span className="font-semibold">🔑 Dispatch Manager Permissions:</span> You can change order status, delivery date, rate, and quantity for dispatch management.
-                            </p>
-                          </div>
-                        )}
                         <div className="bg-gray-50 rounded-lg p-6">
                           {/* Current Order Information */}
                           {selectedOrder?.details?.bookingSlot && (
@@ -6381,31 +6502,53 @@ const mapSlotForUi = (slotData) => {
                               />
                             </div>
                             <div>
-                              <label className="text-sm text-gray-500 font-medium">Quantity</label>
+                              <label className="text-sm text-gray-500 font-medium">Quantity Delta</label>
                               <input
-                                type="number"
-                                value={
-                                  updatedObject?.quantity !== undefined
-                                    ? updatedObject.quantity
-                                    : selectedOrderCounts.base
-                                }
-                                onChange={(e) => handleInputChange(0, "quantity", e.target.value)}
+                                type="text"
+                                value={quantityDeltaInput}
+                                onChange={(e) => setQuantityDeltaInput(e.target.value)}
+                                placeholder="+500 or -300"
                                 className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 mt-1"
                               />
-                              {updatedObject?.quantity && (
-                                <div className="mt-1">
-                                  {Number(updatedObject.quantity) >
-                                    Number(selectedOrderCounts.base) && (
-                                    <div className="text-xs text-amber-600">
-                                      ⚠️ Increasing quantity may affect slot capacity
+                              <div className="mt-2 rounded-lg border border-gray-200 bg-gray-50 p-2">
+                                <div className="grid grid-cols-3 gap-2 text-[11px]">
+                                  <div>
+                                    <div className="text-gray-500">Base</div>
+                                    <div className="font-semibold text-gray-900">
+                                      {editBaseQuantity.toLocaleString("en-IN")}
                                     </div>
-                                  )}
-                                  {Number(updatedObject.quantity) <
-                                    Number(selectedOrderCounts.base) && (
-                                    <div className="text-xs text-green-600">
-                                      ✅ Reducing quantity will free up slot capacity
+                                  </div>
+                                  <div>
+                                    <div className="text-gray-500">Delta</div>
+                                    <div className={`font-semibold ${quantityDeltaParsed.valid ? "text-brand-700" : "text-red-600"}`}>
+                                      {quantityDeltaParsed.valid
+                                        ? quantityDeltaParsed.display
+                                        : "Invalid"}
                                     </div>
-                                  )}
+                                  </div>
+                                  <div>
+                                    <div className="text-gray-500">Final</div>
+                                    <div className="font-semibold text-gray-900">
+                                      {Number.isFinite(editFinalQuantity)
+                                        ? editFinalQuantity.toLocaleString("en-IN")
+                                        : "-"}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                              {quantityDeltaInput && !quantityDeltaParsed.valid && (
+                                <div className="text-xs text-red-600 mt-1">
+                                  {quantityDeltaParsed.error}
+                                </div>
+                              )}
+                              {quantityDeltaParsed.valid && quantityDeltaParsed.delta > 0 && (
+                                <div className="text-xs text-amber-600 mt-1">
+                                  ⚠️ Increasing quantity may affect slot capacity
+                                </div>
+                              )}
+                              {quantityDeltaParsed.valid && quantityDeltaParsed.delta < 0 && (
+                                <div className="text-xs text-green-600 mt-1">
+                                  ✅ Reducing quantity will free up slot capacity
                                 </div>
                               )}
                             </div>
@@ -6431,7 +6574,7 @@ const mapSlotForUi = (slotData) => {
                                   disabled={slots.length === 0}>
                                   <span className={updatedObject?.deliveryDate ? "text-gray-900" : "text-gray-400"}>
                                     {updatedObject?.deliveryDate 
-                                      ? moment(updatedObject.deliveryDate).format("DD MMM YYYY")
+                                      ? moment(updatedObject.deliveryDate).format(ORDER_DATE_DISPLAY)
                                       : "Click to select delivery date"}
                                   </span>
                                 </button>
@@ -6452,9 +6595,9 @@ const mapSlotForUi = (slotData) => {
                                 (() => {
                                   const slotDetails = getSlotDetailsForDate(updatedObject.deliveryDate)
                                   if (slotDetails) {
-                                    const requestedQuantity = Number(
-                                      updatedObject.quantity || selectedOrder?.quantity || 0
-                                    )
+                                    const requestedQuantity = quantityDeltaParsed.valid
+                                      ? Number(editFinalQuantity || 0)
+                                      : Number(selectedOrder?.quantity || 0)
                                     const currentQuantity = Number(selectedOrder?.quantity || 0)
                                     const quantityChange = requestedQuantity - currentQuantity
                                     const adjustedAvailable =
@@ -6514,6 +6657,7 @@ const mapSlotForUi = (slotData) => {
                             <button
                               onClick={() => {
                                 setUpdatedObject(null)
+                                setQuantityDeltaInput("")
                                 setSelectedRow(null)
                               }}
                               className="px-4 py-2 text-gray-600 border rounded-lg hover:bg-gray-50">
@@ -6521,43 +6665,66 @@ const mapSlotForUi = (slotData) => {
                             </button>
                             <button
                               onClick={() => {
-                                // Validate form before saving
-                                const hasChanges =
-                                  updatedObject && Object.keys(updatedObject).length > 0
-                                if (!hasChanges) {
-                                  Toast.info("No changes to save")
+                                const parsedDelta = parseDeltaInput(quantityDeltaInput)
+                                if (!parsedDelta.valid) {
+                                  Toast.error(parsedDelta.error || "Invalid quantity delta")
                                   return
                                 }
 
-                                // Validate required fields
-                                if (updatedObject.quantity && Number(updatedObject.quantity) <= 0) {
-                                  Toast.error("Quantity must be greater than 0")
+                                const finalQuantity = Number(editBaseQuantity) + Number(parsedDelta.delta || 0)
+                                if (!Number.isFinite(finalQuantity) || finalQuantity <= 0) {
+                                  Toast.error("Final quantity must be greater than 0")
                                   return
                                 }
 
-                                if (updatedObject.rate && Number(updatedObject.rate) <= 0) {
+                                const currentRate = Number(selectedOrder?.rate || 0)
+                                const nextRate = Number(
+                                  updatedObject?.rate !== undefined
+                                    ? updatedObject.rate
+                                    : selectedOrder?.rate
+                                )
+                                if (!Number.isFinite(nextRate) || nextRate <= 0) {
                                   Toast.error("Rate must be greater than 0")
                                   return
                                 }
 
+                                const payloadForSave = {
+                                  id: selectedOrder?.details?.orderid,
+                                  ...updatedObject,
+                                  rate: nextRate,
+                                  quantity: finalQuantity
+                                }
+
                                 // Show confirmation dialog with changes summary
                                 const changes = []
-                                if (updatedObject.rate !== selectedOrder.rate) {
+                                if (nextRate !== currentRate) {
                                   changes.push(
-                                    `Rate: ₹${selectedOrder.rate} → ₹${updatedObject.rate}`
+                                    `Rate: ₹${currentRate} → ₹${nextRate}`
                                   )
                                 }
-                                if (updatedObject.quantity !== selectedOrderCounts.base) {
+
+                                if (finalQuantity !== editBaseQuantity) {
+                                  const deltaSign = parsedDelta.delta > 0 ? "+" : ""
                                   changes.push(
-                                    `Quantity: ${selectedOrderCounts.base} → ${updatedObject.quantity}`
+                                    `Quantity: ${editBaseQuantity.toLocaleString("en-IN")} ${deltaSign}${parsedDelta.delta.toLocaleString("en-IN")} = ${finalQuantity.toLocaleString("en-IN")}`
                                   )
                                 }
+
+                                const oldTotal = Number(currentRate || 0) * Number(editBaseQuantity || 0)
+                                const newTotal = Number(nextRate || 0) * Number(finalQuantity || 0)
+                                const totalDelta = newTotal - oldTotal
+                                if (finalQuantity !== editBaseQuantity || nextRate !== currentRate) {
+                                  changes.push(
+                                    `Total: ₹${oldTotal.toLocaleString("en-IN")} → ₹${newTotal.toLocaleString("en-IN")} (Delta: ${totalDelta > 0 ? "+" : ""}₹${totalDelta.toLocaleString("en-IN")})`
+                                  )
+                                }
+
                                 // Check if delivery date has changed
                                 if (updatedObject.deliveryDate) {
                                   const currentDate = selectedOrder?.details?.deliveryDate 
-                                    ? moment(selectedOrder.details.deliveryDate).format("DD MMM YYYY")
+                                    ? moment(selectedOrder.details.deliveryDate).format(ORDER_DATE_DISPLAY)
                                     : "Not set"
-                                  const newDate = moment(updatedObject.deliveryDate).format("DD MMM YYYY")
+                                  const newDate = moment(updatedObject.deliveryDate).format(ORDER_DATE_DISPLAY)
                                   
                                   if (currentDate !== newDate) {
                                     const slotDetails = getSlotDetailsForDate(updatedObject.deliveryDate)
@@ -6570,46 +6737,27 @@ const mapSlotForUi = (slotData) => {
                                   }
                                 }
 
-                                if (changes.length > 0) {
-                                  setConfirmDialog({
-                                    open: true,
-                                    title: "Confirm Order Changes",
-                                    description: `Are you sure you want to update this order?\n\nChanges:\n${changes.join(
-                                      "\n"
-                                    )}`,
-                                    onConfirm: () => {
-                                      setConfirmDialog((d) => ({ ...d, open: false }))
-                                      
-                                      // pacthOrders will handle deliveryDate conversion
-                                      pacthOrders(
-                                        {
-                                          id: selectedOrder?.details?.orderid,
-                                          ...updatedObject
-                                        },
-                                        selectedOrder
-                                      ).then(() => {
-                                        // Refresh modal data after successful edit
-                                        setTimeout(() => {
-                                          refreshModalData()
-                                        }, 1000) // Small delay to ensure API call completes
-                                      })
-                                    }
-                                  })
-                                } else {
-                                  // pacthOrders will handle deliveryDate conversion
-                                  pacthOrders(
-                                    {
-                                      id: selectedOrder?.details?.orderid,
-                                      ...updatedObject
-                                    },
-                                    selectedOrder
-                                  ).then(() => {
-                                    // Refresh modal data after successful edit
-                                    setTimeout(() => {
-                                      refreshModalData()
-                                    }, 1000) // Small delay to ensure API call completes
-                                  })
+                                if (changes.length === 0) {
+                                  Toast.info("No changes to save")
+                                  return
                                 }
+
+                                setConfirmDialog({
+                                  open: true,
+                                  title: "Confirm Order Changes",
+                                  description: `Are you sure you want to update this order?\n\nChanges:\n${changes.join(
+                                    "\n"
+                                  )}`,
+                                  onConfirm: () => {
+                                    setConfirmDialog((d) => ({ ...d, open: false }))
+                                    
+                                    // pacthOrders will handle deliveryDate conversion
+                                    pacthOrders(payloadForSave, selectedOrder).then(() => {
+                                      // Refresh modal data after successful edit
+                                      refreshModalData()
+                                    })
+                                  }
+                                })
                               }}
                               disabled={!updatedObject || Object.keys(updatedObject).length === 0}
                               className="px-4 py-2 text-white bg-brand-500 rounded-lg hover:bg-brand-600 disabled:opacity-50 disabled:cursor-not-allowed">
@@ -6725,7 +6873,7 @@ const mapSlotForUi = (slotData) => {
                                           </div>
                                           <span className="text-xs text-gray-600">
                                             {dispatchItem.date
-                                              ? moment(dispatchItem.date).format("DD MMM YYYY, HH:mm")
+                                              ? moment(dispatchItem.date).format(ORDER_DATETIME_DISPLAY)
                                               : "N/A"}
                                           </span>
                                         </div>
@@ -6850,9 +6998,9 @@ const mapSlotForUi = (slotData) => {
                                       newValueDisplay = `${edit.newValue} plants`;
                                     } else if (edit.field === "deliveryDate") {
                                       previousValueDisplay = edit.previousValue 
-                                        ? moment(edit.previousValue).format("DD MMM YYYY")
+                                        ? moment(edit.previousValue).format(ORDER_DATE_DISPLAY)
                                         : "Not set";
-                                      newValueDisplay = moment(edit.newValue).format("DD MMM YYYY");
+                                      newValueDisplay = moment(edit.newValue).format(ORDER_DATE_DISPLAY);
                                     }
 
                                     return (
@@ -6874,7 +7022,7 @@ const mapSlotForUi = (slotData) => {
                                             </div>
                                             <span className="text-xs text-gray-600">
                                               {edit.createdAt
-                                                ? moment(edit.createdAt).format("DD MMM YYYY, HH:mm")
+                                                ? moment(edit.createdAt).format(ORDER_DATETIME_DISPLAY)
                                                 : "N/A"}
                                             </span>
                                           </div>
@@ -6991,7 +7139,7 @@ const mapSlotForUi = (slotData) => {
 शिल्लक रक्कम: *₹${rem}*
 
 🚚 डिलिव्हरी तारीख:
- *${typeof delivery === "string" ? delivery : moment(delivery).format("DD-MM-YYYY")}*
+ *${typeof delivery === "string" ? delivery : moment(delivery).format(ORDER_DATE_DISPLAY)}*
 
 आपली ऑर्डर मध्ये काही बदल असल्यास आम्हाला कळवा.
 आभार! 🙏
@@ -7115,7 +7263,7 @@ const mapSlotForUi = (slotData) => {
                                     bookingSlot: slot.value
                                   })
                                   setShowDeliveryDateModal(false)
-                                  Toast.success(`Delivery date set to ${date.format('DD MMM YYYY')}`)
+                                  Toast.success(`Delivery date set to ${date.format(ORDER_DATE_DISPLAY)}`)
                                 }}
                                 className={`
                                   relative p-3 rounded-2xl border-2 transition-all duration-200
