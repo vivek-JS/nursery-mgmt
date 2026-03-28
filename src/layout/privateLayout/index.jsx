@@ -229,7 +229,7 @@ export default function PrivateLayout(props) {
     }
   }, [isRamAgriSalesManager, isSuperAdmin, isAdmin, location.pathname, navigate, userData])
   
-  // ACCOUNTANT can ONLY access: Orders, Payments, Accountant Dashboard (sidebar + route-level)
+  // ACCOUNTANT can ONLY access: Orders and Accounting Dashboard (sidebar + route-level)
   useEffect(() => {
     if (!userData) return
     if (accountantRedirectRef.current) return
@@ -238,13 +238,9 @@ export default function PrivateLayout(props) {
     if (!isAccountant || isSuperAdmin) return
 
     const p = location.pathname
-    // Restrict ACCOUNTANT to Orders (dashboard), Order list, Payments, Accountant Dashboard only
+    // Restrict ACCOUNTANT to Orders (dashboard) and Accounting Dashboard only
     const allowed =
       p === "/u/dashboard" ||
-      p === "/u/orders" ||
-      p.startsWith("/u/orders") ||
-      p === "/u/payments" ||
-      p.startsWith("/u/payments/") ||
       p === "/u/accountant-dashboard" ||
       p.startsWith("/u/accountant-dashboard/")
 
@@ -345,13 +341,13 @@ export default function PrivateLayout(props) {
       return true
     }
     
-    // ACCOUNTANT can only see: Orders, Inventory, and Payment tabs
+    // ACCOUNTANT can only see: Orders and Accounting Dashboard tabs
     // Check both role and jobTitle, prioritizing jobTitle
     const isAccountant = userData?.jobTitle === "ACCOUNTANT" || userRole === "ACCOUNTANT"
     if (isAccountant) {
-      // ACCOUNTANT should only see Orders (dashboard), Orders list, Payments and Accountant Dashboard in sidebar
-      const allowedTitles = ["Orders", "Order", "Payments", "Accountant Dashboard"]
-      const allowedRoutes = ["/u/orders", "/u/dashboard", "/u/payments", "/u/accountant-dashboard"]
+      // ACCOUNTANT should only see Orders (dashboard) and Accounting Dashboard in sidebar
+      const allowedTitles = ["Orders", "Accounting Dashboard"]
+      const allowedRoutes = ["/u/dashboard", "/u/accountant-dashboard"]
       const hasAccess = allowedTitles.includes(menuItem.title) || allowedRoutes.includes(menuItem.route)
       return hasAccess
     }

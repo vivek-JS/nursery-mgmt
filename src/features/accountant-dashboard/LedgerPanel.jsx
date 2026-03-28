@@ -12,6 +12,12 @@ import {
 } from "lucide-react"
 import { cn } from "lib/cn"
 import { formatFarmerLedgerRunningBalance } from "./normalize"
+import { Toast } from "helpers/toasts/toastHelper"
+import {
+  transferFarmerPlantAdvance,
+  searchFarmersForLedgerTransfer,
+  createFarmerPlantLedgerManualEntry
+} from "./paymentsApi"
 
 const fmt = (n) => `₹${Math.abs(Number(n) || 0).toLocaleString("en-IN")}`
 
@@ -21,9 +27,26 @@ const fmtDate = (d) =>
   d ? new Date(d).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—"
 
 /** Centered modal — farmer plant nursery ledger */
-function FarmerPlantLedgerModal({ ledger, onClose }) {
+function FarmerPlantLedgerModal({ ledger, onClose, canTransferAdvance, onRefresh }) {
   const { customer, summary, entries, meta } = ledger
   const orders = meta?.orders || []
+  const [transferOpen, setTransferOpen] = React.useState(false)
+  const [manualOpen, setManualOpen] = React.useState(false)
+  const [searchText, setSearchText] = React.useState("")
+  const [searchResults, setSearchResults] = React.useState([])
+  const [searchLoading, setSearchLoading] = React.useState(false)
+  const [selectedTarget, setSelectedTarget] = React.useState(null)
+  const [amount, setAmount] = React.useState("")
+  const [manualAmount, setManualAmount] = React.useState("")
+  const [reason, setReason] = React.useState("")
+  const [saving, setSaving] = React.useState(false)
+  const [manualType, setManualType] = React.useState("CREDIT")
+  const [manualMode, setManualMode] = React.useState("Cash")
+  const [manualRemark, setManualRemark] = React.useState("")
+  const [manualBankName, setManualBankName] = React.useState("")
+  const [manualTransactionId, setManualTransactionId] = React.useState("")
+  const [manualChequeNumber, setManualChequeNumber] = React.useState("")
+  const [manualSaving, setManualSaving] = React.useState(false)
 
   // Stat cards must reflect ledger rows (row-wise outstanding), not order-range aggregation.
   const sumDebit = entries.reduce((s, e) => s + (e.type === "DEBIT" ? Number(e.amount) || 0 : 0), 0)
@@ -35,6 +58,33 @@ function FarmerPlantLedgerModal({ ledger, onClose }) {
   const totalCollected = Math.round(sumCredit * 100) / 100
   const due = Math.max(0, outstanding)
   const hasAdvance = outstanding < 0
+  const availableAdvance = Math.max(0, Math.round(Math.abs(outstanding) * 100) / 100)
+  const bankNameRequiredForMode = ["UPI", "Cheque", "NEFT/RTGS", "Bank Transfer", "Card"].includes(manualMode)
+
+  React.useEffect(() => {
+    if (!transferOpen) return
+    const q = String(searchText || "").trim()
+    if (!q || q.length < 2) {
+      setSearchResults([])
+      return
+    }
+    let cancelled = false
+    setSearchLoading(true)
+    const timer = setTimeout(async () => {
+      try {
+        const rows = await searchFarmersForLedgerTransfer({ q, limit: 12 })
+        if (!cancelled) setSearchResults(rows || [])
+      } catch (_) {
+        if (!cancelled) setSearchResults([])
+      } finally {
+        if (!cancelled) setSearchLoading(false)
+      }
+    }, 250)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [transferOpen, searchText])
 
   const statCards = [
     {
@@ -132,7 +182,337 @@ function FarmerPlantLedgerModal({ ledger, onClose }) {
                 ? "Totals are summed from ledger lines (row-wise outstanding)."
                 : "No ledger activity in this date range."}
             </p>
+            {canTransferAdvance && customer.mobile && (
+              <div className="relative mt-3 flex flex-wrap gap-2">
+                {hasAdvance && (
+                  <>
+                    <button
+                      type="button"
+                      className="px-3 py-2 rounded-lg text-xs font-semibold bg-white/10 hover:bg-white/15 ring-1 ring-white/20 transition-colors"
+                      onClick={() => setTransferOpen(true)}
+                    >
+                      Transfer advance
+                    </button>
+                    <span className="text-[11px] text-slate-200/80 self-center">
+                      Available to transfer: ₹{availableAdvance.toLocaleString("en-IN")}
+                    </span>
+                  </>
+                )}
+                <button
+                  type="button"
+                  className="px-3 py-2 rounded-lg text-xs font-semibold bg-white/10 hover:bg-white/15 ring-1 ring-white/20 transition-colors"
+                  onClick={() => setManualOpen(true)}
+                >
+                  Add manual entry
+                </button>
+              </div>
+            )}
           </div>
+
+          {transferOpen && (
+            <>
+              <div
+                className="fixed inset-0 z-[120] bg-slate-900/50 backdrop-blur-sm"
+                onClick={() => !saving && setTransferOpen(false)}
+                aria-hidden
+              />
+              <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 pointer-events-none">
+                <div className="pointer-events-auto w-full max-w-md rounded-2xl shadow-2xl border border-border bg-card overflow-hidden">
+                  <div className="px-5 py-4 border-b border-border bg-muted/30">
+                    <div className="text-sm font-semibold text-foreground">Transfer advance</div>
+                    <div className="text-[11px] text-muted-foreground mt-0.5">
+                      From {customer.name || "farmer"} ({customer.mobile}) · Available ₹{availableAdvance.toLocaleString("en-IN")}
+                    </div>
+                  </div>
+                  <div className="px-5 py-4 space-y-3">
+                    <label className="block text-[11px] font-semibold text-muted-foreground">
+                      Search farmer (name/mobile)
+                      <input
+                        value={searchText}
+                        onChange={(e) => setSearchText(e.target.value)}
+                        className="erp-input block mt-1 w-full text-xs"
+                        placeholder="Type at least 2 characters"
+                        disabled={saving}
+                      />
+                    </label>
+                    {searchLoading ? (
+                      <div className="text-[11px] text-muted-foreground">Searching…</div>
+                    ) : searchResults.length > 0 ? (
+                      <div className="max-h-36 overflow-y-auto border border-border rounded-lg">
+                        {searchResults.map((f) => {
+                          const isActive = selectedTarget?._id === f._id
+                          return (
+                            <button
+                              key={f._id}
+                              type="button"
+                              onClick={() => setSelectedTarget(f)}
+                              className={cn(
+                                "w-full text-left px-3 py-2 border-b border-border last:border-b-0 hover:bg-muted text-xs",
+                                isActive && "bg-muted"
+                              )}
+                            >
+                              <div className="font-semibold">{f.name || "Farmer"} · {f.mobileNumber || "—"}</div>
+                              <div className="text-muted-foreground">
+                                {[f.village, f.taluka, f.district].filter(Boolean).join(", ") || "—"}
+                              </div>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    ) : (
+                      <div className="text-[11px] text-muted-foreground">
+                        Search by farmer name or mobile number.
+                      </div>
+                    )}
+                    {selectedTarget && (
+                      <div className="text-[11px] rounded-lg border border-border bg-muted/40 px-2 py-1">
+                        To: <span className="font-semibold">{selectedTarget.name || "Farmer"}</span> ({selectedTarget.mobileNumber || "—"}) ·{" "}
+                        {[selectedTarget.village, selectedTarget.taluka].filter(Boolean).join(", ") || "—"}
+                      </div>
+                    )}
+                    <label className="block text-[11px] font-semibold text-muted-foreground">
+                      Amount (₹)
+                      <input
+                        value={amount}
+                        onChange={(e) => setAmount(e.target.value)}
+                        className="erp-input block mt-1 w-full text-xs"
+                        placeholder="e.g. 500"
+                        disabled={saving}
+                      />
+                    </label>
+                    <label className="block text-[11px] font-semibold text-muted-foreground">
+                      Reason (optional)
+                      <input
+                        value={reason}
+                        onChange={(e) => setReason(e.target.value)}
+                        className="erp-input block mt-1 w-full text-xs"
+                        placeholder="e.g. transferred to relative"
+                        disabled={saving}
+                      />
+                    </label>
+                  </div>
+                  <div className="px-5 py-3 border-t border-border bg-muted/20 flex justify-end gap-2">
+                    <button
+                      type="button"
+                      className="px-3 py-2 rounded-lg text-xs font-semibold border border-border hover:bg-muted transition-colors"
+                      disabled={saving}
+                      onClick={() => setTransferOpen(false)}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      className="px-3 py-2 rounded-lg text-xs font-semibold bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-60"
+                      disabled={saving}
+                      onClick={async () => {
+                        const amt = Number(String(amount).replace(/[^\d.]/g, ""))
+                        const tm = selectedTarget?.mobileNumber
+                          ? String(selectedTarget.mobileNumber).replace(/\D/g, "")
+                          : ""
+                        if (!tm || tm.length < 10) {
+                          Toast.error("Select a valid target farmer")
+                          return
+                        }
+                        if (!(amt > 0)) {
+                          Toast.error("Enter a valid amount")
+                          return
+                        }
+                        setSaving(true)
+                        try {
+                          const resp = await transferFarmerPlantAdvance({
+                            fromMobile: customer.mobile,
+                            toMobile: tm.slice(-10),
+                            amount: amt,
+                            reason
+                          })
+                          const msg = resp?.message || resp?.data?.message
+                          Toast.success(msg || "Advance transferred")
+                          setTransferOpen(false)
+                          setSearchText("")
+                          setSearchResults([])
+                          setSelectedTarget(null)
+                          setAmount("")
+                          setReason("")
+                          if (typeof onRefresh === "function") {
+                            await onRefresh()
+                          }
+                        } catch (e) {
+                          Toast.error(e?.response?.data?.message || "Transfer failed")
+                        } finally {
+                          setSaving(false)
+                        }
+                      }}
+                    >
+                      {saving ? "Transferring…" : "Transfer"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+
+          {manualOpen && (
+            <>
+              <div
+                className="fixed inset-0 z-[120] bg-slate-900/50 backdrop-blur-sm"
+                onClick={() => !manualSaving && setManualOpen(false)}
+                aria-hidden
+              />
+              <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 pointer-events-none">
+                <div className="pointer-events-auto w-full max-w-lg rounded-2xl shadow-2xl border border-border bg-card overflow-hidden">
+                  <div className="px-5 py-4 border-b border-border bg-muted/30">
+                    <div className="text-sm font-semibold text-foreground">Manual ledger entry</div>
+                    <div className="text-[11px] text-muted-foreground mt-0.5">
+                      For {customer.name || "farmer"} ({customer.mobile})
+                    </div>
+                  </div>
+                  <div className="px-5 py-3 border-b border-amber-300/40 bg-amber-100/40 dark:bg-amber-900/20 text-[11px] text-amber-900 dark:text-amber-100">
+                    Warning: You are creating a manual ledger adjustment. This is immutable and will be audit logged.
+                  </div>
+                  <div className="px-5 py-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <label className="block text-[11px] font-semibold text-muted-foreground">
+                      Entry type
+                      <select
+                        value={manualType}
+                        onChange={(e) => setManualType(e.target.value)}
+                        className="erp-input block mt-1 w-full text-xs"
+                        disabled={manualSaving}
+                      >
+                        <option value="CREDIT">Credit</option>
+                        <option value="DEBIT">Debit</option>
+                      </select>
+                    </label>
+                    <label className="block text-[11px] font-semibold text-muted-foreground">
+                      Amount (₹)
+                      <input
+                        value={manualAmount}
+                        onChange={(e) => setManualAmount(e.target.value)}
+                        className="erp-input block mt-1 w-full text-xs"
+                        placeholder="e.g. 500"
+                        disabled={manualSaving}
+                      />
+                    </label>
+                    <label className="block text-[11px] font-semibold text-muted-foreground">
+                      Mode of payment
+                      <select
+                        value={manualMode}
+                        onChange={(e) => setManualMode(e.target.value)}
+                        className="erp-input block mt-1 w-full text-xs"
+                        disabled={manualSaving}
+                      >
+                        <option value="Cash">Cash</option>
+                        <option value="UPI">UPI</option>
+                        <option value="Cheque">Cheque</option>
+                        <option value="NEFT/RTGS">NEFT/RTGS</option>
+                        <option value="Bank Transfer">Bank Transfer</option>
+                        <option value="Card">Card</option>
+                      </select>
+                    </label>
+                    <label className="block text-[11px] font-semibold text-muted-foreground">
+                      Bank name {bankNameRequiredForMode ? "*" : "(optional)"}
+                      <input
+                        value={manualBankName}
+                        onChange={(e) => setManualBankName(e.target.value)}
+                        className="erp-input block mt-1 w-full text-xs"
+                        placeholder="Bank name"
+                        disabled={manualSaving}
+                      />
+                    </label>
+                    <label className="block text-[11px] font-semibold text-muted-foreground">
+                      Transaction ID (optional)
+                      <input
+                        value={manualTransactionId}
+                        onChange={(e) => setManualTransactionId(e.target.value)}
+                        className="erp-input block mt-1 w-full text-xs"
+                        placeholder="UTR / reference"
+                        disabled={manualSaving}
+                      />
+                    </label>
+                    <label className="block text-[11px] font-semibold text-muted-foreground">
+                      Cheque number (optional)
+                      <input
+                        value={manualChequeNumber}
+                        onChange={(e) => setManualChequeNumber(e.target.value)}
+                        className="erp-input block mt-1 w-full text-xs"
+                        placeholder="Cheque no."
+                        disabled={manualSaving}
+                      />
+                    </label>
+                    <label className="block text-[11px] font-semibold text-muted-foreground sm:col-span-2">
+                      Remark *
+                      <input
+                        value={manualRemark}
+                        onChange={(e) => setManualRemark(e.target.value)}
+                        className="erp-input block mt-1 w-full text-xs"
+                        placeholder="Reason / notes for manual adjustment"
+                        disabled={manualSaving}
+                      />
+                    </label>
+                  </div>
+                  <div className="px-5 py-3 border-t border-border bg-muted/20 flex justify-end gap-2">
+                    <button
+                      type="button"
+                      className="px-3 py-2 rounded-lg text-xs font-semibold border border-border hover:bg-muted transition-colors"
+                      disabled={manualSaving}
+                      onClick={() => setManualOpen(false)}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      className="px-3 py-2 rounded-lg text-xs font-semibold bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-60"
+                      disabled={manualSaving}
+                      onClick={async () => {
+                        const amt = Number(String(manualAmount).replace(/[^\d.]/g, ""))
+                        if (!(amt > 0)) {
+                          Toast.error("Enter a valid amount")
+                          return
+                        }
+                        if (!String(manualRemark || "").trim()) {
+                          Toast.error("Remark is required")
+                          return
+                        }
+                        if (bankNameRequiredForMode && !String(manualBankName || "").trim()) {
+                          Toast.error("Bank name is required for this mode")
+                          return
+                        }
+
+                        setManualSaving(true)
+                        try {
+                          const resp = await createFarmerPlantLedgerManualEntry({
+                            mobileNumber: customer.mobile,
+                            entryType: manualType,
+                            amount: amt,
+                            modeOfPayment: manualMode,
+                            remark: manualRemark,
+                            bankName: manualBankName,
+                            transactionId: manualTransactionId,
+                            chequeNumber: manualChequeNumber
+                          })
+                          Toast.success(resp?.message || "Manual ledger entry created")
+                          setManualOpen(false)
+                          setManualType("CREDIT")
+                          setManualMode("Cash")
+                          setManualAmount("")
+                          setManualRemark("")
+                          setManualBankName("")
+                          setManualTransactionId("")
+                          setManualChequeNumber("")
+                          if (typeof onRefresh === "function") await onRefresh()
+                        } catch (e) {
+                          Toast.error(e?.response?.data?.message || "Failed to create manual entry")
+                        } finally {
+                          setManualSaving(false)
+                        }
+                      }}
+                    >
+                      {manualSaving ? "Saving…" : "Create entry"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
 
           {orders.length > 0 && (
             <div className="px-5 py-2 border-b border-border bg-muted/30">
@@ -419,7 +799,7 @@ function LegacyLedgerPanel({ ledger, onClose }) {
 export function LedgerPanel({ ledger, onClose }) {
   if (!ledger) return null
   if (ledger.meta?.variant === "farmerPlant") {
-    return <FarmerPlantLedgerModal ledger={ledger} onClose={onClose} />
+    return <FarmerPlantLedgerModal ledger={ledger} onClose={onClose} canTransferAdvance={ledger?.meta?.canTransferAdvance} onRefresh={ledger?.meta?.onRefresh} />
   }
   return <LegacyLedgerPanel ledger={ledger} onClose={onClose} />
 }

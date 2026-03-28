@@ -438,7 +438,10 @@ export const API = {
     POST_BULK_PAYMENT: new APIRouter("/order/bulk-payment", HTTP_METHODS.POST, OFFLINE.PROFILE),
     ACCEPT_BULK_PAYMENT: new APIRouter("/order/bulk-payment/:id/accept", HTTP_METHODS.PATCH, OFFLINE.PROFILE),
     /** Farmer plant orders — append-only ledger (parallel to Ram Agri customer ledger) */
-    GET_FARMER_PLANT_LEDGER: new APIRouter("/order/farmer-plant-ledger", HTTP_METHODS.GET, OFFLINE.PROFILE)
+    GET_FARMER_PLANT_LEDGER: new APIRouter("/order/farmer-plant-ledger", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    TRANSFER_FARMER_PLANT_ADVANCE: new APIRouter("/order/farmer-plant-ledger/transfer-advance", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    SEARCH_FARMERS_FOR_LEDGER_TRANSFER: new APIRouter("/order/farmer-plant-ledger/search-farmers", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    CREATE_FARMER_PLANT_LEDGER_MANUAL_ENTRY: new APIRouter("/order/farmer-plant-ledger/manual-entry", HTTP_METHODS.POST, OFFLINE.PROFILE)
   },
   plantCms: {
     POST_NEWPLANT: new APIRouter("/plantcms/plants", HTTP_METHODS.POST, OFFLINE.PROFILE),

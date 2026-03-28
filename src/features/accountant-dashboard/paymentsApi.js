@@ -125,3 +125,54 @@ export async function fetchFarmerPlantLedger({
   const payload = body?.data !== undefined ? body.data : body
   return mapFarmerPlantLedgerApiToPanel(payload)
 }
+
+export async function transferFarmerPlantAdvance({ fromMobile, toMobile, amount, reason }) {
+  const payload = {
+    fromMobile: fromMobile ? String(fromMobile).replace(/\D/g, "").slice(-10) : undefined,
+    toMobile: toMobile ? String(toMobile).replace(/\D/g, "").slice(-10) : undefined,
+    amount: Number(amount),
+    reason: reason != null && String(reason).trim() ? String(reason).trim() : undefined
+  }
+  const instance = NetworkManager(API.ORDER.TRANSFER_FARMER_PLANT_ADVANCE)
+  const res = await instance.request(payload)
+  return res?.data
+}
+
+export async function searchFarmersForLedgerTransfer({ q, limit = 20 }) {
+  const params = {}
+  if (q != null && String(q).trim()) params.q = String(q).trim()
+  params.limit = Math.min(Math.max(Number(limit) || 20, 1), 50)
+  const instance = NetworkManager(API.ORDER.SEARCH_FARMERS_FOR_LEDGER_TRANSFER)
+  const res = await instance.request({}, params)
+  const payload = res?.data?.data
+  return Array.isArray(payload?.items) ? payload.items : []
+}
+
+export async function createFarmerPlantLedgerManualEntry({
+  farmerId,
+  mobileNumber,
+  entryType,
+  amount,
+  modeOfPayment,
+  remark,
+  bankName,
+  transactionId,
+  chequeNumber,
+  entryDate
+}) {
+  const payload = {
+    farmerId: farmerId || undefined,
+    mobileNumber: mobileNumber ? String(mobileNumber).replace(/\D/g, "").slice(-10) : undefined,
+    entryType,
+    amount: Number(amount),
+    modeOfPayment,
+    remark: remark != null ? String(remark).trim() : "",
+    bankName: bankName ? String(bankName).trim() : undefined,
+    transactionId: transactionId ? String(transactionId).trim() : undefined,
+    chequeNumber: chequeNumber ? String(chequeNumber).trim() : undefined,
+    entryDate: entryDate || undefined
+  }
+  const instance = NetworkManager(API.ORDER.CREATE_FARMER_PLANT_LEDGER_MANUAL_ENTRY)
+  const res = await instance.request(payload)
+  return res?.data
+}

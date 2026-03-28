@@ -287,7 +287,21 @@ const AccountantDashboard = () => {
           startDate,
           endDate
         })
-        if (mapped) setLedgerData(mapped)
+        if (mapped) {
+          // Add transfer helpers for plant ledger UI (kept in meta to avoid changing the ledger shape).
+          const withMeta = {
+            ...mapped,
+            meta: {
+              ...(mapped.meta || {}),
+              canTransferAdvance: hasPaymentAccess,
+              onRefresh: async () => {
+                const m = (customerMobile && String(customerMobile).replace(/\D/g, "")) || ""
+                await fetchLedgerForCustomer(m, customerName, farmerId)
+              }
+            }
+          }
+          setLedgerData(withMeta)
+        }
         else Toast.error("No ledger data for this farmer (check mobile / ID and date range)")
       }
     } catch (e) {

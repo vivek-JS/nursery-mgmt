@@ -57,7 +57,7 @@ export const DashboardMenus = [
   new MenuPath("Order Bucketing", <AccountTreeIcon />, "/u/order-bucketing"),
   new MenuPath("Excel Import", <CloudUploadIcon />, "/u/upload-orders"),
   new MenuPath("Dealers", <ListAltIcon />, "/u/dealers"),
-  new MenuPath("Accountant Dashboard", <AccountBalanceIcon />, "/u/accountant-dashboard", null, ["ACCOUNTANT", "SUPER_ADMIN"]),
+  new MenuPath("Accounting Dashboard", <AccountBalanceIcon />, "/u/accountant-dashboard", null, ["ACCOUNTANT", "SUPER_ADMIN"]),
   new MenuPath("Payments", <PaymentIcon />, "/u/payments", null, ["ACCOUNTANT", "SUPER_ADMIN"]),
   new MenuPath("WhatsApp Management", <WhatsAppIcon />, "/u/whatsapp", ["SUPER_ADMIN"]),
   new MenuPath("WhatsApp Automation", <WhatsAppIcon />, "/u/whatsapp-automation", ["SUPER_ADMIN"]),
