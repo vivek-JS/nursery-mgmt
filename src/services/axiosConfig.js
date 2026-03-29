@@ -38,6 +38,11 @@ axiosInstance.interceptors.request.use(
         // Public endpoint, don't modify
         return config;
       }
+
+      // ICICI EazyPay and other routes mounted outside /api/v1 — keep path as-is
+      if (config.url.startsWith('/api/payments')) {
+        return config;
+      }
       
       // ALWAYS normalize: Remove ALL /api/v1 occurrences first, then add once
       // This ensures idempotency - same input always produces same output

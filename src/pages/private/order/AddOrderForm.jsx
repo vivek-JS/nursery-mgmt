@@ -5,6 +5,7 @@ import {
   Button,
   Typography,
   Box,
+  LinearProgress,
   Card,
   CardContent,
   FormControlLabel,
@@ -32,6 +33,11 @@ import { LocalizationProvider } from "lib/muiLocalizationProvider"
 import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFns"
 import { API, NetworkManager } from "network/core"
 import { Toast } from "helpers/toasts/toastHelper"
+import {
+  extractUpiFromReceiptImageUrl,
+  mergeUpiOcrIntoPaymentState,
+  buildRemarkWithReceiptPayee
+} from "utils/upiReceiptOcr"
 import { useSelector } from "react-redux"
 import { makeStyles } from "tss-react/mui"
 import useDebounce from "hooks/useDebounce"
@@ -368,11 +374,14 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
     paymentDate: moment().format("YYYY-MM-DD"),
     modeOfPayment: "",
     bankName: "",
+    transactionId: "",
     remark: "",
     receiptPhoto: [], // Array of image URLs (uploaded to media endpoint)
+    receiptPayeeName: "",
     paymentStatus: "PENDING", // Default to PENDING, will be updated based on payment type
     isWalletPayment: false
   })
+  const [upiOcrLoading, setUpiOcrLoading] = useState(false)
   const [paymentAccordionExpanded, setPaymentAccordionExpanded] = useState(false)
 
   // ============================================================================
@@ -1582,8 +1591,30 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
         ...prev,
         receiptPhoto: [...(prev.receiptPhoto || []), ...uploadedUrls]
       }))
-      
+
       Toast.success("Images uploaded successfully")
+
+      const firstNew = uploadedUrls[0]
+      if (firstNew && /^https?:\/\//i.test(String(firstNew))) {
+        setUpiOcrLoading(true)
+        try {
+          const ocr = await extractUpiFromReceiptImageUrl(firstNew)
+          if (ocr?.success && ocr?.data) {
+            const d = ocr.data
+            setNewPayment((prev) => mergeUpiOcrIntoPaymentState(prev, d))
+            Toast.success(
+              d.needs_review
+                ? "Receipt scanned — verify payee, amount, UTR"
+                : "Receipt details filled from screenshot"
+            )
+          }
+        } catch (err) {
+          console.warn("UPI OCR:", err)
+          Toast.error(err?.message || "Could not read receipt")
+        } finally {
+          setUpiOcrLoading(false)
+        }
+      }
     } catch (error) {
       console.error("Error uploading images:", error)
       Toast.error("Failed to upload images")
@@ -2255,9 +2286,10 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
             paidAmount: Number(newPayment.paidAmount) || 0,
             paymentDate: newPayment.paymentDate || new Date().toISOString().slice(0, 10),
             bankName: newPayment.bankName || "",
+            transactionId: newPayment.transactionId || "",
             receiptPhoto: Array.isArray(newPayment.receiptPhoto) ? newPayment.receiptPhoto : [],
             modeOfPayment: modeOfPayment || "",
-            remark: newPayment.remark || "",
+            remark: buildRemarkWithReceiptPayee(newPayment.remark, newPayment.receiptPayeeName) || "",
             isWalletPayment: isWalletPayment,
           },
         ]
@@ -2463,8 +2495,10 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
       paymentDate: moment().format("YYYY-MM-DD"),
       modeOfPayment: "",
       bankName: "",
+      transactionId: "",
       remark: "",
       receiptPhoto: [],
+      receiptPayeeName: "",
       paymentStatus: "PENDING", // Default to PENDING, will be updated based on payment type
       isWalletPayment: false
     })
@@ -4264,6 +4298,118 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                 )}
 
                 <Grid container spacing={2}>
+                  <Grid item xs={12}>
+                    <Box sx={{ pb: 2, mb: 1, borderBottom: "1px solid #e0e0e0" }}>
+                      <Typography
+                        variant="subtitle2"
+                        sx={{ mb: 0.75, fontWeight: 600, color: "#2c3e50" }}
+                      >
+                        Payment Receipt Photo
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1.5 }}>
+                        {newPayment.modeOfPayment &&
+                        !["Cash", "NEFT/RTGS", "Wallet"].includes(newPayment.modeOfPayment) &&
+                        !newPayment.isWalletPayment
+                          ? `Required for ${newPayment.modeOfPayment}. `
+                          : "Optional for Cash & NEFT/RTGS. "}
+                        Upload first — we scan the receipt to fill payee, amount, date, and UTR when possible.
+                      </Typography>
+                      <Box sx={{ width: "fit-content", maxWidth: "100%", mb: 2 }}>
+                        {(loading || upiOcrLoading) && (
+                          <LinearProgress sx={{ width: { xs: 220, sm: 280 }, maxWidth: "100%", height: 3, borderRadius: 1, mb: 1 }} />
+                        )}
+                        <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+                        <Button
+                          variant="outlined"
+                          component="label"
+                          size="small"
+                          disabled={loading || upiOcrLoading}
+                          sx={{ display: "inline-flex", alignItems: "center", gap: 0.75 }}
+                        >
+                          {(loading || upiOcrLoading) ? <CircularProgress size={16} color="inherit" /> : <UploadIcon />}
+                          {upiOcrLoading ? "Reading receipt…" : loading ? "Uploading…" : "Upload receipt"}
+                          <input
+                            type="file"
+                            hidden
+                            accept="image/*"
+                            multiple
+                            onChange={handlePaymentImageUpload}
+                          />
+                        </Button>
+                        {(loading || upiOcrLoading) && (
+                          <Typography variant="caption" color="text.secondary">Wait for scan to finish</Typography>
+                        )}
+                        </Box>
+                      </Box>
+                      <Box sx={{ mb: 1 }}>
+                        {newPayment.modeOfPayment &&
+                          newPayment.modeOfPayment !== "Cash" &&
+                          newPayment.modeOfPayment !== "NEFT/RTGS" &&
+                          !newPayment.isWalletPayment && (
+                          <Typography variant="caption" color="error" sx={{ ml: 2, display: "inline-block" }}>
+                            {newPayment.modeOfPayment === "UPI" || newPayment.modeOfPayment === "Cheque"
+                              ? "Receipt photo is mandatory for UPI and Cheque."
+                              : `Payment image is mandatory for ${newPayment.modeOfPayment} payments`}
+                          </Typography>
+                        )}
+                      </Box>
+                      {newPayment.receiptPhoto && newPayment.receiptPhoto.length > 0 && (
+                        <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, mt: 2 }}>
+                          {newPayment.receiptPhoto.map((photo, index) => (
+                            <Box
+                              key={index}
+                              sx={{
+                                position: 'relative',
+                                display: 'inline-block',
+                                border: '2px solid #e0e0e0',
+                                borderRadius: 2,
+                                overflow: 'hidden'
+                              }}
+                            >
+                              <img
+                                src={photo}
+                                alt={`Receipt ${index + 1}`}
+                                style={{
+                                  width: 120,
+                                  height: 120,
+                                  objectFit: 'cover',
+                                  display: 'block'
+                                }}
+                              />
+                              <IconButton
+                                onClick={() => removePaymentImage(index)}
+                                sx={{
+                                  position: 'absolute',
+                                  top: 4,
+                                  right: 4,
+                                  backgroundColor: 'rgba(244, 67, 54, 0.8)',
+                                  color: 'white',
+                                  width: 24,
+                                  height: 24,
+                                  '&:hover': {
+                                    backgroundColor: 'rgba(244, 67, 54, 1)'
+                                  }
+                                }}
+                                size="small"
+                              >
+                                <DeleteIcon fontSize="small" />
+                              </IconButton>
+                            </Box>
+                          ))}
+                        </Box>
+                      )}
+                    </Box>
+                  </Grid>
+                  <Grid item xs={12}>
+                    <TextField
+                      fullWidth
+                      label="Payee name (from receipt)"
+                      value={newPayment.receiptPayeeName || ""}
+                      onChange={(e) => handlePaymentInputChange("receiptPayeeName", e.target.value)}
+                      placeholder="Filled when you upload a UPI receipt"
+                      size="small"
+                    />
+                  </Grid>
                   <Grid item xs={12} md={6}>
                     <TextField
                       fullWidth
@@ -4334,6 +4480,16 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                   <Grid item xs={12}>
                     <TextField
                       fullWidth
+                      label="Transaction / UTR (optional)"
+                      value={newPayment.transactionId}
+                      onChange={(e) => handlePaymentInputChange("transactionId", e.target.value)}
+                      placeholder="UPI ref / bank txn id — optional"
+                      size="small"
+                    />
+                  </Grid>
+                  <Grid item xs={12}>
+                    <TextField
+                      fullWidth
                       label="Remark"
                       value={newPayment.remark}
                       onChange={(e) => handlePaymentInputChange("remark", e.target.value)}
@@ -4342,90 +4498,6 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                       multiline
                       rows={2}
                     />
-                  </Grid>
-
-                  {/* Payment Image Upload - Multiple images support */}
-                  <Grid item xs={12}>
-                    <Box sx={{ mt: 2 }}>
-                      <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600, color: "#2c3e50" }}>
-                        Payment Receipt Photo {newPayment.modeOfPayment && newPayment.modeOfPayment !== "Cash" && newPayment.modeOfPayment !== "NEFT/RTGS" ? "(Required)" : "(Optional)"}
-                      </Typography>
-                      
-                      <Box sx={{ mb: 2 }}>
-                        <Button
-                          variant="outlined"
-                          component="label"
-                          startIcon={<UploadIcon />}
-                          size="small"
-                          disabled={loading}
-                        >
-                          {loading ? "Uploading..." : "Upload Images"}
-                          <input
-                            type="file"
-                            hidden
-                            accept="image/*"
-                            multiple
-                            onChange={handlePaymentImageUpload}
-                          />
-                        </Button>
-                        {newPayment.modeOfPayment && newPayment.modeOfPayment !== "Cash" && newPayment.modeOfPayment !== "NEFT/RTGS" && (
-                          <Typography variant="caption" color="error" sx={{ ml: 2, display: 'inline-block' }}>
-                            Payment image is mandatory for {newPayment.modeOfPayment} payments
-                          </Typography>
-                        )}
-                      </Box>
-
-                      {/* Show preview of uploaded images */}
-                      {newPayment.receiptPhoto && newPayment.receiptPhoto.length > 0 && (
-                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mt: 2 }}>
-                          {newPayment.receiptPhoto.map((photo, index) => (
-                            <Box
-                              key={index}
-                              sx={{
-                                position: 'relative',
-                                display: 'inline-block',
-                                border: '2px solid #e0e0e0',
-                                borderRadius: 2,
-                                overflow: 'hidden'
-                              }}
-                            >
-                              <img
-                                src={photo}
-                                alt={`Receipt ${index + 1}`}
-                                style={{
-                                  width: 120,
-                                  height: 120,
-                                  objectFit: 'cover',
-                                  display: 'block'
-                                }}
-                              />
-                              <IconButton
-                                onClick={() => removePaymentImage(index)}
-                                sx={{
-                                  position: 'absolute',
-                                  top: 4,
-                                  right: 4,
-                                  backgroundColor: 'rgba(244, 67, 54, 0.8)',
-                                  color: 'white',
-                                  width: 24,
-                                  height: 24,
-                                  '&:hover': {
-                                    backgroundColor: 'rgba(244, 67, 54, 1)'
-                                  }
-                                }}
-                                size="small"
-                              >
-                                <DeleteIcon fontSize="small" />
-                              </IconButton>
-                            </Box>
-                          ))}
-                        </Box>
-                      )}
-                      
-                      <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-                        Upload payment confirmation screenshots or photos. You can upload multiple images.
-                      </Typography>
-                    </Box>
                   </Grid>
                 </Grid>
                 </AccordionDetails>

@@ -1,12 +1,42 @@
 // List all endpoints here
 import { OFFLINE } from "network/offline"
 import { HTTP_METHODS, APIRouter, APIWithOfflineRouter, APICustomRouter } from "../core/httpHelper"
+import { APIConfig } from "./serverConfig"
+
+/** Host only (no /api/v1) — backend mounts `/api/payments/*` at server root. */
+const PAYMENTS_API_HOST =
+  String(APIConfig.BASE_URL || "http://localhost:8000")
+    .replace(/\/api\/v1\/?$/, "")
+    .replace(/\/$/, "") || "http://localhost:8000"
 
 // ******************
 // Endpoint class takes 3 params in constructor ==> "endpoint", "http-method", "API-version"
 // By default, version is set to v2
 // ******************
 export const API = {
+  /** ERP bank reconciliation + ICICI statement (mounted at `/api/payments`, not under `/api/v1`). */
+  PAYMENTS: {
+    POST_ICICI_BANK_STATEMENT: new APICustomRouter(
+      PAYMENTS_API_HOST,
+      "/api/payments/icici/bank-statement",
+      HTTP_METHODS.POST
+    ),
+    GET_ICICI_STATUS: new APICustomRouter(PAYMENTS_API_HOST, "/api/payments/icici/status", HTTP_METHODS.GET),
+    POST_RECONCILE: new APICustomRouter(PAYMENTS_API_HOST, "/api/payments/reconcile", HTTP_METHODS.POST),
+    GET_RECONCILIATION_UNVERIFIED: new APICustomRouter(
+      PAYMENTS_API_HOST,
+      "/api/payments/reconciliation/unverified",
+      HTTP_METHODS.GET
+    ),
+    GET_RECONCILIATION_FOR_APPROVAL: new APICustomRouter(
+      PAYMENTS_API_HOST,
+      "/api/payments/reconciliation/for-approval",
+      HTTP_METHODS.GET
+    ),
+    /** Legacy hospital/v2 payments list (different from ERP ICICI routes above). */
+    GET_PAYMENTS: new APIRouter("api/v2/other/getPayments", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_PAYMENTS_CSV: new APIRouter("api/v2/other/getCSV", HTTP_METHODS.GET, OFFLINE.PROFILE),
+  },
   AUTH: {
     // if you want to return offline json if api fails
     LOGIN: new APIWithOfflineRouter("/user/login", HTTP_METHODS.POST, OFFLINE.LOGIN),
@@ -105,10 +135,6 @@ export const API = {
       HTTP_METHODS.GET,
       OFFLINE.PROFILE
     )
-  },
-  PAYMENTS: {
-    GET_PAYMENTS: new APIRouter("api/v2/other/getPayments", HTTP_METHODS.GET, OFFLINE.PROFILE),
-    GET_PAYMENTS_CSV: new APIRouter("api/v2/other/getCSV", HTTP_METHODS.GET, OFFLINE.PROFILE)
   },
   INVOICE: {
     GET_INVOICE: new APIRouter("api/v2/other/getInvoice", HTTP_METHODS.GET, OFFLINE.PROFILE)
@@ -294,6 +320,19 @@ export const API = {
     SAVE_RAM_AGRI_SALES_TARGET: new APIRouter("/inventory/ram-agri-sales-targets", HTTP_METHODS.POST),
     GET_RAM_AGRI_VARIETY_LEDGER: new APIRouter("/inventory/ram-agri-variety-ledger", HTTP_METHODS.GET),
     GET_RAM_AGRI_CUSTOMER_LEDGER: new APIRouter("/inventory/ram-agri-customer-ledger", HTTP_METHODS.GET),
+    SEARCH_RAM_AGRI_CUSTOMERS_FOR_LEDGER: new APIRouter(
+      "/inventory/ram-agri-customer-ledger/search-customers",
+      HTTP_METHODS.GET
+    ),
+    TRANSFER_RAM_AGRI_CUSTOMER_ADVANCE: new APIRouter(
+      "/inventory/ram-agri-customer-ledger/transfer-advance",
+      HTTP_METHODS.POST
+    ),
+    CREATE_RAM_AGRI_CUSTOMER_LEDGER_MANUAL_ENTRY: new APIRouter(
+      "/inventory/ram-agri-customer-ledger/manual-entry",
+      HTTP_METHODS.POST
+    ),
+    GET_RAM_AGRI_LEDGER_PARTIES: new APIRouter("/inventory/ram-agri-customer-ledger/parties", HTTP_METHODS.GET),
     GET_RAM_AGRI_MERCHANT_LEDGER: new APIRouter("/inventory/ram-agri-merchant-ledger", HTTP_METHODS.GET),
     GET_RAM_AGRI_VIDEO_SUMMARY: new APIRouter("/inventory/ram-agri-video-summary", HTTP_METHODS.GET),
 
@@ -438,7 +477,8 @@ export const API = {
     GET_FARMER_PLANT_LEDGER: new APIRouter("/order/farmer-plant-ledger", HTTP_METHODS.GET, OFFLINE.PROFILE),
     TRANSFER_FARMER_PLANT_ADVANCE: new APIRouter("/order/farmer-plant-ledger/transfer-advance", HTTP_METHODS.POST, OFFLINE.PROFILE),
     SEARCH_FARMERS_FOR_LEDGER_TRANSFER: new APIRouter("/order/farmer-plant-ledger/search-farmers", HTTP_METHODS.GET, OFFLINE.PROFILE),
-    CREATE_FARMER_PLANT_LEDGER_MANUAL_ENTRY: new APIRouter("/order/farmer-plant-ledger/manual-entry", HTTP_METHODS.POST, OFFLINE.PROFILE)
+    CREATE_FARMER_PLANT_LEDGER_MANUAL_ENTRY: new APIRouter("/order/farmer-plant-ledger/manual-entry", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    GET_FARMER_PLANT_LEDGER_PARTIES: new APIRouter("/order/farmer-plant-ledger/parties", HTTP_METHODS.GET, OFFLINE.PROFILE)
   },
   plantCms: {
     POST_NEWPLANT: new APIRouter("/plantcms/plants", HTTP_METHODS.POST, OFFLINE.PROFILE),
@@ -627,8 +667,8 @@ export const API = {
     GET_INVALID_PHONE_FARMERS: new APIRouter("farmer/invalid-phones", HTTP_METHODS.GET),
     UPDATE_FARMER_PHONE: new APIRouter("farmer", HTTP_METHODS.PUT),
     CREATE_WHATSAPP_HISTORY: new APIRouter("farmer/whatsapp-history", HTTP_METHODS.POST),
-    GET_FARMER_BY_ID: new APIRouter("farmer/get", HTTP_METHODS.GET),
-    GET_FARMER_ORDERS: new APIRouter("farmer/farmers", HTTP_METHODS.GET),
+    GET_FARMER_BY_ID: new APIRouter("farmer/get/:id", HTTP_METHODS.GET),
+    GET_FARMER_ORDERS: new APIRouter("farmer/farmers/:farmerId/orders", HTTP_METHODS.GET),
   },
   FARMER_LIST: {
     GET_ALL_LISTS: new APIRouter("farmer-list", HTTP_METHODS.GET),

@@ -30,18 +30,25 @@ import {
   Divider,
   Stack,
   Tabs,
-  Tab
+  Tab,
+  TablePagination,
+  Tooltip
 } from "@mui/material"
-import { Pencil, Plus, Loader, User, MapPin, Calendar, Search, FilterX, List, CheckCircle, Users, UserPlus, Link2 } from "lucide-react"
+import { Pencil, Plus, Loader, User, MapPin, Calendar, Search, FilterX, List, CheckCircle, Users, UserPlus, Link2, Landmark } from "lucide-react"
 import { API, NetworkManager } from "network/core"
 import LocationSelector from "components/LocationSelector"
+import { LedgerPanel } from "features/accountant-dashboard/LedgerPanel"
+import { fetchFarmerPlantLedger, normalizeFarmerIdForLedger } from "features/accountant-dashboard/paymentsApi"
+import { useHasPaymentAccess, useHasPaymentsAccess } from "utils/roleUtils"
+import { Toast } from "helpers/toasts/toastHelper"
 
 const FarmerComponent = () => {
   const theme = useTheme()
   const navigate = useNavigate()
+  const hasLedgerUi = useHasPaymentsAccess()
+  const hasPaymentAccess = useHasPaymentAccess()
   const [activeTab, setActiveTab] = useState(0)
   const [farmers, setFarmers] = useState([])
-  const [filteredFarmers, setFilteredFarmers] = useState([])
   const [leads, setLeads] = useState([])
   const [farmerFormLeads, setFarmerFormLeads] = useState([])
   const [publicLinks, setPublicLinks] = useState([])
@@ -49,7 +56,10 @@ const FarmerComponent = () => {
   const [loading, setLoading] = useState(false)
   const [isOpen, setIsOpen] = useState(false)
   const [editingFarmer, setEditingFarmer] = useState(null)
-  const [searchTerm, setSearchTerm] = useState("")
+  /** Immediate value in the search field */
+  const [searchInput, setSearchInput] = useState("")
+  /** Debounced value used for API calls (reduces load while typing) */
+  const [debouncedSearch, setDebouncedSearch] = useState("")
   const [filters, setFilters] = useState({
     district: "",
     taluka: "",
@@ -90,22 +100,46 @@ const FarmerComponent = () => {
   const [listLoading, setListLoading] = useState(false)
   const [listError, setListError] = useState(null)
 
+  const [ledgerData, setLedgerData] = useState(null)
+  const [loadingLedger, setLoadingLedger] = useState(false)
+
+  const [farmerPage, setFarmerPage] = useState(1)
+  const [farmerRowsPerPage, setFarmerRowsPerPage] = useState(25)
+  const [farmerTotal, setFarmerTotal] = useState(0)
+
+  const [leadsPage, setLeadsPage] = useState(1)
+  const [leadsRowsPerPage, setLeadsRowsPerPage] = useState(25)
+  const [leadsTotal, setLeadsTotal] = useState(0)
+
+  const [formPage, setFormPage] = useState(1)
+  const [formRowsPerPage, setFormRowsPerPage] = useState(25)
+  const [formTotal, setFormTotal] = useState(0)
+
   const getFarmers = async () => {
     setLoading(true)
     try {
       const instance = NetworkManager(API.FARMER.GET_FARMERS)
-      const params = {}
-      if (filters.district) params.districtName = filters.district
-      if (filters.taluka) params.talukaName = filters.taluka
-      if (filters.village) params.village = filters.village
-      if (filters.opt_in === "true") params.opt_in = true
-      if (filters.opt_in === "false") params.opt_in = false
-      const response = await instance.request({}, params)
-      if (response.data?.data) {
-        const data = response.data.data
-        const farmersData = Array.isArray(data) ? data : data.farmers || []
-        setFarmers(farmersData)
+      const baseParams = { page: farmerPage, limit: farmerRowsPerPage }
+      if (filters.stateName) baseParams.stateName = filters.stateName
+      if (filters.district) baseParams.districtName = filters.district
+      if (filters.taluka) baseParams.talukaName = filters.taluka
+      if (filters.village) baseParams.village = filters.village
+      if (filters.opt_in === "true") baseParams.opt_in = true
+      if (filters.opt_in === "false") baseParams.opt_in = false
+      if (debouncedSearch) baseParams.q = debouncedSearch
+
+      const response = await instance.request({}, baseParams)
+      const data = response.data?.data
+      if (!data) {
+        setFarmers([])
+        setFarmerTotal(0)
+        return
       }
+
+      const batch = Array.isArray(data) ? data : data.farmers || []
+      const pagination = Array.isArray(data) ? null : data.pagination
+      setFarmers(batch)
+      setFarmerTotal(pagination?.total ?? batch.length)
     } catch (error) {
       console.error("Error fetching farmers:", error)
     } finally {
@@ -119,10 +153,10 @@ const FarmerComponent = () => {
       const instance = NetworkManager(API.CALL_ASSIGNMENT.GET_COMBINED)
       const params = {
         source: "lead",
-        page: 1,
-        limit: 500,
+        page: leadsPage,
+        limit: leadsRowsPerPage,
         includeAll: "true",
-        search: searchTerm,
+        search: debouncedSearch,
         district: filters.district,
         taluka: filters.taluka,
         village: filters.village,
@@ -133,6 +167,7 @@ const FarmerComponent = () => {
       const res = await instance.request({}, params)
       const d = res?.data?.data ?? res?.data
       setLeads(d?.items ?? [])
+      setLeadsTotal(typeof d?.total === "number" ? d.total : d?.items?.length ?? 0)
     } catch (e) {
       console.error(e)
     } finally {
@@ -146,10 +181,10 @@ const FarmerComponent = () => {
       const instance = NetworkManager(API.CALL_ASSIGNMENT.GET_COMBINED)
       const params = {
         source: "farmerForm",
-        page: 1,
-        limit: 500,
+        page: formPage,
+        limit: formRowsPerPage,
         includeAll: "true",
-        search: searchTerm,
+        search: debouncedSearch,
         district: filters.district,
         taluka: filters.taluka,
         village: filters.village,
@@ -161,6 +196,7 @@ const FarmerComponent = () => {
       const res = await instance.request({}, params)
       const d = res?.data?.data ?? res?.data
       setFarmerFormLeads(d?.items ?? [])
+      setFormTotal(typeof d?.total === "number" ? d.total : d?.items?.length ?? 0)
     } catch (e) {
       console.error(e)
     } finally {
@@ -186,6 +222,27 @@ const FarmerComponent = () => {
     }
   }
 
+  /** Farmers tab: cascading dropdowns from Farmer collection */
+  const loadFarmerFilterOptions = async () => {
+    try {
+      const instance = NetworkManager(API.FARMER.GET_FILTER_OPTIONS)
+      const params = {}
+      if (filters.stateName) params.stateName = filters.stateName
+      if (filters.district) params.district = filters.district
+      if (filters.taluka) params.taluka = filters.taluka
+      const res = await instance.request({}, params)
+      const d = res?.data?.data ?? res?.data
+      setFilterOptions({
+        states: d?.states ?? [],
+        districts: d?.districts ?? [],
+        talukas: d?.talukas ?? [],
+        villages: d?.villages ?? [],
+      })
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
   const fetchPublicLinks = async () => {
     try {
       const instance = NetworkManager(API.PUBLIC_LINKS.GET_LINKS)
@@ -198,25 +255,50 @@ const FarmerComponent = () => {
   }
 
   useEffect(() => {
-    getFarmers()
     fetchFarmerLists()
-    fetchFilterOptions("farmer")
     fetchPublicLinks()
   }, [])
 
   useEffect(() => {
-    const src = activeTab === 0 ? "farmer" : activeTab === 1 ? "lead" : "farmerForm"
+    const t = setTimeout(() => setDebouncedSearch(searchInput.trim()), 400)
+    return () => clearTimeout(t)
+  }, [searchInput])
+
+  useEffect(() => {
+    if (activeTab !== 0) return
+    loadFarmerFilterOptions()
+  }, [activeTab, filters.stateName, filters.district, filters.taluka])
+
+  useEffect(() => {
+    if (activeTab !== 1 && activeTab !== 2) return
+    const src = activeTab === 1 ? "lead" : "farmerForm"
     fetchFilterOptions(src)
   }, [activeTab, selectedLinkId])
 
   useEffect(() => {
-    const t = setTimeout(() => {
-      if (activeTab === 0) getFarmers()
-      else if (activeTab === 1) fetchLeadsData()
-      else if (activeTab === 2 && selectedLinkId) fetchFarmerFormData()
-    }, 300)
-    return () => clearTimeout(t)
-  }, [filters, searchTerm, activeTab, selectedLinkId])
+    setFarmerPage(1)
+    setLeadsPage(1)
+    setFormPage(1)
+  }, [debouncedSearch, filters])
+
+  useEffect(() => {
+    setFormPage(1)
+  }, [selectedLinkId])
+
+  useEffect(() => {
+    if (activeTab !== 0) return
+    getFarmers()
+  }, [debouncedSearch, filters, activeTab, farmerPage, farmerRowsPerPage])
+
+  useEffect(() => {
+    if (activeTab !== 1) return
+    fetchLeadsData()
+  }, [debouncedSearch, filters, activeTab, leadsPage, leadsRowsPerPage])
+
+  useEffect(() => {
+    if (activeTab !== 2) return
+    fetchFarmerFormData()
+  }, [debouncedSearch, filters, activeTab, selectedLinkId, formPage, formRowsPerPage])
 
   const fetchFarmerLists = async () => {
     try {
@@ -230,25 +312,26 @@ const FarmerComponent = () => {
     }
   }
 
-  // Client-side search for farmers tab only
-  useEffect(() => {
-    if (activeTab !== 0) return
-    let result = [...farmers]
-    if (searchTerm) {
-      result = result.filter((f) =>
-        String(f.name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
-        String(f.mobileNumber || "").includes(searchTerm)
-      )
-    }
-    setFilteredFarmers(result)
-  }, [farmers, searchTerm, activeTab])
-
   const handleFilterChange = (key, value) => {
-    setFilters((prev) => ({ ...prev, [key]: value }))
+    setFilters((prev) => {
+      const next = { ...prev, [key]: value }
+      if (key === "stateName") {
+        next.district = ""
+        next.taluka = ""
+        next.village = ""
+      } else if (key === "district") {
+        next.taluka = ""
+        next.village = ""
+      } else if (key === "taluka") {
+        next.village = ""
+      }
+      return next
+    })
   }
 
   const clearFilters = () => {
-    setSearchTerm("")
+    setSearchInput("")
+    setDebouncedSearch("")
     setFilters({
       district: "",
       taluka: "",
@@ -267,7 +350,11 @@ const FarmerComponent = () => {
     setSelectedLinkId(e.target.value)
   }
 
-  const displayItems = activeTab === 0 ? filteredFarmers : activeTab === 1 ? leads : farmerFormLeads
+  const displayItems = activeTab === 0 ? farmers : activeTab === 1 ? leads : farmerFormLeads
+
+  const hasActiveFilters =
+    Boolean(debouncedSearch) ||
+    Boolean(filters.district || filters.taluka || filters.village || filters.stateName || filters.opt_in)
 
   const handleInputChange = (e) => {
     const { name, value } = e.target
@@ -429,6 +516,40 @@ const FarmerComponent = () => {
     }
   }
 
+  const openPlantLedgerForRow = async (row) => {
+    setLoadingLedger(true)
+    try {
+      const endDate = new Date()
+      const startDate = new Date()
+      startDate.setDate(endDate.getDate() - 15)
+      const fid = normalizeFarmerIdForLedger(row._id || row.id)
+      const mobile = String(row.mobileNumber ?? "").replace(/\D/g, "")
+      const mapped = await fetchFarmerPlantLedger({
+        farmerId: fid,
+        customerMobile: mobile.length >= 10 ? mobile.slice(-10) : undefined,
+        startDate,
+        endDate
+      })
+      if (mapped) {
+        setLedgerData({
+          ...mapped,
+          meta: {
+            ...(mapped.meta || {}),
+            canTransferAdvance: hasPaymentAccess,
+            onRefresh: () => openPlantLedgerForRow(row)
+          }
+        })
+      } else {
+        Toast.error("No ledger data for this farmer")
+      }
+    } catch (e) {
+      console.error(e)
+      Toast.error("Failed to load plant ledger")
+    } finally {
+      setLoadingLedger(false)
+    }
+  }
+
   const cardStyle = {
     backgroundColor: theme.palette.background.paper,
     boxShadow: "0 4px 6px rgba(0,0,0,0.07)",
@@ -483,9 +604,9 @@ const FarmerComponent = () => {
 
           {/* Tabs */}
           <Tabs value={activeTab} onChange={handleTabChange} sx={{ borderBottom: 1, borderColor: "divider", mb: 2 }}>
-            <Tab icon={<Users size={18} />} iconPosition="start" label={`Farmers (${farmers.length})`} sx={{ textTransform: "none", fontWeight: 600 }} />
-            <Tab icon={<UserPlus size={18} />} iconPosition="start" label={`Leads (${leads.length})`} sx={{ textTransform: "none", fontWeight: 600 }} />
-            <Tab icon={<Link2 size={18} />} iconPosition="start" label={`Farmer form (${farmerFormLeads.length})`} sx={{ textTransform: "none", fontWeight: 600 }} />
+            <Tab icon={<Users size={18} />} iconPosition="start" label={`Farmers (${farmerTotal})`} sx={{ textTransform: "none", fontWeight: 600 }} />
+            <Tab icon={<UserPlus size={18} />} iconPosition="start" label={`Leads (${leadsTotal})`} sx={{ textTransform: "none", fontWeight: 600 }} />
+            <Tab icon={<Link2 size={18} />} iconPosition="start" label={`Farmer form (${formTotal})`} sx={{ textTransform: "none", fontWeight: 600 }} />
           </Tabs>
 
           {activeTab === 2 && (
@@ -504,8 +625,8 @@ const FarmerComponent = () => {
           <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
             <TextField
               placeholder="Search by name/phone..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
               sx={{ minWidth: "250px", flex: 1 }}
               InputProps={{
                 startAdornment: (
@@ -716,14 +837,31 @@ const FarmerComponent = () => {
                       </TableCell>
                       {activeTab === 0 && (
                         <TableCell onClick={(e) => e.stopPropagation()}>
-                          <IconButton
-                            onClick={() => handleEdit(row)}
-                            sx={{
-                              color: theme.palette.primary.main,
-                              "&:hover": { backgroundColor: `${theme.palette.primary.main}10` }
-                            }}>
-                            <Pencil size={18} />
-                          </IconButton>
+                          <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                            {hasLedgerUi && (
+                              <Tooltip title="Plant ledger">
+                                <IconButton
+                                  onClick={() => openPlantLedgerForRow(row)}
+                                  disabled={loadingLedger}
+                                  size="small"
+                                  sx={{
+                                    color: theme.palette.success.main,
+                                    "&:hover": { backgroundColor: `${theme.palette.success.main}14` }
+                                  }}
+                                >
+                                  <Landmark size={18} />
+                                </IconButton>
+                              </Tooltip>
+                            )}
+                            <IconButton
+                              onClick={() => handleEdit(row)}
+                              sx={{
+                                color: theme.palette.primary.main,
+                                "&:hover": { backgroundColor: `${theme.palette.primary.main}10` }
+                              }}>
+                              <Pencil size={18} />
+                            </IconButton>
+                          </Box>
                         </TableCell>
                       )}
                     </TableRow>
@@ -742,12 +880,18 @@ const FarmerComponent = () => {
                         }}>
                         <User size={48} strokeWidth={1} />
                         <Typography variant="body1" color="textSecondary">
-                          {activeTab === 0 && farmers.length === 0
-                            ? "No farmers found. Add your first farmer to get started!"
-                            : activeTab === 1
-                            ? "No leads found"
-                            : activeTab === 2
-                            ? "No farmer form leads found"
+                          {activeTab === 0 && !loading && farmerTotal === 0
+                            ? hasActiveFilters
+                              ? "No farmers match the selected filters or search."
+                              : "No farmers found. Add your first farmer to get started!"
+                            : activeTab === 1 && !loading && leadsTotal === 0
+                            ? hasActiveFilters
+                              ? "No leads match the selected filters or search."
+                              : "No leads found"
+                            : activeTab === 2 && !loading && formTotal === 0
+                            ? hasActiveFilters
+                              ? "No farmer form leads match the selected filters or search."
+                              : "No farmer form leads found"
                             : "No data matches the selected filters"}
                         </Typography>
                       </Box>
@@ -757,6 +901,33 @@ const FarmerComponent = () => {
               </TableBody>
             </Table>
           </TableContainer>
+          <TablePagination
+            component="div"
+            count={activeTab === 0 ? farmerTotal : activeTab === 1 ? leadsTotal : formTotal}
+            page={(activeTab === 0 ? farmerPage : activeTab === 1 ? leadsPage : formPage) - 1}
+            onPageChange={(_, newPage) => {
+              const p = newPage + 1
+              if (activeTab === 0) setFarmerPage(p)
+              else if (activeTab === 1) setLeadsPage(p)
+              else setFormPage(p)
+            }}
+            rowsPerPage={activeTab === 0 ? farmerRowsPerPage : activeTab === 1 ? leadsRowsPerPage : formRowsPerPage}
+            onRowsPerPageChange={(e) => {
+              const n = parseInt(e.target.value, 10)
+              if (activeTab === 0) {
+                setFarmerRowsPerPage(n)
+                setFarmerPage(1)
+              } else if (activeTab === 1) {
+                setLeadsRowsPerPage(n)
+                setLeadsPage(1)
+              } else {
+                setFormRowsPerPage(n)
+                setFormPage(1)
+              }
+            }}
+            rowsPerPageOptions={[10, 25, 50, 100]}
+            disabled={loading}
+          />
         </Card>
       )}
 

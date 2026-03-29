@@ -26,10 +26,20 @@ const fmtPlain = (n) => `₹${(Number(n) || 0).toLocaleString("en-IN")}`
 const fmtDate = (d) =>
   d ? new Date(d).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—"
 
-/** Centered modal — farmer plant nursery ledger */
+const defaultLedgerApis = {
+  searchTargets: searchFarmersForLedgerTransfer,
+  transferAdvance: transferFarmerPlantAdvance,
+  createManualEntry: createFarmerPlantLedgerManualEntry
+}
+
+/** Centered modal — farmer plant nursery ledger (also Ram Agri when meta.ledgerApis is set) */
 function FarmerPlantLedgerModal({ ledger, onClose, canTransferAdvance, onRefresh }) {
   const { customer, summary, entries, meta } = ledger
   const orders = meta?.orders || []
+  const ledgerApis = meta?.ledgerApis || defaultLedgerApis
+  const ledgerTitle = meta?.ledgerTitle || "Farmer plant ledger"
+  const partyWord = meta?.partyWord || "farmer"
+  const transferSearchLabel = meta?.transferSearchLabel || `Search ${partyWord} (name/mobile)`
   const [transferOpen, setTransferOpen] = React.useState(false)
   const [manualOpen, setManualOpen] = React.useState(false)
   const [searchText, setSearchText] = React.useState("")
@@ -72,7 +82,7 @@ function FarmerPlantLedgerModal({ ledger, onClose, canTransferAdvance, onRefresh
     setSearchLoading(true)
     const timer = setTimeout(async () => {
       try {
-        const rows = await searchFarmersForLedgerTransfer({ q, limit: 12 })
+        const rows = await ledgerApis.searchTargets({ q, limit: 12 })
         if (!cancelled) setSearchResults(rows || [])
       } catch (_) {
         if (!cancelled) setSearchResults([])
@@ -137,7 +147,7 @@ function FarmerPlantLedgerModal({ ledger, onClose, canTransferAdvance, onRefresh
                 </div>
                 <div className="min-w-0">
                   <p className="text-[11px] font-semibold uppercase tracking-wider text-emerald-200/90">
-                    Farmer plant ledger
+                    {ledgerTitle}
                   </p>
                   <h2 id="ledger-title" className="text-xl font-bold tracking-tight truncate">
                     {customer.name || "Farmer"}
@@ -221,12 +231,12 @@ function FarmerPlantLedgerModal({ ledger, onClose, canTransferAdvance, onRefresh
                   <div className="px-5 py-4 border-b border-border bg-muted/30">
                     <div className="text-sm font-semibold text-foreground">Transfer advance</div>
                     <div className="text-[11px] text-muted-foreground mt-0.5">
-                      From {customer.name || "farmer"} ({customer.mobile}) · Available ₹{availableAdvance.toLocaleString("en-IN")}
+                      From {customer.name || partyWord} ({customer.mobile}) · Available ₹{availableAdvance.toLocaleString("en-IN")}
                     </div>
                   </div>
                   <div className="px-5 py-4 space-y-3">
                     <label className="block text-[11px] font-semibold text-muted-foreground">
-                      Search farmer (name/mobile)
+                      {transferSearchLabel}
                       <input
                         value={searchText}
                         onChange={(e) => setSearchText(e.target.value)}
@@ -251,7 +261,7 @@ function FarmerPlantLedgerModal({ ledger, onClose, canTransferAdvance, onRefresh
                                 isActive && "bg-muted"
                               )}
                             >
-                              <div className="font-semibold">{f.name || "Farmer"} · {f.mobileNumber || "—"}</div>
+                              <div className="font-semibold">{f.name || partyWord} · {f.mobileNumber || "—"}</div>
                               <div className="text-muted-foreground">
                                 {[f.village, f.taluka, f.district].filter(Boolean).join(", ") || "—"}
                               </div>
@@ -261,7 +271,7 @@ function FarmerPlantLedgerModal({ ledger, onClose, canTransferAdvance, onRefresh
                       </div>
                     ) : (
                       <div className="text-[11px] text-muted-foreground">
-                        Search by farmer name or mobile number.
+                        Search by name or mobile number.
                       </div>
                     )}
                     {selectedTarget && (
@@ -310,7 +320,7 @@ function FarmerPlantLedgerModal({ ledger, onClose, canTransferAdvance, onRefresh
                           ? String(selectedTarget.mobileNumber).replace(/\D/g, "")
                           : ""
                         if (!tm || tm.length < 10) {
-                          Toast.error("Select a valid target farmer")
+                          Toast.error(`Select a valid target ${partyWord}`)
                           return
                         }
                         if (!(amt > 0)) {
@@ -319,7 +329,7 @@ function FarmerPlantLedgerModal({ ledger, onClose, canTransferAdvance, onRefresh
                         }
                         setSaving(true)
                         try {
-                          const resp = await transferFarmerPlantAdvance({
+                          const resp = await ledgerApis.transferAdvance({
                             fromMobile: customer.mobile,
                             toMobile: tm.slice(-10),
                             amount: amt,
@@ -363,7 +373,7 @@ function FarmerPlantLedgerModal({ ledger, onClose, canTransferAdvance, onRefresh
                   <div className="px-5 py-4 border-b border-border bg-muted/30">
                     <div className="text-sm font-semibold text-foreground">Manual ledger entry</div>
                     <div className="text-[11px] text-muted-foreground mt-0.5">
-                      For {customer.name || "farmer"} ({customer.mobile})
+                      For {customer.name || partyWord} ({customer.mobile})
                     </div>
                   </div>
                   <div className="px-5 py-3 border-b border-amber-300/40 bg-amber-100/40 dark:bg-amber-900/20 text-[11px] text-amber-900 dark:text-amber-100">
@@ -479,7 +489,7 @@ function FarmerPlantLedgerModal({ ledger, onClose, canTransferAdvance, onRefresh
 
                         setManualSaving(true)
                         try {
-                          const resp = await createFarmerPlantLedgerManualEntry({
+                          const resp = await ledgerApis.createManualEntry({
                             mobileNumber: customer.mobile,
                             entryType: manualType,
                             amount: amt,
@@ -541,7 +551,7 @@ function FarmerPlantLedgerModal({ ledger, onClose, canTransferAdvance, onRefresh
             <div className="mx-5 mt-3 px-3 py-2.5 rounded-lg bg-amber-500/10 border border-amber-500/25 flex items-center gap-2">
               <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
               <span className="text-xs font-medium text-amber-900 dark:text-amber-100">
-                {fmtPlain(due)} still due — follow up collections for this farmer.
+                {fmtPlain(due)} still due — follow up collections for this {partyWord}.
               </span>
             </div>
           )}

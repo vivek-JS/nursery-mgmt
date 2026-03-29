@@ -176,3 +176,72 @@ export async function createFarmerPlantLedgerManualEntry({
   const res = await instance.request(payload)
   return res?.data
 }
+
+export async function searchRamAgriCustomersForLedgerTransfer({ q, limit = 20 }) {
+  const params = {}
+  if (q != null && String(q).trim()) params.q = String(q).trim()
+  params.limit = Math.min(Math.max(Number(limit) || 20, 1), 50)
+  const instance = NetworkManager(API.INVENTORY.SEARCH_RAM_AGRI_CUSTOMERS_FOR_LEDGER)
+  const res = await instance.request({}, params)
+  const payload = res?.data?.data
+  return Array.isArray(payload?.items) ? payload.items : []
+}
+
+export async function transferRamAgriCustomerAdvance({ fromMobile, toMobile, amount, reason }) {
+  const payload = {
+    fromMobile: fromMobile ? String(fromMobile).replace(/\D/g, "").slice(-10) : undefined,
+    toMobile: toMobile ? String(toMobile).replace(/\D/g, "").slice(-10) : undefined,
+    amount: Number(amount),
+    reason: reason != null && String(reason).trim() ? String(reason).trim() : undefined
+  }
+  const instance = NetworkManager(API.INVENTORY.TRANSFER_RAM_AGRI_CUSTOMER_ADVANCE)
+  const res = await instance.request(payload)
+  return res?.data
+}
+
+export async function createRamAgriLedgerManualEntry({
+  mobileNumber,
+  entryType,
+  amount,
+  modeOfPayment,
+  remark,
+  bankName,
+  transactionId,
+  chequeNumber,
+  entryDate
+}) {
+  const payload = {
+    customerMobile: mobileNumber ? String(mobileNumber).replace(/\D/g, "").slice(-10) : undefined,
+    entryType,
+    amount: Number(amount),
+    modeOfPayment,
+    remark: remark != null ? String(remark).trim() : "",
+    bankName: bankName ? String(bankName).trim() : undefined,
+    transactionId: transactionId ? String(transactionId).trim() : undefined,
+    chequeNumber: chequeNumber ? String(chequeNumber).trim() : undefined,
+    entryDate: entryDate || undefined
+  }
+  const instance = NetworkManager(API.INVENTORY.CREATE_RAM_AGRI_CUSTOMER_LEDGER_MANUAL_ENTRY)
+  const res = await instance.request(payload)
+  return res?.data
+}
+
+export async function fetchFarmerPlantLedgerParties({ search = "", page = 1, limit = 25 }) {
+  const instance = NetworkManager(API.ORDER.GET_FARMER_PLANT_LEDGER_PARTIES)
+  const res = await instance.request({}, { search, page, limit })
+  const body = res?.data?.data !== undefined ? res.data.data : res?.data
+  return {
+    items: Array.isArray(body?.items) ? body.items : [],
+    pagination: body?.pagination || { page, limit, total: 0, pages: 1 }
+  }
+}
+
+export async function fetchRamAgriLedgerParties({ search = "", page = 1, limit = 25 }) {
+  const instance = NetworkManager(API.INVENTORY.GET_RAM_AGRI_LEDGER_PARTIES)
+  const res = await instance.request({}, { search, page, limit })
+  const body = res?.data?.data !== undefined ? res.data.data : res?.data
+  return {
+    items: Array.isArray(body?.items) ? body.items : [],
+    pagination: body?.pagination || { page, limit, total: 0, pages: 1 }
+  }
+}

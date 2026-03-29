@@ -1,5 +1,7 @@
-import React from "react"
+import React, { useState } from "react"
 import moment from "moment"
+import axiosInstance from "services/axiosConfig"
+import { Toast } from "helpers/toasts/toastHelper"
 import { BankApprovalMenu } from "./BankApprovalMenu"
 import { StatusBadge } from "./StatusBadge"
 
@@ -14,12 +16,41 @@ export function BankReconciliationLive({
   loadingForApproval,
   reconcileLoading,
   reconcileResult,
+  bankStatementLoading,
+  bankStatementMessage,
+  onFetchBankStatement,
   updatingPaymentId,
   onRefreshUncleared,
   onRefreshForApproval,
   onReconcile,
   onApproveOrReject
 }) {
+  const [iciciVerifyPaymentId, setIciciVerifyPaymentId] = useState(null)
+
+  const handleVerifyIciciUncleared = async (p) => {
+    const ref = p.merchantTranId || p.qrReferenceId
+    if (!ref || String(ref).trim() === "") {
+      Toast.error("No ICICI transaction reference on this row")
+      return
+    }
+    setIciciVerifyPaymentId(String(p.paymentId))
+    try {
+      await axiosInstance.get(`/api/payments/icici/status/${encodeURIComponent(String(ref).trim())}`)
+      Toast.success("ICICI payment status checked — bank fields updated if matched")
+      if (typeof onRefreshUncleared === "function") await onRefreshUncleared()
+      if (typeof onRefreshForApproval === "function") await onRefreshForApproval()
+    } catch (e) {
+      const msg =
+        e?.response?.data?.message ||
+        e?.response?.data?.error ||
+        e?.message ||
+        "ICICI status check failed"
+      Toast.error(msg)
+    } finally {
+      setIciciVerifyPaymentId(null)
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="erp-card animate-fade-up stagger-2 p-4">
@@ -47,10 +78,22 @@ export function BankReconciliationLive({
           <button type="button" className="btn-primary text-xs" onClick={onRefreshUncleared} disabled={loadingUncleared}>
             {loadingUncleared ? "…" : "Refresh"}
           </button>
+          <button
+            type="button"
+            className="btn-primary text-xs"
+            onClick={onFetchBankStatement}
+            disabled={bankStatementLoading}
+            title="Fetch ICICI statement lines into ERP for this date range"
+          >
+            {bankStatementLoading ? "…" : "Fetch bank statement"}
+          </button>
           <button type="button" className="btn-primary text-xs" onClick={onReconcile} disabled={reconcileLoading}>
             {reconcileLoading ? "…" : "Reconcile with bank"}
           </button>
         </div>
+        {bankStatementMessage && (
+          <p className="text-[11px] text-muted-foreground mb-2 max-w-2xl">{bankStatementMessage}</p>
+        )}
         {reconcileResult && (
           <div className="mb-3 px-3 py-2 rounded-sm bg-status-collected-bg text-status-collected text-xs font-medium">
             {reconcileResult.updatedCount && reconcileResult.updatedCount > 0
@@ -69,15 +112,16 @@ export function BankReconciliationLive({
                   <th>Date</th>
                   <th>Amount</th>
                   <th>Mode</th>
-                  <th>UTR / Cheque</th>
+                  <th>UTR / Txn / Cheque</th>
                   <th>Source</th>
                   <th>Bank status</th>
+                  <th>ICICI</th>
                 </tr>
               </thead>
               <tbody>
                 {unclearedList.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="text-center text-muted-foreground py-6">
+                    <td colSpan={8} className="text-center text-muted-foreground py-6">
                       No unverified entries
                     </td>
                   </tr>
@@ -88,12 +132,26 @@ export function BankReconciliationLive({
                       <td>{p.paymentDate ? moment(p.paymentDate).format("DD-MM-YYYY") : "—"}</td>
                       <td className="tabular">{p.paidAmount}</td>
                       <td>{p.modeOfPayment}</td>
-                      <td>{p.transactionId || p.chequeNumber || p.ref}</td>
+                      <td>{p.utrNumber || p.transactionId || p.chequeNumber || p.ref}</td>
                       <td>{p.source}</td>
                       <td>
                         <span className="inline-flex items-center gap-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[11px] font-semibold text-amber-900 dark:text-amber-100">
                           Not matched
                         </span>
+                      </td>
+                      <td>
+                        {(p.merchantTranId || p.qrReferenceId) ? (
+                          <button
+                            type="button"
+                            className="text-[11px] font-semibold px-2 py-1 rounded-sm border border-teal-600/40 text-teal-800 hover:bg-teal-500/10 disabled:opacity-50"
+                            disabled={iciciVerifyPaymentId === String(p.paymentId)}
+                            onClick={() => handleVerifyIciciUncleared(p)}
+                          >
+                            {iciciVerifyPaymentId === String(p.paymentId) ? "…" : "Verify with ICICI"}
+                          </button>
+                        ) : (
+                          <span className="text-[11px] text-muted-foreground">—</span>
+                        )}
                       </td>
                     </tr>
                   ))
@@ -140,7 +198,7 @@ export function BankReconciliationLive({
                   <th>Order</th>
                   <th>Date</th>
                   <th>Amount</th>
-                  <th>UTR / Cheque</th>
+                  <th>UTR / Txn / Cheque</th>
                   <th>Customer</th>
                   <th>Bank status</th>
                   <th>Decision</th>
@@ -159,7 +217,7 @@ export function BankReconciliationLive({
                       <td>{p.orderId}</td>
                       <td>{p.paymentDate ? moment(p.paymentDate).format("DD-MM-YYYY") : "—"}</td>
                       <td className="tabular">{p.paidAmount}</td>
-                      <td>{p.transactionId || p.chequeNumber}</td>
+                      <td>{p.utrNumber || p.transactionId || p.chequeNumber}</td>
                       <td>{p.farmerName || p.customerName || "—"}</td>
                       <td>
                         <StatusBadge status="BANK_VERIFIED" />

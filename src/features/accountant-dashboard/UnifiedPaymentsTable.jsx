@@ -1,9 +1,11 @@
 import React, { useState } from "react"
-import { FileImage, ChevronDown, ChevronUp, BookOpen, Layers, Users, ArrowUpRight } from "lucide-react"
+import { FileImage, ChevronDown, ChevronUp, BookOpen, Layers, Users, ArrowUpRight, X, ExternalLink } from "lucide-react"
 import { StatusBadge } from "./StatusBadge"
 import { StatusChangePopover } from "./StatusChangePopover"
 import { cn } from "lib/cn"
+import { getStatementMatchPresentation } from "lib/bankMatchLabels"
 import { normalizeFarmerIdForLedger } from "./paymentsApi"
+import { APIConfig } from "network/config/serverConfig"
 
 const fmt = (n) => `₹${n.toLocaleString("en-IN")}`
 const fmtDate = (d) => new Date(d).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })
@@ -24,6 +26,24 @@ function bulkLedgerContact(b) {
   return { mobile, name }
 }
 
+function resolveMediaUrl(u) {
+  const s = String(u || "").trim()
+  if (!s) return ""
+  if (/^https?:\/\//i.test(s)) return s
+  const base = (APIConfig.BASE_URL || "").replace(/\/$/, "")
+  return s.startsWith("/") ? `${base}${s}` : `${base}/${s}`
+}
+
+function orderAttachmentUrls(p) {
+  const r = Array.isArray(p.payment?.receiptPhoto) ? p.payment.receiptPhoto : []
+  const s = Array.isArray(p.screenshots) ? p.screenshots : []
+  return [...r, ...s].filter(Boolean).map(resolveMediaUrl)
+}
+
+function isProbablyImage(url) {
+  return /\.(jpe?g|png|gif|webp|avif)(\?|#|$)/i.test(String(url))
+}
+
 export function UnifiedPaymentsTable({
   orderPayments,
   bulkPayments,
@@ -36,6 +56,7 @@ export function UnifiedPaymentsTable({
   const [expandedId, setExpandedId] = useState(null)
   const [filter, setFilter] = useState("ALL")
   const [typeFilter, setTypeFilter] = useState("ALL")
+  const [attachModal, setAttachModal] = useState(null)
 
   const rows = [...orderPayments.map((d) => ({ kind: "order", data: d })), ...bulkPayments.map((d) => ({ kind: "bulk", data: d }))]
 
@@ -123,6 +144,7 @@ export function UnifiedPaymentsTable({
               <th>Mode</th>
               <th>Date</th>
               <th>Status</th>
+              <th>Bank / statement</th>
               <th>Attach</th>
               <th>Actions</th>
             </tr>
@@ -196,15 +218,38 @@ export function UnifiedPaymentsTable({
                           <StatusBadge status={p.orderPaymentStatus} />
                         )}
                       </td>
+                      <td className="max-w-[160px]">
+                        {(() => {
+                          const pres = getStatementMatchPresentation(p.payment)
+                          return (
+                            <span className={cn("text-[11px] leading-snug", pres.className)}>{pres.label}</span>
+                          )
+                        })()}
+                      </td>
                       <td>
-                        {(p.payment?.receiptPhoto?.length || 0) + (p.screenshots?.length || 0) > 0 ? (
-                          <span className="flex items-center gap-1 text-[11px] text-primary font-medium">
-                            <FileImage className="w-3.5 h-3.5" />
-                            {(p.payment?.receiptPhoto?.length || 0) + (p.screenshots?.length || 0)}
-                          </span>
-                        ) : (
-                          <span className="text-[11px] text-muted-foreground">—</span>
-                        )}
+                        {(() => {
+                          const urls = orderAttachmentUrls(p)
+                          const n = urls.length
+                          return n > 0 ? (
+                            <button
+                              type="button"
+                              className="flex items-center gap-1 text-[11px] text-primary font-medium hover:underline"
+                              title="View attachments"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setAttachModal({
+                                  title: `Order #${p.orderId} · attachments`,
+                                  urls
+                                })
+                              }}
+                            >
+                              <FileImage className="w-3.5 h-3.5" />
+                              {n}
+                            </button>
+                          ) : (
+                            <span className="text-[11px] text-muted-foreground">—</span>
+                          )
+                        })()}
                       </td>
                       <td onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center gap-1 flex-wrap">
@@ -234,7 +279,7 @@ export function UnifiedPaymentsTable({
 
                     {isExpanded && (
                       <tr>
-                        <td colSpan={12} className="p-0 border-0">
+                        <td colSpan={13} className="p-0 border-0">
                           <div className="px-5 py-3 bg-muted/40 border-b border-border grid grid-cols-2 md:grid-cols-4 gap-4">
                             <DetailCell label="Sales Person" value={p.salesPerson?.name || "—"} sub={String(p.salesPerson?.phoneNumber ?? "")} />
                             <DetailCell label="Booking Date" value={fmtDate(p.orderBookingDate)} />
@@ -300,15 +345,30 @@ export function UnifiedPaymentsTable({
                     <td>
                       <StatusBadge status={b.paymentStatus === "ACCEPTED" ? "ACCEPTED" : b.paymentStatus} />
                     </td>
+                    <td className="text-[11px] text-muted-foreground">—</td>
                     <td>
-                      {b.receiptPhoto.length > 0 ? (
-                        <span className="flex items-center gap-1 text-[11px] text-primary font-medium">
-                          <FileImage className="w-3.5 h-3.5" />
-                          {b.receiptPhoto.length}
-                        </span>
-                      ) : (
-                        <span className="text-[11px] text-muted-foreground">—</span>
-                      )}
+                      {(() => {
+                        const urls = (Array.isArray(b.receiptPhoto) ? b.receiptPhoto : []).filter(Boolean).map(resolveMediaUrl)
+                        return urls.length > 0 ? (
+                          <button
+                            type="button"
+                            className="flex items-center gap-1 text-[11px] text-primary font-medium hover:underline"
+                            title="View attachments"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setAttachModal({
+                                title: `Bulk ${String(b._id).slice(-8)} · attachments`,
+                                urls
+                              })
+                            }}
+                          >
+                            <FileImage className="w-3.5 h-3.5" />
+                            {urls.length}
+                          </button>
+                        ) : (
+                          <span className="text-[11px] text-muted-foreground">—</span>
+                        )
+                      })()}
                     </td>
                     <td onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center gap-1 flex-wrap">
@@ -350,7 +410,7 @@ export function UnifiedPaymentsTable({
 
                   {isExpanded && (
                     <tr>
-                      <td colSpan={12} className="p-0 border-0">
+                      <td colSpan={13} className="p-0 border-0">
                         <div className="px-5 py-3 bg-muted/40 border-b border-border space-y-2">
                           <div className="flex items-center justify-between mb-1">
                             <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Allocation Breakdown</span>
@@ -379,7 +439,7 @@ export function UnifiedPaymentsTable({
 
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={12} className="text-center text-muted-foreground py-10 text-sm">
+                <td colSpan={13} className="text-center text-muted-foreground py-10 text-sm">
                   No entries found
                 </td>
               </tr>
@@ -387,6 +447,61 @@ export function UnifiedPaymentsTable({
           </tbody>
         </table>
       </div>
+
+      {attachModal && (
+        <>
+          <div
+            className="fixed inset-0 z-[140] bg-foreground/30 backdrop-blur-sm animate-fade-in"
+            onClick={() => setAttachModal(null)}
+            aria-hidden
+          />
+          <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 pointer-events-none">
+            <div
+              className="pointer-events-auto w-full max-w-lg max-h-[85vh] flex flex-col rounded-xl border border-border bg-card shadow-2xl overflow-hidden"
+              role="dialog"
+              aria-modal
+            >
+              <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-2 bg-muted/30">
+                <div className="text-sm font-semibold text-foreground truncate pr-2">{attachModal.title}</div>
+                <button
+                  type="button"
+                  className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground"
+                  onClick={() => setAttachModal(null)}
+                  aria-label="Close"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="overflow-y-auto p-4 space-y-4">
+                {attachModal.urls.map((url, idx) => (
+                  <div key={`${url}-${idx}`} className="border border-border rounded-lg overflow-hidden bg-muted/20">
+                    <div className="flex items-center justify-between gap-2 px-2 py-1.5 border-b border-border bg-muted/40">
+                      <span className="text-[10px] font-mono truncate text-muted-foreground">{url}</span>
+                      <a
+                        href={url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-0.5 text-[11px] text-primary font-semibold shrink-0"
+                      >
+                        Open <ExternalLink className="w-3 h-3" />
+                      </a>
+                    </div>
+                    {isProbablyImage(url) ? (
+                      <a href={url} target="_blank" rel="noopener noreferrer" className="block">
+                        <img src={url} alt="" className="w-full max-h-64 object-contain bg-black/5" />
+                      </a>
+                    ) : (
+                      <div className="px-3 py-4 text-xs text-muted-foreground">
+                        Preview not available — use Open to view this file (PDF or other).
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }

@@ -4,7 +4,8 @@ import { OrgSwitcher } from "./OrgSwitcher"
 
 const TABS = [
   { id: "payments", label: "Payments", icon: "₹" },
-  { id: "bank", label: "Bank Recon", icon: "🏦" }
+  { id: "bank", label: "Bank Recon", icon: "🏦" },
+  { id: "ledger-parties", label: "All farmers", icon: "👥" }
 ]
 
 export function DashboardHeader({

@@ -60,6 +60,8 @@ import AddAgriSalesOrderForm from "../../private/inventory/AddAgriSalesOrderForm
 import { Toast } from "helpers/toasts/toastHelper";
 import { useIsLoggedIn } from "hooks/state";
 import { API, NetworkManager } from "network/core";
+import axiosInstance from "services/axiosConfig";
+import { getStatementMatchPresentation } from "lib/bankMatchLabels";
 import PaymentQRModal from "components/Modals/PaymentQRModal";
 import { useLogoutModel } from "layout/privateLayout/privateLayout.model";
 import moment from "moment";
@@ -138,6 +140,7 @@ const AgriSalesOrderMobile = () => {
   const [addPaymentOpenOrderId, setAddPaymentOpenOrderId] = useState(null); // Inline add payment (plant-style)
   const [paymentQRModalOpen, setPaymentQRModalOpen] = useState(false);
   const [paymentQRModalData, setPaymentQRModalData] = useState(null);
+  const [verifyIciciLoadingPaymentId, setVerifyIciciLoadingPaymentId] = useState(null);
   const [generateQRLoading, setGenerateQRLoading] = useState(false);
   const [showFilters, setShowFilters] = useState(false); // Plant-style filter bar
   const [expandedFarmerId, setExpandedFarmerId] = useState(null); // For farmer outstanding accordion
@@ -1080,6 +1083,7 @@ const AgriSalesOrderMobile = () => {
       const res = await instance.request({}, [order._id]);
       const data = res?.data;
       if (data?.success && data?.qrImageOrString != null) {
+        const refId = data.qrReferenceId || data.merchantTranId;
         setPaymentQRModalData({
           qrImageOrString: data.qrImageOrString,
           amount: data.amount,
@@ -1087,6 +1091,8 @@ const AgriSalesOrderMobile = () => {
           customerName: data.customerName,
           mobileNumber: data.mobileNumber,
           expiresAt: data.expiresAt,
+          qrReferenceId: refId,
+          merchantTranId: refId,
         });
         setPaymentQRModalOpen(true);
         Toast.success("QR generated");
@@ -1099,6 +1105,31 @@ const AgriSalesOrderMobile = () => {
       Toast.error(err?.response?.data?.message || "Failed to generate payment QR");
     } finally {
       setGenerateQRLoading(false);
+    }
+  };
+
+  const handleVerifyIciciForPayment = async (payment) => {
+    const mtid = payment?.merchantTranId || payment?.qrReferenceId;
+    if (!mtid || String(mtid).trim() === "") {
+      Toast.error("No ICICI transaction reference on this payment");
+      return;
+    }
+    const pid = payment?._id != null ? String(payment._id) : "";
+    setVerifyIciciLoadingPaymentId(pid || "row");
+    try {
+      await axiosInstance.get(`/api/payments/icici/status/${encodeURIComponent(String(mtid).trim())}`);
+      Toast.success("ICICI payment status checked — bank fields updated if matched");
+      if (activeTab === 0) await fetchOrders();
+      else await fetchOutstandingAnalysis();
+    } catch (e) {
+      const msg =
+        e?.response?.data?.message ||
+        e?.response?.data?.error ||
+        e?.message ||
+        "ICICI status check failed";
+      Toast.error(msg);
+    } finally {
+      setVerifyIciciLoadingPaymentId(null);
     }
   };
 
@@ -3497,6 +3528,20 @@ const AgriSalesOrderMobile = () => {
                             const paymentStatusColor = 
                               payment.paymentStatus === "COLLECTED" ? "#4caf50" :
                               payment.paymentStatus === "PENDING" ? "#ff9800" : "#f44336";
+                            const bankPres = getStatementMatchPresentation(payment);
+                            const iciciRef = payment.merchantTranId || payment.qrReferenceId;
+                            const refLine =
+                              payment.utrNumber ||
+                              payment.transactionId ||
+                              payment.chequeNumber ||
+                              iciciRef ||
+                              "";
+                            const showVerifyIcici =
+                              iciciRef &&
+                              String(iciciRef).trim() !== "" &&
+                              (String(payment.modeOfPayment || "").toUpperCase().includes("UPI") ||
+                                String(payment.modeOfPayment || "").toUpperCase().includes("QR"));
+                            const payId = payment?._id != null ? String(payment._id) : String(idx);
                             
                             return (
                               <Box
@@ -3507,7 +3552,7 @@ const AgriSalesOrderMobile = () => {
                                   borderBottom: "1px solid #e8e8e8",
                                   "&:last-child": { borderBottom: "none" },
                                   display: "flex",
-                                  alignItems: "center",
+                                  alignItems: "flex-start",
                                   gap: 1,
                                 }}>
                                 {/* Payment Status Icon */}
@@ -3520,52 +3565,73 @@ const AgriSalesOrderMobile = () => {
                                     display: "flex",
                                     alignItems: "center",
                                     justifyContent: "center",
+                                    flexShrink: 0,
                                   }}>
                                   {getPaymentStatusIcon(payment.paymentStatus)}
                                 </Box>
 
                                 {/* Payment Details */}
-                                <Box sx={{ flex: 1 }}>
-                                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                    <Typography 
-                                      variant="subtitle2" 
-                                      fontWeight="bold" 
-                                      sx={{ 
-                                        fontSize: "0.9rem",
-                                        fontWeight: 700,
-                                        color: payment.paymentStatus === "COLLECTED" ? "#2e7d32" : payment.paymentStatus === "PENDING" ? "#f57c00" : "#d32f2f",
-                                        backgroundColor: payment.paymentStatus === "COLLECTED" ? "#e8f5e9" : payment.paymentStatus === "PENDING" ? "#fff3e0" : "#ffebee",
-                                        px: 1.5,
-                                        py: 0.5,
-                                        borderRadius: "6px",
-                                      }}>
-                                      ₹{Number(payment.paidAmount || 0).toLocaleString()}
-                                    </Typography>
-                                    <Chip
-                                      label={payment.paymentStatus}
-                                      size="small"
-                                      sx={{
-                                        fontSize: "0.6rem",
-                                        height: "18px",
-                                        backgroundColor: `${paymentStatusColor}20`,
-                                        color: paymentStatusColor,
-                                        fontWeight: 600,
-                                      }}
-                                    />
+                                <Box sx={{ flex: 1, minWidth: 0 }}>
+                                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 0.5, flexWrap: "wrap" }}>
+                                    <Box>
+                                      <Typography 
+                                        variant="subtitle2" 
+                                        fontWeight="bold" 
+                                        sx={{ 
+                                          fontSize: "0.9rem",
+                                          fontWeight: 700,
+                                          color: payment.paymentStatus === "COLLECTED" ? "#2e7d32" : payment.paymentStatus === "PENDING" ? "#f57c00" : "#d32f2f",
+                                          backgroundColor: payment.paymentStatus === "COLLECTED" ? "#e8f5e9" : payment.paymentStatus === "PENDING" ? "#fff3e0" : "#ffebee",
+                                          px: 1.5,
+                                          py: 0.5,
+                                          borderRadius: "6px",
+                                        }}>
+                                        ₹{Number(payment.paidAmount || 0).toLocaleString()}
+                                      </Typography>
+                                      <Chip
+                                        label={payment.paymentStatus}
+                                        size="small"
+                                        sx={{
+                                          fontSize: "0.6rem",
+                                          height: "18px",
+                                          mt: 0.5,
+                                          backgroundColor: `${paymentStatusColor}20`,
+                                          color: paymentStatusColor,
+                                          fontWeight: 600,
+                                        }}
+                                      />
+                                    </Box>
+                                    {showVerifyIcici && (
+                                      <Button
+                                        size="small"
+                                        variant="outlined"
+                                        disabled={verifyIciciLoadingPaymentId === payId}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleVerifyIciciForPayment(payment);
+                                        }}
+                                        sx={{ fontSize: "0.62rem", minWidth: 0, py: 0.25, px: 1, textTransform: "none", borderColor: "#0d9488", color: "#0f766e" }}
+                                      >
+                                        {verifyIciciLoadingPaymentId === payId ? "…" : "Verify ICICI"}
+                                      </Button>
+                                    )}
                                   </Box>
-                                  <Typography variant="caption" color="textSecondary" sx={{ fontSize: "0.7rem" }}>
+                                  <Typography variant="caption" color="textSecondary" sx={{ fontSize: "0.7rem", display: "block" }}>
                                     {payment.modeOfPayment} • {moment(payment.paymentDate).format("DD MMM YYYY")}
+                                  </Typography>
+                                  <Typography variant="caption" color="textSecondary" sx={{ fontSize: "0.65rem", display: "block", mt: 0.25 }}>
+                                    {bankPres.label}
                                   </Typography>
                                   {payment.bankName && (
                                     <Typography variant="caption" color="textSecondary" sx={{ fontSize: "0.65rem", display: "block" }}>
                                       Bank: {payment.bankName}
                                     </Typography>
                                   )}
-                                  {payment.transactionId && (
-                                    <Typography variant="caption" color="textSecondary" sx={{ fontSize: "0.65rem", display: "block" }}>
-                                      Txn: {payment.transactionId}
+                                  {refLine ? (
+                                    <Typography variant="caption" color="textSecondary" sx={{ fontSize: "0.65rem", display: "block", wordBreak: "break-all" }}>
+                                      Ref: {refLine}
                                     </Typography>
-                                  )}
+                                  ) : null}
                                   {payment.remark && (
                                     <Typography variant="caption" color="textSecondary" sx={{ fontSize: "0.65rem", display: "block", fontStyle: "italic" }}>
                                       &ldquo;{payment.remark}&rdquo;
@@ -5511,6 +5577,12 @@ const AgriSalesOrderMobile = () => {
         customerName={paymentQRModalData?.customerName}
         mobileNumber={paymentQRModalData?.mobileNumber}
         expiresAt={paymentQRModalData?.expiresAt}
+        merchantTranId={paymentQRModalData?.merchantTranId}
+        qrReferenceId={paymentQRModalData?.qrReferenceId}
+        onVerified={async () => {
+          if (activeTab === 0) await fetchOrders();
+          else await fetchOutstandingAnalysis();
+        }}
       />
     </Box>
   );

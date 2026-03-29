@@ -71,6 +71,7 @@ const PlaceOrderMobile = React.lazy(() => import("pages/private/order/PlaceOrder
 const MobileDashboard = React.lazy(() => import("pages/private/order/MobileDashboard"))
 const CallAssignmentList = React.lazy(() => import("pages/private/callAssignment/CallAssignmentList"))
 const CashierPage = React.lazy(() => import("pages/private/cashier"))
+const UpiReceiptPage = React.lazy(() => import("pages/private/upi-receipt"))
 
 export const PrivateRoutes = [
   { path: "/u/dashboard", component: Dashboard },
@@ -153,5 +154,6 @@ export const PrivateRoutes = [
   { path: "/u/mobile/place-order", component: PlaceOrderMobile },
   { path: "/u/mobile/dispatch-orders", component: DispatchedListPage },
   { path: "/u/cashier", component: CashierPage },
-  { path: "/u/call-assignment", component: CallAssignmentList }
+  { path: "/u/call-assignment", component: CallAssignmentList },
+  { path: "/u/upi-receipt", component: UpiReceiptPage }
 ]

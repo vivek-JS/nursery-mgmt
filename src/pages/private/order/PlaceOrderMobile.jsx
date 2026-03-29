@@ -70,7 +70,14 @@ import "react-datepicker/dist/react-datepicker.css"
 import moment from "moment"
 import debounce from "lodash.debounce"
 import { API, NetworkManager } from "network/core"
+import axiosInstance from "services/axiosConfig"
 import { Toast } from "helpers/toasts/toastHelper"
+import { getStatementMatchPresentation } from "lib/bankMatchLabels"
+import {
+  extractUpiFromReceiptImageUrl,
+  mergeUpiOcrIntoPaymentState,
+  buildRemarkWithReceiptPayee
+} from "utils/upiReceiptOcr"
 import AddOrderForm from "./AddOrderForm"
 import PaymentQRModal from "components/Modals/PaymentQRModal"
 import SearchableSelectField from "components/Inputs/SearchableSelectField"
@@ -176,12 +183,27 @@ function PlaceOrderMobile() {
   const [addPaymentOpen, setAddPaymentOpen] = useState(null)
   const [paymentQRModalOpen, setPaymentQRModalOpen] = useState(false)
   const [paymentQRModalData, setPaymentQRModalData] = useState(null)
+  const [verifyIciciLoadingPaymentId, setVerifyIciciLoadingPaymentId] = useState(null)
   const [generateQRLoading, setGenerateQRLoading] = useState(false)
   const [selectedOrder, setSelectedOrder] = useState(null)
   const [detailOpen, setDetailOpen] = useState(false)
   const [detailTab, setDetailTab] = useState(0)
   const [paymentLoading, setPaymentLoading] = useState(false)
-  const [newPayment, setNewPayment] = useState({ paidAmount: "", paymentDate: moment().format("YYYY-MM-DD"), modeOfPayment: "", bankName: "", remark: "", receiptPhoto: [], paymentStatus: "PENDING", isWalletPayment: false })
+  const [receiptProcessing, setReceiptProcessing] = useState(false)
+  const [upiOcrLoading, setUpiOcrLoading] = useState(false)
+  const [newPayment, setNewPayment] = useState({
+    paidAmount: "",
+    paymentDate: moment().format("YYYY-MM-DD"),
+    modeOfPayment: "",
+    bankName: "",
+    transactionId: "",
+    remark: "",
+    receiptPhoto: [],
+    receiptPayeeName: "",
+    paymentStatus: "PENDING",
+    isWalletPayment: false,
+    ocrAppliedFromReceipt: false,
+  })
   const [newRemark, setNewRemark] = useState("")
   const [remarkLoading, setRemarkLoading] = useState(false)
   const [statusLoading, setStatusLoading] = useState(false)
@@ -505,12 +527,12 @@ function PlaceOrderMobile() {
 
   const toggleExpand = (orderId, order) => {
     if (expandedOrder === orderId) { setExpandedOrder(null); setSelectedOrder(null); setAddPaymentOpen(null) }
-    else { setExpandedOrder(orderId); setSelectedOrder(order); setNewPayment({ paidAmount: "", paymentDate: moment().format("YYYY-MM-DD"), modeOfPayment: "", bankName: "", remark: "", receiptPhoto: [], paymentStatus: "PENDING", isWalletPayment: false }); setAddPaymentOpen(null) }
+    else { setExpandedOrder(orderId); setSelectedOrder(order); setNewPayment({ paidAmount: "", paymentDate: moment().format("YYYY-MM-DD"), modeOfPayment: "", bankName: "", transactionId: "", remark: "", receiptPhoto: [], receiptPayeeName: "", paymentStatus: "PENDING", isWalletPayment: false, ocrAppliedFromReceipt: false }); setAddPaymentOpen(null) }
   }
 
   const openOrderDetail = (order) => {
     setSelectedOrder(order); setDetailTab(0)
-    setNewPayment({ paidAmount: "", paymentDate: moment().format("YYYY-MM-DD"), modeOfPayment: "", bankName: "", remark: "", receiptPhoto: [], paymentStatus: "PENDING", isWalletPayment: false })
+    setNewPayment({ paidAmount: "", paymentDate: moment().format("YYYY-MM-DD"), modeOfPayment: "", bankName: "", transactionId: "", remark: "", receiptPhoto: [], receiptPayeeName: "", paymentStatus: "PENDING", isWalletPayment: false, ocrAppliedFromReceipt: false })
     setNewRemark(""); setDetailOpen(true)
   }
   const closeOrderDetail = () => { setDetailOpen(false); setSelectedOrder(null) }
@@ -526,12 +548,42 @@ function PlaceOrderMobile() {
     const files = Array.from(event.target.files); if (!files.length) return
     for (const file of files) { if (!file.type.startsWith("image/")) { Toast.error("Select valid images"); return } if (file.size > 8 * 1024 * 1024) { Toast.error("Max 8MB per file"); return } }
     try {
-      setPaymentLoading(true)
-      const urls = await Promise.all(files.map(async (file) => { const fd = new FormData(); fd.append("media_key", file); fd.append("media_type", "IMAGE"); fd.append("content_type", "multipart/form-data"); const inst = NetworkManager(API.MEDIA.UPLOAD); const res = await inst.request(fd); return res.data.media_url }))
+      setReceiptProcessing(true)
+      const urls = (await Promise.all(files.map(async (file) => {
+        const fd = new FormData()
+        fd.append("media_key", file)
+        fd.append("media_type", "IMAGE")
+        fd.append("content_type", "multipart/form-data")
+        const inst = NetworkManager(API.MEDIA.UPLOAD)
+        const res = await inst.request(fd)
+        return res?.data?.data?.media_url || res?.data?.media_url
+      }))).filter(Boolean)
       setNewPayment((prev) => ({ ...prev, receiptPhoto: [...(prev.receiptPhoto || []), ...urls] }))
-    } catch { Toast.error("Upload failed") } finally { setPaymentLoading(false) }
+      const first = urls[0]
+      if (first && /^https?:\/\//i.test(String(first))) {
+        setUpiOcrLoading(true)
+        try {
+          const ocr = await extractUpiFromReceiptImageUrl(first)
+          if (ocr?.success && ocr?.data) {
+            const d = ocr.data
+            setNewPayment((prev) => mergeUpiOcrIntoPaymentState(prev, d))
+            Toast.success(d.needs_review ? "Receipt scanned — verify payee, amount, UTR" : "Receipt details filled")
+          }
+        } catch (err) {
+          console.warn("UPI OCR:", err)
+          Toast.error(err?.message || "Could not read receipt")
+        } finally {
+          setUpiOcrLoading(false)
+        }
+      }
+    } catch { Toast.error("Upload failed") } finally { setReceiptProcessing(false) }
   }
-  const removePaymentImage = (index) => { setNewPayment((prev) => ({ ...prev, receiptPhoto: prev.receiptPhoto.filter((_, i) => i !== index) })) }
+  const removePaymentImage = (index) => {
+    setNewPayment((prev) => {
+      const receiptPhoto = prev.receiptPhoto.filter((_, i) => i !== index)
+      return { ...prev, receiptPhoto, ...(receiptPhoto.length === 0 ? { ocrAppliedFromReceipt: false } : {}) }
+    })
+  }
 
   const handleAddPayment = async () => {
     if (!selectedOrder) return
@@ -541,10 +593,20 @@ function PlaceOrderMobile() {
     if (newPayment.isWalletPayment && dealerWallet && parseFloat(newPayment.paidAmount) > dealerWallet.availableAmount) { Toast.error(`Exceeds wallet balance (₹${dealerWallet.availableAmount?.toLocaleString()})`); return }
     setPaymentLoading(true)
     try {
-      const payload = { paidAmount: newPayment.paidAmount, paymentDate: newPayment.paymentDate, modeOfPayment: newPayment.isWalletPayment ? "Wallet" : newPayment.modeOfPayment, bankName: newPayment.bankName || "", remark: newPayment.remark || "", receiptPhoto: newPayment.receiptPhoto || [], isWalletPayment: Boolean(newPayment.isWalletPayment), paymentStatus: "PENDING" }
+      const payload = {
+        paidAmount: newPayment.paidAmount,
+        paymentDate: newPayment.paymentDate,
+        modeOfPayment: newPayment.isWalletPayment ? "Wallet" : newPayment.modeOfPayment,
+        bankName: newPayment.bankName || "",
+        transactionId: newPayment.transactionId || "",
+        remark: buildRemarkWithReceiptPayee(newPayment.remark, newPayment.receiptPayeeName) || "",
+        receiptPhoto: newPayment.receiptPhoto || [],
+        isWalletPayment: Boolean(newPayment.isWalletPayment),
+        paymentStatus: "PENDING"
+      }
       const inst = NetworkManager(API.ORDER.ADD_PAYMENT); await inst.request(payload, [selectedOrder._id])
       Toast.success("Payment added")
-      setNewPayment({ paidAmount: "", paymentDate: moment().format("YYYY-MM-DD"), modeOfPayment: "", bankName: "", remark: "", receiptPhoto: [], paymentStatus: "PENDING", isWalletPayment: false })
+      setNewPayment({ paidAmount: "", paymentDate: moment().format("YYYY-MM-DD"), modeOfPayment: "", bankName: "", transactionId: "", remark: "", receiptPhoto: [], receiptPayeeName: "", paymentStatus: "PENDING", isWalletPayment: false, ocrAppliedFromReceipt: false })
       if (userId) loadDealerWallet(userId); await refreshOrderDetail()
     } catch (err) { Toast.error(err?.response?.data?.message || "Failed to add payment") } finally { setPaymentLoading(false) }
   }
@@ -556,13 +618,48 @@ function PlaceOrderMobile() {
       const res = await inst.request({}, [row._id])
       const data = res?.data
       if (data?.success && data?.qrImageOrString != null) {
-        setPaymentQRModalData({ qrImageOrString: data.qrImageOrString, amount: data.amount, orderId: data.orderId, customerName: data.customerName, mobileNumber: data.mobileNumber, expiresAt: data.expiresAt })
+        const refId = data.qrReferenceId || data.merchantTranId
+        setPaymentQRModalData({
+          qrImageOrString: data.qrImageOrString,
+          amount: data.amount,
+          orderId: data.orderId,
+          customerName: data.customerName,
+          mobileNumber: data.mobileNumber,
+          expiresAt: data.expiresAt,
+          qrReferenceId: refId,
+          merchantTranId: refId,
+        })
         setPaymentQRModalOpen(true)
         Toast.success("QR generated")
         refreshOrderDetail()
       } else { Toast.error(data?.message || "Failed to generate QR") }
     } catch (err) { Toast.error(err?.response?.data?.message || "Failed to generate payment QR") } finally { setGenerateQRLoading(false) }
   }
+
+  const handleVerifyIciciForPayment = async (payment) => {
+    const mtid = payment?.merchantTranId || payment?.qrReferenceId
+    if (!mtid || String(mtid).trim() === "") {
+      Toast.error("No ICICI transaction reference on this payment")
+      return
+    }
+    const pid = payment?._id != null ? String(payment._id) : ""
+    setVerifyIciciLoadingPaymentId(pid || "row")
+    try {
+      await axiosInstance.get(`/api/payments/icici/status/${encodeURIComponent(String(mtid).trim())}`)
+      Toast.success("ICICI payment status checked — bank fields updated if matched")
+      await refreshOrderDetail()
+    } catch (e) {
+      const msg =
+        e?.response?.data?.message ||
+        e?.response?.data?.error ||
+        e?.message ||
+        "ICICI status check failed"
+      Toast.error(msg)
+    } finally {
+      setVerifyIciciLoadingPaymentId(null)
+    }
+  }
+
   const [watiDialogOpen, setWatiDialogOpen] = useState(false)
   const [watiSending, setWatiSending] = useState(false)
   const handleStatusChange = async (newStatus) => {
@@ -582,6 +679,37 @@ function PlaceOrderMobile() {
     try { const inst = NetworkManager(API.ORDER.UPDATE_ORDER); await inst.request({ id: selectedOrder._id, orderRemarks: newRemark.trim() }); Toast.success("Remark added"); setNewRemark(""); await refreshOrderDetail() }
     catch { Toast.error("Failed") } finally { setRemarkLoading(false) }
   }
+
+  const receiptOcrBusy = receiptProcessing || upiOcrLoading
+  const renderReceiptOcrBlocker = () =>
+    receiptOcrBusy ? (
+      <Box
+        aria-busy="true"
+        aria-live="polite"
+        sx={{
+          position: "absolute",
+          inset: 0,
+          borderRadius: "inherit",
+          zIndex: 10,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 1.25,
+          bgcolor: "rgba(255,255,255,0.85)",
+          backdropFilter: "blur(6px)",
+          border: `1px solid ${C.borderLight}`,
+        }}
+      >
+        <CircularProgress size={38} thickness={4} sx={{ color: C.primary }} />
+        <Typography sx={{ fontWeight: 800, fontSize: "0.82rem", color: C.textPrimary, textAlign: "center", px: 2 }}>
+          {upiOcrLoading ? "Reading receipt…" : "Uploading receipt…"}
+        </Typography>
+        <Typography sx={{ fontSize: "0.62rem", color: C.textMuted, textAlign: "center", px: 2, maxWidth: 260 }}>
+          Form locked until upload and scan finish
+        </Typography>
+      </Box>
+    ) : null
 
   const userName = user?.name || user?.firstName || "User"
   const userInitial = userName.charAt(0).toUpperCase()
@@ -688,24 +816,54 @@ function PlaceOrderMobile() {
               <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
                 {payments.map((p, idx) => {
                   const collected = p.paymentStatus === "COLLECTED"
+                  const bankPres = getStatementMatchPresentation(p)
+                  const iciciRef = p.merchantTranId || p.qrReferenceId
+                  const refLine = p.utrNumber || p.transactionId || p.chequeNumber || iciciRef || ""
+                  const showVerifyIcici =
+                    iciciRef &&
+                    String(iciciRef).trim() !== "" &&
+                    (String(p.modeOfPayment || "").toUpperCase().includes("UPI") ||
+                      String(p.modeOfPayment || "").toUpperCase().includes("QR"))
+                  const payId = p?._id != null ? String(p._id) : String(idx)
                   return (
-                    <Box key={idx} sx={{ display: "flex", alignItems: "center", gap: 0.75, px: 1, py: 0.75, bgcolor: collected ? C.greenBg : C.orangeBg, borderRadius: 2, border: `1px solid ${collected ? "#BBF7D0" : "#FDE68A"}` }}>
-                      <Box sx={{ width: 30, height: 30, borderRadius: "50%", bgcolor: collected ? C.green : C.orange, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <Box key={idx} sx={{ display: "flex", alignItems: "flex-start", gap: 0.75, px: 1, py: 0.75, bgcolor: collected ? C.greenBg : C.orangeBg, borderRadius: 2, border: `1px solid ${collected ? "#BBF7D0" : "#FDE68A"}` }}>
+                      <Box sx={{ width: 30, height: 30, borderRadius: "50%", bgcolor: collected ? C.green : C.orange, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, mt: 0.25 }}>
                         {collected ? <CheckIcon sx={{ fontSize: 15, color: "white" }} /> : <PaymentIcon sx={{ fontSize: 15, color: "white" }} />}
                       </Box>
                       <Box sx={{ flex: 1, minWidth: 0 }}>
-                        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                          <Typography sx={{ fontSize: "0.88rem", fontWeight: 800, color: C.textPrimary }}>
-                            ₹{Number(p.paidAmount || 0).toLocaleString()}
-                          </Typography>
-                          <Chip label={collected ? "Collected" : "Pending"} size="small"
-                            sx={{ height: 18, fontSize: "0.55rem", fontWeight: 700, bgcolor: collected ? C.green + "20" : C.orange + "20", color: collected ? C.greenText : C.orangeText }} />
+                        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 0.5, flexWrap: "wrap" }}>
+                          <Box>
+                            <Typography sx={{ fontSize: "0.88rem", fontWeight: 800, color: C.textPrimary }}>
+                              ₹{Number(p.paidAmount || 0).toLocaleString()}
+                            </Typography>
+                            <Chip label={collected ? "Collected" : "Pending"} size="small"
+                              sx={{ height: 18, fontSize: "0.55rem", fontWeight: 700, bgcolor: collected ? C.green + "20" : C.orange + "20", color: collected ? C.greenText : C.orangeText, mt: 0.25 }} />
+                          </Box>
+                          {showVerifyIcici && (
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              disabled={verifyIciciLoadingPaymentId === payId}
+                              onClick={(e) => { e.stopPropagation(); handleVerifyIciciForPayment(p) }}
+                              sx={{ fontSize: "0.62rem", minWidth: 0, py: 0.25, px: 1, textTransform: "none", borderColor: "#0d9488", color: "#0f766e" }}
+                            >
+                              {verifyIciciLoadingPaymentId === payId ? "…" : "Verify ICICI"}
+                            </Button>
+                          )}
                         </Box>
                         <Typography sx={{ fontSize: "0.68rem", color: C.textSecondary, mt: 0.15 }}>
                           <Box component="span" sx={{ fontWeight: 600 }}>{p.modeOfPayment || "—"}</Box>
                           {" · "}{p.paymentDate ? moment(p.paymentDate).format("DD MMM YY") : "—"}
                           {p.remark && <Box component="span" sx={{ fontStyle: "italic" }}> · {p.remark}</Box>}
                         </Typography>
+                        <Typography sx={{ fontSize: "0.62rem", mt: 0.25, color: C.textMuted }} component="span">
+                          {bankPres.label}
+                        </Typography>
+                        {refLine ? (
+                          <Typography sx={{ fontSize: "0.62rem", color: C.textSecondary, mt: 0.15, wordBreak: "break-all" }}>
+                            Ref: {refLine}
+                          </Typography>
+                        ) : null}
                         {p.receiptPhoto?.length > 0 && (
                           <Box sx={{ display: "flex", gap: 0.5, mt: 0.5 }}>
                             {p.receiptPhoto.map((url, i) => (
@@ -754,53 +912,140 @@ function PlaceOrderMobile() {
                 )
               })()}
               <Collapse in={addPaymentOpen === row._id}>
-                <Box sx={{ p: 1.25, bgcolor: C.bg, borderRadius: 2, border: `1px solid ${C.border}`, mt: 0.5 }}>
-                  {isDealer && dealerWallet && (
-                    <Box sx={{ mb: 1, p: 0.75, bgcolor: C.orangeBg, borderRadius: 1.5, border: "1px solid #FDE68A" }}>
-                      <FormControlLabel
-                        control={<Checkbox size="small" checked={newPayment.isWalletPayment} onChange={(e) => handlePaymentInputChange("isWalletPayment", e.target.checked)} sx={{ p: 0.25, color: C.primary, "&.Mui-checked": { color: C.primary } }} />}
-                        label={<Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: C.orangeText }}>Wallet — ₹{dealerWallet.availableAmount?.toLocaleString()}</Typography>}
-                        sx={{ ml: 0, "& .MuiFormControlLabel-label": { ml: 0.5 } }}
+                <Box sx={{ mt: 0.75 }}>
+                  <Box sx={{
+                    position: "relative",
+                    p: 1.5,
+                    bgcolor: C.cardBg,
+                    borderRadius: 2.5,
+                    border: `1px solid ${C.border}`,
+                    boxShadow: "0 4px 24px rgba(26, 29, 46, 0.07)",
+                    overflow: "hidden",
+                  }}>
+                    {renderReceiptOcrBlocker()}
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, mb: 1.5 }}>
+                      <Box sx={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: 2,
+                        background: C.gradient,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        flexShrink: 0,
+                        boxShadow: "0 4px 14px rgba(91,95,199,0.35)",
+                      }}>
+                        <PaymentIcon sx={{ fontSize: 22, color: "#fff" }} />
+                      </Box>
+                      <Box sx={{ minWidth: 0 }}>
+                        <Typography sx={{ fontWeight: 800, fontSize: "0.84rem", color: C.textPrimary, lineHeight: 1.2 }}>New payment</Typography>
+                        <Typography sx={{ fontSize: "0.62rem", color: C.textMuted, mt: 0.2 }}>Upload receipt → enter amount & mode → submit</Typography>
+                      </Box>
+                    </Box>
+
+                    {isDealer && dealerWallet && (
+                      <Box sx={{ mb: 1.25, p: 1, bgcolor: C.orangeBg, borderRadius: 2, border: "1px solid rgba(245, 158, 11, 0.35)" }}>
+                        <FormControlLabel
+                          control={<Checkbox size="small" disabled={receiptOcrBusy} checked={newPayment.isWalletPayment} onChange={(e) => handlePaymentInputChange("isWalletPayment", e.target.checked)} sx={{ p: 0.25, color: C.primary, "&.Mui-checked": { color: C.primary } }} />}
+                          label={<Typography sx={{ fontSize: "0.74rem", fontWeight: 700, color: C.orangeText }}>Pay from wallet · ₹{dealerWallet.availableAmount?.toLocaleString()} available</Typography>}
+                          sx={{ ml: 0, "& .MuiFormControlLabel-label": { ml: 0.5 } }}
+                        />
+                      </Box>
+                    )}
+
+                    <Box sx={{ p: 1.25, mb: 1.25, borderRadius: 2, bgcolor: C.bg, border: `1px solid ${C.borderLight}`, position: "relative", overflow: "hidden" }}>
+                      <Box sx={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 3, bgcolor: C.primary, opacity: 0.85, borderRadius: "2px 0 0 2px" }} />
+                      <Box sx={{ pl: 1.25 }}>
+                        <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap", mb: 0.5 }}>
+                          <ReceiptIcon sx={{ fontSize: 15, color: C.primary }} />
+                          <Typography sx={{ fontWeight: 700, fontSize: "0.72rem", color: C.textPrimary }}>Receipt</Typography>
+                          {newPayment.ocrAppliedFromReceipt && (
+                            <Chip label="UPI receipt (OCR)" size="small" sx={{ height: 20, fontSize: "0.55rem", fontWeight: 800, bgcolor: C.purpleBg, color: C.purpleText, "& .MuiChip-label": { px: 0.85 } }} />
+                          )}
+                        </Box>
+                        <Typography sx={{ fontSize: "0.58rem", color: C.textSecondary, mb: 0.85, lineHeight: 1.45 }}>
+                          {newPayment.modeOfPayment && !["Cash", "NEFT/RTGS", "Wallet"].includes(newPayment.modeOfPayment) && !newPayment.isWalletPayment
+                            ? `Needed for ${newPayment.modeOfPayment}. `
+                            : "Optional for Cash & NEFT. "}
+                          Scan fills payee, amount, and UTR when possible.
+                        </Typography>
+                        <Box sx={{ width: "fit-content", maxWidth: "100%" }}>
+                          {receiptOcrBusy && (
+                            <LinearProgress sx={{ width: { xs: 220, sm: 260 }, maxWidth: "100%", height: 3, borderRadius: 1, mb: 0.75 }} />
+                          )}
+                          <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap" }}>
+                            <Button variant="outlined" component="label" size="small" disabled={receiptOcrBusy}
+                              sx={{ fontSize: "0.68rem", textTransform: "none", borderRadius: 2, height: 34, px: 1.25, borderColor: C.primary, color: C.primary, bgcolor: "rgba(91,95,199,0.04)", flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 0.5, "&:hover": { borderColor: C.primaryDark, bgcolor: "rgba(91,95,199,0.08)" } }}>
+                              {receiptOcrBusy ? <CircularProgress size={12} color="inherit" /> : <UploadIcon sx={{ fontSize: 15 }} />}
+                              {upiOcrLoading ? "Reading…" : receiptProcessing ? "Uploading…" : "Choose images"}
+                              <input type="file" hidden accept="image/*" multiple onChange={handlePaymentImageUpload} disabled={receiptOcrBusy} />
+                            </Button>
+                            {receiptOcrBusy && (
+                              <Typography component="span" sx={{ fontSize: "0.55rem", color: C.textMuted }}>Keep this open until scan finishes</Typography>
+                            )}
+                          </Box>
+                        </Box>
+                        {newPayment.receiptPhoto?.length > 0 && (
+                          <Box sx={{ display: "flex", gap: 0.65, flexWrap: "wrap", mt: 0.85 }}>
+                            {newPayment.receiptPhoto.map((url, idx) => (
+                              <Box key={idx} sx={{ position: "relative" }}>
+                                <Box component="img" src={url} sx={{ width: 44, height: 44, borderRadius: 1.25, objectFit: "cover", border: `1px solid ${C.border}`, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }} />
+                                <IconButton onClick={() => removePaymentImage(idx)} disabled={receiptOcrBusy} size="small" sx={{ position: "absolute", top: -6, right: -6, bgcolor: C.red, color: "white", width: 18, height: 18, "&:hover": { bgcolor: C.red } }}>
+                                  <DeleteIcon sx={{ fontSize: 10 }} />
+                                </IconButton>
+                              </Box>
+                            ))}
+                          </Box>
+                        )}
+                      </Box>
+                    </Box>
+
+                    <Typography sx={{ fontWeight: 800, fontSize: "0.62rem", color: C.textSecondary, letterSpacing: "0.07em", textTransform: "uppercase", mb: 0.85 }}>Payment details</Typography>
+
+                    <Box sx={{ width: "100%", mb: 0.85 }}>
+                      <TextField size="small" fullWidth disabled={receiptOcrBusy} label="Payee" placeholder="Name on receipt" value={newPayment.receiptPayeeName || ""} onChange={(e) => handlePaymentInputChange("receiptPayeeName", e.target.value)} sx={{ ...fieldSx }} />
+                    </Box>
+                    <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0.85, mb: 0.85 }}>
+                      <TextField size="small" fullWidth disabled={receiptOcrBusy} label="Amount (₹)" type="number" value={newPayment.paidAmount} onChange={(e) => handlePaymentInputChange("paidAmount", e.target.value)} sx={{ ...fieldSx }} />
+                      <TextField size="small" fullWidth disabled={receiptOcrBusy} label="Date" type="date" value={newPayment.paymentDate} onChange={(e) => handlePaymentInputChange("paymentDate", e.target.value)} InputLabelProps={{ shrink: true }} sx={{ ...fieldSx }} />
+                    </Box>
+                    <Box sx={{ mb: 0.85 }}>
+                      <SearchableSelectField
+                        options={[{ label: "Mode", value: "" }, ...paymentModeOptions]}
+                        value={newPayment.modeOfPayment}
+                        onChange={(val) => handlePaymentInputChange("modeOfPayment", val)}
+                        placeholder="Payment mode"
+                        disabled={receiptOcrBusy || newPayment.isWalletPayment}
+                        size="small"
+                        sx={{ width: "100%" }}
                       />
                     </Box>
-                  )}
-                  <Box sx={{ display: "flex", gap: 0.75, mb: 0.75 }}>
-                    <TextField size="small" placeholder="Amount ₹" type="number" value={newPayment.paidAmount} onChange={(e) => handlePaymentInputChange("paidAmount", e.target.value)} sx={{ flex: 1, ...fieldSx }} />
-                    <TextField size="small" type="date" value={newPayment.paymentDate} onChange={(e) => handlePaymentInputChange("paymentDate", e.target.value)} InputLabelProps={{ shrink: true }} sx={{ width: 130, ...fieldSx }} />
-                  </Box>
-                  <Box sx={{ display: "flex", gap: 0.75, mb: 0.75 }}>
-                    <SearchableSelectField
-                      options={[{ label: "Mode", value: "" }, ...paymentModeOptions]}
-                      value={newPayment.modeOfPayment}
-                      onChange={(val) => handlePaymentInputChange("modeOfPayment", val)}
-                      placeholder="Search mode..."
-                      disabled={newPayment.isWalletPayment}
-                      size="small"
-                      sx={{ flex: 1 }}
-                    />
-                    <Button variant="outlined" component="label" size="small" startIcon={<UploadIcon sx={{ fontSize: 13 }} />} disabled={paymentLoading}
-                      sx={{ fontSize: "0.65rem", textTransform: "none", borderRadius: 2, height: 36, minWidth: 80, borderColor: C.border, color: C.textSecondary }}>
-                      {paymentLoading ? "..." : "Receipt"}<input type="file" hidden accept="image/*" multiple onChange={handlePaymentImageUpload} />
+                    {(newPayment.modeOfPayment === "Cheque" || newPayment.modeOfPayment === "NEFT/RTGS") && (
+                      <Box sx={{ maxWidth: 360, width: "100%", mb: 0.85 }}>
+                        <TextField size="small" fullWidth disabled={receiptOcrBusy} label="Bank" value={newPayment.bankName} onChange={(e) => handlePaymentInputChange("bankName", e.target.value)} sx={{ ...fieldSx }} />
+                      </Box>
+                    )}
+                    <Box sx={{ width: "100%", mb: 0.85 }}>
+                      <TextField
+                        size="small"
+                        fullWidth
+                        disabled={receiptOcrBusy}
+                        label="Transaction / UTR"
+                        value={newPayment.transactionId}
+                        onChange={(e) => handlePaymentInputChange("transactionId", e.target.value)}
+                        placeholder="Optional — UPI ref or bank txn id"
+                        sx={{ ...fieldSx }}
+                      />
+                    </Box>
+                    <Box sx={{ maxWidth: 360, width: "100%", mb: 1.25 }}>
+                      <TextField size="small" fullWidth disabled={receiptOcrBusy} label="Note" placeholder="Optional" value={newPayment.remark} onChange={(e) => handlePaymentInputChange("remark", e.target.value)} sx={{ ...fieldSx }} />
+                    </Box>
+                    <Button fullWidth variant="contained" size="medium" disabled={paymentLoading || receiptOcrBusy || !newPayment.paidAmount} onClick={handleAddPayment}
+                      startIcon={paymentLoading ? <CircularProgress size={16} color="inherit" /> : <CheckIcon sx={{ fontSize: 18 }} />}
+                      sx={{ py: 1.1, fontSize: "0.82rem", textTransform: "none", fontWeight: 800, borderRadius: 2, background: C.gradient, boxShadow: "0 4px 16px rgba(91,95,199,0.35)" }}>
+                      {paymentLoading ? "Saving…" : "Submit payment"}
                     </Button>
                   </Box>
-                  {newPayment.receiptPhoto?.length > 0 && (
-                    <Box sx={{ display: "flex", gap: 0.5, mb: 0.75 }}>
-                      {newPayment.receiptPhoto.map((url, idx) => (
-                        <Box key={idx} sx={{ position: "relative" }}>
-                          <Box component="img" src={url} sx={{ width: 40, height: 40, borderRadius: 1, objectFit: "cover", border: `1px solid ${C.border}` }} />
-                          <IconButton onClick={() => removePaymentImage(idx)} size="small" sx={{ position: "absolute", top: -6, right: -6, bgcolor: C.red, color: "white", width: 16, height: 16, "&:hover": { bgcolor: C.red } }}>
-                            <DeleteIcon sx={{ fontSize: 9 }} />
-                          </IconButton>
-                        </Box>
-                      ))}
-                    </Box>
-                  )}
-                  <TextField size="small" fullWidth placeholder="Remark (optional)" value={newPayment.remark} onChange={(e) => handlePaymentInputChange("remark", e.target.value)} sx={{ mb: 0.75, ...fieldSx }} />
-                  <Button fullWidth variant="contained" size="small" disabled={paymentLoading || !newPayment.paidAmount} onClick={handleAddPayment}
-                    startIcon={paymentLoading ? <CircularProgress size={14} /> : <CheckIcon sx={{ fontSize: 15 }} />}
-                    sx={{ height: 36, fontSize: "0.78rem", textTransform: "none", fontWeight: 700, borderRadius: 2, background: C.gradient, boxShadow: "0 2px 8px rgba(91,95,199,0.3)" }}>
-                    {paymentLoading ? "Adding..." : "Submit Payment"}
-                  </Button>
                 </Box>
               </Collapse>
             </Box>
@@ -852,7 +1097,7 @@ function PlaceOrderMobile() {
               <RefreshIcon sx={{ fontSize: 18, color: C.textSecondary }} />
             </IconButton>
             <Button size="small" variant="contained" startIcon={<PaymentIcon sx={{ fontSize: 16 }} />}
-              onClick={() => { setShowBulkPaymentDialog(true); setBulkOrderSearch(""); setBulkOrderSearchResults([]); setBulkAllocations([]); setPendingBulkAmounts({}); setBulkPaymentMain({ totalAmount: "", paymentDate: moment().format("YYYY-MM-DD"), modeOfPayment: "", bankName: "", remark: "", transactionId: "", chequeNumber: "", receiptPhoto: [] }) }}
+              onClick={() => { setShowBulkPaymentDialog(true); setBulkOrderSearch(""); setBulkOrderSearchResults([]); setBulkAllocations([]); setPendingBulkAmounts({}); setBulkPaymentMain({ totalAmount: "", paymentDate: moment().format("YYYY-MM-DD"), modeOfPayment: "", bankName: "", remark: "", transactionId: "", chequeNumber: "", receiptPhoto: [], receiptPayeeName: "" }) }}
               sx={{ height: 38, borderRadius: 2.5, textTransform: "none", fontSize: "0.75rem", fontWeight: 700, bgcolor: "#0D9488", "&:hover": { bgcolor: "#0F766E" } }}>
               Bulk payment
             </Button>
@@ -1664,34 +1909,122 @@ function PlaceOrderMobile() {
           </CardContent>
         </Card>
       )) : <Box sx={{ py: 2, textAlign: "center", bgcolor: C.bg, borderRadius: 2, mb: 1.5 }}><Typography sx={{ fontSize: "0.78rem", color: C.textMuted }}>No payments yet</Typography></Box>}
-      <Divider sx={{ my: 1.25 }} />
-      <Typography sx={{ fontWeight: 800, color: C.textPrimary, fontSize: "0.88rem", mb: 1 }}>Add Payment</Typography>
-      {isDealer && dealerWallet && (
-        <Box sx={{ mb: 1, p: 0.75, bgcolor: C.orangeBg, borderRadius: 2, border: "1px solid #FDE68A" }}>
-          <FormControlLabel control={<Checkbox size="small" checked={newPayment.isWalletPayment} onChange={(e) => handlePaymentInputChange("isWalletPayment", e.target.checked)} sx={{ color: C.primary, "&.Mui-checked": { color: C.primary } }} />}
-            label={<Box><Typography sx={{ fontWeight: 700, fontSize: "0.78rem" }}>Pay from Wallet</Typography><Typography sx={{ fontSize: "0.65rem", color: C.textSecondary }}>Balance: ₹{dealerWallet.availableAmount?.toLocaleString()}</Typography></Box>} />
+      <Divider sx={{ my: 1.5 }} />
+      <Box sx={{
+        position: "relative",
+        p: 1.5,
+        bgcolor: C.cardBg,
+        borderRadius: 2.5,
+        border: `1px solid ${C.border}`,
+        boxShadow: "0 4px 24px rgba(26, 29, 46, 0.07)",
+        overflow: "hidden",
+      }}>
+        {renderReceiptOcrBlocker()}
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, mb: 1.5 }}>
+          <Box sx={{ width: 40, height: 40, borderRadius: 2, background: C.gradient, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, boxShadow: "0 4px 14px rgba(91,95,199,0.35)" }}>
+            <PaymentIcon sx={{ fontSize: 22, color: "#fff" }} />
+          </Box>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography sx={{ fontWeight: 800, fontSize: "0.88rem", color: C.textPrimary }}>Add payment</Typography>
+            <Typography sx={{ fontSize: "0.65rem", color: C.textMuted, mt: 0.15 }}>Receipt → amount & mode → submit</Typography>
+          </Box>
         </Box>
-      )}
-      <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
-        <TextField fullWidth size="small" label="Amount (₹)" type="number" value={newPayment.paidAmount} onChange={(e) => handlePaymentInputChange("paidAmount", e.target.value)} sx={fieldSx} />
-        <TextField fullWidth size="small" label="Date" type="date" value={newPayment.paymentDate} onChange={(e) => handlePaymentInputChange("paymentDate", e.target.value)} InputLabelProps={{ shrink: true }} sx={fieldSx} />
-        <SearchableSelectField
-          options={[{ label: "Select", value: "" }, ...paymentModeOptions]}
-          value={newPayment.modeOfPayment}
-          onChange={(val) => handlePaymentInputChange("modeOfPayment", val)}
-          label="Mode"
-          placeholder="Search mode..."
-          disabled={newPayment.isWalletPayment}
-          size="small"
-        />
-        {(newPayment.modeOfPayment === "Cheque" || newPayment.modeOfPayment === "NEFT/RTGS") && <TextField fullWidth size="small" label="Bank Name" value={newPayment.bankName} onChange={(e) => handlePaymentInputChange("bankName", e.target.value)} sx={fieldSx} />}
-        <TextField fullWidth size="small" label="Remark" value={newPayment.remark} onChange={(e) => handlePaymentInputChange("remark", e.target.value)} multiline rows={2} sx={fieldSx} />
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-          <Button variant="outlined" component="label" size="small" startIcon={<UploadIcon sx={{ fontSize: 14 }} />} disabled={paymentLoading} sx={{ fontSize: "0.68rem", textTransform: "none", borderRadius: 2, borderColor: C.border, color: C.textSecondary }}>{paymentLoading ? "..." : "Receipt"}<input type="file" hidden accept="image/*" multiple onChange={handlePaymentImageUpload} /></Button>
-          {newPayment.receiptPhoto?.length > 0 && <Box sx={{ display: "flex", gap: 0.5 }}>{newPayment.receiptPhoto.map((url, idx) => <Box key={idx} sx={{ position: "relative" }}><Box component="img" src={url} sx={{ width: 44, height: 44, borderRadius: 1, objectFit: "cover", border: `1px solid ${C.border}` }} /><IconButton onClick={() => removePaymentImage(idx)} size="small" sx={{ position: "absolute", top: -6, right: -6, bgcolor: C.red, color: "white", width: 16, height: 16 }}><DeleteIcon sx={{ fontSize: 9 }} /></IconButton></Box>)}</Box>}
+
+        {isDealer && dealerWallet && (
+          <Box sx={{ mb: 1.25, p: 1, bgcolor: C.orangeBg, borderRadius: 2, border: "1px solid rgba(245, 158, 11, 0.35)" }}>
+            <FormControlLabel control={<Checkbox size="small" disabled={receiptOcrBusy} checked={newPayment.isWalletPayment} onChange={(e) => handlePaymentInputChange("isWalletPayment", e.target.checked)} sx={{ color: C.primary, "&.Mui-checked": { color: C.primary } }} />}
+              label={<Box><Typography sx={{ fontWeight: 700, fontSize: "0.78rem" }}>Pay from wallet</Typography><Typography sx={{ fontSize: "0.65rem", color: C.textSecondary }}>₹{dealerWallet.availableAmount?.toLocaleString()} available</Typography></Box>} />
+          </Box>
+        )}
+
+        <Box sx={{ p: 1.25, mb: 1.25, borderRadius: 2, bgcolor: C.bg, border: `1px solid ${C.borderLight}`, position: "relative", overflow: "hidden" }}>
+          <Box sx={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 3, bgcolor: C.primary, opacity: 0.85, borderRadius: "2px 0 0 2px" }} />
+          <Box sx={{ pl: 1.25 }}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap", mb: 0.5 }}>
+              <ReceiptIcon sx={{ fontSize: 16, color: C.primary }} />
+              <Typography sx={{ fontWeight: 700, fontSize: "0.75rem", color: C.textPrimary }}>Receipt</Typography>
+              {newPayment.ocrAppliedFromReceipt && (
+                <Chip label="UPI receipt (OCR)" size="small" sx={{ height: 20, fontSize: "0.55rem", fontWeight: 800, bgcolor: C.purpleBg, color: C.purpleText, "& .MuiChip-label": { px: 0.85 } }} />
+              )}
+            </Box>
+            <Typography sx={{ fontSize: "0.62rem", color: C.textSecondary, mb: 0.85, lineHeight: 1.45 }}>
+              {newPayment.modeOfPayment && !["Cash", "NEFT/RTGS", "Wallet"].includes(newPayment.modeOfPayment) && !newPayment.isWalletPayment
+                ? `Needed for ${newPayment.modeOfPayment}. `
+                : "Optional for Cash & NEFT. "}
+              Scan fills payee, amount, and UTR when possible.
+            </Typography>
+            <Box sx={{ width: "fit-content", maxWidth: "100%" }}>
+              {receiptOcrBusy && (
+                <LinearProgress sx={{ width: { xs: 240, sm: 280 }, maxWidth: "100%", height: 3, borderRadius: 1, mb: 0.75 }} />
+              )}
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", mb: 0.75 }}>
+                <Button variant="outlined" component="label" size="small" disabled={receiptOcrBusy} sx={{ fontSize: "0.72rem", textTransform: "none", borderRadius: 2, height: 36, px: 1.5, borderColor: C.primary, color: C.primary, bgcolor: "rgba(91,95,199,0.04)", display: "inline-flex", alignItems: "center", gap: 0.75, "&:hover": { borderColor: C.primaryDark, bgcolor: "rgba(91,95,199,0.08)" } }}>
+                  {receiptOcrBusy ? <CircularProgress size={14} color="inherit" /> : <UploadIcon sx={{ fontSize: 16 }} />}
+                  {upiOcrLoading ? "Reading…" : receiptProcessing ? "Uploading…" : "Choose images"}
+                  <input type="file" hidden accept="image/*" multiple onChange={handlePaymentImageUpload} disabled={receiptOcrBusy} />
+                </Button>
+                {receiptOcrBusy && (
+                  <Typography component="span" sx={{ fontSize: "0.58rem", color: C.textMuted }}>Wait for scan to finish</Typography>
+                )}
+              </Box>
+            </Box>
+            {newPayment.modeOfPayment &&
+              !["Cash", "NEFT/RTGS", "Wallet"].includes(newPayment.modeOfPayment) &&
+              !newPayment.isWalletPayment &&
+              (newPayment.modeOfPayment === "UPI" || newPayment.modeOfPayment === "Cheque") && (
+                <Typography sx={{ fontSize: "0.62rem", color: C.red, mb: 0.75 }}>Receipt required for UPI & Cheque — upload first.</Typography>
+              )}
+            {newPayment.receiptPhoto?.length > 0 && (
+              <Box sx={{ display: "flex", gap: 0.65, flexWrap: "wrap" }}>
+                {newPayment.receiptPhoto.map((url, idx) => (
+                  <Box key={idx} sx={{ position: "relative" }}>
+                    <Box component="img" src={url} sx={{ width: 48, height: 48, borderRadius: 1.25, objectFit: "cover", border: `1px solid ${C.border}`, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }} />
+                    <IconButton onClick={() => removePaymentImage(idx)} disabled={receiptOcrBusy} size="small" sx={{ position: "absolute", top: -6, right: -6, bgcolor: C.red, color: "white", width: 18, height: 18 }}><DeleteIcon sx={{ fontSize: 10 }} /></IconButton>
+                  </Box>
+                ))}
+              </Box>
+            )}
+          </Box>
         </Box>
-        <Button variant="contained" fullWidth onClick={handleAddPayment} disabled={paymentLoading || !newPayment.paidAmount} startIcon={paymentLoading ? <CircularProgress size={14} /> : <PaymentIcon sx={{ fontSize: 16 }} />}
-          sx={{ background: C.gradient, textTransform: "none", fontWeight: 700, borderRadius: 2, height: 40, fontSize: "0.85rem", boxShadow: "0 2px 8px rgba(91,95,199,0.3)" }}>{paymentLoading ? "Adding..." : "Add Payment"}</Button>
+
+        <Typography sx={{ fontWeight: 800, fontSize: "0.62rem", color: C.textSecondary, letterSpacing: "0.07em", textTransform: "uppercase", mb: 0.85 }}>Payment details</Typography>
+
+        <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+          <TextField fullWidth size="small" disabled={receiptOcrBusy} label="Payee" placeholder="Name on receipt" value={newPayment.receiptPayeeName || ""} onChange={(e) => handlePaymentInputChange("receiptPayeeName", e.target.value)} sx={fieldSx} />
+          <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, gap: 1 }}>
+            <TextField fullWidth size="small" disabled={receiptOcrBusy} label="Amount (₹)" type="number" value={newPayment.paidAmount} onChange={(e) => handlePaymentInputChange("paidAmount", e.target.value)} sx={fieldSx} />
+            <TextField fullWidth size="small" disabled={receiptOcrBusy} label="Date" type="date" value={newPayment.paymentDate} onChange={(e) => handlePaymentInputChange("paymentDate", e.target.value)} InputLabelProps={{ shrink: true }} sx={fieldSx} />
+          </Box>
+          <SearchableSelectField
+            options={[{ label: "Select mode", value: "" }, ...paymentModeOptions]}
+            value={newPayment.modeOfPayment}
+            onChange={(val) => handlePaymentInputChange("modeOfPayment", val)}
+            label="Mode"
+            placeholder="Payment mode"
+            disabled={receiptOcrBusy || newPayment.isWalletPayment}
+            size="small"
+          />
+          {(newPayment.modeOfPayment === "Cheque" || newPayment.modeOfPayment === "NEFT/RTGS") && (
+            <Box sx={{ maxWidth: 360, width: "100%" }}>
+              <TextField fullWidth size="small" disabled={receiptOcrBusy} label="Bank" value={newPayment.bankName} onChange={(e) => handlePaymentInputChange("bankName", e.target.value)} sx={fieldSx} />
+            </Box>
+          )}
+          <TextField
+            fullWidth
+            size="small"
+            disabled={receiptOcrBusy}
+            label="Transaction / UTR"
+            value={newPayment.transactionId}
+            onChange={(e) => handlePaymentInputChange("transactionId", e.target.value)}
+            placeholder="Optional — UPI ref or bank txn id"
+            sx={fieldSx}
+          />
+          <Box sx={{ maxWidth: 360, width: "100%" }}>
+            <TextField fullWidth size="small" disabled={receiptOcrBusy} label="Note" value={newPayment.remark} onChange={(e) => handlePaymentInputChange("remark", e.target.value)} multiline rows={2} placeholder="Optional" sx={fieldSx} />
+          </Box>
+          <Button variant="contained" fullWidth onClick={handleAddPayment} disabled={paymentLoading || receiptOcrBusy || !newPayment.paidAmount} startIcon={paymentLoading ? <CircularProgress size={14} color="inherit" /> : <PaymentIcon sx={{ fontSize: 18 }} />}
+            sx={{ mt: 0.5, py: 1.1, textTransform: "none", fontWeight: 800, borderRadius: 2, fontSize: "0.88rem", background: C.gradient, boxShadow: "0 4px 16px rgba(91,95,199,0.35)" }}>{paymentLoading ? "Saving…" : "Submit payment"}</Button>
+        </Box>
       </Box>
     </Box>
   )
@@ -1894,6 +2227,9 @@ function PlaceOrderMobile() {
         customerName={paymentQRModalData?.customerName}
         mobileNumber={paymentQRModalData?.mobileNumber}
         expiresAt={paymentQRModalData?.expiresAt}
+        merchantTranId={paymentQRModalData?.merchantTranId}
+        qrReferenceId={paymentQRModalData?.qrReferenceId}
+        onVerified={refreshOrderDetail}
       />
     </Box>
   )

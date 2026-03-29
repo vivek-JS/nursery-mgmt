@@ -33,7 +33,9 @@ import {
   FormLabel,
   Radio,
   RadioGroup,
-  Switch
+  Switch,
+  CircularProgress,
+  LinearProgress
 } from "@mui/material"
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore"
 import DownloadPDFButton from "./OrdereRecipt"
@@ -44,6 +46,8 @@ import { Toast } from "helpers/toasts/toastHelper"
 import { FaUser, FaCreditCard, FaEdit, FaFileAlt, FaWhatsapp } from "react-icons/fa"
 import ConfirmDialog from "components/Modals/ConfirmDialog"
 import PaymentQRModal from "components/Modals/PaymentQRModal"
+import axiosInstance from "services/axiosConfig"
+import { getStatementMatchPresentation } from "lib/bankMatchLabels"
 import {
   useCanAddPayment,
   useIsOfficeAdmin,
@@ -60,6 +64,11 @@ import {
   setWhatsappMessagingDisabled
 } from "utils/whatsappMessagingPref"
 import { getCavityDisplayLabel, getCavityIdString } from "utils/cavityDisplay"
+import {
+  extractUpiFromReceiptImageUrl,
+  mergeUpiOcrIntoPaymentState,
+  buildRemarkWithReceiptPayee
+} from "utils/upiReceiptOcr"
 
 /** User-visible order dates in table/modals — e.g. 12-March-2025 (API payloads still use DD-MM-YYYY / YYYY-MM-DD). */
 const ORDER_DATE_DISPLAY = "DD-MMMM-YYYY"
@@ -990,8 +999,13 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
     remark: "",
     transactionId: "",
     chequeNumber: "",
-    receiptPhoto: []
+    receiptPhoto: [],
+    receiptPayeeName: ""
   })
+  const [upiOcrLoading, setUpiOcrLoading] = useState(false)
+  /** Farmer order "Add payment" accordion: upload + OCR — do not use global `loading` (submit uses that). */
+  const [paymentReceiptBusy, setPaymentReceiptBusy] = useState(false)
+  const [bulkPaymentReceiptBusy, setBulkPaymentReceiptBusy] = useState(false)
   const [bulkAllocations, setBulkAllocations] = useState([])
   const [bulkPaymentSubmitting, setBulkPaymentSubmitting] = useState(false)
   const [pendingBulkAmounts, setPendingBulkAmounts] = useState({})
@@ -1001,6 +1015,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   const bulkOrderSearchTimerRef = useRef(null)
   const [paymentQRModalOpen, setPaymentQRModalOpen] = useState(false)
   const [paymentQRModalData, setPaymentQRModalData] = useState(null)
+  const [verifyIciciLoadingPaymentId, setVerifyIciciLoadingPaymentId] = useState(null)
   const [generateQRLoading, setGenerateQRLoading] = useState(false)
 
   // Inject custom CSS for blinking animation and enhanced dropdowns
@@ -1120,8 +1135,12 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
     paymentDate: moment().format("YYYY-MM-DD"),
     modeOfPayment: "",
     bankName: "",
+    transactionId: "",
+    utrNumber: "",
+    chequeNumber: "",
     remark: "",
     receiptPhoto: [],
+    receiptPayeeName: "",
     paymentStatus: "PENDING", // Default to PENDING, will be updated based on payment type
     isWalletPayment: false
   })
@@ -1299,8 +1318,11 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
           paymentDate: newPayment.paymentDate,
           modeOfPayment: newPayment.isWalletPayment ? "Wallet" : newPayment.modeOfPayment,
           bankName: newPayment.bankName || "",
+          transactionId: newPayment.transactionId || "",
+          utrNumber: newPayment.utrNumber?.trim() || "",
+          chequeNumber: newPayment.chequeNumber?.trim() || "",
           receiptPhoto: newPayment.receiptPhoto || [],
-          remark: newPayment.remark || "",
+          remark: buildRemarkWithReceiptPayee(newPayment.remark, newPayment.receiptPayeeName) || "",
           isWalletPayment: false, // Agri Sales orders don't support wallet payments
           paymentStatus: "PENDING",
         }
@@ -1344,7 +1366,10 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
         paymentDate: newPayment.paymentDate,
         modeOfPayment: newPayment.modeOfPayment,
         bankName: newPayment.bankName,
-        remark: newPayment.remark,
+        transactionId: newPayment.transactionId || "",
+        utrNumber: newPayment.utrNumber?.trim() || "",
+        chequeNumber: newPayment.chequeNumber?.trim() || "",
+        remark: buildRemarkWithReceiptPayee(newPayment.remark, newPayment.receiptPayeeName),
         receiptPhoto: newPayment.receiptPhoto || [],
         isWalletPayment: isWalletPayment,
         paymentStatus: paymentStatus
@@ -1756,8 +1781,12 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
       paymentDate: moment().format("YYYY-MM-DD"),
       modeOfPayment: "",
       bankName: "",
+      transactionId: "",
+      utrNumber: "",
+      chequeNumber: "",
       remark: "",
       receiptPhoto: [],
+      receiptPayeeName: "",
       paymentStatus: paymentStatus,
       isWalletPayment: Boolean(isWalletPayment)
     })
@@ -2599,9 +2628,13 @@ const loadFilterOptions = async () => {
   }, [selectedOrder?.details?.payment])
 
   const handleGeneratePaymentQR = async () => {
-    const orderId = selectedOrder?.details?._id
-    if (!orderId) {
-      Toast.error("Order not found")
+    // Mongo _id lives in details.orderid for table rows (see getOrders map); some payloads use details._id
+    const orderId =
+      selectedOrder?.details?._id ??
+      selectedOrder?.details?.orderid ??
+      selectedOrder?.details?.id
+    if (orderId == null || String(orderId).trim() === "") {
+      Toast.error("Order not found — open the order again or refresh the list")
       return
     }
     const isAgri = selectedOrder?.isAgriSalesOrder || selectedOrder?.details?.isRamAgriProduct
@@ -2612,6 +2645,7 @@ const loadFilterOptions = async () => {
       const res = await instance.request({}, [orderId])
       const data = res?.data
       if (data?.success && data?.qrImageOrString != null) {
+        const refId = data.qrReferenceId || data.merchantTranId
         setPaymentQRModalData({
           qrImageOrString: data.qrImageOrString,
           amount: data.amount,
@@ -2619,6 +2653,8 @@ const loadFilterOptions = async () => {
           customerName: data.customerName,
           mobileNumber: data.mobileNumber,
           expiresAt: data.expiresAt,
+          qrReferenceId: refId,
+          merchantTranId: refId,
         })
         setPaymentQRModalOpen(true)
         Toast.success("QR generated")
@@ -2630,6 +2666,30 @@ const loadFilterOptions = async () => {
       Toast.error(err?.response?.data?.message || "Failed to generate payment QR")
     } finally {
       setGenerateQRLoading(false)
+    }
+  }
+
+  const handleVerifyIciciForPayment = async (payment) => {
+    const mtid = payment?.merchantTranId || payment?.qrReferenceId
+    if (!mtid || String(mtid).trim() === "") {
+      Toast.error("No ICICI transaction reference on this payment")
+      return
+    }
+    const pid = payment?._id != null ? String(payment._id) : ""
+    setVerifyIciciLoadingPaymentId(pid || "modal")
+    try {
+      await axiosInstance.get(`/api/payments/icici/status/${encodeURIComponent(String(mtid).trim())}`)
+      Toast.success("ICICI payment status checked — bank fields updated if matched")
+      await refreshModalData()
+    } catch (e) {
+      const msg =
+        e?.response?.data?.message ||
+        e?.response?.data?.error ||
+        e?.message ||
+        "ICICI status check failed"
+      Toast.error(msg)
+    } finally {
+      setVerifyIciciLoadingPaymentId(null)
     }
   }
 
@@ -3830,7 +3890,7 @@ const mapSlotForUi = (slotData) => {
         paymentDate: bulkPaymentMain.paymentDate,
         modeOfPayment: mode,
         bankName: bulkPaymentMain.bankName || undefined,
-        remark: bulkPaymentMain.remark || undefined,
+        remark: buildRemarkWithReceiptPayee(bulkPaymentMain.remark, bulkPaymentMain.receiptPayeeName) || undefined,
         transactionId: txnOrCheque || undefined,
         receiptPhoto: Array.isArray(bulkPaymentMain.receiptPhoto) ? bulkPaymentMain.receiptPhoto : [],
         allocations: bulkAllocations.map((a) => ({
@@ -3857,7 +3917,8 @@ const mapSlotForUi = (slotData) => {
         remark: "",
         transactionId: "",
         chequeNumber: "",
-        receiptPhoto: []
+        receiptPhoto: [],
+        receiptPayeeName: ""
       })
       getOrders()
     } catch (err) {
@@ -6498,10 +6559,153 @@ const mapSlotForUi = (slotData) => {
                             </Box>
                           </AccordionSummary>
                           <AccordionDetails sx={{ bgcolor: "#f9fafb", borderTop: "1px solid #e5e7eb" }}>
+                        <div className="relative overflow-hidden rounded-lg">
+                          {(paymentReceiptBusy || upiOcrLoading) && (
+                            <div
+                              className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white/85 p-4 text-center backdrop-blur-sm"
+                              aria-busy="true"
+                            >
+                              <CircularProgress size={36} />
+                              <Typography variant="body2" fontWeight={700}>
+                                {upiOcrLoading ? "Reading receipt…" : "Uploading receipt…"}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                Form locked until upload and scan finish
+                              </Typography>
+                            </div>
+                          )}
                         <div className="bg-gray-50 rounded-lg p-4 border">
                             <h4 className="font-medium text-gray-900 mb-3 text-sm">
                               Add New Payment
                             </h4>
+
+                            {/* Payment receipt FIRST — then payee & grid (OCR fills fields below) */}
+                            <div className="mb-4 pb-4 border-b border-gray-200">
+                              <label className="text-sm text-gray-700 font-semibold">
+                                Payment Receipt Photo
+                              </label>
+                              <p className="text-xs text-gray-500 mt-1 mb-2">
+                                {newPayment.modeOfPayment &&
+                                !["Cash", "NEFT/RTGS", "Wallet"].includes(newPayment.modeOfPayment) &&
+                                !newPayment.isWalletPayment
+                                  ? `Required for ${newPayment.modeOfPayment}. `
+                                  : "Optional for Cash & NEFT/RTGS. "}
+                                Upload first — we scan the receipt to fill payee, amount, date, and UTR when possible.
+                              </p>
+                              {(paymentReceiptBusy || upiOcrLoading) && (
+                                <LinearProgress sx={{ maxWidth: 280, width: "100%", height: 3, borderRadius: 1, mb: 1 }} />
+                              )}
+                              <div className="mt-2 inline-block max-w-xs w-full">
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  multiple
+                                  disabled={paymentReceiptBusy || upiOcrLoading}
+                                  onChange={async (e) => {
+                                    const files = Array.from(e.target.files)
+                                    if (files.length === 0) return
+                                    try {
+                                      setPaymentReceiptBusy(true)
+                                      const uploadedUrls = (
+                                        await Promise.all(
+                                          files.map(async (file) => {
+                                            const formData = new FormData()
+                                            formData.append("media_key", file)
+                                            formData.append("media_type", "IMAGE")
+                                            formData.append("content_type", "multipart/form-data")
+                                            const instance = NetworkManager(API.MEDIA.UPLOAD)
+                                            const response = await instance.request(formData)
+                                            return (
+                                              response?.data?.data?.media_url ||
+                                              response?.data?.media_url
+                                            )
+                                          })
+                                        )
+                                      ).filter(Boolean)
+                                      setNewPayment((prev) => ({
+                                        ...prev,
+                                        receiptPhoto: [...(prev.receiptPhoto || []), ...uploadedUrls],
+                                      }))
+                                      Toast.success("Images uploaded successfully")
+                                      const first = uploadedUrls[0]
+                                      if (first && /^https?:\/\//i.test(String(first))) {
+                                        setUpiOcrLoading(true)
+                                        try {
+                                          const ocr = await extractUpiFromReceiptImageUrl(first)
+                                          if (ocr?.success && ocr?.data) {
+                                            const d = ocr.data
+                                            setNewPayment((prev) => mergeUpiOcrIntoPaymentState(prev, d))
+                                            Toast.success(
+                                              d.needs_review
+                                                ? "Receipt scanned — verify payee, amount, UTR"
+                                                : "Receipt details filled from screenshot"
+                                            )
+                                          }
+                                        } catch (err) {
+                                          console.warn("UPI OCR:", err)
+                                          Toast.error(err?.message || "Could not read receipt")
+                                        } finally {
+                                          setUpiOcrLoading(false)
+                                        }
+                                      }
+                                    } catch (error) {
+                                      console.error("Error uploading images:", error)
+                                      Toast.error("Failed to upload images")
+                                    } finally {
+                                      setPaymentReceiptBusy(false)
+                                      e.target.value = ""
+                                    }
+                                  }}
+                                  className="w-full max-w-xs px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 disabled:opacity-50"
+                                />
+                                {newPayment.modeOfPayment &&
+                                  newPayment.modeOfPayment !== "Cash" &&
+                                  newPayment.modeOfPayment !== "NEFT/RTGS" &&
+                                  !newPayment.isWalletPayment && (
+                                  <p className="text-xs text-red-600 mt-1">
+                                    {newPayment.modeOfPayment === "UPI" || newPayment.modeOfPayment === "Cheque"
+                                      ? "Receipt photo is mandatory for UPI and Cheque."
+                                      : `Payment image is mandatory for ${newPayment.modeOfPayment} payments`}
+                                  </p>
+                                )}
+                                {newPayment.receiptPhoto && newPayment.receiptPhoto.length > 0 && (
+                                  <div className="mt-2 flex flex-wrap gap-2">
+                                    {newPayment.receiptPhoto.map((photo, index) => (
+                                      <div key={index} className="relative">
+                                        <img
+                                          src={photo}
+                                          alt={`Receipt ${index + 1}`}
+                                          className="w-16 h-16 object-cover rounded border"
+                                        />
+                                        <button
+                                          onClick={() => {
+                                            const updatedPhotos = newPayment.receiptPhoto.filter((_, i) => i !== index)
+                                            handlePaymentInputChange("receiptPhoto", updatedPhotos)
+                                          }}
+                                          className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-xs">
+                                          ×
+                                        </button>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="mb-3 w-full max-w-full">
+                              <label className="text-sm text-gray-500 font-medium">
+                                Payee name (from receipt)
+                              </label>
+                              <input
+                                type="text"
+                                value={newPayment.receiptPayeeName || ""}
+                                onChange={(e) =>
+                                  handlePaymentInputChange("receiptPayeeName", e.target.value)
+                                }
+                                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 mt-1"
+                                placeholder="Filled when you upload a UPI receipt"
+                              />
+                            </div>
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
                               <div>
                                 <label className="text-sm text-gray-500 font-medium">
@@ -6587,6 +6791,56 @@ const mapSlotForUi = (slotData) => {
                                 />
                               </div>
                             </div>
+
+                            {newPayment.modeOfPayment === "Cheque" && !newPayment.isWalletPayment && (
+                              <div className="mt-4 w-full max-w-full">
+                                <label className="text-sm text-gray-500 font-medium">Cheque number</label>
+                                <input
+                                  type="text"
+                                  value={newPayment.chequeNumber}
+                                  onChange={(e) =>
+                                    handlePaymentInputChange("chequeNumber", e.target.value)
+                                  }
+                                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 mt-1"
+                                  placeholder="Cheque number (for bank reconciliation)"
+                                />
+                              </div>
+                            )}
+                            {(newPayment.modeOfPayment === "UPI" ||
+                              newPayment.modeOfPayment === "NEFT/RTGS") &&
+                              !newPayment.isWalletPayment && (
+                                <div className="mt-4 w-full max-w-full">
+                                  <label className="text-sm text-gray-500 font-medium">UTR</label>
+                                  <input
+                                    type="text"
+                                    value={newPayment.utrNumber}
+                                    onChange={(e) =>
+                                      handlePaymentInputChange("utrNumber", e.target.value)
+                                    }
+                                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 mt-1"
+                                    placeholder="UPI / NEFT / RTGS UTR (for bank match)"
+                                  />
+                                </div>
+                              )}
+                            <div className="mt-4 w-full max-w-full">
+                              <label className="text-sm text-gray-500 font-medium">
+                                Transaction ID / bank reference (optional)
+                              </label>
+                              <input
+                                type="text"
+                                value={newPayment.transactionId}
+                                onChange={(e) =>
+                                  handlePaymentInputChange("transactionId", e.target.value)
+                                }
+                                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 mt-1"
+                                placeholder="Additional bank transaction id if different from UTR"
+                                disabled={
+                                  !newPayment.modeOfPayment ||
+                                  newPayment.isWalletPayment ||
+                                  newPayment.modeOfPayment === "Cash"
+                                }
+                              />
+                            </div>
                             <div className="mt-4">
                               <label className="text-sm text-gray-500 font-medium">Remark</label>
                               <input
@@ -6596,79 +6850,6 @@ const mapSlotForUi = (slotData) => {
                                 className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 mt-1"
                                 placeholder="Optional remark"
                               />
-                            </div>
-
-                            {/* Payment Receipt Photo Upload */}
-                            <div className="mt-4">
-                              <label className="text-sm text-gray-500 font-medium">
-                                Payment Receipt Photo {newPayment.modeOfPayment && newPayment.modeOfPayment !== "Cash" && newPayment.modeOfPayment !== "NEFT/RTGS" ? "*" : "(Optional)"}
-                              </label>
-                              <div className="mt-2">
-                                <input
-                                  type="file"
-                                  accept="image/*"
-                                  multiple
-                                  onChange={async (e) => {
-                                    const files = Array.from(e.target.files)
-                                    if (files.length > 0) {
-                                      try {
-                                        setLoading(true)
-                                        // Upload each file to the media endpoint and get URLs
-                                        const uploadedUrls = await Promise.all(
-                                          files.map(async (file) => {
-                                            const formData = new FormData()
-                                            formData.append("media_key", file)
-                                            formData.append("media_type", "IMAGE")
-                                            formData.append("content_type", "multipart/form-data")
-                                            
-                                            const instance = NetworkManager(API.MEDIA.UPLOAD)
-                                            const response = await instance.request(formData)
-                                            return response.data.media_url
-                                          })
-                                        )
-                                        handlePaymentInputChange("receiptPhoto", uploadedUrls)
-                                        Toast.success("Images uploaded successfully")
-                                      } catch (error) {
-                                        console.error("Error uploading images:", error)
-                                        Toast.error("Failed to upload images")
-                                      } finally {
-                                        setLoading(false)
-                                      }
-                                    }
-                                  }}
-                                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
-                                />
-                                {newPayment.modeOfPayment && newPayment.modeOfPayment !== "Cash" && newPayment.modeOfPayment !== "NEFT/RTGS" && (
-                                  <p className="text-xs text-red-600 mt-1">
-                                    Payment image is mandatory for {newPayment.modeOfPayment} payments
-                                  </p>
-                                )}
-                                <p className="text-xs text-gray-500 mt-1">
-                                  Upload payment confirmation screenshots or photos
-                                </p>
-                                {/* Show preview of uploaded images */}
-                                {newPayment.receiptPhoto && newPayment.receiptPhoto.length > 0 && (
-                                  <div className="mt-2 flex flex-wrap gap-2">
-                                    {newPayment.receiptPhoto.map((photo, index) => (
-                                      <div key={index} className="relative">
-                                        <img
-                                          src={photo}
-                                          alt={`Receipt ${index + 1}`}
-                                          className="w-16 h-16 object-cover rounded border"
-                                        />
-                                        <button
-                                          onClick={() => {
-                                            const updatedPhotos = newPayment.receiptPhoto.filter((_, i) => i !== index)
-                                            handlePaymentInputChange("receiptPhoto", updatedPhotos)
-                                          }}
-                                          className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-xs">
-                                          ×
-                                        </button>
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
                             </div>
 
                             {/* Wallet Payment Status Indicator */}
@@ -6944,6 +7125,8 @@ const mapSlotForUi = (slotData) => {
                                     handleAddPaymentWithConfirm(selectedOrder.details.orderid)
                                   }
                                   disabled={
+                                    paymentReceiptBusy ||
+                                    upiOcrLoading ||
                                     !newPayment.paidAmount ||
                                     (!newPayment.isWalletPayment && !newPayment.modeOfPayment) ||
                                     (isDealer &&
@@ -6981,6 +7164,7 @@ const mapSlotForUi = (slotData) => {
                               )}
                             </div>
                           </div>
+                          </div>
                           </AccordionDetails>
                         </Accordion>
 
@@ -7004,29 +7188,67 @@ const mapSlotForUi = (slotData) => {
                           <AccordionDetails sx={{ p: 0 }}>
                             {selectedOrder?.details?.payment && selectedOrder.details.payment.length > 0 ? (
                               <div className="divide-y">
-                                {(selectedOrder.details.payment || []).map((payment, pIndex) => (
-                                  <div key={pIndex} className="p-3 hover:bg-gray-50 flex items-center justify-between flex-wrap gap-2">
-                                    <div className="flex items-center flex-wrap gap-2">
-                                      <span className="text-base font-semibold text-gray-900">₹{payment.paidAmount}</span>
-                                      <span className="text-xs text-gray-500">{payment.modeOfPayment}</span>
-                                      <span className={`px-2 py-0.5 text-xs rounded-full ${payment.paymentStatus === "COLLECTED" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
-                                        {payment.paymentStatus}
-                                      </span>
-                                      {payment.isWalletPayment && <span className="px-2 py-0.5 text-xs rounded-full bg-brand-100 text-brand-700">Wallet</span>}
-                                      <span className="text-xs text-gray-500">{moment(payment.paymentDate).format(ORDER_DATE_DISPLAY)}</span>
+                                {(selectedOrder.details.payment || []).map((payment, pIndex) => {
+                                  const bankPres = getStatementMatchPresentation(payment)
+                                  const iciciRef = payment?.merchantTranId || payment?.qrReferenceId
+                                  const refLine =
+                                    payment.utrNumber ||
+                                    payment.transactionId ||
+                                    payment.chequeNumber ||
+                                    iciciRef ||
+                                    ""
+                                  const showVerifyIcici =
+                                    iciciRef &&
+                                    String(iciciRef).trim() !== "" &&
+                                    (String(payment.modeOfPayment || "").toUpperCase().includes("UPI") ||
+                                      String(payment.modeOfPayment || "").toUpperCase().includes("QR"))
+                                  const payId = payment?._id != null ? String(payment._id) : String(pIndex)
+                                  return (
+                                    <div key={pIndex} className="p-3 hover:bg-gray-50 flex flex-col gap-1.5">
+                                      <div className="flex items-center justify-between flex-wrap gap-2">
+                                        <div className="flex items-center flex-wrap gap-2">
+                                          <span className="text-base font-semibold text-gray-900">₹{payment.paidAmount}</span>
+                                          <span className="text-xs text-gray-500">{payment.modeOfPayment}</span>
+                                          <span className={`px-2 py-0.5 text-xs rounded-full ${payment.paymentStatus === "COLLECTED" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
+                                            {payment.paymentStatus}
+                                          </span>
+                                          {payment.isWalletPayment && <span className="px-2 py-0.5 text-xs rounded-full bg-brand-100 text-brand-700">Wallet</span>}
+                                          <span className="text-xs text-gray-500">{moment(payment.paymentDate).format(ORDER_DATE_DISPLAY)}</span>
+                                        </div>
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                          {showVerifyIcici && (
+                                            <button
+                                              type="button"
+                                              disabled={verifyIciciLoadingPaymentId === payId}
+                                              onClick={() => handleVerifyIciciForPayment(payment)}
+                                              className="text-xs font-medium px-2 py-1 rounded border border-teal-600 text-teal-700 hover:bg-teal-50 disabled:opacity-50"
+                                            >
+                                              {verifyIciciLoadingPaymentId === payId ? "Checking…" : "Verify with ICICI"}
+                                            </button>
+                                          )}
+                                          {canAddPayment && (
+                                            <button
+                                              type="button"
+                                              onClick={() => { if (!showPaymentForm) initializePaymentForm(); setShowPaymentForm(true); setExpandedAddPaymentAccordion(true); }}
+                                              className="text-xs text-green-600 hover:text-green-700 font-medium"
+                                            >
+                                              + Add payment
+                                            </button>
+                                          )}
+                                        </div>
+                                      </div>
+                                      <div className="text-xs">
+                                        <span className={bankPres.className}>{bankPres.label}</span>
+                                      </div>
+                                      {refLine ? (
+                                        <div className="text-[11px] text-gray-600 break-all">
+                                          Ref: {refLine}
+                                        </div>
+                                      ) : null}
+                                      {payment.remark && <div className="w-full text-xs text-gray-600">Remark: {payment.remark}</div>}
                                     </div>
-                                    {canAddPayment && (
-                                      <button
-                                        type="button"
-                                        onClick={() => { if (!showPaymentForm) initializePaymentForm(); setShowPaymentForm(true); setExpandedAddPaymentAccordion(true); }}
-                                        className="text-xs text-green-600 hover:text-green-700 font-medium"
-                                      >
-                                        + Add payment
-                                      </button>
-                                    )}
-                                    {payment.remark && <div className="w-full text-xs text-gray-600 mt-1">Remark: {payment.remark}</div>}
-                                  </div>
-                                ))}
+                                  )
+                                })}
                               </div>
                             ) : (
                               <Box sx={{ p: 2, textAlign: "center" }}>
@@ -8182,10 +8404,145 @@ const mapSlotForUi = (slotData) => {
         <DialogTitle>Bulk payment (parent entry)</DialogTitle>
         <DialogContent>
           {/* Same payment form as "Add New Payment" inside order – parent entry */}
+          <div className="relative overflow-hidden rounded-lg">
+            {(bulkPaymentReceiptBusy || upiOcrLoading) && (
+              <div
+                className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white/85 p-4 text-center backdrop-blur-sm"
+                aria-busy="true"
+              >
+                <CircularProgress size={36} />
+                <Typography variant="body2" fontWeight={700}>
+                  {upiOcrLoading ? "Reading receipt…" : "Uploading receipt…"}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Form locked until upload and scan finish
+                </Typography>
+              </div>
+            )}
           <div className="bg-gray-50 rounded-lg p-4 border">
             <h4 className="font-medium text-gray-900 mb-3 text-sm">
               Add New Payment
             </h4>
+
+            <div className="mb-4 pb-4 border-b border-gray-200">
+              <label className="text-sm text-gray-700 font-semibold">
+                Payment Receipt Photo
+              </label>
+              <p className="text-xs text-gray-500 mt-1 mb-2">
+                {bulkPaymentMain.modeOfPayment &&
+                bulkPaymentMain.modeOfPayment !== "Cash" &&
+                bulkPaymentMain.modeOfPayment !== "NEFT/RTGS"
+                  ? `Required for ${bulkPaymentMain.modeOfPayment}. `
+                  : "Optional for Cash & NEFT/RTGS. "}
+                Upload first — we scan the receipt to fill payee, amount, date, and UTR when possible.
+              </p>
+              {(bulkPaymentReceiptBusy || upiOcrLoading) && (
+                <LinearProgress sx={{ maxWidth: 280, width: "100%", height: 3, borderRadius: 1, mb: 1 }} />
+              )}
+              <div className="mt-2 inline-block max-w-xs w-full">
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  disabled={bulkPaymentReceiptBusy || upiOcrLoading}
+                  onChange={async (e) => {
+                    const files = Array.from(e.target.files)
+                    if (files.length === 0) return
+                    try {
+                      setBulkPaymentReceiptBusy(true)
+                      const uploadedUrls = (
+                        await Promise.all(
+                          files.map(async (file) => {
+                            const formData = new FormData()
+                            formData.append("media_key", file)
+                            formData.append("media_type", "IMAGE")
+                            formData.append("content_type", "multipart/form-data")
+                            const instance = NetworkManager(API.MEDIA.UPLOAD)
+                            const response = await instance.request(formData)
+                            return (
+                              response?.data?.data?.media_url ||
+                              response?.data?.media_url
+                            )
+                          })
+                        )
+                      ).filter(Boolean)
+                      setBulkPaymentMain((prev) => ({
+                        ...prev,
+                        receiptPhoto: [...(prev.receiptPhoto || []), ...uploadedUrls],
+                      }))
+                      Toast.success("Images uploaded successfully")
+                      const first = uploadedUrls[0]
+                      if (first && /^https?:\/\//i.test(String(first))) {
+                        setUpiOcrLoading(true)
+                        try {
+                          const ocr = await extractUpiFromReceiptImageUrl(first)
+                          if (ocr?.success && ocr?.data) {
+                            const d = ocr.data
+                            setBulkPaymentMain((prev) => mergeUpiOcrIntoPaymentState(prev, d))
+                            Toast.success(
+                              d.needs_review
+                                ? "Receipt scanned — verify payee, amount, UTR"
+                                : "Receipt details filled from screenshot"
+                            )
+                          }
+                        } catch (err) {
+                          console.warn("UPI OCR:", err)
+                          Toast.error(err?.message || "Could not read receipt")
+                        } finally {
+                          setUpiOcrLoading(false)
+                        }
+                      }
+                    } catch (error) {
+                      console.error("Error uploading images:", error)
+                      Toast.error("Failed to upload images")
+                    } finally {
+                      setBulkPaymentReceiptBusy(false)
+                      e.target.value = ""
+                    }
+                  }}
+                  className="w-full max-w-xs px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 disabled:opacity-50"
+                />
+                {bulkPaymentMain.modeOfPayment && bulkPaymentMain.modeOfPayment !== "Cash" && bulkPaymentMain.modeOfPayment !== "NEFT/RTGS" && (
+                  <p className="text-xs text-red-600 mt-1">
+                    Payment image is mandatory for {bulkPaymentMain.modeOfPayment} payments
+                  </p>
+                )}
+                {bulkPaymentMain.receiptPhoto && bulkPaymentMain.receiptPhoto.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {bulkPaymentMain.receiptPhoto.map((photo, index) => (
+                      <div key={index} className="relative">
+                        <img
+                          src={photo}
+                          alt={`Receipt ${index + 1}`}
+                          className="w-16 h-16 object-cover rounded border"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setBulkPaymentMain((p) => ({ ...p, receiptPhoto: (p.receiptPhoto || []).filter((_, i) => i !== index) }))}
+                          className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-xs">
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="mb-3 w-full max-w-full">
+              <label className="text-sm text-gray-500 font-medium">
+                Payee name (from receipt)
+              </label>
+              <input
+                type="text"
+                value={bulkPaymentMain.receiptPayeeName || ""}
+                onChange={(e) =>
+                  setBulkPaymentMain((p) => ({ ...p, receiptPayeeName: e.target.value }))
+                }
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 mt-1"
+                placeholder="Filled when you upload a UPI receipt"
+              />
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
               <div>
                 <label className="text-sm text-gray-500 font-medium">
@@ -8255,6 +8612,19 @@ const mapSlotForUi = (slotData) => {
                 />
               </div>
             </div>
+
+            <div className="mt-4 w-full max-w-full">
+              <label className="text-sm text-gray-500 font-medium">
+                Transaction / UTR (optional)
+              </label>
+              <input
+                type="text"
+                value={bulkPaymentMain.transactionId || ""}
+                onChange={(e) => setBulkPaymentMain((p) => ({ ...p, transactionId: e.target.value }))}
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 mt-1"
+                placeholder="UPI ref / bank txn id (optional)"
+              />
+            </div>
             <div className="mt-4">
               <label className="text-sm text-gray-500 font-medium">Remark</label>
               <input
@@ -8265,74 +8635,7 @@ const mapSlotForUi = (slotData) => {
                 placeholder="Optional remark"
               />
             </div>
-
-            {/* Payment Receipt Photo Upload – same as inside order */}
-            <div className="mt-4">
-              <label className="text-sm text-gray-500 font-medium">
-                Payment Receipt Photo {bulkPaymentMain.modeOfPayment && bulkPaymentMain.modeOfPayment !== "Cash" && bulkPaymentMain.modeOfPayment !== "NEFT/RTGS" ? "*" : "(Optional)"}
-              </label>
-              <div className="mt-2">
-                <input
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  onChange={async (e) => {
-                    const files = Array.from(e.target.files)
-                    if (files.length > 0) {
-                      try {
-                        setLoading(true)
-                        const uploadedUrls = await Promise.all(
-                          files.map(async (file) => {
-                            const formData = new FormData()
-                            formData.append("media_key", file)
-                            formData.append("media_type", "IMAGE")
-                            formData.append("content_type", "multipart/form-data")
-                            const instance = NetworkManager(API.MEDIA.UPLOAD)
-                            const response = await instance.request(formData)
-                            return response.data.media_url
-                          })
-                        )
-                        setBulkPaymentMain((p) => ({ ...p, receiptPhoto: [...(p.receiptPhoto || []), ...uploadedUrls] }))
-                        Toast.success("Images uploaded successfully")
-                      } catch (error) {
-                        console.error("Error uploading images:", error)
-                        Toast.error("Failed to upload images")
-                      } finally {
-                        setLoading(false)
-                      }
-                    }
-                  }}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
-                />
-                {bulkPaymentMain.modeOfPayment && bulkPaymentMain.modeOfPayment !== "Cash" && bulkPaymentMain.modeOfPayment !== "NEFT/RTGS" && (
-                  <p className="text-xs text-red-600 mt-1">
-                    Payment image is mandatory for {bulkPaymentMain.modeOfPayment} payments
-                  </p>
-                )}
-                <p className="text-xs text-gray-500 mt-1">
-                  Upload payment confirmation screenshots or photos
-                </p>
-                {bulkPaymentMain.receiptPhoto && bulkPaymentMain.receiptPhoto.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {bulkPaymentMain.receiptPhoto.map((photo, index) => (
-                      <div key={index} className="relative">
-                        <img
-                          src={photo}
-                          alt={`Receipt ${index + 1}`}
-                          className="w-16 h-16 object-cover rounded border"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setBulkPaymentMain((p) => ({ ...p, receiptPhoto: (p.receiptPhoto || []).filter((_, i) => i !== index) }))}
-                          className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-xs">
-                          ×
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
+          </div>
           </div>
 
           {/* Added orders: cards above search bar */}
@@ -8430,7 +8733,7 @@ const mapSlotForUi = (slotData) => {
           </Box>
         </DialogContent>
         <DialogActions sx={{ px: 2, pb: 2, flexDirection: "column", gap: 1, alignItems: "stretch" }}>
-          <Button fullWidth variant="contained" onClick={handleBulkPaymentSubmit} disabled={bulkPaymentSubmitting} startIcon={bulkPaymentSubmitting ? null : <CheckIcon size={18} />} sx={{ height: 40, textTransform: "none", fontWeight: 700, borderRadius: 2, background: "linear-gradient(135deg, #5B5FC7 0%, #8B5CF6 100%)" }}>
+          <Button fullWidth variant="contained" onClick={handleBulkPaymentSubmit} disabled={bulkPaymentSubmitting || bulkPaymentReceiptBusy || upiOcrLoading} startIcon={bulkPaymentSubmitting ? null : <CheckIcon size={18} />} sx={{ height: 40, textTransform: "none", fontWeight: 700, borderRadius: 2, background: "linear-gradient(135deg, #5B5FC7 0%, #8B5CF6 100%)" }}>
             {bulkPaymentSubmitting ? "Saving…" : "Submit Payment"}
           </Button>
           <Button fullWidth variant="outlined" onClick={() => setShowBulkPaymentDialog(false)} sx={{ textTransform: "none", borderRadius: 2, height: 38, borderColor: "#7c3aed", color: "#7c3aed" }}>
@@ -9018,6 +9321,9 @@ const mapSlotForUi = (slotData) => {
         customerName={paymentQRModalData?.customerName}
         mobileNumber={paymentQRModalData?.mobileNumber}
         expiresAt={paymentQRModalData?.expiresAt}
+        merchantTranId={paymentQRModalData?.merchantTranId}
+        qrReferenceId={paymentQRModalData?.qrReferenceId}
+        onVerified={refreshModalData}
       />
     </div>
   )

@@ -11,15 +11,18 @@ import { KpiCards } from "features/accountant-dashboard/KpiCards"
 import { UnifiedPaymentsTable } from "features/accountant-dashboard/UnifiedPaymentsTable"
 import { BankReconciliationLive } from "features/accountant-dashboard/BankReconciliationLive"
 import { LedgerPanel } from "features/accountant-dashboard/LedgerPanel"
-import { LedgerQuickOpen } from "features/accountant-dashboard/LedgerQuickOpen"
-import { mapApiToCustomerLedger } from "features/accountant-dashboard/normalize"
+import { mapRamAgriCustomerLedgerApiToFullPanel } from "features/accountant-dashboard/normalize"
 import {
   fetchFarmerOrderPayments,
   fetchAgriOrderPayments,
   fetchBulkPaymentsList,
   fetchFarmerPlantLedger,
-  normalizeFarmerIdForLedger
+  normalizeFarmerIdForLedger,
+  searchRamAgriCustomersForLedgerTransfer,
+  transferRamAgriCustomerAdvance,
+  createRamAgriLedgerManualEntry
 } from "features/accountant-dashboard/paymentsApi"
+import { LedgerPartiesTable } from "features/accountant-dashboard/LedgerPartiesTable"
 
 const ROWS = 25
 
@@ -54,6 +57,8 @@ const AccountantDashboard = () => {
   const [loadingForApproval, setLoadingForApproval] = useState(false)
   const [reconcileLoading, setReconcileLoading] = useState(false)
   const [reconcileResult, setReconcileResult] = useState(null)
+  const [bankStatementLoading, setBankStatementLoading] = useState(false)
+  const [bankStatementMessage, setBankStatementMessage] = useState(null)
   const [updatingPaymentId, setUpdatingPaymentId] = useState(null)
 
   const [ledgerData, setLedgerData] = useState(null)
@@ -139,7 +144,7 @@ const AccountantDashboard = () => {
   const fetchUncleared = async () => {
     setLoadingUncleared(true)
     try {
-      const instance = NetworkManager(API.ORDER.GET_UNCLEARED_PAYMENTS)
+      const instance = NetworkManager(API.PAYMENTS.GET_RECONCILIATION_UNVERIFIED)
       const res = await instance.request({}, { dateFrom: reconcileDateFrom, dateTo: reconcileDateTo })
       setUnclearedList(res?.data?.data ?? [])
     } catch (e) {
@@ -153,7 +158,7 @@ const AccountantDashboard = () => {
   const fetchForApproval = async () => {
     setLoadingForApproval(true)
     try {
-      const instance = NetworkManager(API.ORDER.GET_PAYMENTS_FOR_APPROVAL)
+      const instance = NetworkManager(API.PAYMENTS.GET_RECONCILIATION_FOR_APPROVAL)
       const res = await instance.request({}, { dateFrom: reconcileDateFrom, dateTo: reconcileDateTo })
       setForApprovalList(res?.data?.data ?? [])
     } catch (e) {
@@ -171,11 +176,35 @@ const AccountantDashboard = () => {
     }
   }, [activeTab, reconcileDateFrom, reconcileDateTo])
 
+  const handleFetchBankStatement = async () => {
+    setBankStatementLoading(true)
+    setBankStatementMessage(null)
+    try {
+      const instance = NetworkManager(API.PAYMENTS.POST_ICICI_BANK_STATEMENT)
+      const res = await instance.request({
+        fromDate: reconcileDateFrom,
+        toDate: reconcileDateTo,
+      })
+      const body = res?.data ?? {}
+      const inserted = body.inserted ?? 0
+      const skipped = body.skipped ?? 0
+      const msg = body.message || `Inserted ${inserted} new statement row(s), skipped ${skipped} duplicate(s).`
+      setBankStatementMessage(msg)
+      Toast.success(msg)
+    } catch (e) {
+      const errText = e?.message || e?.response?.data?.message || "Statement fetch failed"
+      Toast.error(errText)
+      setBankStatementMessage(errText)
+    } finally {
+      setBankStatementLoading(false)
+    }
+  }
+
   const handleReconcile = async () => {
     setReconcileLoading(true)
     setReconcileResult(null)
     try {
-      const instance = NetworkManager(API.ORDER.POST_RECONCILE_PAYMENTS)
+      const instance = NetworkManager(API.PAYMENTS.POST_RECONCILE)
       const res = await instance.request({ dateFrom: reconcileDateFrom, dateTo: reconcileDateTo })
       setReconcileResult(res?.data ?? {})
       Toast.success(res?.data?.updatedCount ? `${res.data.updatedCount} payment(s) verified by bank` : "Reconciliation complete")
@@ -268,8 +297,29 @@ const AccountantDashboard = () => {
         const response = await instance.request({}, params)
         const apiResponse = response?.data
         if (apiResponse?.status === "Success" || apiResponse?.success) {
-          const mapped = mapApiToCustomerLedger(apiResponse.data || {})
-          setLedgerData(mapped)
+          const mapped = mapRamAgriCustomerLedgerApiToFullPanel(apiResponse.data || {})
+          if (mapped) {
+            setLedgerData({
+              ...mapped,
+              meta: {
+                ...(mapped.meta || {}),
+                ledgerTitle: "Ram Agri customer ledger",
+                partyWord: "customer",
+                transferSearchLabel: "Search customer (name/mobile)",
+                ledgerApis: {
+                  searchTargets: searchRamAgriCustomersForLedgerTransfer,
+                  transferAdvance: transferRamAgriCustomerAdvance,
+                  createManualEntry: createRamAgriLedgerManualEntry
+                },
+                canTransferAdvance: hasPaymentAccess,
+                onRefresh: async () => {
+                  await fetchLedgerForCustomer(customerMobile, customerName, farmerId)
+                }
+              }
+            })
+          } else {
+            Toast.error("No ledger data for this customer")
+          }
         } else {
           Toast.error(apiResponse?.message || "Failed to load ledger")
         }
@@ -365,11 +415,6 @@ const AccountantDashboard = () => {
       <main className="px-5 py-4 space-y-4 max-w-[1600px] mx-auto">
         {activeTab === "payments" && (
           <>
-            <LedgerQuickOpen
-              selectedOrg={selectedOrg}
-              onOpen={(mobile, name, farmerId) => fetchLedgerForCustomer(mobile, name, farmerId)}
-            />
-
             <div className="flex flex-wrap gap-3 items-end mb-2">
               <label className="text-[11px] font-semibold text-muted-foreground">
                 Start
@@ -445,6 +490,18 @@ const AccountantDashboard = () => {
           </>
         )}
 
+        {activeTab === "ledger-parties" && (
+          <LedgerPartiesTable
+            selectedOrg={selectedOrg}
+            onOpenLedger={(mobile, name, farmerId) => fetchLedgerForCustomer(mobile, name, farmerId)}
+            dateRangeLabel={
+              startDate && endDate
+                ? `${moment(startDate).format("DD MMM YYYY")} – ${moment(endDate).format("DD MMM YYYY")}`
+                : ""
+            }
+          />
+        )}
+
         {activeTab === "bank" && (
           <BankReconciliationLive
             reconcileDateFrom={reconcileDateFrom}
@@ -457,6 +514,9 @@ const AccountantDashboard = () => {
             loadingForApproval={loadingForApproval}
             reconcileLoading={reconcileLoading}
             reconcileResult={reconcileResult}
+            bankStatementLoading={bankStatementLoading}
+            bankStatementMessage={bankStatementMessage}
+            onFetchBankStatement={handleFetchBankStatement}
             updatingPaymentId={updatingPaymentId}
             onRefreshUncleared={fetchUncleared}
             onRefreshForApproval={fetchForApproval}

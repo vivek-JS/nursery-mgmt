@@ -25,7 +25,11 @@ export function normalizeFarmerPayment(raw) {
       isWalletPayment: payment.isWalletPayment,
       _id: String(payment._id || ""),
       createdAt: payment.createdAt ? String(payment.createdAt) : undefined,
-      updatedAt: payment.updatedAt ? String(payment.updatedAt) : undefined
+      updatedAt: payment.updatedAt ? String(payment.updatedAt) : undefined,
+      bankVerificationStatus: payment.bankVerificationStatus,
+      bankVerificationSource: payment.bankVerificationSource,
+      bankVerificationMatchedBy: payment.bankVerificationMatchedBy,
+      bankReconciliationConflict: Boolean(payment.bankReconciliationConflict),
     },
     screenshots: Array.isArray(raw.screenshots) ? raw.screenshots : [],
     orderStatus: raw.orderStatus || "PENDING",
@@ -65,7 +69,11 @@ export function normalizeAgriPayment(raw) {
       remark: payment.remark,
       _id: String(payment._id || ""),
       createdAt: payment.createdAt ? String(payment.createdAt) : undefined,
-      updatedAt: payment.updatedAt ? String(payment.updatedAt) : undefined
+      updatedAt: payment.updatedAt ? String(payment.updatedAt) : undefined,
+      bankVerificationStatus: payment.bankVerificationStatus,
+      bankVerificationSource: payment.bankVerificationSource,
+      bankVerificationMatchedBy: payment.bankVerificationMatchedBy,
+      bankReconciliationConflict: Boolean(payment.bankReconciliationConflict),
     },
     screenshots: Array.isArray(raw.screenshots) ? raw.screenshots : [],
     orderStatus: raw.orderStatus || "PENDING",
@@ -86,6 +94,73 @@ export function normalizeAgriPayment(raw) {
     },
     __source: "agri",
     __raw: raw
+  }
+}
+
+/**
+ * Map GET /inventory/ram-agri-customer-ledger response to the same shape as farmer plant
+ * full modal (`mapFarmerPlantLedgerApiToPanel`).
+ */
+export function mapRamAgriCustomerLedgerApiToFullPanel(apiData) {
+  if (!apiData || !apiData.customer) return null
+  const customer = apiData.customer
+  const summary = apiData.summary || {}
+  const rawEntries = Array.isArray(apiData.entries) ? apiData.entries : []
+  /** API returns newest-first; chronological oldest-first */
+  const chrono = [...rawEntries].reverse()
+  const openingBalance = Number(summary.openingBalance) || 0
+
+  const entriesChrono = chrono.map((e, i) => {
+    const isDebit = e.type === "DEBIT"
+    const amount = Number(e.amount) || 0
+    const balanceAfter = Number(e.balance) || 0
+    const balanceBefore = i === 0 ? openingBalance : Number(chrono[i - 1].balance) || 0
+    const refType = e.details?.refType || e.category || "—"
+    return {
+      date: String(e.date || ""),
+      type: isDebit ? "DEBIT" : "CREDIT",
+      category: String(e.category || refType || "—"),
+      reference: String(refType),
+      description: String(e.description || e.narration || "—"),
+      amount,
+      balance: balanceAfter,
+      balanceBefore,
+      balanceAfter,
+      raw: { ...e, details: e.details }
+    }
+  })
+
+  const entries = [...entriesChrono].sort((a, b) => {
+    const da = new Date(a.date).getTime()
+    const db = new Date(b.date).getTime()
+    if (da !== db) return db - da
+    return String(b.reference).localeCompare(String(a.reference))
+  })
+
+  const totalDebit = Number(summary.totalDebit) || 0
+  const totalCredit = Number(summary.totalCredit) || 0
+  const outstanding = Number(summary.outstanding) || 0
+
+  return {
+    meta: { variant: "farmerPlant", orders: [] },
+    customer: {
+      name: String(customer.name || ""),
+      mobile: String(customer.mobile || customer.mobileNumber || ""),
+      village: String(customer.village || ""),
+      taluka: String(customer.taluka || ""),
+      district: String(customer.district || "")
+    },
+    summary: {
+      totalOrders: Number(summary.totalOrders) || 0,
+      openingBalance,
+      totalDebit,
+      totalCredit,
+      outstanding,
+      totalBilled: totalDebit,
+      totalCollected: totalCredit,
+      summaryDerivedFromLines: false
+    },
+    entries
   }
 }
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react"
+import React, { useState, useEffect, useCallback } from "react"
 import { useParams, useNavigate } from "react-router-dom"
 import {
   Box,
@@ -44,9 +44,14 @@ import {
   CurrencyRupee as RupeeIcon,
   Group as GroupIcon,
   WhatsApp as WhatsAppIcon,
-  Refresh as RefreshIcon
+  Refresh as RefreshIcon,
+  AccountBalance as AccountBalanceIcon
 } from "@mui/icons-material"
 import { API, NetworkManager } from "network/core"
+import { LedgerPanel } from "features/accountant-dashboard/LedgerPanel"
+import { fetchFarmerPlantLedger, normalizeFarmerIdForLedger } from "features/accountant-dashboard/paymentsApi"
+import { useHasPaymentAccess, useHasPaymentsAccess } from "utils/roleUtils"
+import { Toast } from "helpers/toasts/toastHelper"
 
 // ================================================================
 // THEME COLORS
@@ -243,6 +248,8 @@ const FarmerDetails = () => {
   const navigate = useNavigate()
   const theme = useTheme()
   const isMobile = useMediaQuery(theme.breakpoints.down("md"))
+  const hasLedgerUi = useHasPaymentsAccess()
+  const hasPaymentAccess = useHasPaymentAccess()
 
   const [farmer, setFarmer] = useState(null)
   const [orders, setOrders] = useState([])
@@ -258,12 +265,50 @@ const FarmerDetails = () => {
   const [paymentPage, setPaymentPage] = useState(0)
   const [paymentRowsPerPage, setPaymentRowsPerPage] = useState(10)
 
+  const [ledgerData, setLedgerData] = useState(null)
+  const [loadingLedger, setLoadingLedger] = useState(false)
+
+  const loadPlantLedger = useCallback(async () => {
+    if (!farmer) return
+    setLoadingLedger(true)
+    try {
+      const endDate = new Date()
+      const startDate = new Date()
+      startDate.setDate(endDate.getDate() - 15)
+      const fid = normalizeFarmerIdForLedger(farmer._id || farmer.id)
+      const mobile = String(farmer.mobileNumber ?? "").replace(/\D/g, "")
+      const mapped = await fetchFarmerPlantLedger({
+        farmerId: fid,
+        customerMobile: mobile.length >= 10 ? mobile.slice(-10) : undefined,
+        startDate,
+        endDate
+      })
+      if (mapped) {
+        setLedgerData({
+          ...mapped,
+          meta: {
+            ...(mapped.meta || {}),
+            canTransferAdvance: hasPaymentAccess,
+            onRefresh: loadPlantLedger
+          }
+        })
+      } else {
+        Toast.error("No ledger data for this farmer (try a different date range from Payments)")
+      }
+    } catch (e) {
+      console.error(e)
+      Toast.error("Failed to load plant ledger")
+    } finally {
+      setLoadingLedger(false)
+    }
+  }, [farmer, hasPaymentAccess])
+
   const fetchFarmer = async () => {
     setLoading(true)
     setError(null)
     try {
       const instance = NetworkManager(API.FARMER.GET_FARMER_BY_ID)
-      const res = await instance.request({ url_suffix: `/${id}` })
+      const res = await instance.request({}, { pathParams: [id] })
       setFarmer(res?.data?.data || res?.data || null)
     } catch (err) {
       setError(err?.response?.data?.message || "Failed to load farmer details")
@@ -277,7 +322,7 @@ const FarmerDetails = () => {
     setOrdersError(null)
     try {
       const instance = NetworkManager(API.FARMER.GET_FARMER_ORDERS)
-      const res = await instance.request({ url_suffix: `/${id}/orders` })
+      const res = await instance.request({}, { pathParams: [id] })
       const data = res?.data?.data
       setOrders(Array.isArray(data) ? data : [])
     } catch (err) {
@@ -381,6 +426,25 @@ const FarmerDetails = () => {
             size="small"
             sx={{ bgcolor: "#E8F5E9", color: "#1B5E20", fontWeight: 600, borderRadius: 2 }}
           />
+        )}
+        {hasLedgerUi && (
+          <Button
+            variant="outlined"
+            size="small"
+            startIcon={<AccountBalanceIcon sx={{ fontSize: 18 }} />}
+            onClick={loadPlantLedger}
+            disabled={loadingLedger}
+            sx={{
+              borderColor: C.border,
+              color: C.textSecondary,
+              textTransform: "none",
+              fontWeight: 600,
+              borderRadius: 2,
+              "&:hover": { borderColor: C.primary, color: C.primary },
+            }}
+          >
+            Plant ledger
+          </Button>
         )}
         <Tooltip title="Refresh">
           <IconButton
@@ -551,6 +615,17 @@ const FarmerDetails = () => {
               }
               sx={{ textTransform: "none", fontWeight: 600, color: C.textSecondary, "&.Mui-selected": { color: C.primary } }}
             />
+            {hasLedgerUi && (
+              <Tab
+                label={
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                    <AccountBalanceIcon sx={{ fontSize: 16 }} />
+                    <span>Plant ledger</span>
+                  </Box>
+                }
+                sx={{ textTransform: "none", fontWeight: 600, color: C.textSecondary, "&.Mui-selected": { color: C.primary } }}
+              />
+            )}
           </Tabs>
         </Box>
 
@@ -844,7 +919,54 @@ const FarmerDetails = () => {
             )}
           </Box>
         )}
+
+        {hasLedgerUi && activeTab === 2 && (
+          <Box sx={{ p: { xs: 2, md: 4 }, textAlign: "center" }}>
+            <AccountBalanceIcon sx={{ fontSize: 48, color: C.primary, opacity: 0.85, mb: 1.5 }} />
+            <Typography variant="h6" sx={{ fontWeight: 700, color: C.textPrimary, mb: 1 }}>
+              Nursery plant ledger
+            </Typography>
+            <Typography variant="body2" sx={{ color: C.textSecondary, mb: 2, maxWidth: 480, mx: "auto" }}>
+              Running balance, order debits, and payment credits (same ledger as Payments → View ledger). Uses the last 15 days
+              by default; open to transfer advance or add manual entries if you have access.
+            </Typography>
+            <Button
+              variant="contained"
+              size="large"
+              startIcon={<AccountBalanceIcon />}
+              onClick={loadPlantLedger}
+              disabled={loadingLedger}
+              sx={{
+                textTransform: "none",
+                fontWeight: 700,
+                borderRadius: 2,
+                px: 3,
+                background: C.gradient,
+                boxShadow: "0 4px 14px rgba(46,125,50,0.35)",
+              }}
+            >
+              Open plant ledger
+            </Button>
+          </Box>
+        )}
       </Card>
+
+      <LedgerPanel ledger={ledgerData} onClose={() => setLedgerData(null)} />
+      {loadingLedger && (
+        <Box
+          sx={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 1200,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            bgcolor: "rgba(15, 23, 42, 0.12)",
+          }}
+        >
+          <CircularProgress sx={{ color: C.primary }} />
+        </Box>
+      )}
     </Box>
   )
 }
