@@ -32,7 +32,6 @@ export const DashboardMenus = [
   new MenuPath("Slots Managment", <BiotechIcon />, "/u/slots"),
   new MenuPath("Hardening", <BiotechIcon />, "/u/hardening"),
   new MenuPath("CMS", <AodIcon />, "/u/cms"),
-  new MenuPath("Backup & Import", <BiotechIcon />, "/u/data"),
   new MenuPath("Farmers", <BiotechIcon />, "/u/farmers"),
   new MenuPath("Call Assignment", <PhoneIcon />, "/u/call-assignment"),
   new MenuPath("Primary ops", <GrassIcon />, "/u/primary-mobile", null, ["SUPER_ADMIN", "ADMIN"]),
@@ -47,14 +46,12 @@ export const DashboardMenus = [
   // new MenuPath("Settings", <SettingsSuggestIcon />, "/u/settings"),
   // new MenuPath("Admin", <AdminPanelSettingsIcon />, "/u/admin"),
   new MenuPath("Labs", <BiotechIcon />, "/u/labs", ["LABORATORY_MANAGER", "SUPER_ADMIN"]),
-  new MenuPath("Order", <ListAltIcon />, "/u/orders"),
   new MenuPath("Order Bucketing", <AccountTreeIcon />, "/u/order-bucketing"),
   new MenuPath("Excel Import", <CloudUploadIcon />, "/u/upload-orders"),
   new MenuPath("Dealers", <ListAltIcon />, "/u/dealers"),
   new MenuPath("Accounting Dashboard", <AccountBalanceIcon />, "/u/accountant-dashboard", null, ["ACCOUNTANT", "SUPER_ADMIN"]),
-  new MenuPath("Payments", <PaymentIcon />, "/u/payments", null, ["ACCOUNTANT", "SUPER_ADMIN"]),
   new MenuPath("WhatsApp Management", <WhatsAppIcon />, "/u/whatsapp", ["SUPER_ADMIN"]),
-  new MenuPath("WhatsApp Automation", <WhatsAppIcon />, "/u/whatsapp-automation", ["SUPER_ADMIN"]),
-  new MenuPath("Automation", <TaskIcon />, "/u/automation", ["SUPER_ADMIN","ADMIN"]),
   new MenuPath("Public Farmer Links", <LinkIcon />, "/u/public-links", ["SUPER_ADMIN"])
+  ,
+  new MenuPath("कॅशियर पेमेंट", <PaymentIcon />, "/u/mobile/cashier", null, ["CASHIER", "SUPER_ADMIN"])
 ]

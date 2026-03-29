@@ -50,6 +50,7 @@ const EmployeeManagement = () => {
     "DEALER",
     "OFFICE_ADMIN",
     "ACCOUNTANT",
+    "CASHIER",
     "DISPATCH_MANAGER",
     "RAM_AGRI_SALES",
     "RAM_AGRI_SALES_MANAGER"

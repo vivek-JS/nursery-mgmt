@@ -419,6 +419,7 @@ export const API = {
     ADD_PAYMENT: new APIRouter("order/payment/:orderId", HTTP_METHODS.PATCH, OFFLINE.PROFILE),
     GENERATE_PAYMENT_QR: new APIRouter("order/:orderId/generate-payment-qr", HTTP_METHODS.POST, OFFLINE.PROFILE),
     SEND_ACCEPTED_WHATSAPP: new APIRouter("order/:orderId/send-accepted-whatsapp", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    SEND_DISPATCH_WHATSAPP: new APIRouter("order/:orderId/send-dispatch-whatsapp", HTTP_METHODS.POST, OFFLINE.PROFILE),
     GET_CSV: new APIRouter("order/getCSV", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_SLOTS: new APIRouter("slots/getslots", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_BUCKETING: new APIRouter("/order/bucketing", HTTP_METHODS.GET, OFFLINE.PROFILE),
@@ -541,6 +542,12 @@ export const API = {
     UPDATE: new APIRouter("ready-dispatch-groups/:id", HTTP_METHODS.PATCH),
     CONVERT_TO_DISPATCH: new APIRouter("ready-dispatch-groups/:id/convert-to-dispatch", HTTP_METHODS.POST),
   },
+  CASHIER: {
+    GET_ITAR_KHARCH_CATEGORIES: new APIRouter("/cms/itarKharchCategory", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    CREATE_ITAR_KHARCH_CATEGORY: new APIRouter("/cms/itarKharchCategory", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    CREATE_ITAR_KHARCH_BULK: new APIRouter("/itar-kharch/bulk", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    GET_ITAR_KHARCH_LIST: new APIRouter("/itar-kharch", HTTP_METHODS.GET, OFFLINE.PROFILE),
+  },
   BATCH: {
     CREATE_BATCH: new APIRouter("batch/create", HTTP_METHODS.POST),
     GET_BATCHES: new APIRouter("batch/all", HTTP_METHODS.GET),
@@ -610,11 +617,6 @@ export const API = {
   STATS_SLOTS: {
     GET_HOUSES: new APIRouter("slots/stats", HTTP_METHODS.GET)
   },
-  DATA: {
-    CREATE_BACKUP: new APIRouter("backup/generateBackup", HTTP_METHODS.GET),
-    SAVE_BACKUP: new APIRouter("backup/saveBackup", HTTP_METHODS.POST),
-    IMPORT_BACKUP: new APIRouter("backup/importBackup", HTTP_METHODS.POST)
-  },
   FARMER: {
     GET_FARMERS: new APIRouter("farmer/getFarmers", HTTP_METHODS.GET),
     GET_FILTER_OPTIONS: new APIRouter("farmer/filter-options", HTTP_METHODS.GET),
@@ -624,7 +626,9 @@ export const API = {
     UPDATE_FARMER: new APIRouter("farmer/updateFarmer", HTTP_METHODS.PATCH),
     GET_INVALID_PHONE_FARMERS: new APIRouter("farmer/invalid-phones", HTTP_METHODS.GET),
     UPDATE_FARMER_PHONE: new APIRouter("farmer", HTTP_METHODS.PUT),
-    CREATE_WHATSAPP_HISTORY: new APIRouter("farmer/whatsapp-history", HTTP_METHODS.POST)
+    CREATE_WHATSAPP_HISTORY: new APIRouter("farmer/whatsapp-history", HTTP_METHODS.POST),
+    GET_FARMER_BY_ID: new APIRouter("farmer/get", HTTP_METHODS.GET),
+    GET_FARMER_ORDERS: new APIRouter("farmer/farmers", HTTP_METHODS.GET),
   },
   FARMER_LIST: {
     GET_ALL_LISTS: new APIRouter("farmer-list", HTTP_METHODS.GET),
@@ -764,27 +768,9 @@ export const API = {
     UPDATE_TEMPLATE: new APIRouter("/{tenantId}/api/v1/updateTemplate", HTTP_METHODS.PUT),
     DELETE_TEMPLATE: new APIRouter("/{tenantId}/api/v1/deleteTemplate", HTTP_METHODS.DELETE)
   },
-  WHATSAPP_AUTOMATION: {
-    CREATE_CAMPAIGN: new APIRouter("whatsapp/campaigns", HTTP_METHODS.POST),
-    GET_CAMPAIGNS: new APIRouter("whatsapp/campaigns", HTTP_METHODS.GET),
-    UPLOAD_AND_CREATE: new APIRouter("whatsapp/campaigns/upload-and-create", HTTP_METHODS.POST)
-  },
   WHATSAPP_BROADCAST: {
     GET_ALL: new APIRouter("whatsapp-broadcast", HTTP_METHODS.GET),
     GET_BY_ID: new APIRouter("whatsapp-broadcast/:id", HTTP_METHODS.GET)
-  },
-  CAMPAIGN: {
-    LIST: new APIRouter("campaigns", HTTP_METHODS.GET),
-    GET: new APIRouter("campaigns/:id", HTTP_METHODS.GET),
-    TARGETS: new APIRouter("campaigns/targets", HTTP_METHODS.GET),
-    UPDATE: new APIRouter("campaigns/:id", HTTP_METHODS.PATCH),
-    START: new APIRouter("campaigns/:id/start", HTTP_METHODS.POST),
-    RUN_NOW: new APIRouter("campaigns/:id/run-now", HTTP_METHODS.POST),
-    STOP: new APIRouter("campaigns/:id/stop", HTTP_METHODS.POST),
-    RESUME_WEB: new APIRouter("campaigns/:id/resume-web", HTTP_METHODS.POST),
-    RESET_TARGETS: new APIRouter("campaigns/:id/reset-targets", HTTP_METHODS.POST),
-    DOWNLOAD_RUNNER: new APIRouter("campaign-worker/download", HTTP_METHODS.GET),
-    UPDATE_TARGETS: new APIRouter("campaigns/:id/targets", HTTP_METHODS.PATCH)
   },
   // WATI proxy (backend-only; token in env). Use these for all WATI operations.
   WATI: {

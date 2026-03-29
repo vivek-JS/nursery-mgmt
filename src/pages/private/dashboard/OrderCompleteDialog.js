@@ -4,6 +4,12 @@ import { API, NetworkManager } from "network/core"
 import { Toast } from "helpers/toasts/toastHelper"
 import ReplaceOrderDialog from "./ReplaceOrderDialog"
 
+const getExistingReturnedPlants = (order) =>
+  Math.max(
+    0,
+    Number(order.details?.returnedPlants ?? order.returnedPlants ?? 0) || 0
+  )
+
 const OrderCompleteDialog = ({ open, onClose, dispatchData }) => {
   const [returnedPlants, setReturnedPlants] = useState({})
   const [expandedRows, setExpandedRows] = useState(new Set())
@@ -175,27 +181,29 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData }) => {
       const { basePlants, additionalPlants: additionalPlantCount, totalPlants } = getPlantQuantities(order)
       const actions = orderActions[orderId] || { addToInventory: false, completeOrder: true }
 
-      // Calculate remaining plants after return
-      const remainingPlants = totalPlants - returnedQuantity
+      const undispatchedAtNursery =
+        Number(order.details?.remainingPlants ?? order.remainingPlants ?? 0) || 0
 
-      if (remainingPlants < 0) {
+      const existingReturned = getExistingReturnedPlants(order)
+      const maxReturnThisBatch = Math.max(0, totalPlants - existingReturned)
+      if (returnedQuantity > maxReturnThisBatch) {
         throw new Error(
-          `Returned plants cannot exceed total plants for Order #${order.order}`
+          `Return quantity for Order #${order.order} cannot exceed ${maxReturnThisBatch} (${existingReturned} already returned of ${totalPlants} total)`
         )
       }
 
-      // Determine the appropriate status based on remaining plants
+      // Status: undispatched-at-nursery drives further dispatch; returns alone do not mean "ready for dispatch"
       const isCompleteChecked = actions.completeOrder !== false
       let finalStatus = "COMPLETED"
+      let finalCompleteAction = actions.completeOrder !== false
 
-      if (remainingPlants > 0) {
+      if (undispatchedAtNursery > 0) {
         finalStatus = "READY_FOR_DISPATCH"
+        finalCompleteAction = false
       } else if (!isCompleteChecked) {
         finalStatus = "PARTIALLY_COMPLETED"
+        finalCompleteAction = false
       }
-
-      const finalCompleteAction =
-        remainingPlants > 0 ? false : actions.completeOrder !== false
 
       // Add order to updates
       orderUpdates.push({
@@ -241,7 +249,10 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData }) => {
       }
     } catch (error) {
       console.error("Error completing orders:", error)
-      if (error.message && error.message.includes("Order #")) {
+      if (
+        error.message &&
+        (error.message.includes("Order #") || error.message.includes("Return quantity for Order #"))
+      ) {
         Toast.error(error.message)
       } else {
         Toast.error("Error processing orders")
@@ -300,7 +311,9 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData }) => {
                     <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">
                       Total Plants
                     </th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">
+                    <th
+                      className="px-4 py-3 text-left text-sm font-semibold text-gray-900"
+                      title="Quantity returned on this completion (added to prior returns)">
                       Returned Plants
                     </th>
                     <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">
@@ -316,7 +329,16 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData }) => {
                     const { basePlants, additionalPlants: additionalPlantCount, totalPlants } =
                       getPlantQuantities(order)
                     const returnedQuantity = Number(returnedPlants[order.details.orderid] || 0)
-                    const remainingPlants = totalPlants - returnedQuantity
+                    const existingReturned = getExistingReturnedPlants(order)
+                    const maxReturnThisBatch = Math.max(0, totalPlants - existingReturned)
+                    const undispatchedAtNursery =
+                      Number(order.details?.remainingPlants ?? order.remainingPlants ?? 0) || 0
+                    const isCompleteChecked =
+                      orderActions[order.details.orderid]?.completeOrder !== false
+                    const netWithFarmer = Math.max(
+                      0,
+                      totalPlants - returnedQuantity - undispatchedAtNursery
+                    )
 
                     return (
                       <React.Fragment key={order.details.orderid}>
@@ -376,9 +398,9 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData }) => {
                           <input
                             type="number"
                             min="0"
-                            max={totalPlants}
+                            max={maxReturnThisBatch}
                             className="w-24 px-2 py-1 border rounded focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                            placeholder="0"
+                            placeholder="This delivery"
                             value={returnedQuantity || ""}
                             onChange={(e) =>
                               handleReturnedPlantsChange(order.details.orderid, e.target.value)
@@ -499,20 +521,29 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData }) => {
                                     {returnedQuantity}
                                   </p>
                                   <p className="text-gray-700">
-                                    <span className="font-medium">Remaining Plants:</span>{" "}
-                                    {remainingPlants}
+                                    <span className="font-medium">Remaining at nursery (undispatched):</span>{" "}
+                                    {undispatchedAtNursery}
+                                  </p>
+                                  <p className="text-gray-700">
+                                    <span className="font-medium">Net with farmer (after return):</span>{" "}
+                                    {netWithFarmer}
                                   </p>
                                   <div className="mt-2 p-2 bg-white rounded border">
                                     <p className="text-sm">
                                       <span className="font-medium">Final Status:</span>{" "}
-                                      <span className={`font-bold ${
-                                        remainingPlants > 0 
-                                          ? "text-orange-600" 
-                                          : "text-green-600"
-                                      }`}>
-                                        {remainingPlants > 0
-                                          ? "READY_FOR_DISPATCH (Plants remaining)"
-                                          : "COMPLETED (All plants returned)"}
+                                      <span
+                                        className={`font-bold ${
+                                          undispatchedAtNursery > 0
+                                            ? "text-orange-600"
+                                            : !isCompleteChecked
+                                              ? "text-amber-600"
+                                              : "text-green-600"
+                                        }`}>
+                                        {undispatchedAtNursery > 0
+                                          ? "READY_FOR_DISPATCH (plants still at nursery)"
+                                          : !isCompleteChecked
+                                            ? "PARTIALLY_COMPLETED (Complete Order unchecked)"
+                                            : "COMPLETED / closing dispatch (no undispatched qty)"}
                                       </span>
                                     </p>
                                   </div>
@@ -533,7 +564,7 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData }) => {
           <div className="p-6 border-t bg-gray-50">
             <div className="flex justify-between items-center">
               <div className="text-sm text-gray-600">
-                Total Returned Plants:{" "}
+                Total returned this submit:{" "}
                 {Object.values(returnedPlants).reduce((sum, qty) => sum + Number(qty || 0), 0)}
               </div>
               <div className="flex justify-end space-x-3">

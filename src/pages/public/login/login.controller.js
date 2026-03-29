@@ -101,11 +101,14 @@ export const useLoginController = () => {
                                    response.user?.jobTitle === "DISPATCH_MANAGER"
           // Check if user is DEALER or SALES (redirect to mobile dashboard)
           const isDealerOrSales = response.user?.jobTitle === "DEALER" || response.user?.jobTitle === "SALES"
+          // Check if user is CASHIER (mobile cashier only)
+          const isCashier = response.user?.role === "CASHIER" || response.user?.jobTitle === "CASHIER"
 
           // Determine redirect path based on user role
           let redirectPath = "/u/dashboard"
           if (isDispatchManager) redirectPath = "/u/mobile"
           else if (isDealerOrSales) redirectPath = "/u/mobile"
+          else if (isCashier) redirectPath = "/u/mobile/cashier"
 
           // Navigate to appropriate page if password is already set and no reset required
           setTimeout(() => {
@@ -140,11 +143,14 @@ export const useLoginController = () => {
                              loginResponse?.user?.jobTitle === "DISPATCH_MANAGER"
     // Check if user is DEALER or SALES (redirect to mobile dashboard)
     const isDealerOrSales = loginResponse?.user?.jobTitle === "DEALER" || loginResponse?.user?.jobTitle === "SALES"
+    // Check if user is CASHIER (mobile cashier only)
+    const isCashier = loginResponse?.user?.role === "CASHIER" || loginResponse?.user?.jobTitle === "CASHIER"
 
     // Determine redirect path based on user role
     let redirectPath = "/u/dashboard"
     if (isDispatchManager) redirectPath = "/u/mobile"
     else if (isDealerOrSales) redirectPath = "/u/mobile"
+    else if (isCashier) redirectPath = "/u/mobile/cashier"
     
     setTimeout(() => {
       navigate(redirectPath, { replace: true })

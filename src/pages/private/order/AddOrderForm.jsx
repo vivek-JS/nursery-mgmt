@@ -596,6 +596,16 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
         }))
 
       setCavities(formattedCavities)
+      // Default tray: cavity count 8 when user hasn't chosen yet
+      setFormData((prev) => {
+        if (prev.cavity) return prev
+        const preferred =
+          formattedCavities.find((t) => Number(t.cavity) === 8) ||
+          formattedCavities[0]
+        const id = preferred?.value
+        if (!id) return prev
+        return { ...prev, cavity: id }
+      })
     } catch (error) {
       console.error("Error loading cavities:", error)
       setCavities([])

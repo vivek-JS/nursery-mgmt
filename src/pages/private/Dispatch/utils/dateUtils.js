@@ -2,6 +2,8 @@ import moment from "moment";
 
 /**
  * Parse order delivery/booking dates as calendar days (avoids UTC ISO strings shifting the day in local TZ).
+ * Returns a Moment instance (this file uses moment.js). Safe to use .diff(), .isSameOrAfter(), .format(), etc.
+ * Note: `nursery-mgmt-mobile` has a different `parseOrderDate` that returns native Date — do not copy-paste logic across apps without checking.
  * @param {string|Date|import("moment").Moment} raw
  * @returns {import("moment").Moment|null}
  */

@@ -20,6 +20,15 @@ import {
   LinearProgress,
   Collapse,
   Fade,
+  Divider,
+  Radio,
+  RadioGroup,
+  FormControlLabel,
+  FormControl,
+  FormLabel,
+  Badge,
+  Slide,
+  SwipeableDrawer,
 } from "@mui/material"
 import {
   ArrowBack,
@@ -40,6 +49,13 @@ import {
   EventBusy,
   FilterList,
   Close,
+  Phone,
+  PhoneMissed,
+  PhoneDisabled,
+  AccessTime,
+  CallEnd,
+  HelpOutline,
+  LocationOn,
 } from "@mui/icons-material"
 import { API, NetworkManager } from "network/core"
 import { Toast } from "helpers/toasts/toastHelper"
@@ -191,8 +207,19 @@ const PRIORITY_CHIPS = [
   { id: "low",    label: "Low",    color: "#2E7D32", bg: "#E8F5E9" },
 ]
 
+// ─── Call result metadata ─────────────────────────────────────────────────────
+const CALL_RESULTS = [
+  { id: "done",           label: "Done / Interested",  color: "#16A34A", bg: "#DCFCE7", icon: <CheckCircle sx={{ fontSize: 16 }} /> },
+  { id: "connected",      label: "Connected",          color: "#0284C7", bg: "#E0F2FE", icon: <Phone sx={{ fontSize: 16 }} /> },
+  { id: "callback",       label: "Call Back Later",    color: "#D97706", bg: "#FEF3C7", icon: <AccessTime sx={{ fontSize: 16 }} /> },
+  { id: "no_answer",      label: "No Answer",          color: "#6B7280", bg: "#F3F4F6", icon: <PhoneMissed sx={{ fontSize: 16 }} /> },
+  { id: "not_interested", label: "Not Interested",     color: "#DC2626", bg: "#FEE2E2", icon: <PhoneDisabled sx={{ fontSize: 16 }} /> },
+  { id: "other",          label: "Other",              color: "#7C3AED", bg: "#F5F3FF", icon: <HelpOutline sx={{ fontSize: 16 }} /> },
+]
+const crMeta = (r) => CALL_RESULTS.find((x) => x.id === r) || CALL_RESULTS[CALL_RESULTS.length - 1]
+
 // ─── Task card ─────────────────────────────────────────────────────────────────
-function TaskCard({ task, userId, userName, busyId, patchAssignment, openCompleteWithReason, navigate, getPartialReason }) {
+function TaskCard({ task, userId, userName, busyId, patchAssignment, openCompleteWithReason, navigate, getPartialReason, openCallListModal }) {
   const [expanded, setExpanded] = useState(false)
   const mine = myAssignmentStatus(task, userId)
   const reason = getPartialReason(task)
@@ -406,12 +433,16 @@ function TaskCard({ task, userId, userName, busyId, patchAssignment, openComplet
           {task.sourceType === "call_assignment" && task.callAssignmentListId && (
             <Button
               size="small"
-              variant="text"
+              variant="contained"
               startIcon={<PhoneCallback sx={{ fontSize: 13 }} />}
-              onClick={() => navigate(`/u/call-assignment?listId=${task.callAssignmentListId}`)}
-              sx={{ textTransform: "none", color: "#7C3AED", fontSize: "0.73rem", borderRadius: 2, py: 0.5, px: 1, ml: "auto" }}
+              onClick={() => openCallListModal(task)}
+              sx={{
+                textTransform: "none", color: "white", fontSize: "0.73rem", borderRadius: 2, py: 0.5, px: 1.2,
+                background: "linear-gradient(135deg,#7C3AED,#A855F7)",
+                boxShadow: "0 2px 8px rgba(124,58,237,0.3)",
+              }}
             >
-              Call list
+              Open Call List
             </Button>
           )}
         </Stack>
@@ -443,6 +474,19 @@ export default function EmployeeTasksMobile() {
   const [reasonOpen,    setReasonOpen]    = useState(false)
   const [reasonTask,    setReasonTask]    = useState(null)
   const [partialReason, setPartialReason] = useState("")
+
+  // ── Call list modal ─────────────────────────────────────────────────────────
+  const [callListOpen,     setCallListOpen]     = useState(false)
+  const [callListTask,     setCallListTask]     = useState(null)
+  const [callListData,     setCallListData]     = useState(null)
+  const [callListLoading,  setCallListLoading]  = useState(false)
+  const [showDone,         setShowDone]         = useState(false)
+  // ── Per-entry call log dialog ───────────────────────────────────────────────
+  const [logOpen,          setLogOpen]          = useState(false)
+  const [logEntryIdx,      setLogEntryIdx]      = useState(null)
+  const [logResult,        setLogResult]        = useState("connected")
+  const [logRemark,        setLogRemark]        = useState("")
+  const [logBusy,          setLogBusy]          = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -570,6 +614,48 @@ export default function EmployeeTasksMobile() {
       }
     } catch (e) { Toast.error(e?.response?.data?.message || e?.message || "Failed") }
     finally { setBusyId(null) }
+  }
+
+  // ── Call list helpers ────────────────────────────────────────────────────────
+  const openCallListModal = async (task) => {
+    setCallListTask(task)
+    setCallListData(null)
+    setCallListOpen(true)
+    setShowDone(false)
+    setCallListLoading(true)
+    try {
+      const inst = NetworkManager(API.CALL_ASSIGNMENT.GET_LIST_MOBILE)
+      const res  = await inst.request({}, { pathParams: [task.callAssignmentListId, "mobile"] })
+      if (res?.data?.status === "success") setCallListData(res.data.data.list)
+      else Toast.error("Failed to load call list")
+    } catch { Toast.error("Failed to load call list") }
+    finally { setCallListLoading(false) }
+  }
+
+  const openLogDialog = (idx) => {
+    setLogEntryIdx(idx)
+    setLogResult("connected")
+    setLogRemark("")
+    setLogOpen(true)
+  }
+
+  const submitCallLog = async () => {
+    if (!callListTask || logEntryIdx === null) return
+    setLogBusy(true)
+    try {
+      const inst = NetworkManager(API.CALL_ASSIGNMENT.ADD_CALL_LOG)
+      const res  = await inst.request(
+        { entryIndex: logEntryIdx, result: logResult, remark: logRemark.trim() },
+        { pathParams: [callListTask.callAssignmentListId, "call-log"] }
+      )
+      if (res?.data?.status === "success") {
+        setCallListData(res.data.data.list)
+        Toast.success(logResult === "done" || logResult === "not_interested" ? "✅ Entry marked done" : "📞 Call logged")
+        setLogOpen(false)
+        await load()
+      }
+    } catch (e) { Toast.error(e?.response?.data?.message || "Failed") }
+    finally { setLogBusy(false) }
   }
 
   const activeFilterCount = [
@@ -866,6 +952,7 @@ export default function EmployeeTasksMobile() {
                   openCompleteWithReason={openCompleteWithReason}
                   navigate={navigate}
                   getPartialReason={getPartialReason}
+                  openCallListModal={openCallListModal}
                 />
               ))}
             </Box>
@@ -915,6 +1002,346 @@ export default function EmployeeTasksMobile() {
             }}
           >
             {busyId === reasonTask?._id ? "Saving…" : "Save & Complete"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ── Call List Drawer ─────────────────────────────────── */}
+      <SwipeableDrawer
+        anchor="bottom"
+        open={callListOpen}
+        onClose={() => setCallListOpen(false)}
+        onOpen={() => {}}
+        disableSwipeToOpen
+        PaperProps={{
+          sx: {
+            borderRadius: "20px 20px 0 0",
+            maxHeight: "90vh",
+            overflow: "hidden",
+            display: "flex",
+            flexDirection: "column",
+          },
+        }}
+      >
+        {/* Drawer handle */}
+        <Box sx={{ display: "flex", justifyContent: "center", pt: 1, pb: 0.5, flexShrink: 0 }}>
+          <Box sx={{ width: 40, height: 4, borderRadius: 2, bgcolor: "#D1D5DB" }} />
+        </Box>
+
+        {/* Header */}
+        <Box
+          sx={{
+            px: 2, py: 1.5,
+            background: "linear-gradient(135deg,#7C3AED,#A855F7)",
+            flexShrink: 0,
+          }}
+        >
+          <Stack direction="row" alignItems="center" spacing={1}>
+            <PhoneCallback sx={{ color: "white", fontSize: 22 }} />
+            <Box sx={{ flex: 1 }}>
+              <Typography sx={{ color: "white", fontWeight: 900, fontSize: "1rem", lineHeight: 1.2 }}>
+                {callListTask?.title || "Call List"}
+              </Typography>
+              {callListData && (
+                <Typography sx={{ color: "rgba(255,255,255,0.8)", fontSize: "0.72rem" }}>
+                  {callListData.pending ?? (callListData.entries?.length || 0)} pending · {callListData.done ?? (callListData.completedEntries?.length || 0)} done · {callListData.total ?? 0} total
+                </Typography>
+              )}
+            </Box>
+            <IconButton
+              size="small"
+              onClick={() => setCallListOpen(false)}
+              sx={{ color: "rgba(255,255,255,0.8)", bgcolor: "rgba(255,255,255,0.15)" }}
+            >
+              <Close fontSize="small" />
+            </IconButton>
+          </Stack>
+
+          {/* Progress bar */}
+          {callListData && callListData.total > 0 && (
+            <Box sx={{ mt: 1.5 }}>
+              <LinearProgress
+                variant="determinate"
+                value={Math.round(((callListData.done ?? 0) / callListData.total) * 100)}
+                sx={{
+                  height: 6, borderRadius: 3,
+                  bgcolor: "rgba(255,255,255,0.25)",
+                  "& .MuiLinearProgress-bar": { bgcolor: "white", borderRadius: 3 },
+                }}
+              />
+              <Typography sx={{ color: "rgba(255,255,255,0.9)", fontSize: "0.7rem", mt: 0.5, textAlign: "right" }}>
+                {Math.round(((callListData.done ?? 0) / (callListData.total || 1)) * 100)}% complete
+              </Typography>
+            </Box>
+          )}
+        </Box>
+
+        {/* Toggle done */}
+        {callListData && (
+          <Box sx={{ px: 2, py: 1, flexShrink: 0, display: "flex", alignItems: "center", gap: 1, borderBottom: "1px solid #F0F2FA" }}>
+            <Chip
+              label={`Pending (${callListData.entries?.length || 0})`}
+              size="small"
+              clickable
+              onClick={() => setShowDone(false)}
+              sx={{
+                fontWeight: 700, fontSize: "0.72rem",
+                bgcolor: !showDone ? "#7C3AED" : "#F3F4F6",
+                color: !showDone ? "white" : "#374151",
+              }}
+            />
+            <Chip
+              label={`Done (${callListData.completedEntries?.length || 0})`}
+              size="small"
+              clickable
+              onClick={() => setShowDone(true)}
+              sx={{
+                fontWeight: 700, fontSize: "0.72rem",
+                bgcolor: showDone ? "#16A34A" : "#F3F4F6",
+                color: showDone ? "white" : "#374151",
+              }}
+            />
+          </Box>
+        )}
+
+        {/* Entries list */}
+        <Box sx={{ flex: 1, overflowY: "auto", px: 2, py: 1 }}>
+          {callListLoading ? (
+            <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", py: 6, gap: 2 }}>
+              <CircularProgress sx={{ color: "#7C3AED" }} />
+              <Typography variant="caption" color="text.secondary">Loading call list…</Typography>
+            </Box>
+          ) : !callListData ? (
+            <Typography variant="body2" color="text.secondary" sx={{ textAlign: "center", py: 4 }}>No data</Typography>
+          ) : (() => {
+            const entries = showDone ? (callListData.completedEntries || []) : (callListData.entries || [])
+            if (entries.length === 0) {
+              return (
+                <Box sx={{ textAlign: "center", py: 6 }}>
+                  <Typography sx={{ color: "#6B7280", fontWeight: 700 }}>
+                    {showDone ? "No completed entries yet" : "🎉 All calls done!"}
+                  </Typography>
+                </Box>
+              )
+            }
+            return entries.map((entry, idx) => {
+              const lastLog = (entry.callLogs || []).slice(-1)[0]
+              const meta = lastLog ? crMeta(lastLog.result) : null
+              const isEntryDone = entry.status === "done"
+              return (
+                <Card
+                  key={entry._id || idx}
+                  elevation={0}
+                  sx={{
+                    mb: 1.5, borderRadius: 2.5,
+                    border: "1px solid #E8EBF4",
+                    borderLeft: `4px solid ${isEntryDone ? "#16A34A" : "#7C3AED"}`,
+                    bgcolor: isEntryDone ? "#F9FFF9" : "white",
+                  }}
+                >
+                  <Box sx={{ px: 1.8, pt: 1.3, pb: 0.5 }}>
+                    <Stack direction="row" alignItems="flex-start" spacing={1}>
+                      <Avatar
+                        sx={{
+                          width: 34, height: 34, flexShrink: 0,
+                          background: isEntryDone
+                            ? "linear-gradient(135deg,#16A34A,#4ADE80)"
+                            : "linear-gradient(135deg,#7C3AED,#A855F7)",
+                          fontSize: "0.85rem", fontWeight: 900,
+                        }}
+                      >
+                        {(entry.name || "?").charAt(0).toUpperCase()}
+                      </Avatar>
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Typography fontWeight={800} sx={{ fontSize: "0.9rem", color: "#1A1D2E", lineHeight: 1.3 }}>
+                          {entry.name || "Unknown"}
+                        </Typography>
+                        <Stack direction="row" alignItems="center" spacing={0.5} sx={{ mt: 0.3 }}>
+                          <Phone sx={{ fontSize: 11, color: "#7C3AED" }} />
+                          <Typography sx={{ fontSize: "0.78rem", color: "#374151", fontWeight: 600, fontFamily: "monospace" }}>
+                            {entry.phone || "—"}
+                          </Typography>
+                        </Stack>
+                        {(entry.village || entry.district) && (
+                          <Stack direction="row" alignItems="center" spacing={0.4} sx={{ mt: 0.2 }}>
+                            <LocationOn sx={{ fontSize: 10, color: "#9CA3AF" }} />
+                            <Typography sx={{ fontSize: "0.7rem", color: "#9CA3AF" }}>
+                              {[entry.village, entry.taluka, entry.district].filter(Boolean).join(", ")}
+                            </Typography>
+                          </Stack>
+                        )}
+                      </Box>
+                      {!showDone && entry.phone && (
+                        <IconButton
+                          component="a"
+                          href={`tel:${entry.phone}`}
+                          size="small"
+                          sx={{
+                            bgcolor: "linear-gradient(135deg,#16A34A,#4ADE80)",
+                            background: "linear-gradient(135deg,#16A34A,#4ADE80)",
+                            color: "white",
+                            width: 36, height: 36,
+                            boxShadow: "0 2px 8px rgba(22,163,74,0.4)",
+                            flexShrink: 0,
+                          }}
+                        >
+                          <Phone sx={{ fontSize: 18 }} />
+                        </IconButton>
+                      )}
+                    </Stack>
+
+                    {/* Last call log badge */}
+                    {meta && (
+                      <Box
+                        sx={{
+                          mt: 1, px: 1, py: 0.4, borderRadius: 1.5,
+                          bgcolor: meta.bg, display: "inline-flex", alignItems: "center", gap: 0.5,
+                        }}
+                      >
+                        <Box sx={{ color: meta.color, display: "flex" }}>{meta.icon}</Box>
+                        <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, color: meta.color }}>
+                          {meta.label}
+                        </Typography>
+                        {lastLog?.remark && (
+                          <Typography sx={{ fontSize: "0.68rem", color: "#6B7280", ml: 0.5 }}>
+                            — {lastLog.remark}
+                          </Typography>
+                        )}
+                      </Box>
+                    )}
+
+                    {/* Call logs count */}
+                    {(entry.callLogs || []).length > 0 && (
+                      <Typography sx={{ fontSize: "0.67rem", color: "#9CA3AF", mt: 0.3 }}>
+                        {entry.callLogs.length} call attempt{entry.callLogs.length > 1 ? "s" : ""}
+                      </Typography>
+                    )}
+                  </Box>
+
+                  {/* Log call button */}
+                  {!showDone && (
+                    <Box sx={{ px: 1.5, pb: 1.2 }}>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        startIcon={<CallEnd sx={{ fontSize: 13 }} />}
+                        onClick={() => openLogDialog(idx)}
+                        sx={{
+                          textTransform: "none", fontWeight: 700, fontSize: "0.72rem",
+                          borderRadius: 2, borderColor: "#7C3AED", color: "#7C3AED",
+                          "&:hover": { bgcolor: "#F5F3FF", borderColor: "#6D28D9" },
+                        }}
+                      >
+                        Log call result
+                      </Button>
+                    </Box>
+                  )}
+                </Card>
+              )
+            })
+          })()}
+        </Box>
+      </SwipeableDrawer>
+
+      {/* ── Call log result dialog ───────────────────────────── */}
+      <Dialog
+        open={logOpen}
+        onClose={() => !logBusy && setLogOpen(false)}
+        fullWidth
+        maxWidth="xs"
+        PaperProps={{ sx: { borderRadius: 4, mx: 2 } }}
+        TransitionComponent={Slide}
+        TransitionProps={{ direction: "up" }}
+      >
+        <DialogTitle sx={{ fontWeight: 800, fontSize: "1rem", pb: 0, display: "flex", alignItems: "center", gap: 1 }}>
+          <PhoneCallback sx={{ color: "#7C3AED", fontSize: 22 }} />
+          Log Call Result
+        </DialogTitle>
+        <DialogContent sx={{ pt: 1.5 }}>
+          {callListData && logEntryIdx !== null && callListData.entries?.[logEntryIdx] && (
+            <Box
+              sx={{
+                mb: 2, px: 1.5, py: 1, borderRadius: 2,
+                bgcolor: "#F5F3FF", border: "1px solid #DDD6FE",
+                display: "flex", alignItems: "center", gap: 1,
+              }}
+            >
+              <Avatar sx={{ width: 30, height: 30, background: "linear-gradient(135deg,#7C3AED,#A855F7)", fontSize: "0.8rem", fontWeight: 900 }}>
+                {(callListData.entries[logEntryIdx].name || "?").charAt(0).toUpperCase()}
+              </Avatar>
+              <Box>
+                <Typography sx={{ fontWeight: 800, fontSize: "0.85rem", color: "#1A1D2E" }}>
+                  {callListData.entries[logEntryIdx].name}
+                </Typography>
+                <Typography sx={{ fontSize: "0.75rem", color: "#7C3AED", fontWeight: 600, fontFamily: "monospace" }}>
+                  {callListData.entries[logEntryIdx].phone}
+                </Typography>
+              </Box>
+            </Box>
+          )}
+
+          <FormControl component="fieldset" fullWidth>
+            <FormLabel component="legend" sx={{ fontWeight: 700, fontSize: "0.8rem", color: "#374151", mb: 1 }}>
+              What was the outcome?
+            </FormLabel>
+            <Stack spacing={0.8}>
+              {CALL_RESULTS.map((cr) => (
+                <Box
+                  key={cr.id}
+                  onClick={() => setLogResult(cr.id)}
+                  sx={{
+                    px: 1.5, py: 1, borderRadius: 2, cursor: "pointer",
+                    border: `2px solid ${logResult === cr.id ? cr.color : "#E5E7EB"}`,
+                    bgcolor: logResult === cr.id ? cr.bg : "white",
+                    display: "flex", alignItems: "center", gap: 1.2,
+                    transition: "all .15s",
+                  }}
+                >
+                  <Box sx={{ color: cr.color, display: "flex" }}>{cr.icon}</Box>
+                  <Typography sx={{ fontWeight: logResult === cr.id ? 800 : 600, fontSize: "0.85rem", color: cr.color }}>
+                    {cr.label}
+                  </Typography>
+                  {(cr.id === "done" || cr.id === "not_interested") && (
+                    <Chip
+                      label="Closes entry"
+                      size="small"
+                      sx={{ ml: "auto", fontSize: "0.62rem", height: 18, bgcolor: cr.bg, color: cr.color, fontWeight: 700 }}
+                    />
+                  )}
+                </Box>
+              ))}
+            </Stack>
+          </FormControl>
+
+          <TextField
+            fullWidth multiline minRows={2}
+            label="Remark (optional)"
+            placeholder="Any notes about this call…"
+            value={logRemark}
+            onChange={(e) => setLogRemark(e.target.value)}
+            sx={{ mt: 2, "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
+          />
+        </DialogContent>
+        <DialogActions sx={{ px: 2.5, pb: 2.5, gap: 1 }}>
+          <Button
+            onClick={() => setLogOpen(false)}
+            disabled={logBusy}
+            sx={{ textTransform: "none", borderRadius: 2, color: "#6B7280" }}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={submitCallLog}
+            disabled={logBusy}
+            sx={{
+              textTransform: "none", borderRadius: 2, fontWeight: 700,
+              background: "linear-gradient(135deg,#7C3AED,#A855F7)",
+              boxShadow: "0 2px 8px rgba(124,58,237,0.3)",
+              minWidth: 120,
+            }}
+          >
+            {logBusy ? <CircularProgress size={16} sx={{ color: "white" }} /> : "Save Result"}
           </Button>
         </DialogActions>
       </Dialog>

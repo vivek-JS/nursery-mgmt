@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react"
+import { useNavigate } from "react-router-dom"
 import {
   Dialog,
   Button,
@@ -37,6 +38,7 @@ import LocationSelector from "components/LocationSelector"
 
 const FarmerComponent = () => {
   const theme = useTheme()
+  const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState(0)
   const [farmers, setFarmers] = useState([])
   const [filteredFarmers, setFilteredFarmers] = useState([])
@@ -656,9 +658,16 @@ const FarmerComponent = () => {
                   const phone = isFarmer ? row.mobileNumber : row.phone
                   const optIn = isFarmer ? row.opt_in : row.opt_in
                   return (
-                    <TableRow key={id} sx={{ "&:hover": { backgroundColor: "#f5f7fa" } }}>
+                    <TableRow
+                      key={id}
+                      onClick={isFarmer ? () => navigate(`/u/farmers/${id}`) : undefined}
+                      sx={{
+                        "&:hover": { backgroundColor: "#f5f7fa" },
+                        cursor: isFarmer ? "pointer" : "default",
+                      }}
+                    >
                       {activeTab === 0 && (
-                        <TableCell padding="checkbox">
+                        <TableCell padding="checkbox" onClick={(e) => e.stopPropagation()}>
                           <Checkbox
                             checked={selectedFarmers.includes(id)}
                             onChange={() => handleSelectFarmer(id)}
@@ -706,7 +715,7 @@ const FarmerComponent = () => {
                         />
                       </TableCell>
                       {activeTab === 0 && (
-                        <TableCell>
+                        <TableCell onClick={(e) => e.stopPropagation()}>
                           <IconButton
                             onClick={() => handleEdit(row)}
                             sx={{

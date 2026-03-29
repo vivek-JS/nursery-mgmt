@@ -13,8 +13,22 @@ import { Leaf, Truck, Trash2, ChevronDown, ChevronUp } from "lucide-react"
 import { ArrowLeft, X } from "lucide-react"
 
 import { NetworkManager, API } from "network/core"
+import {
+  getCavityLabelForDispatchOrder,
+  orderRowHasTrayRef,
+} from "utils/cavityDisplay"
 
-const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatchData = null }) => {
+const cavityKey = (v) => (v != null && v !== "" ? String(v) : "")
+
+const DispatchForm = ({
+  open,
+  onClose,
+  onDispatchSuccess,
+  selectedOrders,
+  mode = "create",
+  dispatchData = null,
+  readyDispatchGroupId = null,
+}) => {
   const theme = useTheme()
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"))
   const [formData, setFormData] = useState({
@@ -35,6 +49,10 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
   const [orderQuantities, setOrderQuantities] = useState(new Map())
   const orderQuantitiesRef = useRef(new Map())
   const getId = (obj) => String(obj?._id || obj?.id || "")
+  const getOrderId = (order) =>
+    order?.details?.orderid || order?.details?.orderId || order?._id || order?.id || ""
+  const getSelectedOrdersArray = () =>
+    Array.from(selectedOrders?.values?.() || []).filter((order) => Boolean(getOrderId(order)))
 
   // Fetch functions for each dropdown
   const getDrivers = async () => {
@@ -97,9 +115,9 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
     }
 
     // Validate order quantities
-    const selectedOrdersArray = Array.from(selectedOrders.values())
+    const selectedOrdersArray = getSelectedOrdersArray()
     for (const order of selectedOrdersArray) {
-      const orderId = order.details.orderid
+      const orderId = getOrderId(order)
       const dispatchQty = orderQuantities.get(orderId) || 0
       const remainingQty = order.details?.remainingPlants || order.quantity || 0
       
@@ -183,7 +201,8 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
 
   // Data transformation
   const transformDispatchData = (formData, selectedOrders) => {
-    const orderIds = Array.from(selectedOrders.keys())
+    const selectedOrdersArray = getSelectedOrdersArray()
+    const orderIds = selectedOrdersArray.map((order) => getOrderId(order))
     
     // Get selected driver info - extract name from combined format or just name
     const driverDisplayName = formData.driverName.includes('(') 
@@ -208,8 +227,8 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
     })
     
     // Prepare order dispatch details with quantities, driver info, vehicle info, and crates
-    const orderDispatchDetails = Array.from(selectedOrders.values()).map(order => {
-      const orderId = order.details.orderid
+    const orderDispatchDetails = selectedOrdersArray.map(order => {
+      const orderId = getOrderId(order)
       const dispatchQty = orderQuantities.get(orderId) || 0
       const remainingQty = order.details?.remainingPlants || order.quantity || 0
       const plantForOrder = plantsByOrder.get(orderId)
@@ -218,9 +237,9 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
       const cratesForOrder = []
       if (plantForOrder?.cavityGroups && dispatchQty > 0) {
         // Find the cavity group that matches this order's cavity
-        const orderCavityId = order.details?.cavityId
+        const orderCavityId = cavityKey(order.details?.cavityId)
         const matchingCavityGroup = plantForOrder.cavityGroups.find(
-          group => group.cavity === orderCavityId || group.cavity === order.details?.cavityId
+          (group) => cavityKey(group.cavity) === orderCavityId
         )
         
         // If we found a matching cavity group, calculate crates for this order's dispatch quantity
@@ -358,6 +377,9 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
     try {
       validateForm()
       const payload = transformDispatchData(formData, selectedOrders)
+      if (readyDispatchGroupId) {
+        payload.readyDispatchGroupId = readyDispatchGroupId
+      }
       console.log("[DispatchForm] Creating dispatch with payload:", payload)
       const instance = NetworkManager(API.DISPATCHED.CREATE_TRAY)
       const response = await instance.request(payload)
@@ -367,6 +389,12 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
         if (typeof window !== "undefined") {
           window.dispatchEvent(new CustomEvent("dispatchCreated"))
         }
+        onDispatchSuccess?.({
+          orderIds: payload.orderIds,
+          driverName: payload.driverName,
+          vehicleName: payload.vehicleName,
+          driverMobile: payload.driverMobile,
+        })
         onClose()
       }
     } catch (error) {
@@ -404,8 +432,11 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
       const cavityQuantities = new Map() // Track quantity per cavity
       
       plantOrders.forEach(order => {
-        const cavityId = order.details?.cavityId
-        const cavityName = order.details?.cavityName
+        const cavityId = cavityKey(order.details?.cavityId)
+        const cavityName =
+          getCavityLabelForDispatchOrder(order.details, cavities, getId) ||
+          "" ||
+          ""
         const orderId = order.details?.orderid
         
         if (cavityId) {
@@ -431,7 +462,7 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
       if (cavityIds.size === 1) {
         const [singleCavityId] = Array.from(cavityIds)
         const isAlreadySelected = updatedPlants[plantIndex].cavityGroups?.some(
-          group => group.cavity === singleCavityId
+          (group) => cavityKey(group.cavity) === cavityKey(singleCavityId)
         )
         
         if (!isAlreadySelected) {
@@ -674,12 +705,12 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
     // Update formData separately to avoid stale state
     setFormData((prev) => {
       // Recalculate plant quantities with the updated map
-      const selectedOrdersArray = Array.from(selectedOrders.values())
+      const selectedOrdersArray = getSelectedOrdersArray()
       const plantGroups = selectedOrdersArray?.reduce((acc, order) => {
         const plantId = order.details?.plantID
         const plantSubtypeId = order.details?.plantSubtypeID
         const key = `${plantId}_${plantSubtypeId}`
-        const orderId = order.details?.orderid
+        const orderId = getOrderId(order)
         
         // Get the dispatch quantity for this order (use updated qty if this is the changed order)
         const dispatchQty = orderId === changedOrderId 
@@ -808,12 +839,12 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
       }, {})
       setExpandedPlants(initialExpandedState)
     } else if (selectedOrders?.size > 0) {
-      const selectedOrdersArray = Array.from(selectedOrders.values())
+      const selectedOrdersArray = getSelectedOrdersArray()
       
       // Initialize order quantities with full order quantity or remaining quantity
       const initialQuantities = new Map()
       selectedOrdersArray.forEach(order => {
-        const orderId = order.details?.orderid
+        const orderId = getOrderId(order)
         const availableQty = order.details?.remainingPlants || order.quantity || 0
         initialQuantities.set(orderId, availableQty)
       })
@@ -824,7 +855,7 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
         const plantId = order.details?.plantID
         const plantSubtypeId = order.details?.plantSubtypeID
         const key = `${plantId}_${plantSubtypeId}`
-        const orderId = order.details?.orderid
+        const orderId = getOrderId(order)
         
         // Get the dispatch quantity for this order (from state or default to full quantity)
         const dispatchQty = initialQuantities.get(orderId) || order.quantity || 0
@@ -915,8 +946,8 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
       <DialogContent className={`space-y-6 bg-gray-50 ${isMobile ? "mt-2 px-2 pb-2" : "mt-6"}`}>
         {/* Order Summary Cards with Quantity Input */}
         <div className={`grid grid-cols-1 md:grid-cols-2 ${isMobile ? "gap-2" : "gap-3"}`}>
-          {Array.from(selectedOrders.values()).map((order) => {
-            const orderId = order.details.orderid
+          {getSelectedOrdersArray().map((order) => {
+            const orderId = getOrderId(order)
             const totalQty = order.quantity || 0
             const remainingQty = order.details?.remainingPlants || totalQty
             const dispatchQty = orderQuantities.get(orderId) || remainingQty
@@ -957,7 +988,10 @@ const DispatchForm = ({ open, onClose, selectedOrders, mode = "create", dispatch
                       <div>
                         <span className="text-gray-500">Cavity: </span>
                         <span className="text-gray-700 font-medium">
-                          {order.details?.cavityName || "Not Specified"}
+                          {getCavityLabelForDispatchOrder(order.details, cavities, getId) ||
+                            (orderRowHasTrayRef(order.details)
+                              ? "Not specified"
+                              : "No tray on order — select below")}
                         </span>
                       </div>
                       <div>

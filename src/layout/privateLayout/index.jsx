@@ -85,6 +85,7 @@ export default function PrivateLayout(props) {
   const ramAgriSalesRedirectRef = useRef(false)
   const ramAgriSalesManagerRedirectRef = useRef(false)
   const accountantRedirectRef = useRef(false)
+  const cashierRedirectRef = useRef(false)
   const dealerSalesRedirectRef = useRef(false)
   const lastPathRef = useRef(location.pathname)
   
@@ -101,6 +102,7 @@ export default function PrivateLayout(props) {
   const isRamAgriSales = userType === "RAM_AGRI_SALES" || userData?.jobTitle === "RAM_AGRI_SALES"
   // Check RAM_AGRI_SALES_MANAGER by jobTitle (sidebar + restricted routes, not mobile-only)
   const isRamAgriSalesManager = userType === "RAM_AGRI_SALES_MANAGER" || userData?.jobTitle === "RAM_AGRI_SALES_MANAGER"
+  const isCashier = userType === "CASHIER" || userRole === "CASHIER" || userData?.jobTitle === "CASHIER"
   
   // Check DEALER or SALES by jobTitle (redirect to mobile place-order)
   const isDealerOrSales = userType === "DEALER" || userType === "SALES" || userData?.jobTitle === "DEALER" || userData?.jobTitle === "SALES"
@@ -114,6 +116,7 @@ export default function PrivateLayout(props) {
       ramAgriSalesRedirectRef.current = false
       ramAgriSalesManagerRedirectRef.current = false
       accountantRedirectRef.current = false
+      cashierRedirectRef.current = false
       dealerSalesRedirectRef.current = false
       lastPathRef.current = location.pathname
     }
@@ -192,7 +195,7 @@ export default function PrivateLayout(props) {
     }
   }, [isDispatchManager, isSuperAdmin, isAdmin, location.pathname, navigate, userData])
   
-  // RAM_AGRI_SALES users can access /u/mobile (dashboard), /u/mobile/place-order, and /u/mobile/agri-sales-order
+  // RAM_AGRI_SALES users can access /u/mobile (dashboard), /u/mobile/place-order, /u/mobile/agri-sales-order, and /u/mobile/tasks
   // Redirect them if they try to access any other route
   // SUPER_ADMIN can access all routes, so don't redirect them
   useEffect(() => {
@@ -207,8 +210,9 @@ export default function PrivateLayout(props) {
       const isMobileDashboard = currentPath === "/u/mobile"
       const isPlaceOrderRoute = currentPath === "/u/mobile/place-order" || currentPath.includes("/u/mobile/place-order")
       const isAgriSalesOrderRoute = currentPath === "/u/mobile/agri-sales-order" || currentPath.includes("/u/mobile/agri-sales-order")
+      const isTasksRoute = currentPath === "/u/mobile/tasks" || currentPath.includes("/u/mobile/tasks")
 
-      if (!isMobileDashboard && !isPlaceOrderRoute && !isAgriSalesOrderRoute) {
+      if (!isMobileDashboard && !isPlaceOrderRoute && !isAgriSalesOrderRoute && !isTasksRoute) {
         // Redirect RAM_AGRI_SALES users to mobile dashboard
         console.log(`[PrivateLayout] RAM_AGRI_SALES user accessing ${currentPath}, redirecting to /u/mobile`)
         ramAgriSalesRedirectRef.current = true
@@ -257,6 +261,19 @@ export default function PrivateLayout(props) {
     }
   }, [userRole, isSuperAdmin, location.pathname, navigate, userData])
 
+  // CASHIER can only access mobile cashier route (Marathi 2-tab flow)
+  useEffect(() => {
+    if (!userData) return
+    if (cashierRedirectRef.current) return
+    if (!isCashier || isSuperAdmin || isAdmin) return
+    const p = location.pathname
+    const allowed = p === "/u/mobile/cashier" || p.startsWith("/u/mobile/cashier/")
+    if (!allowed) {
+      cashierRedirectRef.current = true
+      navigate("/u/mobile/cashier", { replace: true })
+    }
+  }, [isCashier, isSuperAdmin, isAdmin, location.pathname, navigate, userData])
+
   // OFFICEADMIN / OFFICE_ADMIN: restrict sidebar & routes to a subset of menus
   useEffect(() => {
     if (!userData) return
@@ -290,7 +307,7 @@ export default function PrivateLayout(props) {
     }
   }, [userRole, isSuperAdmin, location.pathname, navigate, userData])
 
-  // DEALER and SALES users can ONLY access /u/mobile (dashboard), /u/mobile/place-order, and /u/mobile/agri-sales-order
+  // DEALER and SALES users can ONLY access /u/mobile (dashboard), /u/mobile/place-order, /u/mobile/agri-sales-order, and /u/mobile/tasks
   useEffect(() => {
     if (!userData) return
     if (dealerSalesRedirectRef.current) return
@@ -299,16 +316,18 @@ export default function PrivateLayout(props) {
     const isMobileDashboard = currentPath === "/u/mobile"
     const isPlaceOrderRoute = currentPath === "/u/mobile/place-order" || currentPath.includes("/u/mobile/place-order")
     const isAgriSalesOrderRoute = currentPath === "/u/mobile/agri-sales-order" || currentPath.includes("/u/mobile/agri-sales-order")
-    if (!isMobileDashboard && !isPlaceOrderRoute && !isAgriSalesOrderRoute) {
+    const isTasksRoute = currentPath === "/u/mobile/tasks" || currentPath.includes("/u/mobile/tasks")
+    if (!isMobileDashboard && !isPlaceOrderRoute && !isAgriSalesOrderRoute && !isTasksRoute) {
       console.log(`[PrivateLayout] DEALER/SALES user accessing ${currentPath}, redirecting to /u/mobile`)
       dealerSalesRedirectRef.current = true
       navigate("/u/mobile", { replace: true })
     }
   }, [isDealerOrSales, isSuperAdmin, isAdmin, location.pathname, navigate, userData])
   
-  // Hide sidebar for primary sowing entry, primary/secondary mobile ops, and all mobile routes
+  // Hide sidebar for primary sowing entry, primary/secondary mobile ops, cashier, and all mobile routes
   // With BrowserRouter, pathname is the actual route path
   const hideSidebar =
+    isCashier ||
     location.pathname === "/u/primary-sowing-entry" ||
     location.pathname === "/u/primary-mobile" ||
     location.pathname === "/u/secondary-sowing-entry" ||
@@ -354,6 +373,12 @@ export default function PrivateLayout(props) {
       const allowedRoutes = ["/u/dashboard", "/u/accountant-dashboard"]
       const hasAccess = allowedTitles.includes(menuItem.title) || allowedRoutes.includes(menuItem.route)
       return hasAccess
+    }
+
+    if (isCashier) {
+      const allowedTitles = ["कॅशियर पेमेंट"]
+      const allowedRoutes = ["/u/mobile/cashier", "/u/cashier"]
+      return allowedTitles.includes(menuItem.title) || allowedRoutes.includes(menuItem.route)
     }
 
     // OFFICEADMIN / OFFICE_ADMIN: sidebar order follows DashboardMenus — Orders, Plants, Sowing, Sowing gap, Slots, CMS, Employees, Inventory, Ram Agri Input, Dealers

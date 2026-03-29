@@ -1,5 +1,5 @@
 /**
- * Shared fetch helpers for accountant dashboard (same endpoints as /u/payments).
+ * Shared fetch helpers for accountant dashboard (order payment APIs).
  */
 import moment from "moment"
 import { API, NetworkManager } from "network/core"

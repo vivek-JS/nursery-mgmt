@@ -27,6 +27,7 @@ import {
   Radio,
   RadioGroup,
   Checkbox,
+  Switch,
 } from "@mui/material";
 import {
   Logout,
@@ -51,6 +52,7 @@ import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 import { LocalizationProvider } from "lib/muiLocalizationProvider";
 import { AdapterMoment } from "@mui/x-date-pickers/AdapterMoment";
 import moment from "moment";
+import { compareAsc } from "date-fns";
 import {
   formatDateForAPI,
   formatDateForDisplay,
@@ -58,6 +60,11 @@ import {
   toDeliveryDateISOString,
   isOrderPastDue,
 } from "./utils/dateUtils";
+import { getCavityDisplayLabel, getCavityIdString } from "utils/cavityDisplay";
+import {
+  isWhatsappMessagingDisabled,
+  setWhatsappMessagingDisabled,
+} from "utils/whatsappMessagingPref";
 import { NetworkManager, API } from "network/core";
 import { Toast } from "helpers/toasts/toastHelper";
 import { useUserRole, useIsDispatchManager, useUserData } from "utils/roleUtils";
@@ -67,6 +74,20 @@ import DispatchForm from "../dashboard/DispatchedForm";
 
 // Dynamically import OrderMapView to avoid SSR issues with Leaflet
 const OrderMapView = lazy(() => import("./components/OrderMapView"));
+
+/** Matches FINAL_NURSERY_BE factory.controller DISPATCH_DAY_KEY_TO_OFFSET */
+const DISPATCH_DAY_KEY_OFFSET = { TODAY: 0, TOMORROW: 1, DAY_AFTER: 2 };
+
+const resolveOrderDispatchTargetMoment = (order) => {
+  if (order?.dispatchTargetDate) {
+    const m = moment(order.dispatchTargetDate).startOf("day");
+    return m.isValid() ? m : null;
+  }
+  const key = String(order?.dispatchDayKey || "").toUpperCase();
+  const off = DISPATCH_DAY_KEY_OFFSET[key];
+  if (off === undefined) return null;
+  return moment().startOf("day").clone().add(off, "days");
+};
 
 const DispatchedListPage = () => {
   const theme = useTheme();
@@ -118,6 +139,9 @@ const DispatchedListPage = () => {
   const [dispatchPreviewOpen, setDispatchPreviewOpen] = useState(false);
   const [selectedDispatchPreview, setSelectedDispatchPreview] = useState(null);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(!isMobile);
+  const [whatsappMessagingEnabled, setWhatsappMessagingEnabled] = useState(
+    () => !isWhatsappMessagingDisabled()
+  );
   const [dateRange, setDateRange] = useState(() => {
     // Default to last 7 days
     const endDate = moment();
@@ -150,24 +174,48 @@ const DispatchedListPage = () => {
   };
 
   const getDispatchDayBadge = (order) => {
-    if (!order?.dispatchTargetDate) return null;
-    const target = moment(order.dispatchTargetDate).startOf("day");
-    if (!target.isValid()) return null;
+    const target = resolveOrderDispatchTargetMoment(order);
+    if (!target) return null;
+    const dateStr = formatDateForDisplay(target.toDate());
     const today = moment().startOf("day");
     const diff = target.diff(today, "days");
     const isNotDispatched = !["DISPATCHED", "COMPLETED"].includes(order?.orderStatus);
 
     if (diff < 0 && isNotDispatched) {
-      return { label: "Kaal", bg: "rgba(211,47,47,0.15)", color: "#b71c1c", border: "rgba(211,47,47,0.45)", blink: true };
+      return {
+        label: `Kaal · ${dateStr}`,
+        bg: "rgba(211,47,47,0.15)",
+        color: "#b71c1c",
+        border: "rgba(211,47,47,0.45)",
+        blink: true,
+      };
     }
     if (diff === 0) {
-      return { label: "Aaj", bg: "rgba(211,47,47,0.12)", color: "#b71c1c", border: "rgba(211,47,47,0.4)", blink: true };
+      return {
+        label: `Aaj · ${dateStr}`,
+        bg: "rgba(211,47,47,0.12)",
+        color: "#b71c1c",
+        border: "rgba(211,47,47,0.4)",
+        blink: true,
+      };
     }
     if (diff === 1) {
-      return { label: "Udya", bg: "rgba(46,125,50,0.12)", color: "#1b5e20", border: "rgba(46,125,50,0.4)", blink: false };
+      return {
+        label: `Udya · ${dateStr}`,
+        bg: "rgba(46,125,50,0.12)",
+        color: "#1b5e20",
+        border: "rgba(46,125,50,0.4)",
+        blink: false,
+      };
     }
     if (diff === 2) {
-      return { label: "Parva", bg: "rgba(0,121,107,0.12)", color: "#00695c", border: "rgba(0,121,107,0.4)", blink: false };
+      return {
+        label: `Parva · ${dateStr}`,
+        bg: "rgba(0,121,107,0.12)",
+        color: "#00695c",
+        border: "rgba(0,121,107,0.4)",
+        blink: false,
+      };
     }
     return null;
   };
@@ -202,6 +250,7 @@ const DispatchedListPage = () => {
         if (dateRange.startDate && dateRange.endDate && !debouncedSearchTerm?.trim()) {
           params.startDate = formatDateForAPI(dateRange.startDate);
           params.endDate = formatDateForAPI(dateRange.endDate);
+          params.includePastDueBeyondRange = "true";
         }
       }
 
@@ -226,19 +275,24 @@ const DispatchedListPage = () => {
         const currentOrders = ordersData.filter((order) => !isPastDue(order));
 
         // Sort past due orders by due date (ascending - oldest first)
+        // parseOrderDate (this app) returns Moment — compareAsc still works (Moment exposes getTime)
         pastDueOrders.sort((a, b) => {
           const dateA = parseOrderDate(a.deliveryDate || a.orderBookingDate);
           const dateB = parseOrderDate(b.deliveryDate || b.orderBookingDate);
-          if (!dateA || !dateB) return 0;
-          return dateA.diff(dateB);
+          if (!dateA && !dateB) return 0;
+          if (!dateA) return 1;
+          if (!dateB) return -1;
+          return compareAsc(dateA, dateB);
         });
 
         // Sort current orders by due date (ascending)
         currentOrders.sort((a, b) => {
           const dateA = parseOrderDate(a.deliveryDate || a.orderBookingDate);
           const dateB = parseOrderDate(b.deliveryDate || b.orderBookingDate);
-          if (!dateA || !dateB) return 0;
-          return dateA.diff(dateB);
+          if (!dateA && !dateB) return 0;
+          if (!dateA) return 1;
+          if (!dateB) return -1;
+          return compareAsc(dateA, dateB);
         });
 
         // Combine: past due first, then current orders
@@ -342,6 +396,8 @@ const DispatchedListPage = () => {
 
   const mapOrderToDispatchRow = (order) => {
     const quantity = Number(order.numberOfPlants || order.totalPlants || 0);
+    const cavityIdStr = getCavityIdString(order.cavity);
+    const hasTrayRef = cavityIdStr !== "";
     return {
       order: order.orderId,
       farmerName: order.farmer?.name || "Unknown",
@@ -354,8 +410,11 @@ const DispatchedListPage = () => {
         remainingPlants: Number(order.remainingPlants ?? quantity),
         plantID: order.plantType?._id || order.plantType?.id,
         plantSubtypeID: order.plantSubtype?._id || order.plantSubtype?.id,
-        cavityId: order.cavity?._id || order.cavity?.id,
-        cavityName: order.cavity?.name || order.cavity?.cavity || "N/A",
+        cavity: order.cavity ?? null,
+        cavityId: cavityIdStr || undefined,
+        cavityName:
+          getCavityDisplayLabel(order.cavity) ||
+          (hasTrayRef ? "Not specified" : "No tray on order"),
         farmer: order.farmer || null,
       },
     };
@@ -797,14 +856,16 @@ const DispatchedListPage = () => {
   const getSlotDetailsForDate = (selectedDate) => {
     if (!selectedDate || slots.length === 0) return null;
 
-    const selectedMoment = parseOrderDate(selectedDate);
-    if (!selectedMoment) return null;
+    const parsed = parseOrderDate(selectedDate);
+    if (!parsed) return null;
+    // parseOrderDate returns native Date; Moment methods need a moment instance
+    const selectedMoment = moment(parsed).startOf("day");
 
     for (const slot of slots) {
       if (!slot.startDay || !slot.endDay) continue;
 
-      const slotStart = moment(slot.startDay, "DD-MM-YYYY");
-      const slotEnd = moment(slot.endDay, "DD-MM-YYYY");
+      const slotStart = moment(slot.startDay, "DD-MM-YYYY").startOf("day");
+      const slotEnd = moment(slot.endDay, "DD-MM-YYYY").startOf("day");
 
       if (
         selectedMoment.isSameOrAfter(slotStart, "day") &&
@@ -1068,6 +1129,41 @@ const DispatchedListPage = () => {
             >
               Dispatch Orders
             </Typography>
+            <FormControlLabel
+              control={
+                <Switch
+                  size="small"
+                  checked={whatsappMessagingEnabled}
+                  onChange={(e) => {
+                    const on = e.target.checked;
+                    setWhatsappMessagingEnabled(on);
+                    setWhatsappMessagingDisabled(!on);
+                  }}
+                  sx={{
+                    "& .MuiSwitch-switchBase.Mui-checked": { color: "#fff" },
+                    "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track": {
+                      backgroundColor: "rgba(255,255,255,0.5)",
+                    },
+                  }}
+                />
+              }
+              label={
+                <Typography
+                  component="span"
+                  variant="caption"
+                  sx={{
+                    color: "rgba(255,255,255,0.95)",
+                    fontWeight: 700,
+                    fontSize: "0.7rem",
+                    maxWidth: 72,
+                    lineHeight: 1.1,
+                  }}
+                >
+                  WA msgs
+                </Typography>
+              }
+              sx={{ mr: 0.5, alignItems: "center", m: 0 }}
+            />
             <IconButton
               color="inherit"
               onClick={handleLogout}
@@ -1846,15 +1942,19 @@ const DispatchedListPage = () => {
                           {dispatchDayBadge && (
                             <Chip
                               label={dispatchDayBadge.label}
+                              title={dispatchDayBadge.label}
                               size="small"
                               sx={{
-                                fontSize: "0.68rem",
-                                height: 22,
+                                fontSize: "0.65rem",
+                                height: "auto",
+                                minHeight: 22,
                                 fontWeight: 800,
+                                maxWidth: { xs: 168, sm: 220 },
                                 bgcolor: dispatchDayBadge.bg,
                                 color: dispatchDayBadge.color,
                                 border: `1px solid ${dispatchDayBadge.border}`,
                                 animation: dispatchDayBadge.blink ? "dispatchBlink 1.1s linear infinite" : "none",
+                                "& .MuiChip-label": { whiteSpace: "normal", lineHeight: 1.15, py: 0.35 },
                                 "@keyframes dispatchBlink": {
                                   "0%": { opacity: 1 },
                                   "50%": { opacity: 0.35 },
@@ -2120,7 +2220,10 @@ const DispatchedListPage = () => {
                         <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1 }}>
                           <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap" }}>
                             <Chip
-                              label={`Cavity: ${order.cavity?.name || order.cavity?.cavity || "N/A"}`}
+                              label={`Cavity: ${
+                                getCavityDisplayLabel(order.cavity) ||
+                                (getCavityIdString(order.cavity) ? "—" : "No tray on order")
+                              }`}
                               size="small"
                               sx={{
                                 fontSize: "0.72rem",
@@ -2361,68 +2464,6 @@ const DispatchedListPage = () => {
                       No open slots for this plant. Tap above to retry or pick another window when slots exist.
                     </Typography>
                   )}
-
-                  {/* Show selected date slot information */}
-                  {editingOrder?.deliveryDate && (() => {
-                    const slotDetails = getSlotDetailsForDate(editingOrder.deliveryDate);
-                    if (slotDetails) {
-                      const requestedQuantity = (editingOrder.numberOfPlants || editingOrder.totalPlants || 0) + quantityChange;
-                      const currentQuantity = editingOrder.numberOfPlants || editingOrder.totalPlants || 0;
-                      const quantityChangeAmount = quantityChange;
-                      const adjustedAvailable = slotDetails.available + currentQuantity;
-
-                      return (
-                        <Box sx={{ mt: 1.25, p: 1.25, bgcolor: "rgba(232, 245, 233, 0.9)", borderRadius: 1.5, border: "1px solid rgba(46, 125, 50, 0.28)" }}>
-                          <Typography variant="caption" sx={{ fontWeight: 700, color: "#1b5e20", display: "block", mb: 0.75, fontSize: "0.7rem" }}>
-                            Slot window: {slotDetails.startDay} – {slotDetails.endDay}
-                          </Typography>
-                          <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1, mb: 1 }}>
-                            <Box>
-                              <Typography variant="caption" color="text.secondary" display="block">
-                                Available Capacity:
-                              </Typography>
-                              <Typography variant="body2" sx={{ fontWeight: "bold", color: "success.main" }}>
-                                {adjustedAvailable.toLocaleString()}
-                              </Typography>
-                            </Box>
-                            <Box>
-                              <Typography variant="caption" color="text.secondary" display="block">
-                                Requested Quantity:
-                              </Typography>
-                              <Typography variant="body2" sx={{ fontWeight: "bold" }}>
-                                {requestedQuantity.toLocaleString()}
-                              </Typography>
-                            </Box>
-                          </Box>
-                          {quantityChangeAmount !== 0 && (
-                            <Typography variant="caption" sx={{ color: quantityChangeAmount > 0 ? "warning.main" : "success.main", display: "block", mb: 1 }}>
-                              {quantityChangeAmount > 0 ? "⚠️" : "✅"} Quantity change: {quantityChangeAmount > 0 ? "+" : ""}{quantityChangeAmount.toLocaleString()}
-                            </Typography>
-                          )}
-                          {requestedQuantity > adjustedAvailable && (
-                            <Box sx={{ bgcolor: "error.light", p: 1, borderRadius: 0.5, mt: 1 }}>
-                              <Typography variant="caption" color="error" sx={{ fontWeight: "bold" }}>
-                                ❌ Insufficient capacity! Only {adjustedAvailable.toLocaleString()} available.
-                              </Typography>
-                            </Box>
-                          )}
-                          {requestedQuantity <= adjustedAvailable && requestedQuantity > 0 && (
-                            <Typography variant="caption" sx={{ color: "success.main", fontWeight: "bold", display: "block", mt: 1 }}>
-                              ✅ Sufficient capacity available
-                            </Typography>
-                          )}
-                        </Box>
-                      );
-                    } else {
-                      return (
-                        <Box sx={{ mt: 2, p: 1.5, bgcolor: "error.light", borderRadius: 1, border: "1px solid", borderColor: "error.main" }}>
-                          <Typography variant="caption" color="error">
-                            ⚠️ Selected date does not fall within any available slot
-                          </Typography>
-                        </Box>
-                      );
-                    }
-                  })()}
                 </Box>
 
                 {/* Quantity Section */}
@@ -2709,6 +2750,13 @@ const DispatchedListPage = () => {
         {isDispatchFormOpen && (
           <DispatchForm
             open={isDispatchFormOpen}
+            onDispatchSuccess={() => {
+              if (whatsappMessagingEnabled) {
+                Toast.success(
+                  "Dispatch created. Send dispatch WhatsApp from each order’s row actions, or use the mobile dispatch screen for the automatic prompt."
+                );
+              }
+            }}
             onClose={() => {
               setIsDispatchFormOpen(false);
               setSelectedReadyRows(new Map());
@@ -3075,7 +3123,7 @@ const DispatchedListPage = () => {
                         >
                           {dates.map((date) => {
                             const selectedM = editingOrder?.deliveryDate
-                              ? parseOrderDate(editingOrder.deliveryDate)
+                              ? moment(parseOrderDate(editingOrder.deliveryDate))
                               : null;
                             const isSelected =
                               selectedM &&

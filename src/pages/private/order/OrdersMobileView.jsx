@@ -7,7 +7,7 @@ import FarmerOrdersTable from "../dashboard/FarmerOrdersTable"
 /**
  * Mobile-only order view (Android-style UI).
  * No sidebar; full-screen layout with top app bar.
- * Route: /u/orders/mobile
+ * Legacy mobile orders view (not registered in router; use /u/mobile/place-order or dashboard).
  */
 function OrdersMobileView() {
   const navigate = useNavigate()

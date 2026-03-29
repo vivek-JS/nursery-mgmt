@@ -6,7 +6,7 @@ export const CookieKeys = {
 }
 
 export const CookieOptions = {
-  expires: Dates().addInCurrent(10, "days")._d,
+  expires: Dates().addInCurrent(10, "days"),
   sameSite: "lax", // Changed from "strict" to "lax" for better compatibility
   path: "/",
   httpOnly: false, // Allow JavaScript access

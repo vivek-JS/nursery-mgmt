@@ -277,13 +277,6 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false 
     setIsDispatchFormOpen(true)
   }
 
-  if (loading) {
-    return (
-      <div className="flex justify-center items-center min-h-[200px]">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-500"></div>
-      </div>
-    )
-  }
   const handleDelete = async (dispatch) => {
     // Add delete functionality here
     if (window.confirm("Are you sure you want to delete this dispatch?")) {
@@ -323,10 +316,22 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false 
     // Only open the view dialog if nothing else is open
     handleDialogOpenView("view", dispatch, e)
   }
+
+  if (viewMode !== "dispatch_process") {
+    return null
+  }
+
+  if (loading) {
+    return (
+      <div className="flex justify-center items-center min-h-[200px] px-4">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-500"></div>
+      </div>
+    )
+  }
+
   return (
     <>
-      {viewMode === "dispatch_process" && (
-        <div className="space-y-4 p-2 sm:p-4">
+        <div className="space-y-4 px-4 py-3 border-b border-gray-100">
           {!hideHeader && (
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-2xl font-semibold text-gray-800">Dispatch List</h2>
@@ -407,7 +412,6 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false 
             />
           )}
         </div>
-      )}
     </>
   )
 }
