@@ -74,6 +74,7 @@ import {
 /** User-visible order dates in table/modals — e.g. 12-March-2025 (API payloads still use DD-MM-YYYY / YYYY-MM-DD). */
 const ORDER_DATE_DISPLAY = "DD-MMMM-YYYY"
 const ORDER_DATETIME_DISPLAY = "DD-MMMM-YYYY HH:mm"
+const DASHBOARD_ORDERS_PAGE_SIZE = 200
 
 /** Maps orderStatus to CSS class suffix: READY_FOR_DISPATCH → ready-for-dispatch (all underscores → hyphens). */
 const toStatusBadgeCssClass = (status) => {
@@ -937,7 +938,10 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
     today
   ])
   const [loading, setLoading] = useState(false)
+  const [loadingMoreOrders, setLoadingMoreOrders] = useState(false)
   const [orders, setOrders] = useState([])
+  const [ordersPage, setOrdersPage] = useState(1)
+  const [hasMoreOrders, setHasMoreOrders] = useState(false)
   const [patchLoading, setpatchLoading] = useState(false)
   const [startDate, endDate] = selectedDateRange
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("")
@@ -999,6 +1003,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   const [paymentQRModalData, setPaymentQRModalData] = useState(null)
   const [verifyIciciLoadingPaymentId, setVerifyIciciLoadingPaymentId] = useState(null)
   const [generateQRLoading, setGenerateQRLoading] = useState(false)
+  const infiniteLoaderRef = useRef(null)
 
   // Inject custom CSS for blinking animation and enhanced dropdowns
   useEffect(() => {
@@ -2007,6 +2012,44 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
   ])
 
   useEffect(() => {
+    const node = infiniteLoaderRef.current
+    if (!node) return
+    if (!hasMoreOrders || loading || loadingMoreOrders || showAgriSalesOrders || slotId) return
+    if (viewMode === "dispatch_process") return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          loadMoreOrders()
+        }
+      },
+      { rootMargin: "240px 0px" }
+    )
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [
+    hasMoreOrders,
+    loading,
+    loadingMoreOrders,
+    showAgriSalesOrders,
+    slotId,
+    viewMode,
+    ordersPage,
+    debouncedSearchTerm,
+    selectedSalesPerson,
+    selectedVillage,
+    selectedDistrict,
+    selectedPlant,
+    selectedSubtype,
+    startDate,
+    endDate,
+    orderDateRangeBy,
+    isCompletedOrdersTab,
+    isDispatchedVehicleTab,
+    isReadyForDispatchTab,
+  ])
+
+  useEffect(() => {
     getReadyDispatchGroups()
   }, [viewMode, showAgriSalesOrders, refresh])
 
@@ -2930,6 +2973,126 @@ const mapSlotForUi = (slotData) => {
     }
   }
 
+  const mapRegularOrdersForUi = (ordersData = []) =>
+    (ordersData || [])
+      .map((data) => {
+        const {
+          farmer,
+          numberOfPlants,
+          additionalPlants = 0,
+          totalPlants,
+          rate,
+          salesPerson,
+          createdAt,
+          orderStatus,
+          id,
+          payment,
+          bookingSlot,
+          orderId,
+          publicOrderCode,
+          whatsappAcceptedSentAt,
+          whatsappAcceptedMessageKey,
+          whatsappDispatchSentAt,
+          whatsappDispatchMessageKey,
+          plantType,
+          plantSubtype,
+          remainingPlants,
+          returnedPlants,
+          statusChanges,
+          orderRemarks,
+          dealerOrder,
+          farmReadyDate,
+          farmReadyDateChanges,
+          orderBookingDate,
+          deliveryDate,
+          orderFor,
+          cavity,
+        } = data || {}
+        const basePlants = numberOfPlants || 0
+        const extraPlants = additionalPlants || 0
+        const totalPlantCount =
+          typeof totalPlants === "number" ? totalPlants : basePlants + extraPlants
+        const remainingPlantCount =
+          typeof remainingPlants === "number" ? remainingPlants : totalPlantCount
+        const totalOrderAmount = Number(rate * totalPlantCount)
+
+        const latestSlot = mapSlotForUi(bookingSlot)
+        const { startDay, endDay } = latestSlot || {}
+        const start = startDay ? moment(startDay, "DD-MM-YYYY").format("D") : "N/A"
+        const end = endDay ? moment(endDay, "DD-MM-YYYY").format("D") : "N/A"
+        const monthYear = startDay ? moment(startDay, "DD-MM-YYYY").format("MMMM, YYYY") : "N/A"
+        return {
+          order: publicOrderCode || orderId,
+          farmerName: orderFor
+            ? `${farmer?.name || "Unknown"} (Order for: ${orderFor.name})`
+            : dealerOrder
+            ? `via ${salesPerson?.name || "Unknown"}`
+            : farmer?.name || "Unknown",
+          plantType: `${plantType?.name || "Unknown"} -> ${plantSubtype?.name || "Unknown"}`,
+          quantity: basePlants,
+          totalPlants: totalPlantCount,
+          additionalPlants: extraPlants,
+          basePlants,
+          orderDate: moment(orderBookingDate || createdAt).format(ORDER_DATE_DISPLAY),
+          deliveryDate: deliveryDate ? moment(deliveryDate).format(ORDER_DATE_DISPLAY) : "-",
+          rate,
+          total: `₹ ${Number(totalOrderAmount).toFixed(2)}`,
+          "Paid Amt": `₹ ${Number(getTotalPaidAmount(payment)).toFixed(2)}`,
+          "remaining Amt": `₹ ${(totalOrderAmount - Number(getTotalPaidAmount(payment))).toFixed(2)}`,
+          "remaining Plants": remainingPlantCount,
+          "returned Plants": returnedPlants || 0,
+          orderStatus: orderStatus,
+          Delivery: `${start} - ${end} ${monthYear}`,
+          "Farm Ready": farmReadyDate ? moment(farmReadyDate).format(ORDER_DATE_DISPLAY) : "-",
+          details: {
+            farmer,
+            contact: farmer?.mobileNumber,
+            orderNotes: "Premium quality seed potatoes",
+            soilType: "Sandy loam",
+            irrigationType: "Sprinkler system",
+            lastDelivery: "2024-11-05",
+            payment,
+            orderid: id,
+            salesPerson,
+            plantID: plantType?.id,
+            plantSubtypeID: plantSubtype?.id,
+            bookingSlot: latestSlot,
+            rate: rate,
+            numberOfPlants: basePlants,
+            additionalPlants: extraPlants,
+            totalPlants: totalPlantCount,
+            remainingPlants: remainingPlantCount,
+            orderFor: orderFor || null,
+            statusChanges: statusChanges || [],
+            orderRemarks: orderRemarks || [],
+            deliveryChanges: data.deliveryChanges || [],
+            returnHistory: data?.returnHistory || [],
+            dispatchHistory: data?.dispatchHistory || [],
+            orderEditHistory: data?.orderEditHistory || [],
+            publicOrderCode: publicOrderCode || null,
+            whatsappAcceptedSentAt: whatsappAcceptedSentAt || null,
+            whatsappAcceptedMessageKey: whatsappAcceptedMessageKey || null,
+            whatsappDispatchSentAt: whatsappDispatchSentAt || null,
+            whatsappDispatchMessageKey: whatsappDispatchMessageKey || null,
+            dealerOrder: !!dealerOrder,
+            farmReadyDate: farmReadyDate,
+            farmReadyDateChanges: farmReadyDateChanges || [],
+            deliveryDate: deliveryDate || null,
+            dispatchDayKey: data?.dispatchDayKey || null,
+            dispatchTargetDate: data?.dispatchTargetDate || null,
+            cavity: cavity || null,
+            cavityName: getCavityDisplayLabel(cavity),
+            cavityId: getCavityIdString(cavity) || null,
+            slotHistory: Array.isArray(bookingSlot)
+              ? bookingSlot.filter(Boolean)
+              : bookingSlot
+              ? [bookingSlot]
+              : [],
+          },
+        }
+      })
+      .filter((order) => order && order.order)
+
   const getOrders = async () => {
     setLoading(true)
 
@@ -3124,6 +3287,8 @@ const mapSlotForUi = (slotData) => {
         }
 
         setOrders(filteredOrders)
+        setOrdersPage(1)
+        setHasMoreOrders(false)
         setLoading(false)
         return
       } catch (error) {
@@ -3131,6 +3296,8 @@ const mapSlotForUi = (slotData) => {
         Toast.error("Failed to load Agri Sales orders")
         setLoading(false)
         setOrders([])
+        setOrdersPage(1)
+        setHasMoreOrders(false)
         return
       }
     }
@@ -3143,7 +3310,7 @@ const mapSlotForUi = (slotData) => {
     const params = {
       search: debouncedSearchTerm,
       dispatched: viewMode === "booking" ? false : true,
-      limit: 10000, // Set a very high limit to get all orders
+      limit: DASHBOARD_ORDERS_PAGE_SIZE,
       page: 1
     }
 
@@ -3233,10 +3400,19 @@ const mapSlotForUi = (slotData) => {
     }
 
     let ordersData = []
+    let nextPageAvailable = false
 
     if (slotId) {
-      const emps = await instance.request({}, { slotId, monthName, startDay, endDay, limit: 10000, page: 1 })
+      const emps = await instance.request({}, {
+        slotId,
+        monthName,
+        startDay,
+        endDay,
+        limit: DASHBOARD_ORDERS_PAGE_SIZE,
+        page: 1,
+      })
       ordersData = emps?.data?.data?.data || []
+      nextPageAvailable = false
     } else if (viewMode === "dispatch_process") {
       const paramsInProcess = { ...params }
       const paramsDispatchedTab = {
@@ -3254,6 +3430,7 @@ const mapSlotForUi = (slotData) => {
         resInProcess?.data?.data?.data || [],
         resDispatched?.data?.data?.data || []
       )
+      nextPageAvailable = false
     } else {
       const emps = await instance.request({}, params)
 
@@ -3263,137 +3440,89 @@ const mapSlotForUi = (slotData) => {
       }
 
       ordersData = emps?.data?.data?.data || []
+      const currentPage = Number(emps?.data?.data?.currentPage || 1)
+      const totalPages = Number(emps?.data?.data?.totalPages || 1)
+      nextPageAvailable = currentPage < totalPages
     }
 
     if (isReadyForDispatchTab) {
       console.log("Processing orders data:", ordersData?.length || 0, "orders")
     }
 
-    setOrders(
-      (ordersData || [])
-        .map((data) => {
-          const {
-            farmer,
-            //   typeOfPlants,
-            numberOfPlants,
-            additionalPlants = 0,
-            totalPlants,
-            rate,
-            salesPerson,
-            createdAt,
-            orderStatus,
-            id,
-            payment,
-            bookingSlot,
-            orderId,
-            publicOrderCode,
-            whatsappAcceptedSentAt,
-            whatsappAcceptedMessageKey,
-            whatsappDispatchSentAt,
-            whatsappDispatchMessageKey,
-            plantType,
-            plantSubtype,
-            remainingPlants,
-            returnedPlants,
-            statusChanges,
-            orderRemarks,
-            dealerOrder,
-            farmReadyDate,
-                farmReadyDateChanges,
-                orderBookingDate,
-                deliveryDate,
-                orderFor,
-                cavity
-              } = data || {}
-          const basePlants = numberOfPlants || 0
-          const extraPlants = additionalPlants || 0
-          const totalPlantCount =
-            typeof totalPlants === "number" ? totalPlants : basePlants + extraPlants
-          const remainingPlantCount =
-            typeof remainingPlants === "number" ? remainingPlants : totalPlantCount
-          const totalOrderAmount = Number(rate * totalPlantCount)
-
-          const latestSlot = mapSlotForUi(bookingSlot)
-          const { startDay, endDay } = latestSlot || {}
-          const start = startDay ? moment(startDay, "DD-MM-YYYY").format("D") : "N/A"
-          const end = endDay ? moment(endDay, "DD-MM-YYYY").format("D") : "N/A"
-          const monthYear = startDay ? moment(startDay, "DD-MM-YYYY").format("MMMM, YYYY") : "N/A"
-          return {
-                order: publicOrderCode || orderId,
-                farmerName: orderFor
-                  ? `${farmer?.name || "Unknown"} (Order for: ${orderFor.name})`
-                  : dealerOrder
-                  ? `via ${salesPerson?.name || "Unknown"}`
-                  : farmer?.name || "Unknown",
-                plantType: `${plantType?.name || "Unknown"} -> ${plantSubtype?.name || "Unknown"}`,
-            quantity: basePlants,
-            totalPlants: totalPlantCount,
-            additionalPlants: extraPlants,
-            basePlants,
-            orderDate: moment(orderBookingDate || createdAt).format(ORDER_DATE_DISPLAY),
-            deliveryDate: deliveryDate ? moment(deliveryDate).format(ORDER_DATE_DISPLAY) : "-", // Specific delivery date
-            rate,
-            total: `₹ ${Number(totalOrderAmount).toFixed(2)}`,
-            "Paid Amt": `₹ ${Number(getTotalPaidAmount(payment)).toFixed(2)}`,
-            "remaining Amt": `₹ ${(totalOrderAmount - Number(getTotalPaidAmount(payment))).toFixed(2)}`,
-            "remaining Plants": remainingPlantCount,
-            "returned Plants": returnedPlants || 0,
-            orderStatus: orderStatus,
-            Delivery: `${start} - ${end} ${monthYear}`,
-            "Farm Ready": farmReadyDate ? moment(farmReadyDate).format(ORDER_DATE_DISPLAY) : "-",
-            details: {
-              farmer,
-              contact: farmer?.mobileNumber,
-              orderNotes: "Premium quality seed potatoes",
-              soilType: "Sandy loam",
-              irrigationType: "Sprinkler system",
-              lastDelivery: "2024-11-05",
-              payment,
-              orderid: id,
-              salesPerson,
-              plantID: plantType?.id,
-              plantSubtypeID: plantSubtype?.id,
-              bookingSlot: latestSlot,
-              rate: rate,
-              numberOfPlants: basePlants,
-              additionalPlants: extraPlants,
-              totalPlants: totalPlantCount,
-              remainingPlants: remainingPlantCount,
-              orderFor: orderFor || null,
-              statusChanges: statusChanges || [],
-              orderRemarks: orderRemarks || [],
-              deliveryChanges: data.deliveryChanges || [],
-              returnHistory: data?.returnHistory || [],
-              dispatchHistory: data?.dispatchHistory || [],
-              orderEditHistory: data?.orderEditHistory || [], // Include order edit history
-              publicOrderCode: publicOrderCode || null,
-              whatsappAcceptedSentAt: whatsappAcceptedSentAt || null,
-              whatsappAcceptedMessageKey: whatsappAcceptedMessageKey || null,
-              whatsappDispatchSentAt: whatsappDispatchSentAt || null,
-              whatsappDispatchMessageKey: whatsappDispatchMessageKey || null,
-              dealerOrder: !!dealerOrder,
-              farmReadyDate: farmReadyDate,
-              farmReadyDateChanges: farmReadyDateChanges || [],
-              deliveryDate: deliveryDate || null, // Include deliveryDate in details
-              dispatchDayKey: data?.dispatchDayKey || null,
-              dispatchTargetDate: data?.dispatchTargetDate || null,
-              cavity: cavity || null, // Include cavity information
-              cavityName: getCavityDisplayLabel(cavity),
-              cavityId: getCavityIdString(cavity) || null,
-              slotHistory: Array.isArray(bookingSlot)
-                ? bookingSlot.filter(Boolean)
-                : bookingSlot
-                ? [bookingSlot]
-                : []
-            }
-          }
-        })
-        .filter((order) => order && order.order) // Filter out any invalid orders
-    ) || []
+    setOrders(mapRegularOrdersForUi(ordersData))
+    setOrdersPage(1)
+    setHasMoreOrders(nextPageAvailable)
     setLoading(false)
 
     // setEmployees(emps?.data?.data)
   }
+
+  const loadMoreOrders = async () => {
+    if (loading || loadingMoreOrders || !hasMoreOrders || showAgriSalesOrders || slotId) return
+    if (viewMode === "dispatch_process") return
+
+    setLoadingMoreOrders(true)
+    try {
+      const instance = NetworkManager(API.ORDER.GET_ORDERS)
+      const params = {
+        search: debouncedSearchTerm,
+        dispatched: viewMode === "booking" ? false : true,
+        limit: DASHBOARD_ORDERS_PAGE_SIZE,
+        page: ordersPage + 1,
+      }
+
+      if (startDate && endDate) {
+        params.startDate = moment(new Date(startDate)).format("DD-MM-YYYY")
+        params.endDate = moment(new Date(endDate)).format("DD-MM-YYYY")
+      }
+
+      const isDealerOrSales = user?.jobTitle === "DEALER" || user?.jobTitle === "SALES"
+      if (isDealerOrSales && (user?._id || user?.id)) params.salesPerson = user._id || user.id
+      else if (selectedSalesPerson) params.salesPerson = selectedSalesPerson
+      if (selectedVillage) params.village = selectedVillage
+      if (selectedDistrict) params.district = selectedDistrict
+      if (selectedPlant) params.plantId = selectedPlant
+      if (selectedSubtype) params.subtypeId = selectedSubtype
+      if (startDate && endDate && (viewMode === "booking" || viewMode === "dispatched" || isCompletedOrdersTab)) {
+        params.dateRangeField = orderDateRangeBy
+      }
+      if (isCompletedOrdersTab) {
+        params.dispatched = true
+        params.status = "COMPLETED,PARTIALLY_COMPLETED"
+      } else if (viewMode === "dispatched") {
+        params.status = "ACCEPTED,FARM_READY"
+      }
+      if (viewMode === "farmready") {
+        params.farmReady = "true"
+        delete params.status
+      }
+      if (isDispatchedVehicleTab) {
+        params.dispatched = true
+        params.status = "DISPATCHED"
+        params.startDate = null
+        params.endDate = null
+      }
+      if (isReadyForDispatchTab) {
+        params.ready_for_dispatch = "true"
+        params.startDate = null
+        params.endDate = null
+        delete params.status
+      }
+
+      const res = await instance.request({}, params)
+      const nextOrders = mapRegularOrdersForUi(res?.data?.data?.data || [])
+      const currentPage = Number(res?.data?.data?.currentPage || params.page)
+      const totalPages = Number(res?.data?.data?.totalPages || currentPage)
+      setOrders((prev) => [...prev, ...nextOrders])
+      setOrdersPage(currentPage)
+      setHasMoreOrders(currentPage < totalPages)
+    } catch (error) {
+      console.error("Error loading more orders:", error)
+    } finally {
+      setLoadingMoreOrders(false)
+    }
+  }
+
   const pacthOrders = async (patchObj, row) => {
     setpatchLoading(true)
 
@@ -5659,6 +5788,14 @@ const mapSlotForUi = (slotData) => {
           )
         })()}
       </div>
+
+      {!showAgriSalesOrders && (
+        <div ref={infiniteLoaderRef} className="flex justify-center py-3">
+          {loadingMoreOrders && (
+            <span className="text-xs text-gray-500">Loading more orders...</span>
+          )}
+        </div>
+      )}
 
       {/* Fixed bottom bar for batch actions */}
       {viewMode !== "booking" && selectedRows.size > 0 && (
