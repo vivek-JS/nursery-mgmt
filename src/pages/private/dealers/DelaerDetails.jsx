@@ -58,7 +58,9 @@ import {
   TrendingDown as TrendingDownIcon,
   SwapHoriz as SwapIcon,
   Refresh as RefreshIcon,
-  History as HistoryIcon
+  History as HistoryIcon,
+  ArrowForward as ArrowForwardIcon,
+  LocalFlorist as LocalFloristIcon
 } from "@mui/icons-material"
 import DealerPDFExport from "./DealerPDFExport"
 import PlantTypeWithSubtypesCard from "./PlantTypeWithSubtypesCard"
@@ -100,6 +102,12 @@ const formatCurrency = (amount) => {
     maximumFractionDigits: 0
   }).format(amount)
 }
+
+/** Plant counts (quota ledger) — never use ₹ */
+const formatPlantCount = (n) =>
+  new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(Number(n) || 0)
+
+const numberCellSx = { fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }
 
 const formatDate = (dateString) => {
   const options = {
@@ -173,6 +181,19 @@ const ledgerRefTypeLabel = (refType) => {
     MANUAL_DEBIT: "Manual Debit",
   }
   return map[refType] || refType || "—"
+}
+
+const shortObjectId = (id) => {
+  if (id == null) return "—"
+  const s = typeof id === "object" && id?._id != null ? String(id._id) : String(id)
+  return s.length > 8 ? `…${s.slice(-6)}` : s
+}
+
+const plantLedgerTypeLabel = (t) => {
+  if (t === "INVENTORY_ADD") return "Stock in (bulk)"
+  if (t === "INVENTORY_BOOK") return "Booked (farmer order)"
+  if (t === "INVENTORY_RELEASE") return "Released (cancel/reject)"
+  return t || "—"
 }
 
 // ================================================================
@@ -361,6 +382,10 @@ const DealerDetails = () => {
   const handleChangeRowsPerPage = (e) => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0) }
   const handleTabChange = (_, newValue) => setTabValue(newValue)
   const handleTypeFilterChange = (e) => { setTransactionType(e.target.value); setPage(0) }
+  const handlePlantLedgerRowsPerPage = (e) => {
+    setPlantLedgerLimit(parseInt(e.target.value, 10))
+    setPlantLedgerPage(0)
+  }
 
   if (loading) {
     return isMobile ? (
@@ -384,6 +409,15 @@ const DealerDetails = () => {
   const getTransactionTypeCount = (type) => walletTransactions.filter((t) => t.type === type).length
   const remainingAmt = dealerFinancial?.remainingAmount || 0
   const isAdvance = remainingAmt < 0
+
+  const plantQuotaTotals = (dealerInventory || []).reduce(
+    (acc, p) => ({
+      qty: acc.qty + (p.totalQuantity || 0),
+      booked: acc.booked + (p.totalBookedQuantity || 0),
+      remaining: acc.remaining + (p.totalRemainingQuantity || 0),
+    }),
+    { qty: 0, booked: 0, remaining: 0 }
+  )
 
   // ================================================================
   // MOBILE VIEW
@@ -433,11 +467,36 @@ const DealerDetails = () => {
             iconBg={isAdvance ? C.greenBg : C.redBg} iconColor={isAdvance ? C.greenText : C.redText}
             label={isAdvance ? "In Advance" : "Remaining Due"} value={`₹${Math.abs(remainingAmt).toLocaleString()}`} valueColor={isAdvance ? C.greenText : C.redText} />
         </Box>
+        {plantQuotaTotals.qty > 0 && (
+          <Card elevation={0} sx={{ mt: 1, borderRadius: 2, border: `1px solid ${C.border}`, bgcolor: C.purpleBg }}>
+            <CardContent sx={{ py: 1, px: 1.25, "&:last-child": { pb: 1 } }}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mb: 0.75 }}>
+                <LocalFloristIcon sx={{ fontSize: 18, color: C.purpleText }} />
+                <Typography sx={{ fontSize: "0.72rem", fontWeight: 800, color: C.purpleText }}>Plant quota (all slots)</Typography>
+              </Box>
+              <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 0.5, textAlign: "center" }}>
+                <Box>
+                  <Typography sx={{ fontSize: "0.95rem", fontWeight: 900, color: C.textPrimary, ...numberCellSx }}>{formatPlantCount(plantQuotaTotals.qty)}</Typography>
+                  <Typography sx={{ fontSize: "0.52rem", color: C.textMuted, fontWeight: 600 }}>Total units</Typography>
+                </Box>
+                <Box>
+                  <Typography sx={{ fontSize: "0.95rem", fontWeight: 900, color: C.orangeText, ...numberCellSx }}>{formatPlantCount(plantQuotaTotals.booked)}</Typography>
+                  <Typography sx={{ fontSize: "0.52rem", color: C.textMuted, fontWeight: 600 }}>Booked</Typography>
+                </Box>
+                <Box>
+                  <Typography sx={{ fontSize: "0.95rem", fontWeight: 900, color: C.greenText, ...numberCellSx }}>{formatPlantCount(plantQuotaTotals.remaining)}</Typography>
+                  <Typography sx={{ fontSize: "0.52rem", color: C.textMuted, fontWeight: 600 }}>Available</Typography>
+                </Box>
+              </Box>
+            </CardContent>
+          </Card>
+        )}
       </Box>
     )
 
     const renderMobileLedger = () => (
       <Box sx={{ px: 1.25, pb: 2 }}>
+        <Alert severity="info" sx={{ mb: 1, py: 0.5, fontSize: "0.68rem" }}>₹ money only. Plant quota movements → <strong>Plant Ledger</strong> tab.</Alert>
         {/* Filter + Export */}
         <Box sx={{ display: "flex", gap: 0.75, mb: 1, alignItems: "center" }}>
           <FormControl size="small" sx={{ flex: 1 }}>
@@ -596,13 +655,16 @@ const DealerDetails = () => {
 
     const renderMobilePlantLedger = () => (
       <Box sx={{ px: 1.25, pb: 2 }}>
+        <Alert severity="info" sx={{ mb: 1, py: 0.5, fontSize: "0.68rem", "& .MuiAlert-message": { width: "100%" } }}>
+          Figures are <strong>plants</strong> (quota units), not rupees. Balances = sellable headroom on that line before/after.
+        </Alert>
         <FormControl size="small" sx={{ minWidth: 140, mb: 1 }}>
           <InputLabel>Type</InputLabel>
           <Select value={plantLedgerType} label="Type" onChange={(e) => { setPlantLedgerType(e.target.value); setPlantLedgerPage(0) }}>
             <MenuItem value="">All</MenuItem>
-            <MenuItem value="INVENTORY_ADD">Add</MenuItem>
-            <MenuItem value="INVENTORY_BOOK">Book</MenuItem>
-            <MenuItem value="INVENTORY_RELEASE">Release</MenuItem>
+            <MenuItem value="INVENTORY_ADD">Stock in</MenuItem>
+            <MenuItem value="INVENTORY_BOOK">Booked</MenuItem>
+            <MenuItem value="INVENTORY_RELEASE">Released</MenuItem>
           </Select>
         </FormControl>
         {plantLedgerLoading ? (
@@ -620,21 +682,41 @@ const DealerDetails = () => {
                 const isRelease = entry.transactionType === "INVENTORY_RELEASE"
                 const isBook = entry.transactionType === "INVENTORY_BOOK"
                 const plantName = entry.plantType?.name || "Plant"
+                const orderRef = entry.referenceId?.orderId
                 return (
                   <Card key={entry._id} elevation={0} sx={{ borderRadius: 2, border: `1px solid ${C.border}` }}>
                     <CardContent sx={{ py: 1, px: 1.25, "&:last-child": { pb: 1 } }}>
                       <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 0.5 }}>
-                        <Chip label={entry.transactionType?.replace("INVENTORY_", "")} size="small"
-                          sx={{ height: 20, fontSize: "0.6rem", fontWeight: 700, bgcolor: isAdd || isRelease ? C.greenBg : C.redBg, color: isAdd || isRelease ? C.greenText : C.redText, borderRadius: 1 }} />
-                        <Typography sx={{ fontSize: "0.75rem", fontWeight: 800, color: isAdd || isRelease ? C.greenText : C.redText }}>
-                          {isBook ? "-" : "+"}{Math.abs(entry.quantity || 0).toLocaleString()}
-                        </Typography>
+                        <Box sx={{ display: "flex", flexDirection: "column", gap: 0.25 }}>
+                          <Typography sx={{ fontSize: "0.58rem", color: C.textMuted, fontWeight: 600 }}>{entry.transactionNumber || "—"}</Typography>
+                          <Chip label={plantLedgerTypeLabel(entry.transactionType)} size="small"
+                            sx={{ height: 22, fontSize: "0.58rem", fontWeight: 700, maxWidth: "100%", bgcolor: isAdd || isRelease ? C.greenBg : C.redBg, color: isAdd || isRelease ? C.greenText : C.redText, borderRadius: 1 }} />
+                        </Box>
+                        <Box sx={{ textAlign: "right" }}>
+                          <Typography sx={{ fontSize: "0.58rem", color: C.textMuted }}>This entry</Typography>
+                          <Typography sx={{ fontSize: "1.05rem", fontWeight: 900, color: isAdd || isRelease ? C.greenText : C.redText, ...numberCellSx }}>
+                            {isBook ? "−" : "+"}{formatPlantCount(Math.abs(entry.quantity || 0))}
+                          </Typography>
+                          <Typography sx={{ fontSize: "0.55rem", color: C.textMuted }}>plants</Typography>
+                        </Box>
                       </Box>
-                      <Typography sx={{ fontSize: "0.7rem", color: C.textSecondary, mb: 0.25 }}>{plantName}</Typography>
-                      <Typography sx={{ fontSize: "0.62rem", color: C.textMuted }}>{entry.description || "—"}</Typography>
-                      <Typography sx={{ fontSize: "0.6rem", color: C.textMuted, mt: 0.25 }}>
-                        {formatDateShort(entry.createdAt)} · Bal: {entry.balanceBefore?.toLocaleString() || 0} → {entry.balanceAfter?.toLocaleString() || 0}
-                      </Typography>
+                      <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: C.textPrimary }}>{plantName}</Typography>
+                      <Typography sx={{ fontSize: "0.62rem", color: C.textMuted }}>Subtype {shortObjectId(entry.subType)} · Slot {shortObjectId(entry.bookingSlot)}</Typography>
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, flexWrap: "wrap", mt: 0.75, py: 0.75, px: 1, bgcolor: C.bg, borderRadius: 1.5 }}>
+                        <Typography sx={{ fontSize: "0.75rem", fontWeight: 800, color: C.textPrimary, ...numberCellSx }}>{formatPlantCount(entry.balanceBefore)}</Typography>
+                        <ArrowForwardIcon sx={{ fontSize: 14, color: C.textMuted }} />
+                        <Typography sx={{ fontSize: "0.75rem", fontWeight: 800, color: C.primary, ...numberCellSx }}>{formatPlantCount(entry.balanceAfter)}</Typography>
+                        <Typography sx={{ fontSize: "0.58rem", color: C.textMuted, width: "100%", mt: 0.25 }}>available before → after</Typography>
+                      </Box>
+                      <Typography sx={{ fontSize: "0.62rem", color: C.textSecondary, mt: 0.5 }}>{entry.description || "—"}</Typography>
+                      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mt: 0.5 }}>
+                        <Typography sx={{ fontSize: "0.58rem", color: C.textMuted }}>
+                          {orderRef != null ? `Order #${orderRef}` : "—"} · {formatDateShort(entry.createdAt)}
+                        </Typography>
+                        {entry.performedBy?.name && (
+                          <Typography sx={{ fontSize: "0.55rem", color: C.textMuted }}>{entry.performedBy.name}</Typography>
+                        )}
+                      </Box>
                     </CardContent>
                   </Card>
                 )
@@ -658,6 +740,7 @@ const DealerDetails = () => {
 
     const renderMobileWalletLedger = () => (
       <Box sx={{ px: 1.25, pb: 2 }}>
+        <Alert severity="info" sx={{ mb: 1, py: 0.5, fontSize: "0.68rem" }}>Audit trail in <strong>₹</strong>. For plant counts use <strong>Plant Ledger</strong>.</Alert>
         <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75, mb: 1, alignItems: "center" }}>
           <TextField size="small" label="Start" type="date" value={ledgerStartDate} onChange={(e) => { setLedgerStartDate(e.target.value); setLedgerPage(1) }}
             InputLabelProps={{ shrink: true }} sx={{ width: 120 }} inputProps={{ style: { fontSize: "0.75rem" } }} />
@@ -916,7 +999,7 @@ const DealerDetails = () => {
           <Grid container spacing={3} sx={{ mb: 4 }}>
             {stats.byPlantType?.map((plantType) => (
               <Grid item xs={12} sm={6} md={4} lg={3} key={plantType.plantTypeId}>
-                <PlantTypeWithSubtypesCard plantType={plantType} subtypes={stats.byPlantAndSubtype || []} />
+                <PlantTypeWithSubtypesCard plantType={plantType} subtypes={plantType.subtypes || []} />
               </Grid>
             ))}
             {(!stats.byPlantType || stats.byPlantType.length === 0) && (
@@ -995,6 +1078,33 @@ const DealerDetails = () => {
             </CardContent>
           </Card>
         </Grid>
+        {plantQuotaTotals.qty > 0 && (
+          <Grid item xs={12}>
+            <Card sx={{ boxShadow: "0 2px 10px rgba(0,0,0,0.08)", borderRadius: 2, bgcolor: "grey.50", border: "1px solid", borderColor: "divider" }}>
+              <CardContent sx={{ py: 2 }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1.5, flexWrap: "wrap" }}>
+                  <LocalFloristIcon color="success" />
+                  <Typography variant="h6" fontWeight="bold">Plant quota (inventory)</Typography>
+                  <Typography variant="caption" color="text.secondary">Units = plants across all booking slots — not money</Typography>
+                </Box>
+                <Grid container spacing={2}>
+                  <Grid item xs={4} sm={4}>
+                    <Typography variant="caption" color="text.secondary" display="block">Total allocation</Typography>
+                    <Typography variant="h4" fontWeight="bold" sx={numberCellSx}>{formatPlantCount(plantQuotaTotals.qty)}</Typography>
+                  </Grid>
+                  <Grid item xs={4} sm={4}>
+                    <Typography variant="caption" color="text.secondary" display="block">Booked (farmer orders)</Typography>
+                    <Typography variant="h4" fontWeight="bold" color="warning.main" sx={numberCellSx}>{formatPlantCount(plantQuotaTotals.booked)}</Typography>
+                  </Grid>
+                  <Grid item xs={4} sm={4}>
+                    <Typography variant="caption" color="text.secondary" display="block">Available to book</Typography>
+                    <Typography variant="h4" fontWeight="bold" color="success.main" sx={numberCellSx}>{formatPlantCount(plantQuotaTotals.remaining)}</Typography>
+                  </Grid>
+                </Grid>
+              </CardContent>
+            </Card>
+          </Grid>
+        )}
       </Grid>
 
       {/* Tabs */}
@@ -1011,6 +1121,7 @@ const DealerDetails = () => {
       {/* Transactions Tab */}
       {tabValue === 0 && (
         <Box>
+          <Alert severity="info" sx={{ mb: 2 }}>Wallet transactions below are <strong>money</strong> (₹). Plant movements are in the <strong>Plant Ledger</strong> tab.</Alert>
           <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
             <DealerPDFExport dealer={dealer} dealerFinancial={dealerFinancial} dealerInventory={dealerInventory} transactions={walletTransactions} />
             <Button variant="outlined" startIcon={<DownloadIcon />} onClick={exportTransactionsCSV} disabled={!dealer || walletTransactions.length === 0}
@@ -1065,11 +1176,11 @@ const DealerDetails = () => {
                           color={transaction.type === "CREDIT" || transaction.type === "INVENTORY_ADD" ? "success" : transaction.type === "DEBIT" || transaction.type === "INVENTORY_BOOK" ? "error" : "info"}
                           sx={{ fontWeight: "medium", "& .MuiChip-icon": { ml: 0.5 } }} />
                       </TableCell>
-                      <TableCell sx={{ fontWeight: "bold", color: transaction.type === "CREDIT" || transaction.type === "INVENTORY_ADD" ? "success.main" : transaction.type === "DEBIT" || transaction.type === "INVENTORY_BOOK" ? "error.main" : "text.primary" }}>
+                      <TableCell sx={{ fontWeight: "bold", color: transaction.type === "CREDIT" || transaction.type === "INVENTORY_ADD" ? "success.main" : transaction.type === "DEBIT" || transaction.type === "INVENTORY_BOOK" ? "error.main" : "text.primary", ...numberCellSx }}>
                         {transaction.type === "CREDIT" || transaction.type === "INVENTORY_ADD" ? "+ " : "- "}{formatCurrency(transaction.amount)}
                       </TableCell>
-                      <TableCell>{formatCurrency(transaction.balanceBefore)}</TableCell>
-                      <TableCell>{formatCurrency(transaction.balanceAfter)}</TableCell>
+                      <TableCell sx={numberCellSx}>{formatCurrency(transaction.balanceBefore)}</TableCell>
+                      <TableCell sx={numberCellSx}>{formatCurrency(transaction.balanceAfter)}</TableCell>
                       <TableCell>
                         <Tooltip title={transaction.description} arrow>
                           <Typography sx={{ maxWidth: 250, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
@@ -1167,18 +1278,24 @@ const DealerDetails = () => {
       {/* Plant Ledger Tab */}
       {tabValue === 2 && (
         <Box>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 2 }}>
-            <Typography variant="h6">Plant Inventory Ledger</Typography>
-            <FormControl sx={{ minWidth: 180 }} size="small">
+          <Box sx={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: 2, mb: 2 }}>
+            <Box>
+              <Typography variant="h6">Plant inventory ledger</Typography>
+              <Typography variant="body2" color="text.secondary">Quota in <strong>plants</strong> (not ₹). One row per movement on a plant/subtype/slot line.</Typography>
+            </Box>
+            <FormControl sx={{ minWidth: 220 }} size="small">
               <InputLabel>Filter by Type</InputLabel>
               <Select value={plantLedgerType} label="Filter by Type" onChange={(e) => { setPlantLedgerType(e.target.value); setPlantLedgerPage(0) }}>
                 <MenuItem value="">All</MenuItem>
-                <MenuItem value="INVENTORY_ADD">INVENTORY_ADD</MenuItem>
-                <MenuItem value="INVENTORY_BOOK">INVENTORY_BOOK</MenuItem>
-                <MenuItem value="INVENTORY_RELEASE">INVENTORY_RELEASE</MenuItem>
+                <MenuItem value="INVENTORY_ADD">Stock in (bulk)</MenuItem>
+                <MenuItem value="INVENTORY_BOOK">Booked (farmer orders)</MenuItem>
+                <MenuItem value="INVENTORY_RELEASE">Released</MenuItem>
               </Select>
             </FormControl>
           </Box>
+          <Alert severity="info" sx={{ mb: 2 }}>
+            <strong>Balance before / after</strong> = sellable headroom on that line (same basis as quota validation). Use the summary card above for totals across slots.
+          </Alert>
           {plantLedgerLoading ? (
             <Box sx={{ width: "100%", mt: 3 }}><LinearProgress /></Box>
           ) : plantLedgerEntries.length === 0 ? (
@@ -1189,16 +1306,19 @@ const DealerDetails = () => {
             </Paper>
           ) : (
             <TableContainer component={Paper} sx={{ boxShadow: "0 4px 20px rgba(0,0,0,0.08)", borderRadius: 2 }}>
-              <Table sx={{ minWidth: 650 }}>
+              <Table size="small" sx={{ minWidth: 900 }}>
                 <TableHead sx={{ bgcolor: "grey.100" }}>
                   <TableRow>
+                    <TableCell sx={{ fontWeight: "bold" }}>Txn #</TableCell>
                     <TableCell sx={{ fontWeight: "bold" }}>Date</TableCell>
                     <TableCell sx={{ fontWeight: "bold" }}>Type</TableCell>
-                    <TableCell sx={{ fontWeight: "bold" }}>Plant</TableCell>
-                    <TableCell sx={{ fontWeight: "bold" }}>Quantity</TableCell>
-                    <TableCell sx={{ fontWeight: "bold" }}>Balance Before</TableCell>
-                    <TableCell sx={{ fontWeight: "bold" }}>Balance After</TableCell>
-                    <TableCell sx={{ fontWeight: "bold" }}>Description</TableCell>
+                    <TableCell sx={{ fontWeight: "bold" }}>Plant / line</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: "bold" }}>Change (plants)</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: "bold" }}>Available before</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: "bold" }}>Available after</TableCell>
+                    <TableCell sx={{ fontWeight: "bold" }}>Order</TableCell>
+                    <TableCell sx={{ fontWeight: "bold" }}>By</TableCell>
+                    <TableCell sx={{ fontWeight: "bold" }}>Note</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -1206,22 +1326,29 @@ const DealerDetails = () => {
                     const isAdd = entry.transactionType === "INVENTORY_ADD"
                     const isRelease = entry.transactionType === "INVENTORY_RELEASE"
                     const plantName = entry.plantType?.name || "—"
+                    const ord = entry.referenceId?.orderId
                     return (
                       <TableRow key={entry._id} hover sx={{ bgcolor: isAdd || isRelease ? "rgba(76, 175, 80, 0.04)" : "rgba(244, 67, 54, 0.04)" }}>
-                        <TableCell>{formatDate(entry.createdAt)}</TableCell>
+                        <TableCell sx={{ ...numberCellSx, whiteSpace: "nowrap", fontSize: "0.8125rem" }}>{entry.transactionNumber || "—"}</TableCell>
+                        <TableCell sx={{ whiteSpace: "nowrap" }}>{formatDate(entry.createdAt)}</TableCell>
                         <TableCell>
-                          <Chip label={entry.transactionType?.replace("INVENTORY_", "")} size="small"
-                            color={isAdd || isRelease ? "success" : "error"} sx={{ fontWeight: "medium" }} />
+                          <Chip label={plantLedgerTypeLabel(entry.transactionType)} size="small"
+                            color={isAdd || isRelease ? "success" : "error"} sx={{ fontWeight: "medium", maxWidth: 200 }} />
                         </TableCell>
-                        <TableCell>{plantName}</TableCell>
-                        <TableCell sx={{ fontWeight: "bold", color: isAdd || isRelease ? "success.main" : "error.main" }}>
-                          {entry.transactionType === "INVENTORY_BOOK" ? "-" : "+"}{Math.abs(entry.quantity || 0).toLocaleString()}
-                        </TableCell>
-                        <TableCell>{entry.balanceBefore?.toLocaleString() || 0}</TableCell>
-                        <TableCell>{entry.balanceAfter?.toLocaleString() || 0}</TableCell>
                         <TableCell>
-                          <Tooltip title={entry.description} arrow>
-                            <Typography sx={{ maxWidth: 200, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                          <Typography fontWeight={600}>{plantName}</Typography>
+                          <Typography variant="caption" color="text.secondary" display="block">Sub {shortObjectId(entry.subType)} · Slot {shortObjectId(entry.bookingSlot)}</Typography>
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontWeight: "bold", color: isAdd || isRelease ? "success.main" : "error.main", ...numberCellSx }}>
+                          {entry.transactionType === "INVENTORY_BOOK" ? "−" : "+"}{formatPlantCount(Math.abs(entry.quantity || 0))}
+                        </TableCell>
+                        <TableCell align="right" sx={numberCellSx}>{formatPlantCount(entry.balanceBefore)}</TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 700, color: "primary.main", ...numberCellSx }}>{formatPlantCount(entry.balanceAfter)}</TableCell>
+                        <TableCell sx={numberCellSx}>{ord != null ? `#${ord}` : "—"}</TableCell>
+                        <TableCell sx={{ maxWidth: 120 }}>{entry.performedBy?.name || "—"}</TableCell>
+                        <TableCell>
+                          <Tooltip title={entry.description || ""} arrow>
+                            <Typography sx={{ maxWidth: 220, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                               {entry.description || "—"}
                             </Typography>
                           </Tooltip>
@@ -1232,7 +1359,7 @@ const DealerDetails = () => {
                 </TableBody>
               </Table>
               <TablePagination rowsPerPageOptions={[10, 25, 50]} component="div" count={plantLedgerTotal} rowsPerPage={plantLedgerLimit} page={plantLedgerPage}
-                onPageChange={(_, p) => setPlantLedgerPage(p)} onRowsPerPageChange={() => {}} />
+                onPageChange={(_, p) => setPlantLedgerPage(p)} onRowsPerPageChange={handlePlantLedgerRowsPerPage} />
             </TableContainer>
           )}
         </Box>
@@ -1241,8 +1368,9 @@ const DealerDetails = () => {
       {/* Wallet Ledger Tab (auditable) */}
       {tabValue === 3 && (
         <Box>
+          <Alert severity="info" sx={{ mb: 2 }}>This ledger is <strong>money</strong> (₹): debits/credits and running balance. Plant quota is in <strong>Plant Ledger</strong>.</Alert>
           <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 2, mb: 2 }}>
-            <Typography variant="h6">Audit Ledger</Typography>
+            <Typography variant="h6">Audit ledger (₹)</Typography>
             <TextField size="small" label="Start date" type="date" value={ledgerStartDate} onChange={(e) => { setLedgerStartDate(e.target.value); setLedgerPage(1) }}
               InputLabelProps={{ shrink: true }} sx={{ width: 160 }} />
             <TextField size="small" label="End date" type="date" value={ledgerEndDate} onChange={(e) => { setLedgerEndDate(e.target.value); setLedgerPage(1) }}
@@ -1310,10 +1438,10 @@ const DealerDetails = () => {
                       <TableCell>
                         <Chip label={ledgerRefTypeLabel(entry.refType)} size="small" sx={{ fontWeight: "medium" }} />
                       </TableCell>
-                      <TableCell sx={{ fontWeight: 600, color: "error.main" }}>{(entry.debit || 0) > 0 ? formatCurrency(entry.debit) : "—"}</TableCell>
-                      <TableCell sx={{ fontWeight: 600, color: "success.main" }}>{(entry.credit || 0) > 0 ? formatCurrency(entry.credit) : "—"}</TableCell>
-                      <TableCell>{formatCurrency(entry.balanceBefore != null ? entry.balanceBefore : 0)}</TableCell>
-                      <TableCell>{formatCurrency(entry.balanceAfter != null ? entry.balanceAfter : 0)}</TableCell>
+                      <TableCell sx={{ fontWeight: 600, color: "error.main", ...numberCellSx }}>{(entry.debit || 0) > 0 ? formatCurrency(entry.debit) : "—"}</TableCell>
+                      <TableCell sx={{ fontWeight: 600, color: "success.main", ...numberCellSx }}>{(entry.credit || 0) > 0 ? formatCurrency(entry.credit) : "—"}</TableCell>
+                      <TableCell sx={numberCellSx}>{formatCurrency(entry.balanceBefore != null ? entry.balanceBefore : 0)}</TableCell>
+                      <TableCell sx={{ ...numberCellSx, fontWeight: 700 }}>{formatCurrency(entry.balanceAfter != null ? entry.balanceAfter : 0)}</TableCell>
                       <TableCell>{entry.orderId?.orderId ? `#${entry.orderId.orderId}` : "—"}</TableCell>
                       <TableCell>
                         <Tooltip title={entry.description} arrow>

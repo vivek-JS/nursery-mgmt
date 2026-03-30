@@ -44,20 +44,9 @@ export function ocrDataHasUsableSignal(d) {
   )
 }
 
-/** UTR + bank/UPI transaction id for a single form field when OCR returns both. */
-export function buildOcrTransactionIdDisplay(d) {
-  if (!d || typeof d !== "object") return ""
-  const utr = d.utr_number != null && String(d.utr_number).trim() ? String(d.utr_number).trim() : ""
-  const tid = d.transaction_id != null && String(d.transaction_id).trim() ? String(d.transaction_id).trim() : ""
-  if (utr && tid) {
-    if (utr === tid) return utr
-    return `${tid} · UTR ${utr}`
-  }
-  return utr || tid || ""
-}
-
 /**
- * Merge OCR `data` into payment-like state. Fills transaction/UTR with both ids when present.
+ * Merge OCR `data` into payment-like state. Fills `transactionId` (bank/app ref) and `utrNumber` (UTR) when present.
+ * If state has no `utrNumber` key (legacy), falls back to a single `transactionId` string.
  * Sets `ocrAppliedFromReceipt` when scan returned usable data; defaults mode to UPI if mode was empty.
  * Supports `paidAmount` or `totalAmount` (bulk).
  * @param {object} prev
@@ -66,7 +55,8 @@ export function buildOcrTransactionIdDisplay(d) {
 export function mergeUpiOcrIntoPaymentState(prev, d) {
   if (!d || typeof d !== "object") return prev
   const ocrSignal = ocrDataHasUsableSignal(d)
-  const txn = buildOcrTransactionIdDisplay(d)
+  const utr = d.utr_number != null && String(d.utr_number).trim() ? String(d.utr_number).trim() : ""
+  const tid = d.transaction_id != null && String(d.transaction_id).trim() ? String(d.transaction_id).trim() : ""
 
   let paymentDate = prev.paymentDate
   if (d.date && typeof d.date === "string" && d.date.trim()) {
@@ -99,8 +89,21 @@ export function mergeUpiOcrIntoPaymentState(prev, d) {
         ? raw || prev[amountKey]
         : prev[amountKey]
   }
-  next.transactionId =
-    !(prev.transactionId && String(prev.transactionId).trim()) ? txn : prev.transactionId
+  const prevTxnEmpty = !(prev.transactionId && String(prev.transactionId).trim())
+  const hasUtrField = Object.prototype.hasOwnProperty.call(prev, "utrNumber")
+  const prevUtrEmpty =
+    !hasUtrField || !(prev.utrNumber != null && String(prev.utrNumber).trim())
+
+  if (hasUtrField) {
+    next.transactionId = prevTxnEmpty && tid ? tid : prev.transactionId
+    next.utrNumber = prevUtrEmpty && utr ? utr : prev.utrNumber
+  } else {
+    next.transactionId = prevTxnEmpty
+      ? tid && utr && tid !== utr
+        ? `${tid} · UTR ${utr}`
+        : tid || utr || ""
+      : prev.transactionId
+  }
   const modeEmpty = !(prev.modeOfPayment != null && String(prev.modeOfPayment).trim())
   next.modeOfPayment =
     prev.modeOfPayment ||

@@ -333,6 +333,9 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData }) => {
                     const maxReturnThisBatch = Math.max(0, totalPlants - existingReturned)
                     const undispatchedAtNursery =
                       Number(order.details?.remainingPlants ?? order.remainingPlants ?? 0) || 0
+                    const isDealerQuotaOrder =
+                      order.quotaSource === "dealer" ||
+                      order.details?.quotaSource === "dealer"
                     const isCompleteChecked =
                       orderActions[order.details.orderid]?.completeOrder !== false
                     const netWithFarmer = Math.max(
@@ -441,7 +444,9 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData }) => {
                                 htmlFor={`inventory-${order.details.orderid}`}
                                 className="ml-2 flex items-center text-sm text-gray-900">
                                 <RefreshCw className="w-3.5 h-3.5 mr-1 text-blue-600" />
-                                Add to Inventory
+                                {isDealerQuotaOrder
+                                  ? "Return to dealer quota"
+                                  : "Add to Inventory"}
                               </label>
                             </div>
 

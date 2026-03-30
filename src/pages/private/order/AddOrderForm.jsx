@@ -334,6 +334,8 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
   const [bulkOrder, setBulkOrder] = useState(false)
   const [quotaType, setQuotaType] = useState(null) // "dealer" or "company"
   const [selectedSlotMonth, setSelectedSlotMonth] = useState("") // For dealer order: month-first then slot
+  /** Farmer order + dealer quota: user must pick a wallet slot; delivery date only within that slot */
+  const [selectedDealerQuotaSlotId, setSelectedDealerQuotaSlotId] = useState(null)
 
   // ============================================================================
   // FARMER DATA STATE
@@ -421,6 +423,20 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
       }
     }
   }, [quotaType, formData?.dealer, formData?.subtype, user?.jobTitle, user?._id])
+
+  useEffect(() => {
+    if (bulkOrder || quotaType !== "dealer") {
+      setSelectedDealerQuotaSlotId(null)
+    }
+  }, [bulkOrder, quotaType, formData?.plant, formData?.subtype, formData?.dealer])
+
+  useEffect(() => {
+    if (bulkOrder || quotaType !== "dealer" || !selectedDealerQuotaSlotId || slotsLoading) return
+    const ok = slots.some((s) => String(s.value) === String(selectedDealerQuotaSlotId))
+    if (!ok) {
+      setSelectedDealerQuotaSlotId(null)
+    }
+  }, [slots, slotsLoading, bulkOrder, quotaType, selectedDealerQuotaSlotId])
 
   // Auto-set dealer and quota type when user is DEALER (selection only for SUPERADMIN/OFFICE_ADMIN)
   useEffect(() => {
@@ -1170,6 +1186,18 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
 
     const selectedMoment = moment(selectedDate)
 
+    // Farmer order + dealer quota: booking is tied to the slot the user selected
+    if (!bulkOrder && quotaType === "dealer" && selectedDealerQuotaSlotId) {
+      const sel = slots.find((s) => String(s.value) === String(selectedDealerQuotaSlotId))
+      if (!sel?.startDay || !sel?.endDay) return null
+      const a = moment(sel.startDay, "DD-MM-YYYY")
+      const b = moment(sel.endDay, "DD-MM-YYYY")
+      if (selectedMoment.isSameOrAfter(a, "day") && selectedMoment.isSameOrBefore(b, "day")) {
+        return selectedDealerQuotaSlotId
+      }
+      return null
+    }
+
     for (const slot of slots) {
       if (!slot.startDay || !slot.endDay) continue
 
@@ -1193,6 +1221,29 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
     if (!date || slots.length === 0) return true
 
     const dateMoment = moment(date)
+
+    // Farmer order + dealer quota: only dates inside the selected wallet slot (pick slot first)
+    if (!bulkOrder && quotaType === "dealer") {
+      if (!selectedDealerQuotaSlotId) return true
+      const sel = slots.find((s) => String(s.value) === String(selectedDealerQuotaSlotId))
+      if (!sel?.startDay || !sel?.endDay) return true
+      const slotStart = moment(sel.startDay, "DD-MM-YYYY")
+      const slotEnd = moment(sel.endDay, "DD-MM-YYYY")
+      if (dateMoment.isBefore(slotStart, "day") || dateMoment.isAfter(slotEnd, "day")) {
+        return true
+      }
+      if (formData?.productMappingId) {
+        const mapping = plantProductMappings.find((m) => m._id === formData.productMappingId)
+        if (mapping) {
+          const productStart = moment(mapping.dateRange.startDate, "DD-MM-YYYY")
+          const productEnd = moment(mapping.dateRange.endDate, "DD-MM-YYYY")
+          if (dateMoment.isBefore(productStart, "day") || dateMoment.isAfter(productEnd, "day")) {
+            return true
+          }
+        }
+      }
+      return false
+    }
 
     // If a product is selected, also check if date is within product's date range
     if (formData?.productMappingId) {
@@ -1847,6 +1898,11 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
       return false
     }
 
+    if (!bulkOrder && quotaType === "dealer" && formData?.plant && formData?.subtype && !selectedDealerQuotaSlotId) {
+      Toast.error("Please tap a quota period chip in Advance Booking Quota, then choose delivery date")
+      return false
+    }
+
     // Validate dealer/sales selection only for SUPERADMIN and OFFICE_ADMIN (dealers auto-use self)
     if (isAdminOrOfficeAdmin && !formData?.dealer && !formData?.sales) {
       Toast.error("Please select either a dealer or sales person")
@@ -2482,6 +2538,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
     setBulkOrder(false)
     setQuotaType(null)
     setSelectedSlotMonth("")
+    setSelectedDealerQuotaSlotId(null)
     setActiveStep(0)
     setShowConfirmation(false)
     setConfirmationData({})
@@ -2635,13 +2692,19 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
         </Box>
       )
     }
-    const matchingPlants = dealerWallet.plantDetails.filter(
-      (plant) => !formData?.plant || plant.plantName === plants.find((p) => p.value === formData?.plant)?.label
-    )
+    const matchingPlants = dealerWallet.plantDetails.filter((plant) => {
+      if (!formData?.plant) return true
+      if (String(plant.plantType) !== String(formData.plant)) return false
+      if (formData?.subtype && String(plant.subType) !== String(formData.subtype)) return false
+      return true
+    })
     return (
       <Box sx={{ mt: 1 }}>
-        <Typography variant="subtitle2" sx={{ fontWeight: 700, color: "#1976d2", mb: 1.5 }}>
+        <Typography variant="subtitle2" sx={{ fontWeight: 700, color: "#1976d2", mb: 0.5 }}>
           🌱 Advance Booking Quota
+        </Typography>
+        <Typography variant="caption" sx={{ display: "block", mb: 1.5, color: "text.secondary" }}>
+          Tap a period chip to select quota for delivery dates
         </Typography>
         {matchingPlants.map((plant, idx) => (
           <Box key={idx} sx={{ p: 1.5, bgcolor: "#f8f9fa", borderRadius: 1.5, border: "1px solid #e3f2fd", mb: 1 }}>
@@ -2655,22 +2718,53 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
             </Box>
             {plant.slotDetails?.length > 0 && (
               <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
-                {plant.slotDetails.map((slot, sIdx) => (
-                  <Chip
-                    key={sIdx}
-                    label={`${formatSlotPeriod(slot.dates?.startDay, slot.dates?.endDay) || `${slot.dates?.startDay || ""} to ${slot.dates?.endDay || ""}`} • ${(slot.remainingQuantity || 0).toLocaleString()}`}
-                    size="small"
-                    sx={{
-                      fontSize: "0.75rem",
-                      height: 24,
-                      fontWeight: 600,
-                      borderColor: (slot.remainingQuantity || 0) > 0 ? "#4caf50" : "#bdbdbd",
-                      color: (slot.remainingQuantity || 0) > 0 ? "#2e7d32" : "#757575",
-                      bgcolor: (slot.remainingQuantity || 0) > 0 ? "#f1f8e9" : "#f5f5f5"
-                    }}
-                    variant="outlined"
-                  />
-                ))}
+                {plant.slotDetails.map((slot, sIdx) => {
+                  const rem = slot.remainingQuantity || 0
+                  const canSelect = rem > 0 && slot.dates?.startDay
+                  const isSelected =
+                    selectedDealerQuotaSlotId != null &&
+                    String(slot.slotId) === String(selectedDealerQuotaSlotId)
+                  return (
+                    <Chip
+                      key={slot.slotId || sIdx}
+                      label={`${formatSlotPeriod(slot.dates?.startDay, slot.dates?.endDay) || `${slot.dates?.startDay || ""} to ${slot.dates?.endDay || ""}`} • ${rem.toLocaleString()}`}
+                      size="small"
+                      onClick={
+                        canSelect
+                          ? () => {
+                              setSelectedDealerQuotaSlotId(slot.slotId)
+                              handleInputChange("transferredSlotId", null)
+                              const start = slot.dates?.startDay
+                              if (start && moment(start, "DD-MM-YYYY", true).isValid()) {
+                                const d = moment(start, "DD-MM-YYYY").toDate()
+                                handleInputChange("orderDate", d)
+                                const availableQty = getAvailableQuantityForDate(
+                                  d,
+                                  formData?.productMappingId,
+                                  formData?.productName
+                                )
+                                setAvailable(availableQty)
+                              }
+                            }
+                          : undefined
+                      }
+                      sx={{
+                        fontSize: "0.75rem",
+                        height: 24,
+                        fontWeight: 600,
+                        cursor: canSelect ? "pointer" : "default",
+                        borderColor: isSelected ? "#1976d2" : rem > 0 ? "#4caf50" : "#bdbdbd",
+                        color: isSelected ? "#0d47a1" : rem > 0 ? "#2e7d32" : "#757575",
+                        bgcolor: isSelected ? "#e3f2fd" : rem > 0 ? "#f1f8e9" : "#f5f5f5",
+                        borderWidth: isSelected ? 2 : 1,
+                        "&:hover": canSelect
+                          ? { opacity: 0.92, boxShadow: 1 }
+                          : undefined,
+                      }}
+                      variant="outlined"
+                    />
+                  )
+                })}
               </Box>
             )}
           </Box>
@@ -3199,10 +3293,9 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
 
               <Alert severity="info" sx={{ mt: 2 }}>
                 <Typography variant="body2">
-                  <strong>Note:</strong> {bulkOrder 
-                    ? "For bulk orders, only dealer selection is available. Sales person selection is disabled."
-                    : "You can select either a sales person OR a dealer, not both. Selecting one will automatically clear the other selection."
-                  }
+                  {bulkOrder
+                    ? "टीप: बल्क ऑर्डरसाठी फक्त डीलर निवड शक्य."
+                    : "टीप: सेल्स किंवा डीलर यापैकी फक्त एक निवडा. दुसरे आपोआप साफ होईल."}
                 </Typography>
               </Alert>
             </CardContent>
@@ -3672,18 +3765,20 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                         const availableQty = getAvailableQuantityForDate(date, formData?.productMappingId, formData?.productName)
                         setAvailable(availableQty)
                       }}
-                      disabled={!formData?.subtype}
+                      disabled={!formData?.subtype || (quotaType === "dealer" && !selectedDealerQuotaSlotId)}
                       shouldDisableDate={isDateDisabled}
                       renderInput={(params) => (
                         <TextField 
                           {...params} 
                           fullWidth 
                           helperText={
-                            formData?.subtype 
-                              ? (quotaType === "dealer" 
-                                ? "Select delivery date (dealer quota - plants allocated to dealer only)" 
-                                : "Select delivery date (only dates within available slots are enabled)")
-                              : "Select plant and subtype first"
+                            !formData?.subtype
+                              ? "Select plant and subtype first"
+                              : quotaType === "dealer" && !selectedDealerQuotaSlotId
+                                ? "Tap a period chip under Advance Booking Quota, then pick delivery day"
+                                : quotaType === "dealer"
+                                  ? "Only dates in the selected quota slot are enabled"
+                                  : "Select delivery date (only dates within available slots are enabled)"
                           }
                         />
                       )}
@@ -3693,8 +3788,8 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                 </Grid>
                 )}
 
-                {/* Nearby Slots Suggestion - Show only if slots have availability */}
-                {formData?.orderDate && (() => {
+                {/* Nearby Slots Suggestion - company quota only (dealer quota is tied to one wallet slot) */}
+                {formData?.orderDate && quotaType !== "dealer" && (() => {
                   const selectedDate = formData.orderDate
                   const slotId = getSlotIdForDate(selectedDate)
                   const currentAvailability = getAvailableQuantityForDate(selectedDate, formData?.productMappingId, formData?.productName)

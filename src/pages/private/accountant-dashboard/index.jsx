@@ -23,6 +23,7 @@ import {
   createRamAgriLedgerManualEntry
 } from "features/accountant-dashboard/paymentsApi"
 import { LedgerPartiesTable } from "features/accountant-dashboard/LedgerPartiesTable"
+import BulkPaymentEntryDialog from "components/Modals/BulkPaymentEntryDialog"
 
 const ROWS = 25
 
@@ -65,6 +66,7 @@ const AccountantDashboard = () => {
   const [loadingLedger, setLoadingLedger] = useState(false)
 
   const [acceptingBulkId, setAcceptingBulkId] = useState(null)
+  const [bulkPaymentEntryOpen, setBulkPaymentEntryOpen] = useState(false)
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearchTerm(searchTerm), 400)
@@ -450,6 +452,15 @@ const AccountantDashboard = () => {
               >
                 Refresh
               </button>
+              {hasPaymentAccess && (
+                <button
+                  type="button"
+                  className="px-3 py-1.5 text-xs font-medium rounded-md border border-violet-600 text-violet-800 bg-white hover:bg-violet-50"
+                  onClick={() => setBulkPaymentEntryOpen(true)}
+                >
+                  New bulk payment
+                </button>
+              )}
             </div>
 
             <KpiCards orderPayments={orderPayments} bulkPayments={bulkPayments} />
@@ -525,6 +536,16 @@ const AccountantDashboard = () => {
           />
         )}
       </main>
+
+      <BulkPaymentEntryDialog
+        open={bulkPaymentEntryOpen}
+        onClose={() => setBulkPaymentEntryOpen(false)}
+        mode={selectedOrg === "ram-agri" ? "agri" : "plant"}
+        onSuccess={() => {
+          fetchOrders()
+          fetchBulk()
+        }}
+      />
 
       <LedgerPanel ledger={ledgerData} onClose={() => setLedgerData(null)} />
       {loadingLedger && (
