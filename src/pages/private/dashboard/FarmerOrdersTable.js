@@ -1096,6 +1096,9 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
   const [viewMode, setViewMode] = useState("booking")
   const isReadyForDispatchTab = viewMode === "ready_for_dispatch"
   const isDispatchedVehicleTab = viewMode === "dispatched_vehicle"
+  const isCompletedOrdersTab = viewMode === "completed_orders"
+  /** API `dateRangeField`: booking vs delivery for date-range filter (see factory.controller getOrders). */
+  const [orderDateRangeBy, setOrderDateRangeBy] = useState("delivery")
   const [viewType, setViewType] = useState("table") // "table" or "grid"
   const [selectedRows, setSelectedRows] = useState(new Set())
   const [readyDispatchGroups, setReadyDispatchGroups] = useState([])
@@ -1430,7 +1433,18 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
             params.subtypeId = selectedSubtype
           }
 
-          if (viewMode === "dispatched") {
+          if (
+            startDate &&
+            endDate &&
+            (viewMode === "booking" || viewMode === "dispatched" || isCompletedOrdersTab)
+          ) {
+            params.dateRangeField = orderDateRangeBy
+          }
+
+          if (isCompletedOrdersTab) {
+            params.dispatched = true
+            params.status = "COMPLETED,PARTIALLY_COMPLETED"
+          } else if (viewMode === "dispatched") {
             params.status = "ACCEPTED,FARM_READY"
           }
 
@@ -1988,6 +2002,7 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
     showAgriSalesOrders, // Reload when switching between regular and Agri Sales orders
     selectedDispatchedBy, // Filter by who dispatched (Ram Agri Inputs)
     agriDispatchStatusFilter, // Reload when status filter tab changes (Ram Agri Inputs)
+    orderDateRangeBy,
   ])
 
   useEffect(() => {
@@ -2588,6 +2603,12 @@ const loadFilterOptions = async () => {
     setSearchTerm(val)
     debouncedSearch(val)
   }
+
+  const clearSearch = () => {
+    debouncedSearch.cancel()
+    setSearchTerm("")
+    setDebouncedSearchTerm("")
+  }
   const getTotalPaidAmount = (payments) => {
     if (!payments || !Array.isArray(payments)) return 0
     return payments.reduce(
@@ -3159,7 +3180,19 @@ const mapSlotForUi = (slotData) => {
       params.subtypeId = selectedSubtype
     }
 
-    if (viewMode === "dispatched") {
+    if (
+      startDate &&
+      endDate &&
+      (viewMode === "booking" || viewMode === "dispatched" || isCompletedOrdersTab) &&
+      !slotId
+    ) {
+      params.dateRangeField = orderDateRangeBy
+    }
+
+    if (isCompletedOrdersTab) {
+      params.dispatched = true
+      params.status = "COMPLETED,PARTIALLY_COMPLETED"
+    } else if (viewMode === "dispatched") {
       params.status = "ACCEPTED,FARM_READY"
     }
 
@@ -3854,8 +3887,8 @@ const mapSlotForUi = (slotData) => {
 
             {filtersExpanded && (
               <div className="border-t border-gray-200 p-3 space-y-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <div className="w-full sm:w-[330px]">
+                <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
+                  <div className="w-full sm:w-[330px] shrink-0">
                     <DatePicker
                       selectsRange
                       startDate={startDate}
@@ -3878,47 +3911,106 @@ const mapSlotForUi = (slotData) => {
                       }
                     />
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const t = new Date()
-                      const from = new Date()
-                      from.setDate(from.getDate() - 6)
-                      setSelectedDateRange([from, t])
-                    }}
-                    className="px-2 py-1 text-[11px] rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50">
-                    7 days
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const t = new Date()
-                      const from = new Date()
-                      from.setDate(from.getDate() - 13)
-                      setSelectedDateRange([from, t])
-                    }}
-                    className="px-2 py-1 text-[11px] rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50">
-                    14 days
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const t = new Date()
-                      const from = new Date()
-                      from.setDate(from.getDate() - 29)
-                      setSelectedDateRange([from, t])
-                    }}
-                    className="px-2 py-1 text-[11px] rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50">
-                    30 days
-                  </button>
-                  {startDate && endDate && (
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
                     <button
                       type="button"
-                      onClick={() => setSelectedDateRange([null, null])}
-                      className="px-2 py-1 text-[11px] rounded-md border border-teal-300 bg-teal-50 text-teal-700 hover:bg-teal-100">
-                      Clear
+                      onClick={() => {
+                        const t = new Date()
+                        const from = new Date()
+                        from.setDate(from.getDate() - 6)
+                        setSelectedDateRange([from, t])
+                      }}
+                      className="px-2 py-1 text-[11px] rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50">
+                      7 days
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const t = new Date()
+                        const from = new Date()
+                        from.setDate(from.getDate() - 13)
+                        setSelectedDateRange([from, t])
+                      }}
+                      className="px-2 py-1 text-[11px] rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50">
+                      14 days
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const t = new Date()
+                        const from = new Date()
+                        from.setDate(from.getDate() - 29)
+                        setSelectedDateRange([from, t])
+                      }}
+                      className="px-2 py-1 text-[11px] rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50">
+                      30 days
+                    </button>
+                    {startDate && endDate && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedDateRange([null, null])}
+                        className="px-2 py-1 text-[11px] rounded-md border border-teal-300 bg-teal-50 text-teal-700 hover:bg-teal-100">
+                        Clear
+                      </button>
+                    )}
+                  </div>
+                  {!showAgriSalesOrders &&
+                    (viewMode === "booking" ||
+                      viewMode === "dispatched" ||
+                      viewMode === "completed_orders") && (
+                    <div className="w-full flex flex-wrap items-center gap-3 pt-1">
+                      <span className="text-[11px] font-semibold text-gray-600">Date range applies to:</span>
+                      <RadioGroup
+                        row
+                        className="gap-0"
+                        value={orderDateRangeBy}
+                        onChange={(e) => setOrderDateRangeBy(e.target.value)}
+                      >
+                        <FormControlLabel
+                          value="booking"
+                          control={<Radio size="small" />}
+                          label={<span className="text-xs text-gray-800">Booking date</span>}
+                        />
+                        <FormControlLabel
+                          value="delivery"
+                          control={<Radio size="small" />}
+                          label={<span className="text-xs text-gray-800">Delivery date</span>}
+                        />
+                      </RadioGroup>
+                    </div>
                   )}
+                  {/* Search: backend `search` (order id, public code, mobile) — same row as date on wide layouts */}
+                  <div className="w-full min-w-[min(100%,12rem)] flex-1 sm:min-w-[220px] sm:max-w-md">
+                    <label
+                      htmlFor="farmer-orders-search"
+                      className="block text-[9px] font-semibold uppercase tracking-wide text-gray-500 mb-0.5">
+                      Search (order ID or mobile)
+                    </label>
+                    <div className="relative">
+                      <Search
+                        className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400"
+                        aria-hidden
+                      />
+                      <input
+                        id="farmer-orders-search"
+                        type="search"
+                        value={searchTerm}
+                        onChange={(e) => handleSearchChange(e.target.value)}
+                        placeholder="Order ID, public code, or mobile number"
+                        autoComplete="off"
+                        className="w-full rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-9 text-sm text-gray-900 shadow-sm placeholder:text-gray-400 focus:border-teal-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-1"
+                      />
+                      {searchTerm ? (
+                        <button
+                          type="button"
+                          aria-label="Clear search"
+                          onClick={clearSearch}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600">
+                          <X className="h-4 w-4" />
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
                 </div>
 
                 {/* Filter Dropdowns */}
@@ -4025,6 +4117,9 @@ const mapSlotForUi = (slotData) => {
                     />
                     <button
                       onClick={() => {
+                        debouncedSearch.cancel()
+                        setSearchTerm("")
+                        setDebouncedSearchTerm("")
                         setSelectedSalesPerson("")
                         setSelectedVillage("")
                         setSelectedDistrict("")
@@ -4287,9 +4382,80 @@ const mapSlotForUi = (slotData) => {
 
       {/* View Toggle and Tab Navigation */}
       <div className="bg-white rounded-lg shadow-sm border">
+        {/* Order view tabs — above toolbar so they stay visible on narrow / mobile layouts */}
+        {!showAgriSalesOrders && (
+          <div className="border-b border-gray-200 bg-gray-50 w-full min-w-0 shrink-0">
+            <div className="flex overflow-x-auto overflow-y-hidden scrollbar-hide [-webkit-overflow-scrolling:touch] touch-pan-x">
+              <button
+                onClick={() => setViewMode("booking")}
+                className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+                  viewMode === "booking"
+                    ? "border-brand-500 text-brand-600 bg-white"
+                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                }`}>
+                <span className="hidden sm:inline">📋 </span>Booking {orders.length > 0 && <span className="ml-1 text-xs bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
+              </button>
+              <button
+                onClick={() => setViewMode("dispatched")}
+                className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+                  viewMode === "dispatched"
+                    ? "border-brand-500 text-brand-600 bg-white"
+                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                }`}>
+                <span className="hidden sm:inline">🚚 </span>Dispatched {orders.length > 0 && <span className="ml-1 text-xs bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
+              </button>
+              <button
+                onClick={() => setViewMode("completed_orders")}
+                className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+                  viewMode === "completed_orders"
+                    ? "border-brand-500 text-brand-600 bg-white"
+                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                }`}>
+                <span className="hidden sm:inline">✅ </span>Completed {orders.length > 0 && <span className="ml-1 text-xs bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
+              </button>
+              <button
+                onClick={() => setViewMode("farmready")}
+                className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+                  viewMode === "farmready"
+                    ? "border-brand-500 text-brand-600 bg-white"
+                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                }`}>
+                <span className="hidden sm:inline">🌱 </span>Farm Ready {orders.length > 0 && <span className="ml-1 text-xs bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
+              </button>
+              <button
+                onClick={() => setViewMode("ready_for_dispatch")}
+                className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+                  viewMode === "ready_for_dispatch"
+                    ? "border-brand-500 text-brand-600 bg-white"
+                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                }`}>
+                <span className="hidden sm:inline">✅ </span>Ready {orders.length > 0 && <span className="ml-1 text-xs bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
+              </button>
+              <button
+                onClick={() => setViewMode("dispatched_vehicle")}
+                className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+                  viewMode === "dispatched_vehicle"
+                    ? "border-brand-500 text-brand-600 bg-white"
+                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                }`}>
+                <span className="hidden sm:inline">🚛 </span>By vehicle {orders.length > 0 && <span className="ml-1 text-xs bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
+              </button>
+              <button
+                onClick={() => setViewMode("dispatch_process")}
+                className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+                  viewMode === "dispatch_process"
+                    ? "border-brand-500 text-brand-600 bg-white"
+                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                }`}>
+                <span className="hidden sm:inline">🚛 </span>Dispatch {orders.length > 0 && <span className="ml-1 text-xs bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Header with View Toggle */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-gray-50">
-          <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between px-4 py-3 border-b border-gray-200 bg-gray-50">
+          <div className="flex items-center gap-2 flex-wrap min-w-0 flex-1">
             <span className="text-sm font-medium text-gray-700">View:</span>
             <button
               onClick={() => setViewType("table")}
@@ -4421,7 +4587,7 @@ const mapSlotForUi = (slotData) => {
               </div>
             )}
           </div>
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3 shrink-0 sm:justify-end">
             <button
               type="button"
               onClick={() => {
@@ -4468,68 +4634,6 @@ const mapSlotForUi = (slotData) => {
             </div>
           </div>
         </div>
-
-        {/* Tab Navigation - Hide or simplify for Agri Sales orders */}
-        {!showAgriSalesOrders && (
-          <div className="border-b border-gray-200 bg-gray-50">
-            <div className="flex overflow-x-auto scrollbar-hide">
-              <button
-                onClick={() => setViewMode("booking")}
-                className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
-                  viewMode === "booking"
-                    ? "border-brand-500 text-brand-600 bg-white"
-                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-                }`}>
-                <span className="hidden sm:inline">📋 </span>Booking {orders.length > 0 && <span className="ml-1 text-xs bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
-              </button>
-              <button
-                onClick={() => setViewMode("dispatched")}
-                className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
-                  viewMode === "dispatched"
-                    ? "border-brand-500 text-brand-600 bg-white"
-                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-                }`}>
-                <span className="hidden sm:inline">🚚 </span>Dispatched {orders.length > 0 && <span className="ml-1 text-xs bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
-              </button>
-              <button
-                onClick={() => setViewMode("farmready")}
-                className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
-                  viewMode === "farmready"
-                    ? "border-brand-500 text-brand-600 bg-white"
-                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-                }`}>
-                <span className="hidden sm:inline">🌱 </span>Farm Ready {orders.length > 0 && <span className="ml-1 text-xs bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
-              </button>
-              <button
-                onClick={() => setViewMode("ready_for_dispatch")}
-                className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
-                  viewMode === "ready_for_dispatch"
-                    ? "border-brand-500 text-brand-600 bg-white"
-                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-                }`}>
-                <span className="hidden sm:inline">✅ </span>Ready {orders.length > 0 && <span className="ml-1 text-xs bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
-              </button>
-              <button
-                onClick={() => setViewMode("dispatched_vehicle")}
-                className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
-                  viewMode === "dispatched_vehicle"
-                    ? "border-brand-500 text-brand-600 bg-white"
-                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-                }`}>
-                <span className="hidden sm:inline">🚛 </span>By vehicle {orders.length > 0 && <span className="ml-1 text-xs bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
-              </button>
-              <button
-                onClick={() => setViewMode("dispatch_process")}
-                className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
-                  viewMode === "dispatch_process"
-                    ? "border-brand-500 text-brand-600 bg-white"
-                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-                }`}>
-                <span className="hidden sm:inline">🚛 </span>Dispatch {orders.length > 0 && <span className="ml-1 text-xs bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
-              </button>
-            </div>
-          </div>
-        )}
 
         {!showAgriSalesOrders && (
           <DispatchList setisDispatchtab={setisDispatchtab} viewMode={viewMode} refresh={refresh} />

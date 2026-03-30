@@ -57,18 +57,18 @@ const ProductList = () => {
         if (apiResponse.status === 'Success' && apiResponse.data) {
           if (Array.isArray(apiResponse.data.data)) {
             setProducts(apiResponse.data.data);
-            setPagination(apiResponse.data.pagination || {});
+            if (apiResponse.data.pagination) setPagination(apiResponse.data.pagination);
           } else if (Array.isArray(apiResponse.data)) {
             // Fallback: data is directly an array
             setProducts(apiResponse.data);
-            setPagination(apiResponse.pagination || {});
+            if (apiResponse.pagination) setPagination(apiResponse.pagination);
           }
         } 
         // Handle direct structure: {success: true, data: [...], pagination: {...}}
         else if (apiResponse.success && apiResponse.data) {
           if (Array.isArray(apiResponse.data)) {
             setProducts(apiResponse.data);
-            setPagination(apiResponse.pagination || {});
+            if (apiResponse.pagination) setPagination(apiResponse.pagination);
           }
         }
       }
