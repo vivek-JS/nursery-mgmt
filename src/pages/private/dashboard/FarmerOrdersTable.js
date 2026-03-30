@@ -1098,7 +1098,8 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
   const isDispatchedVehicleTab = viewMode === "dispatched_vehicle"
   const isCompletedOrdersTab = viewMode === "completed_orders"
   /** API `dateRangeField`: booking vs delivery for date-range filter (see factory.controller getOrders). */
-  const [orderDateRangeBy, setOrderDateRangeBy] = useState("delivery")
+  // Default date-range field should be "booking" (Booking date).
+  const [orderDateRangeBy, setOrderDateRangeBy] = useState("booking")
   const [viewType, setViewType] = useState("table") // "table" or "grid"
   const [selectedRows, setSelectedRows] = useState(new Set())
   const [readyDispatchGroups, setReadyDispatchGroups] = useState([])
