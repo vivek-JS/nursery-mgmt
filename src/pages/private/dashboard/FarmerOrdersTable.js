@@ -74,7 +74,7 @@ import {
 /** User-visible order dates in table/modals — e.g. 12-March-2025 (API payloads still use DD-MM-YYYY / YYYY-MM-DD). */
 const ORDER_DATE_DISPLAY = "DD-MMMM-YYYY"
 const ORDER_DATETIME_DISPLAY = "DD-MMMM-YYYY HH:mm"
-const DASHBOARD_ORDERS_PAGE_SIZE = 200
+const DASHBOARD_ORDERS_PAGE_SIZE = 10
 
 /** Maps orderStatus to CSS class suffix: READY_FOR_DISPATCH → ready-for-dispatch (all underscores → hyphens). */
 const toStatusBadgeCssClass = (status) => {
@@ -1406,11 +1406,13 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
           const instance = NetworkManager(API.ORDER.GET_ORDERS)
           const params = {
             search: debouncedSearchTerm,
-            startDate: formattedStartDate,
-            endDate: formattedEndtDate,
             dispatched: viewMode === "booking" ? false : true,
-            limit: 10000,
+            limit: DASHBOARD_ORDERS_PAGE_SIZE,
             page: 1
+          }
+          if (!debouncedSearchTerm?.trim()) {
+            params.startDate = formattedStartDate
+            params.endDate = formattedEndtDate
           }
 
           // When dealer or sales is logged in, filter by their id
@@ -2940,7 +2942,7 @@ const mapSlotForUi = (slotData) => {
         page: 1,
       }
 
-      if (startDate && endDate) {
+      if (startDate && endDate && !debouncedSearchTerm?.trim()) {
         params.startDate = moment(startDate).format("YYYY-MM-DD")
         params.endDate = moment(endDate).format("YYYY-MM-DD")
       }
@@ -3103,11 +3105,11 @@ const mapSlotForUi = (slotData) => {
 
         const params = {
           search: debouncedSearchTerm || "",
-          limit: 10000,
+          limit: DASHBOARD_ORDERS_PAGE_SIZE,
           page: 1,
         }
 
-        if (startDate && endDate) {
+        if (startDate && endDate && !debouncedSearchTerm?.trim()) {
           params.startDate = moment(startDate).format("YYYY-MM-DD")
           params.endDate = moment(endDate).format("YYYY-MM-DD")
         }
@@ -3315,7 +3317,7 @@ const mapSlotForUi = (slotData) => {
     }
 
     // Only add date range if both dates are selected
-    if (startDate && endDate) {
+    if (startDate && endDate && !debouncedSearchTerm?.trim()) {
       const date = new Date(startDate)
       const formattedStartDate = moment(date).format("DD-MM-YYYY")
       const edate = new Date(endDate)
@@ -3471,7 +3473,7 @@ const mapSlotForUi = (slotData) => {
         page: ordersPage + 1,
       }
 
-      if (startDate && endDate) {
+      if (startDate && endDate && !debouncedSearchTerm?.trim()) {
         params.startDate = moment(new Date(startDate)).format("DD-MM-YYYY")
         params.endDate = moment(new Date(endDate)).format("DD-MM-YYYY")
       }
@@ -3483,7 +3485,12 @@ const mapSlotForUi = (slotData) => {
       if (selectedDistrict) params.district = selectedDistrict
       if (selectedPlant) params.plantId = selectedPlant
       if (selectedSubtype) params.subtypeId = selectedSubtype
-      if (startDate && endDate && (viewMode === "booking" || viewMode === "dispatched" || isCompletedOrdersTab)) {
+      if (
+        startDate &&
+        endDate &&
+        !debouncedSearchTerm?.trim() &&
+        (viewMode === "booking" || viewMode === "dispatched" || isCompletedOrdersTab)
+      ) {
         params.dateRangeField = orderDateRangeBy
       }
       if (isCompletedOrdersTab) {
