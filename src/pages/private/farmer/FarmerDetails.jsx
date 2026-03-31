@@ -25,20 +25,14 @@ import {
   Skeleton,
   useMediaQuery,
   useTheme,
-  Paper,
-  Stack,
   IconButton
 } from "@mui/material"
 import {
   ArrowBack as ArrowBackIcon,
   Phone as PhoneIcon,
   LocationOn as LocationIcon,
-  Person as PersonIcon,
   Receipt as ReceiptIcon,
   Payments as PaymentsIcon,
-  CheckCircle as CheckCircleIcon,
-  Cancel as CancelIcon,
-  HourglassEmpty as PendingIcon,
   LocalFlorist as PlantIcon,
   AccountBalanceWallet as WalletIcon,
   CurrencyRupee as RupeeIcon,

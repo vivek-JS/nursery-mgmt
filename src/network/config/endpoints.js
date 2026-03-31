@@ -768,6 +768,9 @@ export const API = {
     GET_PLANTS_GAP_SUMMARY: new APIRouter("/sowing/plants-gap-summary", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_SLOT_ORDERS_SUMMARY: new APIRouter("/sowing/slot-orders/:slotId", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_TODAY_SOWING_CARDS: new APIRouter("/sowing/today-sowing-cards", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_EASY_30_DAYS: new APIRouter("/sowing/easy-30-days", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    BULK_UPDATE_FUTURE_READY_DAYS: new APIRouter("/sowing/easy-30-days/ready-days", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    GET_SOWING_INSIGHTS_RECORDS: new APIRouter("/sowing/insights/records", HTTP_METHODS.GET, OFFLINE.PROFILE),
     SEND_SOWING_REMINDERS_WHATSAPP: new APIRouter("/sowing/whatsapp/reminders", HTTP_METHODS.POST, OFFLINE.PROFILE),
     // Sowing Request APIs
     CREATE_SOWING_REQUEST: new APIRouter("/sowing/request/create", HTTP_METHODS.POST, OFFLINE.PROFILE),

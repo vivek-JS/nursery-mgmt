@@ -20,6 +20,7 @@ import DashboardIcon from "@mui/icons-material/Dashboard"
 import PhoneIcon from "@mui/icons-material/Phone"
 import ParkIcon from "@mui/icons-material/Park"
 import AccountBalanceIcon from "@mui/icons-material/AccountBalance"
+import DashboardCustomizeIcon from "@mui/icons-material/DashboardCustomize"
 
 export const DashboardMenus = [
   new MenuPath("Orders", <HomeIcon />, "/u/dashboard"),
@@ -28,6 +29,7 @@ export const DashboardMenus = [
   new MenuPath("Sowing Management", <GrassIcon />, "/u/sowing"),
   new MenuPath("Plant Availability", <AssessmentIcon />, "/u/plant-availability"),
   new MenuPath("Sowing Gap Analysis", <TrendingDownIcon />, "/u/sowing-gap-analysis"),
+  new MenuPath("Sowing Admin Cards", <DashboardCustomizeIcon />, "/u/sowing-admin-cards"),
   // new MenuPath("Flow Charts", <AccountTreeIcon />, "/u/flow-charts"),
   new MenuPath("Slots Managment", <BiotechIcon />, "/u/slots"),
   new MenuPath("Hardening", <BiotechIcon />, "/u/hardening"),

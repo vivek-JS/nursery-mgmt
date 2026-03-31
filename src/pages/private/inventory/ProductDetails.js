@@ -8,7 +8,7 @@ import {
   DollarSign,
   Box,
 } from 'lucide-react';
-import axiosInstance from '../../../services/axiosConfig';
+import { API, NetworkManager } from 'network/core';
 import { formatDisplayDate } from '../../../utils/dateUtils';
 import { formatDecimal, formatCurrency } from '../../../utils/numberUtils';
 
@@ -25,13 +25,21 @@ const ProductDetails = () => {
 
   const fetchProductDetails = async () => {
     try {
-      const response = await axiosInstance.get(`/inventory/products/${id}`);
-      if (response.data.success) {
-        setData(response.data.data);
+      const instance = NetworkManager(API.INVENTORY.GET_PRODUCT_BY_ID);
+      const res = await instance.request({}, [id]);
+      const body = res?.data;
+      if (body?.success && body?.data) {
+        setData(body.data);
+      } else if (body?.status?.toLowerCase() === 'success' && body?.data) {
+        setData(body.data.data ?? body.data);
       }
     } catch (error) {
       console.error('Error fetching product details:', error);
-      alert('Error loading product details');
+      const msg =
+        error?.response?.data?.message ||
+        error?.message ||
+        'Error loading product details';
+      alert(msg);
     } finally {
       setLoading(false);
     }

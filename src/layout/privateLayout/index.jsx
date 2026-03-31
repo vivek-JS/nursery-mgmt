@@ -290,6 +290,8 @@ export default function PrivateLayout(props) {
       p.startsWith("/u/sowing/") ||
       p === "/u/sowing-gap-analysis" ||
       p.startsWith("/u/sowing-gap-analysis/") ||
+      p === "/u/sowing-admin-cards" ||
+      p.startsWith("/u/sowing-admin-cards/") ||
       p === "/u/slots" ||
       p.startsWith("/u/slots/") ||
       p === "/u/cms" ||
@@ -389,6 +391,7 @@ export default function PrivateLayout(props) {
         "Plants and Products",
         "Sowing Management",
         "Sowing Gap Analysis",
+        "Sowing Admin Cards",
         "Slots Managment",
         "CMS",
         "Employees",
@@ -401,6 +404,7 @@ export default function PrivateLayout(props) {
         "/u/plants",
         "/u/sowing",
         "/u/sowing-gap-analysis",
+        "/u/sowing-admin-cards",
         "/u/slots",
         "/u/cms",
         "/u/employeese",

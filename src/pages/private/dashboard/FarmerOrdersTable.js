@@ -1193,6 +1193,7 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
   const [whatsappMessagingEnabled, setWhatsappMessagingEnabled] = useState(
     () => !isWhatsappMessagingDisabled()
   )
+  const showPageLoader = patchLoading || (loading && orders.length === 0)
   // Add these handler functions
   const handleAddRemark = (orderId) => {
     if (!newRemark.trim()) return
@@ -4008,7 +4009,7 @@ const mapSlotForUi = (slotData) => {
 
   return (
     <div className="w-full p-4 bg-gray-50">
-      {(loading || patchLoading) && <PageLoader />}
+      {showPageLoader && <PageLoader />}
 
       {/* Header Controls */}
       <div className="mb-6 space-y-4">
@@ -5798,9 +5799,7 @@ const mapSlotForUi = (slotData) => {
 
       {!showAgriSalesOrders && (
         <div ref={infiniteLoaderRef} className="flex justify-center py-3">
-          {loadingMoreOrders && (
-            <span className="text-xs text-gray-500">Loading more orders...</span>
-          )}
+          {loadingMoreOrders && <CircularProgress size={18} />}
         </div>
       )}
 

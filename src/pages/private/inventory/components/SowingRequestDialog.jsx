@@ -273,6 +273,7 @@ const SowingRequestDialog = ({ open, onClose, request, onSuccess }) => {
         {
           batchAllocations,
           notes: `Issued from sowing request ${request.requestNumber}`,
+          purpose: 'production',
         },
         [request._id]
       );
@@ -318,11 +319,20 @@ const SowingRequestDialog = ({ open, onClose, request, onSuccess }) => {
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
       <DialogTitle>
-        <Box display="flex" justifyContent="space-between" alignItems="center">
+        <Box display="flex" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}>
           <Typography variant="h6" sx={{ fontWeight: 700 }}>
             Sowing Request: {request.requestNumber}
           </Typography>
-          <Chip label={request.status} color={request.status === 'pending' ? 'warning' : 'success'} size="small" />
+          <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
+            <Chip
+              label={`purpose: ${request.issuePurpose || 'production'}`}
+              color="primary"
+              variant="outlined"
+              size="small"
+              title="Inventory outward purpose — only production issues are allowed for sowing"
+            />
+            <Chip label={request.status} color={request.status === 'pending' ? 'warning' : 'success'} size="small" />
+          </Box>
         </Box>
       </DialogTitle>
       <DialogContent>

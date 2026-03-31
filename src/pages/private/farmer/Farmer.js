@@ -37,7 +37,6 @@ import {
 import { Pencil, Plus, Loader, User, MapPin, Calendar, Search, FilterX, List, CheckCircle, Users, UserPlus, Link2, Landmark } from "lucide-react"
 import { API, NetworkManager } from "network/core"
 import LocationSelector from "components/LocationSelector"
-import { LedgerPanel } from "features/accountant-dashboard/LedgerPanel"
 import { fetchFarmerPlantLedger, normalizeFarmerIdForLedger } from "features/accountant-dashboard/paymentsApi"
 import { useHasPaymentAccess, useHasPaymentsAccess } from "utils/roleUtils"
 import { Toast } from "helpers/toasts/toastHelper"

@@ -58,6 +58,7 @@ const WhatsAppManagement = React.lazy(() => import("pages/private/whatsapp/Whats
 const SowingManagement = React.lazy(() => import("pages/private/Sowing/SowingManagement"))
 const PlantAvailability = React.lazy(() => import("pages/private/Sowing/PlantAvailability"))
 const SowingGapAnalysis = React.lazy(() => import("pages/private/Sowing/SowingGapAnalysis"))
+const SowingAdminCardsPortal = React.lazy(() => import("pages/private/Sowing/SowingAdminCardsPortal"))
 const PrimarySowingEntry = React.lazy(() => import("pages/private/Sowing/PrimarySowingEntry"))
 const PrimaryMobileOps = React.lazy(() => import("pages/private/primary/PrimaryMobileOps"))
 const SecondaryMobileOps = React.lazy(() => import("pages/private/secondary/SecondaryMobileOps"))
@@ -136,6 +137,7 @@ export const PrivateRoutes = [
   { path: "/u/sowing", component: SowingManagement },
   { path: "/u/plant-availability", component: PlantAvailability },
   { path: "/u/sowing-gap-analysis", component: SowingGapAnalysis },
+  { path: "/u/sowing-admin-cards", component: SowingAdminCardsPortal },
   { path: "/u/primary-sowing-entry", component: PrimarySowingEntry },
   { path: "/u/primary-mobile", component: PrimaryMobileOps },
   { path: "/u/secondary-sowing-entry", component: SecondaryMobileOps },

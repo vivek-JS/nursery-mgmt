@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react"
+import { useNavigate } from "react-router-dom"
 import { Plus, Pencil, Trash2, ChevronDown } from "lucide-react"
 import { API, NetworkManager } from "network/core"
 import { Formik, Form, FieldArray } from "formik"
@@ -112,6 +113,7 @@ const Label = ({ className = "", ...props }) => (
 )
 
 const Slots = () => {
+  const navigate = useNavigate()
   const [plants, setPlants] = useState([])
   const [loading, setLoading] = useState(false)
   const [open, setOpen] = useState(false)
@@ -259,6 +261,13 @@ const Slots = () => {
                 </h2>
                 <p className="text-gray-600 text-lg">Create and manage plants and their subtypes</p>
               </div>
+            <Button
+              variant="success"
+              onClick={() => navigate("/u/sowing-admin-cards")}
+              className="ml-4"
+            >
+              Easy Sowing Cards
+            </Button>
               <Button onClick={() => handleOpen()} className="gap-3 text-base px-8 py-4" size="lg">
                 <Plus className="h-5 w-5" />
                 Add New Plant

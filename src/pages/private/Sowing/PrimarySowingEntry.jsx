@@ -38,6 +38,90 @@ import { Loader } from "redux/dispatcher/Loader";
 import LogoutIcon from "@mui/icons-material/Logout";
 import MotivationalQuoteModal from "components/Modals/MotivationalQuoteModal";
 
+const isDev = process.env.NODE_ENV === "development";
+
+/** Merge API `availablePackets` with in-progress virtual groups; dedupe by itemId. */
+function mergePacketGroups(apiGroups, virtualGroups) {
+  const byPlant = new Map();
+  const ingest = (groups) => {
+    (groups || []).forEach((plantGroup) => {
+      const pid = String(plantGroup.plantId ?? "no-plant");
+      if (!byPlant.has(pid)) {
+        byPlant.set(pid, {
+          plantId: plantGroup.plantId,
+          plantName: plantGroup.plantName,
+          subtypes: new Map(),
+        });
+      }
+      const pg = byPlant.get(pid);
+      plantGroup.subtypes?.forEach((st) => {
+        const sid = String(st.subtypeId ?? "no-subtype");
+        if (!pg.subtypes.has(sid)) {
+          pg.subtypes.set(sid, {
+            subtypeId: st.subtypeId,
+            subtypeName: st.subtypeName,
+            plantReadyDays: st.plantReadyDays ?? 0,
+            packets: [],
+          });
+        }
+        const dest = pg.subtypes.get(sid);
+        const seen = new Set(dest.packets.map((p) => String(p.itemId)));
+        st.packets?.forEach((p) => {
+          const key = String(p.itemId);
+          if (!seen.has(key)) {
+            seen.add(key);
+            dest.packets.push(p);
+          }
+        });
+        dest.plantReadyDays = Math.max(dest.plantReadyDays || 0, st.plantReadyDays || 0);
+        if (st.subtypeName && (!dest.subtypeName || dest.subtypeName === "Unknown Subtype")) {
+          dest.subtypeName = st.subtypeName;
+        }
+      });
+    });
+  };
+  ingest(apiGroups);
+  ingest(virtualGroups);
+  return Array.from(byPlant.values()).map((pg) => ({
+    plantId: pg.plantId,
+    plantName: pg.plantName,
+    subtypes: Array.from(pg.subtypes.values()),
+  }));
+}
+
+/** Combine raw packet rows by product+batch for display and auto-fill. */
+function combinePacketsByBatch(subtypeGroup) {
+  const combinedMap = new Map();
+  subtypeGroup.packets?.forEach((packet) => {
+    const key = `${packet.productId || packet.productName}_${packet.batchNumber || "NO_BATCH"}`;
+    if (!combinedMap.has(key)) {
+      combinedMap.set(key, {
+        productId: packet.productId,
+        productName: packet.productName,
+        batchNumber: packet.batchNumber || "N/A",
+        unit: packet.unit,
+        plantId: packet.plantId,
+        plantName: packet.plantName,
+        subtypeId: packet.subtypeId,
+        subtypeName: subtypeGroup.subtypeName,
+        outwardId: packet.outwardId,
+        totalAvailableQuantity: 0,
+        itemIds: [],
+        packets: [],
+        conversionFactor: packet.conversionFactor || 1,
+      });
+    }
+    const combined = combinedMap.get(key);
+    combined.totalAvailableQuantity += packet.availableQuantity;
+    combined.itemIds.push(packet.itemId);
+    combined.packets.push(packet);
+    if (!combined.conversionFactor && packet.conversionFactor) {
+      combined.conversionFactor = packet.conversionFactor;
+    }
+  });
+  return Array.from(combinedMap.values());
+}
+
 const PrimarySowingEntry = () => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
@@ -290,11 +374,15 @@ const PrimarySowingEntry = () => {
   };
 
   useEffect(() => {
-    if (hasAccess && userData !== undefined) {
-      fetchAllAvailablePackets();
-      // Check and show motivational quote if not seen today
-      checkAndShowQuote();
-    }
+    if (!hasAccess || userData === undefined) return;
+    let cancelled = false;
+    (async () => {
+      await fetchAllAvailablePackets();
+      if (!cancelled) await checkAndShowQuote();
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [hasAccess, userData]);
 
   // Auto-fill Packets and Primary (Field) on form load (only once)
@@ -309,40 +397,8 @@ const PrimarySowingEntry = () => {
         
         availablePackets.forEach(plantGroup => {
           plantGroup.subtypes?.forEach(subtypeGroup => {
-            // Combine packets by batch (same logic as in render)
-            const combinedMap = new Map();
-            subtypeGroup.packets?.forEach(packet => {
-              const key = `${packet.productId || packet.productName}_${packet.batchNumber || 'NO_BATCH'}`;
-              
-              if (!combinedMap.has(key)) {
-                combinedMap.set(key, {
-                  productId: packet.productId,
-                  productName: packet.productName,
-                  batchNumber: packet.batchNumber || 'N/A',
-                  unit: packet.unit,
-                  plantId: packet.plantId,
-                  plantName: packet.plantName,
-                  subtypeId: packet.subtypeId,
-                  subtypeName: subtypeGroup.subtypeName,
-                  outwardId: packet.outwardId,
-                  totalAvailableQuantity: 0,
-                  itemIds: [],
-                  packets: [],
-                  conversionFactor: packet.conversionFactor || 1
-                });
-              }
-              
-              const combined = combinedMap.get(key);
-              combined.totalAvailableQuantity += packet.availableQuantity;
-              combined.itemIds.push(packet.itemId);
-              combined.packets.push(packet);
-              if (!combined.conversionFactor && packet.conversionFactor) {
-                combined.conversionFactor = packet.conversionFactor;
-              }
-            });
-            
-            // Auto-fill for each combined batch
-            combinedMap.forEach((combined) => {
+            const combinedBatches = combinePacketsByBatch(subtypeGroup);
+            combinedBatches.forEach((combined) => {
               const availableQty = combined.totalAvailableQuantity;
               const conversionFactor = combined.conversionFactor || 1;
               
@@ -409,7 +465,26 @@ const PrimarySowingEntry = () => {
         setHasAutoFilled(true);
       }
     }
-  }, [availablePackets, hasAutoFilled, selectedPackets.length, primaryQuantities]); // Run when availablePackets changes
+  }, [availablePackets, hasAutoFilled, selectedPackets.length, primaryQuantities]);
+
+  // Default plant ready days from loaded packet groups (do not setState during list render)
+  useEffect(() => {
+    if (!availablePackets.length) return;
+    setPlantReadyDays((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      availablePackets.forEach((pg) => {
+        pg.subtypes?.forEach((st) => {
+          const key = `${pg.plantId}_${st.subtypeId}`;
+          if (next[key] === undefined && st.plantReadyDays !== undefined) {
+            next[key] = st.plantReadyDays || 0;
+            changed = true;
+          }
+        });
+      });
+      return changed ? next : prev;
+    });
+  }, [availablePackets]);
 
   // Fetch all data from today-sowing-cards API (packets + in-progress)
   const fetchAllAvailablePackets = async () => {
@@ -419,28 +494,26 @@ const PrimarySowingEntry = () => {
       const todayCardsInstance = NetworkManager(API.sowing.GET_TODAY_SOWING_CARDS);
       const todayCardsResponse = await todayCardsInstance.request();
       
-      console.log("[PrimarySowingEntry] Fetched today cards response:", todayCardsResponse?.data);
+      if (isDev) console.log("[PrimarySowingEntry] today-sowing-cards response:", todayCardsResponse?.data);
       
       if (todayCardsResponse?.data?.success) {
-        // Extract in-progress cards
         const inProgressData = todayCardsResponse.data.inProgressCards || [];
+        const apiPackets = todayCardsResponse.data.availablePackets || [];
         setInProgressCards(inProgressData);
-        console.log("[PrimarySowingEntry] Fetched in-progress cards:", inProgressData);
+        if (isDev) {
+          console.log("[PrimarySowingEntry] inProgressCards:", inProgressData.length, "apiPackets groups:", apiPackets.length);
+        }
         
         // Transform in-progress cards into availablePackets format
         // This allows users to sow what's already in progress
         const transformedPackets = [];
-        const initialReadyDays = {};
-        
+
         inProgressData.forEach(card => {
           const plantId = card.plantId;
           const subtypeId = card.subtypeId;
           const conversionFactor = card.conversionFactor || 1000;
-          
-          // Get plantReadyDays from slots
+
           const plantReadyDaysValue = card.slots?.[0]?.plantReadyDays || 0;
-          const readyDaysKey = `${plantId}_${subtypeId}`;
-          initialReadyDays[readyDaysKey] = plantReadyDaysValue;
           
           // Find existing plant group or create new one
           let plantGroup = transformedPackets.find(p => p.plantId === plantId);
@@ -501,17 +574,11 @@ const PrimarySowingEntry = () => {
           plantGroup.subtypes.push(subtypeGroup);
         });
         
-        console.log("[PrimarySowingEntry] Transformed in-progress to packets:", transformedPackets);
-        console.log("[PrimarySowingEntry] Virtual itemIds created:", transformedPackets.flatMap(p => 
-          p.subtypes?.flatMap(st => st.packets?.map(pkt => ({
-            itemId: pkt.itemId,
-            slotId: pkt.slotId,
-            slotStartDay: pkt.slotStartDay,
-            packetsIssued: pkt.availableQuantity
-          })) || []) || []
-        ));
-        setPlantReadyDays(prev => ({ ...prev, ...initialReadyDays }));
-        setAvailablePackets(transformedPackets);
+        const merged = mergePacketGroups(apiPackets, transformedPackets);
+        if (isDev) {
+          console.log("[PrimarySowingEntry] merged packet groups:", merged.length);
+        }
+        setAvailablePackets(merged);
       } else {
         setAvailablePackets([]);
         setInProgressCards([]);
@@ -2089,7 +2156,7 @@ const PrimarySowingEntry = () => {
             ) : availablePackets.length === 0 ? (
               <Alert severity="info" sx={{ borderRadius: 2 }}>
                 <Typography variant="body2" sx={{ fontSize: isMobile ? "0.875rem" : "0.9rem" }}>
-                  No packets available. Create outward entries with purpose &quot;production&quot; for seeds products first.
+                  No packets available for today. Ensure seeds inventory has issued outward stock (e.g. production / sowing issue) or active sowing-in-progress entries.
                 </Typography>
               </Alert>
             ) : (
@@ -2115,62 +2182,13 @@ const PrimarySowingEntry = () => {
                         {plantGroup.subtypes?.map((subtypeGroup, subtypeIdx) => {
                           // Initialize plant ready days for this subtype if not already set
                           const readyDaysKey = `${plantGroup.plantId}_${subtypeGroup.subtypeId}`;
-                          if (!plantReadyDays[readyDaysKey] && subtypeGroup.plantReadyDays !== undefined) {
-                            // Initialize on first render if not in state
-                            setPlantReadyDays(prev => ({
-                              ...prev,
-                              [readyDaysKey]: subtypeGroup.plantReadyDays || 0
-                            }));
-                          }
                           const currentReadyDays = plantReadyDays[readyDaysKey] ?? (subtypeGroup.plantReadyDays || 0);
-                          
-                          // Calculate expected ready date: sowing date + plant ready days
+
                           const expectedReadyDate = formData.sowingDate && currentReadyDays > 0
                             ? moment(formData.sowingDate).add(currentReadyDays, 'days').format("DD-MM-YYYY")
                             : null;
-                          
-                          // Combine packets by batch
-                          const combinedMap = new Map();
-                          subtypeGroup.packets?.forEach(packet => {
-                            const key = `${packet.productId || packet.productName}_${packet.batchNumber || 'NO_BATCH'}`;
-                            
-                            if (!combinedMap.has(key)) {
-                              combinedMap.set(key, {
-                                productId: packet.productId,
-                                productName: packet.productName,
-                                batchNumber: packet.batchNumber || 'N/A',
-                                unit: packet.unit,
-                                plantId: packet.plantId,
-                                plantName: packet.plantName,
-                                subtypeId: packet.subtypeId,
-                                subtypeName: subtypeGroup.subtypeName,
-                                outwardId: packet.outwardId,
-                                totalAvailableQuantity: 0,
-                                itemIds: [],
-                                packets: [],
-                                conversionFactor: packet.conversionFactor || 1
-                              });
-                            }
-                            
-                            const combined = combinedMap.get(key);
-                            combined.totalAvailableQuantity += packet.availableQuantity;
-                            combined.itemIds.push(packet.itemId);
-                                combined.packets.push(packet);
-                            // Use conversionFactor from first packet (all should have same conversionFactor)
-                            if (!combined.conversionFactor && packet.conversionFactor) {
-                              combined.conversionFactor = packet.conversionFactor;
-                            }
-                            
-                            console.log(`[PrimarySowingEntry] Combined packet:`, {
-                              key,
-                              productName: combined.productName,
-                              batchNumber: combined.batchNumber,
-                              conversionFactor: combined.conversionFactor,
-                              packetConversionFactor: packet.conversionFactor,
-                            });
-                          });
 
-                          const combinedBatches = Array.from(combinedMap.values());
+                          const combinedBatches = combinePacketsByBatch(subtypeGroup);
 
                           return (
                             <Box key={`${subtypeGroup.subtypeId}_${subtypeIdx}`}>
@@ -2250,24 +2268,8 @@ const PrimarySowingEntry = () => {
                                   const selectedQuantity = selectedItems.reduce((sum, sp) => sum + (sp.quantity || 0), 0);
                                   const totalQtyForBatch = combined.itemIds.reduce((sum, itemId) => {
                                     const value = primaryQuantities[itemId] || 0;
-                                    console.log(`[PrimarySowingEntry] 🔍 Adding itemId ${itemId}: ${value}`);
                                     return sum + value;
                                   }, 0);
-                                  
-                                  // Debug logging - showing Primary field calculation
-                                  console.log(`[PrimarySowingEntry] 🔍 Rendering Batch Card:`, {
-                                    productName: combined.productName,
-                                    batchNumber: combined.batchNumber,
-                                    conversionFactor: combined.conversionFactor,
-                                    selectedQuantity,
-                                    totalQtyForBatch: totalQtyForBatch,
-                                    itemIds: combined.itemIds,
-                                    primaryQuantitiesState: JSON.stringify(primaryQuantities),
-                                    mappedValues: combined.itemIds.map(id => ({
-                                      itemId: id,
-                                      value: primaryQuantities[id] || 0
-                                    })),
-                                  });
 
                                   const handleCardClick = () => {
                                     const conversionFactor = combined.conversionFactor || 1;

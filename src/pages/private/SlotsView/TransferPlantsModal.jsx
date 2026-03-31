@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react"
+import React, { useState, useEffect, useMemo } from "react"
 import { ArrowRightLeft, Package, Users, X } from "lucide-react"
 import {
   Dialog,
@@ -14,11 +14,15 @@ import {
   Typography,
   CircularProgress,
   Stack,
+  Checkbox,
+  FormControlLabel,
+  FormGroup,
+  Divider,
 } from "@mui/material"
 import { API, NetworkManager } from "network/core"
 import { Toast } from "helpers/toasts/toastHelper"
 
-const TransferPlantsModal = ({ open, onClose, slot, plantId, subtypeId, year, onSuccess }) => {
+const TransferPlantsModal = ({ open, onClose, slot, onSuccess }) => {
   const [mode, setMode] = useState("capacity")
   const [loading, setLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -31,6 +35,9 @@ const TransferPlantsModal = ({ open, onClose, slot, plantId, subtypeId, year, on
   const [quantity, setQuantity] = useState("")
   const [reason, setReason] = useState("")
 
+  /** Set of order _id strings eligible for transfer */
+  const [selectedOrderIds, setSelectedOrderIds] = useState(() => new Set())
+
   useEffect(() => {
     if (!open || !slot?._id) return
     setTargetSlotId("")
@@ -39,6 +46,7 @@ const TransferPlantsModal = ({ open, onClose, slot, plantId, subtypeId, year, on
     setError("")
     setCapacityData(null)
     setOrdersData(null)
+    setSelectedOrderIds(new Set())
     if (mode === "capacity") {
       fetchCapacityOptions()
     } else {
@@ -72,7 +80,10 @@ const TransferPlantsModal = ({ open, onClose, slot, plantId, subtypeId, year, on
       const instance = NetworkManager(API.slots.GET_ORDERS_TRANSFER_TARGETS)
       const response = await instance.request({}, { slotId: slot._id })
       if (response?.data?.success && response?.data?.data) {
-        setOrdersData(response.data.data)
+        const data = response.data.data
+        setOrdersData(data)
+        const list = data.orders || []
+        setSelectedOrderIds(new Set(list.map((o) => o._id).filter(Boolean)))
       } else {
         setError(response?.data?.message || "Failed to load order transfer targets")
       }
@@ -88,6 +99,58 @@ const TransferPlantsModal = ({ open, onClose, slot, plantId, subtypeId, year, on
     setQuantity("")
     setCapacityData(null)
     setOrdersData(null)
+    setSelectedOrderIds(new Set())
+  }
+
+  const ordersList = ordersData?.orders || []
+
+  const sourceOrdersCount = ordersData?.source?.ordersCount ?? 0
+  const sourceTotalPlants = Number(ordersData?.source?.totalPlantsToTransfer) || 0
+  /** Older API or missing `orders` array: slot still has orders per `source` */
+  const legacyNoOrderList = sourceOrdersCount > 0 && ordersList.length === 0
+
+  const selectedPlantsTotal = useMemo(() => {
+    let sum = 0
+    for (const o of ordersList) {
+      if (selectedOrderIds.has(o._id)) {
+        sum += Number(o.numberOfPlants) || 0
+      }
+    }
+    return sum
+  }, [ordersList, selectedOrderIds])
+
+  /** Plant total used to filter target slots (selected subset, or full slot total in legacy mode). */
+  const plantsForTargetFilter = useMemo(() => {
+    if (ordersList.length > 0) return selectedPlantsTotal
+    if (legacyNoOrderList && sourceTotalPlants > 0) return sourceTotalPlants
+    return 0
+  }, [ordersList.length, selectedPlantsTotal, legacyNoOrderList, sourceTotalPlants])
+
+  const eligibleTargetOptions = useMemo(() => {
+    const opts = ordersData?.options || []
+    if (plantsForTargetFilter <= 0) return []
+    return opts.filter((o) => (Number(o.availableCapacity) || 0) >= plantsForTargetFilter)
+  }, [ordersData?.options, plantsForTargetFilter])
+
+  const toggleOrder = (orderId) => {
+    if (!orderId) return
+    setSelectedOrderIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(orderId)) next.delete(orderId)
+      else next.add(orderId)
+      return next
+    })
+    setTargetSlotId("")
+  }
+
+  const selectAllOrders = () => {
+    setSelectedOrderIds(new Set(ordersList.map((o) => o._id).filter(Boolean)))
+    setTargetSlotId("")
+  }
+
+  const clearOrderSelection = () => {
+    setSelectedOrderIds(new Set())
+    setTargetSlotId("")
   }
 
   const handleCapacitySubmit = async () => {
@@ -133,15 +196,30 @@ const TransferPlantsModal = ({ open, onClose, slot, plantId, subtypeId, year, on
       Toast.error("Select target slot")
       return
     }
+    if (!legacyNoOrderList && selectedOrderIds.size === 0) {
+      Toast.error("Select at least one order to transfer")
+      return
+    }
+    const ids = Array.from(selectedOrderIds)
+    const transferAll =
+      legacyNoOrderList ||
+      (ordersList.length > 0 &&
+        ids.length === ordersList.length &&
+        ordersList.every((o) => ids.includes(o._id)))
+
     setSubmitting(true)
     setError("")
     try {
       const instance = NetworkManager(API.slots.TRANSFER_ORDERS)
-      const response = await instance.request({
+      const payload = {
         sourceSlotId: slot._id,
         targetSlotId,
         reason,
-      })
+      }
+      if (!transferAll) {
+        payload.orderIds = ids
+      }
+      const response = await instance.request(payload)
       if (response?.data?.success) {
         Toast.success(response?.data?.message || "Orders transferred successfully")
         onSuccess?.()
@@ -170,10 +248,14 @@ const TransferPlantsModal = ({ open, onClose, slot, plantId, subtypeId, year, on
     Number(quantity) > 0 &&
     Number(quantity) <= maxCapacityQty
 
-  const canSubmitOrders = mode === "orders" && targetSlotId && (ordersData?.options?.length ?? 0) > 0
+  const canSubmitOrders =
+    mode === "orders" &&
+    targetSlotId &&
+    plantsForTargetFilter > 0 &&
+    eligibleTargetOptions.some((o) => o.slotId === targetSlotId)
 
   return (
-    <Dialog open={open} onClose={submitting ? undefined : onClose} maxWidth="sm" fullWidth>
+    <Dialog open={open} onClose={submitting ? undefined : onClose} maxWidth="md" fullWidth>
       <DialogTitle className="flex items-center justify-between">
         <span className="flex items-center gap-2">
           <ArrowRightLeft className="w-5 h-5 text-green-600" />
@@ -276,7 +358,68 @@ const TransferPlantsModal = ({ open, onClose, slot, plantId, subtypeId, year, on
                   </Typography>
                 </Box>
 
-                {ordersData.options?.length > 0 ? (
+                {legacyNoOrderList && (
+                  <Typography variant="body2" color="textSecondary">
+                    Per-order selection requires the latest API. This transfer will move{" "}
+                    <strong>all {sourceOrdersCount.toLocaleString()} order(s)</strong> (
+                    {sourceTotalPlants.toLocaleString()} plants) to the target slot.
+                  </Typography>
+                )}
+
+                {ordersList.length > 0 && (
+                  <>
+                    <Box className="flex flex-wrap items-center justify-between gap-2">
+                      <Typography variant="subtitle2" fontWeight={600}>
+                        Orders to transfer
+                      </Typography>
+                      <Box className="flex gap-1">
+                        <Button size="small" onClick={selectAllOrders}>
+                          Select all
+                        </Button>
+                        <Button size="small" onClick={clearOrderSelection}>
+                          Clear
+                        </Button>
+                      </Box>
+                    </Box>
+                    <Typography variant="caption" color="textSecondary">
+                      Selected: {selectedOrderIds.size} order(s), {selectedPlantsTotal.toLocaleString()} plants
+                    </Typography>
+                    <FormGroup sx={{ maxHeight: 220, overflow: "auto", border: "1px solid #eee", borderRadius: 1, p: 1 }}>
+                      {ordersList.map((o) => (
+                        <FormControlLabel
+                          key={o._id}
+                          control={
+                            <Checkbox
+                              size="small"
+                              checked={selectedOrderIds.has(o._id)}
+                              onChange={() => toggleOrder(o._id)}
+                            />
+                          }
+                          label={
+                            <span>
+                              <strong>#{o.orderId}</strong>
+                              {o.farmerName ? ` — ${o.farmerName}` : ""}
+                              {o.farmerMobileNumber ? ` (${o.farmerMobileNumber})` : ""} —{" "}
+                              {(Number(o.numberOfPlants) || 0).toLocaleString()} plants
+                            </span>
+                          }
+                        />
+                      ))}
+                    </FormGroup>
+                    <Divider />
+                  </>
+                )}
+
+                {(ordersData.options?.length ?? 0) > 0 &&
+                  eligibleTargetOptions.length === 0 &&
+                  plantsForTargetFilter > 0 && (
+                  <Typography variant="body2" color="warning.main">
+                    No target slot has enough free capacity for the selected {plantsForTargetFilter.toLocaleString()}{" "}
+                    plants. Select fewer orders or pick another slot window.
+                  </Typography>
+                )}
+
+                {eligibleTargetOptions.length > 0 ? (
                   <>
                     <TextField
                       select
@@ -286,7 +429,7 @@ const TransferPlantsModal = ({ open, onClose, slot, plantId, subtypeId, year, on
                       onChange={(e) => setTargetSlotId(e.target.value)}
                       fullWidth
                     >
-                      {ordersData.options.map((opt) => (
+                      {eligibleTargetOptions.map((opt) => (
                         <MenuItem key={opt.slotId} value={opt.slotId}>
                           {opt.startDay} – {opt.endDay} ({opt.month}) • Available:{" "}
                           {opt.availableCapacity?.toLocaleString() ?? 0}
@@ -303,9 +446,21 @@ const TransferPlantsModal = ({ open, onClose, slot, plantId, subtypeId, year, on
                       onChange={(e) => setReason(e.target.value)}
                     />
                   </>
+                ) : sourceOrdersCount === 0 || sourceTotalPlants <= 0 ? (
+                  <Typography variant="body2" color="textSecondary">
+                    No eligible orders in this slot (nothing to transfer).
+                  </Typography>
+                ) : legacyNoOrderList ? (
+                  <Typography variant="body2" color="textSecondary">
+                    {(ordersData.options?.length ?? 0) === 0
+                      ? "No target slots with free capacity in the date window."
+                      : "Pick a target slot with enough free capacity for all orders in this slot."}
+                  </Typography>
                 ) : (
                   <Typography variant="body2" color="textSecondary">
-                    No target slots with sufficient capacity found.
+                    {(ordersData.options?.length ?? 0) === 0
+                      ? "No target slots with free capacity in the date window."
+                      : "Select orders above, then choose a target slot."}
                   </Typography>
                 )}
               </>
