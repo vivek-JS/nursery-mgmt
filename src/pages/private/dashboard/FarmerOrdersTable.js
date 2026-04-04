@@ -1037,6 +1037,8 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   const isSuperAdmin = useIsSuperAdmin()
   const isAccountant = useIsAccountant()
   const canEditOrderCore = isOfficeAdmin || isSuperAdmin || isAccountant
+  /** Reassign booked-by sales / dealer (same roles as full order status changes). */
+  const canReassignSalesPerson = isOfficeAdmin || isSuperAdmin
   const isDealer = useIsDealer()
   const isDispatchManager = useIsDispatchManager()
   const { walletData, loading: walletLoading } = useDealerWallet()
@@ -2128,7 +2130,10 @@ useEffect(() => {
         bookingSlot: selectedOrder?.details?.bookingSlot?.slotId,
         deliveryDate: selectedOrder?.details?.deliveryDate 
           ? new Date(selectedOrder.details.deliveryDate) 
-          : null
+          : null,
+        salesPerson: selectedOrder?.details?.salesPerson?._id
+          ? String(selectedOrder.details.salesPerson._id)
+          : ""
       })
       setQuantityDeltaInput("")
     }
@@ -3556,11 +3561,22 @@ const mapSlotForUi = (slotData) => {
         }
 
         // Validate quantity changes (only for regular orders)
-        if (dataToSend.quantity) {
+        const hasQuantityPatch =
+          dataToSend.quantity !== undefined &&
+          dataToSend.quantity !== null &&
+          String(dataToSend.quantity).trim() !== ""
+        if (hasQuantityPatch) {
           const newQuantity = Number(dataToSend.quantity)
           const currentQuantity = Number(row?.quantity || 0)
+          const isDealerBulkOrder = Boolean(row?.details?.dealerOrder)
 
-          if (newQuantity <= 0) {
+          if (!Number.isFinite(newQuantity) || newQuantity < 0) {
+            Toast.error("Invalid quantity")
+            setpatchLoading(false)
+            return
+          }
+
+          if (newQuantity <= 0 && !isDealerBulkOrder) {
             Toast.error("Quantity must be greater than 0")
             setpatchLoading(false)
             return
@@ -3661,6 +3677,20 @@ const mapSlotForUi = (slotData) => {
               ? moment(dataToSend.deliveryDate).format(ORDER_DATE_DISPLAY)
               : o?.deliveryDate
 
+            const spId = dataToSend?.salesPerson
+            const spOpt =
+              spId && salesPeople?.length
+                ? salesPeople.find((s) => String(s.value) === String(spId))
+                : null
+            const nextSalesPerson =
+              spId && spOpt
+                ? {
+                    _id: spId,
+                    name: spOpt.label.replace(/\s*\(Dealer\)\s*$/i, "").trim(),
+                    jobTitle: spOpt.isDealer ? "DEALER" : "SALES",
+                  }
+                : o.details?.salesPerson
+
             const patched = {
               ...o,
               rate: nextRate,
@@ -3690,6 +3720,9 @@ const mapSlotForUi = (slotData) => {
                   : o?.details?.dispatchTargetDate || null,
                 numberOfPlants: nextQty,
                 totalPlants,
+                ...(dataToSend?.salesPerson
+                  ? { salesPerson: nextSalesPerson }
+                  : {}),
               },
             }
             patchedOrderForModal = patched
@@ -7599,6 +7632,27 @@ const mapSlotForUi = (slotData) => {
                                 })()}
                             </div>
                           </div>
+
+                          {canReassignSalesPerson && (
+                            <div className="mt-4 max-w-md">
+                              <label className="text-sm text-gray-500 font-medium">
+                                Sales person / dealer (booked by)
+                              </label>
+                              <select
+                                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 mt-1 bg-white"
+                                value={updatedObject?.salesPerson ?? ""}
+                                onChange={(e) =>
+                                  handleInputChange(0, "salesPerson", e.target.value)
+                                }>
+                                {(salesPeople || []).map((s) => (
+                                  <option key={s.value} value={s.value}>
+                                    {s.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+
                           <div className="flex items-center justify-end space-x-2 mt-6">
                             <button
                               onClick={() => {
@@ -7618,7 +7672,12 @@ const mapSlotForUi = (slotData) => {
                                 }
 
                                 const finalQuantity = Number(editBaseQuantity) + Number(parsedDelta.delta || 0)
-                                if (!Number.isFinite(finalQuantity) || finalQuantity <= 0) {
+                                const isDealerBulkEdit = Boolean(selectedOrder?.details?.dealerOrder)
+                                if (!Number.isFinite(finalQuantity) || finalQuantity < 0) {
+                                  Toast.error("Invalid quantity")
+                                  return
+                                }
+                                if (finalQuantity <= 0 && !isDealerBulkEdit) {
                                   Toast.error("Final quantity must be greater than 0")
                                   return
                                 }
@@ -7629,7 +7688,11 @@ const mapSlotForUi = (slotData) => {
                                     ? updatedObject.rate
                                     : selectedOrder?.rate
                                 )
-                                if (!Number.isFinite(nextRate) || nextRate <= 0) {
+                                if (!Number.isFinite(nextRate) || nextRate < 0) {
+                                  Toast.error("Rate cannot be negative")
+                                  return
+                                }
+                                if (!isDealerBulkEdit && nextRate <= 0) {
                                   Toast.error("Rate must be greater than 0")
                                   return
                                 }
@@ -7639,6 +7702,9 @@ const mapSlotForUi = (slotData) => {
                                   ...updatedObject,
                                   rate: nextRate,
                                   quantity: finalQuantity
+                                }
+                                if (!canReassignSalesPerson) {
+                                  delete payloadForSave.salesPerson
                                 }
 
                                 // Show confirmation dialog with changes summary
@@ -7681,6 +7747,22 @@ const mapSlotForUi = (slotData) => {
                                       `Delivery Date: ${currentDate} → ${newDate} (Period: ${deliveryPeriod})`
                                     )
                                   }
+                                }
+
+                                const curSpId = selectedOrder?.details?.salesPerson?._id
+                                const nextSpId = updatedObject?.salesPerson
+                                if (
+                                  canReassignSalesPerson &&
+                                  nextSpId &&
+                                  String(nextSpId) !== String(curSpId || "")
+                                ) {
+                                  const curName =
+                                    selectedOrder?.details?.salesPerson?.name || "—"
+                                  const nextOpt = (salesPeople || []).find(
+                                    (s) => String(s.value) === String(nextSpId)
+                                  )
+                                  const nextName = nextOpt?.label || "—"
+                                  changes.push(`Sales person: ${curName} → ${nextName}`)
                                 }
 
                                 if (changes.length === 0) {
@@ -7913,7 +7995,7 @@ const mapSlotForUi = (slotData) => {
                                 {selectedOrder.details.orderEditHistory.length}
                               </div>
                               <div className="text-xs text-purple-600 mt-1">
-                                Changes to rate, quantity, and delivery date
+                                Changes to rate, quantity, delivery date, and sales person
                               </div>
                             </div>
 
@@ -7929,7 +8011,8 @@ const mapSlotForUi = (slotData) => {
                                     const fieldDisplayName = {
                                       rate: "Rate per Plant",
                                       numberOfPlants: "Quantity",
-                                      deliveryDate: "Delivery Date"
+                                      deliveryDate: "Delivery Date",
+                                      salesPerson: "Sales person",
                                     }[edit.field] || edit.field;
 
                                     // Format values based on field type
@@ -7975,27 +8058,34 @@ const mapSlotForUi = (slotData) => {
 
                                           {/* Change Details */}
                                           <div className="bg-white p-3 rounded border border-purple-100 mb-3">
-                                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-center">
-                                              <div className="bg-red-50 px-3 py-2 rounded-md">
-                                                <div className="text-xs text-red-600 mb-1">Previous Value</div>
-                                                <span className="text-red-700 line-through text-sm font-medium">
-                                                  {previousValueDisplay}
-                                                </span>
+                                            {edit.field === "salesPerson" ? (
+                                              <div className="text-sm text-gray-800">
+                                                {edit.notes ||
+                                                  "Sales person updated (see order details for current assignee)."}
                                               </div>
-                                              <div className="flex justify-center">
-                                                <span className="text-gray-400 text-xl">→</span>
+                                            ) : (
+                                              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-center">
+                                                <div className="bg-red-50 px-3 py-2 rounded-md">
+                                                  <div className="text-xs text-red-600 mb-1">Previous Value</div>
+                                                  <span className="text-red-700 line-through text-sm font-medium">
+                                                    {previousValueDisplay}
+                                                  </span>
+                                                </div>
+                                                <div className="flex justify-center">
+                                                  <span className="text-gray-400 text-xl">→</span>
+                                                </div>
+                                                <div className="bg-green-50 px-3 py-2 rounded-md">
+                                                  <div className="text-xs text-green-600 mb-1">New Value</div>
+                                                  <span className="text-green-700 font-bold text-sm">
+                                                    {newValueDisplay}
+                                                  </span>
+                                                </div>
                                               </div>
-                                              <div className="bg-green-50 px-3 py-2 rounded-md">
-                                                <div className="text-xs text-green-600 mb-1">New Value</div>
-                                                <span className="text-green-700 font-bold text-sm">
-                                                  {newValueDisplay}
-                                                </span>
-                                              </div>
-                                            </div>
+                                            )}
                                           </div>
 
                                           {/* Notes */}
-                                          {edit.notes && (
+                                          {edit.notes && edit.field !== "salesPerson" && (
                                             <div className="bg-gray-50 p-2 rounded text-sm text-gray-700 mb-3">
                                               <span className="font-medium">Notes:</span> {edit.notes}
                                             </div>

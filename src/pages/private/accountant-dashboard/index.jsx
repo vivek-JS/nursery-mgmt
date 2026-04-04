@@ -24,6 +24,7 @@ import {
 } from "features/accountant-dashboard/paymentsApi"
 import { LedgerPartiesTable } from "features/accountant-dashboard/LedgerPartiesTable"
 import BulkPaymentEntryDialog from "components/Modals/BulkPaymentEntryDialog"
+import DealerWalletCreditDialog from "components/Modals/DealerWalletCreditDialog"
 
 const ROWS = 25
 
@@ -67,6 +68,7 @@ const AccountantDashboard = () => {
 
   const [acceptingBulkId, setAcceptingBulkId] = useState(null)
   const [bulkPaymentEntryOpen, setBulkPaymentEntryOpen] = useState(false)
+  const [dealerWalletCreditOpen, setDealerWalletCreditOpen] = useState(false)
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearchTerm(searchTerm), 400)
@@ -461,6 +463,15 @@ const AccountantDashboard = () => {
                   New bulk payment
                 </button>
               )}
+              {hasPaymentAccess && selectedOrg === "ram-biotech" && (
+                <button
+                  type="button"
+                  className="px-3 py-1.5 text-xs font-medium rounded-md border border-emerald-700 text-emerald-900 bg-white hover:bg-emerald-50"
+                  onClick={() => setDealerWalletCreditOpen(true)}
+                >
+                  Credit dealer wallet
+                </button>
+              )}
             </div>
 
             <KpiCards orderPayments={orderPayments} bulkPayments={bulkPayments} />
@@ -545,6 +556,11 @@ const AccountantDashboard = () => {
           fetchOrders()
           fetchBulk()
         }}
+      />
+
+      <DealerWalletCreditDialog
+        open={dealerWalletCreditOpen}
+        onClose={() => setDealerWalletCreditOpen(false)}
       />
 
       <LedgerPanel ledger={ledgerData} onClose={() => setLedgerData(null)} />

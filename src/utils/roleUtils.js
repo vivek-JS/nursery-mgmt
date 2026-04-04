@@ -71,8 +71,13 @@ export const useIsOfficeAdmin = () => {
   const userData = useUserData()
   const jobTitle = userData?.jobTitle
   const userRole = userData?.role
-  // Prioritize jobTitle
-  return jobTitle === "OFFICE_ADMIN" || userRole === "OFFICE_ADMIN"
+  // Prioritize jobTitle (legacy tokens use OFFICEADMIN without underscore)
+  return (
+    jobTitle === "OFFICE_ADMIN" ||
+    jobTitle === "OFFICEADMIN" ||
+    userRole === "OFFICE_ADMIN" ||
+    userRole === "OFFICEADMIN"
+  )
 }
 
 /**

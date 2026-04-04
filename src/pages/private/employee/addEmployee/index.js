@@ -48,7 +48,7 @@ const AddEmployeeModal = ({
   jobTitles,
   isEdit,
   loading = false,
-  isSuperAdmin = false
+  canManageEmployees = false
 }) => {
   const [errors, setErrors] = useState({})
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -89,7 +89,7 @@ const AddEmployeeModal = ({
   const handleSubmit = async (e) => {
     e.preventDefault()
 
-    if (!isSuperAdmin) {
+    if (!canManageEmployees) {
       return
     }
 
@@ -106,7 +106,7 @@ const AddEmployeeModal = ({
   }
 
   const handleInputChange = (e) => {
-    if (!isSuperAdmin) {
+    if (!canManageEmployees) {
       return
     }
 
@@ -127,7 +127,7 @@ const AddEmployeeModal = ({
   }
 
   // If not super admin, show permission denied message
-  if (!isSuperAdmin) {
+  if (!canManageEmployees) {
     return (
       <Modal
         open={isOpen}
@@ -229,8 +229,8 @@ const AddEmployeeModal = ({
                   color: "text.secondary",
                   lineHeight: 1.7
                 }}>
-                Only Super Admins can add, edit, or delete employees. Please contact your system
-                administrator if you need access to this functionality.
+                Only Super Admin or Office Admin can add or edit employees. Please contact your
+                administrator if you need access.
               </Typography>
               <Button
                 variant="contained"

@@ -1866,7 +1866,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
   // ============================================================================
   
   const validateForm = () => {
-    const requiredFields = ["noOfPlants", "plant", "subtype", "orderDate", "cavity"]
+    const requiredFields = ["plant", "subtype", "orderDate", "cavity"]
 
     // For bulk orders, don't require farmer details
     if (!bulkOrder) {
@@ -1878,6 +1878,21 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
         Toast.error(`Please fill in ${field.replace(/([A-Z])/g, " $1").toLowerCase()}`)
         return false
       }
+    }
+
+    const rawPlants = formData?.noOfPlants
+    if (rawPlants === "" || rawPlants === null || rawPlants === undefined) {
+      Toast.error("Please fill in number of plants")
+      return false
+    }
+    const plantQty = parseInt(String(rawPlants).trim(), 10)
+    if (Number.isNaN(plantQty) || plantQty < 0) {
+      Toast.error("Please enter a valid number of plants")
+      return false
+    }
+    if (!bulkOrder && plantQty <= 0) {
+      Toast.error("Number of plants must be greater than 0")
+      return false
     }
 
     // Only validate mobile number if it's provided and not a bulk order

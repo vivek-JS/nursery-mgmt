@@ -5,7 +5,14 @@ import DeleteIcon from "@mui/icons-material/Delete"
 import EditIcon from "@mui/icons-material/Edit"
 import LockIcon from "@mui/icons-material/Lock"
 
-const EmployeeTable = ({ employees, onEdit, onDelete, loading = false, isSuperAdmin = false }) => {
+const EmployeeTable = ({
+  employees,
+  onEdit,
+  onDelete,
+  loading = false,
+  canEditEmployees = false,
+  canDeleteEmployees = false
+}) => {
   const { classes } = useStyles()
 
   const getDynamicStyle = (span, totalColumns, gap) => ({
@@ -75,7 +82,7 @@ const EmployeeTable = ({ employees, onEdit, onDelete, loading = false, isSuperAd
           item
           style={getDynamicStyle(3, 12, 14, true)}
           className={`${classes.label} ${classes.noMarginRight}`}>
-          {isSuperAdmin ? "Actions" : "Access"}
+          {canEditEmployees || canDeleteEmployees ? "Actions" : "Access"}
         </Grid>
       </Grid>
       {employees?.map((employee, index) => (
@@ -101,26 +108,30 @@ const EmployeeTable = ({ employees, onEdit, onDelete, loading = false, isSuperAd
             item
             style={getDynamicStyle(3, 12, 14)}
             className={`${classes.tableCell} ${classes.noMarginRight} ${classes.actionCell}`}>
-            {isSuperAdmin ? (
+            {canEditEmployees || canDeleteEmployees ? (
               <>
-                <Button
-                  variant="outlined"
-                  color="primary"
-                  size="small"
-                  onClick={() => onEdit(employee)}
-                  className={classes.actionButton}
-                  startIcon={<EditIcon sx={{ fontSize: 16 }} />}>
-                  Edit
-                </Button>
-                <Button
-                  variant="outlined"
-                  color="error"
-                  size="small"
-                  onClick={() => onDelete(employee?._id)}
-                  className={classes.actionButton}
-                  startIcon={<DeleteIcon sx={{ fontSize: 16 }} />}>
-                  Delete
-                </Button>
+                {canEditEmployees && (
+                  <Button
+                    variant="outlined"
+                    color="primary"
+                    size="small"
+                    onClick={() => onEdit(employee)}
+                    className={classes.actionButton}
+                    startIcon={<EditIcon sx={{ fontSize: 16 }} />}>
+                    Edit
+                  </Button>
+                )}
+                {canDeleteEmployees && (
+                  <Button
+                    variant="outlined"
+                    color="error"
+                    size="small"
+                    onClick={() => onDelete(employee?._id)}
+                    className={classes.actionButton}
+                    startIcon={<DeleteIcon sx={{ fontSize: 16 }} />}>
+                    Delete
+                  </Button>
+                )}
               </>
             ) : (
               <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>

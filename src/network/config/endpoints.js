@@ -110,6 +110,10 @@ export const API = {
     ),
     GET_DEALER_PLANT_LEDGER: new APIRouter("/user/dealers", HTTP_METHODS.GET),
     GET_DEALER_LEDGER: new APIRouter("/user/dealers", HTTP_METHODS.GET),
+    POST_DEALER_WALLET_CREDIT: new APIRouter(
+      "/user/dealers/:dealerId/wallet/credit",
+      HTTP_METHODS.POST
+    ),
   },
   PATIENT: {
     ADD_PATIENT_LIST: new APIRouter("api/v2/users/", HTTP_METHODS.POST, OFFLINE.PROFILE),

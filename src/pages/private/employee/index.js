@@ -15,7 +15,7 @@ import EmployeeTable from "./EmployeeTable"
 import AddEmployeeModal from "./addEmployee"
 import { API, NetworkManager } from "network/core"
 import { Toast } from "helpers/toasts/toastHelper"
-import { useSelector } from "react-redux"
+import { useIsSuperAdmin, useIsOfficeAdmin } from "utils/roleUtils"
 
 const EmployeeManagement = () => {
   const [employees, setEmployees] = useState([])
@@ -31,13 +31,9 @@ const EmployeeManagement = () => {
     birthDate: ""
   })
 
-  // Get user data from Redux store
-  const userData = useSelector((state) => state?.userData?.userData)
-  const appUser = useSelector((state) => state?.app?.user)
-  const user = userData || appUser || {}
-
-  // Check if current user is super admin
-  const isSuperAdmin = user?.role === "SUPER_ADMIN"
+  const isSuperAdmin = useIsSuperAdmin()
+  const isOfficeAdmin = useIsOfficeAdmin()
+  const canManageEmployees = isSuperAdmin || isOfficeAdmin
 
   const jobTitles = [
     "Manager",
@@ -94,9 +90,8 @@ const EmployeeManagement = () => {
   const handleSubmit = async (e) => {
     e.preventDefault()
 
-    // Check if user has permission
-    if (!isSuperAdmin) {
-      Toast.error("Only Super Admins can manage employees")
+    if (!canManageEmployees) {
+      Toast.error("Only Super Admin or Office Admin can manage employees")
       return
     }
 
@@ -146,8 +141,8 @@ const EmployeeManagement = () => {
   }
 
   const handleEdit = (employee) => {
-    if (!isSuperAdmin) {
-      Toast.error("Only Super Admins can edit employees")
+    if (!canManageEmployees) {
+      Toast.error("Only Super Admin or Office Admin can edit employees")
       return
     }
 
@@ -203,10 +198,10 @@ const EmployeeManagement = () => {
   return (
     <Box sx={{ p: 3 }}>
       {/* Permission Alert */}
-      {!isSuperAdmin && (
+      {!canManageEmployees && (
         <Alert severity="info" sx={{ mb: 3 }}>
-          You are viewing employees in read-only mode. Only Super Admins can add, edit, or delete
-          employees.
+          You are viewing employees in read-only mode. Super Admin or Office Admin can add and edit;
+          only Super Admin can delete.
         </Alert>
       )}
 
@@ -215,15 +210,15 @@ const EmployeeManagement = () => {
           variant="contained"
           startIcon={<AddIcon />}
           onClick={() => {
-            if (!isSuperAdmin) {
-              Toast.error("Only Super Admins can add employees")
+            if (!canManageEmployees) {
+              Toast.error("Only Super Admin or Office Admin can add employees")
               return
             }
             setIsEdit(false)
             resetForm()
             setIsModalOpen(true)
           }}
-          disabled={!isSuperAdmin}>
+          disabled={!canManageEmployees}>
           Add Employee
         </Button>
       </Stack>
@@ -258,7 +253,8 @@ const EmployeeManagement = () => {
         onEdit={handleEdit}
         onDelete={handleDelete}
         loading={loading}
-        isSuperAdmin={isSuperAdmin}
+        canEditEmployees={canManageEmployees}
+        canDeleteEmployees={isSuperAdmin}
       />
 
       <AddEmployeeModal
@@ -270,7 +266,7 @@ const EmployeeManagement = () => {
         jobTitles={jobTitles}
         isEdit={isEdit}
         loading={loading}
-        isSuperAdmin={isSuperAdmin}
+        canManageEmployees={canManageEmployees}
       />
     </Box>
   )

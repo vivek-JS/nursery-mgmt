@@ -51,6 +51,8 @@ import { Park as EcoIcon } from "@mui/icons-material"
 import { format } from "date-fns"
 import { useNavigate } from "react-router-dom"
 import { API, NetworkManager } from "network/core"
+import { useHasPaymentAccess } from "utils/roleUtils"
+import DealerWalletCreditDialog from "components/Modals/DealerWalletCreditDialog"
 
 // Custom styled progress bar for wallet utilization
 const WalletUtilization = ({ used, total }) => {
@@ -469,6 +471,7 @@ const DealerWalletStatsDashboard = ({ stats }) => {
 }
 
 const Dealers = () => {
+  const hasPaymentAccess = useHasPaymentAccess()
   const [dealers, setDealers] = useState([])
   const [stats, setStats] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -477,6 +480,7 @@ const Dealers = () => {
   const [searchQuery, setSearchQuery] = useState("")
   const [sortConfig, setSortConfig] = useState({ key: "name", direction: "ascending" })
   const [tabValue, setTabValue] = useState(0)
+  const [creditWalletDealer, setCreditWalletDealer] = useState(null)
   const navigate = useNavigate()
 
   // Fetch dealers on component mount
@@ -633,7 +637,6 @@ const Dealers = () => {
     { id: "wallet.totalRemainingQuantity", label: "Remaining Qty", sortable: true },
     { id: "actions", label: "Actions", sortable: false }
   ]
-  console.log(stats)
 
   return (
     <Container maxWidth={false} sx={{ py: 3 }}>
@@ -858,13 +861,25 @@ const Dealers = () => {
                       </Box>
                     </TableCell>
                     <TableCell>
-                      <Button
-                        variant="outlined"
-                        size="small"
-                        startIcon={<VisibilityIcon />}
-                        onClick={() => handleViewDetails(dealer._id)}>
-                        View
-                      </Button>
+                      <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
+                        <Button
+                          variant="outlined"
+                          size="small"
+                          startIcon={<VisibilityIcon />}
+                          onClick={() => handleViewDetails(dealer._id)}>
+                          View
+                        </Button>
+                        {hasPaymentAccess && (
+                          <Button
+                            variant="contained"
+                            color="success"
+                            size="small"
+                            startIcon={<WalletIcon />}
+                            onClick={() => setCreditWalletDealer(dealer)}>
+                            Credit wallet
+                          </Button>
+                        )}
+                      </Box>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -909,6 +924,16 @@ const Dealers = () => {
           </Box>
         </Card>
       )}
+
+      <DealerWalletCreditDialog
+        open={Boolean(creditWalletDealer)}
+        onClose={() => setCreditWalletDealer(null)}
+        initialDealer={creditWalletDealer}
+        onSuccess={() => {
+          getDealers()
+          getDealersStats()
+        }}
+      />
     </Container>
   )
 }
