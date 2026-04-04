@@ -22,6 +22,8 @@ import {
 import { API, NetworkManager } from "network/core"
 import { Toast } from "helpers/toasts/toastHelper"
 
+const normalizeSlotId = (value) => (value == null ? "" : String(value))
+
 const TransferPlantsModal = ({ open, onClose, slot, onSuccess }) => {
   const [mode, setMode] = useState("capacity")
   const [loading, setLoading] = useState(false)
@@ -160,7 +162,8 @@ const TransferPlantsModal = ({ open, onClose, slot, onSuccess }) => {
     }
     const maxQty = Math.min(
       capacityData?.source?.availablePlants || 0,
-      capacityData?.options?.find((o) => o.slotId === targetSlotId)?.availableCapacity ?? Infinity
+      capacityData?.options?.find((o) => normalizeSlotId(o.slotId) === normalizeSlotId(targetSlotId))
+        ?.availableCapacity ?? Infinity
     )
     if (Number(quantity) > maxQty) {
       Toast.error(`Maximum transferable: ${maxQty.toLocaleString()} plants`)
@@ -233,7 +236,9 @@ const TransferPlantsModal = ({ open, onClose, slot, onSuccess }) => {
     setSubmitting(false)
   }
 
-  const selectedCapacityOption = capacityData?.options?.find((o) => o.slotId === targetSlotId)
+  const selectedCapacityOption = capacityData?.options?.find(
+    (o) => normalizeSlotId(o.slotId) === normalizeSlotId(targetSlotId)
+  )
   const maxCapacityQty = selectedCapacityOption
     ? Math.min(
         capacityData?.source?.availablePlants || 0,
@@ -252,7 +257,7 @@ const TransferPlantsModal = ({ open, onClose, slot, onSuccess }) => {
     mode === "orders" &&
     targetSlotId &&
     plantsForTargetFilter > 0 &&
-    eligibleTargetOptions.some((o) => o.slotId === targetSlotId)
+    eligibleTargetOptions.some((o) => normalizeSlotId(o.slotId) === normalizeSlotId(targetSlotId))
 
   return (
     <Dialog open={open} onClose={submitting ? undefined : onClose} maxWidth="md" fullWidth>
@@ -460,7 +465,7 @@ const TransferPlantsModal = ({ open, onClose, slot, onSuccess }) => {
                   <Typography variant="body2" color="textSecondary">
                     {(ordersData.options?.length ?? 0) === 0
                       ? "No target slots with free capacity in the date window."
-                      : "Select orders above, then choose a target slot."}
+                      : "Select order(s) above, then choose a target slot with enough free capacity."}
                   </Typography>
                 )}
               </>

@@ -70,6 +70,7 @@ import {
   mergeUpiOcrIntoPaymentState,
   buildRemarkWithReceiptPayee
 } from "utils/upiReceiptOcr"
+import { TableVirtuoso, Virtuoso } from "react-virtuoso"
 
 /** User-visible order dates in table/modals — e.g. 12-March-2025 (API payloads still use DD-MM-YYYY / YYYY-MM-DD). */
 const ORDER_DATE_DISPLAY = "DD-MMMM-YYYY"
@@ -1003,7 +1004,21 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   const [paymentQRModalData, setPaymentQRModalData] = useState(null)
   const [verifyIciciLoadingPaymentId, setVerifyIciciLoadingPaymentId] = useState(null)
   const [generateQRLoading, setGenerateQRLoading] = useState(false)
-  const infiniteLoaderRef = useRef(null)
+  const ordersTableScrollRef = useRef(null)
+  const loadMoreOrdersRef = useRef(null)
+  const [farmerOrdersGridColumnCount, setFarmerOrdersGridColumnCount] = useState(1)
+  useLayoutEffect(() => {
+    const update = () => {
+      const w = window.innerWidth
+      if (w >= 1536) setFarmerOrdersGridColumnCount(4)
+      else if (w >= 1280) setFarmerOrdersGridColumnCount(3)
+      else if (w >= 768) setFarmerOrdersGridColumnCount(2)
+      else setFarmerOrdersGridColumnCount(1)
+    }
+    update()
+    window.addEventListener("resize", update)
+    return () => window.removeEventListener("resize", update)
+  }, [])
 
   // Inject custom CSS for blinking animation and enhanced dropdowns
   useEffect(() => {
@@ -2012,44 +2027,6 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
     selectedDispatchedBy, // Filter by who dispatched (Ram Agri Inputs)
     agriDispatchStatusFilter, // Reload when status filter tab changes (Ram Agri Inputs)
     orderDateRangeBy,
-  ])
-
-  useEffect(() => {
-    const node = infiniteLoaderRef.current
-    if (!node) return
-    if (!hasMoreOrders || loading || loadingMoreOrders || showAgriSalesOrders || slotId) return
-    if (viewMode === "dispatch_process") return
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0]?.isIntersecting) {
-          loadMoreOrders()
-        }
-      },
-      { rootMargin: "240px 0px" }
-    )
-    observer.observe(node)
-    return () => observer.disconnect()
-  }, [
-    hasMoreOrders,
-    loading,
-    loadingMoreOrders,
-    showAgriSalesOrders,
-    slotId,
-    viewMode,
-    ordersPage,
-    debouncedSearchTerm,
-    selectedSalesPerson,
-    selectedVillage,
-    selectedDistrict,
-    selectedPlant,
-    selectedSubtype,
-    startDate,
-    endDate,
-    orderDateRangeBy,
-    isCompletedOrdersTab,
-    isDispatchedVehicleTab,
-    isReadyForDispatchTab,
   ])
 
   useEffect(() => {
@@ -3531,6 +3508,8 @@ const mapSlotForUi = (slotData) => {
     }
   }
 
+  loadMoreOrdersRef.current = loadMoreOrders
+
   const pacthOrders = async (patchObj, row) => {
     setpatchLoading(true)
 
@@ -4803,10 +4782,97 @@ const mapSlotForUi = (slotData) => {
             <>
         {/* Table View */}
         {viewType === "table" && (
-          <div className="overflow-x-auto max-h-[calc(100vh-400px)]">
+          <div className="overflow-x-auto">
             {filteredOrders && filteredOrders.length > 0 ? (
-              <table className="w-full text-sm">
-                <thead className="bg-gradient-to-r from-gray-50 to-gray-100 border-b-2 border-gray-300 sticky top-0 z-10">
+              (() => {
+                const farmerOrdersTableColCount = getFarmerOrdersTableColumnCount({
+                  showAgriSalesOrders,
+                  hidePaymentDetails,
+                  viewMode,
+                })
+                const farmerTableBodyItems =
+                  isDispatchedVehicleTab && !showAgriSalesOrders
+                    ? buildDispatchedVehicleTableBodyItems(filteredOrders)
+                    : filteredOrders.map((row, dataIndex) => ({
+                        kind: "order",
+                        row,
+                        sr: dataIndex + 1,
+                        dataIndex,
+                      }))
+                return (
+                  <TableVirtuoso
+                    className="w-full"
+                    data={farmerTableBodyItems}
+                    style={{ height: "calc(100vh - 400px)", width: "100%" }}
+                    defaultItemHeight={56}
+                    increaseViewportBy={{ top: 120, bottom: 400 }}
+                    scrollerRef={(el) => {
+                      ordersTableScrollRef.current = el
+                    }}
+                    endReached={() => {
+                      if (showAgriSalesOrders || slotId || viewMode === "dispatch_process") return
+                      if (!hasMoreOrders || loading || loadingMoreOrders) return
+                      loadMoreOrdersRef.current?.()
+                    }}
+                    components={{
+                      Table: (p) => <table {...p} className={`w-full text-sm ${p.className || ""}`} />,
+                      TableHead: (p) => (
+                        <thead {...p} className="bg-gradient-to-r from-gray-50 to-gray-100 border-b-2 border-gray-300 sticky top-0 z-10" />
+                      ),
+                      TableRow: ({ item, children, ...trProps }) => {
+                        if (!item) return <tr {...trProps}>{children}</tr>
+                        if (item.kind === "groupHeader") {
+                          return (
+                            <tr {...trProps} className="bg-slate-100 border-t-2 border-slate-200">
+                              {children}
+                            </tr>
+                          )
+                        }
+                        const { row } = item
+                        const hasPendingPayment = row?.details?.payment?.some((p) => p.paymentStatus === "PENDING")
+                        let agri = ""
+                        if (showAgriSalesOrders) {
+                          const ds = row.details?.dispatchStatus
+                          if (ds === "DISPATCHED") agri = "bg-brand-50 border-l-brand-500"
+                          else if (ds === "DELIVERED") agri = "bg-green-50 border-l-green-500"
+                          else if (selectedAgriSalesOrders.includes(row.details?.orderid))
+                            agri = "bg-amber-50 border-l-amber-500"
+                        }
+                        return (
+                          <tr
+                            {...trProps}
+                            className={`hover:bg-brand-50 transition-all duration-150 cursor-pointer border-l-4 ${
+                              hasPendingPayment && !showAgriSalesOrders ? "payment-blink border-l-amber-400" : "border-l-transparent"
+                            } ${row?.details?.dealerOrder ? "bg-sky-50" : ""} ${
+                              selectedRows.has(row.details.orderid) && !showAgriSalesOrders ? "bg-brand-100 border-l-brand-500" : ""
+                            } ${agri}`}
+                            onClick={() => {
+                              setSelectedOrder(row)
+                              setIsOrderModalOpen(true)
+                            }}
+                          >
+                            {children}
+                          </tr>
+                        )
+                      },
+                    }}
+                    fixedFooterContent={
+                      !showAgriSalesOrders
+                        ? () => (
+                            <tr>
+                              <td colSpan={farmerOrdersTableColCount} className="p-0 border-none bg-white">
+                                <div
+                                  className="flex justify-center py-3 min-h-[44px]"
+                                  aria-hidden
+                                >
+                                  {loadingMoreOrders && <CircularProgress size={18} />}
+                                </div>
+                              </td>
+                            </tr>
+                          )
+                        : undefined
+                    }
+                    fixedHeaderContent={() => (
                   <tr>
                     {/* Dispatch Selection Checkbox for Agri Sales */}
                     {showAgriSalesOrders && (
@@ -4881,31 +4947,11 @@ const mapSlotForUi = (slotData) => {
                       Actions
                     </th>
                   </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                {(() => {
-                  const farmerOrdersTableColCount = getFarmerOrdersTableColumnCount({
-                    showAgriSalesOrders,
-                    hidePaymentDetails,
-                    viewMode,
-                  })
-                  const farmerTableBodyItems =
-                    isDispatchedVehicleTab && !showAgriSalesOrders
-                      ? buildDispatchedVehicleTableBodyItems(filteredOrders)
-                      : filteredOrders.map((row, dataIndex) => ({
-                          kind: "order",
-                          row,
-                          sr: dataIndex + 1,
-                          dataIndex,
-                        }))
-                  return farmerTableBodyItems.map((item) => {
+                    )}
+                    itemContent={(index, item) => {
                   if (item.kind === "groupHeader") {
                     const { meta, orderCount, totalPlants } = item
                     return (
-                      <tr
-                        key={`groupHeader-${meta.key}`}
-                        className="bg-slate-100 border-t-2 border-slate-200"
-                      >
                         <td
                           colSpan={farmerOrdersTableColCount}
                           className="px-3 py-2 text-xs text-slate-800"
@@ -4924,7 +4970,6 @@ const mapSlotForUi = (slotData) => {
                             {totalPlants.toLocaleString()} plants
                           </span>
                         </td>
-                      </tr>
                     )
                   }
                   const { row, sr, dataIndex } = item
@@ -4939,29 +4984,8 @@ const mapSlotForUi = (slotData) => {
                         : null)
                   const hasPendingPayment = row?.details?.payment?.some((payment) => payment.paymentStatus === "PENDING")
 
-                  // Determine row styling based on dispatch status for Agri Sales
-                  const getAgriRowStyle = () => {
-                    if (!showAgriSalesOrders) return ""
-                    const dispatchStatus = row.details?.dispatchStatus
-                    if (dispatchStatus === "DISPATCHED") return "bg-brand-50 border-l-brand-500"
-                    if (dispatchStatus === "DELIVERED") return "bg-green-50 border-l-green-500"
-                    if (selectedAgriSalesOrders.includes(row.details?.orderid)) return "bg-amber-50 border-l-amber-500"
-                    return ""
-                  }
-
                   return (
-                    <tr
-                      key={showAgriSalesOrders && row.details?.orderid ? row.details.orderid : dataIndex}
-                      className={`hover:bg-brand-50 transition-all duration-150 cursor-pointer border-l-4 ${
-                        hasPendingPayment && !showAgriSalesOrders ? "payment-blink border-l-amber-400" : "border-l-transparent"
-                      } ${row?.details?.dealerOrder ? "bg-sky-50" : ""} ${
-                        selectedRows.has(row.details.orderid) && !showAgriSalesOrders ? "bg-brand-100 border-l-brand-500" : ""
-                      } ${getAgriRowStyle()}`}
-                      onClick={() => {
-                        setSelectedOrder(row)
-                        setIsOrderModalOpen(true)
-                      }}
-                      >
+                    <>
                       {/* Dispatch Selection Checkbox for Agri Sales */}
                       {showAgriSalesOrders && (
                         <td className="px-2 py-2 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
@@ -5370,13 +5394,13 @@ const mapSlotForUi = (slotData) => {
                           );
                         })()}
                       </td>
-                    </tr>
+                    </>
                   )
-                })
-                })()}
-              </tbody>
-            </table>
-          ) : (
+                }}
+                  />
+                )
+              })()
+            ) : (
             <div className="flex items-center justify-center py-12">
               <div className="text-center">
                 <div className="text-gray-400 text-6xl mb-4">📋</div>
@@ -5430,378 +5454,418 @@ const mapSlotForUi = (slotData) => {
         )}
 
         {/* Grid View */}
-        {viewType === "grid" && (
-          <div className="p-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3">
-              {filteredOrders && filteredOrders.length > 0 ? (
-                (isDispatchedVehicleTab && !showAgriSalesOrders
-                  ? [...filteredOrders].sort((a, b) =>
-                      getLatestDispatchVehicleMeta(a).key.localeCompare(
-                        getLatestDispatchVehicleMeta(b).key
-                      )
+        {viewType === "grid" && (() => {
+          const gridOrdersList =
+            filteredOrders && filteredOrders.length > 0
+              ? isDispatchedVehicleTab && !showAgriSalesOrders
+                ? [...filteredOrders].sort((a, b) =>
+                    getLatestDispatchVehicleMeta(a).key.localeCompare(
+                      getLatestDispatchVehicleMeta(b).key
                     )
-                  : filteredOrders
-                ).map((row, index) => {
-                  const farmerDetails = row?.details?.farmer
-                  // For Ram Agri sales orders, use customerTaluka and customerVillage
-                  const farmerLocation = row.isAgriSalesOrder || row.details?.isRamAgriProduct
-                    ? (row.details?.customerTaluka && row.details?.customerVillage
-                        ? `${row.details.customerTaluka} → ${row.details.customerVillage}`
-                        : row.details?.customerTaluka || row.details?.customerVillage || null)
-                    : (farmerDetails
-                        ? [farmerDetails.district, farmerDetails.village].filter(Boolean).join(" → ")
-                        : null)
+                  )
+                : filteredOrders
+              : []
+          const gridRowChunks = []
+          const cols = farmerOrdersGridColumnCount
+          for (let i = 0; i < gridOrdersList.length; i += cols) {
+            gridRowChunks.push(gridOrdersList.slice(i, i + cols))
+          }
+          const gridRowClass =
+            cols === 1
+              ? "grid-cols-1"
+              : cols === 2
+                ? "grid-cols-2"
+                : cols === 3
+                  ? "grid-cols-3"
+                  : "grid-cols-4"
 
-                  return (
-                    <div
-                      key={showAgriSalesOrders && row.details?.orderid ? row.details.orderid : index}
-                      className={`bg-white rounded-lg shadow-sm border hover:shadow-md transition-all duration-200 cursor-pointer ${
-                        row?.details?.payment.some((payment) => payment.paymentStatus === "PENDING")
-                          ? "payment-blink"
-                          : ""
-                      } ${row?.details?.dealerOrder ? "border-sky-200 bg-sky-50" : ""}`}
-                      onClick={() => {
-                        setSelectedOrder(row)
-                        setIsOrderModalOpen(true)
-                      }}
-                      >
-                      {/* Card Header */}
-                      <div className="p-3 border-b border-gray-100">
-                        <div className="flex items-start justify-between mb-2">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2">
-                              <h3 className="font-semibold text-gray-900 text-sm">Order #{(row.isAgriSalesOrder || row.details?.isRamAgriProduct) ? String(row.order).padStart(5, '0') : row.order}</h3>
-                            </div>
-                            <div className="flex items-center gap-1 mt-1 flex-wrap">
-                              {row.details?.orderFor ? (
-                                <>
-                                  <span className="text-xs text-gray-500">Farmer:</span>
-                                  <span className={`text-xs font-medium farmer-name-highlight`}>
-                                    {row.details.farmer?.name || "Unknown"}
-                                  </span>
-                                  <span className="text-xs text-gray-500">| Order For:</span>
-                                  <span className={`text-xs font-medium order-for-highlight`}>
-                                    {row.details.orderFor.name}
-                                  </span>
-                                </>
-                              ) : (
-                                <span className={`text-xs font-medium farmer-name-highlight`}>
-                                  {row.farmerName}
-                                </span>
-                              )}
-                            </div>
-                            {row.details?.salesPerson && (
-                              <p className="text-xs text-brand-600 mt-1 font-medium">
-                                Booked by: {row.details.salesPerson.name}
-                                {row.details.salesPerson.jobTitle === "DEALER" && " (Dealer)"}
-                              </p>
-                            )}
-                            {farmerLocation && (
-                              <p className="text-xs text-gray-500 mt-1 font-medium truncate">{farmerLocation}</p>
-                            )}
+          return (
+          <div className="p-4">
+            {gridOrdersList.length > 0 ? (
+              <Virtuoso
+                className="w-full"
+                data={gridRowChunks}
+                style={{ height: "calc(100vh - 400px)", width: "100%" }}
+                defaultItemHeight={400}
+                increaseViewportBy={{ top: 80, bottom: 400 }}
+                endReached={() => {
+                  if (showAgriSalesOrders || slotId || viewMode === "dispatch_process") return
+                  if (!hasMoreOrders || loading || loadingMoreOrders) return
+                  loadMoreOrdersRef.current?.()
+                }}
+                components={
+                  !showAgriSalesOrders
+                    ? {
+                        Footer: () => (
+                          <div className="flex justify-center py-3 min-h-[44px]" aria-hidden>
+                            {loadingMoreOrders && <CircularProgress size={18} />}
                           </div>
-                          <div className="flex items-center space-x-2">
-                            {viewMode !== "booking" && (
-                              <input
-                                type="checkbox"
-                                onChange={(e) => {
-                                  e.stopPropagation()
-                                  toggleRowSelection(row.details.orderid, row)
-                                }}
-                                onClick={(e) => e.stopPropagation()}
-                                checked={selectedRows.has(row.details.orderid)}
-                                className="w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
-                              />
-                            )}
-                            {!(row.isAgriSalesOrder || row.details?.isRamAgriProduct) && (
-                              <DownloadPDFButton order={row} />
-                            )}
-                          </div>
-                        </div>
+                        ),
+                      }
+                    : undefined
+                }
+                itemContent={(rowIndex, chunk) => (
+                  <div className={"grid gap-3 pb-3 " + gridRowClass}>
+                    {chunk.map((row, slot) => {
+                      const globalIndex = rowIndex * farmerOrdersGridColumnCount + slot
 
-                        {/* Status Badge */}
-                        <div className="flex items-center justify-between mt-2">
-                          {showAgriSalesOrders ? (
-                            <div className="flex flex-col gap-1 w-full">
-                              <span
-                                className={`status-badge-enhanced status-${toStatusBadgeCssClass(row.orderStatus)} flex items-center gap-1`}>
-                                {row.orderStatus === "FARM_READY" && "🌱"}
-                                {row.orderStatus === "READY_FOR_DISPATCH" && "📋"}
-                                {formatOrderStatusLabel(row.orderStatus)}
-                              </span>
-                              {row.orderStatus === "READY_FOR_DISPATCH" && (() => {
-                                const badge = getReadyDispatchMarathiBadge(row)
-                                if (!badge) return null
-                                return (
-                                  <span
-                                    title={badge.label}
-                                    className={`text-[9px] px-1.5 py-0.5 rounded font-semibold max-w-[11rem] leading-tight ${badge.className}`}>
-                                    {badge.label}
-                                  </span>
-                                )
-                              })()}
-                              {canChangeOrderStatus && row.orderStatus === "PENDING" && (
-                                <div className="flex flex-wrap gap-1 mt-1 w-full" onClick={(e) => e.stopPropagation()}>
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      handleStatusChange(row, "ACCEPTED")
-                                    }}
-                                    className="text-[10px] px-2 py-1 rounded bg-green-100 text-green-800 font-medium hover:bg-green-200">
-                                    Accept
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      handleStatusChange(row, "REJECTED")
-                                    }}
-                                    className="text-[10px] px-2 py-1 rounded bg-gray-100 text-gray-800 font-medium hover:bg-gray-200">
-                                    Reject
-                                  </button>
+                      const farmerDetails = row?.details?.farmer
+                      // For Ram Agri sales orders, use customerTaluka and customerVillage
+                      const farmerLocation = row.isAgriSalesOrder || row.details?.isRamAgriProduct
+                        ? (row.details?.customerTaluka && row.details?.customerVillage
+                            ? `${row.details.customerTaluka} → ${row.details.customerVillage}`
+                            : row.details?.customerTaluka || row.details?.customerVillage || null)
+                        : (farmerDetails
+                            ? [farmerDetails.district, farmerDetails.village].filter(Boolean).join(" → ")
+                            : null)
+
+                      return (
+                        <div
+                          key={showAgriSalesOrders && row.details?.orderid ? row.details.orderid : globalIndex}
+                          className={`bg-white rounded-lg shadow-sm border hover:shadow-md transition-all duration-200 cursor-pointer ${
+                            row?.details?.payment.some((payment) => payment.paymentStatus === "PENDING")
+                              ? "payment-blink"
+                              : ""
+                          } ${row?.details?.dealerOrder ? "border-sky-200 bg-sky-50" : ""}`}
+                          onClick={() => {
+                            setSelectedOrder(row)
+                            setIsOrderModalOpen(true)
+                          }}
+                          >
+                          {/* Card Header */}
+                          <div className="p-3 border-b border-gray-100">
+                            <div className="flex items-start justify-between mb-2">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2">
+                                  <h3 className="font-semibold text-gray-900 text-sm">Order #{(row.isAgriSalesOrder || row.details?.isRamAgriProduct) ? String(row.order).padStart(5, '0') : row.order}</h3>
                                 </div>
-                              )}
-                            </div>
-                          ) : (row.orderStatus !== "COMPLETED" && row.orderStatus !== "DISPATCHED" && canChangeOrderStatus) ? (
-                            <div className="relative" onClick={(e) => e.stopPropagation()}>
-                              <SearchableDropdown
-                                label=""
-                                value={row.orderStatus}
-                                onChange={(newStatus) => handleStatusChange(row, newStatus)}
-                                options={orderStatusOptions || []}
-                                placeholder="Select Status"
-                                maxHeight="200px"
-                                isStatusDropdown={true}
-                              />
-                            </div>
-                          ) : (
-                            <div className="flex flex-col gap-1">
-                              <span
-                                className={`status-badge-enhanced status-${toStatusBadgeCssClass(row.orderStatus)} flex items-center gap-1`}>
-                                {row.orderStatus === "FARM_READY" && "🌱"}
-                                {row.orderStatus === "READY_FOR_DISPATCH" && "📋"}
-                                {formatOrderStatusLabel(row.orderStatus)}
-                              </span>
-                              {row.orderStatus === "READY_FOR_DISPATCH" && (() => {
-                                const badge = getReadyDispatchMarathiBadge(row)
-                                if (!badge) return null
-                                return (
-                                  <span
-                                    title={badge.label}
-                                    className={`text-[9px] px-1.5 py-0.5 rounded font-semibold max-w-[11rem] leading-tight ${badge.className}`}>
-                                    {badge.label}
-                                  </span>
-                                )
-                              })()}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Card Body */}
-                      <div className="p-3 space-y-2">
-                        {/* Plant Info */}
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs text-gray-500">Plant Type</span>
-                          <span className="text-xs font-medium text-gray-900 truncate ml-2">{row.plantType}</span>
-                        </div>
-
-                        {/* Quantity & Rate */}
-                        <div className="grid grid-cols-2 gap-3">
-                          <div>
-                            <span className="text-xs text-gray-500">Total Plants</span>
-                            {/* Show final quantity for completed Agri Sales orders */}
-                            {row.isAgriSalesOrder && row.orderStatus === "COMPLETED" && row.details?.deliveredQuantity > 0 ? (
-                              <>
-                                <div className="text-sm font-medium text-green-700">
-                                  Final: {row.details.deliveredQuantity?.toLocaleString()}
-                                </div>
-                                {row.details.returnQuantity > 0 && (
-                                  <div className="text-xs text-red-600 mt-0.5">
-                                    Returned: {row.details.returnQuantity?.toLocaleString()}
-                                  </div>
-                                )}
-                                <div className="text-xs text-gray-500 mt-0.5">
-                                  Original: {row.quantity?.toLocaleString()}
-                                </div>
-                              </>
-                            ) : (
-                              <>
-                                <div className="text-sm font-medium text-gray-900">
-                                  {(row.totalPlants ?? row.quantity)?.toLocaleString()}
-                                </div>
-                                {row.additionalPlants > 0 && (
-                                  <div className="text-xs text-brand-600 mt-0.5">
-                                    Base: {row.basePlants?.toLocaleString()} &middot; Extra: +
-                                    {row.additionalPlants?.toLocaleString()}
-                                  </div>
-                                )}
-                                {row["remaining Plants"] < (row.totalPlants ?? row.quantity) && (
-                                  <div className="text-xs text-orange-600 mt-0.5">
-                                    Remaining: {row["remaining Plants"]?.toLocaleString()}
-                                  </div>
-                                )}
-                              </>
-                            )}
-                          </div>
-                          <div>
-                            <span className="text-xs text-gray-500">Rate</span>
-                            <div className="text-sm font-medium text-gray-900">₹{row.rate}</div>
-                          </div>
-                        </div>
-
-                        {/* Financial Info */}
-                        <div className="bg-gray-50 rounded-md p-2 space-y-1">
-                          <div className="flex justify-between">
-                            <span className="text-xs text-gray-500">Total</span>
-                            <span className="text-xs font-semibold text-gray-900">{row.total}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-xs text-gray-500">Paid</span>
-                            <span className="text-xs text-green-600">{row["Paid Amt"]}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-xs text-gray-500">Remaining</span>
-                            <span className="text-xs text-amber-600">{row["remaining Amt"]}</span>
-                          </div>
-                        </div>
-
-                        {/* Delivery Info */}
-                        <div className="space-y-1">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs text-gray-500">Delivery Period</span>
-                            <span className="text-xs font-medium text-brand-600">{row.Delivery}</span>
-                          </div>
-                          {row.deliveryDate && row.deliveryDate !== "-" && (
-                            <div className="bg-brand-50 rounded-md p-1.5 border border-brand-200">
-                              <div className="flex items-center justify-between">
-                                <span className="text-xs text-brand-700 font-medium flex items-center">
-                                  📅 Delivery Date
-                                </span>
-                                <span className="text-xs font-semibold text-brand-800">
-                                  {row.deliveryDate}
-                                </span>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Farm Ready Date Display */}
-                        {row["Farm Ready"] !== "-" && (
-                          <div className="flex items-center justify-between bg-green-50 rounded-md p-1.5 border border-green-200">
-                            <span className="text-xs text-green-700 font-medium flex items-center">
-                              🌱 Farm Ready Date
-                            </span>
-                            <span className="text-xs font-semibold text-green-800">
-                              {row["Farm Ready"]}
-                            </span>
-                          </div>
-                        )}
-
-                        {/* Dispatch Details */}
-                        {(row.orderStatus === "DISPATCHED" || row.orderStatus === "DISPATCH_PROCESS") && row.details?.dispatchHistory && row.details.dispatchHistory.length > 0 && (() => {
-                          const latestDispatch = row.details.dispatchHistory[row.details.dispatchHistory.length - 1];
-                          const driverName = latestDispatch?.dispatch?.driverName || latestDispatch?.driverName || 'N/A';
-                          const vehicleName = latestDispatch?.dispatch?.vehicleName || latestDispatch?.vehicleName || 'N/A';
-                          const transportId = latestDispatch?.dispatch?.transportId || latestDispatch?.transportId;
-                          const driverPhone = latestDispatch?.dispatch?.driverPhone || latestDispatch?.driverPhone;
-                          
-                          if (driverName === 'N/A' && vehicleName === 'N/A') return null;
-                          
-                          return (
-                            <div className="bg-gradient-to-r from-brand-50 to-brand-100 rounded-lg p-2 border-l-4 border-brand-500 shadow-sm">
-                              <div className="flex items-center gap-2 text-xs">
-                                <span className="text-sm">🚚</span>
-                                <div className="flex items-center gap-1 flex-wrap">
-                                  <span className="font-bold text-brand-900">{driverName}</span>
-                                  {driverPhone && <span className="text-gray-600">({driverPhone})</span>}
-                                  <span className="text-brand-600 font-bold">→</span>
-                                  <span className="font-semibold text-gray-800">🚗 {vehicleName}</span>
-                                  {transportId && (
+                                <div className="flex items-center gap-1 mt-1 flex-wrap">
+                                  {row.details?.orderFor ? (
                                     <>
-                                      <span className="text-brand-600 font-bold">→</span>
-                                      <span className="text-[10px] font-mono font-bold text-white bg-brand-600 px-1.5 py-0.5 rounded">
-                                        #{transportId}
+                                      <span className="text-xs text-gray-500">Farmer:</span>
+                                      <span className={`text-xs font-medium farmer-name-highlight`}>
+                                        {row.details.farmer?.name || "Unknown"}
+                                      </span>
+                                      <span className="text-xs text-gray-500">| Order For:</span>
+                                      <span className={`text-xs font-medium order-for-highlight`}>
+                                        {row.details.orderFor.name}
                                       </span>
                                     </>
+                                  ) : (
+                                    <span className={`text-xs font-medium farmer-name-highlight`}>
+                                      {row.farmerName}
+                                    </span>
                                   )}
                                 </div>
+                                {row.details?.salesPerson && (
+                                  <p className="text-xs text-brand-600 mt-1 font-medium">
+                                    Booked by: {row.details.salesPerson.name}
+                                    {row.details.salesPerson.jobTitle === "DEALER" && " (Dealer)"}
+                                  </p>
+                                )}
+                                {farmerLocation && (
+                                  <p className="text-xs text-gray-500 mt-1 font-medium truncate">{farmerLocation}</p>
+                                )}
                               </div>
-                            </div>
-                          );
-                        })()}
-
-                        {/* Action Buttons */}
-                        {viewMode !== "dispatch_process" &&
-                          row?.orderStatus !== "COMPLETED" &&
-                          row?.orderStatus !== "DISPATCH_PROCESS" &&
-                          row?.orderStatus !== "DISPATCHED" && (
-                            <div className="flex items-center justify-between pt-2 border-t border-gray-100">
-                              {isDispatchManager && (
-                                <span className="text-xs text-brand-600 font-medium">🚚 DM Access</span>
-                              )}
-                              <div className="flex items-center space-x-2 ml-auto">
-                                {editingRows.has(index) ? (
-                                  <>
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation()
-                                        saveEditedRow(index, row)
-                                      }}
-                                      className="text-green-500 hover:text-green-700">
-                                      <CheckIcon size={16} />
-                                    </button>
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation()
-                                        cancelEditing(index)
-                                      }}
-                                      className="text-red-500 hover:text-red-700">
-                                      <XIcon size={16} />
-                                    </button>
-                                  </>
-                                ) : (
-                                  <button
-                                    onClick={(e) => {
+                              <div className="flex items-center space-x-2">
+                                {viewMode !== "booking" && (
+                                  <input
+                                    type="checkbox"
+                                    onChange={(e) => {
                                       e.stopPropagation()
-                                      toggleEditing(index, row)
+                                      toggleRowSelection(row.details.orderid, row)
                                     }}
-                                    className="text-gray-500 hover:text-gray-700">
-                                    <Edit2Icon size={16} />
-                                  </button>
+                                    onClick={(e) => e.stopPropagation()}
+                                    checked={selectedRows.has(row.details.orderid)}
+                                    className="w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                                  />
+                                )}
+                                {!(row.isAgriSalesOrder || row.details?.isRamAgriProduct) && (
+                                  <DownloadPDFButton order={row} />
                                 )}
                               </div>
                             </div>
-                          )}
-                      </div>
-                    </div>
-                  )
-                })
-              ) : (
-                <div className="col-span-full flex items-center justify-center py-12">
-                  <div className="text-center">
-                    <div className="text-gray-400 text-6xl mb-4">📋</div>
-                    <h3 className="text-lg font-medium text-gray-900 mb-2">No Orders Found</h3>
-                    <p className="text-gray-500">
-                      {loading ? "Loading orders..." : "No orders match your current filters."}
-                    </p>
+                      
+                            {/* Status Badge */}
+                            <div className="flex items-center justify-between mt-2">
+                              {showAgriSalesOrders ? (
+                                <div className="flex flex-col gap-1 w-full">
+                                  <span
+                                    className={`status-badge-enhanced status-${toStatusBadgeCssClass(row.orderStatus)} flex items-center gap-1`}>
+                                    {row.orderStatus === "FARM_READY" && "🌱"}
+                                    {row.orderStatus === "READY_FOR_DISPATCH" && "📋"}
+                                    {formatOrderStatusLabel(row.orderStatus)}
+                                  </span>
+                                  {row.orderStatus === "READY_FOR_DISPATCH" && (() => {
+                                    const badge = getReadyDispatchMarathiBadge(row)
+                                    if (!badge) return null
+                                    return (
+                                      <span
+                                        title={badge.label}
+                                        className={`text-[9px] px-1.5 py-0.5 rounded font-semibold max-w-[11rem] leading-tight ${badge.className}`}>
+                                        {badge.label}
+                                      </span>
+                                    )
+                                  })()}
+                                  {canChangeOrderStatus && row.orderStatus === "PENDING" && (
+                                    <div className="flex flex-wrap gap-1 mt-1 w-full" onClick={(e) => e.stopPropagation()}>
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          handleStatusChange(row, "ACCEPTED")
+                                        }}
+                                        className="text-[10px] px-2 py-1 rounded bg-green-100 text-green-800 font-medium hover:bg-green-200">
+                                        Accept
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          handleStatusChange(row, "REJECTED")
+                                        }}
+                                        className="text-[10px] px-2 py-1 rounded bg-gray-100 text-gray-800 font-medium hover:bg-gray-200">
+                                        Reject
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (row.orderStatus !== "COMPLETED" && row.orderStatus !== "DISPATCHED" && canChangeOrderStatus) ? (
+                                <div className="relative" onClick={(e) => e.stopPropagation()}>
+                                  <SearchableDropdown
+                                    label=""
+                                    value={row.orderStatus}
+                                    onChange={(newStatus) => handleStatusChange(row, newStatus)}
+                                    options={orderStatusOptions || []}
+                                    placeholder="Select Status"
+                                    maxHeight="200px"
+                                    isStatusDropdown={true}
+                                  />
+                                </div>
+                              ) : (
+                                <div className="flex flex-col gap-1">
+                                  <span
+                                    className={`status-badge-enhanced status-${toStatusBadgeCssClass(row.orderStatus)} flex items-center gap-1`}>
+                                    {row.orderStatus === "FARM_READY" && "🌱"}
+                                    {row.orderStatus === "READY_FOR_DISPATCH" && "📋"}
+                                    {formatOrderStatusLabel(row.orderStatus)}
+                                  </span>
+                                  {row.orderStatus === "READY_FOR_DISPATCH" && (() => {
+                                    const badge = getReadyDispatchMarathiBadge(row)
+                                    if (!badge) return null
+                                    return (
+                                      <span
+                                        title={badge.label}
+                                        className={`text-[9px] px-1.5 py-0.5 rounded font-semibold max-w-[11rem] leading-tight ${badge.className}`}>
+                                        {badge.label}
+                                      </span>
+                                    )
+                                  })()}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                      
+                          {/* Card Body */}
+                          <div className="p-3 space-y-2">
+                            {/* Plant Info */}
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs text-gray-500">Plant Type</span>
+                              <span className="text-xs font-medium text-gray-900 truncate ml-2">{row.plantType}</span>
+                            </div>
+                      
+                            {/* Quantity & Rate */}
+                            <div className="grid grid-cols-2 gap-3">
+                              <div>
+                                <span className="text-xs text-gray-500">Total Plants</span>
+                                {/* Show final quantity for completed Agri Sales orders */}
+                                {row.isAgriSalesOrder && row.orderStatus === "COMPLETED" && row.details?.deliveredQuantity > 0 ? (
+                                  <>
+                                    <div className="text-sm font-medium text-green-700">
+                                      Final: {row.details.deliveredQuantity?.toLocaleString()}
+                                    </div>
+                                    {row.details.returnQuantity > 0 && (
+                                      <div className="text-xs text-red-600 mt-0.5">
+                                        Returned: {row.details.returnQuantity?.toLocaleString()}
+                                      </div>
+                                    )}
+                                    <div className="text-xs text-gray-500 mt-0.5">
+                                      Original: {row.quantity?.toLocaleString()}
+                                    </div>
+                                  </>
+                                ) : (
+                                  <>
+                                    <div className="text-sm font-medium text-gray-900">
+                                      {(row.totalPlants ?? row.quantity)?.toLocaleString()}
+                                    </div>
+                                    {row.additionalPlants > 0 && (
+                                      <div className="text-xs text-brand-600 mt-0.5">
+                                        Base: {row.basePlants?.toLocaleString()} &middot; Extra: +
+                                        {row.additionalPlants?.toLocaleString()}
+                                      </div>
+                                    )}
+                                    {row["remaining Plants"] < (row.totalPlants ?? row.quantity) && (
+                                      <div className="text-xs text-orange-600 mt-0.5">
+                                        Remaining: {row["remaining Plants"]?.toLocaleString()}
+                                      </div>
+                                    )}
+                                  </>
+                                )}
+                              </div>
+                              <div>
+                                <span className="text-xs text-gray-500">Rate</span>
+                                <div className="text-sm font-medium text-gray-900">₹{row.rate}</div>
+                              </div>
+                            </div>
+                      
+                            {/* Financial Info */}
+                            <div className="bg-gray-50 rounded-md p-2 space-y-1">
+                              <div className="flex justify-between">
+                                <span className="text-xs text-gray-500">Total</span>
+                                <span className="text-xs font-semibold text-gray-900">{row.total}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-xs text-gray-500">Paid</span>
+                                <span className="text-xs text-green-600">{row["Paid Amt"]}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-xs text-gray-500">Remaining</span>
+                                <span className="text-xs text-amber-600">{row["remaining Amt"]}</span>
+                              </div>
+                            </div>
+                      
+                            {/* Delivery Info */}
+                            <div className="space-y-1">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs text-gray-500">Delivery Period</span>
+                                <span className="text-xs font-medium text-brand-600">{row.Delivery}</span>
+                              </div>
+                              {row.deliveryDate && row.deliveryDate !== "-" && (
+                                <div className="bg-brand-50 rounded-md p-1.5 border border-brand-200">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-xs text-brand-700 font-medium flex items-center">
+                                      📅 Delivery Date
+                                    </span>
+                                    <span className="text-xs font-semibold text-brand-800">
+                                      {row.deliveryDate}
+                                    </span>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                      
+                            {/* Farm Ready Date Display */}
+                            {row["Farm Ready"] !== "-" && (
+                              <div className="flex items-center justify-between bg-green-50 rounded-md p-1.5 border border-green-200">
+                                <span className="text-xs text-green-700 font-medium flex items-center">
+                                  🌱 Farm Ready Date
+                                </span>
+                                <span className="text-xs font-semibold text-green-800">
+                                  {row["Farm Ready"]}
+                                </span>
+                              </div>
+                            )}
+                      
+                            {/* Dispatch Details */}
+                            {(row.orderStatus === "DISPATCHED" || row.orderStatus === "DISPATCH_PROCESS") && row.details?.dispatchHistory && row.details.dispatchHistory.length > 0 && (() => {
+                              const latestDispatch = row.details.dispatchHistory[row.details.dispatchHistory.length - 1];
+                              const driverName = latestDispatch?.dispatch?.driverName || latestDispatch?.driverName || 'N/A';
+                              const vehicleName = latestDispatch?.dispatch?.vehicleName || latestDispatch?.vehicleName || 'N/A';
+                              const transportId = latestDispatch?.dispatch?.transportId || latestDispatch?.transportId;
+                              const driverPhone = latestDispatch?.dispatch?.driverPhone || latestDispatch?.driverPhone;
+                              
+                              if (driverName === 'N/A' && vehicleName === 'N/A') return null;
+                              
+                              return (
+                                <div className="bg-gradient-to-r from-brand-50 to-brand-100 rounded-lg p-2 border-l-4 border-brand-500 shadow-sm">
+                                  <div className="flex items-center gap-2 text-xs">
+                                    <span className="text-sm">🚚</span>
+                                    <div className="flex items-center gap-1 flex-wrap">
+                                      <span className="font-bold text-brand-900">{driverName}</span>
+                                      {driverPhone && <span className="text-gray-600">({driverPhone})</span>}
+                                      <span className="text-brand-600 font-bold">→</span>
+                                      <span className="font-semibold text-gray-800">🚗 {vehicleName}</span>
+                                      {transportId && (
+                                        <>
+                                          <span className="text-brand-600 font-bold">→</span>
+                                          <span className="text-[10px] font-mono font-bold text-white bg-brand-600 px-1.5 py-0.5 rounded">
+                                            #{transportId}
+                                          </span>
+                                        </>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })()}
+                      
+                            {/* Action Buttons */}
+                            {viewMode !== "dispatch_process" &&
+                              row?.orderStatus !== "COMPLETED" &&
+                              row?.orderStatus !== "DISPATCH_PROCESS" &&
+                              row?.orderStatus !== "DISPATCHED" && (
+                                <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+                                  {isDispatchManager && (
+                                    <span className="text-xs text-brand-600 font-medium">🚚 DM Access</span>
+                                  )}
+                                  <div className="flex items-center space-x-2 ml-auto">
+                                    {editingRows.has(globalIndex) ? (
+                                      <>
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation()
+                                            saveEditedRow(globalIndex, row)
+                                          }}
+                                          className="text-green-500 hover:text-green-700">
+                                          <CheckIcon size={16} />
+                                        </button>
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation()
+                                            cancelEditing(globalIndex)
+                                          }}
+                                          className="text-red-500 hover:text-red-700">
+                                          <XIcon size={16} />
+                                        </button>
+                                      </>
+                                    ) : (
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          toggleEditing(globalIndex, row)
+                                        }}
+                                        className="text-gray-500 hover:text-gray-700">
+                                        <Edit2Icon size={16} />
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                          </div>
+                        </div>
+                      )
+                    })}
                   </div>
+                )}
+              />
+            ) : (
+              <div className="flex items-center justify-center py-12">
+                <div className="text-center">
+                  <div className="text-gray-400 text-6xl mb-4">📋</div>
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">No Orders Found</h3>
+                  <p className="text-gray-500">
+                    {loading ? "Loading orders..." : "No orders match your current filters."}
+                  </p>
                 </div>
-              )}
-            </div>
+              </div>
+            )}
           </div>
-        )}
+          )
+        })()}
             </>
           )
         })()}
       </div>
-
-      {!showAgriSalesOrders && (
-        <div ref={infiniteLoaderRef} className="flex justify-center py-3">
-          {loadingMoreOrders && <CircularProgress size={18} />}
-        </div>
-      )}
 
       {/* Fixed bottom bar for batch actions */}
       {viewMode !== "booking" && selectedRows.size > 0 && (
@@ -5832,8 +5896,6 @@ const mapSlotForUi = (slotData) => {
             setIsDispatchFormOpen(false)
             setSelectedRows(new Set())
             setDispatchSourceGroupId(null)
-            getOrders()
-            getReadyDispatchGroups()
           }}
           selectedOrders={selectedRows}
           orders={orders}

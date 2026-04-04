@@ -406,6 +406,11 @@ const AddSowingModal = ({ open, onClose, plants = [], onSuccess, userData, appUs
         sowingDate: moment(formData.sowingDate).format("DD-MM-YYYY"),
         totalQuantityRequired: parseInt(formData.totalQuantityRequired),
         sowedPlant: totalPrimaryQty > 0 ? totalPrimaryQty : parseInt(formData.totalQuantityRequired), // Use Primary (Field) value if available
+        baseSowedPlant:
+          Number(selectedSlot?.baseSowingQty ?? selectedSlot?.bookingGapBeforeBuffer ?? selectedSlot?.bookingGap ?? 0) > 0
+            ? Number(selectedSlot?.baseSowingQty ?? selectedSlot?.bookingGapBeforeBuffer ?? selectedSlot?.bookingGap ?? 0)
+            : (totalPrimaryQty > 0 ? totalPrimaryQty : parseInt(formData.totalQuantityRequired)),
+        displaySowedPlant: totalPrimaryQty > 0 ? totalPrimaryQty : parseInt(formData.totalQuantityRequired),
         reminderBeforeDays: parseInt(formData.reminderBeforeDays),
         notes: formData.notes,
         batchNumber: batchNumberToUse, // Use batch number from packets or form field
@@ -585,6 +590,11 @@ const AddSowingModal = ({ open, onClose, plants = [], onSuccess, userData, appUs
             sowingDate: moment(formData.sowingDate).format("DD-MM-YYYY"),
             totalQuantityRequired: group.totalQuantity,
             sowedPlant: totalPrimaryQuantities || 0, // Use Primary (Field) input value
+            baseSowedPlant:
+              Number(group?.baseSowingQty ?? group?.bookingGapBeforeBuffer ?? group?.bookingGap ?? 0) > 0
+                ? Number(group?.baseSowingQty ?? group?.bookingGapBeforeBuffer ?? group?.bookingGap ?? 0)
+                : (totalPrimaryQuantities || 0),
+            displaySowedPlant: totalPrimaryQuantities || 0,
             reminderBeforeDays: parseInt(formData.reminderBeforeDays),
             notes: formData.notes,
             batchNumber: batchNumberFromPackets, // Use batch number from packets (mandatory)
@@ -617,6 +627,11 @@ const AddSowingModal = ({ open, onClose, plants = [], onSuccess, userData, appUs
             sowingDate: moment(formData.sowingDate).format("DD-MM-YYYY"),
             totalQuantityRequired: totalPrimaryQty,
             sowedPlant: totalPrimaryQty, // Use Primary (Field) input value
+            baseSowedPlant:
+              Number(selectedSlot?.baseSowingQty ?? selectedSlot?.bookingGapBeforeBuffer ?? selectedSlot?.bookingGap ?? 0) > 0
+                ? Number(selectedSlot?.baseSowingQty ?? selectedSlot?.bookingGapBeforeBuffer ?? selectedSlot?.bookingGap ?? 0)
+                : totalPrimaryQty,
+            displaySowedPlant: totalPrimaryQty,
             reminderBeforeDays: parseInt(formData.reminderBeforeDays),
             notes: formData.notes,
             batchNumber: formData.batchNumber.trim(), // Mandatory for PRIMARY (validated above)

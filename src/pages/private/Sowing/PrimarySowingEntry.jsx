@@ -563,6 +563,12 @@ const PrimarySowingEntry = () => {
                   // Special flags
                   isInProgress: true,
                   remainingPlants: progress.remainingPlants || 0,
+                  baseSowingQty:
+                    Number(slot.baseSowingQty ?? slot.bookingGapBeforeBuffer ?? progress.remainingPlants ?? 0) || 0,
+                  displaySowingQty:
+                    Number(slot.displaySowingQty ?? slot.plantsToSowWithBuffer ?? progress.remainingPlants ?? 0) || 0,
+                  bookingGapBeforeBuffer:
+                    Number(slot.bookingGapBeforeBuffer ?? slot.baseSowingQty ?? progress.remainingPlants ?? 0) || 0,
                   sowingRequestId: progress.sowingRequestId, // Keep for reference
                   slotId: slot.slotId, // ✅ CRITICAL: Include slotId for backend cleanup
                   slotStartDay: slot.slotStartDay, // ✅ For sorting by date
@@ -684,6 +690,9 @@ const PrimarySowingEntry = () => {
             slotId: packet.slotId || null,
             slotStartDay: packet.slotStartDay || null, // For sorting
             conversionFactor: packet.conversionFactor || 1000, // Add conversion factor
+            baseSowingQty: 0,
+            displaySowingQty: 0,
+            bookingGapBeforeBuffer: 0,
             packets: [],
             totalQuantity: 0,
           });
@@ -697,6 +706,9 @@ const PrimarySowingEntry = () => {
         if (!group.conversionFactor && packet.conversionFactor) {
           group.conversionFactor = packet.conversionFactor;
         }
+        group.baseSowingQty += Number(packet.baseSowingQty ?? packet.bookingGapBeforeBuffer ?? 0) || 0;
+        group.displaySowingQty += Number(packet.displaySowingQty ?? packet.remainingPlants ?? 0) || 0;
+        group.bookingGapBeforeBuffer += Number(packet.bookingGapBeforeBuffer ?? packet.baseSowingQty ?? 0) || 0;
       });
 
       // Calculate total primary quantities from Primary (Field) input fields
@@ -952,6 +964,11 @@ const PrimarySowingEntry = () => {
             sowingDate: moment(formData.sowingDate).format("DD-MM-YYYY"),
             totalQuantityRequired: groupPacketsUsed, // ✅ User-entered packets quantity
             sowedPlant: groupSowedPlant, // ✅ User-entered plants quantity (from Primary field or calculated)
+            baseSowedPlant:
+              Number(group?.baseSowingQty ?? group?.bookingGapBeforeBuffer ?? 0) > 0
+                ? Number(group?.baseSowingQty ?? group?.bookingGapBeforeBuffer ?? 0)
+                : groupSowedPlant,
+            displaySowedPlant: groupSowedPlant,
             reminderBeforeDays: parseInt(formData.reminderBeforeDays),
             notes: formData.notes || "",
             batchNumber: batchNumberFromPackets,
@@ -1081,6 +1098,8 @@ const PrimarySowingEntry = () => {
             sowingDate: payload.sowingDate,
             totalQuantityRequired: payload.totalQuantityRequired,
             sowedPlant: payload.sowedPlant,
+            baseSowedPlant: payload.baseSowedPlant,
+            displaySowedPlant: payload.displaySowedPlant,
             batchNumber: payload.batchNumber,
             plantReadyDays: payload.plantReadyDays,
             packetsCount: payload.packets?.length || 0,

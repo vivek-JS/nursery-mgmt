@@ -194,8 +194,10 @@ const SowingAdminCardsPortal = () => {
           if (!row) continue;
           const packetsQty = Number(row.packetsQty) || 0;
           const sowedPlants = Number(row.sowedPlants) || 0;
+          const baseSowingQty = Number(slot.baseSowingQty ?? slot.bookingGapBeforeBuffer ?? slot.bookingGap ?? 0) || 0;
+          const displaySowingQty = sowedPlants;
           if (packetsQty <= 0 && sowedPlants <= 0) continue;
-          rows.push({ group, slot, row, packetsQty, sowedPlants });
+          rows.push({ group, slot, row, packetsQty, sowedPlants, baseSowingQty, displaySowingQty });
         }
       }
     }
@@ -291,7 +293,7 @@ const SowingAdminCardsPortal = () => {
     }
 
     const sowings = [];
-    for (const { group, slot, row, packetsQty, sowedPlants } of submitPreview.rows) {
+    for (const { group, slot, row, packetsQty, sowedPlants, baseSowingQty, displaySowingQty } of submitPreview.rows) {
       if (!row.batchNumber) {
         Toast.error(`Batch number required for slot ${slot.slotStartDay} - ${slot.slotEndDay}`);
         return;
@@ -304,6 +306,8 @@ const SowingAdminCardsPortal = () => {
         sowingDate: moment(row.sowingDate || new Date()).format("DD-MM-YYYY"),
         totalQuantityRequired: packetsQty,
         sowedPlant: sowedPlants,
+        baseSowedPlant: baseSowingQty > 0 ? baseSowingQty : sowedPlants,
+        displaySowedPlant: displaySowingQty > 0 ? displaySowingQty : sowedPlants,
         sowingLocation: "OFFICE",
         reminderBeforeDays: 5,
         notes: row.notes || "",

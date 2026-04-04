@@ -43,18 +43,6 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false 
     setIsOrderCompleteOpen(false)
   }, [viewMode, refresh, fetchDispatches])
 
-  // Auto-refresh when dispatch is added - only when viewMode changes and no dialogs are open
-  useEffect(() => {
-    // Only auto-refresh if no dialogs are open to prevent interruptions
-    if (!isDispatchFormOpen && !isCollectSlipOpen && !isDCOpen && !isOrderCompleteOpen && viewMode === "dispatch_process") {
-      const interval = setInterval(() => {
-        fetchDispatches()
-      }, 30000) // Refresh every 30 seconds
-
-      return () => clearInterval(interval)
-    }
-  }, [viewMode, isDispatchFormOpen, isCollectSlipOpen, isDCOpen, isOrderCompleteOpen, fetchDispatches])
-
   const transformDispatchForForm = (dispatchData) => {
     const plants = dispatchData.plantsDetails?.map((plant) => {
       const plantOrders = dispatchData.orderIds?.map((order) => ({

@@ -81,8 +81,10 @@ import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 import moment from "moment";
 import { format } from "date-fns";
 import { Toast } from "helpers/toasts/toastHelper";
+import { useNavigate } from "react-router-dom";
 
 const SowingGapAnalysis = () => {
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
@@ -2437,7 +2439,7 @@ const SowingGapAnalysis = () => {
                                 Expected Plants:
                               </Typography>
                               <Typography variant="caption" sx={{ fontWeight: 600 }}>
-                                {formatNumber(request.remainingSowingNeeded || 0)}
+                                {formatNumber(request.displaySowingQty ?? request.remainingSowingNeeded ?? 0)}
                               </Typography>
                             </Box>
                             
@@ -2486,7 +2488,7 @@ const SowingGapAnalysis = () => {
                       subtypeId: req.subtypeId,
                       plantName: req.plantName,
                       subtypeName: req.subtypeName,
-                      totalGap: req.remainingSowingNeeded || 0,
+                      totalGap: req.displaySowingQty ?? req.remainingSowingNeeded ?? 0,
                       totalSlots: 1,
                       conversionFactor: 1,
                       primaryUnit: { symbol: 'pkt' },
@@ -2711,7 +2713,10 @@ const SowingGapAnalysis = () => {
                                       variant="outlined"
                                       size="small"
                                       fullWidth
-                                      onClick={() => handleReRequestStock(card)}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleReRequestStock(card);
+                                      }}
                                       sx={{ 
                                         fontSize: "0.7rem",
                                         py: 0.5,
@@ -2733,7 +2738,10 @@ const SowingGapAnalysis = () => {
                                     variant="outlined"
                                     size="small"
                                     fullWidth
-                                    onClick={() => handleCancelRequest(card, existingRequest._id)}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleCancelRequest(card, existingRequest._id);
+                                    }}
                                     sx={{ 
                                       mt: 0.5,
                                       fontSize: "0.7rem",
@@ -2755,7 +2763,10 @@ const SowingGapAnalysis = () => {
                                     variant="outlined"
                                     size="small"
                                     fullWidth
-                                    onClick={() => handleCreateRequest(card)}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleCreateRequest(card);
+                                    }}
                                     sx={{ 
                                       mt: 0.5,
                                       fontSize: "0.7rem",
@@ -2780,7 +2791,10 @@ const SowingGapAnalysis = () => {
                                   variant="contained"
                                   size="small"
                                   fullWidth
-                                  onClick={() => handleCreateRequest(card)}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleCreateRequest(card);
+                                  }}
                                   sx={{ 
                                     mt: 0.5,
                                     fontSize: "0.7rem",
@@ -4579,15 +4593,40 @@ const SowingGapAnalysis = () => {
                               </TableCell>
                             )}
                             <TableCell>
-                            <Typography sx={{ fontWeight: 600 }}>
+                            <Box
+                              sx={{
+                                cursor: order.farmer?._id ? "pointer" : "default",
+                              }}
+                              onClick={() => {
+                                if (order.farmer?._id) {
+                                  navigate(`/u/farmers/${order.farmer._id}`);
+                                }
+                              }}
+                            >
+                            <Typography sx={{ fontWeight: 600, color: order.farmer?._id ? "#1976d2" : "inherit" }}>
                               {order.farmer?.name || "Unknown"}
                             </Typography>
                             <Typography variant="caption" color="text.secondary">
                               {order.farmer?.village || ""}
                               {order.farmer?.taluka ? `, ${order.farmer.taluka}` : ""}
                             </Typography>
+                            </Box>
                           </TableCell>
-                          <TableCell>{order.farmer?.mobileNumber || "-"}</TableCell>
+                          <TableCell>
+                            <Typography
+                              sx={{
+                                cursor: order.farmer?._id ? "pointer" : "default",
+                                color: order.farmer?._id ? "#1976d2" : "inherit",
+                              }}
+                              onClick={() => {
+                                if (order.farmer?._id) {
+                                  navigate(`/u/farmers/${order.farmer._id}`);
+                                }
+                              }}
+                            >
+                              {order.farmer?.mobileNumber || "-"}
+                            </Typography>
+                          </TableCell>
                           <TableCell align="right">
                             <Typography sx={{ fontWeight: 600 }}>
                               {formatNumber(order.numberOfPlants)}
