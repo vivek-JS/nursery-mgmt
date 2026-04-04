@@ -59,6 +59,11 @@ import moment from "moment"
 import LocationSelector from "components/LocationSelector"
 import SearchableSelect from "components/FormField/SearchableSelect"
 
+/** date-fns / MUI DatePicker — e.g. 26-March-2015 */
+const DATE_PICKER_FORMAT = "dd-MMMM-yyyy"
+/** moment — same display as DATE_PICKER_FORMAT */
+const DISPLAY_DATE_FORMAT = "DD-MMMM-YYYY"
+
 const useStyles = makeStyles()((theme) => ({
   dialog: {
     "& .MuiDialog-paper": {
@@ -2037,7 +2042,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
             const receivedText = receivedAvailable > 0 ? `${receivedAvailable} received` : "0 received"
             const pendingText = pendingAvailable > 0 ? `${pendingAvailable} pending from PO` : "0 pending"
             Toast.error(
-              `⚠️ Product Stock Exceeded!\n\nOnly ${availableQuantity} plants available for ${formData.productName || product.productName} on ${moment(formData?.orderDate).format("DD/MM/YYYY")}\n(${receivedText}, ${pendingText})\n\nPlease reduce the order quantity or select a different product.`,
+              `⚠️ Product Stock Exceeded!\n\nOnly ${availableQuantity} plants available for ${formData.productName || product.productName} on ${moment(formData?.orderDate).format(DISPLAY_DATE_FORMAT)}\n(${receivedText}, ${pendingText})\n\nPlease reduce the order quantity or select a different product.`,
               {
                 duration: 8000,
                 style: {
@@ -2075,7 +2080,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
 
       if (availableQuantity !== null && requestedQuantity > availableQuantity) {
         Toast.error(
-          `⚠️ Slot Capacity Exceeded!\n\nOnly ${availableQuantity} plants available for ${moment(formData?.orderDate).format("DD/MM/YYYY")} (slot: ${slotPeriod})${productInfo}\n\nPlease select a different date or reduce the order quantity.`,
+          `⚠️ Slot Capacity Exceeded!\n\nOnly ${availableQuantity} plants available for ${moment(formData?.orderDate).format(DISPLAY_DATE_FORMAT)} (slot: ${slotPeriod})${productInfo}\n\nPlease select a different date or reduce the order quantity.`,
           {
             duration: 8000,
             style: {
@@ -2981,6 +2986,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                     <LocalizationProvider dateAdapter={AdapterDateFns}>
                       <DatePicker
                         label="Order Date"
+                        format={DATE_PICKER_FORMAT}
                         value={formData?.date}
                         onChange={(date) => handleInputChange("date", date)}
                         renderInput={(params) => <TextField {...params} fullWidth size="small" />}
@@ -3575,6 +3581,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                     <LocalizationProvider dateAdapter={AdapterDateFns}>
                       <DatePicker
                         label="Order Booking Date *"
+                        format={DATE_PICKER_FORMAT}
                         value={formData?.date}
                         onChange={(date) => handleInputChange("date", date)}
                         renderInput={(params) => (
@@ -3771,6 +3778,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                   <LocalizationProvider dateAdapter={AdapterDateFns}>
                     <DatePicker
                       label="Delivery Date *"
+                      format={DATE_PICKER_FORMAT}
                       value={formData?.orderDate}
                       onChange={(date) => {
                         handleInputChange("orderDate", date)
@@ -4689,12 +4697,12 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                 </Typography>
                 <Typography variant="body2" sx={{ mb: 0.5 }}>
                   <strong>Order Booking Date:</strong>{" "}
-                  {moment(confirmationData.orderDate).format("DD/MM/YYYY")}
+                  {moment(confirmationData.orderDate).format(DISPLAY_DATE_FORMAT)}
                 </Typography>
                 {confirmationData.deliveryDate && (
                   <Typography variant="body2" sx={{ fontWeight: 700, color: "#e74c3c", mb: 0.5 }}>
                     <strong>Delivery Date:</strong>{" "}
-                    {moment(confirmationData.deliveryDate).format("DD/MM/YYYY")}
+                    {moment(confirmationData.deliveryDate).format(DISPLAY_DATE_FORMAT)}
                   </Typography>
                 )}
                 {confirmationData.slotPeriod && (
