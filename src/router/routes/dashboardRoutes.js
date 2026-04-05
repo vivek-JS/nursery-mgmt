@@ -7,7 +7,6 @@ import AodIcon from "@mui/icons-material/Aod"
 import GroupIcon from "@mui/icons-material/Group"
 import InventoryIcon from "@mui/icons-material/Inventory"
 import ListAltIcon from "@mui/icons-material/ListAlt"
-import PaymentIcon from "@mui/icons-material/Payment"
 import WhatsAppIcon from "@mui/icons-material/WhatsApp"
 import LinkIcon from "@mui/icons-material/Link"
 import GrassIcon from "@mui/icons-material/Grass"
@@ -54,6 +53,4 @@ export const DashboardMenus = [
   new MenuPath("Accounting Dashboard", <AccountBalanceIcon />, "/u/accountant-dashboard", null, ["ACCOUNTANT", "SUPER_ADMIN"]),
   new MenuPath("WhatsApp Management", <WhatsAppIcon />, "/u/whatsapp", ["SUPER_ADMIN"]),
   new MenuPath("Public Farmer Links", <LinkIcon />, "/u/public-links", ["SUPER_ADMIN"])
-  ,
-  new MenuPath("कॅशियर पेमेंट", <PaymentIcon />, "/u/mobile/cashier", null, ["CASHIER", "SUPER_ADMIN"])
 ]

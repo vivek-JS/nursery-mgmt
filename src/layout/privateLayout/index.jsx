@@ -81,12 +81,9 @@ export default function PrivateLayout(props) {
   const userData = useSelector((state) => state?.userData?.userData)
   const primaryRedirectRef = useRef(false)
   const secondaryRedirectRef = useRef(false)
-  const dispatchRedirectRef = useRef(false)
-  const ramAgriSalesRedirectRef = useRef(false)
   const ramAgriSalesManagerRedirectRef = useRef(false)
   const accountantRedirectRef = useRef(false)
   const cashierRedirectRef = useRef(false)
-  const dealerSalesRedirectRef = useRef(false)
   const lastPathRef = useRef(location.pathname)
   
   console.log("User Type:", userType, "User Role:", userRole)
@@ -96,28 +93,18 @@ export default function PrivateLayout(props) {
   const isSecondaryEmployee = userType && (userType.toUpperCase() === "SECONDARY")
   const isSuperAdmin = userRole === "SUPER_ADMIN" || userRole === "SUPERADMIN"
   const isAdmin = userRole === "ADMIN"
-  // Check dispatch manager by both role and jobTitle (since some users have role=FARMER but jobTitle=DISPATCH_MANAGER)
-  const isDispatchManager = userRole === "DISPATCH_MANAGER" || userType === "DISPATCH_MANAGER" || userData?.jobTitle === "DISPATCH_MANAGER"
-  // Check RAM_AGRI_SALES by jobTitle
-  const isRamAgriSales = userType === "RAM_AGRI_SALES" || userData?.jobTitle === "RAM_AGRI_SALES"
-  // Check RAM_AGRI_SALES_MANAGER by jobTitle (sidebar + restricted routes, not mobile-only)
+  // Check RAM_AGRI_SALES_MANAGER by jobTitle (sidebar + restricted routes)
   const isRamAgriSalesManager = userType === "RAM_AGRI_SALES_MANAGER" || userData?.jobTitle === "RAM_AGRI_SALES_MANAGER"
   const isCashier = userType === "CASHIER" || userRole === "CASHIER" || userData?.jobTitle === "CASHIER"
-  
-  // Check DEALER or SALES by jobTitle (redirect to mobile place-order)
-  const isDealerOrSales = userType === "DEALER" || userType === "SALES" || userData?.jobTitle === "DEALER" || userData?.jobTitle === "SALES"
 
   // Reset redirect flags when path changes (user navigated to a different route)
   useEffect(() => {
     if (lastPathRef.current !== location.pathname) {
       primaryRedirectRef.current = false
       secondaryRedirectRef.current = false
-      dispatchRedirectRef.current = false
-      ramAgriSalesRedirectRef.current = false
       ramAgriSalesManagerRedirectRef.current = false
       accountantRedirectRef.current = false
       cashierRedirectRef.current = false
-      dealerSalesRedirectRef.current = false
       lastPathRef.current = location.pathname
     }
   }, [location.pathname])
@@ -166,61 +153,6 @@ export default function PrivateLayout(props) {
     }
   }, [isSecondaryEmployee, isSuperAdmin, isAdmin, location.pathname, navigate, userData])
 
-  // DISPATCH_MANAGER users can access dispatch routes + full mobile flow (including tasks)
-  // Redirect them immediately if they try to access any other route
-  // SUPER_ADMIN can access all routes, so don't redirect them
-  useEffect(() => {
-    // Only run redirect if user data is loaded (to prevent infinite loops)
-    if (!userData) return
-    
-    // Prevent multiple redirects for the same path
-    if (dispatchRedirectRef.current) return
-    
-    if (isDispatchManager && !isSuperAdmin && !isAdmin) {
-      const currentPath = location.pathname
-      const isDispatchOrdersRoute = currentPath === "/u/dispatch-orders" || currentPath.includes("/u/dispatch-orders")
-      const isMobileDispatchRoute =
-        currentPath === "/u/mobile" ||
-        currentPath.includes("/u/mobile/place-order") ||
-        currentPath.includes("/u/mobile/agri-sales-order") ||
-        currentPath.includes("/u/mobile/dispatch-orders") ||
-        currentPath.includes("/u/mobile/tasks")
-      
-      if (!isDispatchOrdersRoute && !isMobileDispatchRoute) {
-        // Default dispatch manager fallback should be mobile chooser screen
-        console.log(`[PrivateLayout] DISPATCH_MANAGER user accessing ${currentPath}, redirecting to /u/mobile`)
-        dispatchRedirectRef.current = true
-        navigate("/u/mobile", { replace: true })
-      }
-    }
-  }, [isDispatchManager, isSuperAdmin, isAdmin, location.pathname, navigate, userData])
-  
-  // RAM_AGRI_SALES users can access /u/mobile (dashboard), /u/mobile/place-order, /u/mobile/agri-sales-order, and /u/mobile/tasks
-  // Redirect them if they try to access any other route
-  // SUPER_ADMIN can access all routes, so don't redirect them
-  useEffect(() => {
-    // Only run redirect if user data is loaded (to prevent infinite loops)
-    if (!userData) return
-    
-    // Prevent multiple redirects for the same path
-    if (ramAgriSalesRedirectRef.current) return
-    
-    if (isRamAgriSales && !isSuperAdmin && !isAdmin) {
-      const currentPath = location.pathname
-      const isMobileDashboard = currentPath === "/u/mobile"
-      const isPlaceOrderRoute = currentPath === "/u/mobile/place-order" || currentPath.includes("/u/mobile/place-order")
-      const isAgriSalesOrderRoute = currentPath === "/u/mobile/agri-sales-order" || currentPath.includes("/u/mobile/agri-sales-order")
-      const isTasksRoute = currentPath === "/u/mobile/tasks" || currentPath.includes("/u/mobile/tasks")
-
-      if (!isMobileDashboard && !isPlaceOrderRoute && !isAgriSalesOrderRoute && !isTasksRoute) {
-        // Redirect RAM_AGRI_SALES users to mobile dashboard
-        console.log(`[PrivateLayout] RAM_AGRI_SALES user accessing ${currentPath}, redirecting to /u/mobile`)
-        ramAgriSalesRedirectRef.current = true
-        navigate("/u/mobile", { replace: true })
-      }
-    }
-  }, [isRamAgriSales, isSuperAdmin, isAdmin, location.pathname, navigate, userData])
-  
   // RAM_AGRI_SALES_MANAGER can ONLY access: Dashboard, Ram Agri Input dashboard, Inventory, Ram Agri Input Order, Ram Agri Inputs Master
   useEffect(() => {
     if (!userData) return
@@ -261,16 +193,16 @@ export default function PrivateLayout(props) {
     }
   }, [userRole, isSuperAdmin, location.pathname, navigate, userData])
 
-  // CASHIER can only access mobile cashier route (Marathi 2-tab flow)
+  // CASHIER can only access cashier route
   useEffect(() => {
     if (!userData) return
     if (cashierRedirectRef.current) return
     if (!isCashier || isSuperAdmin || isAdmin) return
     const p = location.pathname
-    const allowed = p === "/u/mobile/cashier" || p.startsWith("/u/mobile/cashier/")
+    const allowed = p === "/u/cashier" || p.startsWith("/u/cashier/")
     if (!allowed) {
       cashierRedirectRef.current = true
-      navigate("/u/mobile/cashier", { replace: true })
+      navigate("/u/cashier", { replace: true })
     }
   }, [isCashier, isSuperAdmin, isAdmin, location.pathname, navigate, userData])
 
@@ -309,24 +241,7 @@ export default function PrivateLayout(props) {
     }
   }, [userRole, isSuperAdmin, location.pathname, navigate, userData])
 
-  // DEALER and SALES users can ONLY access /u/mobile (dashboard), /u/mobile/place-order, /u/mobile/agri-sales-order, and /u/mobile/tasks
-  useEffect(() => {
-    if (!userData) return
-    if (dealerSalesRedirectRef.current) return
-    if (!isDealerOrSales || isSuperAdmin || isAdmin) return
-    const currentPath = location.pathname
-    const isMobileDashboard = currentPath === "/u/mobile"
-    const isPlaceOrderRoute = currentPath === "/u/mobile/place-order" || currentPath.includes("/u/mobile/place-order")
-    const isAgriSalesOrderRoute = currentPath === "/u/mobile/agri-sales-order" || currentPath.includes("/u/mobile/agri-sales-order")
-    const isTasksRoute = currentPath === "/u/mobile/tasks" || currentPath.includes("/u/mobile/tasks")
-    if (!isMobileDashboard && !isPlaceOrderRoute && !isAgriSalesOrderRoute && !isTasksRoute) {
-      console.log(`[PrivateLayout] DEALER/SALES user accessing ${currentPath}, redirecting to /u/mobile`)
-      dealerSalesRedirectRef.current = true
-      navigate("/u/mobile", { replace: true })
-    }
-  }, [isDealerOrSales, isSuperAdmin, isAdmin, location.pathname, navigate, userData])
-  
-  // Hide sidebar for primary sowing entry, primary/secondary mobile ops, cashier, and all mobile routes
+  // Hide sidebar for primary sowing entry, primary/secondary mobile ops, cashier, dispatch
   // With BrowserRouter, pathname is the actual route path
   const hideSidebar =
     isCashier ||
@@ -334,8 +249,7 @@ export default function PrivateLayout(props) {
     location.pathname === "/u/primary-mobile" ||
     location.pathname === "/u/secondary-sowing-entry" ||
     location.pathname === "/u/secondary-mobile" ||
-    location.pathname === "/u/dispatch-orders" ||
-    location.pathname.startsWith("/u/mobile")
+    location.pathname === "/u/dispatch-orders"
   
   const { 
     handleLogout, 
@@ -379,7 +293,7 @@ export default function PrivateLayout(props) {
 
     if (isCashier) {
       const allowedTitles = ["कॅशियर पेमेंट"]
-      const allowedRoutes = ["/u/mobile/cashier", "/u/cashier"]
+      const allowedRoutes = ["/u/cashier"]
       return allowedTitles.includes(menuItem.title) || allowedRoutes.includes(menuItem.route)
     }
 
@@ -490,13 +404,6 @@ export default function PrivateLayout(props) {
                 }
 
                 if (isSecondaryEmployee && !isSuperAdmin && !isAdmin) {
-                  return false
-                }
-                
-                // DISPATCH_MANAGER users should only see menu items that lead to dispatch-orders
-                // Since DISPATCH_MANAGER users are redirected to dispatch-orders, hide all menu items
-                // SUPER_ADMIN can see all menu items
-                if (isDispatchManager && !isSuperAdmin && !isAdmin) {
                   return false
                 }
                 

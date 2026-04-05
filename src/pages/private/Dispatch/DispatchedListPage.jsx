@@ -42,7 +42,6 @@ import {
   Person,
   Map as MapIcon,
   FormatListBulleted,
-  ArrowBack,
   Tune,
   ExpandMore,
   ExpandLess,
@@ -103,7 +102,6 @@ const DispatchedListPage = () => {
   const isSuperAdmin = userRole === "SUPER_ADMIN" || userRole === "SUPERADMIN";
   const isAdmin = userRole === "ADMIN";
   const hasAccess = isDispatchManager || isSuperAdmin || isAdmin;
-  const isMobileDispatchEntry = location.pathname.includes("/u/mobile/dispatch-orders");
 
   const [orders, setOrders] = useState([]);
   const [filteredOrders, setFilteredOrders] = useState([]);
@@ -527,7 +525,6 @@ const DispatchedListPage = () => {
       selectedCount: selectedReadyRows.size,
       selectedOrderIds: Array.from(selectedReadyRows.keys()),
       viewMode,
-      isMobileDispatchEntry,
     });
     if (selectedReadyRows.size === 0) {
       Toast.error("Select at least one order first, then tap Proceed Dispatch");
@@ -1108,16 +1105,6 @@ const DispatchedListPage = () => {
           }}
         >
           <Toolbar sx={{ px: isMobile ? 2 : 3, minHeight: 64 }}>
-            {isMobileDispatchEntry && (
-              <IconButton
-                color="inherit"
-                onClick={() => navigate("/u/mobile")}
-                sx={{ mr: 1, p: 1, borderRadius: 1.5 }}
-                title="Back to mobile dashboard"
-              >
-                <ArrowBack />
-              </IconButton>
-            )}
             <Typography
               variant="h6"
               sx={{
@@ -1853,7 +1840,7 @@ const DispatchedListPage = () => {
                     <Paper
                       key={orderKey}
                       onClick={() => {
-                        if (isMobileDispatchEntry || viewMode === "ready_for_dispatch") {
+                        if (viewMode === "ready_for_dispatch") {
                           handleOpenEditModal(order);
                         } else {
                           setExpandedOrderId((prev) => (prev === orderKey ? null : orderKey));
@@ -2961,46 +2948,6 @@ const DispatchedListPage = () => {
             })()}
           </DialogContent>
         </Dialog>
-
-        {viewMode === "ready_for_dispatch" && isMobileDispatchEntry && !isDispatchFormOpen && (
-          <Box
-            sx={{
-              position: "fixed",
-              left: 0,
-              right: 0,
-              bottom: 0,
-              zIndex: 1200,
-              bgcolor: "rgba(255,255,255,0.97)",
-              borderTop: "1px solid rgba(0,0,0,0.1)",
-              boxShadow: "0 -3px 12px rgba(0,0,0,0.1)",
-              p: 1,
-              pb: "calc(10px + env(safe-area-inset-bottom))",
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr",
-              gap: 1,
-              pointerEvents: "auto",
-            }}
-          >
-            <Button
-              variant="outlined"
-              fullWidth
-              onClick={handleCreateDraftGroup}
-              disabled={clubLoading || selectedReadyRows.size === 0}
-              sx={{ textTransform: "none", fontWeight: 700, minHeight: 46 }}
-            >
-              Make Draft
-            </Button>
-            <Button
-              variant="contained"
-              color="success"
-              fullWidth
-              onClick={handleProceedDispatch}
-              sx={{ textTransform: "none", fontWeight: 700, minHeight: 46 }}
-            >
-              Proceed Dispatch
-            </Button>
-          </Box>
-        )}
 
         {/* Delivery date picker — Dialog stacks above edit Dialog (portal + z-index) */}
         <Dialog

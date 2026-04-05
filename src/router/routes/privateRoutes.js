@@ -34,7 +34,6 @@ const SowingRequestsList = React.lazy(() => import("pages/private/inventory/Sowi
 const ReturnRequestList = React.lazy(() => import("pages/private/inventory/ReturnRequestList"))
 const RamAgriInputsProductMaster = React.lazy(() => import("pages/private/inventory/RamAgriInputsProductMaster"))
 const RamAgriInputOrderForm = React.lazy(() => import("pages/private/inventory/RamAgriInputOrderForm"))
-const AgriSalesOrderMobile = React.lazy(() => import("pages/public/agri-sales-order/AgriSalesOrderMobile"))
 const RamAgriSalesDashboard = React.lazy(() => import("pages/private/inventory/RamAgriSalesDashboard"))
 const OldSalesAnalytics = React.lazy(() => import("pages/private/inventory/OldSalesAnalytics"))
 
@@ -66,10 +65,7 @@ const PublicFarmerLinks = React.lazy(() => import("pages/private/publicLinks/Pub
 const FlowCharts = React.lazy(() => import("pages/private/FlowCharts"))
 const OrderBucketing = React.lazy(() => import("pages/private/OrderBucketing"))
 const TaskManagement = React.lazy(() => import("pages/private/tasks"))
-const EmployeeTasksMobile = React.lazy(() => import("pages/private/taskManager/EmployeeTasksMobile"))
 const DispatchedListPage = React.lazy(() => import("pages/private/Dispatch/DispatchedListPage"))
-const PlaceOrderMobile = React.lazy(() => import("pages/private/order/PlaceOrderMobile"))
-const MobileDashboard = React.lazy(() => import("pages/private/order/MobileDashboard"))
 const CallAssignmentList = React.lazy(() => import("pages/private/callAssignment/CallAssignmentList"))
 const CashierPage = React.lazy(() => import("pages/private/cashier"))
 const UpiReceiptPage = React.lazy(() => import("pages/private/upi-receipt"))
@@ -147,14 +143,7 @@ export const PrivateRoutes = [
   { path: "/u/order-bucketing", component: OrderBucketing },
   { path: "/u/tasks", component: TaskManagement },
   { path: "/u/task-manager", component: TaskManagement },
-  { path: "/u/mobile/tasks", component: EmployeeTasksMobile },
   { path: "/u/dispatch-orders", component: DispatchedListPage },
-  // Mobile dashboard — Plant, Agri Input, and role-based Dispatch option
-  { path: "/u/mobile", component: MobileDashboard },
-  { path: "/u/mobile/cashier", component: CashierPage },
-  { path: "/u/mobile/agri-sales-order", component: AgriSalesOrderMobile },
-  { path: "/u/mobile/place-order", component: PlaceOrderMobile },
-  { path: "/u/mobile/dispatch-orders", component: DispatchedListPage },
   { path: "/u/cashier", component: CashierPage },
   { path: "/u/call-assignment", component: CallAssignmentList },
   { path: "/u/upi-receipt", component: UpiReceiptPage }

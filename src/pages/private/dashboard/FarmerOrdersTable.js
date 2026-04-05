@@ -83,12 +83,26 @@ const toStatusBadgeCssClass = (status) => {
   return String(status).toLowerCase().replace(/_/g, "-")
 }
 
+/** Statuses where base plant quantity must not be edited (enforced in API as well). */
+const STATUSES_BLOCK_QUANTITY_EDIT = new Set([
+  "READY_FOR_DISPATCH",
+  "DISPATCH_PROCESS",
+  "DISPATCHED",
+  "COMPLETED",
+  "PARTIALLY_COMPLETED",
+  "CANCELLED",
+  "REJECTED",
+])
+
+const canEditOrderPlantQuantity = (orderStatus) =>
+  orderStatus != null && !STATUSES_BLOCK_QUANTITY_EDIT.has(String(orderStatus))
+
 /** Short labels for order status chips / grid (Farmer orders table). */
 const ORDER_STATUS_LABELS = {
   PENDING: "Pending",
   ACCEPTED: "Accepted",
   ASSIGNED: "Assigned",
-  FARM_READY: "Farm ready",
+  FARM_READY: "Ready to farm",
   READY_FOR_DISPATCH: "Ready for dispatch",
   DISPATCH_PROCESS: "Dispatch in progress",
   DISPATCHED: "Dispatched",
@@ -1100,7 +1114,7 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
     { label: "Pending", value: "PENDING" },
     { label: "Accepted", value: "ACCEPTED" },
     { label: "Assigned", value: "ASSIGNED" },
-    { label: "Farm ready", value: "FARM_READY" },
+    { label: "Ready to farm", value: "FARM_READY" },
     { label: "Ready for dispatch", value: "READY_FOR_DISPATCH" },
     { label: "Dispatch in progress", value: "DISPATCH_PROCESS" },
     { label: "Dispatched", value: "DISPATCHED" },
@@ -1207,10 +1221,39 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
   const [watiDialogOrder, setWatiDialogOrder] = useState(null)
   const [watiDialogMode, setWatiDialogMode] = useState("accept")
   const [watiSending, setWatiSending] = useState(false)
+  const [recentQtyEditsOpen, setRecentQtyEditsOpen] = useState(false)
   const [whatsappMessagingEnabled, setWhatsappMessagingEnabled] = useState(
     () => !isWhatsappMessagingDisabled()
   )
-  const showPageLoader = patchLoading || (loading && orders.length === 0)
+
+  const recentPlantQuantityEdits = React.useMemo(() => {
+    const rows = []
+    for (const o of orders || []) {
+      if (o?.isAgriSalesOrder) continue
+      const hist = o?.details?.orderEditHistory || []
+      for (const e of hist) {
+        if (e?.field !== "numberOfPlants") continue
+        const when = e.createdAt || e.updatedAt
+        rows.push({
+          key: `${o.details?.orderid || o.order}-${when || ""}-${e.newValue}-${e.previousValue}`,
+          orderRef: o.order,
+          farmer: o.farmerName,
+          when,
+          prev: e.previousValue,
+          next: e.newValue,
+          notes: e.notes || "",
+          byName: e.changedBy?.name || null,
+        })
+      }
+    }
+    rows.sort((a, b) => {
+      const ta = a.when ? new Date(a.when).getTime() : 0
+      const tb = b.when ? new Date(b.when).getTime() : 0
+      return tb - ta
+    })
+    return rows.slice(0, 120)
+  }, [orders])
+  const showPageLoader = loading && orders.length === 0
   // Add these handler functions
   const handleAddRemark = (orderId) => {
     if (!newRemark.trim()) return
@@ -1586,7 +1629,7 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
                 ? moment(startDay, "DD-MM-YYYY").format("MMMM, YYYY")
                 : "N/A"
               return {
-                order: publicOrderCode || orderId,
+                order: orderId != null && orderId !== "" ? orderId : publicOrderCode,
                 farmerName: orderFor
                   ? `Order for: ${orderFor.name}`
                   : dealerOrder
@@ -1654,7 +1697,7 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
               }
               }
             })
-            .filter((order) => order && order.order)
+            .filter((order) => order != null && order.order != null && order.order !== "")
 
           // Update the orders state with fresh data
           setOrders(freshOrders)
@@ -3007,7 +3050,7 @@ const mapSlotForUi = (slotData) => {
         const end = endDay ? moment(endDay, "DD-MM-YYYY").format("D") : "N/A"
         const monthYear = startDay ? moment(startDay, "DD-MM-YYYY").format("MMMM, YYYY") : "N/A"
         return {
-          order: publicOrderCode || orderId,
+          order: orderId != null && orderId !== "" ? orderId : publicOrderCode,
           farmerName: orderFor
             ? `${farmer?.name || "Unknown"} (Order for: ${orderFor.name})`
             : dealerOrder
@@ -3076,7 +3119,7 @@ const mapSlotForUi = (slotData) => {
           },
         }
       })
-      .filter((order) => order && order.order)
+      .filter((order) => order != null && order.order != null && order.order !== "")
 
   const getOrders = async () => {
     setLoading(true)
@@ -3566,6 +3609,13 @@ const mapSlotForUi = (slotData) => {
           dataToSend.quantity !== null &&
           String(dataToSend.quantity).trim() !== ""
         if (hasQuantityPatch) {
+          if (!canEditOrderPlantQuantity(row?.orderStatus)) {
+            Toast.error(
+              "Plant quantity cannot be changed after Ready for dispatch or for completed/cancelled orders."
+            )
+            setpatchLoading(false)
+            return
+          }
           const newQuantity = Number(dataToSend.quantity)
           const currentQuantity = Number(row?.quantity || 0)
           const isDealerBulkOrder = Boolean(row?.details?.dealerOrder)
@@ -3638,8 +3688,6 @@ const mapSlotForUi = (slotData) => {
         ? await instance.request(payload, urlParams)
         : await instance.request(payload)
 
-      refreshComponent()
-
       if (emps?.error) {
         Toast.error(emps?.error)
         setpatchLoading(false)
@@ -3653,8 +3701,20 @@ const mapSlotForUi = (slotData) => {
         setUpdatedObject(null)
         setQuantityDeltaInput("")
         const editedOrderId = String(dataToSend?.id || row?.details?.orderid || "")
-        const nextQty = Number(dataToSend?.quantity ?? row?.quantity ?? 0)
+        const hasQtyInPatch =
+          dataToSend?.quantity !== undefined &&
+          dataToSend?.quantity !== null &&
+          String(dataToSend.quantity).trim() !== ""
+        const nextQty = Number(
+          hasQtyInPatch ? dataToSend.quantity : row?.quantity ?? 0
+        )
         const nextRate = Number(dataToSend?.rate ?? row?.rate ?? 0)
+        const nextOrderStatus =
+          dataToSend?.orderStatus !== undefined &&
+          dataToSend?.orderStatus !== null &&
+          String(dataToSend.orderStatus).trim() !== ""
+            ? dataToSend.orderStatus
+            : null
         const formatRupee = (amount) =>
           `₹${Number(amount || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`
 
@@ -3693,6 +3753,7 @@ const mapSlotForUi = (slotData) => {
 
             const patched = {
               ...o,
+              ...(nextOrderStatus ? { orderStatus: nextOrderStatus } : {}),
               rate: nextRate,
               quantity: nextQty,
               basePlants: nextQty,
@@ -3703,6 +3764,7 @@ const mapSlotForUi = (slotData) => {
               deliveryDate: nextDeliveryDate,
               details: {
                 ...o.details,
+                ...(nextOrderStatus ? { orderStatus: nextOrderStatus } : {}),
                 deliveryDate: dataToSend?.deliveryDate || o?.details?.deliveryDate,
                 dispatchDayKey: dataToSend?.dispatchDayKey || o?.details?.dispatchDayKey || null,
                 dispatchTargetDate: dataToSend?.dispatchDayKey
@@ -3775,6 +3837,8 @@ const mapSlotForUi = (slotData) => {
           setWatiDialogOrder(rowForWatiDialog)
           setWatiDialogOpen(true)
         }
+
+        window.setTimeout(() => refreshComponent(), 500)
       }
     } catch (error) {
       console.error("Error updating order:", error)
@@ -4022,6 +4086,11 @@ const mapSlotForUi = (slotData) => {
   return (
     <div className="w-full p-4 bg-gray-50">
       {showPageLoader && <PageLoader />}
+      {patchLoading && orders.length > 0 && (
+        <div className="fixed top-0 left-0 right-0 z-[120] pointer-events-none">
+          <LinearProgress color="primary" sx={{ height: 3 }} />
+        </div>
+      )}
 
       {/* Header Controls */}
       <div className="mb-6 space-y-4">
@@ -4161,6 +4230,24 @@ const mapSlotForUi = (slotData) => {
                       ) : null}
                     </div>
                   </div>
+                  {!showAgriSalesOrders && (
+                    <div className="w-full flex flex-wrap items-center gap-2 pt-0.5">
+                      <Button
+                        type="button"
+                        variant="outlined"
+                        size="small"
+                        onClick={() => setRecentQtyEditsOpen(true)}
+                        sx={{ textTransform: "none", fontWeight: 600 }}>
+                        Recent quantity edits
+                        {recentPlantQuantityEdits.length > 0
+                          ? ` (${recentPlantQuantityEdits.length})`
+                          : ""}
+                      </Button>
+                      <Typography variant="caption" color="text.secondary" sx={{ maxWidth: 440 }}>
+                        Plant quantity changes from orders in the current list (newest first). Full history stays on each order.
+                      </Typography>
+                    </div>
+                  )}
                 </div>
 
                 {/* Filter Dropdowns */}
@@ -5340,6 +5427,7 @@ const mapSlotForUi = (slotData) => {
                             </div>
                         ) : (row.orderStatus !== "COMPLETED" && row.orderStatus !== "DISPATCHED" && canChangeOrderStatus) ? (
                           <SearchableDropdown
+                            key={`order-status-${row.details?.orderid}-${row.orderStatus}`}
                             label=""
                             value={row.orderStatus}
                             onChange={(newStatus) => handleStatusChange(row, newStatus)}
@@ -5347,6 +5435,7 @@ const mapSlotForUi = (slotData) => {
                             placeholder="Select Status"
                             maxHeight="200px"
                             isStatusDropdown={true}
+                            disabled={patchLoading}
                           />
                         ) : (
                           <div className="flex flex-col gap-0.5">
@@ -5374,7 +5463,8 @@ const mapSlotForUi = (slotData) => {
                         {viewMode !== "dispatch_process" &&
                           row?.orderStatus !== "COMPLETED" &&
                           row?.orderStatus !== "DISPATCH_PROCESS" &&
-                          row?.orderStatus !== "DISPATCHED" && (
+                          row?.orderStatus !== "DISPATCHED" &&
+                          row?.orderStatus !== "READY_FOR_DISPATCH" && (
                             <div className="flex items-center space-x-2">
                               {editingRows.has(dataIndex) ? (
                                 <>
@@ -5666,6 +5756,7 @@ const mapSlotForUi = (slotData) => {
                               ) : (row.orderStatus !== "COMPLETED" && row.orderStatus !== "DISPATCHED" && canChangeOrderStatus) ? (
                                 <div className="relative" onClick={(e) => e.stopPropagation()}>
                                   <SearchableDropdown
+                                    key={`grid-status-${row.details?.orderid}-${row.orderStatus}`}
                                     label=""
                                     value={row.orderStatus}
                                     onChange={(newStatus) => handleStatusChange(row, newStatus)}
@@ -5673,6 +5764,7 @@ const mapSlotForUi = (slotData) => {
                                     placeholder="Select Status"
                                     maxHeight="200px"
                                     isStatusDropdown={true}
+                                    disabled={patchLoading}
                                   />
                                 </div>
                               ) : (
@@ -5836,7 +5928,8 @@ const mapSlotForUi = (slotData) => {
                             {viewMode !== "dispatch_process" &&
                               row?.orderStatus !== "COMPLETED" &&
                               row?.orderStatus !== "DISPATCH_PROCESS" &&
-                              row?.orderStatus !== "DISPATCHED" && (
+                              row?.orderStatus !== "DISPATCHED" &&
+                              row?.orderStatus !== "READY_FOR_DISPATCH" && (
                                 <div className="flex items-center justify-between pt-2 border-t border-gray-100">
                                   {isDispatchManager && (
                                     <span className="text-xs text-brand-600 font-medium">🚚 DM Access</span>
@@ -7482,53 +7575,61 @@ const mapSlotForUi = (slotData) => {
                             </div>
                             <div>
                               <label className="text-sm text-gray-500 font-medium">Quantity Delta</label>
-                              <input
-                                type="text"
-                                value={quantityDeltaInput}
-                                onChange={(e) => setQuantityDeltaInput(e.target.value)}
-                                placeholder="+500 or -300"
-                                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 mt-1"
-                              />
-                              <div className="mt-2 rounded-lg border border-gray-200 bg-gray-50 p-2">
-                                <div className="grid grid-cols-3 gap-2 text-[11px]">
-                                  <div>
-                                    <div className="text-gray-500">Base</div>
-                                    <div className="font-semibold text-gray-900">
-                                      {editBaseQuantity.toLocaleString("en-IN")}
+                              {!canEditOrderPlantQuantity(selectedOrder?.orderStatus) ? (
+                                <div className="mt-1 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                                  Plant quantity is locked after <strong>Ready for dispatch</strong> or for completed/cancelled orders.
+                                </div>
+                              ) : (
+                                <>
+                                  <input
+                                    type="text"
+                                    value={quantityDeltaInput}
+                                    onChange={(e) => setQuantityDeltaInput(e.target.value)}
+                                    placeholder="+500 or -300"
+                                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 mt-1"
+                                  />
+                                  <div className="mt-2 rounded-lg border border-gray-200 bg-gray-50 p-2">
+                                    <div className="grid grid-cols-3 gap-2 text-[11px]">
+                                      <div>
+                                        <div className="text-gray-500">Base</div>
+                                        <div className="font-semibold text-gray-900">
+                                          {editBaseQuantity.toLocaleString("en-IN")}
+                                        </div>
+                                      </div>
+                                      <div>
+                                        <div className="text-gray-500">Delta</div>
+                                        <div className={`font-semibold ${quantityDeltaParsed.valid ? "text-brand-700" : "text-red-600"}`}>
+                                          {quantityDeltaParsed.valid
+                                            ? quantityDeltaParsed.display
+                                            : "Invalid"}
+                                        </div>
+                                      </div>
+                                      <div>
+                                        <div className="text-gray-500">Final</div>
+                                        <div className="font-semibold text-gray-900">
+                                          {Number.isFinite(editFinalQuantity)
+                                            ? editFinalQuantity.toLocaleString("en-IN")
+                                            : "-"}
+                                        </div>
+                                      </div>
                                     </div>
                                   </div>
-                                  <div>
-                                    <div className="text-gray-500">Delta</div>
-                                    <div className={`font-semibold ${quantityDeltaParsed.valid ? "text-brand-700" : "text-red-600"}`}>
-                                      {quantityDeltaParsed.valid
-                                        ? quantityDeltaParsed.display
-                                        : "Invalid"}
+                                  {quantityDeltaInput && !quantityDeltaParsed.valid && (
+                                    <div className="text-xs text-red-600 mt-1">
+                                      {quantityDeltaParsed.error}
                                     </div>
-                                  </div>
-                                  <div>
-                                    <div className="text-gray-500">Final</div>
-                                    <div className="font-semibold text-gray-900">
-                                      {Number.isFinite(editFinalQuantity)
-                                        ? editFinalQuantity.toLocaleString("en-IN")
-                                        : "-"}
+                                  )}
+                                  {quantityDeltaParsed.valid && quantityDeltaParsed.delta > 0 && (
+                                    <div className="text-xs text-amber-600 mt-1">
+                                      ⚠️ Increasing quantity may affect slot capacity
                                     </div>
-                                  </div>
-                                </div>
-                              </div>
-                              {quantityDeltaInput && !quantityDeltaParsed.valid && (
-                                <div className="text-xs text-red-600 mt-1">
-                                  {quantityDeltaParsed.error}
-                                </div>
-                              )}
-                              {quantityDeltaParsed.valid && quantityDeltaParsed.delta > 0 && (
-                                <div className="text-xs text-amber-600 mt-1">
-                                  ⚠️ Increasing quantity may affect slot capacity
-                                </div>
-                              )}
-                              {quantityDeltaParsed.valid && quantityDeltaParsed.delta < 0 && (
-                                <div className="text-xs text-green-600 mt-1">
-                                  ✅ Reducing quantity will free up slot capacity
-                                </div>
+                                  )}
+                                  {quantityDeltaParsed.valid && quantityDeltaParsed.delta < 0 && (
+                                    <div className="text-xs text-green-600 mt-1">
+                                      ✅ Reducing quantity will free up slot capacity
+                                    </div>
+                                  )}
+                                </>
                               )}
                             </div>
                             <div>
@@ -7668,6 +7769,15 @@ const mapSlotForUi = (slotData) => {
                                 const parsedDelta = parseDeltaInput(quantityDeltaInput)
                                 if (!parsedDelta.valid) {
                                   Toast.error(parsedDelta.error || "Invalid quantity delta")
+                                  return
+                                }
+                                if (
+                                  !canEditOrderPlantQuantity(selectedOrder?.orderStatus) &&
+                                  Number(parsedDelta.delta || 0) !== 0
+                                ) {
+                                  Toast.error(
+                                    "Plant quantity cannot be changed after Ready for dispatch or for completed/cancelled orders."
+                                  )
                                   return
                                 }
 
@@ -8128,6 +8238,62 @@ const mapSlotForUi = (slotData) => {
           </div>
         </div>
       )}
+      <Dialog
+        open={recentQtyEditsOpen}
+        onClose={() => setRecentQtyEditsOpen(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle sx={{ fontWeight: 700 }}>Recent quantity edits</DialogTitle>
+        <DialogContent dividers>
+          {recentPlantQuantityEdits.length === 0 ? (
+            <Typography variant="body2" color="text.secondary">
+              No plant quantity edits found on the orders currently loaded. Load more orders or open a single order to see full edit history.
+            </Typography>
+          ) : (
+            <Box sx={{ maxHeight: 420, overflow: "auto" }}>
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="border-b border-gray-200 text-[10px] uppercase text-gray-500">
+                    <th className="py-2 pr-2 font-semibold">When</th>
+                    <th className="py-2 pr-2 font-semibold">Order</th>
+                    <th className="py-2 pr-2 font-semibold">Farmer</th>
+                    <th className="py-2 pr-2 font-semibold">Change</th>
+                    <th className="py-2 font-semibold">By</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recentPlantQuantityEdits.map((r) => (
+                    <tr key={r.key} className="border-b border-gray-100 align-top">
+                      <td className="py-1.5 pr-2 whitespace-nowrap text-gray-700">
+                        {r.when ? moment(r.when).format(ORDER_DATETIME_DISPLAY) : "—"}
+                      </td>
+                      <td className="py-1.5 pr-2 font-semibold text-gray-900">#{r.orderRef}</td>
+                      <td className="py-1.5 pr-2 text-gray-800 max-w-[140px] break-words">
+                        {r.farmer}
+                      </td>
+                      <td className="py-1.5 pr-2 text-gray-800">
+                        {Number(r.prev ?? 0).toLocaleString("en-IN")} →{" "}
+                        {Number(r.next ?? 0).toLocaleString("en-IN")}
+                      </td>
+                      <td className="py-1.5 text-gray-600">{r.byName || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 2, pb: 2 }}>
+          <Button
+            onClick={() => setRecentQtyEditsOpen(false)}
+            variant="contained"
+            sx={{ textTransform: "none" }}
+          >
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
       <ConfirmDialog
         open={confirmDialog.open}
         title={confirmDialog.title}
