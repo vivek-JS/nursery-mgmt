@@ -27,9 +27,26 @@ import { UserState } from "redux/dispatcher/UserState"
 // If the params are not named then pass an array of data
 // Eg. If the URL is like "https://example.com/user/1/2", then request would look like below
 // const result = await instance.request(payload, ["id1", "id2"])
+// --------------------
+// Optional third constructor arg: { abortScope: "my-scope" } — same HTTP route + scope shares one
+// in-flight slot; a new request aborts the previous one for that scope only (omit scope to use the default per-route key).
+// Optional third argument to request: { signal } — when set, that signal is used instead of per-route auto-abort.
 // ********************
 
-export default function networkManager(router, withFile = false) {
+export default function networkManager(router, withFile = false, nmOptions = {}) {
+  const { abortScope } = nmOptions
+  const shouldAutoAbort = router?.__autoAbort === true
+  const abortRouter =
+    abortScope != null && String(abortScope).trim() !== ""
+      ? {
+          method: router.method,
+          baseURL: router.baseURL,
+          endpoint: router.endpoint,
+          version: router.version,
+          __abortScope: String(abortScope).trim(),
+        }
+      : router
+
   const { TIMEOUT, API_AUTH_HEADER, AUTH_TYPE, CONTENT_TYPE } = APIConfig
   
   axios.defaults.baseURL = router.baseURL
@@ -58,7 +75,7 @@ export default function networkManager(router, withFile = false) {
       router.endpoint.startsWith("/location") ||
       router.endpoint.startsWith("/state"))
 
-  async function request(body = {}, params = {} || []) {
+  async function request(body = {}, params = {} || [], requestOptions = {}) {
     const url = urlBuilder(router, params)
     const getHttpMethod = router.method !== HTTP_METHODS.GET
     // Query params: exclude pathParams from axios params
@@ -93,12 +110,20 @@ export default function networkManager(router, withFile = false) {
       requestHeaders["Content-Type"] = CONTENT_TYPE.JSON
     }
 
+    const opts = requestOptions && typeof requestOptions === "object" ? requestOptions : {}
+    const signal =
+      opts.signal != null
+        ? opts.signal
+        : shouldAutoAbort
+          ? APIAborter.initiate(abortRouter).signal
+          : undefined
+
     try {
       const result = await axios.request({
-        signal: APIAborter.initiate().signal,
         url: url,
         method: router.method,
         headers: requestHeaders,
+        ...(signal != null && { signal }),
         ...(getHttpMethod && { data: httpBody }),
         ...(getArrayParams && { params: queryParams })
       })
@@ -110,6 +135,9 @@ export default function networkManager(router, withFile = false) {
 
       return new APIResponse(response, isSuccess, result.status, response.data?.message)
     } catch (err) {
+      if (err?.code === "ERR_CANCELED" || err?.name === "CanceledError") {
+        throw err
+      }
       console.log(err?.response?.data?.message)
       const fullError = err?.response?.data?.rowErrors
       const colError = err?.response?.data?.errors
@@ -134,7 +162,7 @@ export default function networkManager(router, withFile = false) {
           const refreshToken = localStorage.getItem(CookieKeys.REFRESH_TOKEN)
           await refreshAuthToken(refreshToken)
           refreshCount++
-          return await request(body, params)
+          return await request(body, params, requestOptions)
         } else {
           UserState.observeLogout()
         }

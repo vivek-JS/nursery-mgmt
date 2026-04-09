@@ -56,16 +56,13 @@ const ExcelExport = ({
   }, [filters])
 
   const orderStatusOptions = [
-    { value: "", label: "All Statuses" },
+    { value: "", label: "All statuses" },
     { value: "PENDING", label: "Pending" },
     { value: "ACCEPTED", label: "Accepted" },
-    { value: "PROCESSING", label: "Processing" },
+    { value: "FARM_READY", label: "Ready to farm" },
     { value: "COMPLETED", label: "Completed" },
-    { value: "DISPATCHED", label: "Dispatched" },
     { value: "CANCELLED", label: "Cancelled" },
-    { value: "FARM_READY", label: "Farm Ready" },
-    { value: "DISPATCH_PROCESS", label: "Dispatch Process" },
-    { value: "PARTIALLY_COMPLETED", label: "Partially Completed" }
+    { value: "DISPATCHED", label: "Dispatched" },
   ]
 
   const paymentStatusOptions = [

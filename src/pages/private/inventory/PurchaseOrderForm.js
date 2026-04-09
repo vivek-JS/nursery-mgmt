@@ -403,10 +403,11 @@ const PurchaseOrderForm = () => {
     setLoadingSlots(prev => ({ ...prev, [productId]: true }));
     try {
       const years = [new Date().getFullYear(), new Date().getFullYear() + 1];
-      const instance = NetworkManager(API.slots.GET_SIMPLE_SLOTS);
-      
-      const yearPromises = years.map(year => 
-        instance.request({}, { plantId, subtypeId, year })
+      const yearPromises = years.map(year =>
+        NetworkManager(API.slots.GET_SIMPLE_SLOTS, false, { abortScope: `y${year}` }).request(
+          {},
+          { plantId, subtypeId, year }
+        )
           .catch(error => {
             console.error(`Error fetching slots for year ${year}:`, error);
             return null;

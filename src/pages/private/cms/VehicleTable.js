@@ -1,12 +1,25 @@
-import React, { useState, useEffect } from "react"
+import React, { useState, useEffect, useCallback, useRef } from "react"
 import { NetworkManager, API } from "network/core"
 import { Edit2Icon, Trash2Icon, Plus, Truck, X } from "lucide-react"
-import { Dialog, DialogTitle, DialogContent, DialogActions } from "@mui/material"
+import {
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  TablePagination,
+} from "@mui/material"
 import { PageLoader } from "components"
 
 const VehicleTable = () => {
   const [vehicles, setVehicles] = useState([])
   const [loading, setLoading] = useState(false)
+  const [page, setPage] = useState(0)
+  const [rowsPerPage, setRowsPerPage] = useState(10)
+  const [totalCount, setTotalCount] = useState(0)
+  /** Bumps when list should refetch even if page/rowsPerPage unchanged (e.g. save on page 0). */
+  const [listVersion, setListVersion] = useState(0)
+  const tableSectionRef = useRef(null)
+  const skipScrollIntoViewOnce = useRef(true)
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [isTripFormOpen, setIsTripFormOpen] = useState(false)
   const [selectedVehicle, setSelectedVehicle] = useState(null)
@@ -40,21 +53,46 @@ const VehicleTable = () => {
     notes: ""
   })
 
-  const fetchVehicles = async () => {
+  const fetchVehicles = useCallback(async () => {
     setLoading(true)
     try {
       const instance = NetworkManager(API.VEHICLE.GET_VEHICLES)
-      const response = await instance.request()
-      setVehicles(response?.data?.data?.data)
+      const response = await instance.request(
+        {},
+        {
+          page: page + 1,
+          limit: rowsPerPage,
+        }
+      )
+      if (!response?.success || response?.data == null) {
+        setVehicles([])
+        setTotalCount(0)
+        return
+      }
+      const payload = response.data.data
+      setVehicles(Array.isArray(payload?.data) ? payload.data : [])
+      setTotalCount(Number(payload?.pagination?.total) || 0)
     } catch (error) {
       console.error("Error fetching vehicles:", error)
+      setVehicles([])
+      setTotalCount(0)
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
-  }
+  }, [page, rowsPerPage, listVersion])
 
   useEffect(() => {
     fetchVehicles()
-  }, [])
+  }, [fetchVehicles])
+
+  /** After page/size changes, keep the table in view (pagination often leaves scroll position at the footer). */
+  useEffect(() => {
+    if (skipScrollIntoViewOnce.current) {
+      skipScrollIntoViewOnce.current = false
+      return
+    }
+    tableSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+  }, [page, rowsPerPage])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -78,7 +116,8 @@ const VehicleTable = () => {
         setIsFormOpen(false)
         setEditingVehicle(null)
         setFormData({ name: "", number: "", capacity: "" })
-        fetchVehicles()
+        setPage(0)
+        setListVersion((v) => v + 1)
       }
     } catch (error) {
       console.error("Error saving vehicle:", error)
@@ -154,7 +193,7 @@ const VehicleTable = () => {
       try {
         const instance = NetworkManager(API.VEHICLE.DELETE)
         await instance.request({ id })
-        fetchVehicles()
+        setListVersion((v) => v + 1)
       } catch (error) {
         console.error("Error deleting vehicle:", error)
       }
@@ -163,7 +202,7 @@ const VehicleTable = () => {
   }
 
   return (
-    <div>
+    <div ref={tableSectionRef} className="scroll-mt-4">
       {loading && <PageLoader />}
 
       <div className="mb-4 flex justify-end">
@@ -175,7 +214,8 @@ const VehicleTable = () => {
         </button>
       </div>
 
-      <div className="bg-white rounded-lg shadow">
+      <div className="bg-white rounded-lg shadow overflow-hidden">
+        <div className="overflow-x-auto">
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
@@ -197,6 +237,13 @@ const VehicleTable = () => {
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
+            {vehicles.length === 0 && !loading ? (
+              <tr>
+                <td colSpan={5} className="px-6 py-8 text-center text-gray-500 text-sm">
+                  No vehicles found.
+                </td>
+              </tr>
+            ) : null}
             {vehicles.map((vehicle) => (
               <tr key={vehicle._id}>
                 <td className="px-6 py-4 whitespace-nowrap">{vehicle.name}</td>
@@ -240,6 +287,20 @@ const VehicleTable = () => {
             ))}
           </tbody>
         </table>
+        </div>
+        <TablePagination
+          component="div"
+          count={totalCount}
+          page={page}
+          onPageChange={(_, newPage) => setPage(newPage)}
+          rowsPerPage={rowsPerPage}
+          onRowsPerPageChange={(e) => {
+            setRowsPerPage(parseInt(e.target.value, 10))
+            setPage(0)
+          }}
+          rowsPerPageOptions={[5, 10, 25, 50]}
+          labelRowsPerPage="Rows per page"
+        />
       </div>
 
       <Dialog

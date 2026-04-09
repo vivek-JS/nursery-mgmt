@@ -232,11 +232,8 @@ const AddSowingModal = ({ open, onClose, plants = [], onSuccess, userData, appUs
     setLoadingSlots(true);
     try {
       const years = [2025, 2026]; // Fetch slots for both 2025 and 2026
-      const instance = NetworkManager(API.slots.GET_SIMPLE_SLOTS);
-      
-      // Fetch slots for both years in parallel
-      const yearPromises = years.map(year => 
-        instance.request(
+      const yearPromises = years.map((year) =>
+        NetworkManager(API.slots.GET_SIMPLE_SLOTS, false, { abortScope: `y${year}` }).request(
           {},
           {
             plantId: selectedPlant._id,
@@ -282,11 +279,10 @@ const AddSowingModal = ({ open, onClose, plants = [], onSuccess, userData, appUs
 
     try {
       const years = [2025, 2026]; // Fetch slots for both 2025 and 2026
-      const instance = NetworkManager(API.slots.GET_SIMPLE_SLOTS);
-      
-      // Fetch slots for both years in parallel
-      const yearPromises = years.map(year => 
-        instance.request(
+      const yearPromises = years.map((year) =>
+        NetworkManager(API.slots.GET_SIMPLE_SLOTS, false, {
+          abortScope: `${plantId}-${subtypeId}-y${year}`,
+        }).request(
           {},
           {
             plantId,

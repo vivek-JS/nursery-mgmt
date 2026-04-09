@@ -24,8 +24,15 @@ import {
 import { NetworkManager, API } from "network/core";
 import { Toast } from "helpers/toasts/toastHelper";
 import DeliveryDateModal from "./DeliveryDateModal";
+import { useUserData } from "utils/roleUtils";
+
+const canSelectFarmReadyStatus = (user) => {
+  const jt = user?.jobTitle || user?.role;
+  return jt === "DEALER" || jt === "SALES" || jt === "RAM_AGRI_SALES";
+};
 
 const EditOrderModal = ({ open, onClose, order, onSuccess }) => {
+  const user = useUserData();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const [loading, setLoading] = useState(false);
@@ -44,12 +51,14 @@ const EditOrderModal = ({ open, onClose, order, onSuccess }) => {
   const loadSlots = useCallback(async (plantId, subtypeId) => {
     setSlotsLoading(true);
     try {
-      const instance = NetworkManager(API.slots.GET_SIMPLE_SLOTS);
       const years = [2025, 2026];
-      
-      // Fetch slots for both years in parallel
       const responses = await Promise.all(
-        years.map((year) => instance.request({}, { plantId, subtypeId, year }))
+        years.map((year) =>
+          NetworkManager(API.slots.GET_SIMPLE_SLOTS, false, { abortScope: `y${year}` }).request(
+            {},
+            { plantId, subtypeId, year }
+          )
+        )
       );
 
       // Combine slots from both years
@@ -366,7 +375,9 @@ const EditOrderModal = ({ open, onClose, order, onSuccess }) => {
               size={isMobile ? "medium" : "small"}
             >
               <MenuItem value="ACCEPTED">ACCEPTED</MenuItem>
-              <MenuItem value="FARM_READY">FARM_READY</MenuItem>
+              {canSelectFarmReadyStatus(user) ? (
+                <MenuItem value="FARM_READY">FARM_READY</MenuItem>
+              ) : null}
               <MenuItem value="DISPATCHED">DISPATCHED</MenuItem>
               <MenuItem value="DELIVERED">DELIVERED</MenuItem>
               <MenuItem value="CANCELLED">CANCELLED</MenuItem>

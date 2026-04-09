@@ -1,7 +1,13 @@
 import React, { useState, useEffect } from "react"
 import { NetworkManager, API } from "network/core"
 import { Edit2Icon, Plus, Search } from "lucide-react"
-import { Dialog, DialogTitle, DialogContent, DialogActions } from "@mui/material"
+import {
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  TablePagination,
+} from "@mui/material"
 import { PageLoader } from "components"
 import debounce from "lodash.debounce"
 
@@ -16,8 +22,9 @@ const ShadeTable = () => {
     name: "",
     number: ""
   })
-  const [currentPage, setCurrentPage] = useState(1)
-  const [totalPages, setTotalPages] = useState(1)
+  const [page, setPage] = useState(0)
+  const [rowsPerPage, setRowsPerPage] = useState(10)
+  const [totalCount, setTotalCount] = useState(0)
   const [refresh, setRefresh] = useState(false)
 
   useEffect(() => {
@@ -28,11 +35,11 @@ const ShadeTable = () => {
 
   useEffect(() => {
     getShades()
-  }, [debouncedSearchTerm, currentPage, refresh])
+  }, [debouncedSearchTerm, page, rowsPerPage, refresh])
 
   const debouncedSearchChange = debounce((value) => {
     setDebouncedSearchTerm(value)
-    setCurrentPage(1) // Reset to first page on new search
+    setPage(0)
   }, 500)
 
   const getShades = async () => {
@@ -40,16 +47,19 @@ const ShadeTable = () => {
     try {
       const instance = NetworkManager(API.SHADE.GET_SHADES)
       const params = {
-        page: currentPage,
-        limit: 10,
-        search: debouncedSearchTerm
+        page: page + 1,
+        limit: rowsPerPage,
+        search: debouncedSearchTerm,
       }
 
       const response = await instance.request({}, params)
 
       if (response.data?.data) {
-        setShades(response.data.data.data)
-        setTotalPages(Math.ceil(response.data.data.pagination.total / 10))
+        setShades(Array.isArray(response.data.data.data) ? response.data.data.data : [])
+        setTotalCount(Number(response.data.data.pagination?.total) || 0)
+      } else {
+        setShades([])
+        setTotalCount(0)
       }
     } catch (error) {
       console.error("Error fetching shades:", error)
@@ -98,12 +108,6 @@ const ShadeTable = () => {
     }
   }
 
-  const handlePaginationClick = (newPage) => {
-    if (newPage >= 1 && newPage <= totalPages) {
-      setCurrentPage(newPage)
-    }
-  }
-
   return (
     <div className="p-6">
       {loading && <PageLoader />}
@@ -148,6 +152,13 @@ const ShadeTable = () => {
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
+            {shades.length === 0 && !loading ? (
+              <tr>
+                <td colSpan={4} className="px-6 py-8 text-center text-gray-500 text-sm">
+                  No shades found.
+                </td>
+              </tr>
+            ) : null}
             {shades.map((shade) => (
               <tr key={shade._id} className="hover:bg-gray-50">
                 <td className="px-6 py-4 whitespace-nowrap">{shade.name}</td>
@@ -179,34 +190,19 @@ const ShadeTable = () => {
             ))}
           </tbody>
         </table>
-      </div>
-
-      {/* Pagination */}
-      <div className="mt-4 flex justify-center">
-        <nav className="flex items-center space-x-2">
-          <button
-            onClick={() => handlePaginationClick(currentPage - 1)}
-            disabled={currentPage === 1}
-            className="px-3 py-1 rounded-md bg-white border disabled:opacity-50">
-            Previous
-          </button>
-          {[...Array(totalPages)].map((_, index) => (
-            <button
-              key={index + 1}
-              onClick={() => handlePaginationClick(index + 1)}
-              className={`px-3 py-1 rounded-md ${
-                currentPage === index + 1 ? "bg-blue-600 text-white" : "bg-white border"
-              }`}>
-              {index + 1}
-            </button>
-          ))}
-          <button
-            onClick={() => handlePaginationClick(currentPage + 1)}
-            disabled={currentPage === totalPages}
-            className="px-3 py-1 rounded-md bg-white border disabled:opacity-50">
-            Next
-          </button>
-        </nav>
+        <TablePagination
+          component="div"
+          count={totalCount}
+          page={page}
+          onPageChange={(_, newPage) => setPage(newPage)}
+          rowsPerPage={rowsPerPage}
+          onRowsPerPageChange={(e) => {
+            setRowsPerPage(parseInt(e.target.value, 10))
+            setPage(0)
+          }}
+          rowsPerPageOptions={[5, 10, 25, 50]}
+          labelRowsPerPage="Rows per page"
+        />
       </div>
 
       {/* Form Dialog */}

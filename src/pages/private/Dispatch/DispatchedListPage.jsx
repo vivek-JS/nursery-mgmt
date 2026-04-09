@@ -772,12 +772,15 @@ const DispatchedListPage = () => {
     
     setSlotsLoading(true);
     try {
-      const instance = NetworkManager(API.slots.GET_SIMPLE_SLOTS);
       const y = moment().year();
       const years = [y - 1, y, y + 1];
-      
       const responses = await Promise.all(
-        years.map(year => instance.request({}, { plantId, subtypeId, year }))
+        years.map((year) =>
+          NetworkManager(API.slots.GET_SIMPLE_SLOTS, false, { abortScope: `y${year}` }).request(
+            {},
+            { plantId, subtypeId, year }
+          )
+        )
       );
 
       let allSlotsData = [];

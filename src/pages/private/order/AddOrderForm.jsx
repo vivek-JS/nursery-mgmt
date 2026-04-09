@@ -277,6 +277,24 @@ const useStyles = makeStyles()((theme) => ({
   }
 }))
 
+function defaultOrderStatusOnPlace(isInstantOrder, user) {
+  if (isInstantOrder) return "DISPATCHED"
+  const markers = [user?.jobTitle, user?.role]
+    .filter(Boolean)
+    .map((s) => String(s).toUpperCase().trim())
+  if (
+    markers.some(
+      (t) =>
+        t === "OFFICE_ADMIN" ||
+        t === "SUPERADMIN" ||
+        t === "SUPER_ADMIN"
+    )
+  ) {
+    return "ACCEPTED"
+  }
+  return "PENDING"
+}
+
 const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
   const { classes } = useStyles()
   
@@ -826,12 +844,14 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
 
       // Use fast simple slots endpoint (for dealer orders, normal orders, or when dealer quota has no matching slots)
       // Fetch slots for both 2025 and 2026
-      const instance = NetworkManager(API.slots.GET_SIMPLE_SLOTS)
       const years = [2026, 2027]
-      
-      // Fetch slots for both years in parallel
       const responses = await Promise.all(
-        years.map(year => instance.request({}, { plantId, subtypeId, year }))
+        years.map((year) =>
+          NetworkManager(API.slots.GET_SIMPLE_SLOTS, false, { abortScope: `y${year}` }).request(
+            {},
+            { plantId, subtypeId, year }
+          )
+        )
       )
 
       // Combine slots from both years
@@ -2262,7 +2282,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
           numberOfPlants: parseInt(formData?.noOfPlants) || 0,
           rate: parseFloat(formData?.rate) || 0,
           paymentStatus: "not paid",
-          orderStatus: isInstantOrder ? "DISPATCHED" : "PENDING",
+          orderStatus: defaultOrderStatusOnPlace(isInstantOrder, user),
           plantName: formData?.plant || "",
           plantSubtype: formData?.subtype || "",
           bookingSlot: slotId, // Auto-detected slot ID from order date
@@ -2314,7 +2334,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
           paymentStatus: "not paid",
           // If dealer/sales selected, use that; otherwise use logged-in user ID when they are DEALER, SALES, or RAM_AGRI_SALES (plant order)
           salesPerson: formData?.dealer || formData?.sales || (["DEALER", "SALES", "RAM_AGRI_SALES"].includes(user?.jobTitle) ? (user?._id || user?.id) : null),
-          orderStatus: isInstantOrder ? "DISPATCHED" : "PENDING",
+          orderStatus: defaultOrderStatusOnPlace(isInstantOrder, user),
           plantName: formData?.plant || "",
           plantSubtype: formData?.subtype || "",
           bookingSlot: slotId, // Auto-detected slot ID from order date

@@ -446,8 +446,14 @@ export const API = {
     UPDATE_EMPLOYEE: new APIRouter("/employee/updateEmployee", HTTP_METHODS.PATCH, OFFLINE.PROFILE)
   },
   ORDER: {
-    GET_ORDERS: new APIRouter("/order/getOrders", HTTP_METHODS.GET, OFFLINE.PROFILE),
-    GET_ORDERS_SLOTS: new APIRouter("/order/getOrders", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_ORDERS: Object.assign(
+      new APIRouter("/order/getOrders", HTTP_METHODS.GET, OFFLINE.PROFILE),
+      { __autoAbort: true, __abortScope: "order-get-orders" }
+    ),
+    GET_ORDERS_SLOTS: Object.assign(
+      new APIRouter("/order/getOrders", HTTP_METHODS.GET, OFFLINE.PROFILE),
+      { __abortScope: "order-get-orders-slots" }
+    ),
     GET_ORDERS_BY_STATUS: new APIRouter("/order/by-status", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_PAYMENTS: new APIRouter("/order/payments", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_VILLAGES: new APIRouter("/order/villages", HTTP_METHODS.GET, OFFLINE.PROFILE),

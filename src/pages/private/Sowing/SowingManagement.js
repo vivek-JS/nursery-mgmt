@@ -294,9 +294,10 @@ const SowingManagement = () => {
       
       for (const subtype of subtypesToFetch) {
         // Fetch slots for both years in parallel
-        const instance = NetworkManager(API.slots.GET_SIMPLE_SLOTS);
-        const yearPromises = years.map(year => 
-          instance.request({}, { plantId, subtypeId: subtype._id, year })
+        const yearPromises = years.map((year) =>
+          NetworkManager(API.slots.GET_SIMPLE_SLOTS, false, {
+            abortScope: `${subtype._id}-y${year}`,
+          }).request({}, { plantId, subtypeId: subtype._id, year })
             .catch(error => {
               console.error(`Error fetching slots for year ${year}:`, error);
               return null; // Continue with other years even if one fails
