@@ -16,6 +16,7 @@ import { Toast } from "helpers/toasts/toastHelper"
 import {
   transferFarmerPlantAdvance,
   searchFarmersForLedgerTransfer,
+  searchFarmerPlantOrdersForTransfer,
   createFarmerPlantLedgerManualEntry
 } from "./paymentsApi"
 
@@ -28,6 +29,7 @@ const fmtDate = (d) =>
 
 const defaultLedgerApis = {
   searchTargets: searchFarmersForLedgerTransfer,
+  searchOrders: searchFarmerPlantOrdersForTransfer,
   transferAdvance: transferFarmerPlantAdvance,
   createManualEntry: createFarmerPlantLedgerManualEntry
 }
@@ -37,6 +39,7 @@ function FarmerPlantLedgerModal({ ledger, onClose, canTransferAdvance, onRefresh
   const { customer, summary, entries, meta } = ledger
   const orders = meta?.orders || []
   const ledgerApis = meta?.ledgerApis || defaultLedgerApis
+  const searchOrdersApi = ledgerApis?.searchOrders
   const ledgerTitle = meta?.ledgerTitle || "Farmer plant ledger"
   const partyWord = meta?.partyWord || "farmer"
   const transferSearchLabel = meta?.transferSearchLabel || `Search ${partyWord} (name/mobile)`
@@ -46,6 +49,10 @@ function FarmerPlantLedgerModal({ ledger, onClose, canTransferAdvance, onRefresh
   const [searchResults, setSearchResults] = React.useState([])
   const [searchLoading, setSearchLoading] = React.useState(false)
   const [selectedTarget, setSelectedTarget] = React.useState(null)
+  const [orderSearchText, setOrderSearchText] = React.useState("")
+  const [orderSearchResults, setOrderSearchResults] = React.useState([])
+  const [orderSearchLoading, setOrderSearchLoading] = React.useState(false)
+  const [selectedOrder, setSelectedOrder] = React.useState(null)
   const [amount, setAmount] = React.useState("")
   const [manualAmount, setManualAmount] = React.useState("")
   const [reason, setReason] = React.useState("")
@@ -95,6 +102,49 @@ function FarmerPlantLedgerModal({ ledger, onClose, canTransferAdvance, onRefresh
       clearTimeout(timer)
     }
   }, [transferOpen, searchText])
+
+  React.useEffect(() => {
+    if (!transferOpen) return
+    const q = String(orderSearchText || "").trim()
+    if (!q) {
+      setOrderSearchResults([])
+      return
+    }
+    let cancelled = false
+    setOrderSearchLoading(true)
+    const timer = setTimeout(async () => {
+      try {
+        const rows = await (searchOrdersApi
+          ? searchOrdersApi({ q, limit: 12 })
+          : Promise.resolve([]))
+        if (!cancelled) setOrderSearchResults(Array.isArray(rows) ? rows : [])
+      } catch (_) {
+        if (!cancelled) setOrderSearchResults([])
+      } finally {
+        if (!cancelled) setOrderSearchLoading(false)
+      }
+    }, 250)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [transferOpen, orderSearchText, searchOrdersApi])
+
+  const resetTransferState = React.useCallback(() => {
+    setSearchText("")
+    setSearchResults([])
+    setSelectedTarget(null)
+    setOrderSearchText("")
+    setOrderSearchResults([])
+    setSelectedOrder(null)
+    setAmount("")
+    setReason("")
+  }, [])
+
+  const closeTransferModal = React.useCallback(() => {
+    setTransferOpen(false)
+    resetTransferState()
+  }, [resetTransferState])
 
   const statCards = [
     {
@@ -223,7 +273,7 @@ function FarmerPlantLedgerModal({ ledger, onClose, canTransferAdvance, onRefresh
             <>
               <div
                 className="fixed inset-0 z-[120] bg-slate-900/50 backdrop-blur-sm"
-                onClick={() => !saving && setTransferOpen(false)}
+                onClick={() => !saving && closeTransferModal()}
                 aria-hidden
               />
               <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 pointer-events-none">
@@ -236,12 +286,12 @@ function FarmerPlantLedgerModal({ ledger, onClose, canTransferAdvance, onRefresh
                   </div>
                   <div className="px-5 py-4 space-y-3">
                     <label className="block text-[11px] font-semibold text-muted-foreground">
-                      {transferSearchLabel}
+                      {transferSearchLabel} (optional)
                       <input
                         value={searchText}
                         onChange={(e) => setSearchText(e.target.value)}
                         className="erp-input block mt-1 w-full text-xs"
-                        placeholder="Type at least 2 characters"
+                        placeholder="Type at least 2 characters (or use order id below)"
                         disabled={saving}
                       />
                     </label>
@@ -255,7 +305,9 @@ function FarmerPlantLedgerModal({ ledger, onClose, canTransferAdvance, onRefresh
                             <button
                               key={f._id}
                               type="button"
-                              onClick={() => setSelectedTarget(f)}
+                              onClick={() => {
+                                setSelectedTarget(f)
+                              }}
                               className={cn(
                                 "w-full text-left px-3 py-2 border-b border-border last:border-b-0 hover:bg-muted text-xs",
                                 isActive && "bg-muted"
@@ -278,6 +330,84 @@ function FarmerPlantLedgerModal({ ledger, onClose, canTransferAdvance, onRefresh
                       <div className="text-[11px] rounded-lg border border-border bg-muted/40 px-2 py-1">
                         To: <span className="font-semibold">{selectedTarget.name || "Farmer"}</span> ({selectedTarget.mobileNumber || "—"}) ·{" "}
                         {[selectedTarget.village, selectedTarget.taluka].filter(Boolean).join(", ") || "—"}
+                      </div>
+                    )}
+                    <label className="block text-[11px] font-semibold text-muted-foreground">
+                      Transfer to order (optional)
+                      <input
+                        value={orderSearchText}
+                        onChange={(e) => setOrderSearchText(e.target.value)}
+                        className="erp-input block mt-1 w-full text-xs"
+                        placeholder="Type order id or farmer name"
+                        disabled={saving}
+                      />
+                    </label>
+                    {orderSearchLoading ? (
+                      <div className="text-[11px] text-muted-foreground">Searching orders…</div>
+                    ) : orderSearchText.trim() ? (
+                      <div className="max-h-32 overflow-y-auto border border-border rounded-lg">
+                        {orderSearchResults.length > 0 ? (
+                          orderSearchResults.map((o, i) => {
+                            const oid = String(o?._id || "")
+                            const isActive = selectedOrder?._id === oid
+                            return (
+                              <button
+                                key={`${oid || o?.orderId || "order"}-${i}`}
+                                type="button"
+                                onClick={() => {
+                                  const farmer = o?.farmer || {}
+                                  setSelectedOrder({
+                                    _id: oid,
+                                    orderId: o?.orderId,
+                                    farmer
+                                  })
+                                  // Picking an order auto-selects the same farmer.
+                                  if (farmer?.mobileNumber) {
+                                    setSelectedTarget({
+                                      _id: farmer?._id,
+                                      name: farmer?.name || "Farmer",
+                                      mobileNumber: farmer?.mobileNumber,
+                                      village: farmer?.village || "",
+                                      taluka: farmer?.taluka || "",
+                                      district: farmer?.district || ""
+                                    })
+                                  }
+                                }}
+                                className={cn(
+                                  "w-full text-left px-3 py-2 border-b border-border last:border-b-0 hover:bg-muted text-xs",
+                                  isActive && "bg-muted"
+                                )}
+                              >
+                                <div className="font-semibold">
+                                  #{o?.orderId ?? "—"} · {o?.farmer?.name || "Farmer"}
+                                </div>
+                                <div className="text-muted-foreground">
+                                  {o?.farmer?.mobileNumber || "—"} · {[o?.farmer?.village, o?.farmer?.taluka].filter(Boolean).join(", ") || "—"}
+                                </div>
+                              </button>
+                            )
+                          })
+                        ) : (
+                          <div className="px-3 py-2 text-[11px] text-muted-foreground">No matching orders.</div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="text-[11px] text-muted-foreground">Search with order id or farmer name to fetch orders.</div>
+                    )}
+                    {selectedOrder && (
+                      <div className="text-[11px] rounded-lg border border-border bg-muted/40 px-2 py-1 flex items-center justify-between gap-2">
+                        <span>
+                          Order: <span className="font-semibold">#{selectedOrder.orderId ?? "—"}</span> ·{" "}
+                          {selectedOrder?.farmer?.name || "Farmer"}
+                        </span>
+                        <button
+                          type="button"
+                          className="text-xs font-semibold text-muted-foreground hover:text-foreground"
+                          onClick={() => setSelectedOrder(null)}
+                          disabled={saving}
+                        >
+                          Clear
+                        </button>
                       </div>
                     )}
                     <label className="block text-[11px] font-semibold text-muted-foreground">
@@ -306,7 +436,7 @@ function FarmerPlantLedgerModal({ ledger, onClose, canTransferAdvance, onRefresh
                       type="button"
                       className="px-3 py-2 rounded-lg text-xs font-semibold border border-border hover:bg-muted transition-colors"
                       disabled={saving}
-                      onClick={() => setTransferOpen(false)}
+                      onClick={closeTransferModal}
                     >
                       Cancel
                     </button>
@@ -316,11 +446,10 @@ function FarmerPlantLedgerModal({ ledger, onClose, canTransferAdvance, onRefresh
                       disabled={saving}
                       onClick={async () => {
                         const amt = Number(String(amount).replace(/[^\d.]/g, ""))
-                        const tm = selectedTarget?.mobileNumber
-                          ? String(selectedTarget.mobileNumber).replace(/\D/g, "")
-                          : ""
+                        const targetMobileRaw = selectedTarget?.mobileNumber || selectedOrder?.farmer?.mobileNumber || ""
+                        const tm = targetMobileRaw ? String(targetMobileRaw).replace(/\D/g, "") : ""
                         if (!tm || tm.length < 10) {
-                          Toast.error(`Select a valid target ${partyWord}`)
+                          Toast.error(`Select a valid target ${partyWord} or order`)
                           return
                         }
                         if (!(amt > 0)) {
@@ -332,17 +461,14 @@ function FarmerPlantLedgerModal({ ledger, onClose, canTransferAdvance, onRefresh
                           const resp = await ledgerApis.transferAdvance({
                             fromMobile: customer.mobile,
                             toMobile: tm.slice(-10),
+                            toFarmerId: selectedTarget?._id || selectedOrder?.farmer?._id || undefined,
                             amount: amt,
-                            reason
+                            reason,
+                            orderId: selectedOrder?._id || undefined
                           })
                           const msg = resp?.message || resp?.data?.message
                           Toast.success(msg || "Advance transferred")
-                          setTransferOpen(false)
-                          setSearchText("")
-                          setSearchResults([])
-                          setSelectedTarget(null)
-                          setAmount("")
-                          setReason("")
+                          closeTransferModal()
                           if (typeof onRefresh === "function") {
                             await onRefresh()
                           }

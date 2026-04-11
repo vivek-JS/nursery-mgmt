@@ -48,373 +48,199 @@ const CollectSlipPDF = ({ open, onClose, dispatchData }) => {
     }
   }
 
-  return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <div className="fixed inset-0 flex items-center justify-center z-50">
-        <div className="bg-white rounded-lg w-full max-w-md">
-          <div className="flex justify-between items-center p-4 border-b sticky top-0 bg-white z-10">
-            <h2 className="text-lg font-semibold">Collection Slip</h2>
-            <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
-              <span className="sr-only">Close</span>
-              <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M6 18L18 6M6 6l12 12"
-                />
-              </svg>
-            </button>
+  const totalPlants = dispatchData?.plants?.reduce((sum, plant) => {
+    return (
+      sum +
+      plant.crates?.reduce((plantSum, crate) => {
+        if (crate.crateDetails && crate.crateDetails.length > 0) {
+          return plantSum + crate.crateDetails.reduce((cdSum, cd) => cdSum + (cd.plantCount || 0), 0)
+        }
+        return plantSum + (crate.plantCount || crate.quantity || 0)
+      }, 0)
+    )
+  }, 0) || 0
+
+  const renderPlants = (scale) => {
+    const fs = (n) => `${Math.round(n * scale)}px`
+    return dispatchData?.plants?.map((plant, plantIndex) => {
+      const cleanPlantName = plant.name?.replace(/&gt;/g, ">").replace(/\s*-\s*>\s*/g, "-")
+      const cavityShades = new Map()
+      plant.pickupDetails?.forEach((pickup) => {
+        if (!cavityShades.has(pickup.cavityName)) cavityShades.set(pickup.cavityName, [])
+        cavityShades.get(pickup.cavityName).push(pickup)
+      })
+      return (
+        <div key={plantIndex} style={{ marginBottom: fs(8) }}>
+          {/* Plant Name */}
+          <div style={{ fontSize: fs(14), fontWeight: "900", border: "2px solid #000", padding: `${fs(3)} ${fs(6)}`, textAlign: "center", textTransform: "uppercase", marginBottom: fs(6), letterSpacing: "0.5px" }}>
+            🌱 {cleanPlantName}
           </div>
 
-          <div className="p-4">
-            <div className="mb-4">
-              <h3 className="text-md font-semibold mb-3">वाहतूक माहिती</h3>
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <div>
-                  <p className="text-gray-600">वाहतूक आयडी</p>
-                  <p className="font-medium">{dispatchData.transportId}</p>
+          {plant.crates?.map((crate, crateIndex) => {
+            const shades = cavityShades.get(crate.cavityName) || []
+            let totalCrates = 0, totalPlantsCount = 0
+            if (crate.crateDetails && crate.crateDetails.length > 0) {
+              totalCrates = crate.crateDetails.reduce((s, cd) => s + (cd.crateCount || 0), 0)
+              totalPlantsCount = crate.crateDetails.reduce((s, cd) => s + (cd.plantCount || 0), 0)
+            } else {
+              totalCrates = crate.crateCount || crate.numberOfCrates || 0
+              totalPlantsCount = crate.plantCount || crate.quantity || 0
+            }
+            return (
+              <div key={crateIndex} style={{ marginBottom: fs(8) }}>
+                {/* Cavity — medium label */}
+                <div style={{ fontSize: fs(11), fontWeight: "700", borderLeft: "3px solid #000", paddingLeft: fs(5), marginBottom: fs(4), color: "#000" }}>
+                  कॅव्हिटी: {crate.cavityName}
                 </div>
-                <div>
-                  <p className="text-gray-600">चालक</p>
-                  <p className="font-medium">{dispatchData.driverName}</p>
-                </div>
-                <div>
-                  <p className="text-gray-600">वाहन</p>
-                  <p className="font-medium">{dispatchData.vehicleName}</p>
-                </div>
-                <div>
-                  <p className="text-gray-600">एकूण रोपे</p>
-                  <p className="font-medium">
-                    {dispatchData.plants?.reduce((sum, plant) => {
-                      return (
-                        sum +
-                        plant.crates?.reduce(
-                          (plantSum, crate) => plantSum + (crate.quantity || 0),
-                          0
-                        )
-                      )
-                    }, 0)}
-                  </p>
-                </div>
-              </div>
-            </div>
 
-            <div className="mb-4">
-              <h3 className="text-md font-semibold mb-3">रोपांचे तपशील</h3>
-              <div className="space-y-3">
-                {dispatchData.plants?.map((plant, index) => (
-                  <div key={index} className="border rounded p-3">
-                    <h4 className="font-medium mb-2 text-sm">{plant.name}</h4>
-                    <div className="grid grid-cols-2 gap-3 text-xs">
-                      {plant.crates?.map((crate, crateIndex) => (
-                        <div key={crateIndex}>
-                          <p className="text-gray-600">कॅव्हिटी: {crate.cavityName}</p>
-                          <p>क्रेट: {crate.numberOfCrates}</p>
-                          <p>रोपे: {crate.quantity}</p>
-                        </div>
-                      ))}
-                    </div>
+                {/* Shade rows — BIGGEST, most important */}
+                {shades.length > 0 && (
+                  <div style={{ marginBottom: fs(5), paddingLeft: fs(4) }}>
+                    <div style={{ fontSize: fs(9), color: "#333", marginBottom: fs(2) }}>शेड माहिती:</div>
+                    {shades.map((shade, si) => (
+                      <div key={si} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: fs(16), fontWeight: "900", padding: `${fs(2)} 0`, borderBottom: si < shades.length - 1 ? "1px dotted #000" : "none" }}>
+                        <span>{shade.shadeName || "-"}</span>
+                        <span>{shade.quantity || 0} रोपे</span>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-            </div>
+                )}
 
-            <div className="flex justify-end">
-              <button
-                onClick={generatePDF}
-                className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 flex items-center gap-2 text-sm">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="2"
-                    d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                  />
-                </svg>
-                संग्रह पर्ची तयार करा
-              </button>
+                {/* Crate rows — BIGGEST, most important */}
+                <div style={{ paddingLeft: fs(4), marginBottom: fs(4) }}>
+                  <div style={{ fontSize: fs(9), color: "#333", marginBottom: fs(2) }}>क्रेट माहिती:</div>
+                  {crate.crateDetails && crate.crateDetails.length > 0 ? (
+                    crate.crateDetails.map((cd, ci) => (
+                      <div key={ci} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: fs(16), fontWeight: "900", padding: `${fs(2)} 0`, borderBottom: ci < crate.crateDetails.length - 1 ? "1px dotted #000" : "none" }}>
+                        <span>क्रेट: {cd.crateCount || 0}</span>
+                        <span>{cd.plantCount || 0} रोपे</span>
+                      </div>
+                    ))
+                  ) : (
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: fs(16), fontWeight: "900" }}>
+                      <span>क्रेट: {totalCrates}</span>
+                      <span>{totalPlantsCount} रोपे</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Cavity total — smaller summary line */}
+                {crate.crateDetails && crate.crateDetails.length > 0 && (
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: fs(11), fontWeight: "700", borderTop: "1px solid #000", paddingTop: fs(3), paddingLeft: fs(4) }}>
+                    <span>एकूण — क्रेट: {totalCrates}</span>
+                    <span>रोपे: {totalPlantsCount}</span>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )
+    })
+  }
+
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
+      {/* Modal Header */}
+      <div style={{ background: "#1a1a1a", padding: "14px 18px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          <svg style={{ width: 20, height: 20 }} fill="none" stroke="#fff" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
+          <span style={{ color: "#fff", fontWeight: "700", fontSize: "15px", letterSpacing: "0.5px" }}>संग्रह पर्ची</span>
+        </div>
+        <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", padding: "2px" }}>
+          <svg style={{ width: 20, height: 20 }} fill="none" viewBox="0 0 24 24" stroke="#aaa">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      {/* Slip Preview */}
+      <div style={{ background: "#e8e8e8", padding: "16px 12px", maxHeight: "72vh", overflowY: "auto" }}>
+        <div style={{ background: "#fff", fontFamily: "'Courier New', Courier, monospace", color: "#000", padding: "14px", boxShadow: "0 2px 12px rgba(0,0,0,0.2)", margin: "0 auto", maxWidth: "320px" }}>
+
+          {/* Header */}
+          <div style={{ textAlign: "center", borderBottom: "3px double #000", paddingBottom: "8px", marginBottom: "10px" }}>
+            <div style={{ fontSize: "18px", fontWeight: "900", letterSpacing: "1px" }}>★ संग्रह पर्ची ★</div>
+            <div style={{ fontSize: "11px", fontWeight: "bold", marginTop: "2px" }}>RAM NURSERY</div>
+            <div style={{ fontSize: "10px", marginTop: "4px", display: "flex", justifyContent: "space-between" }}>
+              <span>{new Date().toLocaleDateString("hi-IN")}</span>
+              <span>{new Date().toLocaleTimeString("hi-IN", { hour: "2-digit", minute: "2-digit" })}</span>
             </div>
+          </div>
+
+          {/* Transport ID + Vehicle — compact, secondary info */}
+          <div style={{ fontSize: "10px", marginBottom: "8px", paddingBottom: "6px", borderBottom: "1px dashed #000", lineHeight: "1.6" }}>
+            <div><b>वाहतूक ID:</b> {dispatchData?.transportId || "N/A"}</div>
+            <div><b>चालक:</b> {dispatchData?.driverName || "N/A"}{dispatchData?.driverMobile ? ` (${dispatchData.driverMobile})` : ""}</div>
+            <div><b>वाहन:</b> {dispatchData?.vehicleName || "N/A"}</div>
+          </div>
+
+          {/* Total Plants — small inline */}
+          <div style={{ fontSize: "11px", fontWeight: "700", textAlign: "center", marginBottom: "8px", paddingBottom: "6px", borderBottom: "2px solid #000" }}>
+            एकूण रोपे: <span style={{ fontSize: "13px" }}>{totalPlants}</span>
+          </div>
+
+          <div style={{ fontSize: "10px", textAlign: "center", marginBottom: "8px", fontWeight: "bold" }}>── रोपांचे तपशील ──</div>
+
+          {renderPlants(1)}
+
+          {/* Footer */}
+          <div style={{ borderTop: "3px double #000", paddingTop: "6px", marginTop: "8px", textAlign: "center" }}>
+            <div style={{ fontSize: "13px", fontWeight: "900" }}>★ धन्यवाद! ★</div>
+            <div style={{ fontSize: "9px", marginTop: "3px" }}>{new Date().toLocaleString("hi-IN")}</div>
           </div>
         </div>
       </div>
 
-      {/* Hidden printable content - Thermal printer format (80mm width) */}
+      {/* Action Bar */}
+      <div style={{ background: "#fff", padding: "12px 16px", borderTop: "1px solid #e5e5e5", display: "flex", gap: "10px", justifyContent: "flex-end" }}>
+        <button onClick={onClose} style={{ background: "none", border: "1px solid #ccc", color: "#555", padding: "8px 18px", borderRadius: "6px", cursor: "pointer", fontWeight: "600", fontSize: "13px" }}>
+          बंद करा
+        </button>
+        <button onClick={generatePDF} style={{ background: "#1a1a1a", color: "#fff", border: "none", padding: "8px 20px", borderRadius: "6px", cursor: "pointer", fontWeight: "700", fontSize: "14px", display: "flex", alignItems: "center", gap: "8px" }}>
+          <svg style={{ width: 16, height: 16 }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+          </svg>
+          पर्ची प्रिंट करा
+        </button>
+      </div>
+
+      {/* Hidden printable content — thermal 78mm */}
       <div style={{ position: "absolute", left: "-9999px", top: "-9999px" }}>
-        <div
-          ref={printRef}
-          style={{
-            width: "78mm", // 80mm - 2mm margin
-            maxWidth: "78mm",
-            fontFamily: "'Courier New', monospace", // Monospace for thermal printers
-            fontSize: "10px",
-            lineHeight: "1.4",
-            color: "#000000",
-            backgroundColor: "#ffffff",
-            padding: "4mm",
-            boxSizing: "border-box"
-          }}>
+        <div ref={printRef} style={{ width: "78mm", maxWidth: "78mm", fontFamily: "'Courier New', Courier, monospace", fontSize: "13px", lineHeight: "1.5", color: "#000", backgroundColor: "#fff", padding: "4mm", boxSizing: "border-box" }}>
+
           {/* Header */}
-          <div style={{ textAlign: "center", borderBottom: "1px solid #000", paddingBottom: "3px", marginBottom: "5px" }}>
-            <div style={{ fontSize: "14px", fontWeight: "bold", marginBottom: "3px" }}>संग्रह पर्ची</div>
-            <div style={{ fontSize: "8px", display: "flex", justifyContent: "space-between" }}>
-              <span>तारीख: {new Date().toLocaleDateString("hi-IN")}</span>
-              <span>वेळ: {new Date().toLocaleTimeString("hi-IN", { hour: "2-digit", minute: "2-digit" })}</span>
+          <div style={{ textAlign: "center", borderBottom: "3px double #000", paddingBottom: "6px", marginBottom: "8px" }}>
+            <div style={{ fontSize: "20px", fontWeight: "900", letterSpacing: "1px" }}>★ संग्रह पर्ची ★</div>
+            <div style={{ fontSize: "11px", fontWeight: "bold", marginTop: "2px" }}>RAM NURSERY</div>
+            <div style={{ fontSize: "10px", marginTop: "4px", display: "flex", justifyContent: "space-between" }}>
+              <span>{new Date().toLocaleDateString("hi-IN")}</span>
+              <span>{new Date().toLocaleTimeString("hi-IN", { hour: "2-digit", minute: "2-digit" })}</span>
             </div>
           </div>
 
-          {/* Transport ID */}
-          <div style={{ marginBottom: "5px", padding: "3px 0", borderBottom: "1px dashed #000" }}>
-            <div style={{ fontSize: "9px", fontWeight: "bold" }}>
-              वाहतूक ID: {dispatchData?.transportId || "N/A"}
-            </div>
+          {/* Transport + Vehicle — compact secondary */}
+          <div style={{ fontSize: "10px", marginBottom: "6px", paddingBottom: "5px", borderBottom: "1px dashed #000", lineHeight: "1.7" }}>
+            <div><b>वाहतूक ID:</b> {dispatchData?.transportId || "N/A"}</div>
+            <div><b>चालक:</b> {dispatchData?.driverName || "N/A"}{dispatchData?.driverMobile ? ` (${dispatchData.driverMobile})` : ""}</div>
+            <div><b>वाहन:</b> {dispatchData?.vehicleName || "N/A"}</div>
           </div>
 
-          {/* Driver Info */}
-          <div style={{ marginBottom: "5px", padding: "3px 0", borderBottom: "1px dashed #000" }}>
-            <div style={{ fontSize: "9px" }}>
-              <div style={{ fontWeight: "bold", marginBottom: "2px" }}>
-                चालक: {dispatchData?.driverName || "N/A"}
-              </div>
-              <div style={{ marginBottom: "2px", fontSize: "8px" }}>
-                मोबाइल: {dispatchData?.driverMobile || "N/A"}
-              </div>
-              <div style={{ fontWeight: "bold", fontSize: "9px" }}>
-                वाहन: {dispatchData?.vehicleName || "N/A"}
-              </div>
-            </div>
+          {/* Total Plants — small */}
+          <div style={{ fontSize: "11px", fontWeight: "700", textAlign: "center", marginBottom: "8px", paddingBottom: "5px", borderBottom: "2px solid #000" }}>
+            एकूण रोपे: {totalPlants}
           </div>
 
-          {/* Summary - Total Plants */}
-          {(() => {
-            const totalPlants = dispatchData?.plants?.reduce((sum, plant) => {
-              return (
-                sum +
-                plant.crates?.reduce(
-                  (plantSum, crate) => {
-                    if (crate.crateDetails && crate.crateDetails.length > 0) {
-                      return plantSum + crate.crateDetails.reduce((cdSum, cd) => cdSum + (cd.plantCount || 0), 0)
-                    }
-                    return plantSum + (crate.plantCount || crate.quantity || 0)
-                  },
-                  0
-                )
-              )
-            }, 0) || 0
+          <div style={{ fontSize: "10px", textAlign: "center", marginBottom: "8px", fontWeight: "bold" }}>── रोपांचे तपशील ──</div>
 
-            return (
-              <div style={{ marginBottom: "5px", padding: "3px 0", borderBottom: "1px solid #000" }}>
-                <div style={{ fontSize: "10px", fontWeight: "bold", textAlign: "center" }}>
-                  एकूण रोपे: {totalPlants}
-                </div>
-              </div>
-            )
-          })()}
-
-          {/* Crates by Plant and Cavity */}
-          {dispatchData?.plants?.map((plant, plantIndex) => {
-            // Clean plant name to display properly
-            const cleanPlantName = plant.name?.replace(/&gt;/g, ">").replace(/\s*-\s*>\s*/g, "-")
-            
-            return (
-            <div key={plantIndex} style={{ marginBottom: "5px" }}>
-              {/* Plant Name */}
-              <div style={{ 
-                fontSize: "10px", 
-                fontWeight: "bold", 
-                marginBottom: "3px", 
-                borderBottom: "1px solid #000", 
-                paddingBottom: "2px",
-                textAlign: "center"
-              }}>
-                {cleanPlantName}
-              </div>
-
-              {/* Group by cavity and show shade-wise */}
-              {(() => {
-                // Group pickupDetails by cavity for shade information
-                const cavityShades = new Map()
-                
-                plant.pickupDetails?.forEach((pickup) => {
-                  if (!cavityShades.has(pickup.cavityName)) {
-                    cavityShades.set(pickup.cavityName, [])
-                  }
-                  cavityShades.get(pickup.cavityName).push(pickup)
-                })
-
-                return plant.crates?.map((crate, crateIndex) => {
-                  const shades = cavityShades.get(crate.cavityName) || []
-                  
-                  // Calculate totals
-                  let totalCrates = 0
-                  let totalPlants = 0
-                  if (crate.crateDetails && crate.crateDetails.length > 0) {
-                    totalCrates = crate.crateDetails.reduce((sum, cd) => sum + (cd.crateCount || 0), 0)
-                    totalPlants = crate.crateDetails.reduce((sum, cd) => sum + (cd.plantCount || 0), 0)
-                  } else {
-                    totalCrates = crate.crateCount || crate.numberOfCrates || 0
-                    totalPlants = crate.plantCount || crate.quantity || 0
-                  }
-
-                  return (
-                    <div key={crateIndex} style={{ marginBottom: "5px", padding: "3px 0" }}>
-                      {/* Cavity Header */}
-                      <div style={{ 
-                        fontSize: "9px", 
-                        fontWeight: "bold", 
-                        marginBottom: "3px",
-                        textAlign: "center",
-                        padding: "2px 0",
-                        borderTop: "1px solid #000",
-                        borderBottom: "1px solid #000"
-                      }}>
-                        कॅव्हिटी: {crate.cavityName}
-                      </div>
-                      
-                      {/* Shade Section - Highlighted */}
-                      {shades.length > 0 && (
-                        <div style={{ 
-                          marginBottom: "4px", 
-                          padding: "3px",
-                          border: "1px solid #000",
-                          backgroundColor: "#f5f5f5"
-                        }}>
-                          <div style={{ 
-                            fontSize: "9px", 
-                            fontWeight: "bold", 
-                            marginBottom: "3px",
-                            textAlign: "center",
-                            borderBottom: "1px dashed #000",
-                            paddingBottom: "2px"
-                          }}>
-                            === शेड माहिती ===
-                          </div>
-                          <div style={{ fontSize: "8px", lineHeight: "1.5" }}>
-                            {shades.map((shade, shadeIdx) => (
-                              <div 
-                                key={shadeIdx} 
-                                style={{ 
-                                  display: "flex", 
-                                  justifyContent: "space-between", 
-                                  marginBottom: "2px",
-                                  padding: "1px 2px",
-                                  borderBottom: shadeIdx < shades.length - 1 ? "1px dotted #666" : "none"
-                                }}
-                              >
-                                <span style={{ fontWeight: "normal" }}>• {shade.shadeName || "-"}</span>
-                                <span style={{ fontWeight: "bold", fontSize: "9px" }}>{shade.quantity || 0} रोपे</span>
-                              </div>
-                            ))}
-                            {/* Shade Total */}
-                            <div style={{ 
-                              display: "flex", 
-                              justifyContent: "space-between", 
-                              marginTop: "3px", 
-                              paddingTop: "2px",
-                              borderTop: "1px solid #000",
-                              fontWeight: "bold",
-                              fontSize: "9px"
-                            }}>
-                              <span>एकूण शेड रोपे:</span>
-                              <span>{shades.reduce((sum, s) => sum + (s.quantity || 0), 0)}</span>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                      
-                      {/* Crate Section - Highlighted */}
-                      <div style={{ 
-                        padding: "3px",
-                        border: "1px solid #000",
-                        backgroundColor: "#f9f9f9"
-                      }}>
-                        <div style={{ 
-                          fontSize: "9px", 
-                          fontWeight: "bold", 
-                          marginBottom: "3px",
-                          textAlign: "center",
-                          borderBottom: "1px dashed #000",
-                          paddingBottom: "2px"
-                        }}>
-                          === क्रेट माहिती ===
-                        </div>
-                        {crate.crateDetails && crate.crateDetails.length > 0 ? (
-                          <div style={{ fontSize: "8px", lineHeight: "1.5" }}>
-                            {crate.crateDetails.map((crateDetail, cdIdx) => (
-                              <div 
-                                key={cdIdx} 
-                                style={{ 
-                                  display: "flex", 
-                                  justifyContent: "space-between", 
-                                  marginBottom: "2px",
-                                  padding: "1px 2px",
-                                  borderBottom: cdIdx < crate.crateDetails.length - 1 ? "1px dotted #666" : "none"
-                                }}
-                              >
-                                <span style={{ fontWeight: "normal" }}>• क्रेट: {crateDetail.crateCount || 0}</span>
-                                <span style={{ fontWeight: "bold", fontSize: "9px" }}>{crateDetail.plantCount || 0} रोपे</span>
-                              </div>
-                            ))}
-                            {/* Crate Total - Prominent */}
-                            <div style={{ 
-                              display: "flex", 
-                              justifyContent: "space-between", 
-                              marginTop: "4px", 
-                              paddingTop: "3px",
-                              paddingBottom: "2px",
-                              borderTop: "2px solid #000",
-                              borderBottom: "1px solid #000",
-                              fontWeight: "bold",
-                              fontSize: "10px",
-                              backgroundColor: "#e8e8e8"
-                            }}>
-                              <span>=== एकूण ===</span>
-                            </div>
-                            <div style={{ 
-                              display: "flex", 
-                              justifyContent: "space-between", 
-                              marginTop: "2px",
-                              fontWeight: "bold",
-                              fontSize: "9px"
-                            }}>
-                              <span>क्रेट: {totalCrates}</span>
-                              <span>रोपे: {totalPlants}</span>
-                            </div>
-                          </div>
-                        ) : (
-                          <div style={{ 
-                            fontSize: "9px", 
-                            display: "flex", 
-                            justifyContent: "space-between",
-                            padding: "2px",
-                            fontWeight: "bold"
-                          }}>
-                            <span>क्रेट: {totalCrates}</span>
-                            <span>रोपे: {totalPlants}</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )
-                })
-              })()}
-            </div>
-          )
-          })}
+          {renderPlants(1.15)}
 
           {/* Footer */}
-          <div style={{ 
-            marginTop: "8px", 
-            paddingTop: "5px", 
-            borderTop: "2px solid #000",
-            textAlign: "center",
-            fontSize: "8px"
-          }}>
-            <div style={{ marginBottom: "2px" }}>--------------------------------</div>
-            <div style={{ fontWeight: "bold" }}>धन्यवाद!</div>
-            <div style={{ marginTop: "3px", fontSize: "7px" }}>
-              {new Date().toLocaleString("hi-IN")}
-            </div>
+          <div style={{ borderTop: "3px double #000", paddingTop: "6px", marginTop: "8px", textAlign: "center" }}>
+            <div style={{ fontSize: "14px", fontWeight: "900" }}>★ धन्यवाद! ★</div>
+            <div style={{ fontSize: "9px", marginTop: "3px" }}>{new Date().toLocaleString("hi-IN")}</div>
           </div>
         </div>
       </div>

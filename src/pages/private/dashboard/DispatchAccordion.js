@@ -498,9 +498,16 @@ const DispatchAccordion = ({
                                         {moment(dispatch.date).format("DD/MM/YYYY HH:mm")}
                                       </span>
                                     </div>
+                                    {/* Populated join (regular dispatches) */}
                                     {dispatch.dispatch && (
                                       <div className="text-gray-600">
-                                        Dispatch #{dispatch.dispatch.transportId} • {dispatch.dispatch.driverName}
+                                        🚛 Dispatch #{dispatch.dispatch.transportId} • {dispatch.dispatch.vehicleName || dispatch.dispatch.driverName}
+                                      </div>
+                                    )}
+                                    {/* Direct fields (Quick Orders added post-dispatch) */}
+                                    {!dispatch.dispatch && (dispatch.vehicleName || dispatch.driverName) && (
+                                      <div className="text-gray-600">
+                                        🚛 {dispatch.vehicleName || ""}{dispatch.vehicleName && dispatch.driverName ? " • " : ""}{dispatch.driverName || ""}
                                       </div>
                                     )}
                                     <div className="text-gray-600">

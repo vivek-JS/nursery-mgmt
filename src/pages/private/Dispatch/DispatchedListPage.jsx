@@ -46,6 +46,8 @@ import {
   ExpandMore,
   ExpandLess,
   Edit,
+  ContentCut,
+  FlashOn as FlashIcon,
 } from "@mui/icons-material";
 import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 import { LocalizationProvider } from "lib/muiLocalizationProvider";
@@ -70,6 +72,8 @@ import { useUserRole, useIsDispatchManager, useUserData } from "utils/roleUtils"
 import { useLogoutModel } from "layout/privateLayout/privateLayout.model";
 import { Loader } from "redux/dispatcher/Loader";
 import DispatchForm from "../dashboard/DispatchedForm";
+import QuickOrderDialog from "./components/QuickOrderDialog";
+import SplitOrderDialog from "./components/SplitOrderDialog";
 
 // Dynamically import OrderMapView to avoid SSR issues with Leaflet
 const OrderMapView = lazy(() => import("./components/OrderMapView"));
@@ -136,6 +140,10 @@ const DispatchedListPage = () => {
   const [dispatchListLoading, setDispatchListLoading] = useState(false);
   const [dispatchPreviewOpen, setDispatchPreviewOpen] = useState(false);
   const [selectedDispatchPreview, setSelectedDispatchPreview] = useState(null);
+  const [quickOrderOpen, setQuickOrderOpen] = useState(false);
+  const [quickOrderDispatch, setQuickOrderDispatch] = useState(null); // { _id, label }
+  const [splitOrderDialogOpen, setSplitOrderDialogOpen] = useState(false);
+  const [splitOrderTarget, setSplitOrderTarget] = useState(null);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(!isMobile);
   const [whatsappMessagingEnabled, setWhatsappMessagingEnabled] = useState(
     () => !isWhatsappMessagingDisabled()
@@ -1488,18 +1496,45 @@ const DispatchedListPage = () => {
                       <Typography sx={{ fontSize: "0.65rem", color: "#607d8b", mb: 0.7 }}>
                         {dispatch?.createdAt ? moment(dispatch.createdAt).format("DD MMM, hh:mm A") : "N/A"}
                       </Typography>
-                      <Chip
-                        size="small"
-                        label="Tap to view full details"
-                        sx={{
-                          height: 23,
-                          fontSize: "0.66rem",
-                          fontWeight: 800,
-                          bgcolor: "rgba(46,125,50,0.12)",
-                          color: "#1b5e20",
-                          border: "1px solid rgba(46,125,50,0.24)",
-                        }}
-                      />
+                      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 0.75 }}>
+                        <Chip
+                          size="small"
+                          label="Tap to view details"
+                          sx={{
+                            height: 23,
+                            fontSize: "0.66rem",
+                            fontWeight: 800,
+                            bgcolor: "rgba(46,125,50,0.12)",
+                            color: "#1b5e20",
+                            border: "1px solid rgba(46,125,50,0.24)",
+                          }}
+                        />
+                        <Button
+                          size="small"
+                          variant="contained"
+                          startIcon={<FlashIcon sx={{ fontSize: "0.9rem" }} />}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setQuickOrderDispatch({
+                              _id: dispatch._id,
+                              label: `Dispatch #${dispatch?.transportId || idx + 1}`,
+                            })
+                            setQuickOrderOpen(true)
+                          }}
+                          sx={{
+                            textTransform: "none",
+                            fontWeight: 700,
+                            fontSize: "0.72rem",
+                            py: 0.35,
+                            px: 1,
+                            borderRadius: 1.5,
+                            background: "linear-gradient(135deg, #2e7d32 0%, #1b5e20 100%)",
+                            "&:hover": { background: "linear-gradient(135deg, #388e3c 0%, #2e7d32 100%)" },
+                          }}
+                        >
+                          Quick Order
+                        </Button>
+                      </Box>
                     </Paper>
                   );
                 })}
@@ -1910,6 +1945,37 @@ const DispatchedListPage = () => {
                               border: "1px solid rgba(46, 125, 50, 0.2)",
                             }}
                           />
+                          {/* Split badges */}
+                          {order.isSplit && order.parentOrderId && (
+                            <Chip
+                              label="↑ Split"
+                              size="small"
+                              title={`Split from order ${order.parentOrderId?.orderId || ""}`}
+                              sx={{
+                                height: 20,
+                                fontSize: "0.65rem",
+                                fontWeight: 700,
+                                bgcolor: "rgba(230, 81, 0, 0.1)",
+                                color: "#e65100",
+                                border: "1px solid rgba(230, 81, 0, 0.35)",
+                              }}
+                            />
+                          )}
+                          {Array.isArray(order.splitOrderIds) && order.splitOrderIds.length > 0 && (
+                            <Chip
+                              label={`↓ ${order.splitOrderIds.length} split`}
+                              size="small"
+                              title={`Split into ${order.splitOrderIds.length} order(s)`}
+                              sx={{
+                                height: 20,
+                                fontSize: "0.65rem",
+                                fontWeight: 700,
+                                bgcolor: "rgba(1, 87, 155, 0.1)",
+                                color: "#01579b",
+                                border: "1px solid rgba(1, 87, 155, 0.35)",
+                              }}
+                            />
+                          )}
                         </Box>
                         <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
                           {viewMode === "ready_for_dispatch" && (
@@ -1977,6 +2043,20 @@ const DispatchedListPage = () => {
                           >
                             <Edit sx={{ fontSize: "1rem" }} />
                           </IconButton>
+                          {(order.orderStatus === "READY_FOR_DISPATCH" || order.orderStatus === "FARM_READY" || order.orderStatus === "ACCEPTED") && (
+                            <IconButton
+                              size="small"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSplitOrderTarget(order);
+                                setSplitOrderDialogOpen(true);
+                              }}
+                              sx={{ p: 0.4, color: "warning.main" }}
+                              title="Split order"
+                            >
+                              <ContentCut sx={{ fontSize: "1rem" }} />
+                            </IconButton>
+                          )}
                         </Box>
                       </Box>
 
@@ -3346,6 +3426,31 @@ const DispatchedListPage = () => {
             </Button>
           </DialogActions>
         </Dialog>
+
+        {/* Quick Order Dialog — creates a DISPATCHED order and links it to the selected vehicle */}
+        <QuickOrderDialog
+          open={quickOrderOpen}
+          onClose={() => {
+            setQuickOrderOpen(false)
+            setQuickOrderDispatch(null)
+          }}
+          onSuccess={fetchDispatchList}
+          dispatchId={quickOrderDispatch?._id}
+          dispatchLabel={quickOrderDispatch?.label}
+        />
+
+        {/* Split Order Dialog */}
+        <SplitOrderDialog
+          open={splitOrderDialogOpen}
+          onClose={() => {
+            setSplitOrderDialogOpen(false);
+            setSplitOrderTarget(null);
+          }}
+          order={splitOrderTarget}
+          onSplitSuccess={() => {
+            fetchOrders(false);
+          }}
+        />
       </Box>
     </LocalizationProvider>
   );

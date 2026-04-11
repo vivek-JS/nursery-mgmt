@@ -1,6 +1,6 @@
 import React, { useState } from "react"
 import { Tabs, Tab, Box } from "@mui/material"
-import VehicleTable from "./VehicleTable"
+import VehicleOwnerTable from "./VehicleOwnerTable"
 import ShadeTable from "./ShadeTable"
 import TrayTable from "./Traytable"
 import BatchTable from "./BatchTable"
@@ -22,7 +22,7 @@ const DispatchManagement = () => {
 
       <Box sx={{ borderBottom: 1, borderColor: "divider" }}>
         <Tabs value={activeTab} onChange={handleTabChange}>
-          <Tab label="Vehicles" />
+          <Tab label="Fleet" />
           <Tab label="Shades" />
           <Tab label="Tray" />
           <Tab label="Batch" />
@@ -32,7 +32,7 @@ const DispatchManagement = () => {
       </Box>
 
       <div className="mt-6">
-        {activeTab === 0 && <VehicleTable />}
+        {activeTab === 0 && <VehicleOwnerTable />}
         {activeTab === 1 && <ShadeTable />}
         {activeTab === 2 && <TrayTable />}
         {activeTab === 3 && <BatchTable />}

@@ -1,4 +1,6 @@
-import React, { useState, useEffect, useRef, useLayoutEffect } from "react"
+import React, { useState, useEffect, useRef, useLayoutEffect, lazy, Suspense } from "react"
+
+const OrderMapView = lazy(() => import("../Dispatch/components/OrderMapView"))
 import ReactDOM from "react-dom"
 import {
   Edit2Icon,
@@ -272,7 +274,14 @@ const getFarmerOrdersTableColumnCount = ({
 }) => {
   let n = 0
   if (showAgriSalesOrders) n += 1
-  if (viewMode !== "booking" && viewMode !== "cancelled" && !showAgriSalesOrders) n += 1
+  if (
+    viewMode !== "booking" &&
+    viewMode !== "pending" &&
+    viewMode !== "accepted" &&
+    viewMode !== "cancelled" &&
+    !showAgriSalesOrders
+  )
+    n += 1
   n += 8 // SR, Order, Farmer, Plant, Delivery, Qty, Rate, Amount
   if (!(showAgriSalesOrders && hidePaymentDetails)) n += 1
   if (showAgriSalesOrders) n += 1
@@ -330,6 +339,128 @@ const mergeOrdersByIdPrimaryFirst = (primary, secondary) => {
     if (key && !map.has(key)) map.set(key, row)
   }
   return Array.from(map.values())
+}
+
+/** Total row count from GET /order/getOrders pagination envelope (aligned with backend factory getAll for Order). */
+const getOrdersListEnvelopeTotal = (res) => {
+  const envelope = res?.data?.data
+  if (envelope && typeof envelope.total === "number") return envelope.total
+  return Array.isArray(envelope?.data) ? envelope.data.length : 0
+}
+
+/**
+ * Query params for GET /order/getOrders (Farmer orders regular tabs).
+ * Keeps list fetch, load-more, refresh, and tab-count requests aligned.
+ */
+function buildRegularOrderListParams({
+  viewMode,
+  startDate,
+  endDate,
+  debouncedSearchTerm,
+  orderDateRangeBy,
+  selectedSalesPerson,
+  selectedVillage,
+  selectedDistrict,
+  selectedPlant,
+  selectedSubtype,
+  user,
+  page = 1,
+  limit = DASHBOARD_ORDERS_PAGE_SIZE,
+}) {
+  const isCancelledTab = viewMode === "cancelled"
+  const isBookingLikeTab =
+    viewMode === "booking" ||
+    viewMode === "pending" ||
+    viewMode === "accepted" ||
+    isCancelledTab
+  const isReadyForDispatchTab = viewMode === "ready_for_dispatch"
+  const isDispatchedVehicleTab = viewMode === "dispatched_vehicle"
+
+  const params = {
+    search: debouncedSearchTerm,
+    dispatched: isBookingLikeTab ? false : true,
+    limit,
+    page,
+  }
+
+  if (startDate && endDate && !debouncedSearchTerm?.trim()) {
+    const date = new Date(startDate)
+    const formattedStartDate = moment(date).format("DD-MM-YYYY")
+    const edate = new Date(endDate)
+    const formattedEndtDate = moment(edate).format("DD-MM-YYYY")
+    params.startDate = formattedStartDate
+    params.endDate = formattedEndtDate
+  }
+
+  const isDealerOrSales = user?.jobTitle === "DEALER" || user?.jobTitle === "SALES"
+  if (isDealerOrSales && (user?._id || user?.id)) {
+    params.salesPerson = user._id || user.id
+  } else if (selectedSalesPerson) {
+    params.salesPerson = selectedSalesPerson
+  }
+  if (selectedVillage) {
+    params.village = selectedVillage
+  }
+  if (selectedDistrict) {
+    params.district = selectedDistrict
+  }
+  if (selectedPlant) {
+    params.plantId = selectedPlant
+  }
+  if (selectedSubtype) {
+    params.subtypeId = selectedSubtype
+  }
+
+  if (
+    startDate &&
+    endDate &&
+    (viewMode === "booking" ||
+      viewMode === "pending" ||
+      viewMode === "accepted" ||
+      isCancelledTab) &&
+    !debouncedSearchTerm?.trim()
+  ) {
+    params.dateRangeField = orderDateRangeBy
+  }
+
+  if (isCancelledTab) {
+    params.status = "CANCELLED"
+  } else if (viewMode === "pending") {
+    params.status = "PENDING"
+  } else if (viewMode === "accepted") {
+    params.status = "ACCEPTED,ASSIGNED"
+  }
+
+  if (viewMode === "farmready") {
+    params.farmReady = "true"
+    delete params.status
+  }
+
+  if (viewMode === "dispatch_process") {
+    params.startDate = null
+    params.endDate = null
+  }
+
+  if (isDispatchedVehicleTab) {
+    params.dispatched = true
+    params.status = "DISPATCHED"
+    params.startDate = null
+    params.endDate = null
+  }
+
+  if (isReadyForDispatchTab) {
+    params.ready_for_dispatch = "true"
+    params.startDate = null
+    params.endDate = null
+    delete params.status
+  }
+
+  if (viewMode === "dispatch_process") {
+    params.status = "DISPATCH_PROCESS"
+    params.dispatched = false
+  }
+
+  return params
 }
 
 const DISPATCH_DAY_KEY_OFFSET = { TODAY: 0, TOMORROW: 1, DAY_AFTER: 2 }
@@ -1256,10 +1387,18 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
   const [quantityDeltaInput, setQuantityDeltaInput] = useState("")
   const [viewMode, setViewMode] = useState("booking")
   const isCancelledTab = viewMode === "cancelled"
-  const isBookingLikeTab = viewMode === "booking" || isCancelledTab
   const isReadyForDispatchTab = viewMode === "ready_for_dispatch"
   const isDispatchedVehicleTab = viewMode === "dispatched_vehicle"
-  const isCompletedOrdersTab = viewMode === "completed_orders"
+  const [orderViewTabTotals, setOrderViewTabTotals] = useState({
+    booking: 0,
+    pending: 0,
+    accepted: 0,
+    cancelled: 0,
+    farmready: 0,
+    ready_for_dispatch: 0,
+    dispatch_process: 0,
+    dispatched_vehicle: 0,
+  })
   /** API `dateRangeField`: booking vs delivery for date-range filter (see factory.controller getOrders). */
   // Default date-range field should be "booking" (Booking date).
   const [orderDateRangeBy, setOrderDateRangeBy] = useState("booking")
@@ -1267,6 +1406,7 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
   const [selectedRows, setSelectedRows] = useState(new Set())
   const [readyDispatchGroups, setReadyDispatchGroups] = useState([])
   const [clubDialogOpen, setClubDialogOpen] = useState(false)
+  const [routeMapOpen, setRouteMapOpen] = useState(false)
   const [clubCapacityMax, setClubCapacityMax] = useState(3000)
   const [clubCapacityType, setClubCapacityType] = useState("PLANTS")
   const [clubCapacityUnit, setClubCapacityUnit] = useState("plants")
@@ -1337,6 +1477,14 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
     title: "",
     description: "",
     onConfirm: null
+  })
+  const [statusRemarkDialog, setStatusRemarkDialog] = useState({
+    open: false,
+    title: "",
+    description: "",
+    remark: "",
+    confirmLabel: "Apply",
+    onSubmit: null
   })
   const [readyDispatchDialog, setReadyDispatchDialog] = useState({
     open: false,
@@ -1586,109 +1734,22 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
 
         // Direct API call to refresh orders data
         try {
-          const date = new Date(startDate)
-          const formattedStartDate = moment(date).format("DD-MM-YYYY")
-          const edate = new Date(endDate)
-          const formattedEndtDate = moment(edate).format("DD-MM-YYYY")
-
           const instance = NetworkManager(API.ORDER.GET_ORDERS)
-          const params = {
-            search: debouncedSearchTerm,
-            dispatched: isBookingLikeTab ? false : true,
+          const params = buildRegularOrderListParams({
+            viewMode,
+            startDate,
+            endDate,
+            debouncedSearchTerm,
+            orderDateRangeBy,
+            selectedSalesPerson,
+            selectedVillage,
+            selectedDistrict,
+            selectedPlant,
+            selectedSubtype,
+            user,
+            page: 1,
             limit: DASHBOARD_ORDERS_PAGE_SIZE,
-            page: 1
-          }
-          if (!debouncedSearchTerm?.trim()) {
-            params.startDate = formattedStartDate
-            params.endDate = formattedEndtDate
-          }
-
-          // When dealer or sales is logged in, filter by their id
-          const isDealerOrSalesRefresh = user?.jobTitle === "DEALER" || user?.jobTitle === "SALES"
-          if (isDealerOrSalesRefresh && (user?._id || user?.id)) {
-            params.salesPerson = user._id || user.id
-          } else if (selectedSalesPerson) {
-            params.salesPerson = selectedSalesPerson
-          }
-          if (selectedVillage) {
-            params.village = selectedVillage
-          }
-          if (selectedDistrict) {
-            params.district = selectedDistrict
-          }
-  if (selectedPlant) {
-    params.plantId = selectedPlant
-  }
-  if (selectedSubtype) {
-    params.subtypeId = selectedSubtype
-  }
-          if (selectedPlant) {
-            params.plantId = selectedPlant
-          }
-          if (selectedSubtype) {
-            params.subtypeId = selectedSubtype
-          }
-
-          if (
-            startDate &&
-            endDate &&
-            (viewMode === "booking" ||
-              viewMode === "dispatched" ||
-              isCompletedOrdersTab ||
-              isCancelledTab)
-          ) {
-            params.dateRangeField = orderDateRangeBy
-          }
-
-          if (isCompletedOrdersTab) {
-            params.dispatched = true
-            params.status = "COMPLETED,PARTIALLY_COMPLETED"
-          } else if (viewMode === "dispatched") {
-            params.status = "ACCEPTED,FARM_READY"
-          } else if (isCancelledTab) {
-            params.status = "CANCELLED"
-          }
-
-          if (viewMode === "farmready") {
-            params.status = "FARM_READY"
-          }
-          if (isReadyForDispatchTab) {
-            params.ready_for_dispatch = "true"
-            // Remove status filter for ready for dispatch view since we want specific filtering
-            delete params.status
-          }
-          if (isDispatchedVehicleTab) {
-            params.dispatched = true
-            params.status = "DISPATCHED"
-            params.startDate = null
-            params.endDate = null
-          }
-          if (
-            viewMode === "farmready" ||
-            isReadyForDispatchTab ||
-            viewMode === "dispatch_process" ||
-            isDispatchedVehicleTab
-          ) {
-            params.startDate = null
-          }
-
-          if (
-            viewMode === "farmready" ||
-            isReadyForDispatchTab ||
-            viewMode === "dispatch_process" ||
-            isDispatchedVehicleTab
-          ) {
-            params.endDate = null
-          }
-          if (viewMode === "farmready") {
-            params.status = "FARM_READY"
-          }
-          if (viewMode === "dispatch_process") {
-            params.status = "DISPATCH_PROCESS"
-          }
-          if (viewMode === "dispatch_process") {
-            params.dispatched = false
-          }
+          })
 
           let ordersData = []
           if (viewMode === "dispatch_process") {
@@ -2193,6 +2254,104 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
       Toast.error(error?.response?.data?.message || "Failed to open group for dispatch")
     }
   }
+
+  // Tab badges: totals from GET /order/getOrders pagination (`total`), same filters as the list.
+  useEffect(() => {
+    if (showAgriSalesOrders) return
+    if (slotId) {
+      setOrderViewTabTotals({
+        booking: 0,
+        pending: 0,
+        accepted: 0,
+        cancelled: 0,
+        farmready: 0,
+        ready_for_dispatch: 0,
+        dispatch_process: 0,
+        dispatched_vehicle: 0,
+      })
+      return
+    }
+    const ac = new AbortController()
+    const { signal } = ac
+    const baseArgs = {
+      startDate,
+      endDate,
+      debouncedSearchTerm,
+      orderDateRangeBy,
+      selectedSalesPerson,
+      selectedVillage,
+      selectedDistrict,
+      selectedPlant,
+      selectedSubtype,
+      user,
+      limit: 1,
+      page: 1,
+    }
+    const run = async () => {
+      try {
+        const instance = NetworkManager(API.ORDER.GET_ORDERS)
+        const tabIds = [
+          "booking",
+          "pending",
+          "accepted",
+          "cancelled",
+          "farmready",
+          "ready_for_dispatch",
+          "dispatched_vehicle",
+        ]
+        const singlePromises = tabIds.map((vm) =>
+          instance.request(
+            {},
+            buildRegularOrderListParams({ ...baseArgs, viewMode: vm }),
+            { signal }
+          )
+        )
+        const pIn = buildRegularOrderListParams({
+          ...baseArgs,
+          viewMode: "dispatch_process",
+        })
+        const pDisp = { ...pIn, dispatched: true, status: "ACCEPTED,FARM_READY" }
+        const dispatchPromises = [
+          instance.request({}, pIn, { signal }),
+          instance.request({}, pDisp, { signal }),
+        ]
+        const results = await Promise.all([...singlePromises, ...dispatchPromises])
+        const nDispatch =
+          getOrdersListEnvelopeTotal(results[results.length - 2]) +
+          getOrdersListEnvelopeTotal(results[results.length - 1])
+        setOrderViewTabTotals({
+          booking: getOrdersListEnvelopeTotal(results[0]),
+          pending: getOrdersListEnvelopeTotal(results[1]),
+          accepted: getOrdersListEnvelopeTotal(results[2]),
+          cancelled: getOrdersListEnvelopeTotal(results[3]),
+          farmready: getOrdersListEnvelopeTotal(results[4]),
+          ready_for_dispatch: getOrdersListEnvelopeTotal(results[5]),
+          dispatched_vehicle: getOrdersListEnvelopeTotal(results[6]),
+          dispatch_process: nDispatch,
+        })
+      } catch (e) {
+        if (isAbortedRequestError(e)) return
+        console.error("Error fetching farmer order tab totals:", e)
+      }
+    }
+    run()
+    return () => ac.abort()
+  }, [
+    showAgriSalesOrders,
+    slotId,
+    debouncedSearchTerm,
+    refresh,
+    startDate,
+    endDate,
+    orderDateRangeBy,
+    selectedSalesPerson,
+    selectedVillage,
+    selectedDistrict,
+    selectedPlant,
+    selectedSubtype,
+    user,
+  ])
+
   // Load initial data
   useEffect(() => {
     getOrders()
@@ -2729,20 +2888,20 @@ const loadFilterOptions = async () => {
       return
     }
     const n = sel.length
-    setConfirmDialog({
+    setStatusRemarkDialog({
       open: true,
       title: n === 1 ? "Cancel order" : `Cancel ${n} orders`,
-      description:
-        "This will mark the selected order(s) as cancelled and update the customer ledger where applicable.",
-      onConfirm: async () => {
-        setConfirmDialog((d) => ({ ...d, open: false }))
+      description: "Enter a cancellation remark. This same remark is used as cancel reason.",
+      remark: "",
+      confirmLabel: "Cancel order(s)",
+      onSubmit: async (remarkText) => {
         setpatchLoading(true)
         try {
           for (const row of sel) {
             const orderId = row?.details?.orderid || row?.details?._id
             if (!orderId) continue
             const instance = NetworkManager(API.INVENTORY.CANCEL_AGRI_SALES_ORDER)
-            await instance.request({ reason: "Cancelled from dashboard" }, [orderId])
+            await instance.request({ reason: remarkText }, [orderId])
           }
           Toast.success(n === 1 ? "Order cancelled successfully" : `${n} orders cancelled`)
           clearAgriOrderSelections()
@@ -2758,7 +2917,7 @@ const loadFilterOptions = async () => {
         } finally {
           setpatchLoading(false)
         }
-      },
+      }
     })
   }
 
@@ -3489,102 +3648,21 @@ const mapSlotForUi = (slotData) => {
       ? NetworkManager(API.ORDER.GET_ORDERS_SLOTS)
       : NetworkManager(API.ORDER.GET_ORDERS)
 
-    const params = {
-      search: debouncedSearchTerm,
-      dispatched: isBookingLikeTab ? false : true,
+    const params = buildRegularOrderListParams({
+      viewMode,
+      startDate,
+      endDate,
+      debouncedSearchTerm,
+      orderDateRangeBy,
+      selectedSalesPerson,
+      selectedVillage,
+      selectedDistrict,
+      selectedPlant,
+      selectedSubtype,
+      user,
+      page: 1,
       limit: DASHBOARD_ORDERS_PAGE_SIZE,
-      page: 1
-    }
-
-    // Only add date range if both dates are selected
-    if (startDate && endDate && !debouncedSearchTerm?.trim()) {
-      const date = new Date(startDate)
-      const formattedStartDate = moment(date).format("DD-MM-YYYY")
-      const edate = new Date(endDate)
-      const formattedEndtDate = moment(edate).format("DD-MM-YYYY")
-
-      params.startDate = formattedStartDate
-      params.endDate = formattedEndtDate
-    }
-
-
-    // When dealer or sales is logged in, filter orders by their id (same as getOrders API expectation)
-    const isDealerOrSales = user?.jobTitle === "DEALER" || user?.jobTitle === "SALES"
-    if (isDealerOrSales && (user?._id || user?.id)) {
-      params.salesPerson = user._id || user.id
-    }
-    // Add new filter parameters (only apply selectedSalesPerson when not dealer/sales)
-    else if (selectedSalesPerson) {
-      params.salesPerson = selectedSalesPerson
-    }
-    if (selectedVillage) {
-      params.village = selectedVillage
-    }
-    if (selectedDistrict) {
-      params.district = selectedDistrict
-    }
-    if (selectedPlant) {
-      params.plantId = selectedPlant
-    }
-    if (selectedSubtype) {
-      params.subtypeId = selectedSubtype
-    }
-
-    if (
-      startDate &&
-      endDate &&
-      (viewMode === "booking" ||
-        viewMode === "dispatched" ||
-        isCompletedOrdersTab ||
-        isCancelledTab) &&
-      !slotId
-    ) {
-      params.dateRangeField = orderDateRangeBy
-    }
-
-    if (isCompletedOrdersTab) {
-      params.dispatched = true
-      params.status = "COMPLETED,PARTIALLY_COMPLETED"
-    } else if (viewMode === "dispatched") {
-      params.status = "ACCEPTED,FARM_READY"
-    } else if (isCancelledTab) {
-      params.status = "CANCELLED"
-    }
-
-    if (viewMode === "farmready") {
-      params.farmReady = "true"
-      // Remove status filter for farm ready view since we want all orders with farm ready date
-      delete params.status
-      // Keep date range filtering for farm ready view - don't set to null
-    }
-    if (viewMode === "dispatch_process") {
-      params.startDate = null
-    }
-
-    if (viewMode === "dispatch_process") {
-      params.endDate = null
-    }
-    if (isDispatchedVehicleTab) {
-      params.dispatched = true
-      params.status = "DISPATCHED"
-      params.startDate = null
-      params.endDate = null
-    }
-    if (isReadyForDispatchTab) {
-      params.ready_for_dispatch = "true"
-      params.startDate = null
-      params.endDate = null
-      // Remove status filter for ready for dispatch view since we want specific filtering
-      delete params.status
-      console.log("=== Ready for Dispatch Debug ===")
-      console.log("Params being sent:", params)
-    }
-    if (viewMode === "dispatch_process") {
-      params.status = "DISPATCH_PROCESS"
-    }
-    if (viewMode === "dispatch_process") {
-      params.dispatched = false
-    }
+    })
 
     let ordersData = []
     let nextPageAvailable = false
@@ -3626,19 +3704,10 @@ const mapSlotForUi = (slotData) => {
       } else {
         const emps = await instance.request({}, params, { signal })
 
-        if (isReadyForDispatchTab) {
-          console.log("API Response:", emps?.data)
-          console.log("Orders data:", emps?.data?.data?.data || [])
-        }
-
         ordersData = emps?.data?.data?.data || []
         const currentPage = Number(emps?.data?.data?.currentPage || 1)
         const totalPages = Number(emps?.data?.data?.totalPages || 1)
         nextPageAvailable = currentPage < totalPages
-      }
-
-      if (isReadyForDispatchTab) {
-        console.log("Processing orders data:", ordersData?.length || 0, "orders")
       }
 
       if (reqSeq !== getOrdersRequestSeqRef.current) return
@@ -3672,60 +3741,21 @@ const mapSlotForUi = (slotData) => {
     setLoadingMoreOrders(true)
     try {
       const instance = NetworkManager(API.ORDER.GET_ORDERS)
-      const params = {
-        search: debouncedSearchTerm,
-        dispatched: isBookingLikeTab ? false : true,
-        limit: DASHBOARD_ORDERS_PAGE_SIZE,
+      const params = buildRegularOrderListParams({
+        viewMode,
+        startDate,
+        endDate,
+        debouncedSearchTerm,
+        orderDateRangeBy,
+        selectedSalesPerson,
+        selectedVillage,
+        selectedDistrict,
+        selectedPlant,
+        selectedSubtype,
+        user,
         page: ordersPage + 1,
-      }
-
-      if (startDate && endDate && !debouncedSearchTerm?.trim()) {
-        params.startDate = moment(new Date(startDate)).format("DD-MM-YYYY")
-        params.endDate = moment(new Date(endDate)).format("DD-MM-YYYY")
-      }
-
-      const isDealerOrSales = user?.jobTitle === "DEALER" || user?.jobTitle === "SALES"
-      if (isDealerOrSales && (user?._id || user?.id)) params.salesPerson = user._id || user.id
-      else if (selectedSalesPerson) params.salesPerson = selectedSalesPerson
-      if (selectedVillage) params.village = selectedVillage
-      if (selectedDistrict) params.district = selectedDistrict
-      if (selectedPlant) params.plantId = selectedPlant
-      if (selectedSubtype) params.subtypeId = selectedSubtype
-      if (
-        startDate &&
-        endDate &&
-        !debouncedSearchTerm?.trim() &&
-        (viewMode === "booking" ||
-          viewMode === "dispatched" ||
-          isCompletedOrdersTab ||
-          isCancelledTab)
-      ) {
-        params.dateRangeField = orderDateRangeBy
-      }
-      if (isCompletedOrdersTab) {
-        params.dispatched = true
-        params.status = "COMPLETED,PARTIALLY_COMPLETED"
-      } else if (viewMode === "dispatched") {
-        params.status = "ACCEPTED,FARM_READY"
-      } else if (isCancelledTab) {
-        params.status = "CANCELLED"
-      }
-      if (viewMode === "farmready") {
-        params.farmReady = "true"
-        delete params.status
-      }
-      if (isDispatchedVehicleTab) {
-        params.dispatched = true
-        params.status = "DISPATCHED"
-        params.startDate = null
-        params.endDate = null
-      }
-      if (isReadyForDispatchTab) {
-        params.ready_for_dispatch = "true"
-        params.startDate = null
-        params.endDate = null
-        delete params.status
-      }
+        limit: DASHBOARD_ORDERS_PAGE_SIZE,
+      })
 
       const res = await instance.request({}, params, { signal })
       const nextOrders = mapRegularOrdersForUi(res?.data?.data?.data || [])
@@ -4140,6 +4170,7 @@ const mapSlotForUi = (slotData) => {
 
   // Status change handler with confirmation
   const handleStatusChange = async (row, newStatus) => {
+    const requiresRemark = newStatus === "REJECTED" || newStatus === "CANCELLED"
     // Handle Agri Sales orders differently
     if (row.isAgriSalesOrder) {
       // Don't allow status change for COMPLETED orders
@@ -4178,15 +4209,34 @@ const mapSlotForUi = (slotData) => {
                 refreshComponent()
               }
             } else if (newStatus === "REJECTED") {
-              const instance = NetworkManager(API.INVENTORY.REJECT_AGRI_SALES_ORDER)
-              const response = await instance.request({ reason: "Rejected by user" }, [orderId])
-              if (response?.data) {
-                Toast.success("Order rejected successfully")
-                setAgriDispatchStatusFilter("ALL")
-                await getOrders()
-                fetchAgriStatusCounts() // Refresh counts after reject
-                refreshComponent()
-              }
+              setStatusRemarkDialog({
+                open: true,
+                title: "Reject order",
+                description: `Enter rejection remark for Order #${row.order}. This same remark is used as reject reason.`,
+                remark: "",
+                confirmLabel: "Reject order",
+                onSubmit: async (remarkText) => {
+                  setpatchLoading(true)
+                  try {
+                    const instance = NetworkManager(API.INVENTORY.REJECT_AGRI_SALES_ORDER)
+                    const response = await instance.request({ reason: remarkText }, [orderId])
+                    if (response?.data) {
+                      Toast.success("Order rejected successfully")
+                      setAgriDispatchStatusFilter("ALL")
+                      await getOrders()
+                      fetchAgriStatusCounts() // Refresh counts after reject
+                      refreshComponent()
+                    }
+                  } catch (error) {
+                    console.error("Error changing Agri Sales order status:", error)
+                    const errorMessage =
+                      error.response?.data?.message || error.message || "Failed to change order status"
+                    Toast.error(errorMessage)
+                  } finally {
+                    setpatchLoading(false)
+                  }
+                }
+              })
             }
           } catch (error) {
             console.error("Error changing Agri Sales order status:", error)
@@ -4206,6 +4256,29 @@ const mapSlotForUi = (slotData) => {
         row,
         newStatus,
         dispatchDayKey: row?.details?.dispatchDayKey || ""
+      })
+      return
+    }
+
+    if (requiresRemark) {
+      setStatusRemarkDialog({
+        open: true,
+        title: newStatus === "REJECTED" ? "Reject order" : "Cancel order",
+        description: `Enter a remark before changing Order #${row.order} to ${
+          newStatus === "REJECTED" ? "Rejected" : "Cancelled"
+        }.`,
+        remark: "",
+        confirmLabel: "Apply status",
+        onSubmit: async (remarkText) => {
+          pacthOrders(
+            {
+              id: row?.details?.orderid,
+              orderStatus: newStatus,
+              orderRemarks: remarkText
+            },
+            row
+          )
+        }
       })
       return
     }
@@ -4361,8 +4434,8 @@ const mapSlotForUi = (slotData) => {
                   </div>
                   {!showAgriSalesOrders &&
                     (viewMode === "booking" ||
-                      viewMode === "dispatched" ||
-                      viewMode === "completed_orders" ||
+                      viewMode === "pending" ||
+                      viewMode === "accepted" ||
                       viewMode === "cancelled") && (
                     <div className="w-full flex flex-wrap items-center gap-3 pt-1">
                       <span className="text-[11px] font-semibold text-gray-600">Date range applies to:</span>
@@ -4687,57 +4760,61 @@ const mapSlotForUi = (slotData) => {
                 <span className="font-semibold">✅ Ready for Dispatch View:</span> Shows all orders with &ldquo;Ready for Dispatch&rdquo; status, irrespective of date.
                 {isDispatchManager && <span className="ml-1 font-medium">You can change status and delivery date.</span>}
               </p>
+              <div className="flex items-center gap-2 flex-wrap">
               <button
                 onClick={() => setClubDialogOpen(true)}
                 className="px-3 py-2 text-xs font-semibold rounded-md bg-brand-600 text-white hover:bg-brand-700 transition-colors"
               >
                 Club Orders
               </button>
+              <button
+                onClick={() => setRouteMapOpen(true)}
+                className="px-3 py-2 text-xs font-semibold rounded-md bg-green-600 text-white hover:bg-green-700 transition-colors"
+              >
+                🗺 Plan Route
+              </button>
+              </div>
             </div>
           </div>
         )}
         {isDispatchedVehicleTab && !showAgriSalesOrders && (
           <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 mb-4">
             <p className="text-sm text-slate-800">
-              <span className="font-semibold">🚛 Dispatched by vehicle:</span> Orders with status{" "}
+              <span className="font-semibold">🚛 Vehicle view:</span> Orders with status{" "}
               <span className="font-semibold">Dispatched</span>, not limited by booking date. In the table view, rows are grouped by vehicle and dispatch (from the latest dispatch on each order).
             </p>
           </div>
         )}
       </div>
 
-      {/* Plant/Subtype Summary Cards for Ready for Dispatch */}
-      {isReadyForDispatchTab && orders && orders.length > 0 && (() => {
-        // Group orders by plant type and subtype
-        const plantSummary = new Map();
-        
-        orders.forEach(order => {
-          const plantType = order.plantType || "Unknown";
-          const key = plantType;
-          
-          if (!plantSummary.has(key)) {
-            plantSummary.set(key, {
-              plantType: plantType,
+      {/* Plant / subtype summary — Ready tab (aligned with nursery-mgmt-mobile) */}
+      {isReadyForDispatchTab && !showAgriSalesOrders && orders && orders.length > 0 && (() => {
+        const plantSummary = new Map()
+        orders.forEach((order) => {
+          const plantType = order.plantType || "Unknown"
+          if (!plantSummary.has(plantType)) {
+            plantSummary.set(plantType, {
+              plantType,
               totalQuantity: 0,
-              orderCount: 0
-            });
+              orderCount: 0,
+            })
           }
-          
-          const summary = plantSummary.get(key);
-          summary.totalQuantity += order.totalPlants ?? order.quantity ?? 0;
-          summary.orderCount += 1;
-        });
-        
-        const summaryArray = Array.from(plantSummary.values()).sort((a, b) => 
-          b.totalQuantity - a.totalQuantity
-        );
-        
+          const summary = plantSummary.get(plantType)
+          summary.totalQuantity += order.totalPlants ?? order.quantity ?? 0
+          summary.orderCount += 1
+        })
+        const summaryArray = Array.from(plantSummary.values()).sort(
+          (a, b) => b.totalQuantity - a.totalQuantity
+        )
         return (
           <div className="mb-4">
             <h3 className="text-sm font-semibold text-gray-700 mb-3">📦 Delivery Summary by Plant Type</h3>
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
               {summaryArray.map((summary, index) => (
-                <div key={index} className="bg-gradient-to-br from-brand-50 to-brand-100 rounded-lg shadow-sm border border-brand-200 p-3 hover:shadow-md transition-shadow">
+                <div
+                  key={index}
+                  className="bg-gradient-to-br from-brand-50 to-brand-100 rounded-lg shadow-sm border border-brand-200 p-3 hover:shadow-md transition-shadow"
+                >
                   <div className="text-xs text-gray-600 mb-1 truncate" title={summary.plantType}>
                     {summary.plantType}
                   </div>
@@ -4745,13 +4822,13 @@ const mapSlotForUi = (slotData) => {
                     {summary.totalQuantity.toLocaleString()}
                   </div>
                   <div className="text-[10px] text-gray-500 mt-1">
-                    {summary.orderCount} {summary.orderCount === 1 ? 'order' : 'orders'}
+                    {summary.orderCount} {summary.orderCount === 1 ? "order" : "orders"}
                   </div>
                 </div>
               ))}
             </div>
           </div>
-        );
+        )
       })()}
 
       {isReadyForDispatchTab && !showAgriSalesOrders && readyDispatchGroups.length > 0 && (
@@ -4798,7 +4875,7 @@ const mapSlotForUi = (slotData) => {
                       </button>
                     ) : (
                       <p className="text-[10px] text-amber-700 font-medium">
-                        Locked — finish or cancel from the dispatch form. Use the Dispatch tab for in-process loads.
+                        Locked — finish or cancel from the dispatch form. Use the Delivery tab for in-process loads.
                       </p>
                     )}
                   </div>
@@ -4822,7 +4899,34 @@ const mapSlotForUi = (slotData) => {
                     ? "border-brand-500 text-brand-600 bg-white"
                     : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
                 }`}>
-                <span className="hidden sm:inline">📋 </span>Booking {orders.length > 0 && <span className="ml-1 text-xs bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
+                <span className="hidden sm:inline">📋 </span>Booking{" "}
+                <span className="ml-1 text-xs bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full">
+                  ({orderViewTabTotals.booking})
+                </span>
+              </button>
+              <button
+                onClick={() => setViewMode("pending")}
+                className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+                  viewMode === "pending"
+                    ? "border-brand-500 text-brand-600 bg-white"
+                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                }`}>
+                <span className="hidden sm:inline">⏳ </span>Pending{" "}
+                <span className="ml-1 text-xs bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full">
+                  ({orderViewTabTotals.pending})
+                </span>
+              </button>
+              <button
+                onClick={() => setViewMode("accepted")}
+                className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+                  viewMode === "accepted"
+                    ? "border-brand-500 text-brand-600 bg-white"
+                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                }`}>
+                <span className="hidden sm:inline">✔️ </span>Accepted{" "}
+                <span className="ml-1 text-xs bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full">
+                  ({orderViewTabTotals.accepted})
+                </span>
               </button>
               <button
                 onClick={() => setViewMode("cancelled")}
@@ -4831,25 +4935,10 @@ const mapSlotForUi = (slotData) => {
                     ? "border-brand-500 text-brand-600 bg-white"
                     : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
                 }`}>
-                <span className="hidden sm:inline">🚫 </span>Cancelled {orders.length > 0 && <span className="ml-1 text-xs bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
-              </button>
-              <button
-                onClick={() => setViewMode("dispatched")}
-                className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
-                  viewMode === "dispatched"
-                    ? "border-brand-500 text-brand-600 bg-white"
-                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-                }`}>
-                <span className="hidden sm:inline">🚚 </span>Dispatched {orders.length > 0 && <span className="ml-1 text-xs bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
-              </button>
-              <button
-                onClick={() => setViewMode("completed_orders")}
-                className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
-                  viewMode === "completed_orders"
-                    ? "border-brand-500 text-brand-600 bg-white"
-                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-                }`}>
-                <span className="hidden sm:inline">✅ </span>Completed {orders.length > 0 && <span className="ml-1 text-xs bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
+                <span className="hidden sm:inline">🚫 </span>Canceled{" "}
+                <span className="ml-1 text-xs bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full">
+                  ({orderViewTabTotals.cancelled})
+                </span>
               </button>
               <button
                 onClick={() => setViewMode("farmready")}
@@ -4858,7 +4947,10 @@ const mapSlotForUi = (slotData) => {
                     ? "border-brand-500 text-brand-600 bg-white"
                     : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
                 }`}>
-                <span className="hidden sm:inline">🌱 </span>Farm Ready {orders.length > 0 && <span className="ml-1 text-xs bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
+                <span className="hidden sm:inline">🌱 </span>Farm ready{" "}
+                <span className="ml-1 text-xs bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full">
+                  ({orderViewTabTotals.farmready})
+                </span>
               </button>
               <button
                 onClick={() => setViewMode("ready_for_dispatch")}
@@ -4867,16 +4959,10 @@ const mapSlotForUi = (slotData) => {
                     ? "border-brand-500 text-brand-600 bg-white"
                     : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
                 }`}>
-                <span className="hidden sm:inline">✅ </span>Ready {orders.length > 0 && <span className="ml-1 text-xs bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
-              </button>
-              <button
-                onClick={() => setViewMode("dispatched_vehicle")}
-                className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
-                  viewMode === "dispatched_vehicle"
-                    ? "border-brand-500 text-brand-600 bg-white"
-                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-                }`}>
-                <span className="hidden sm:inline">🚛 </span>By vehicle {orders.length > 0 && <span className="ml-1 text-xs bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
+                <span className="hidden sm:inline">✅ </span>Ready{" "}
+                <span className="ml-1 text-xs bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full">
+                  ({orderViewTabTotals.ready_for_dispatch})
+                </span>
               </button>
               <button
                 onClick={() => setViewMode("dispatch_process")}
@@ -4885,7 +4971,22 @@ const mapSlotForUi = (slotData) => {
                     ? "border-brand-500 text-brand-600 bg-white"
                     : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
                 }`}>
-                <span className="hidden sm:inline">🚛 </span>Dispatch {orders.length > 0 && <span className="ml-1 text-xs bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full">({orders.length})</span>}
+                <span className="hidden sm:inline">⏳ </span>Loading{" "}
+                <span className="ml-1 text-xs bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full">
+                  ({orderViewTabTotals.dispatch_process})
+                </span>
+              </button>
+              <button
+                onClick={() => setViewMode("dispatched_vehicle")}
+                className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+                  viewMode === "dispatched_vehicle"
+                    ? "border-brand-500 text-brand-600 bg-white"
+                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                }`}>
+                <span className="hidden sm:inline">🚛 </span>Vehicle{" "}
+                <span className="ml-1 text-xs bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full">
+                  ({orderViewTabTotals.dispatched_vehicle})
+                </span>
               </button>
             </div>
           </div>
@@ -5378,6 +5479,28 @@ const mapSlotForUi = (slotData) => {
                       <td className="px-2 py-2 whitespace-nowrap">
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="text-xs font-bold text-gray-900">#{(row.isAgriSalesOrder || row.details?.isRamAgriProduct) ? String(row.order).padStart(5, '0') : row.order}</span>
+                          {/* Split order badges */}
+                          {!(row.isAgriSalesOrder || row.details?.isRamAgriProduct) && row.details?.isSplit && (
+                            <span
+                              className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-orange-100 text-orange-700 border border-orange-300"
+                              title={`Split order — parent #${row.details?.splitHistory?.[0]?.relatedOrderNumber ?? "—"}`}
+                            >
+                              S{row.order}
+                            </span>
+                          )}
+                          {!(row.isAgriSalesOrder || row.details?.isRamAgriProduct) && row.details?.isSplit && row.details?.splitHistory?.[0]?.relatedOrderNumber && (
+                            <span className="text-[10px] text-gray-500" title="Parent order ID">
+                              ← #{row.details.splitHistory[0].relatedOrderNumber}
+                            </span>
+                          )}
+                          {!(row.isAgriSalesOrder || row.details?.isRamAgriProduct) && !row.details?.isSplit && Array.isArray(row.details?.splitOrderIds) && row.details.splitOrderIds.length > 0 && (
+                            <span
+                              className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700 border border-blue-300"
+                              title={`Split into ${row.details.splitOrderIds.length} order(s)`}
+                            >
+                              ✂ {row.details.splitOrderIds.length} split
+                            </span>
+                          )}
                           {!(row.isAgriSalesOrder || row.details?.isRamAgriProduct) && (
                             <DownloadPDFButton order={row} />
                           )}
@@ -5860,8 +5983,27 @@ const mapSlotForUi = (slotData) => {
                           <div className="p-3 border-b border-gray-100">
                             <div className="flex items-start justify-between mb-2">
                               <div className="flex-1">
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-2 flex-wrap">
                                   <h3 className="font-semibold text-gray-900 text-sm">Order #{(row.isAgriSalesOrder || row.details?.isRamAgriProduct) ? String(row.order).padStart(5, '0') : row.order}</h3>
+                                  {!(row.isAgriSalesOrder || row.details?.isRamAgriProduct) && row.details?.isSplit && (
+                                    <span
+                                      className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-orange-100 text-orange-700 border border-orange-300"
+                                      title={`Split order — parent #${row.details?.splitHistory?.[0]?.relatedOrderNumber ?? "—"}`}
+                                    >
+                                      S{row.order}
+                                    </span>
+                                  )}
+                                  {!(row.isAgriSalesOrder || row.details?.isRamAgriProduct) && row.details?.isSplit && row.details?.splitHistory?.[0]?.relatedOrderNumber && (
+                                    <span className="text-[10px] text-gray-500">← #{row.details.splitHistory[0].relatedOrderNumber}</span>
+                                  )}
+                                  {!(row.isAgriSalesOrder || row.details?.isRamAgriProduct) && !row.details?.isSplit && Array.isArray(row.details?.splitOrderIds) && row.details.splitOrderIds.length > 0 && (
+                                    <span
+                                      className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700 border border-blue-300"
+                                      title={`Split into ${row.details.splitOrderIds.length} order(s)`}
+                                    >
+                                      ✂ {row.details.splitOrderIds.length} split
+                                    </span>
+                                  )}
                                 </div>
                                 <div className="flex items-center gap-1 mt-1 flex-wrap">
                                   {row.details?.orderFor ? (
@@ -8505,6 +8647,74 @@ const mapSlotForUi = (slotData) => {
         onCancel={() => setConfirmDialog((d) => ({ ...d, open: false }))}
       />
       <Dialog
+        open={statusRemarkDialog.open}
+        onClose={() =>
+          setStatusRemarkDialog((prev) => ({
+            ...prev,
+            open: false
+          }))
+        }
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>{statusRemarkDialog.title || "Enter remark"}</DialogTitle>
+        <DialogContent>
+          <Typography sx={{ mt: 0.5, mb: 1.5, color: "text.secondary", fontSize: "0.9rem" }}>
+            {statusRemarkDialog.description || "Please enter a remark to continue."}
+          </Typography>
+          <TextField
+            autoFocus
+            fullWidth
+            multiline
+            minRows={3}
+            label="Remark"
+            value={statusRemarkDialog.remark}
+            onChange={(e) =>
+              setStatusRemarkDialog((prev) => ({
+                ...prev,
+                remark: e.target.value
+              }))
+            }
+            placeholder="Type remark here..."
+          />
+        </DialogContent>
+        <DialogActions sx={{ px: 2, pb: 2 }}>
+          <Button
+            variant="outlined"
+            onClick={() =>
+              setStatusRemarkDialog((prev) => ({
+                ...prev,
+                open: false
+              }))
+            }
+            sx={{ textTransform: "none" }}
+          >
+            Close
+          </Button>
+          <Button
+            variant="contained"
+            onClick={async () => {
+              const remarkText = (statusRemarkDialog.remark || "").trim()
+              if (!remarkText) {
+                Toast.error("Please enter a remark")
+                return
+              }
+              const submitAction = statusRemarkDialog.onSubmit
+              setStatusRemarkDialog((prev) => ({
+                ...prev,
+                open: false
+              }))
+              if (typeof submitAction === "function") {
+                await submitAction(remarkText)
+              }
+            }}
+            sx={{ textTransform: "none", fontWeight: 700 }}
+          >
+            {statusRemarkDialog.confirmLabel || "Apply"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+      <Dialog
         open={clubDialogOpen}
         onClose={() => {
           setClubDialogOpen(false)
@@ -9536,6 +9746,17 @@ const mapSlotForUi = (slotData) => {
         qrReferenceId={paymentQRModalData?.qrReferenceId}
         onVerified={refreshModalData}
       />
+
+      {/* Route Planner — fullscreen map for Ready tab orders */}
+      <Dialog fullScreen open={routeMapOpen} onClose={() => setRouteMapOpen(false)}>
+        <Suspense fallback={
+          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh" }}>
+            <CircularProgress />
+          </Box>
+        }>
+          <OrderMapView orders={orders} onClose={() => setRouteMapOpen(false)} />
+        </Suspense>
+      </Dialog>
     </div>
   )
 }

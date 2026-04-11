@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { MapContainer, TileLayer, Marker, Popup, Polyline, Tooltip as LeafletTooltip } from "react-leaflet";
-import { GoogleMap, LoadScript, Marker as GoogleMarker, InfoWindow, DirectionsService, DirectionsRenderer } from "@react-google-maps/api";
+import { GoogleMap, LoadScript, Marker as GoogleMarker, InfoWindow, DirectionsService, DirectionsRenderer, Polyline as GooglePolyline } from "@react-google-maps/api";
 import { DragDropContext, Droppable, Draggable } from "react-beautiful-dnd";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -74,6 +74,7 @@ import {
   List as ListIcon,
   Warning,
   Edit,
+  Close as CloseIcon,
 } from "@mui/icons-material";
 
 
@@ -135,8 +136,78 @@ const geocodeAnyLocation = async (query) => {
 };
 
 // Enhanced geocoding using Google Maps API - PRIORITIZES VILLAGE AND TALUKA MATCHING FIRST
+// Approximate bounding boxes for major Maharashtra districts used to bias Google geocoding
+const MH_DISTRICT_BOUNDS = {
+  "Jalgaon":    { sw: [20.6, 74.5], ne: [21.6, 76.5] },
+  "Nashik":     { sw: [19.5, 73.5], ne: [20.9, 75.2] },
+  "Pune":       { sw: [17.8, 73.4], ne: [19.3, 75.0] },
+  "Aurangabad": { sw: [19.4, 74.8], ne: [20.4, 75.9] },
+  "Ahmednagar": { sw: [18.3, 74.1], ne: [19.8, 75.9] },
+  "Solapur":    { sw: [17.2, 75.1], ne: [18.2, 76.2] },
+  "Kolhapur":   { sw: [16.1, 73.6], ne: [17.4, 74.6] },
+  "Satara":     { sw: [17.2, 73.9], ne: [18.1, 75.0] },
+  "Sangli":     { sw: [16.6, 74.2], ne: [17.5, 75.3] },
+  "Amravati":   { sw: [20.5, 76.8], ne: [21.8, 78.0] },
+  "Akola":      { sw: [20.3, 76.5], ne: [21.3, 77.7] },
+  "Nagpur":     { sw: [20.6, 78.5], ne: [21.7, 80.1] },
+  "Wardha":     { sw: [20.2, 78.2], ne: [21.0, 79.2] },
+  "Yavatmal":   { sw: [19.8, 77.5], ne: [20.9, 78.9] },
+  "Nanded":     { sw: [17.8, 77.1], ne: [19.0, 78.5] },
+  "Latur":      { sw: [17.5, 76.3], ne: [18.4, 77.4] },
+  "Osmanabad":  { sw: [17.6, 75.7], ne: [18.5, 76.7] },
+  "Beed":       { sw: [18.3, 75.3], ne: [19.3, 76.5] },
+  "Hingoli":    { sw: [19.3, 77.0], ne: [20.0, 77.9] },
+  "Parbhani":   { sw: [18.7, 76.3], ne: [20.0, 77.5] },
+  "Buldhana":   { sw: [20.1, 75.9], ne: [21.2, 77.0] },
+  "Washim":     { sw: [20.0, 77.0], ne: [20.7, 77.9] },
+  "Chandrapur": { sw: [19.7, 79.1], ne: [20.7, 80.5] },
+  "Gadchiroli": { sw: [19.4, 79.7], ne: [21.2, 81.0] },
+  "Gondia":     { sw: [21.0, 80.0], ne: [21.7, 81.0] },
+  "Bhandara":   { sw: [20.7, 79.4], ne: [21.5, 80.2] },
+  "Raigad":     { sw: [17.9, 72.8], ne: [18.9, 73.5] },
+  "Ratnagiri":  { sw: [16.5, 73.0], ne: [17.9, 74.0] },
+  "Sindhudurg": { sw: [15.7, 73.5], ne: [16.7, 74.2] },
+  "Thane":      { sw: [19.0, 72.8], ne: [20.3, 73.5] },
+  "Mumbai":     { sw: [18.8, 72.7], ne: [19.3, 73.1] },
+  "Dhule":      { sw: [20.8, 73.6], ne: [22.0, 75.0] },
+  "Nandurbar":  { sw: [21.2, 73.5], ne: [22.1, 74.5] },
+};
+
+// Safe fallback coordinates:
+// 1) District centroid from MH_DISTRICT_BOUNDS (preferred)
+// 2) Maharashtra centroid (never Mumbai-specific)
+const getDistrictFallbackCoordinates = (district, state = "Maharashtra") => {
+  const districtNorm = String(district || "").toLowerCase().trim();
+  const districtKey = Object.keys(MH_DISTRICT_BOUNDS).find(
+    (k) => k.toLowerCase() === districtNorm
+  );
+  if (districtKey) {
+    const b = MH_DISTRICT_BOUNDS[districtKey];
+    return {
+      lat: (b.sw[0] + b.ne[0]) / 2,
+      lng: (b.sw[1] + b.ne[1]) / 2,
+      source: "district-bounds-center",
+    };
+  }
+
+  if (String(state || "").toLowerCase().includes("maharashtra")) {
+    return {
+      lat: 19.7515,
+      lng: 75.7139,
+      source: "state-center",
+    };
+  }
+
+  return {
+    lat: 20.5937,
+    lng: 78.9629,
+    source: "india-center",
+  };
+};
+
 const geocodeLocation = async (village, taluka, district, state = "Maharashtra", retryCount = 0) => {
-  const maxRetries = 1;
+  // Keep geocoding snappy in UI; avoid long duplicate retries.
+  const maxRetries = 0;
   
   // Helper function to normalize strings for comparison
   const normalize = (str) => {
@@ -445,30 +516,43 @@ const geocodeLocation = async (village, taluka, district, state = "Maharashtra",
   try {
     // Strategy 1: Try Google Maps API FIRST with IMPROVED ACCURACY
     if (GOOGLE_MAPS_API_KEY) {
-      // Use Google Places API Text Search for better accuracy with Indian addresses
-      // Try multiple address formats prioritizing village and taluka
+      // Queries ordered District → Taluka → Village so Google locks onto the right
+      // administrative area BEFORE looking for the village name.
+      // This prevents "Sonala in Mumbai" when we asked for "Sonala, Jamner, Jalgaon".
       const googleQueries = [
-        // Most specific queries first
-        `${village}, ${taluka}, ${district}, ${state}, India`,
-        `"${village}" "${taluka}" ${district} ${state} India`, // Quoted for exact match
-        `${village} village, ${taluka} taluka, ${district} district, ${state}, India`, // Explicit keywords
-        `${taluka}, ${village}, ${district}, ${state}, India`, // Taluka first
-        `${district}, ${taluka}, ${village}, ${state}, India`, // District first
-        `${village}, ${district}, ${state}, India`, // Village + District
+        `${village}, ${taluka}, ${district}, ${state}, India`,                                    // exact place first
+        `${district}, ${taluka}, ${village}, ${state}, India`,                                    // district-first anchor
+        `${district} district, ${taluka} taluka, ${village} village, ${state}, India`,            // explicit labels
+        `${district}, ${taluka}, ${state}, India`,                                                 // taluka anchor (no village)
       ];
-      
+
+      // Bounding box for the district — applied to ALL queries (not just some)
+      const districtKey = Object.keys(MH_DISTRICT_BOUNDS).find(
+        k => k.toLowerCase() === district.toLowerCase().trim()
+      );
+      const districtBounds = districtKey ? MH_DISTRICT_BOUNDS[districtKey] : null;
+      const boundsParam = districtBounds
+        ? `&bounds=${districtBounds.sw[0]},${districtBounds.sw[1]}|${districtBounds.ne[0]},${districtBounds.ne[1]}`
+        : "";
+      // Always restrict to the correct district + India for every query
+      const componentsStrict = `&components=administrative_area:${encodeURIComponent(district)}|country:IN`;
+
       let bestResult = null;
       let bestScore = 0;
       const allResults = [];
       
-      for (const query of googleQueries) {
+      for (const [queryIdx, query] of googleQueries.entries()) {
         try {
           const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 10000);
-          
+          const timeoutId = setTimeout(() => controller.abort(), 3000);
+
+          // Apply district bounds + components to ALL queries
+          const compParam = componentsStrict;
+          const bParam = boundsParam;
+
           // Use geocoding API with better parameters
           const response = await fetch(
-            `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(query)}&key=${GOOGLE_MAPS_API_KEY}&region=in&components=country:IN&language=en`,
+            `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(query)}&key=${GOOGLE_MAPS_API_KEY}&region=in${compParam}${bParam}&language=en`,
             { signal: controller.signal }
           );
           
@@ -528,27 +612,58 @@ const geocodeLocation = async (village, taluka, district, state = "Maharashtra",
                 const villageConf = confidenceScores?.village || 0;
                 const talukaConf = confidenceScores?.taluka || 0;
                 const districtConf = confidenceScores?.district || 0;
-                
-                // IMPROVED ACCEPTANCE CRITERIA (prioritizes complete matches):
-                // 1. PERFECT: Village + Taluka + District (all three match, any confidence)
-                // 2. EXCELLENT: Village + Taluka (both with confidence >= 0.75)
-                // 3. VERY GOOD: Village + Taluka (village >= 0.7, taluka >= 0.7)
-                // 4. GOOD: Village + District (village confidence >= 0.8)
-                // 5. ACCEPTABLE: Taluka + District (taluka confidence >= 0.7, no village)
-                // 6. FALLBACK: Village alone (village confidence >= 0.9)
-                const isValidResult = 
-                  (hasVillageMatch && hasTalukaMatch && hasDistrictMatch) || // PERFECT: All three match (highest priority)
-                  (hasVillageMatch && hasTalukaMatch && villageConf >= 0.75 && talukaConf >= 0.75) || // EXCELLENT
-                  (hasVillageMatch && hasTalukaMatch && villageConf >= 0.7 && talukaConf >= 0.7) || // VERY GOOD
-                  (hasVillageMatch && hasDistrictMatch && villageConf >= 0.8 && score >= 140) || // GOOD
-                  (!hasVillageMatch && hasTalukaMatch && hasDistrictMatch && talukaConf >= 0.7 && score >= 110) || // ACCEPTABLE (lowered threshold)
-                  (hasVillageMatch && !hasTalukaMatch && villageConf >= 0.9 && score >= 100); // FALLBACK
+
+                // ── STRICT HIERARCHY GATE ─────────────────────────────────────────
+                // Level 1: State must match  (hard reject if wrong state)
+                // Level 2: District must match (hard reject if wrong district)
+                // Level 3: Taluka preferred
+                // Level 4: Village preferred (most specific)
+                // ------------------------------------------------------------------
+                const districtIsKnown = district && district !== "Unknown";
+                const resultStateStr = (components.find(c =>
+                  c.types.includes('administrative_area_level_1'))?.long_name || "").toLowerCase();
+                const resultDistrictStr = (components.find(c =>
+                  c.types.includes('administrative_area_level_2'))?.long_name || "").toLowerCase();
+                const formattedLower = (result.formatted_address || "").toLowerCase();
+
+                // Level 1 — State
+                const stateIsOk = !resultStateStr ||
+                  resultStateStr.includes(state.toLowerCase()) ||
+                  (resultStateStr && state.toLowerCase().includes(resultStateStr));
+
+                // Level 2 — District (hard gate when district is known)
+                // Guard: empty resultDistrictStr must NOT pass — "jalgaon".includes("") = true in JS
+                const districtIsOk = !districtIsKnown ||
+                  hasDistrictMatch ||
+                  (resultDistrictStr && resultDistrictStr.includes(district.toLowerCase())) ||
+                  (resultDistrictStr && district.toLowerCase().includes(resultDistrictStr)) ||
+                  formattedLower.includes(district.toLowerCase());
+
+                // Extra safety: reject if formatted address contains a known non-Jalgaon major city
+                const KNOWN_OTHER_CITIES = ["mumbai", "pune", "nashik", "nagpur", "aurangabad", "solapur", "kolhapur", "thane", "navi mumbai"];
+                const isWrongCity = KNOWN_OTHER_CITIES.some(city =>
+                  formattedLower.includes(city) && !formattedLower.includes(district.toLowerCase())
+                );
+
+                // Accept ANY result that passes state + district and is not a wrong city.
+                // Taluka and village are used only for ranking (higher = better).
+                const isValidResult = stateIsOk && districtIsOk && !isWrongCity;
                 
                 if (isValidResult) {
+                  // Assign a hierarchy tier so we pick the most specific result
+                  // Tier 4 = village+taluka+district, Tier 3 = village+taluka,
+                  // Tier 2 = village+district, Tier 1 = taluka+district, Tier 0 = district only
+                  let tier = 0;
+                  if (hasVillageMatch && hasTalukaMatch && hasDistrictMatch) tier = 4;
+                  else if (hasVillageMatch && hasTalukaMatch) tier = 3;
+                  else if (hasVillageMatch && hasDistrictMatch) tier = 2;
+                  else if (hasTalukaMatch && hasDistrictMatch) tier = 1;
+
                   allResults.push({
                     lat: result.geometry.location.lat,
                     lng: result.geometry.location.lng,
                     score,
+                    tier,
                     matchedComponents,
                     confidenceScores,
                     extractedComponents,
@@ -562,6 +677,7 @@ const geocodeLocation = async (village, taluka, district, state = "Maharashtra",
                       lat: result.geometry.location.lat,
                       lng: result.geometry.location.lng,
                       score,
+                      tier,
                       matchedComponents,
                       confidenceScores,
                       extractedComponents,
@@ -581,110 +697,39 @@ const geocodeLocation = async (village, taluka, district, state = "Maharashtra",
         }
       }
       
-      // If we have multiple good results, prioritize complete matches (village + taluka + district)
+      // ── Pick best result using strict hierarchy ────────────────────────────
+      // Priority: Tier 4 (village+taluka+district) > Tier 3 > Tier 2 > Tier 1 > Tier 0
+      // Within same tier, highest confidence wins.
       if (allResults.length > 1) {
-        // PRIORITY 1: Complete matches (village + taluka + district)
-        const completeMatches = allResults.filter(r => 
-          r.matchedComponents.includes('village') && 
-          r.matchedComponents.includes('taluka') &&
-          r.matchedComponents.includes('district')
-        );
-        
-        if (completeMatches.length > 0) {
-          completeMatches.sort((a, b) => {
-            // Sort by total confidence of all three components
-            const aConf = (a.confidenceScores?.village || 0) + 
-                         (a.confidenceScores?.taluka || 0) + 
-                         (a.confidenceScores?.district || 0);
-            const bConf = (b.confidenceScores?.village || 0) + 
-                         (b.confidenceScores?.taluka || 0) + 
-                         (b.confidenceScores?.district || 0);
-            if (bConf !== aConf) return bConf - aConf;
-            // If confidence is same, use score
-            return b.score - a.score;
-          });
-          bestResult = completeMatches[0];
-          bestScore = bestResult.score;
-        } else {
-          // PRIORITY 2: Village + Taluka matches (high confidence)
-          const perfectMatches = allResults.filter(r => 
-            r.matchedComponents.includes('village') && 
-            r.matchedComponents.includes('taluka') &&
-            (r.confidenceScores?.village || 0) >= 0.75 &&
-            (r.confidenceScores?.taluka || 0) >= 0.75
-          );
-          
-          if (perfectMatches.length > 0) {
-            perfectMatches.sort((a, b) => {
-              const aConf = (a.confidenceScores?.village || 0) + (a.confidenceScores?.taluka || 0);
-              const bConf = (b.confidenceScores?.village || 0) + (b.confidenceScores?.taluka || 0);
-              if (bConf !== aConf) return bConf - aConf;
-              return b.score - a.score;
-            });
-            bestResult = perfectMatches[0];
-            bestScore = bestResult.score;
-          }
-        }
+        allResults.sort((a, b) => {
+          if (b.tier !== a.tier) return b.tier - a.tier;           // higher tier first
+          const aConf = (a.confidenceScores?.village || 0) +
+                        (a.confidenceScores?.taluka  || 0) +
+                        (a.confidenceScores?.district|| 0);
+          const bConf = (b.confidenceScores?.village || 0) +
+                        (b.confidenceScores?.taluka  || 0) +
+                        (b.confidenceScores?.district|| 0);
+          if (bConf !== aConf) return bConf - aConf;
+          return b.score - a.score;
+        });
+        bestResult = allResults[0];
+        bestScore  = bestResult.score;
       }
       
       // Return best result if we found a good match
       if (bestResult) {
-        // Determine accuracy based on score and matched components
-        // PRIORITIZE COMPLETE MATCHES (village + taluka + district) for highest accuracy
-        let accuracy = 'low';
-        const hasVillage = bestResult.matchedComponents.includes('village');
-        const hasDistrict = bestResult.matchedComponents.includes('district');
-        const hasTaluka = bestResult.matchedComponents.includes('taluka');
-        const villageConfidence = bestResult.confidenceScores?.village || 0;
-        const talukaConfidence = bestResult.confidenceScores?.taluka || 0;
-        const districtConfidence = bestResult.confidenceScores?.district || 0;
-        
-        // PERFECT MATCH: Village + Taluka + District (all three match - highest accuracy)
-        if (hasVillage && hasTaluka && hasDistrict) {
-          accuracy = 'high';
-          console.log(`✅ Perfect match: ${village}, ${taluka}, ${district} - All components matched!`);
-        }
-        // EXCELLENT MATCH: Village + Taluka (both with high confidence >= 0.85)
-        else if (hasVillage && hasTaluka && villageConfidence >= 0.85 && talukaConfidence >= 0.85) {
-          accuracy = 'high';
-        }
-        // HIGH ACCURACY: Village + Taluka (one or both with medium confidence)
-        else if (hasVillage && hasTaluka) {
-          accuracy = 'high';
-        }
-        // HIGH ACCURACY: Village + District (village is most important)
-        else if (hasVillage && hasDistrict && villageConfidence >= 0.8) {
-          accuracy = 'high';
-        }
-        // MEDIUM-HIGH: Village alone (if village confidence is high)
-        else if (hasVillage && villageConfidence >= 0.9) {
-          accuracy = 'medium';
-        }
-        // MEDIUM: Taluka + District (no village match)
-        else if (hasTaluka && hasDistrict && talukaConfidence >= 0.7) {
-          accuracy = 'medium';
-        }
-        // MEDIUM: Village alone (lower confidence)
-        else if (hasVillage) {
-          accuracy = 'medium';
-        }
-        // LOW: District only or lower scores
-        else if (bestScore >= 40) {
-          accuracy = 'low';
-        } else {
-          accuracy = 'low';
-        }
-        
-        // Log warnings for imperfect matches
-        if (!hasVillage) {
-          console.warn(`⚠️ No village match for "${village}" in ${taluka}, ${district}. Found: ${bestResult.matchedComponents.join(', ')}`);
-        }
-        if (!hasTaluka) {
-          console.warn(`⚠️ No taluka match for "${taluka}" in village "${village}", district "${district}". Found: ${bestResult.matchedComponents.join(', ')}`);
-        }
-        if (!hasDistrict && hasVillage && hasTaluka) {
-          console.warn(`⚠️ No district match for "${district}" in village "${village}", taluka "${taluka}". Found: ${bestResult.matchedComponents.join(', ')}`);
-        }
+        const tier = bestResult.tier ?? 0;
+        let accuracy;
+        if (tier >= 4)       accuracy = 'high';    // village + taluka + district ✅
+        else if (tier === 3) accuracy = 'high';    // village + taluka ✅
+        else if (tier === 2) accuracy = 'medium';  // village + district
+        else if (tier === 1) accuracy = 'medium';  // taluka + district
+        else                 accuracy = 'low';     // district only
+
+        // Log what we found
+        const tierLabel = ['district-only','taluka+district','village+district','village+taluka','village+taluka+district'][tier] || 'unknown';
+        console.log(`📍 Geocoded "${village}, ${taluka}, ${district}" → tier ${tier} (${tierLabel}) | ${bestResult.result?.formatted_address}`);
+        if (tier < 3) console.warn(`⚠️ Partial match for "${village}, ${taluka}, ${district}". Level: ${tierLabel}`);
         
         return {
           lat: bestResult.lat,
@@ -749,17 +794,27 @@ const geocodeLocation = async (village, taluka, district, state = "Maharashtra",
     }
     
     // Strategy 3: Use OpenStreetMap Nominatim with enhanced scoring
-    const queries = [
+    const osmQueries = [
       `${district}, ${taluka}, ${village}, ${state}, India`,
       `${village}, ${taluka}, ${district}, ${state}, India`,
       `${district}, ${taluka}, ${state}, India` // Fallback without village
     ];
+
+    // Build Nominatim viewbox from district bounds for geographic bias
+    const districtKeyOsm = Object.keys(MH_DISTRICT_BOUNDS).find(
+      k => k.toLowerCase() === district.toLowerCase().trim()
+    );
+    const districtBoundsOsm = districtKeyOsm ? MH_DISTRICT_BOUNDS[districtKeyOsm] : null;
+    // Nominatim viewbox format: left,top,right,bottom (west,north,east,south)
+    const viewboxParam = districtBoundsOsm
+      ? `&viewbox=${districtBoundsOsm.sw[1]},${districtBoundsOsm.ne[0]},${districtBoundsOsm.ne[1]},${districtBoundsOsm.sw[0]}&bounded=1`
+      : "&countrycodes=in";
     
-    for (const query of queries) {
+    for (const query of osmQueries) {
       try {
-        // Enhanced query with Indian-specific parameters (bounded to India)
+        // Enhanced query with Indian-specific parameters (bounded to district when known)
         const response = await fetch(
-          `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=10&countrycodes=in&addressdetails=1&extratags=1&namedetails=1&accept-language=en&bounded=1`,
+          `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=10&countrycodes=in&addressdetails=1&extratags=1&namedetails=1&accept-language=en${viewboxParam}`,
           {
             headers: {
               'User-Agent': 'NurseryManagementApp/1.0',
@@ -819,13 +874,17 @@ const geocodeLocation = async (village, taluka, district, state = "Maharashtra",
               return { ...result, score, matchedComponents };
             }).sort((a, b) => b.score - a.score);
             
-            // Find best result - prioritize village match
-            const hasVillageMatch = scoredResults.find(r => r.matchedComponents.includes('village'));
+            // Find best result - prioritize village+district+taluka first, then village alone
+            const hasVillageMatch = scoredResults.find(r =>
+              r.matchedComponents.includes('village') &&
+              r.matchedComponents.includes('district')
+            );
+            const villageOnlyMatch = scoredResults.find(r => r.matchedComponents.includes('village'));
             const bestMatch = hasVillageMatch || scoredResults.find(r => 
               r.score >= 40 && 
               r.matchedComponents.includes('district') && 
               r.matchedComponents.includes('taluka')
-            );
+            ) || (villageOnlyMatch?.score >= 50 ? villageOnlyMatch : null);
             
             if (bestMatch) {
               // Determine accuracy based on score and matched components
@@ -867,6 +926,109 @@ const geocodeLocation = async (village, taluka, district, state = "Maharashtra",
       }
     }
     
+    // Strategy 4: OSM Overpass API — searches for the village node by name within district bounding box.
+    // This is the most reliable source for small Indian villages that aren't in Nominatim text search.
+    try {
+      const districtKeyOv = Object.keys(MH_DISTRICT_BOUNDS).find(
+        k => k.toLowerCase() === district.toLowerCase().trim()
+      );
+      const dBounds = districtKeyOv ? MH_DISTRICT_BOUNDS[districtKeyOv] : null;
+
+      if (dBounds) {
+        // Escape the village name for Overpass regex
+        const villageEsc = village.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        // sw[0]=lat_min, sw[1]=lng_min, ne[0]=lat_max, ne[1]=lng_max
+        const bbox = `${dBounds.sw[0]},${dBounds.sw[1]},${dBounds.ne[0]},${dBounds.ne[1]}`;
+        const overpassQuery = `[out:json][timeout:15];(node["name"~"^${villageEsc}$",i]["place"~"village|hamlet|locality|neighbourhood|town"](${bbox});way["name"~"^${villageEsc}$",i]["place"~"village|hamlet|locality|neighbourhood"](${bbox});relation["name"~"^${villageEsc}$",i]["place"~"village|hamlet|locality|neighbourhood"](${bbox}););out center;`;
+
+        const ovResponse = await fetch(
+          `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(overpassQuery)}`,
+          {
+            headers: { 'User-Agent': 'NurseryManagementApp/1.0' },
+            signal: AbortSignal.timeout(15000),
+          }
+        );
+
+        if (ovResponse.ok) {
+          const ovData = await ovResponse.json();
+          const elements = ovData?.elements || [];
+
+          // Score each result: prefer those whose display name contains both taluka & district
+          const scored = elements.map(el => {
+            const lat = el.lat ?? el.center?.lat;
+            const lng = el.lon ?? el.center?.lon;
+            if (!lat || !lng) return null;
+            const name = (el.tags?.name || "").toLowerCase();
+            const displayParts = [
+              el.tags?.["addr:village"],
+              el.tags?.["addr:city"],
+              el.tags?.["addr:district"],
+              el.tags?.["addr:state"],
+            ].filter(Boolean).join(" ").toLowerCase();
+            let sc = 0;
+            if (name.includes(normalize(village))) sc += 60;
+            if (displayParts.includes(normalize(taluka)) || (el.tags?.["addr:city"] || "").toLowerCase().includes(normalize(taluka))) sc += 30;
+            if (displayParts.includes(normalize(district)) || (el.tags?.["addr:district"] || "").toLowerCase().includes(normalize(district))) sc += 20;
+            return { lat, lng, sc };
+          }).filter(Boolean).sort((a, b) => b.sc - a.sc);
+
+          if (scored.length > 0) {
+            const best = scored[0];
+            return {
+              lat: best.lat,
+              lng: best.lng,
+              accuracy: 'high',
+              source: 'overpass',
+              score: best.sc,
+              matched: 'village(overpass)',
+            };
+          }
+        }
+      }
+    } catch (ovErr) {
+      // Continue to retry
+    }
+
+    // Strategy 4b: Nominatim structured search (city + county + state).
+    // Uses structured address fields which are better for small villages than free-text q=.
+    try {
+      const structuredUrl = `https://nominatim.openstreetmap.org/search?format=json&limit=10&countrycodes=in&addressdetails=1` +
+        `&city=${encodeURIComponent(village)}` +
+        `&county=${encodeURIComponent(district)}` +
+        `&state=${encodeURIComponent(state)}` +
+        `&country=India`;
+
+      const structResp = await fetch(structuredUrl, {
+        headers: { 'User-Agent': 'NurseryManagementApp/1.0', 'Accept-Language': 'en' },
+        signal: AbortSignal.timeout(8000),
+      });
+
+      if (structResp.ok) {
+        const structData = await structResp.json();
+        if (structData?.length > 0) {
+          const first = structData[0];
+          const addr = first.address || {};
+          const inDistrict =
+            (addr.county || addr.state_district || addr.district || "").toLowerCase().includes(district.toLowerCase()) ||
+            (first.display_name || "").toLowerCase().includes(district.toLowerCase());
+          const inTaluka =
+            (first.display_name || "").toLowerCase().includes(taluka.toLowerCase());
+
+          if (inDistrict) {
+            return {
+              lat: parseFloat(first.lat),
+              lng: parseFloat(first.lon),
+              accuracy: inTaluka ? 'high' : 'medium',
+              source: 'nominatim-structured',
+              matched: inTaluka ? 'village,taluka,district' : 'village,district',
+            };
+          }
+        }
+      }
+    } catch (structErr) {
+      // Fall through to retry
+    }
+
     // Retry with exponential backoff if we have retries left
     if (retryCount < maxRetries) {
       await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)));
@@ -903,22 +1065,24 @@ const geocodeLocation = async (village, taluka, district, state = "Maharashtra",
       }
     }
     
-    // Default fallback: Maharashtra center
-    return { 
-      lat: 19.0760, 
-      lng: 72.8777,
+    // Final non-Mumbai fallback
+    const fallback = getDistrictFallbackCoordinates(district, state);
+    return {
+      lat: fallback.lat,
+      lng: fallback.lng,
       accuracy: 'fallback',
-      source: 'default'
+      source: fallback.source,
     };
     
   } catch (error) {
     console.error(`Error geocoding ${village}, ${taluka}, ${district}:`, error);
-    // Return district center as fallback
-    return { 
-      lat: 19.0760, 
-      lng: 72.8777,
+    // Return district/state center as fallback (never hardcoded Mumbai)
+    const fallback = getDistrictFallbackCoordinates(district, state);
+    return {
+      lat: fallback.lat,
+      lng: fallback.lng,
       accuracy: 'error',
-      source: 'error'
+      source: fallback.source,
     };
   }
 };
@@ -958,6 +1122,86 @@ const WAREHOUSE_LOCATION = {
   name: "Warehouse/Company"
 };
 
+// ─── OSRM (Open Source Routing Machine) ──────────────────────────────────────
+// Completely free, no API key required, uses real OpenStreetMap road data.
+// Public demo server: https://router.project-osrm.org
+// /trip endpoint solves TSP and returns the optimal visit order + road polyline.
+// /route endpoint returns road polyline for a fixed waypoint order.
+const OSRM_BASE_URL = "https://router.project-osrm.org";
+const OSRM_MAX_WAYPOINTS = 100; // public server practical limit
+
+/**
+ * Solve TSP and return optimised visit order + road polyline using OSRM /trip.
+ * @param {{lat: number, lng: number}[]} waypoints
+ * @returns {Promise<{orderedIndices: number[], distanceKm: number, durationMin: number, polyline: [number,number][]} | null>}
+ */
+const getOSRMTrip = async (waypoints) => {
+  if (!waypoints || waypoints.length < 2) return null;
+  const limited = waypoints.slice(0, OSRM_MAX_WAYPOINTS);
+  const coordStr = limited.map(w => `${w.lng},${w.lat}`).join(";");
+  try {
+    const res = await fetch(
+      `${OSRM_BASE_URL}/trip/v1/driving/${coordStr}?roundtrip=false&source=first&destination=last&steps=false&geometries=geojson&overview=full`,
+      { signal: AbortSignal.timeout(20000) }
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data.code !== "Ok" || !data.trips?.length) return null;
+    const trip = data.trips[0];
+    const wpts = data.waypoints || [];
+    // orderedIndices[visitOrder] = originalIndex
+    const orderedIndices = new Array(limited.length);
+    wpts.forEach((wp, origIdx) => {
+      if (wp.waypoint_index != null) orderedIndices[wp.waypoint_index] = origIdx;
+    });
+    const cleanIndices = orderedIndices.filter(i => i !== undefined);
+    const polyline = trip.geometry?.coordinates
+      ? trip.geometry.coordinates.map(c => [c[1], c[0]]) // → [lat, lng] for Leaflet
+      : null;
+    return {
+      orderedIndices: cleanIndices,
+      distanceKm: (trip.distance || 0) / 1000,
+      durationMin: (trip.duration || 0) / 60,
+      polyline,
+    };
+  } catch (err) {
+    console.warn("OSRM /trip failed:", err.message);
+    return null;
+  }
+};
+
+/**
+ * Get real road polyline for a fixed waypoint sequence using OSRM /route.
+ * @param {{lat: number, lng: number}[]} waypoints
+ * @returns {Promise<{polyline: [number,number][], distanceKm: number, durationMin: number} | null>}
+ */
+const getOSRMRoute = async (waypoints) => {
+  if (!waypoints || waypoints.length < 2) return null;
+  const limited = waypoints.slice(0, OSRM_MAX_WAYPOINTS);
+  const coordStr = limited.map(w => `${w.lng},${w.lat}`).join(";");
+  try {
+    const res = await fetch(
+      `${OSRM_BASE_URL}/route/v1/driving/${coordStr}?steps=false&geometries=geojson&overview=full`,
+      { signal: AbortSignal.timeout(20000) }
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data.code !== "Ok" || !data.routes?.length) return null;
+    const route = data.routes[0];
+    return {
+      polyline: route.geometry?.coordinates
+        ? route.geometry.coordinates.map(c => [c[1], c[0]])
+        : null,
+      distanceKm: (route.distance || 0) / 1000,
+      durationMin: (route.duration || 0) / 60,
+    };
+  } catch (err) {
+    console.warn("OSRM /route failed:", err.message);
+    return null;
+  }
+};
+// ─────────────────────────────────────────────────────────────────────────────
+
 // Calculate distance between two coordinates (Haversine formula)
 const calculateDistance = (lat1, lon1, lat2, lon2) => {
   const R = 6371; // Radius of the Earth in km
@@ -971,7 +1215,7 @@ const calculateDistance = (lat1, lon1, lat2, lon2) => {
   return R * c; // Distance in km
 };
 
-const OrderMapView = ({ orders = [] }) => {
+const OrderMapView = ({ orders = [], onClose }) => {
   const [locationGroups, setLocationGroups] = useState([]);
   const [routes, setRoutes] = useState([]);
   const [currentRoute, setCurrentRoute] = useState([]);
@@ -991,7 +1235,8 @@ const OrderMapView = ({ orders = [] }) => {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [vehicleCapacity, setVehicleCapacity] = useState(""); // Keep for backward compatibility
   const [vehicles, setVehicles] = useState([]); // Vehicles from CMS
-  const [selectedVehicle, setSelectedVehicle] = useState(null); // Selected vehicle
+  const [selectedVehicle, setSelectedVehicle] = useState(null); // Selected vehicle (single, kept for manual-mode compat)
+  const [selectedVehicles, setSelectedVehicles] = useState([]); // Multi-vehicle fleet selection
   const [loadingVehicles, setLoadingVehicles] = useState(false);
   const [suggestedRoutes, setSuggestedRoutes] = useState([]);
   const [showRouteSuggestions, setShowRouteSuggestions] = useState(false);
@@ -1012,6 +1257,7 @@ const OrderMapView = ({ orders = [] }) => {
   const [currentRouteDirections, setCurrentRouteDirections] = useState(null); // Store Google Directions for current route
   const [showRoutePanel, setShowRoutePanel] = useState(true); // Show/hide route planning panel
   const [showGeocodingPanel, setShowGeocodingPanel] = useState(true); // Show/hide geocoded villages panel
+  const [currentRoutePolyline, setCurrentRoutePolyline] = useState(null); // Road polyline for current route (OSRM)
   const [selectedRouteDetails, setSelectedRouteDetails] = useState(null); // Selected route for details dialog
   const [showRouteDetailsDialog, setShowRouteDetailsDialog] = useState(false); // Show route details dialog
   const [editingLocation, setEditingLocation] = useState(null); // Location being edited/dragged
@@ -1102,7 +1348,7 @@ const OrderMapView = ({ orders = [] }) => {
   const availablePlants = useMemo(() => {
     const plants = new Set();
     orders.forEach(order => {
-      const plantName = order.plantType?.name || order.plantName;
+      const plantName = (typeof order.plantType === "string" ? order.plantType : order.plantType?.name) || order.plantName;
       if (plantName) {
         plants.add(plantName);
       }
@@ -1133,7 +1379,7 @@ const OrderMapView = ({ orders = [] }) => {
     const filteredOrders = (selectedPlantFilter === "all" 
       ? orders 
       : orders.filter(order => {
-          const plantName = order.plantType?.name || order.plantName;
+          const plantName = (typeof order.plantType === "string" ? order.plantType : order.plantType?.name) || order.plantName;
           return plantName === selectedPlantFilter;
         })
     ).filter(order => {
@@ -1143,10 +1389,37 @@ const OrderMapView = ({ orders = [] }) => {
     });
     
     filteredOrders.forEach(order => {
-      const village = order.farmer?.village || "Unknown";
-      const taluka = order.farmer?.taluka || order.farmer?.talukaName || "Unknown";
-      const district = order.farmer?.district || order.farmer?.districtName || "Unknown";
-      const state = order.farmer?.state || order.farmer?.stateName || "Maharashtra";
+      // Location extraction — try all shapes produced by FarmerOrdersTable and the API:
+      // 1. Regular nursery orders: details.farmer.{village, taluka, district}
+      // 2. Agri Sales orders:      details.{customerVillage, customerTaluka, customerDistrict}
+      // 3. Direct top-level farmer (legacy / DispatchedListPage usage)
+      const df = order.details?.farmer;
+      const village =
+        df?.village ||
+        df?.villageName ||
+        order.details?.customerVillage ||
+        order.farmer?.village ||
+        "Unknown";
+      const taluka =
+        df?.taluka ||
+        df?.talukaName ||
+        order.details?.customerTaluka ||
+        order.farmer?.taluka ||
+        order.farmer?.talukaName ||
+        "Unknown";
+      const district =
+        df?.district ||
+        df?.districtName ||
+        order.details?.customerDistrict ||
+        order.farmer?.district ||
+        order.farmer?.districtName ||
+        "Unknown";
+      const state =
+        df?.state ||
+        df?.stateName ||
+        order.farmer?.state ||
+        order.farmer?.stateName ||
+        "Maharashtra";
       const key = `${village}|${taluka}|${district}`;
       
       if (!groups.has(key)) {
@@ -1178,6 +1451,21 @@ const OrderMapView = ({ orders = [] }) => {
   const geocodingInProgressRef = useRef(false);
   const lastGeocodedKeysRef = useRef('');
   const boundsFittedRef = useRef(false); // Track if bounds have been fitted initially
+  const geocodeCacheRef = useRef(new Map()); // key -> coordinates cache (in-memory)
+
+  // Warm cache from browser storage once
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("orderMapGeocodeCacheV1");
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object") {
+        geocodeCacheRef.current = new Map(Object.entries(parsed));
+      }
+    } catch (e) {
+      // ignore malformed cache
+    }
+  }, []);
 
   // Geocode locations with progress tracking
   useEffect(() => {
@@ -1210,11 +1498,11 @@ const OrderMapView = ({ orders = [] }) => {
       setGeocodingProgress({ current: 0, total: groupedOrders.length, isGeocoding: true });
       const geocoded = [];
       
-      // If using Google Maps (has API key), process in batches for speed
-      // If using OpenStreetMap (no API key), process one by one with delay
+      // If using Google Maps (has API key), process larger batches for speed.
+      // If using OpenStreetMap only, keep conservative pace.
       const useGoogleMaps = !!GOOGLE_MAPS_API_KEY;
-      const batchSize = useGoogleMaps ? 3 : 1;
-      const delayBetweenBatches = useGoogleMaps ? 300 : 1100; // Google allows faster, OSM needs 1 req/sec
+      const batchSize = useGoogleMaps ? 8 : 2;
+      const delayBetweenBatches = useGoogleMaps ? 120 : 450;
       
       try {
         for (let i = 0; i < groupedOrders.length; i += batchSize) {
@@ -1222,6 +1510,12 @@ const OrderMapView = ({ orders = [] }) => {
           
           const batchPromises = batch.map(async (group) => {
             try {
+              const cacheKey = `${(group.village || "").toLowerCase().trim()}|${(group.taluka || "").toLowerCase().trim()}|${(group.district || "").toLowerCase().trim()}|${(group.state || "").toLowerCase().trim()}`;
+              const cached = geocodeCacheRef.current.get(cacheKey);
+              if (cached?.lat && cached?.lng) {
+                return { ...group, coordinates: cached };
+              }
+
               console.log(`[${i}/${groupedOrders.length}] Geocoding: ${group.village}, ${group.taluka}, ${group.district}`);
               const coords = await Promise.race([
                 geocodeLocation(
@@ -1231,13 +1525,15 @@ const OrderMapView = ({ orders = [] }) => {
                   group.state
                 ),
                 new Promise((_, reject) => 
-                  setTimeout(() => reject(new Error('Geocoding timeout')), 15000)
+                  setTimeout(() => reject(new Error('Geocoding timeout')), 14000)
                 )
               ]);
               console.log(`✓ Geocoded: ${group.village} -> ${coords.lat}, ${coords.lng} (${coords.accuracy || 'unknown'})`);
+
+              geocodeCacheRef.current.set(cacheKey, coords);
               
               // Track location errors if accuracy is low
-              if (coords.accuracy === 'low' || coords.accuracy === 'error' || coords.accuracy === 'fallback') {
+              if (coords.accuracy === 'low' || coords.accuracy === 'error') {
                 setLocationErrors(prev => {
                   const newMap = new Map(prev);
                   newMap.set(group.key, {
@@ -1245,7 +1541,6 @@ const OrderMapView = ({ orders = [] }) => {
                     taluka: group.taluka,
                     district: group.district,
                     reason: coords.accuracy === 'error' ? 'Geocoding failed' : 
-                           coords.accuracy === 'fallback' ? 'Using district center' : 
                            'Low accuracy match',
                     accuracy: coords.accuracy
                   });
@@ -1277,42 +1572,25 @@ const OrderMapView = ({ orders = [] }) => {
                 return newMap;
               });
               
-              // Try to get district center as fallback
-              try {
-                const districtQuery = `${group.district}, ${group.state || 'Maharashtra'}, India`;
-                const fallbackResponse = await fetch(
-                  `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(districtQuery)}&key=${GOOGLE_MAPS_API_KEY}&region=in`,
-                  { signal: AbortSignal.timeout(5000) }
-                );
-                
-                if (fallbackResponse.ok) {
-                  const fallbackData = await fallbackResponse.json();
-                  if (fallbackData.status === 'OK' && fallbackData.results && fallbackData.results.length > 0) {
-                    const location = fallbackData.results[0].geometry.location;
-                    return { 
-                      ...group, 
-                      coordinates: { 
-                        lat: location.lat, 
-                        lng: location.lng, 
-                        accuracy: 'fallback',
-                        source: 'district-center'
-                      } 
-                    };
-                  }
+              // Fast fallback: use district/state center immediately (no extra API call)
+              const safeFallback = getDistrictFallbackCoordinates(group.district, group.state);
+              geocodeCacheRef.current.set(
+                `${(group.village || "").toLowerCase().trim()}|${(group.taluka || "").toLowerCase().trim()}|${(group.district || "").toLowerCase().trim()}|${(group.state || "").toLowerCase().trim()}`,
+                {
+                  lat: safeFallback.lat,
+                  lng: safeFallback.lng,
+                  accuracy: 'fallback',
+                  source: safeFallback.source,
                 }
-              } catch (fallbackError) {
-                console.error('Fallback geocoding also failed:', fallbackError);
-              }
-              
-              // Final fallback: use default coordinates
-              return { 
-                ...group, 
-                coordinates: { 
-                  lat: 19.0760, 
-                  lng: 72.8777, 
-                  accuracy: 'error',
-                  source: 'default-fallback'
-                } 
+              );
+              return {
+                ...group,
+                coordinates: {
+                  lat: safeFallback.lat,
+                  lng: safeFallback.lng,
+                  accuracy: 'fallback',
+                  source: safeFallback.source
+                }
               };
             }
           });
@@ -1338,6 +1616,14 @@ const OrderMapView = ({ orders = [] }) => {
         setLocationGroups(geocoded);
         setGeocodingProgress({ current: geocoded.length, total: groupedOrders.length, isGeocoding: false });
         setIsLoading(false);
+        try {
+          localStorage.setItem(
+            "orderMapGeocodeCacheV1",
+            JSON.stringify(Object.fromEntries(geocodeCacheRef.current))
+          );
+        } catch (e) {
+          // ignore storage quota issues
+        }
         
         // Set map center to first location or default (only if not already set)
         if (geocoded.length > 0 && geocoded[0].coordinates && !boundsFittedRef.current) {
@@ -1379,10 +1665,31 @@ const OrderMapView = ({ orders = [] }) => {
       } catch (error) {
         console.error('Fatal error in geocoding:', error);
         // Ensure we always complete, even on error
-        const fallbackLocations = geocoded.length > 0 ? geocoded : groupedOrders.map(g => ({ ...g, coordinates: { lat: 19.0760, lng: 72.8777, accuracy: 'error' } }));
+        const fallbackLocations = geocoded.length > 0
+          ? geocoded
+          : groupedOrders.map((g) => {
+              const safeFallback = getDistrictFallbackCoordinates(g.district, g.state);
+              return {
+                ...g,
+                coordinates: {
+                  lat: safeFallback.lat,
+                  lng: safeFallback.lng,
+                  accuracy: 'error',
+                  source: safeFallback.source,
+                },
+              };
+            });
         setLocationGroups(fallbackLocations);
         setGeocodingProgress({ current: geocoded.length, total: groupedOrders.length, isGeocoding: false });
         setIsLoading(false);
+        try {
+          localStorage.setItem(
+            "orderMapGeocodeCacheV1",
+            JSON.stringify(Object.fromEntries(geocodeCacheRef.current))
+          );
+        } catch (e) {
+          // ignore
+        }
       } finally {
         geocodingInProgressRef.current = false;
       }
@@ -1501,6 +1808,12 @@ const OrderMapView = ({ orders = [] }) => {
     }
     return poly;
   };
+
+  // Convert Leaflet-style [lat,lng] positions to Google Polyline path format.
+  const toGooglePath = (positions = []) =>
+    positions
+      .filter((p) => Array.isArray(p) && p.length >= 2 && Number.isFinite(p[0]) && Number.isFinite(p[1]))
+      .map((p) => ({ lat: p[0], lng: p[1] }));
 
   const getGoogleDirections = async (waypoints) => {
     if (!GOOGLE_MAPS_API_KEY || waypoints.length === 0) return null;
@@ -1713,64 +2026,56 @@ const OrderMapView = ({ orders = [] }) => {
         }
         
         if (currentRoute.length > 0) {
-          // Step 3: Use Google Directions API to optimize waypoint order
-          const waypoints = currentRoute.map(loc => ({
-            lat: loc.coordinates.lat,
-            lng: loc.coordinates.lng
-          }));
-          
-          // Always get Google Directions for proper road routes
-          const directions = await getGoogleDirections(waypoints);
-          
-          if (directions) {
-            let optimizedRoute;
-            let totalDistance;
-            
-            if (directions.waypoint_order && directions.waypoint_order.length > 0) {
-              // Reorder route based on Google's optimization
-              optimizedRoute = directions.waypoint_order.map(idx => currentRoute[idx]);
-              totalDistance = directions.legs.reduce((sum, leg) => sum + (leg.distance?.value || 0), 0) / 1000; // Convert to km
-            } else {
-              // Use original order but still use Google Directions for proper route
-              optimizedRoute = currentRoute;
-              totalDistance = directions.legs ? 
-                directions.legs.reduce((sum, leg) => sum + (leg.distance?.value || 0), 0) / 1000 :
-                calculateRouteDistance(currentRoute);
-            }
-            
-            // Extract toll information from directions
-            const tollInfo = directions.tollInfo || {
-              totalCost: 0,
-              currency: 'INR',
-              tollPoints: [],
-              hasTolls: false,
-            };
-            
+          // Step 3: Use OSRM Trip (free TSP solver) to optimise waypoint order + get road polyline.
+          // Falls back to nearest-neighbour + OSRM Route if /trip fails.
+          const waypoints = [
+            { lat: WAREHOUSE_LOCATION.lat, lng: WAREHOUSE_LOCATION.lng },
+            ...currentRoute.filter(l => l.coordinates).map(l => ({ lat: l.coordinates.lat, lng: l.coordinates.lng })),
+          ];
+
+          const osrmTrip = await getOSRMTrip(
+            // exclude the warehouse from the optimisation coordinates (it's always first)
+            currentRoute.filter(l => l.coordinates).map(l => ({ lat: l.coordinates.lat, lng: l.coordinates.lng }))
+          );
+
+          if (osrmTrip) {
+            // Reorder stops based on OSRM's TSP solution
+            const optimizedRoute = osrmTrip.orderedIndices.map(idx => currentRoute[idx]).filter(Boolean);
+            // Full road polyline (warehouse → stops in optimised order)
+            const fullWaypoints = [
+              { lat: WAREHOUSE_LOCATION.lat, lng: WAREHOUSE_LOCATION.lng },
+              ...osrmTrip.orderedIndices
+                .map(idx => currentRoute[idx])
+                .filter(l => l?.coordinates)
+                .map(l => ({ lat: l.coordinates.lat, lng: l.coordinates.lng })),
+            ];
+            const osrmRouteResult = await getOSRMRoute(fullWaypoints);
+
             routes.push({
               locations: optimizedRoute,
-              directions: directions,
-              polyline: directions.overview_polyline?.points || null, // Store encoded polyline for Leaflet
+              directions: null,
+              polyline: null,
+              osrmPolyline: osrmRouteResult?.polyline || osrmTrip.polyline || null,
               totalPlants: currentCapacity,
-              totalDistance: totalDistance,
-              totalTollCost: tollInfo.totalCost || 0,
-              tollCurrency: tollInfo.currency || 'INR',
-              tollInfo: tollInfo,
+              totalDistance: osrmRouteResult?.distanceKm ?? osrmTrip.distanceKm,
+              durationMin: osrmRouteResult?.durationMin ?? osrmTrip.durationMin,
             });
           } else {
-            // Fallback to nearest neighbor if Google Directions completely fails
+            // Fallback: nearest-neighbour ordering + OSRM Route for polyline
             const optimized = optimizeRouteOrder(currentRoute);
-            // Try one more time to get directions without optimization
-            const fallbackWaypoints = optimized.map(loc => ({ lat: loc.coordinates.lat, lng: loc.coordinates.lng }));
-            const fallbackDirections = await getGoogleDirections(fallbackWaypoints);
-            
+            const fbWaypoints = [
+              { lat: WAREHOUSE_LOCATION.lat, lng: WAREHOUSE_LOCATION.lng },
+              ...optimized.filter(l => l.coordinates).map(l => ({ lat: l.coordinates.lat, lng: l.coordinates.lng })),
+            ];
+            const fbRoute = await getOSRMRoute(fbWaypoints);
             routes.push({
               locations: optimized,
-              directions: fallbackDirections,
-              polyline: fallbackDirections?.overview_polyline?.points || null,
+              directions: null,
+              polyline: null,
+              osrmPolyline: fbRoute?.polyline || null,
               totalPlants: currentCapacity,
-              totalDistance: fallbackDirections ? 
-                (fallbackDirections.legs?.reduce((sum, leg) => sum + (leg.distance?.value || 0), 0) / 1000 || calculateRouteDistance(optimized)) :
-                calculateRouteDistance(optimized),
+              totalDistance: fbRoute?.distanceKm ?? calculateRouteDistance(optimized),
+              durationMin: fbRoute?.durationMin ?? null,
             });
           }
         } else {
@@ -1815,7 +2120,117 @@ const OrderMapView = ({ orders = [] }) => {
     return optimized;
   };
 
-  // Fetch drivers from API
+  // ── Multi-vehicle fleet optimization ──────────────────────────────────────────
+  // Assigns orders to N vehicles using geographic k-means clustering + OSRM Trip
+  // per vehicle for TSP-optimal stop ordering and real road polylines.
+  const optimizeRoutesForFleet = async (locations, fleetVehicles) => {
+    if (!fleetVehicles?.length || !locations?.length) return [];
+
+    // Flatten locations → individual order rows with coordinates
+    const orderLocs = [];
+    locations.forEach(loc => {
+      if (!loc.coordinates) return;
+      loc.orders.forEach(order => {
+        orderLocs.push({
+          ...loc,
+          order,
+          orderPlants: order.numberOfPlants || order.totalPlants || order.quantity || 0,
+          locationKey: loc.key,
+        });
+      });
+    });
+    if (orderLocs.length === 0) return [];
+
+    const numV = fleetVehicles.length;
+
+    // Step 1 — geographic k-means: group nearby orders into N clusters
+    const clusters = kMeansClustering(orderLocs, numV);
+
+    // Step 2 — match clusters to vehicles by size (largest cluster → largest vehicle)
+    const sortedClusters = [...clusters].sort(
+      (a, b) => b.reduce((s, o) => s + o.orderPlants, 0) - a.reduce((s, o) => s + o.orderPlants, 0)
+    );
+    const sortedVehicles = [...fleetVehicles].sort((a, b) => (b.capacity || 0) - (a.capacity || 0));
+
+    const routes = [];
+
+    for (let vi = 0; vi < sortedVehicles.length; vi++) {
+      const vehicle = sortedVehicles[vi];
+      const cap = vehicle.capacity || 50000;
+      const cluster = sortedClusters[vi] || [];
+      if (cluster.length === 0) continue;
+
+      // Step 3 — fill route to capacity (nearest stops first)
+      const sorted = [...cluster].sort((a, b) =>
+        calculateDistance(WAREHOUSE_LOCATION.lat, WAREHOUSE_LOCATION.lng, a.coordinates.lat, a.coordinates.lng) -
+        calculateDistance(WAREHOUSE_LOCATION.lat, WAREHOUSE_LOCATION.lng, b.coordinates.lat, b.coordinates.lng)
+      );
+
+      const routeLocMap = new Map(); // locationKey → {loc, selectedOrders}
+      let used = 0;
+      for (const ol of sorted) {
+        if (used + ol.orderPlants <= cap) {
+          used += ol.orderPlants;
+          if (!routeLocMap.has(ol.locationKey)) {
+            const base = locations.find(l => l.key === ol.locationKey);
+            if (base) routeLocMap.set(ol.locationKey, { ...base, selectedOrders: [] });
+          }
+          routeLocMap.get(ol.locationKey)?.selectedOrders.push(ol.order);
+        }
+      }
+
+      const locArr = Array.from(routeLocMap.values());
+      if (locArr.length === 0) continue;
+
+      // Step 4 — OSRM Trip (TSP) for optimal stop order + road polyline
+      const stopWaypoints = locArr.filter(l => l.coordinates).map(l => ({ lat: l.coordinates.lat, lng: l.coordinates.lng }));
+      const osrmTrip = await getOSRMTrip(stopWaypoints);
+
+      let optimizedLocs = locArr;
+      let distKm = calculateRouteDistance(locArr);
+      let durMin = null;
+      let osrmPolyline = null;
+
+      if (osrmTrip) {
+        optimizedLocs = osrmTrip.orderedIndices.map(i => locArr[i]).filter(Boolean);
+        const fullWps = [
+          { lat: WAREHOUSE_LOCATION.lat, lng: WAREHOUSE_LOCATION.lng },
+          ...osrmTrip.orderedIndices.map(i => locArr[i]).filter(l => l?.coordinates).map(l => ({ lat: l.coordinates.lat, lng: l.coordinates.lng })),
+        ];
+        const roadResult = await getOSRMRoute(fullWps);
+        osrmPolyline = roadResult?.polyline ?? osrmTrip.polyline;
+        distKm = roadResult?.distanceKm ?? osrmTrip.distanceKm;
+        durMin = roadResult?.durationMin ?? osrmTrip.durationMin;
+      } else {
+        optimizedLocs = optimizeRouteOrder(locArr);
+        const fbWps = [
+          { lat: WAREHOUSE_LOCATION.lat, lng: WAREHOUSE_LOCATION.lng },
+          ...optimizedLocs.filter(l => l.coordinates).map(l => ({ lat: l.coordinates.lat, lng: l.coordinates.lng })),
+        ];
+        const fbRes = await getOSRMRoute(fbWps);
+        osrmPolyline = fbRes?.polyline ?? null;
+        distKm = fbRes?.distanceKm ?? distKm;
+        durMin = fbRes?.durationMin ?? null;
+      }
+
+      routes.push({
+        locations: optimizedLocs,
+        vehicle,
+        vehicleName: vehicle.name || `Vehicle ${vi + 1}`,
+        vehicleNumber: vehicle.number || "",
+        vehicleCapacity: cap,
+        totalPlants: used,
+        totalDistance: distKm,
+        durationMin: durMin,
+        osrmPolyline,
+        directions: null,
+        polyline: null,
+      });
+    }
+
+    return routes;
+  };
+  // ──────────────────────────────────────────────────────────────────────────────
   useEffect(() => {
     const fetchDrivers = async () => {
       try {
@@ -1879,33 +2294,63 @@ const OrderMapView = ({ orders = [] }) => {
     
     fetchVehicles();
   }, []);
-  
-  // Handle route suggestion with advanced optimization
-  const handleSuggestRoutes = async () => {
-    setIsLoading(true);
-    // Use selected vehicle capacity, fallback to manual input
-    const capacity = selectedVehicle 
-      ? (selectedVehicle.capacity || parseInt(vehicleCapacity) || 0)
-      : parseInt(vehicleCapacity) || 0;
-    
-    if (!capacity || capacity <= 0) {
-      alert("Please select a vehicle or enter a valid vehicle capacity");
-      setIsLoading(false);
+
+  // Compute OSRM road polyline whenever currentRoute changes
+  useEffect(() => {
+    if (!currentRoute || currentRoute.length === 0) {
+      setCurrentRoutePolyline(null);
       return;
     }
-    
+    let cancelled = false;
+    const waypoints = [
+      { lat: WAREHOUSE_LOCATION.lat, lng: WAREHOUSE_LOCATION.lng },
+      ...currentRoute.filter(l => l.coordinates).map(l => ({ lat: l.coordinates.lat, lng: l.coordinates.lng })),
+    ];
+    getOSRMRoute(waypoints).then(result => {
+      if (!cancelled) setCurrentRoutePolyline(result?.polyline || null);
+    });
+    return () => { cancelled = true; };
+  }, [currentRoute]);
+  
+  const handleSuggestRoutes = async () => {
+    setIsLoading(true);
+
     try {
-      // Use advanced optimization with K-Means + Google Directions
-      const routes = await optimizeRoutes(validLocations, capacity);
-      
-      // Generate unique IDs for routes
-      const routesWithIds = routes.map((route, idx) => ({
-        ...route,
-        id: `route-${Date.now()}-${idx}`,
-        capacity: capacity,
-        createdAt: new Date().toISOString()
-      }));
-      
+      let routesWithIds;
+
+      if (selectedVehicles.length > 1) {
+        // ── Multi-vehicle fleet mode ────────────────────────────────────────
+        const routes = await optimizeRoutesForFleet(validLocations, selectedVehicles);
+        routesWithIds = routes.map((route, idx) => ({
+          ...route,
+          id: `route-${Date.now()}-${idx}`,
+          createdAt: new Date().toISOString(),
+        }));
+      } else {
+        // ── Single vehicle mode (legacy) ────────────────────────────────────
+        const singleV = selectedVehicles[0] || selectedVehicle;
+        const capacity = singleV
+          ? (singleV.capacity || parseInt(vehicleCapacity) || 0)
+          : parseInt(vehicleCapacity) || 0;
+
+        if (!capacity || capacity <= 0) {
+          alert("Please select a vehicle or enter a valid vehicle capacity");
+          setIsLoading(false);
+          return;
+        }
+
+        const routes = await optimizeRoutes(validLocations, capacity);
+        routesWithIds = routes.map((route, idx) => ({
+          ...route,
+          id: `route-${Date.now()}-${idx}`,
+          capacity,
+          vehicleName: singleV?.name || "Vehicle",
+          vehicleNumber: singleV?.number || "",
+          createdAt: new Date().toISOString(),
+        }));
+      }
+
+      setRouteDirections({});
       setSuggestedRoutes(routesWithIds);
       setShowRouteSuggestions(true);
     } catch (error) {
@@ -2124,9 +2569,10 @@ const OrderMapView = ({ orders = [] }) => {
     // Group by location
     const locationMap = new Map();
     selectedOrders.forEach(order => {
-      const village = order.farmer?.village || "Unknown";
-      const taluka = order.farmer?.taluka || order.farmer?.talukaName || "Unknown";
-      const district = order.farmer?.district || order.farmer?.districtName || "Unknown";
+      const df2 = order.details?.farmer;
+      const village = df2?.village || df2?.villageName || order.details?.customerVillage || order.farmer?.village || "Unknown";
+      const taluka = df2?.taluka || df2?.talukaName || order.details?.customerTaluka || order.farmer?.taluka || order.farmer?.talukaName || "Unknown";
+      const district = df2?.district || df2?.districtName || order.details?.customerDistrict || order.farmer?.district || order.farmer?.districtName || "Unknown";
       const key = `${village}|${taluka}|${district}`;
       
       if (!locationMap.has(key)) {
@@ -2248,6 +2694,35 @@ const OrderMapView = ({ orders = [] }) => {
   const handleSaveSuggestedRoute = (route) => {
     setRouteToSave(route);
     setShowDriverDialog(true);
+  };
+
+  // Assign driver + vehicle to all orders in a suggested route (saves to backend)
+  const assignRouteToBackend = async (route, markReady = true) => {
+    const allOrders = (route.locations || []).flatMap(loc => loc.selectedOrders || loc.orders || []);
+    const orderIds = allOrders.map(o => o._id || o.id).filter(Boolean);
+    if (orderIds.length === 0) {
+      alert("No orders in this route to assign.");
+      return;
+    }
+    try {
+      setIsLoading(true);
+      const instance = NetworkManager(API.DISPATCHED.ASSIGN_ROUTE);
+      await instance.request({
+        orderIds,
+        vehicleId: route.vehicle?._id || route.vehicle?.id || null,
+        vehicleName: route.vehicleName || "",
+        vehicleNumber: route.vehicleNumber || route.vehicle?.number || "",
+        driverName: route.vehicle?.driverName || "",
+        driverMobile: route.vehicle?.driverMobile || "",
+        routeNotes: `Route ${route.vehicleName || ""} — ${orderIds.length} orders`,
+        markReady,
+      });
+      alert(`✅ ${orderIds.length} orders assigned to ${route.vehicleName || "vehicle"}.${markReady ? " Marked as Ready for Dispatch." : ""}`);
+    } catch (err) {
+      alert("Error assigning route: " + (err?.message || "Unknown error"));
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const confirmSaveRoute = () => {
@@ -2793,55 +3268,54 @@ const OrderMapView = ({ orders = [] }) => {
     return totalDistance;
   };
   
-  // Async version: Get real road-based route using OpenRouteService
-  // Falls back to straight-line if API key not available
+  // Async version: Get real road-based route polyline.
+  // Priority: OSRM (free) → OpenRouteService (free with key) → straight-line fallback
   const getRoutePolylineWithOpenRouteService = async (routeLocations, includeWarehouse = true) => {
     if (routeLocations.length === 0) return [];
     
     const coords = [];
     
     if (includeWarehouse && routeLocations.length > 0) {
-      coords.push([WAREHOUSE_LOCATION.lat, WAREHOUSE_LOCATION.lng]);
+      coords.push({ lat: WAREHOUSE_LOCATION.lat, lng: WAREHOUSE_LOCATION.lng });
     }
     
     routeLocations
       .filter(loc => loc.coordinates)
       .forEach(loc => {
-        coords.push([loc.coordinates.lat, loc.coordinates.lng]);
+        coords.push({ lat: loc.coordinates.lat, lng: loc.coordinates.lng });
       });
-    
-    // Use OpenRouteService for real road routing if API key available
+
+    // Try OSRM first (completely free, no API key needed)
+    if (coords.length >= 2) {
+      const osrmResult = await getOSRMRoute(coords);
+      if (osrmResult?.polyline) return osrmResult.polyline;
+    }
+
+    // Fallback: OpenRouteService (free tier, API key required)
     if (OPENROUTESERVICE_API_KEY && coords.length >= 2) {
       try {
-        const waypoints = coords.map(coord => [coord[1], coord[0]]); // [lng, lat] format
+        const waypoints = coords.map(c => [c.lng, c.lat]); // [lng, lat] for ORS
         const response = await fetch(
           `https://api.openrouteservice.org/v2/directions/driving-car?api_key=${OPENROUTESERVICE_API_KEY}`,
           {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              coordinates: waypoints,
-              geometry: true,
-              format: 'geojson'
-            })
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ coordinates: waypoints, geometry: true, format: 'geojson' })
           }
         );
-        
         if (response.ok) {
           const data = await response.json();
-          if (data.geometry && data.geometry.coordinates) {
-            // Convert from [lng, lat] to [lat, lng] for Leaflet
-            return data.geometry.coordinates.map(coord => [coord[1], coord[0]]);
+          if (data.geometry?.coordinates) {
+            return data.geometry.coordinates.map(c => [c[1], c[0]]);
           }
         }
       } catch (error) {
-        console.log("OpenRouteService routing not available, using straight-line:", error);
+        console.log("OpenRouteService routing not available:", error);
       }
     }
     
-    return coords; // Fallback to straight-line
+    // Final fallback: straight-line between waypoints
+    return coords.map(c => [c.lat, c.lng]);
   };
   
   // Async version: Calculate real road distance using OpenRouteService
@@ -3359,6 +3833,29 @@ const OrderMapView = ({ orders = [] }) => {
         >
           {isFullscreen ? <FullscreenExit /> : <Fullscreen />}
         </IconButton>
+
+        {/* Close / back button — shown when opened as a dialog from parent */}
+        {onClose && (
+          <IconButton
+            onClick={onClose}
+            sx={{
+              backgroundColor: "rgba(255, 255, 255, 0.98)",
+              backdropFilter: "blur(10px)",
+              boxShadow: "0 4px 20px rgba(0,0,0,0.15)",
+              border: "1px solid rgba(0,0,0,0.08)",
+              borderRadius: 2,
+              "&:hover": {
+                backgroundColor: "rgba(255, 220, 220, 1)",
+                transform: "scale(1.05)",
+              },
+              transition: "all 0.2s",
+            }}
+            size="medium"
+            title="Close map"
+          >
+            <CloseIcon />
+          </IconButton>
+        )}
       </Box>
 
       {/* Map Click Mode Indicator */}
@@ -3481,8 +3978,15 @@ const OrderMapView = ({ orders = [] }) => {
           <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
             {locationErrors.size} location(s) have geocoding issues
           </Typography>
-          <Typography variant="caption">
-            Some locations could not be accurately geocoded. Switch to Table view to manually correct them or use &quot;Set from Map&quot; to click on the map.
+          <Typography variant="caption" sx={{ display: "block", mb: 0.5 }}>
+            Route still works using district-center fallback. For exact point, use Table view → &quot;Set from Map&quot;.
+          </Typography>
+          <Typography variant="caption" sx={{ display: "block", color: "text.secondary" }}>
+            {Array.from(locationErrors.values())
+              .slice(0, 2)
+              .map((e) => `${e.village} (${e.taluka}, ${e.district}): ${e.reason}`)
+              .join(" | ")}
+            {locationErrors.size > 2 ? ` | +${locationErrors.size - 2} more` : ""}
           </Typography>
         </Alert>
       )}
@@ -4437,9 +4941,9 @@ const OrderMapView = ({ orders = [] }) => {
                 const statusText = orderStatuses.length === 1 ? orderStatuses[0] : `${orderStatuses.length} statuses`;
                 
                 const orderDetails = location.orders.slice(0, 3).map(order => ({
-                  farmerName: order.farmer?.name || "Unknown",
+                  farmerName: order.details?.farmer?.name || order.farmer?.name || order.farmerName || order.details?.customerName || "Unknown",
                   quantity: order.numberOfPlants || order.totalPlants || order.quantity || 0,
-                  plantType: order.plantType?.name || order.plantName || "Unknown",
+                  plantType: order.plantType?.name || order.plantType || order.plantName || "Unknown",
                   status: order.orderStatus || "UNKNOWN"
                 }));
 
@@ -4737,6 +5241,42 @@ const OrderMapView = ({ orders = [] }) => {
                 return null;
               })}
 
+              {/* Google fallback polyline: still show route even if Directions API fails/limits */}
+              {showRouteSuggestions && suggestedRoutes.map((route, routeIdx) => {
+                const key = `suggested-${routeIdx}`;
+                const colors = ["#e91e63", "#9c27b0", "#3f51b5", "#00bcd4", "#4caf50", "#ff9800", "#f44336"];
+                const color = colors[routeIdx % colors.length];
+                const isFocused = focusedRoute === key;
+                if (focusedRoute && !isFocused) return null;
+                if (routeDirections[key]) return null;
+
+                let positions = [];
+                if (route.osrmPolyline?.length) {
+                  positions = route.osrmPolyline;
+                } else if (route.polyline) {
+                  const decoded = decodePolyline(route.polyline);
+                  positions = decoded.length > 0 ? decoded : getRoutePolyline(route.locations || [], true);
+                } else {
+                  positions = getRoutePolyline(route.locations || [], true);
+                }
+
+                const path = toGooglePath(positions);
+                if (path.length < 2) return null;
+
+                return (
+                  <GooglePolyline
+                    key={`fallback-suggested-${routeIdx}`}
+                    path={path}
+                    options={{
+                      strokeColor: color,
+                      strokeWeight: isFocused ? 5 : 3,
+                      strokeOpacity: isFocused ? 0.9 : 0.72,
+                      zIndex: isFocused ? 999 : 2,
+                    }}
+                  />
+                );
+              })}
+
               {/* Saved Routes using DirectionsService */}
               {routes.map((route) => {
                 const isHighlighted = highlightedRoute === route.id;
@@ -4953,9 +5493,9 @@ const OrderMapView = ({ orders = [] }) => {
             
             // Get order details for hover
             const orderDetails = location.orders.slice(0, 3).map(order => ({
-              farmerName: order.farmer?.name || "Unknown",
+              farmerName: order.details?.farmer?.name || order.farmer?.name || order.farmerName || order.details?.customerName || "Unknown",
               quantity: order.numberOfPlants || order.totalPlants || order.quantity || 0,
-              plantType: order.plantType?.name || order.plantName || "Unknown",
+              plantType: order.plantType?.name || order.plantType || order.plantName || "Unknown",
               status: order.orderStatus || "UNKNOWN"
             }));
 
@@ -5106,15 +5646,21 @@ const OrderMapView = ({ orders = [] }) => {
             // Only show if focused or no route is focused
             if (focusedRoute && !isFocused) return null;
             
-            // Use decoded polyline if available (from Google Directions), otherwise fallback to straight line
+            // Road polyline priority: OSRM (free) > Google encoded > straight-line
             let positions = [];
-            if (route.polyline) {
+            if (route.osrmPolyline?.length) {
+              positions = route.osrmPolyline;
+            } else if (route.polyline) {
               const decoded = decodePolyline(route.polyline);
               positions = decoded.length > 0 ? decoded : getRoutePolyline(route.locations || [], true);
             } else {
               positions = getRoutePolyline(route.locations || [], true);
             }
             
+            const label = route.vehicleName
+              ? `Route ${routeIdx + 1} · ${route.vehicleName}${route.vehicleNumber ? ` (${route.vehicleNumber})` : ""}`
+              : `Route ${routeIdx + 1}`;
+
             return (
               <Polyline
                 key={`suggested-${routeIdx}`}
@@ -5123,7 +5669,9 @@ const OrderMapView = ({ orders = [] }) => {
                 weight={isFocused ? 5 : 3}
                 opacity={isFocused ? 0.9 : 0.7}
                 dashArray={routeIdx === 0 ? "0" : "10, 5"}
-              />
+              >
+                <LeafletTooltip sticky>{label}</LeafletTooltip>
+              </Polyline>
             );
           })}
           
@@ -5135,9 +5683,11 @@ const OrderMapView = ({ orders = [] }) => {
             // Only show if focused or no route is focused
             if (focusedRoute && !isFocused) return null;
             
-            // Use decoded polyline if available (from Google Directions), otherwise fallback to straight line
+            // Road polyline priority: OSRM (free) > Google encoded > straight-line
             let positions = [];
-            if (route.polyline) {
+            if (route.osrmPolyline?.length) {
+              positions = route.osrmPolyline;
+            } else if (route.polyline) {
               const decoded = decodePolyline(route.polyline);
               positions = decoded.length > 0 ? decoded : getRoutePolyline(route.locations || [], true);
             } else {
@@ -5155,14 +5705,14 @@ const OrderMapView = ({ orders = [] }) => {
             );
           })}
           
-          {/* Polyline for current route (from warehouse) */}
+          {/* Polyline for current route (from warehouse) — uses OSRM road polyline when available */}
           {currentRoute.length > 0 && (
             <Polyline
-              positions={getRoutePolyline(currentRoute, true)}
+              positions={currentRoutePolyline || getRoutePolyline(currentRoute, true)}
               color="#2e7d32"
               weight={4}
               opacity={0.8}
-              dashArray="10, 5"
+              dashArray={currentRoutePolyline ? "0" : "10, 5"}
             />
           )}
         </MapContainer>
@@ -5213,6 +5763,42 @@ const OrderMapView = ({ orders = [] }) => {
         <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>
           Route Optimization
         </Typography>
+
+        {/* Routing Service Toggle — Free (ORS) vs Premium (Google) */}
+        <Box sx={{ mb: 1.5 }}>
+          <Typography variant="caption" sx={{ display: "block", mb: 0.75, color: "text.secondary", fontWeight: 600 }}>
+            Routing Service
+          </Typography>
+          <Box sx={{ display: "flex", gap: 0.75 }}>
+            <Button
+              size="small"
+              fullWidth
+              variant={!useGoogleMaps ? "contained" : "outlined"}
+              color={!useGoogleMaps ? "success" : "inherit"}
+              onClick={() => setUseGoogleMaps(false)}
+              sx={{ textTransform: "none", fontSize: "0.72rem", fontWeight: 600, borderRadius: 1.5 }}
+            >
+              🆓 Free (ORS)
+            </Button>
+            <Button
+              size="small"
+              fullWidth
+              variant={useGoogleMaps ? "contained" : "outlined"}
+              color={useGoogleMaps ? "primary" : "inherit"}
+              onClick={() => setUseGoogleMaps(true)}
+              disabled={!GOOGLE_MAPS_API_KEY}
+              sx={{ textTransform: "none", fontSize: "0.72rem", fontWeight: 600, borderRadius: 1.5 }}
+            >
+              ⭐ Premium (Google)
+            </Button>
+          </Box>
+          <Typography variant="caption" sx={{ display: "block", mt: 0.5, color: "text.secondary", lineHeight: 1.4 }}>
+            {useGoogleMaps
+              ? "Google Directions — real-time traffic, paid per request"
+              : "OSRM (OpenStreetMap) — real roads, 100% free, no API key"}
+          </Typography>
+        </Box>
+
         <Button
           fullWidth
           variant="contained"
@@ -5224,60 +5810,92 @@ const OrderMapView = ({ orders = [] }) => {
           🚀 Create Route (Wizard)
         </Button>
         
-        {/* Vehicle Selector */}
-        <FormControl fullWidth size="small" sx={{ mb: 1 }}>
-          <InputLabel>Select Vehicle</InputLabel>
-          <Select
-            value={selectedVehicle ? (selectedVehicle._id || selectedVehicle.id || "") : ""}
-            label="Select Vehicle"
-            onChange={(e) => {
-              const vehicleId = e.target.value;
-              const vehicle = vehicles.find(v => (v._id || v.id) === vehicleId);
-              setSelectedVehicle(vehicle || null);
-              if (vehicle) {
-                setVehicleCapacity(vehicle.capacity?.toString() || "");
-              } else {
-                setVehicleCapacity("");
-              }
-            }}
-            disabled={loadingVehicles}
-          >
-            <MenuItem value="">
-              <em>Select a vehicle...</em>
-            </MenuItem>
-            {loadingVehicles ? (
-              <MenuItem disabled>Loading vehicles...</MenuItem>
-            ) : vehicles.length === 0 ? (
-              <MenuItem disabled>No vehicles available</MenuItem>
-            ) : (
-              vehicles.map((vehicle) => {
-                const capacity = vehicle.capacity || 0;
-                return (
-                  <MenuItem key={vehicle._id || vehicle.id} value={vehicle._id || vehicle.id}>
-                    <Box sx={{ display: "flex", justifyContent: "space-between", width: "100%", alignItems: "center" }}>
-                      <Box>
-                        <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                          {vehicle.name || "Unnamed Vehicle"}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {vehicle.number || "No number"}
-                        </Typography>
-                      </Box>
-                      <Chip 
-                        label={capacity > 0 ? `${capacity.toLocaleString()} plants` : "No capacity"} 
-                        size="small" 
-                        color={capacity > 0 ? "primary" : "default"}
-                        sx={{ ml: 1 }}
-                      />
-                    </Box>
-                  </MenuItem>
-                );
-              })
+        {/* Vehicle Multi-Select */}
+        <Typography variant="caption" sx={{ display: "block", mb: 0.5, fontWeight: 600, color: "text.secondary" }}>
+          Select Vehicle(s)
+        </Typography>
+        <Box
+          sx={{
+            maxHeight: 160,
+            overflowY: "auto",
+            border: "1px solid #e0e0e0",
+            borderRadius: 1,
+            mb: 1,
+            bgcolor: "#fafafa",
+          }}
+        >
+          {loadingVehicles ? (
+            <Box sx={{ p: 1, textAlign: "center" }}><CircularProgress size={18} /></Box>
+          ) : vehicles.length === 0 ? (
+            <Box sx={{ p: 1 }}>
+              <Typography variant="caption" color="text.secondary">No vehicles found</Typography>
+            </Box>
+          ) : (
+            vehicles.map((vehicle) => {
+              const vid = vehicle._id || vehicle.id;
+              const isChecked = selectedVehicles.some(v => (v._id || v.id) === vid);
+              const cap = vehicle.capacity || 0;
+              return (
+                <Box
+                  key={vid}
+                  onClick={() => {
+                    const next = isChecked
+                      ? selectedVehicles.filter(v => (v._id || v.id) !== vid)
+                      : [...selectedVehicles, vehicle];
+                    setSelectedVehicles(next);
+                    // keep selectedVehicle in sync for manual-route compat
+                    setSelectedVehicle(next.length === 1 ? next[0] : next[0] || null);
+                    setVehicleCapacity(next.length === 1 ? (next[0].capacity?.toString() || "") : "");
+                  }}
+                  sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 0.75,
+                    px: 1,
+                    py: 0.75,
+                    cursor: "pointer",
+                    bgcolor: isChecked ? "rgba(25,118,210,0.08)" : "transparent",
+                    borderBottom: "1px solid #f0f0f0",
+                    "&:hover": { bgcolor: isChecked ? "rgba(25,118,210,0.12)" : "rgba(0,0,0,0.04)" },
+                    "&:last-child": { borderBottom: "none" },
+                  }}
+                >
+                  <input type="checkbox" checked={isChecked} readOnly style={{ pointerEvents: "none", width: 13, height: 13, flexShrink: 0 }} />
+                  <Box sx={{ minWidth: 0, flex: 1 }}>
+                    <Typography noWrap sx={{ fontSize: "0.75rem", fontWeight: 600, lineHeight: 1.2 }}>
+                      {vehicle.name || "Unnamed"}
+                    </Typography>
+                    <Typography noWrap sx={{ fontSize: "0.65rem", color: "text.secondary", lineHeight: 1.2 }}>
+                      {vehicle.number || "—"} · {cap > 0 ? `${cap.toLocaleString()} plants` : "no capacity"}
+                    </Typography>
+                  </Box>
+                  {isChecked && <CheckCircle sx={{ fontSize: 14, color: "primary.main", flexShrink: 0 }} />}
+                </Box>
+              );
+            })
+          )}
+        </Box>
+
+        {/* Fleet summary */}
+        {selectedVehicles.length > 0 && (
+          <Box sx={{ mb: 1, p: 0.75, bgcolor: "rgba(25,118,210,0.07)", borderRadius: 1, border: "1px solid rgba(25,118,210,0.2)" }}>
+            <Typography variant="caption" sx={{ fontWeight: 600, color: "primary.main" }}>
+              {selectedVehicles.length} vehicle{selectedVehicles.length > 1 ? "s" : ""} selected
+            </Typography>
+            <Typography variant="caption" sx={{ display: "block", color: "text.secondary" }}>
+              Total capacity:{" "}
+              <strong>{selectedVehicles.reduce((s, v) => s + (v.capacity || 0), 0).toLocaleString()}</strong> plants
+            </Typography>
+            {selectedVehicles.length > 1 && (
+              <Typography variant="caption" sx={{ display: "block", color: "success.main", fontWeight: 600 }}>
+                🚛 Fleet mode — one route per vehicle
+              </Typography>
             )}
-          </Select>
-        </FormControl>
-        
-        {/* Manual Capacity Input (Fallback) */}
+          </Box>
+        )}
+
+        {/* Manual Capacity Input (Fallback — single vehicle only) */}
+        {selectedVehicles.length === 0 && (
         <TextField
           fullWidth
           size="small"
@@ -5286,20 +5904,14 @@ const OrderMapView = ({ orders = [] }) => {
           value={vehicleCapacity}
           onChange={(e) => {
             setVehicleCapacity(e.target.value);
-            setSelectedVehicle(null); // Clear vehicle selection when manually entering
+            setSelectedVehicle(null);
+            setSelectedVehicles([]);
           }}
           sx={{ mb: 1 }}
           placeholder="e.g., 20000"
-          disabled={!!selectedVehicle && (selectedVehicle.capacity || 0) > 0} // Disable if vehicle with capacity is selected
-          helperText={
-            selectedVehicle 
-              ? (selectedVehicle.capacity || 0) > 0 
-                ? `Using ${selectedVehicle.name} capacity: ${(selectedVehicle.capacity || 0).toLocaleString()} plants`
-                : `${selectedVehicle.name} has no capacity set. Please enter capacity manually.`
-              : "Enter capacity if no vehicle selected"
-          }
-          error={selectedVehicle && (selectedVehicle.capacity || 0) === 0}
+          helperText="Enter capacity if no vehicle selected"
         />
+        )}
         <Box sx={{ display: "flex", gap: 1, mb: 1 }}>
           <Button
             fullWidth
@@ -5318,10 +5930,13 @@ const OrderMapView = ({ orders = [] }) => {
             variant="contained"
             color="primary"
             onClick={handleSuggestRoutes}
-            disabled={(!selectedVehicle && (!vehicleCapacity || parseInt(vehicleCapacity) <= 0)) || manualRouteMode}
+            disabled={
+              (selectedVehicles.length === 0 && (!vehicleCapacity || parseInt(vehicleCapacity) <= 0)) ||
+              manualRouteMode
+            }
             size="small"
           >
-            Auto Suggest
+            {selectedVehicles.length > 1 ? `🚛 Suggest Routes (${selectedVehicles.length} vehicles)` : "Auto Suggest"}
           </Button>
         </Box>
         {manualRouteMode && (
@@ -5329,9 +5944,77 @@ const OrderMapView = ({ orders = [] }) => {
             <Typography variant="caption" sx={{ display: "block", mb: 0.5 }}>
               Remaining Capacity: <strong>{getRemainingCapacity().toLocaleString()}</strong> plants
             </Typography>
-            <Typography variant="caption" color="text.secondary">
-              Hover over locations to select orders
-            </Typography>
+            {/* Select All / Deselect All */}
+            <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 0.5 }}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                <input
+                  type="checkbox"
+                  id="select-all-orders"
+                  checked={
+                    locationGroups.flatMap(lg => lg.orders || []).length > 0 &&
+                    locationGroups.flatMap(lg => lg.orders || []).every(o => selectedOrdersForRoute.has(o._id || o.id))
+                  }
+                  onChange={(e) => {
+                    const allIds = locationGroups.flatMap(lg => lg.orders || []).map(o => o._id || o.id).filter(Boolean);
+                    if (e.target.checked) {
+                      setSelectedOrdersForRoute(new Set(allIds));
+                    } else {
+                      setSelectedOrdersForRoute(new Set());
+                    }
+                  }}
+                  style={{ cursor: "pointer", width: 14, height: 14 }}
+                />
+                <label htmlFor="select-all-orders" style={{ fontSize: "0.7rem", cursor: "pointer", fontWeight: 600 }}>
+                  Select All
+                </label>
+              </Box>
+              <Typography variant="caption" sx={{ color: "purple", fontWeight: 600 }}>
+                {selectedOrdersForRoute.size}/{locationGroups.flatMap(lg => lg.orders || []).length} selected
+              </Typography>
+            </Box>
+            {/* Per-order checkbox list */}
+            <Box sx={{ maxHeight: 180, overflowY: "auto", mt: 0.5 }}>
+              {locationGroups.flatMap(lg => lg.orders || []).map((order) => {
+                const orderId = order._id || order.id;
+                const orderPlants = order.numberOfPlants || order.totalPlants || order.quantity || 0;
+                const isSelected = selectedOrdersForRoute.has(orderId);
+                const canSelect = orderPlants <= getRemainingCapacity();
+                return (
+                  <Box
+                    key={orderId}
+                    sx={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 0.75,
+                      py: 0.4,
+                      px: 0.5,
+                      borderRadius: 1,
+                      bgcolor: isSelected ? "rgba(156, 39, 176, 0.15)" : "transparent",
+                      border: isSelected ? "1px solid rgba(156, 39, 176, 0.4)" : "1px solid transparent",
+                      opacity: canSelect || isSelected ? 1 : 0.45,
+                      cursor: canSelect || isSelected ? "pointer" : "not-allowed",
+                      "&:hover": { bgcolor: isSelected ? "rgba(156,39,176,0.2)" : "rgba(0,0,0,0.04)" },
+                    }}
+                    onClick={() => (canSelect || isSelected) && handleOrderToggle(orderId)}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      readOnly
+                      style={{ pointerEvents: "none", width: 13, height: 13, flexShrink: 0 }}
+                    />
+                    <Box sx={{ minWidth: 0 }}>
+                      <Typography noWrap sx={{ fontSize: "0.72rem", fontWeight: 600, lineHeight: 1.2 }}>
+                        {order.details?.farmer?.name || order.farmer?.name || order.farmerName || order.details?.customerName || "Unknown"} — {orderPlants.toLocaleString()} plants
+                      </Typography>
+                      <Typography noWrap sx={{ fontSize: "0.65rem", color: "text.secondary", lineHeight: 1.2 }}>
+                        {order.plantType || order.details?.plantName?.name || "Unknown plant"} · {order.details?.farmer?.village || order.details?.customerVillage || order.farmer?.village || ""}
+                      </Typography>
+                    </Box>
+                  </Box>
+                );
+              })}
+            </Box>
             {selectedOrdersForRoute.size > 0 && (
               <Button
                 fullWidth
@@ -5406,8 +6089,8 @@ const OrderMapView = ({ orders = [] }) => {
                   }}
                 >
                   <ListItemText
-                    primary={`${order.farmer?.name || "Unknown"} - ${orderPlants.toLocaleString()} plants`}
-                    secondary={order.plantType?.name || order.plantName || "Unknown"}
+                    primary={`${order.details?.farmer?.name || order.farmer?.name || order.farmerName || order.details?.customerName || "Unknown"} - ${orderPlants.toLocaleString()} plants`}
+                    secondary={order.plantType?.name || order.plantType || order.plantName || "Unknown"}
                     primaryTypographyProps={{ fontSize: "0.85rem" }}
                     secondaryTypographyProps={{ fontSize: "0.7rem" }}
                   />
@@ -5605,9 +6288,16 @@ const OrderMapView = ({ orders = [] }) => {
                   }}
                 >
                   <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 0.5 }}>
-                    <Typography variant="caption" sx={{ fontWeight: 600, color: isFocused ? "#ff5722" : color }}>
-                      Route {idx + 1} ({routeLocations.length} stops) {isFocused ? "👁️" : ""}
-                    </Typography>
+                    <Box>
+                      <Typography variant="caption" sx={{ fontWeight: 600, color: isFocused ? "#ff5722" : color }}>
+                        Route {idx + 1} ({routeLocations.length} stops) {isFocused ? "👁️" : ""}
+                      </Typography>
+                      {route.vehicleName && (
+                        <Typography variant="caption" sx={{ display: "block", color: "text.secondary", fontSize: "0.65rem" }}>
+                          🚛 {route.vehicleName}{route.vehicleNumber ? ` · ${route.vehicleNumber}` : ""}
+                        </Typography>
+                      )}
+                    </Box>
                     <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
                       <Button
                         size="small"
@@ -5671,10 +6361,30 @@ const OrderMapView = ({ orders = [] }) => {
                       >
                         Assign
                       </Button>
+                      {route.vehicle && (
+                        <Button
+                          size="small"
+                          variant="contained"
+                          color="success"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            assignRouteToBackend(route, true);
+                          }}
+                          sx={{ fontSize: "0.68rem", py: 0.25, whiteSpace: "nowrap" }}
+                          title="Assign this vehicle + mark orders Ready for Dispatch"
+                        >
+                          ✅ Ready
+                        </Button>
+                      )}
                     </Box>
                   </Box>
                   <Typography variant="caption" sx={{ display: "block", fontSize: "0.7rem" }}>
                     📦 {totalPlants.toLocaleString()} plants | 📍 {routeDistance.toFixed(1)} km
+                    {route.durationMin > 0 && (
+                      <span style={{ marginLeft: "8px", color: "#1976d2" }}>
+                        | ⏱ {Math.round(route.durationMin)} min
+                      </span>
+                    )}
                     {route.totalTollCost > 0 && (
                       <span style={{ marginLeft: "8px", color: "#f57c00", fontWeight: 600 }}>
                         | 🛣️ Toll: ₹{route.totalTollCost.toLocaleString()}
@@ -6116,13 +6826,13 @@ const OrderMapView = ({ orders = [] }) => {
                   secondary={
                     <Box>
                       <Typography variant="caption" sx={{ display: "block" }}>
-                        Farmer: {order.farmer?.name || "N/A"}
+                        Farmer: {order.details?.farmer?.name || order.farmer?.name || order.farmerName || order.details?.customerName || "N/A"}
                       </Typography>
                       <Typography variant="caption" sx={{ display: "block" }}>
                         Plants: {order.numberOfPlants || order.totalPlants || 0}
                       </Typography>
                       <Typography variant="caption" sx={{ display: "block" }}>
-                        Phone: {order.farmer?.mobileNumber || "N/A"}
+                        Phone: {order.details?.farmer?.mobileNumber || order.details?.contact || order.farmer?.mobileNumber || "N/A"}
                       </Typography>
                     </Box>
                   }
@@ -6397,8 +7107,8 @@ const OrderMapView = ({ orders = [] }) => {
                         <List dense>
                           {locationOrders.map((order, orderIdx) => {
                             const orderPlants = order.numberOfPlants || order.totalPlants || order.quantity || 0;
-                            const farmerName = order.farmer?.name || order.farmerName || "Unknown";
-                            const plantName = order.plantType?.name || order.plantName || order.plantSubtype?.name || "Unknown";
+                            const farmerName = order.details?.farmer?.name || order.farmer?.name || order.farmerName || order.details?.customerName || "Unknown";
+                            const plantName = order.plantType?.name || order.plantType || order.plantName || order.plantSubtype?.name || "Unknown";
                             const plantSubtype = order.plantSubtype?.name || "";
                             
                             return (
@@ -6418,7 +7128,7 @@ const OrderMapView = ({ orders = [] }) => {
                                         {farmerName}
                                       </Typography>
                                       <Typography variant="caption" color="text.secondary">
-                                        {order.farmer?.mobileNumber || order.mobileNumber || "N/A"}
+                                        {order.details?.farmer?.mobileNumber || order.details?.contact || order.farmer?.mobileNumber || order.mobileNumber || "N/A"}
                                       </Typography>
                                     </Box>
                                   }
@@ -6664,6 +7374,7 @@ const OrderMapView = ({ orders = [] }) => {
                             capacity: capacity,
                             createdAt: new Date().toISOString()
                           }));
+                          setRouteDirections({});
                           setSuggestedRoutes(routesWithIds);
                           setShowRouteSuggestions(true);
                           setRouteStep(3);

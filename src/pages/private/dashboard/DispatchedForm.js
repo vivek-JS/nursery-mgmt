@@ -20,6 +20,13 @@ import {
 
 const cavityKey = (v) => (v != null && v !== "" ? String(v) : "")
 
+const formatFleetDriverLabel = (d) => {
+  if (!d) return ""
+  const m =
+    d.mobile != null && String(d.mobile).trim() !== "" ? String(d.mobile).trim() : "—"
+  return `${d.name || ""} (${m})`
+}
+
 const DispatchForm = ({
   open,
   onClose,
@@ -40,8 +47,12 @@ const DispatchForm = ({
   const [expandedPlants, setExpandedPlants] = useState({})
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
-  const [drivers, setDrivers] = useState([])
-  const [vehicles, setVehicles] = useState([])
+  const [owners, setOwners] = useState([])
+  const [selectedOwnerId, setSelectedOwnerId] = useState("")
+  const [fleetDrivers, setFleetDrivers] = useState([])
+  const [fleetVehicles, setFleetVehicles] = useState([])
+  const [fleetDriverId, setFleetDriverId] = useState("")
+  const [fleetVehicleId, setFleetVehicleId] = useState("")
   const [shades, setShades] = useState([])
   const [cavities, setCavities] = useState([])
   const [isEditing, setIsEditing] = useState(false)
@@ -54,28 +65,63 @@ const DispatchForm = ({
   const getSelectedOrdersArray = () =>
     Array.from(selectedOrders?.values?.() || []).filter((order) => Boolean(getOrderId(order)))
 
-  // Fetch functions for each dropdown
-  const getDrivers = async () => {
+  const loadFleetForOwner = async (ownerMongoId) => {
+    if (!ownerMongoId) {
+      setFleetDrivers([])
+      setFleetVehicles([])
+      return
+    }
     try {
-      const instance = NetworkManager(API.USER.GET_USERS)
-      const response = await instance.request({}, { jobTitle: "DRIVER" })
-      if (response.data?.data) {
-        setDrivers(response.data.data)
+      const dInst = NetworkManager(API.VEHICLE_DRIVER.GET_BY_OWNER)
+      const vInst = NetworkManager(API.VEHICLE.GET_ACTIVE_VEHICLES)
+      const [dRes, vRes] = await Promise.all([
+        dInst.request({}, [ownerMongoId]),
+        vInst.request({}, { ownerId: ownerMongoId })
+      ])
+      const drList = Array.isArray(dRes?.data?.data) ? dRes.data.data : []
+      const vList = Array.isArray(vRes?.data?.data) ? vRes.data.data : []
+      setFleetDrivers(drList)
+      setFleetVehicles(vList)
+      let nextDriverId = ""
+      let nextVehicleId = ""
+      let nextDriverName = ""
+      let nextVehicleName = ""
+      if (drList.length === 1) {
+        nextDriverId = getId(drList[0])
+        nextDriverName = formatFleetDriverLabel(drList[0])
       }
+      if (vList.length === 1) {
+        nextVehicleId = getId(vList[0])
+        nextVehicleName = vList[0].name || ""
+      }
+      setFleetDriverId(nextDriverId)
+      setFleetVehicleId(nextVehicleId)
+      setFormData((prev) => ({
+        ...prev,
+        driverName: nextDriverName,
+        vehicleName: nextVehicleName
+      }))
     } catch (error) {
-      console.error("Error fetching drivers:", error)
+      console.error("Error loading fleet drivers/vehicles:", error)
+      setFleetDrivers([])
+      setFleetVehicles([])
     }
   }
 
-  const getVehicles = async () => {
+  const getFleetOwners = async (allowAutoSingleOwner = true) => {
     try {
-      const instance = NetworkManager(API.VEHICLE.GET_ACTIVE_VEHICLES)
+      const instance = NetworkManager(API.VEHICLE_OWNER.GET_ACTIVE)
       const response = await instance.request({}, {})
-      if (response.data?.data) {
-        setVehicles(response.data.data)
+      const list = Array.isArray(response?.data?.data) ? response.data.data : []
+      setOwners(list)
+      if (allowAutoSingleOwner && list.length === 1) {
+        const oid = getId(list[0])
+        setSelectedOwnerId(oid)
+        await loadFleetForOwner(oid)
       }
     } catch (error) {
-      console.error("Error fetching vehicles:", error)
+      console.error("Error fetching vehicle owners:", error)
+      setOwners([])
     }
   }
 
@@ -107,6 +153,9 @@ const DispatchForm = ({
   const validateForm = () => {
     setError("")
 
+    if (mode !== "view" && !selectedOwnerId) {
+      throw new Error("Please select an owner")
+    }
     if (!formData.driverName) {
       throw new Error("Please select a driver")
     }
@@ -204,16 +253,30 @@ const DispatchForm = ({
     const selectedOrdersArray = getSelectedOrdersArray()
     const orderIds = selectedOrdersArray.map((order) => getOrderId(order))
     
-    // Get selected driver info - extract name from combined format or just name
-    const driverDisplayName = formData.driverName.includes('(') 
-      ? formData.driverName.split(' (')[0] 
+    let selectedDriver = fleetDriverId
+      ? fleetDrivers.find((d) => getId(d) === fleetDriverId)
+      : null
+    if (!selectedDriver && formData.driverName) {
+      const driverDisplayName = formData.driverName.includes("(")
+        ? formData.driverName.split(" (")[0].trim()
+        : formData.driverName.trim()
+      selectedDriver = fleetDrivers.find((d) => (d.name || "").trim() === driverDisplayName)
+    }
+
+    const formattedDriverName = selectedDriver
+      ? formatFleetDriverLabel(selectedDriver)
       : formData.driverName
-    const selectedDriver = drivers.find(d => d.name === driverDisplayName)
-    
-    // Format driver name with mobile number
-    const formattedDriverName = selectedDriver 
-      ? `${selectedDriver.name} (${selectedDriver.phoneNumber})`
-      : formData.driverName
+
+    const driverMobile =
+      selectedDriver?.mobile?.toString?.() ||
+      selectedDriver?.phoneNumber?.toString?.() ||
+      ""
+
+    const selectedVehicle = fleetVehicleId
+      ? fleetVehicles.find((v) => getId(v) === fleetVehicleId)
+      : fleetVehicles.find((v) => (v.name || "") === (formData.vehicleName || ""))
+
+    const vehicleNameOut = selectedVehicle?.name || formData.vehicleName
     
     // Map plants to their orders to group crate information
     const plantsByOrder = new Map()
@@ -288,8 +351,8 @@ const DispatchForm = ({
         remainingAfterDispatch: remainingQty - dispatchQty,
         isPartialDispatch: dispatchQty < remainingQty,
         driverName: formattedDriverName,
-        driverMobile: selectedDriver?.phoneNumber?.toString() || "",
-        vehicleName: formData.vehicleName,
+        driverMobile,
+        vehicleName: vehicleNameOut,
         crates: cratesForOrder
       }
     })
@@ -363,8 +426,8 @@ const DispatchForm = ({
     return {
       name: formData.name?.trim() || "",
       driverName: formattedDriverName,
-      driverMobile: selectedDriver?.phoneNumber?.toString() || "",
-      vehicleName: formData.vehicleName,
+      driverMobile,
+      vehicleName: vehicleNameOut,
       orderIds: orderIds,
       orderDispatchDetails: orderDispatchDetails,
       plantsDetails: plantsDetails
@@ -741,16 +804,25 @@ const DispatchForm = ({
   }
 
   useEffect(() => {
-    getDrivers()
-    getVehicles()
     getShades()
     getCavities()
   }, [])
 
   useEffect(() => {
+    if (open) {
+      getFleetOwners(mode !== "view")
+    }
+  }, [open, mode])
+
+  useEffect(() => {
     if (!open) {
       setIsEditing(false)
       setError("")
+      setSelectedOwnerId("")
+      setFleetDriverId("")
+      setFleetVehicleId("")
+      setFleetDrivers([])
+      setFleetVehicles([])
     }
   }, [open])
 
@@ -816,20 +888,10 @@ const DispatchForm = ({
         }
       })
 
-      // Format driverName with phone number if not already formatted
-      let formattedDriverName = dispatchData.driverName
-      if (dispatchData.driverName && !dispatchData.driverName.includes('(')) {
-        // If driverName doesn't have phone number, try to format it
-        const driver = drivers.find(d => d.name === dispatchData.driverName)
-        if (driver) {
-          formattedDriverName = `${driver.name} (${driver.phoneNumber})`
-        }
-      }
-
       setFormData({
         name: dispatchData.name || "",
-        driverName: formattedDriverName,
-        vehicleName: dispatchData.vehicleName,
+        driverName: dispatchData.driverName || "",
+        vehicleName: dispatchData.vehicleName || "",
         plants: transformedPlants
       })
 
@@ -879,6 +941,8 @@ const DispatchForm = ({
 
       setFormData((prev) => ({
         ...prev,
+        driverName: "",
+        vehicleName: "",
         plants: Object.values(plantGroups)
       }))
 
@@ -888,7 +952,7 @@ const DispatchForm = ({
       }, {})
       setExpandedPlants(initialExpandedState)
     }
-  }, [mode, dispatchData, selectedOrders?.size, drivers])
+  }, [mode, dispatchData, selectedOrders?.size])
 
   const handleCancelEdit = () => {
     if (dispatchData) {
@@ -896,6 +960,40 @@ const DispatchForm = ({
     }
     setIsEditing(false)
     setError("")
+    setSelectedOwnerId("")
+    setFleetDriverId("")
+    setFleetVehicleId("")
+    setFleetDrivers([])
+    setFleetVehicles([])
+  }
+
+  const handleOwnerChange = (e) => {
+    const oid = e.target.value
+    setSelectedOwnerId(oid)
+    setFleetDriverId("")
+    setFleetVehicleId("")
+    setFormData((prev) => ({ ...prev, driverName: "", vehicleName: "" }))
+    void loadFleetForOwner(oid)
+  }
+
+  const handleFleetDriverChange = (e) => {
+    const id = e.target.value
+    setFleetDriverId(id)
+    const d = fleetDrivers.find((x) => getId(x) === id)
+    setFormData((prev) => ({
+      ...prev,
+      driverName: d ? formatFleetDriverLabel(d) : ""
+    }))
+  }
+
+  const handleFleetVehicleChange = (e) => {
+    const id = e.target.value
+    setFleetVehicleId(id)
+    const v = fleetVehicles.find((x) => getId(x) === id)
+    setFormData((prev) => ({
+      ...prev,
+      vehicleName: v?.name || ""
+    }))
   }
 
   const handleUpdate = () => {
@@ -1054,7 +1152,7 @@ const DispatchForm = ({
 
         <div className="space-y-6">
           {/* Dispatch meta + transport selection */}
-          <div className={`grid ${isMobile ? "grid-cols-1 gap-2" : "grid-cols-3 gap-4"}`}>
+          <div className={`grid ${isMobile ? "grid-cols-1 gap-2" : "grid-cols-2 lg:grid-cols-4 gap-4"}`}>
             <input
               type="text"
               className={`${isMobile ? "p-3 text-base" : "p-2"} border rounded-lg`}
@@ -1063,31 +1161,71 @@ const DispatchForm = ({
               disabled={isViewMode && !isEditing}
               placeholder="Dispatch Name (e.g., Nashik Morning Run)"
             />
-            <select
-              className={`${isMobile ? "p-3 text-base" : "p-2"} border rounded-lg`}
-              value={formData.driverName}
-              onChange={(e) => setFormData((prev) => ({ ...prev, driverName: e.target.value }))}
-              disabled={isViewMode && !isEditing}>
-              <option value="">Select Driver</option>
-              {drivers?.map((driver) => (
-                <option key={driver._id || driver.id} value={`${driver.name} (${driver.phoneNumber})`}>
-                  {driver.name} ({driver.phoneNumber})
-                </option>
-              ))}
-            </select>
-
-            <select
-              className={`${isMobile ? "p-3 text-base" : "p-2"} border rounded-lg`}
-              value={formData.vehicleName}
-              onChange={(e) => setFormData((prev) => ({ ...prev, vehicleName: e.target.value }))}
-              disabled={isViewMode && !isEditing}>
-              <option value="">Select Vehicle</option>
-              {vehicles?.map((vehicle) => (
-                <option key={vehicle.id} value={vehicle.name}>
-                  {vehicle.name}
-                </option>
-              ))}
-            </select>
+            {isViewMode && !isEditing ? (
+              <>
+                <input
+                  type="text"
+                  readOnly
+                  className={`${isMobile ? "p-3 text-base" : "p-2"} border rounded-lg bg-gray-100 text-gray-600`}
+                  value="—"
+                  title="Owner"
+                  aria-label="Owner"
+                />
+                <input
+                  type="text"
+                  readOnly
+                  className={`${isMobile ? "p-3 text-base" : "p-2"} border rounded-lg bg-gray-100`}
+                  value={formData.driverName}
+                  placeholder="Driver"
+                />
+                <input
+                  type="text"
+                  readOnly
+                  className={`${isMobile ? "p-3 text-base" : "p-2"} border rounded-lg bg-gray-100`}
+                  value={formData.vehicleName}
+                  placeholder="Vehicle"
+                />
+              </>
+            ) : (
+              <>
+                <select
+                  className={`${isMobile ? "p-3 text-base" : "p-2"} border rounded-lg`}
+                  value={selectedOwnerId}
+                  onChange={handleOwnerChange}
+                  disabled={isViewMode && !isEditing}>
+                  <option value="">Select Owner</option>
+                  {owners?.map((owner) => (
+                    <option key={getId(owner)} value={getId(owner)}>
+                      {owner.name}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  className={`${isMobile ? "p-3 text-base" : "p-2"} border rounded-lg`}
+                  value={fleetDriverId}
+                  onChange={handleFleetDriverChange}
+                  disabled={(isViewMode && !isEditing) || !selectedOwnerId}>
+                  <option value="">Select Driver</option>
+                  {fleetDrivers?.map((driver) => (
+                    <option key={getId(driver)} value={getId(driver)}>
+                      {formatFleetDriverLabel(driver)}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  className={`${isMobile ? "p-3 text-base" : "p-2"} border rounded-lg`}
+                  value={fleetVehicleId}
+                  onChange={handleFleetVehicleChange}
+                  disabled={(isViewMode && !isEditing) || !selectedOwnerId}>
+                  <option value="">Select Vehicle</option>
+                  {fleetVehicles?.map((vehicle) => (
+                    <option key={getId(vehicle)} value={getId(vehicle)}>
+                      {vehicle.name}
+                    </option>
+                  ))}
+                </select>
+              </>
+            )}
           </div>
 
           {/* Plants Details */}

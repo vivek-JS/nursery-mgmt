@@ -126,12 +126,15 @@ export async function fetchFarmerPlantLedger({
   return mapFarmerPlantLedgerApiToPanel(payload)
 }
 
-export async function transferFarmerPlantAdvance({ fromMobile, toMobile, amount, reason }) {
+export async function transferFarmerPlantAdvance({ fromMobile, toMobile, amount, reason, orderId, toFarmerId, fromFarmerId }) {
   const payload = {
+    fromFarmerId: fromFarmerId ? String(fromFarmerId).trim() : undefined,
     fromMobile: fromMobile ? String(fromMobile).replace(/\D/g, "").slice(-10) : undefined,
+    toFarmerId: toFarmerId ? String(toFarmerId).trim() : undefined,
     toMobile: toMobile ? String(toMobile).replace(/\D/g, "").slice(-10) : undefined,
     amount: Number(amount),
-    reason: reason != null && String(reason).trim() ? String(reason).trim() : undefined
+    reason: reason != null && String(reason).trim() ? String(reason).trim() : undefined,
+    orderId: orderId ? String(orderId).trim() : undefined
   }
   const instance = NetworkManager(API.ORDER.TRANSFER_FARMER_PLANT_ADVANCE)
   const res = await instance.request(payload)
@@ -146,6 +149,34 @@ export async function searchFarmersForLedgerTransfer({ q, limit = 20 }) {
   const res = await instance.request({}, params)
   const payload = res?.data?.data
   return Array.isArray(payload?.items) ? payload.items : []
+}
+
+export async function searchFarmerPlantOrdersForTransfer({ q, limit = 20 }) {
+  const params = {
+    q: q != null ? String(q).trim() : "",
+    page: 1,
+    limit: Math.min(Math.max(Number(limit) || 20, 1), 50)
+  }
+  const instance = NetworkManager(API.ORDER.GET_ORDERS)
+  const res = await instance.request({}, params)
+  const envelope = res?.data?.data
+  const rows = Array.isArray(envelope?.data) ? envelope.data : Array.isArray(envelope) ? envelope : []
+
+  return rows
+    .filter((o) => !o?.dealerOrder && o?._id && o?.orderId != null && o?.farmer?.mobileNumber)
+    .map((o) => ({
+      _id: o._id,
+      orderId: o.orderId,
+      createdAt: o.createdAt,
+      farmer: {
+        _id: o?.farmer?._id || null,
+        name: o?.farmer?.name || "",
+        mobileNumber: o?.farmer?.mobileNumber || null,
+        village: o?.farmer?.village || "",
+        taluka: o?.farmer?.taluka || "",
+        district: o?.farmer?.district || ""
+      }
+    }))
 }
 
 export async function createFarmerPlantLedgerManualEntry({

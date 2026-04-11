@@ -458,6 +458,7 @@ export const API = {
     GET_PAYMENTS: new APIRouter("/order/payments", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_VILLAGES: new APIRouter("/order/villages", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_DISTRICTS: new APIRouter("/order/districts", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_TALUKAS: new APIRouter("/order/talukas", HTTP_METHODS.GET, OFFLINE.PROFILE),
     CREATE_DEALER_ORDER: new APIRouter("/order/dealer-order", HTTP_METHODS.POST, OFFLINE.PROFILE),
     UPDATE_ORDER: new APIRouter("/order/updateOrder", HTTP_METHODS.PATCH, OFFLINE.PROFILE),
     UPDATE_PAYMENT_STATUS: new APIRouter(
@@ -469,6 +470,7 @@ export const API = {
     GENERATE_PAYMENT_QR: new APIRouter("order/:orderId/generate-payment-qr", HTTP_METHODS.POST, OFFLINE.PROFILE),
     SEND_ACCEPTED_WHATSAPP: new APIRouter("order/:orderId/send-accepted-whatsapp", HTTP_METHODS.POST, OFFLINE.PROFILE),
     SEND_DISPATCH_WHATSAPP: new APIRouter("order/:orderId/send-dispatch-whatsapp", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    SPLIT_ORDER: new APIRouter("order/:orderId/split", HTTP_METHODS.POST, OFFLINE.PROFILE),
     GET_CSV: new APIRouter("order/getCSV", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_SLOTS: new APIRouter("slots/getslots", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_BUCKETING: new APIRouter("/order/bucketing", HTTP_METHODS.GET, OFFLINE.PROFILE),
@@ -558,6 +560,20 @@ export const API = {
     DELETE_VEHICLE: new APIRouter("vehicles/delete", HTTP_METHODS.DEL),
     BULK_UPDATE_VEHICLES: new APIRouter("vehicles/bulk-update", HTTP_METHODS.PATCH)
   },
+  VEHICLE_OWNER: {
+    CREATE: new APIRouter("vehicle-owners/create", HTTP_METHODS.POST),
+    GET_ALL: new APIRouter("vehicle-owners/all", HTTP_METHODS.GET),
+    GET_ACTIVE: new APIRouter("vehicle-owners/active", HTTP_METHODS.GET),
+    UPDATE: new APIRouter("vehicle-owners/update", HTTP_METHODS.PATCH),
+    DELETE: new APIRouter("vehicle-owners/delete", HTTP_METHODS.DEL)
+  },
+  VEHICLE_DRIVER: {
+    CREATE: new APIRouter("vehicle-drivers/create", HTTP_METHODS.POST),
+    GET_ALL: new APIRouter("vehicle-drivers/all", HTTP_METHODS.GET),
+    GET_BY_OWNER: new APIRouter("vehicle-drivers/by-owner/:ownerId", HTTP_METHODS.GET),
+    UPDATE: new APIRouter("vehicle-drivers/update", HTTP_METHODS.PATCH),
+    DELETE: new APIRouter("vehicle-drivers/delete", HTTP_METHODS.DEL)
+  },
   TRIP: {
     CREATE_TRIP: new APIRouter("trips/create", HTTP_METHODS.POST),
     GET_TRIPS: new APIRouter("trips/all", HTTP_METHODS.GET),
@@ -583,7 +599,11 @@ export const API = {
     GET_TRAYS: new APIRouter("dispatched", HTTP_METHODS.GET),
     CREATE_TRAY: new APIRouter("dispatched", HTTP_METHODS.POST),
     DELETE_TRANSPORT: new APIRouter("dispatched/transport", HTTP_METHODS.DEL),
-    UPDATE_COMPLETE: new APIRouter("dispatched/complete", HTTP_METHODS.PATCH)
+    UPDATE_COMPLETE: new APIRouter("dispatched/complete", HTTP_METHODS.PATCH),
+    UPDATE_DISPATCH: new APIRouter("dispatched/:id", HTTP_METHODS.PATCH),
+    ADD_ORDER_TO_DISPATCH: new APIRouter("dispatched/:id/add-order", HTTP_METHODS.PATCH),
+    ASSIGN_ROUTE: new APIRouter("dispatched/assign-route", HTTP_METHODS.PATCH),
+    BULK_MARK_READY: new APIRouter("dispatched/bulk-mark-ready", HTTP_METHODS.PATCH),
   },
   READY_DISPATCH_GROUP: {
     SUGGEST: new APIRouter("ready-dispatch-groups/suggest", HTTP_METHODS.POST),
