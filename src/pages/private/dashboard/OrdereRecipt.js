@@ -20,6 +20,10 @@ const sanitizeMarathiText = (text) => {
   return String(text).trim()
 }
 
+/** Receipt / print: Papaya shows as base name only (no variety / plant no on slip). */
+const isPapayaReceiptOrder = (order) =>
+  /papaya/i.test(`${order?.plantType ?? ""} ${order?.plantVariety ?? ""}`)
+
 // Helper function to get booking date from various fields
 const getBookingDate = (order) => {
   console.log("=== BOOKING DATE DEBUG ===");
@@ -148,8 +152,15 @@ const generateOrderPDF = (order) => {
     startY: orderY + 3,
     theme: "plain",
     body: [
-      ["Plant Type", sanitizeText(order.plantType || "N/A")],
-      ["Variety", sanitizeText(order.plantVariety || "N/A")],
+      ...(isPapayaReceiptOrder(order)
+        ? [
+            ["Plant Type", "Papaya"],
+            ["Variety", "—"],
+          ]
+        : [
+            ["Plant Type", sanitizeText(order.plantType || "N/A")],
+            ["Variety", sanitizeText(order.plantVariety || "N/A")],
+          ]),
       ["Quantity", sanitizeText(order.quantity || "0") + " units"],
       ["Rate", "Rs. " + sanitizeText(order.rate || "0") + " per unit"],
       ["Total Amount", "Rs. " + sanitizeText(order.total || "0")],
@@ -411,8 +422,12 @@ const generateMarathiReceiptPDF = (order) => {
   doc.setFontSize(4)
 
   // Create plant details - Fix numeric calculations
-  const plantType = sanitizeMarathiText(order.plantType || "N/A")
-  const plantVariety = sanitizeMarathiText(order.plantVariety || "")
+  let plantType = sanitizeMarathiText(order.plantType || "N/A")
+  let plantVariety = sanitizeMarathiText(order.plantVariety || "")
+  if (isPapayaReceiptOrder(order)) {
+    plantType = "Papaya"
+    plantVariety = ""
+  }
   const quantity = parseInt(order.quantity) || 0
   const rate = parseInt(order.rate) || 0
   const total = extractNumericValue(order.total) || quantity * rate
@@ -508,8 +523,13 @@ const generateMarathiReceiptHTMLForPrint = (order) => {
     return 0
   }
 
-  const plantType = sanitizeMarathiText(order.plantType || "N/A")
-  const plantVariety = sanitizeMarathiText(order.plantVariety || "")
+  let plantType = sanitizeMarathiText(order.plantType || "N/A")
+  let plantVariety = sanitizeMarathiText(order.plantVariety || "")
+  if (isPapayaReceiptOrder(order)) {
+    plantType = "Papaya"
+    plantVariety = ""
+  }
+  const plantTypeCell = plantVariety ? `${plantType} ${plantVariety}` : plantType
   const quantity = parseInt(order.quantity) || 0
   const rate = parseInt(order.rate) || 0
   const total = extractNumericValue(order.total) || quantity * rate
@@ -703,7 +723,7 @@ const generateMarathiReceiptHTMLForPrint = (order) => {
               <tbody>
                 <tr>
                   <td>${quantity}</td>
-                  <td>${plantType} ${plantVariety}</td>
+                  <td>${plantTypeCell}</td>
                   <td>₹${rate}</td>
                   <td>₹${total}</td>
                 </tr>
@@ -754,7 +774,7 @@ const generateMarathiReceiptHTMLForPrint = (order) => {
               <tbody>
                 <tr>
                   <td>${quantity}</td>
-                  <td>${plantType} ${plantVariety}</td>
+                  <td>${plantTypeCell}</td>
                   <td>₹${rate}</td>
                   <td>₹${total}</td>
                 </tr>
@@ -804,8 +824,13 @@ const generateMarathiReceiptHTML = (order) => {
     return 0
   }
 
-  const plantType = sanitizeMarathiText(order.plantType || "N/A")
-  const plantVariety = sanitizeMarathiText(order.plantVariety || "")
+  let plantType = sanitizeMarathiText(order.plantType || "N/A")
+  let plantVariety = sanitizeMarathiText(order.plantVariety || "")
+  if (isPapayaReceiptOrder(order)) {
+    plantType = "Papaya"
+    plantVariety = ""
+  }
+  const plantTypeCellHtml = plantVariety ? `${plantType}<br>${plantVariety}` : plantType
   const quantity = parseInt(order.quantity) || 0
   const rate = parseInt(order.rate) || 0
   const total = extractNumericValue(order.total) || quantity * rate
@@ -916,7 +941,7 @@ const generateMarathiReceiptHTML = (order) => {
           <tbody>
             <tr>
               <td>${quantity}</td>
-              <td>${plantType}${plantVariety ? "<br>" + plantVariety : ""}</td>
+              <td>${plantTypeCellHtml}</td>
               <td>${rate}</td>
               <td>${total}</td>
             </tr>

@@ -130,14 +130,19 @@ function buildDashboardFarmerOrdersWatiPreviewText(watiDialogOrder, watiDialogMo
   const subtype =
     watiDialogOrder.plantType?.split?.(" -> ")?.[1] || watiDialogOrder.details?.plantSubtype?.name || "N/A"
   const { plantParam, subtypeParam } = watiPlantAndSubtypeParams(plantType, subtype)
-  const isPapayaOrder = /papaya/i.test(`${plantParam} ${subtypeParam}`)
-  const watiPlantBlock = isMergedSubtypePlaceholder(subtypeParam)
-    ? `🌱 रोप: *${plantParam}*`
-    : `🌱 रोप प्रकार: *${plantParam}*
+  const isPapayaOrder = /papaya/i.test(`${plantType} ${subtype}`)
+  const watiPlantBlock = isPapayaOrder
+    ? `🌱 रोप: *Papaya*`
+    : isMergedSubtypePlaceholder(subtypeParam)
+      ? `🌱 रोप: *${plantParam}*`
+      : `🌱 रोप प्रकार: *${plantParam}*
 🔖 उप-प्रकार: *${subtypeParam}*`
   const orderCode = watiDialogOrder.details?.publicOrderCode || watiDialogOrder.order || "N/A"
-  const fmt = (d) =>
-    !d ? "N/A" : typeof d === "string" ? d : moment(d).format(ORDER_DATE_DISPLAY)
+  const fmt = (d) => {
+    if (d == null || d === "") return "N/A"
+    const m = moment(d)
+    return m.isValid() ? m.format(ORDER_DATE_DISPLAY) : String(d)
+  }
 
   if (watiDialogMode === "dispatch") {
     const hist = watiDialogOrder.details?.dispatchHistory || []
@@ -181,6 +186,10 @@ ${driverContactBlock}`
     watiDialogOrder.deliveryDate ||
     watiDialogOrder.Delivery ||
     "To be confirmed"
+  const deliveryLine = isPapayaOrder
+    ? `🚚 डिलिव्हरी: *${fmt(delivery)}*`
+    : `🚚 डिलिव्हरी तारीख:
+ *${fmt(delivery)}*`
   return `👋 नमस्कार *${name}*
 आपली ऑर्डर स्वीकारली आहे!:
 
@@ -198,8 +207,7 @@ ${watiPlantBlock}
 प्राप्त रक्कम: *₹${paid}*
 शिल्लक रक्कम: *₹${rem}*
 
-🚚 डिलिव्हरी तारीख:
- *${fmt(delivery)}*
+${deliveryLine}
 
 आपली ऑर्डर मध्ये काही बदल असल्यास आम्हाला कळवा.
 आभार! 🙏
@@ -2377,6 +2385,103 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
     selectedPlant,
     selectedSubtype,
     user,
+  ])
+
+  const fetchOrdersForExport = React.useCallback(async () => {
+    if (showAgriSalesOrders) {
+      Toast.error("Switch to plant orders (turn off Ram Agri) to export this list.")
+      return []
+    }
+    const exportFlags = { exportAll: "true", page: "1", limit: "200000" }
+    if (slotId) {
+      const res = await NetworkManager(API.ORDER.GET_ORDERS_SLOTS).request(
+        {},
+        {
+          slotId,
+          monthName,
+          startDay,
+          endDay,
+          ...exportFlags,
+        }
+      )
+      return res?.data?.data?.data || []
+    }
+    const instance = NetworkManager(API.ORDER.GET_ORDERS)
+    const base = buildRegularOrderListParams({
+      viewMode,
+      startDate,
+      endDate,
+      debouncedSearchTerm,
+      orderDateRangeBy,
+      selectedSalesPerson,
+      selectedVillage,
+      selectedDistrict,
+      selectedPlant,
+      selectedSubtype,
+      user,
+      page: 1,
+      limit: 200000,
+    })
+    const params = { ...base, ...exportFlags }
+
+    if (viewMode === "dispatch_process") {
+      const paramsInProcess = { ...params }
+      const paramsDispatchedTab = {
+        ...params,
+        dispatched: true,
+        status: "ACCEPTED,FARM_READY",
+      }
+      delete paramsDispatchedTab.startDate
+      delete paramsDispatchedTab.endDate
+      const [resInProcess, resDispatched] = await Promise.all([
+        instance.request({}, paramsInProcess),
+        instance.request({}, paramsDispatchedTab),
+      ])
+      const a = resInProcess?.data?.data?.data || []
+      const b = resDispatched?.data?.data?.data || []
+      return mergeOrdersByIdPrimaryFirst(a, b)
+    }
+
+    const response = await instance.request({}, params)
+    return response?.data?.data?.data || []
+  }, [
+    showAgriSalesOrders,
+    viewMode,
+    startDate,
+    endDate,
+    debouncedSearchTerm,
+    orderDateRangeBy,
+    selectedSalesPerson,
+    selectedVillage,
+    selectedDistrict,
+    selectedPlant,
+    selectedSubtype,
+    user,
+    slotId,
+    monthName,
+    startDay,
+    endDay,
+  ])
+
+  const exportActiveFilterCount = React.useMemo(() => {
+    let n = 0
+    if (startDate && endDate) n += 1
+    if (selectedPlant) n += 1
+    if (selectedSubtype) n += 1
+    if (selectedSalesPerson) n += 1
+    if (selectedVillage) n += 1
+    if (selectedDistrict) n += 1
+    if (debouncedSearchTerm?.trim()) n += 1
+    return n
+  }, [
+    startDate,
+    endDate,
+    selectedPlant,
+    selectedSubtype,
+    selectedSalesPerson,
+    selectedVillage,
+    selectedDistrict,
+    debouncedSearchTerm,
   ])
 
   // Load initial data
@@ -4828,15 +4933,8 @@ const mapSlotForUi = (slotData) => {
                   <div className="mt-2.5 flex justify-between items-center">
                     <ExcelExport
                       title="Export Orders"
-                      filters={{
-                        startDate: startDate ? moment(startDate).format("YYYY-MM-DD") : "",
-                        endDate: endDate ? moment(endDate).format("YYYY-MM-DD") : "",
-                        plantId: selectedPlant || "",
-                        subtypeId: selectedSubtype || "",
-                        salesPerson: selectedSalesPerson || "",
-                        village: selectedVillage || "",
-                        district: selectedDistrict || ""
-                      }}
+                      filterBadgeCount={exportActiveFilterCount}
+                      ordersListFetcher={fetchOrdersForExport}
                       onExportComplete={() => {
                         Toast.success("Orders exported successfully!")
                       }}

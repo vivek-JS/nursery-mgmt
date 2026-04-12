@@ -20,9 +20,17 @@ import PhoneIcon from "@mui/icons-material/Phone"
 import ParkIcon from "@mui/icons-material/Park"
 import AccountBalanceIcon from "@mui/icons-material/AccountBalance"
 import DashboardCustomizeIcon from "@mui/icons-material/DashboardCustomize"
+import LocalShippingIcon from "@mui/icons-material/LocalShipping"
 
 export const DashboardMenus = [
   new MenuPath("Orders", <HomeIcon />, "/u/dashboard"),
+  new MenuPath(
+    "Dispatch Orders",
+    <LocalShippingIcon />,
+    "/u/dispatch-orders",
+    null,
+    ["DISPATCH_MANAGER", "ADMIN", "SUPER_ADMIN", "SUPERADMIN"]
+  ),
   new MenuPath("Stats", <BiotechIcon />, "/u/stats"),
   new MenuPath("Plants and Products", <AlignHorizontalLeftIcon />, "/u/plants"),
   new MenuPath("Sowing Management", <GrassIcon />, "/u/sowing"),

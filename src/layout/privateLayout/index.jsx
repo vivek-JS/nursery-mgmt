@@ -241,15 +241,14 @@ export default function PrivateLayout(props) {
     }
   }, [userRole, isSuperAdmin, location.pathname, navigate, userData])
 
-  // Hide sidebar for primary sowing entry, primary/secondary mobile ops, cashier, dispatch
+  // Hide sidebar for primary sowing entry, primary/secondary mobile ops, cashier
   // With BrowserRouter, pathname is the actual route path
   const hideSidebar =
     isCashier ||
     location.pathname === "/u/primary-sowing-entry" ||
     location.pathname === "/u/primary-mobile" ||
     location.pathname === "/u/secondary-sowing-entry" ||
-    location.pathname === "/u/secondary-mobile" ||
-    location.pathname === "/u/dispatch-orders"
+    location.pathname === "/u/secondary-mobile"
   
   const { 
     handleLogout, 

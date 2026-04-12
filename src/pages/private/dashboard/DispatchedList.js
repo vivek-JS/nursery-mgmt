@@ -70,33 +70,40 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false 
 
   const transformDispatchForForm = (dispatchData) => {
     const plants = dispatchData.plantsDetails?.map((plant) => {
-      const plantOrders = dispatchData.orderIds?.map((order) => ({
-        order: order.order,
-        farmerName: order.farmerName,
-        plantType: plant.name,
-        quantity: order.quantity,
-        orderDate: order.orderDate,
-        rate: order.rate,
-        total: order.total,
-        "Paid Amt": order["Paid Amt"],
-        "remaining Amt": order["remaining Amt"],
-        orderStatus: order.orderStatus,
-        Delivery: order.Delivery,
-        details: {
-          farmer: order.details?.farmer || {},
-          contact: order.details.contact,
-          orderNotes: order.details.orderNotes || "",
-          soilType: order.details.soilType || "",
-          irrigationType: order.details.irrigationType || "",
-          lastDelivery: order.details.lastDelivery || "",
-          payment: order.details.payment,
-          orderid: order.details.orderid,
-          salesPerson: order.details.salesPerson,
-          plantID: plant.plantId,
-          plantSubtypeID: plant.subTypeId,
-          bookingSlot: order.details.bookingSlot
+      const plantOrders = dispatchData.orderIds?.map((order) => {
+        const firstPickup =
+          Array.isArray(plant.pickupDetails) && plant.pickupDetails.length > 0
+            ? plant.pickupDetails[0]
+            : null
+        return {
+          order: order.order,
+          farmerName: order.farmerName,
+          plantType: plant.name,
+          quantity: order.quantity,
+          orderDate: order.orderDate,
+          rate: order.rate,
+          total: order.total,
+          "Paid Amt": order["Paid Amt"],
+          "remaining Amt": order["remaining Amt"],
+          orderStatus: order.orderStatus,
+          Delivery: order.Delivery,
+          details: {
+            ...(order.details || {}),
+            farmer: order.details?.farmer || {},
+            plantID: plant.plantId,
+            plantSubtypeID: plant.subTypeId,
+            cavityName:
+              order.details?.cavityName ??
+              firstPickup?.cavityName,
+            cavityId:
+              order.details?.cavityId ??
+              (order.details?.cavity && typeof order.details.cavity === "object"
+                ? order.details.cavity._id ?? order.details.cavity.id
+                : undefined) ??
+              firstPickup?.cavity
+          }
         }
-      }))
+      })
       
       return {
         id: plant.id,
@@ -106,9 +113,13 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false 
           shade: pickup.shade,
           quantity: pickup.quantity,
           shadeName: pickup.shadeName,
-          cavityName: pickup.cavityName
+          cavityName: pickup.cavityName,
+          cavity: pickup.cavity,
+          cavitySize: pickup.cavitySize,
+          numberPerCrate: pickup.numberPerCrate
         })),
         crates: plant.crates?.map((crate) => ({
+          cavity: crate.cavity,
           cavityName: crate.cavityName,
           cavitySize: crate.cavitySize,
           numberPerCrate: crate.numberPerCrate,
@@ -121,6 +132,7 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false 
     })
 
     return {
+      _id: dispatchData._id,
       name: dispatchData.name || "",
       driverName: dispatchData.driverName,
       driverMobile: dispatchData.driverMobile,
@@ -235,6 +247,7 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false 
           },
           plantID: order.details.bookingSlot.plantId || "",
           plantSubtypeID: order.details.bookingSlot.subtypeId || "",
+          cavityId: order.cavity || order.details?.cavity || order.details?.cavityId,
           bookingSlot: {
             slotId: bookingSlot._id || "",
             startDay: bookingSlot.startDay || "",

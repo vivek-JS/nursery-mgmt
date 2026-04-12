@@ -65,7 +65,8 @@ const DeliveryChallanPDF = ({ open, onClose, dispatchData }) => {
     const totalPaid = paymentEntries.reduce((s, p) => s + (p?.paidAmount || 0), 0)
     const dispatchTotal = dispatchQty * (order.rate || 0)
     const remaining = Math.max(0, dispatchTotal - totalPaid)
-    const plantName = plant?.name?.replace(/\s*-\s*>\s*/g, " ").trim() || "—"
+    const rawPlantName = plant?.name?.replace(/\s*-\s*>\s*/g, " ").trim() || "—"
+    const plantName = /papaya/i.test(rawPlantName) ? "Papaya" : rawPlantName
 
     const infoRows = [
       ["चालक", dispatchData.driverName, "वाहन", dispatchData.vehicleName],

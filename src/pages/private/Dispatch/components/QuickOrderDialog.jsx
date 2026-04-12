@@ -13,12 +13,18 @@ import {
   Alert,
   Chip,
   Grid,
+  Badge,
+  Popover,
+  Divider,
+  Paper,
 } from "@mui/material"
 import {
   Close as CloseIcon,
   FlashOn as FlashIcon,
   Person as PersonIcon,
   CheckCircle as CheckIcon,
+  History as HistoryIcon,
+  Inventory2 as InventoryIcon,
 } from "@mui/icons-material"
 import { DatePicker } from "@mui/x-date-pickers/DatePicker"
 import { LocalizationProvider } from "lib/muiLocalizationProvider"
@@ -33,6 +39,55 @@ import moment from "moment"
 
 /** date-fns / MUI DatePicker format */
 const DATE_PICKER_FORMAT = "dd-MMMM-yyyy"
+
+const RECENT_ORDER_LIMIT = 3
+
+function orderSortTime(o) {
+  const raw = o?.orderBookingDate || o?.createdAt || o?.orderDate || o?.updatedAt
+  const t = raw ? new Date(raw).getTime() : 0
+  return Number.isFinite(t) ? t : 0
+}
+
+function formatPlantSubtypeLine(o) {
+  const pn = o?.plantName
+  const name = typeof pn === "object" && pn?.name ? pn.name : pn || ""
+  const st = o?.plantSubtype
+  const sub =
+    typeof st === "object" && (st?.subtypeName || st?.name)
+      ? st.subtypeName || st.name
+      : st || o?.subtypeName || ""
+  return [name, sub].filter(Boolean).join(" · ") || "—"
+}
+
+function formatBookingWindow(o) {
+  const bs = o?.bookingSlot
+  if (bs && typeof bs === "object") {
+    const s = bs.startDay ?? bs.start
+    const e = bs.endDay ?? bs.end
+    if (s && e) return `${s} → ${e}`
+    if (s) return String(s)
+  }
+  const d = o?.deliveryDate
+  if (!d) return "—"
+  if (typeof d === "object" && d?.year != null && d?.month != null) {
+    const y = d.year
+    const m = String(d.month).padStart(2, "0")
+    const sd = d.startDay ?? d.day ?? "01"
+    return moment(`${y}-${m}-${String(sd).padStart(2, "0")}`, "YYYY-MM-DD").format("D MMM YYYY")
+  }
+  try {
+    return moment(d).format("D MMM YYYY")
+  } catch {
+    return "—"
+  }
+}
+
+function totalDispatchedPlants(o) {
+  const h = o?.dispatchHistory
+  if (!Array.isArray(h) || !h.length) return null
+  const sum = h.reduce((s, x) => s + (Number(x?.quantity) || 0), 0)
+  return sum > 0 ? sum : null
+}
 
 const INITIAL_FORM = {
   mobileNumber: "",
@@ -50,6 +105,8 @@ const INITIAL_FORM = {
   rate: "",
   deliveryDate: null,
   selectedSlotId: null, // which slot card is active
+  cavityId: "",
+  shadeId: "",
 }
 
 /**
@@ -62,8 +119,9 @@ const INITIAL_FORM = {
  *   onSuccess     – () => void
  *   dispatchId    – string  (dispatch _id)
  *   dispatchLabel – string  (e.g. "Dispatch #42")
+ *   dispatchSnapshot – optional full dispatch row (pre-fill cavity/shade from vehicle)
  */
-const QuickOrderDialog = ({ open, onClose, onSuccess, dispatchId, dispatchLabel }) => {
+const QuickOrderDialog = ({ open, onClose, onSuccess, dispatchId, dispatchLabel, dispatchSnapshot }) => {
   const userData = useSelector((s) => s?.userData?.userData)
   const appUser = useSelector((s) => s?.app?.user)
   const user = userData || appUser || {}
@@ -81,20 +139,45 @@ const QuickOrderDialog = ({ open, onClose, onSuccess, dispatchId, dispatchLabel 
   const [slotsLoading, setSlotsLoading] = useState(false)
   const [mobileLoading, setMobileLoading] = useState(false)
   const [errors, setErrors] = useState({})
+  const [shades, setShades] = useState([])
+  const [cavities, setCavities] = useState([])
+  const [shadesLoading, setShadesLoading] = useState(false)
+  const [cavitiesLoading, setCavitiesLoading] = useState(false)
+  const [recentOrders, setRecentOrders] = useState([])
+  const [recentOrdersLoading, setRecentOrdersLoading] = useState(false)
+  const [historyAnchor, setHistoryAnchor] = useState(null)
 
   const debouncedMobile = useDebounce(form.mobileNumber, 500)
 
   // Reset on open
   useEffect(() => {
     if (open) {
-      setForm(INITIAL_FORM)
+      setForm({ ...INITIAL_FORM })
       setFarmerData({})
+      setHistoryAnchor(null)
+      setRecentOrders([])
       setSubTypes([])
       setSlots([])
       setErrors({})
       loadPlants()
+      loadShadesAndCavities()
     }
   }, [open])
+
+  // Pre-fill cavity + shade from this vehicle’s dispatch (same as other orders on the truck)
+  useEffect(() => {
+    if (!open || !dispatchSnapshot?.plantsDetails?.length) return
+    const pd = dispatchSnapshot.plantsDetails[0]
+    const pickup = Array.isArray(pd?.pickupDetails) ? pd.pickupDetails[0] : null
+    const crate0 = Array.isArray(pd?.crates) ? pd.crates[0] : null
+    const cavityFrom = pickup?.cavity || crate0?.cavity
+    const shadeFrom = pickup?.shade
+    setForm((prev) => ({
+      ...prev,
+      ...(cavityFrom ? { cavityId: String(cavityFrom) } : {}),
+      ...(shadeFrom ? { shadeId: String(shadeFrom) } : {}),
+    }))
+  }, [open, dispatchSnapshot])
 
   // Farmer auto-fetch
   useEffect(() => {
@@ -138,6 +221,39 @@ const QuickOrderDialog = ({ open, onClose, onSuccess, dispatchId, dispatchLabel 
       Toast.error("Failed to load plants")
     } finally {
       setPlantsLoading(false)
+    }
+  }
+
+  const loadShadesAndCavities = async () => {
+    setShadesLoading(true)
+    setCavitiesLoading(true)
+    try {
+      const shadeInst = NetworkManager(API.SHADE.GET_SHADES)
+      const shadeRes = await shadeInst.request({}, {})
+      const shadeRows = shadeRes?.data?.data?.data
+      if (Array.isArray(shadeRows)) {
+        setShades(shadeRows)
+      } else {
+        setShades([])
+      }
+    } catch {
+      setShades([])
+    } finally {
+      setShadesLoading(false)
+    }
+    try {
+      const trayInst = NetworkManager(API.TRAY.GET_TRAYS)
+      const trayRes = await trayInst.request({}, {})
+      const trayRows = trayRes?.data?.data?.data
+      if (Array.isArray(trayRows)) {
+        setCavities(trayRows)
+      } else {
+        setCavities([])
+      }
+    } catch {
+      setCavities([])
+    } finally {
+      setCavitiesLoading(false)
     }
   }
 
@@ -223,6 +339,26 @@ const QuickOrderDialog = ({ open, onClose, onSuccess, dispatchId, dispatchLabel 
     }
   }
 
+  const fetchRecentFarmerOrders = async (farmerId) => {
+    if (!farmerId) {
+      setRecentOrders([])
+      return
+    }
+    setRecentOrdersLoading(true)
+    try {
+      const instance = NetworkManager(API.FARMER.GET_FARMER_ORDERS)
+      const response = await instance.request({}, { pathParams: [farmerId] })
+      const data = response?.data?.data
+      const list = Array.isArray(data) ? data : []
+      const sorted = [...list].sort((a, b) => orderSortTime(b) - orderSortTime(a))
+      setRecentOrders(sorted.slice(0, RECENT_ORDER_LIMIT))
+    } catch {
+      setRecentOrders([])
+    } finally {
+      setRecentOrdersLoading(false)
+    }
+  }
+
   const fetchFarmer = async (mobile) => {
     setMobileLoading(true)
     try {
@@ -245,6 +381,11 @@ const QuickOrderDialog = ({ open, onClose, onSuccess, dispatchId, dispatchLabel 
           districtName: dist,
           talukaName: tal,
         }))
+        if (farmer._id) {
+          fetchRecentFarmerOrders(farmer._id)
+        } else {
+          setRecentOrders([])
+        }
       } else {
         resetFarmerData()
       }
@@ -257,6 +398,7 @@ const QuickOrderDialog = ({ open, onClose, onSuccess, dispatchId, dispatchLabel 
 
   const resetFarmerData = () => {
     setFarmerData({})
+    setRecentOrders([])
     setForm((prev) => ({
       ...prev,
       name: "",
@@ -327,6 +469,8 @@ const QuickOrderDialog = ({ open, onClose, onSuccess, dispatchId, dispatchLabel 
     if (!form.noOfPlants || parseInt(form.noOfPlants) <= 0) e.noOfPlants = "Enter quantity"
     if (!form.rate || parseFloat(form.rate) <= 0) e.rate = "Enter rate"
     if (!form.deliveryDate) e.deliveryDate = "Select delivery date"
+    if (!form.cavityId) e.cavityId = "Select cavity (tray)"
+    if (!form.shadeId) e.shadeId = "Select shade"
     setErrors(e)
     return Object.keys(e).length === 0
   }
@@ -371,6 +515,9 @@ const QuickOrderDialog = ({ open, onClose, onSuccess, dispatchId, dispatchLabel 
       Object.entries(payload).forEach(([k, v]) => {
         if (v !== undefined && v !== null) fd.append(k, v)
       })
+      if (form.cavityId) {
+        fd.append("cavity", form.cavityId)
+      }
 
       const createInstance = NetworkManager(API.FARMER.CREATE_FARMER)
       const createResponse = await createInstance.request(fd)
@@ -398,7 +545,12 @@ const QuickOrderDialog = ({ open, onClose, onSuccess, dispatchId, dispatchLabel 
           const qty = parseInt(form.noOfPlants) || 0
           const linkInstance = NetworkManager(API.DISPATCHED.ADD_ORDER_TO_DISPATCH)
           await linkInstance.request(
-            { orderId: newOrderId, dispatchQuantity: qty },
+            {
+              orderId: newOrderId,
+              dispatchQuantity: qty,
+              cavityId: form.cavityId,
+              shadeId: form.shadeId,
+            },
             [dispatchId]
           )
         } catch (linkErr) {
@@ -508,6 +660,154 @@ const QuickOrderDialog = ({ open, onClose, onSuccess, dispatchId, dispatchLabel 
                 startAdornment: <PersonIcon sx={{ fontSize: "1rem", color: "text.secondary", mr: 0.75 }} />,
               }}
             />
+
+            {farmerData?._id && (
+              <Paper
+                elevation={0}
+                sx={{
+                  p: 1.25,
+                  borderRadius: 2,
+                  border: "1px solid rgba(46, 125, 50, 0.22)",
+                  background: "linear-gradient(135deg, rgba(232,245,233,0.95) 0%, rgba(255,255,255,0.98) 100%)",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 1,
+                  flexWrap: "wrap",
+                }}
+              >
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Typography variant="caption" sx={{ fontWeight: 700, color: "#1b5e20", display: "block", lineHeight: 1.3 }}>
+                    Recent nursery orders
+                  </Typography>
+                  <Typography variant="caption" sx={{ color: "text.secondary", fontSize: "0.68rem", display: "block" }}>
+                    Booking window, booked plants &amp; dispatched qty (last {RECENT_ORDER_LIMIT})
+                  </Typography>
+                </Box>
+                <IconButton
+                  size="small"
+                  onClick={(e) => setHistoryAnchor(e.currentTarget)}
+                  sx={{
+                    bgcolor: "rgba(46, 125, 50, 0.12)",
+                    border: "1px solid rgba(46, 125, 50, 0.28)",
+                    "&:hover": { bgcolor: "rgba(46, 125, 50, 0.2)" },
+                  }}
+                  aria-label="View last orders"
+                >
+                  <Badge
+                    color="primary"
+                    overlap="circular"
+                    badgeContent={recentOrders.length}
+                    invisible={recentOrdersLoading || recentOrders.length === 0}
+                    sx={{ "& .MuiBadge-badge": { fontSize: "0.65rem", minWidth: 18, height: 18 } }}
+                  >
+                    <HistoryIcon sx={{ fontSize: "1.15rem", color: "#2e7d32" }} />
+                  </Badge>
+                </IconButton>
+                {recentOrdersLoading && <CircularProgress size={18} sx={{ color: "#2e7d32" }} />}
+                <Popover
+                  open={Boolean(historyAnchor)}
+                  anchorEl={historyAnchor}
+                  onClose={() => setHistoryAnchor(null)}
+                  anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
+                  transformOrigin={{ vertical: "top", horizontal: "left" }}
+                  slotProps={{
+                    paper: {
+                      sx: {
+                        mt: 0.75,
+                        width: { xs: "min(calc(100vw - 32px), 360px)", sm: 360 },
+                        maxWidth: "calc(100vw - 24px)",
+                        borderRadius: 2,
+                        overflow: "hidden",
+                        border: "1px solid rgba(0,0,0,0.08)",
+                      },
+                    },
+                  }}
+                >
+                  <Box sx={{ px: 1.5, py: 1, bgcolor: "#1b5e20", color: "#fff" }}>
+                    <Typography sx={{ fontWeight: 700, fontSize: "0.82rem" }}>Last {RECENT_ORDER_LIMIT} orders</Typography>
+                    <Typography sx={{ fontSize: "0.68rem", opacity: 0.9 }}>{farmerData?.name || "Farmer"}</Typography>
+                  </Box>
+                  <Box sx={{ maxHeight: 320, overflow: "auto" }}>
+                    {recentOrdersLoading ? (
+                      <Box sx={{ p: 2, display: "flex", justifyContent: "center" }}>
+                        <CircularProgress size={22} />
+                      </Box>
+                    ) : recentOrders.length === 0 ? (
+                      <Typography variant="body2" sx={{ p: 2, color: "text.secondary" }}>
+                        No previous nursery orders for this mobile.
+                      </Typography>
+                    ) : (
+                      recentOrders.map((o, idx) => {
+                        const oid = String(o.orderId || o._id || "")
+                        const shortId = oid.length > 6 ? oid.slice(-6) : oid || "—"
+                        const booked = o.numberOfPlants ?? 0
+                        const dispatched = totalDispatchedPlants(o)
+                        const status = o.orderStatus || "—"
+                        return (
+                          <Box key={o._id || idx}>
+                            {idx > 0 && <Divider />}
+                            <Box sx={{ p: 1.5 }}>
+                              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 1, mb: 0.5 }}>
+                                <Typography sx={{ fontWeight: 800, fontSize: "0.78rem", fontFamily: "monospace", color: "#0d47a1" }}>
+                                  #{shortId}
+                                </Typography>
+                                <Chip
+                                  size="small"
+                                  label={status}
+                                  sx={{
+                                    height: 22,
+                                    fontSize: "0.65rem",
+                                    fontWeight: 700,
+                                    bgcolor:
+                                      status === "DISPATCHED"
+                                        ? "rgba(46,125,50,0.15)"
+                                        : status === "CANCELLED"
+                                          ? "rgba(183,28,28,0.12)"
+                                          : "rgba(21,101,192,0.12)",
+                                  }}
+                                />
+                              </Box>
+                              <Typography sx={{ fontSize: "0.72rem", color: "text.secondary", mb: 0.75 }}>
+                                {formatPlantSubtypeLine(o)}
+                              </Typography>
+                              <Box sx={{ display: "flex", flexDirection: "column", gap: 0.35 }}>
+                                <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                                  <Typography sx={{ fontSize: "0.68rem", color: "text.secondary", minWidth: 72 }}>Booking</Typography>
+                                  <Typography sx={{ fontSize: "0.72rem", fontWeight: 600 }}>{formatBookingWindow(o)}</Typography>
+                                </Box>
+                                <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                                  <InventoryIcon sx={{ fontSize: 14, color: "#2e7d32" }} />
+                                  <Typography sx={{ fontSize: "0.72rem" }}>
+                                    <strong>{booked}</strong> booked
+                                    {dispatched != null && (
+                                      <>
+                                        {" · "}
+                                        <strong>{dispatched}</strong> dispatched
+                                        {booked > 0 && (
+                                          <span style={{ color: "#666" }}>
+                                            {" "}
+                                            ({Math.min(100, Math.round((dispatched / booked) * 100))}%)
+                                          </span>
+                                        )}
+                                      </>
+                                    )}
+                                  </Typography>
+                                </Box>
+                                {o.remainingPlants != null && o.remainingPlants !== "" && (
+                                  <Typography sx={{ fontSize: "0.68rem", color: "text.secondary" }}>
+                                    Remaining (nursery): {o.remainingPlants}
+                                  </Typography>
+                                )}
+                              </Box>
+                            </Box>
+                          </Box>
+                        )
+                      })
+                    )}
+                  </Box>
+                </Popover>
+              </Paper>
+            )}
 
             {/* ── Location ── same pattern as AddOrderForm ── */}
             <Box>
@@ -759,6 +1059,63 @@ const QuickOrderDialog = ({ open, onClose, onSuccess, dispatchId, dispatchLabel 
                 error={!!errors.rate}
                 helperText={errors.rate}
               />
+            </Box>
+
+            <Box>
+              <Typography variant="caption" sx={{ fontWeight: 600, color: "text.secondary", mb: 0.35, display: "block" }}>
+                Pickup — cavity &amp; shade (same as dispatch form; updates crates on this vehicle)
+                {(shadesLoading || cavitiesLoading) && <CircularProgress size={10} sx={{ ml: 0.5 }} />}
+              </Typography>
+              <Grid container spacing={1.5}>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    select
+                    fullWidth
+                    size="small"
+                    label="Cavity (tray)"
+                    value={form.cavityId}
+                    onChange={(e) => {
+                      const v = e.target.value
+                      setForm((prev) => ({ ...prev, cavityId: v }))
+                      if (errors.cavityId) setErrors((prev) => ({ ...prev, cavityId: undefined }))
+                    }}
+                    error={!!errors.cavityId}
+                    helperText={errors.cavityId || " "}
+                    SelectProps={{ native: true }}
+                  >
+                    <option value="">Select cavity</option>
+                    {cavities.map((c) => (
+                      <option key={String(c._id)} value={String(c._id)}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </TextField>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    select
+                    fullWidth
+                    size="small"
+                    label="Shade"
+                    value={form.shadeId}
+                    onChange={(e) => {
+                      const v = e.target.value
+                      setForm((prev) => ({ ...prev, shadeId: v }))
+                      if (errors.shadeId) setErrors((prev) => ({ ...prev, shadeId: undefined }))
+                    }}
+                    error={!!errors.shadeId}
+                    helperText={errors.shadeId || " "}
+                    SelectProps={{ native: true }}
+                  >
+                    <option value="">Select shade</option>
+                    {shades.map((s) => (
+                      <option key={String(s._id)} value={String(s._id)}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </TextField>
+                </Grid>
+              </Grid>
             </Box>
 
             {form.noOfPlants && form.rate && parseFloat(form.rate) > 0 && (

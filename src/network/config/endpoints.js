@@ -460,6 +460,26 @@ export const API = {
       { __abortScope: "order-get-orders-slots" }
     ),
     GET_ORDERS_BY_STATUS: new APIRouter("/order/by-status", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_REMAINING_DISPATCH_AGGREGATE: new APIRouter(
+      "/order/remaining-dispatch-aggregate",
+      HTTP_METHODS.GET,
+      OFFLINE.PROFILE
+    ),
+    GET_REMAINING_DISPATCH_ORDERS: new APIRouter(
+      "/order/remaining-dispatch-orders",
+      HTTP_METHODS.GET,
+      OFFLINE.PROFILE
+    ),
+    GET_REMAINING_DISPATCH_MATRIX: new APIRouter(
+      "/order/remaining-dispatch-matrix",
+      HTTP_METHODS.GET,
+      OFFLINE.PROFILE
+    ),
+    GET_REMAINING_DISPATCH_MATRIX_ORDERS: new APIRouter(
+      "/order/remaining-dispatch-matrix-orders",
+      HTTP_METHODS.GET,
+      OFFLINE.PROFILE
+    ),
     GET_PAYMENTS: new APIRouter("/order/payments", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_VILLAGES: new APIRouter("/order/villages", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_DISTRICTS: new APIRouter("/order/districts", HTTP_METHODS.GET, OFFLINE.PROFILE),

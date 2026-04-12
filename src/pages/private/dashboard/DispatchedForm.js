@@ -20,6 +20,146 @@ import {
 
 const cavityKey = (v) => (v != null && v !== "" ? String(v) : "")
 
+/** Same tray id resolution as Add Cavity + backend — cavityId field OR populated cavity object. */
+const getOrderCavityKey = (order) => {
+  const d = order?.details
+  if (!d) return ""
+  const fromId = cavityKey(d.cavityId)
+  if (fromId) return fromId
+  const c = d.cavity
+  if (c != null && typeof c === "object") {
+    return cavityKey(c._id ?? c.id)
+  }
+  return cavityKey(c)
+}
+
+/**
+ * Matches FINAL_NURSERY_BE `calculateDispatchCrates` — trays = floor(qty/traySize),
+ * full crates = floor(trays / traysPerCrate), remainder = qty - plants in full crates.
+ */
+const buildCratesPayloadForQuantity = ({
+  dispatchQuantity,
+  cavityId,
+  cavityName,
+  cavitySize,
+  numberPerCrate
+}) => {
+  const qty = Number(dispatchQuantity) || 0
+  const traySize = Number(cavitySize) || 0
+  const traysPerCrate = Number(numberPerCrate) || 0
+  if (qty <= 0 || traySize <= 0 || traysPerCrate <= 0) return null
+
+  const numberOfTrays = Math.floor(qty / traySize)
+  const fullCrates = Math.floor(numberOfTrays / traysPerCrate)
+  const plantsInFullCrates = fullCrates * traysPerCrate * traySize
+  const remainingPlants = Math.max(0, qty - plantsInFullCrates)
+
+  const crateDetails = []
+  if (fullCrates > 0) {
+    crateDetails.push({
+      crateCount: fullCrates,
+      plantCount: plantsInFullCrates
+    })
+  }
+  if (remainingPlants > 0) {
+    crateDetails.push({
+      crateCount: 1,
+      plantCount: remainingPlants
+    })
+  }
+  if (!crateDetails.length) return null
+
+  return {
+    cavity: cavityId,
+    cavityName: cavityName || "",
+    crateCount: crateDetails.reduce((s, r) => s + Number(r.crateCount || 0), 0),
+    plantCount: crateDetails.reduce((s, r) => s + Number(r.plantCount || 0), 0),
+    crateDetails
+  }
+}
+
+/** UI rows for Crate Details (numberOfCrates + plant quantity per line). */
+const buildDisplayCrateLines = (qty, cavitySize, numberPerCrate) => {
+  const row = buildCratesPayloadForQuantity({
+    dispatchQuantity: qty,
+    cavityId: "",
+    cavityName: "",
+    cavitySize,
+    numberPerCrate
+  })
+  if (!row?.crateDetails?.length) return []
+  return row.crateDetails.map((d) => ({
+    numberOfCrates: d.crateCount,
+    quantity: d.plantCount
+  }))
+}
+
+/** Build cavityGroups[] for view/edit from API plant row (pickups + crates), same shape as create flow. */
+const buildCavityGroupsFromPlantForView = (plant) => {
+  const groups = {}
+  const ensure = (rawCavity, meta = {}) => {
+    const k =
+      rawCavity != null && rawCavity !== ""
+        ? String(rawCavity)
+        : "default"
+    if (!groups[k]) {
+      groups[k] = {
+        cavity: meta.cavity != null ? meta.cavity : rawCavity,
+        cavityName: meta.cavityName || "",
+        cavitySize: meta.cavitySize,
+        numberPerCrate: meta.numberPerCrate,
+        pickupDetails: [],
+        crates: []
+      }
+    }
+    return groups[k]
+  }
+
+  if (Array.isArray(plant.pickupDetails)) {
+    plant.pickupDetails.forEach((detail) => {
+      const cid = detail.cavity
+      const g = ensure(cid, {
+        cavity: cid,
+        cavityName: detail.cavityName,
+        cavitySize: detail.cavitySize,
+        numberPerCrate: detail.numberPerCrate
+      })
+      g.pickupDetails.push({
+        shade: detail.shade,
+        shadeName: detail.shadeName,
+        quantity: detail.quantity,
+        cavity: cid,
+        cavityName: detail.cavityName
+      })
+    })
+  }
+
+  if (Array.isArray(plant.crates)) {
+    plant.crates.forEach((crate) => {
+      const cid = crate.cavity
+      const g = ensure(cid, {
+        cavity: cid,
+        cavityName: crate.cavityName,
+        cavitySize: crate.cavitySize,
+        numberPerCrate: crate.numberPerCrate
+      })
+      const cs = Number(g.cavitySize) || 0
+      const transformedCrates =
+        crate.crateDetails?.map((detail) => ({
+          numberOfCrates: detail.crateCount || 0,
+          quantity: detail.plantCount || 0,
+          numberOfCavityTrays:
+            cs && detail.plantCount ? Math.ceil(detail.plantCount / cs) || 0 : 0
+        })) || []
+      if (transformedCrates.length > 0) {
+        g.crates = transformedCrates
+      }
+    })
+  }
+
+  return Object.values(groups)
+}
+
 const formatFleetDriverLabel = (d) => {
   if (!d) return ""
   const m =
@@ -61,11 +201,17 @@ const DispatchForm = ({
   // Track dispatch quantities per order (orderId -> quantity to dispatch)
   const [orderQuantities, setOrderQuantities] = useState(new Map())
   const orderQuantitiesRef = useRef(new Map())
+  const initialViewSnapshotRef = useRef(null)
   const getId = (obj) => String(obj?._id || obj?.id || "")
   const getOrderId = (order) =>
     order?.details?.orderid || order?.details?.orderId || order?._id || order?.id || ""
+  /** Stable string key for Maps (orderDispatchDetails uses string ids). */
+  const orderRowKey = (order) => {
+    const id = getOrderId(order)
+    return id != null && id !== "" ? String(id) : ""
+  }
   const getSelectedOrdersArray = () =>
-    Array.from(selectedOrders?.values?.() || []).filter((order) => Boolean(getOrderId(order)))
+    Array.from(selectedOrders?.values?.() || []).filter((order) => Boolean(orderRowKey(order)))
 
   useEffect(() => {
     if (!open || mode === "view") {
@@ -75,7 +221,7 @@ const DispatchForm = ({
     }
 
     const selectedOrdersArray = getSelectedOrdersArray()
-    const orderIds = selectedOrdersArray.map((order) => getOrderId(order)).filter(Boolean)
+    const orderIds = selectedOrdersArray.map((order) => orderRowKey(order)).filter(Boolean)
     if (!orderIds.length) {
       setLinkedAgriBlockedBy([])
       return
@@ -209,15 +355,22 @@ const DispatchForm = ({
     // Validate order quantities
     const selectedOrdersArray = getSelectedOrdersArray()
     for (const order of selectedOrdersArray) {
-      const orderId = getOrderId(order)
+      const orderId = orderRowKey(order)
       const dispatchQty = orderQuantities.get(orderId) || 0
-      const remainingQty = order.details?.remainingPlants || order.quantity || 0
-      
+      const orderTotal = Number(order.quantity) || 0
+      const remainingQty = order.details?.remainingPlants ?? order.quantity ?? 0
+
       if (dispatchQty <= 0) {
         throw new Error(`Dispatch quantity for order #${order.order} must be greater than 0`)
       }
-      
-      if (dispatchQty > remainingQty) {
+
+      if (mode === "view") {
+        if (orderTotal > 0 && dispatchQty > orderTotal) {
+          throw new Error(
+            `Dispatch quantity (${dispatchQty}) cannot exceed order quantity (${orderTotal}) for order #${order.order}`
+          )
+        }
+      } else if (dispatchQty > remainingQty) {
         throw new Error(
           `Dispatch quantity (${dispatchQty}) exceeds remaining quantity (${remainingQty}) for order #${order.order}`
         )
@@ -325,9 +478,9 @@ const DispatchForm = ({
     const plantsByOrder = new Map()
     formData.plants?.forEach(plant => {
       plant.orders?.forEach(order => {
-        const orderId = order.details?.orderid
-        if (orderId && !plantsByOrder.has(orderId)) {
-          plantsByOrder.set(orderId, plant)
+        const k = orderRowKey(order)
+        if (k && !plantsByOrder.has(k)) {
+          plantsByOrder.set(k, plant)
         }
       })
     })
@@ -335,56 +488,31 @@ const DispatchForm = ({
     // Prepare order dispatch details with quantities, driver info, vehicle info, and crates
     const orderDispatchDetails = selectedOrdersArray.map(order => {
       const orderId = getOrderId(order)
-      const dispatchQty = orderQuantities.get(orderId) || 0
+      const rowKey = orderRowKey(order)
+      const dispatchQty = orderQuantities.get(rowKey) || 0
       const remainingQty = order.details?.remainingPlants || order.quantity || 0
-      const plantForOrder = plantsByOrder.get(orderId)
+      const plantForOrder = plantsByOrder.get(rowKey)
       
       // Calculate crate details for this specific order based on its dispatch quantity
       const cratesForOrder = []
       if (plantForOrder?.cavityGroups && dispatchQty > 0) {
-        // Find the cavity group that matches this order's cavity
-        const orderCavityId = cavityKey(order.details?.cavityId)
-        const matchingCavityGroup = plantForOrder.cavityGroups.find(
-          (group) => cavityKey(group.cavity) === orderCavityId
+        const orderCavityKey = getOrderCavityKey(order)
+        let matchingCavityGroup = plantForOrder.cavityGroups.find(
+          (group) => cavityKey(group.cavity) === orderCavityKey
         )
-        
-        // If we found a matching cavity group, calculate crates for this order's dispatch quantity
-        if (matchingCavityGroup && matchingCavityGroup.cavitySize && matchingCavityGroup.numberPerCrate) {
-          const cavitySize = Number(matchingCavityGroup.cavitySize)
-          const numberPerCrate = Number(matchingCavityGroup.numberPerCrate)
-          
-          // Calculate crates for this order's dispatch quantity
-          const numberOfCavityTrays = Math.floor(dispatchQty / cavitySize)
-          const remainder = (dispatchQty / cavitySize) % numberPerCrate
-          
-          const crateDetails = []
-          
-          if (numberOfCavityTrays > 0) {
-            crateDetails.push({
-              crateCount: Math.floor(numberOfCavityTrays / numberPerCrate),
-              plantCount: Math.floor(numberOfCavityTrays / numberPerCrate) * numberPerCrate * cavitySize
-            })
-          }
-          
-          if (remainder > 0) {
-            crateDetails.push({
-              crateCount: 1,
-              plantCount: dispatchQty - Math.floor(numberOfCavityTrays / numberPerCrate) * numberPerCrate * cavitySize
-            })
-          }
-          
-          if (crateDetails.length > 0) {
-            const totalCrateCount = crateDetails.reduce((sum, detail) => sum + detail.crateCount, 0)
-            const totalPlantCount = crateDetails.reduce((sum, detail) => sum + detail.plantCount, 0)
-            
-            cratesForOrder.push({
-              cavity: matchingCavityGroup.cavity,
-              cavityName: matchingCavityGroup.cavityName,
-              crateCount: totalCrateCount,
-              plantCount: totalPlantCount,
-              crateDetails: crateDetails
-            })
-          }
+        if (!matchingCavityGroup && plantForOrder.cavityGroups.length === 1) {
+          matchingCavityGroup = plantForOrder.cavityGroups[0]
+        }
+
+        if (matchingCavityGroup?.cavitySize && matchingCavityGroup?.numberPerCrate) {
+          const built = buildCratesPayloadForQuantity({
+            dispatchQuantity: dispatchQty,
+            cavityId: matchingCavityGroup.cavity,
+            cavityName: matchingCavityGroup.cavityName,
+            cavitySize: matchingCavityGroup.cavitySize,
+            numberPerCrate: matchingCavityGroup.numberPerCrate
+          })
+          if (built) cratesForOrder.push(built)
         }
       }
       
@@ -538,21 +666,27 @@ const DispatchForm = ({
       const cavityQuantities = new Map() // Track quantity per cavity
       
       plantOrders.forEach(order => {
-        const cavityId = cavityKey(order.details?.cavityId)
+        const cavityId =
+          cavityKey(order.details?.cavityId) ||
+          cavityKey(
+            order.details?.cavity && typeof order.details.cavity === "object"
+              ? order.details.cavity._id ?? order.details.cavity.id
+              : order.details?.cavity
+          )
         const cavityName =
           getCavityLabelForDispatchOrder(order.details, cavities, getId) ||
           "" ||
           ""
-        const orderId = order.details?.orderid
-        
+        const rowKey = orderRowKey(order)
+
         if (cavityId) {
           cavityIds.add(cavityId)
           if (!cavityDetails.has(cavityId)) {
             cavityDetails.set(cavityId, { id: cavityId, name: cavityName })
           }
-          
+
           // Calculate dispatched quantity for this cavity
-          const dispatchQty = orderQuantities.get(orderId) || 0
+          const dispatchQty = orderQuantities.get(rowKey) || 0
           const currentQty = cavityQuantities.get(cavityId) || 0
           cavityQuantities.set(cavityId, currentQty + dispatchQty)
         }
@@ -599,31 +733,12 @@ const DispatchForm = ({
             cavityName: autoSelectedCavityName
           }]
           
-          // Auto-calculate crates based on the auto-filled quantity
           if (autoFilledQuantity > 0) {
-            const cavitySize = Number(selectedCavity.cavity)
-            const numberPerCrate = Number(selectedCavity.numberPerCrate)
-            
-            const numberOfCavityTrays = Math.floor(autoFilledQuantity / cavitySize)
-            const remainder = (autoFilledQuantity / cavitySize) % numberPerCrate
-            
-            newCavityGroup.crates = []
-            
-            if (numberOfCavityTrays > 0) {
-              newCavityGroup.crates.push({
-                numberOfCavityTrays: numberOfCavityTrays,
-                numberOfCrates: Math.floor(numberOfCavityTrays / numberPerCrate),
-                quantity: Math.floor(numberOfCavityTrays / numberPerCrate) * numberPerCrate * cavitySize
-              })
-            }
-            
-            if (remainder > 0) {
-              newCavityGroup.crates.push({
-                numberOfCavityTrays: 1,
-                numberOfCrates: 1,
-                quantity: autoFilledQuantity - Math.floor(numberOfCavityTrays / numberPerCrate) * numberPerCrate * cavitySize
-              })
-            }
+            newCavityGroup.crates = buildDisplayCrateLines(
+              autoFilledQuantity,
+              selectedCavity.cavity,
+              selectedCavity.numberPerCrate
+            )
           }
         }
       }
@@ -730,31 +845,13 @@ const DispatchForm = ({
       )
 
       if (totalQuantity > 0 && cavityGroup.cavitySize && cavityGroup.numberPerCrate) {
-        const cavitySize = Number(cavityGroup.cavitySize)
-        const numberPerCrate = Number(cavityGroup.numberPerCrate)
-
-        const numberOfCavityTrays = Math.floor(totalQuantity / cavitySize)
-        const remainder = (totalQuantity / cavitySize) % numberPerCrate
-
+        cavityGroup.crates = buildDisplayCrateLines(
+          totalQuantity,
+          cavityGroup.cavitySize,
+          cavityGroup.numberPerCrate
+        )
+      } else {
         cavityGroup.crates = []
-
-        if (numberOfCavityTrays > 0) {
-          cavityGroup.crates.push({
-            numberOfCavityTrays: numberOfCavityTrays,
-            numberOfCrates: Math.floor(numberOfCavityTrays / numberPerCrate),
-            quantity: Math.floor(numberOfCavityTrays / numberPerCrate) * numberPerCrate * cavitySize
-          })
-        }
-
-        if (remainder > 0) {
-          cavityGroup.crates.push({
-            numberOfCavityTrays: 1,
-            numberOfCrates: 1,
-            quantity:
-              totalQuantity -
-              Math.floor(numberOfCavityTrays / numberPerCrate) * numberPerCrate * cavitySize
-          })
-        }
       }
 
       return { ...prev, plants: updatedPlants }
@@ -787,27 +884,28 @@ const DispatchForm = ({
 
   // Handle order quantity change
   const handleOrderQuantityChange = (changedOrderId, newQuantity, maxQuantity) => {
+    const chKey = String(changedOrderId ?? "")
     // Allow empty string for better UX when user is typing
     if (newQuantity === "" || newQuantity === undefined || newQuantity === null) {
       setOrderQuantities((prev) => {
         const updated = new Map(prev)
-        updated.set(changedOrderId, 0)
+        updated.set(chKey, 0)
         orderQuantitiesRef.current = updated
         return updated
       })
       return
     }
-    
+
     const qty = Math.max(0, Math.min(Number(newQuantity) || 0, maxQuantity))
-    
+
     // Update the orderQuantities map and ref
     setOrderQuantities((prev) => {
       const updated = new Map(prev)
-      updated.set(changedOrderId, qty)
+      updated.set(chKey, qty)
       orderQuantitiesRef.current = updated
       return updated
     })
-    
+
     // Update formData separately to avoid stale state
     setFormData((prev) => {
       // Recalculate plant quantities with the updated map
@@ -816,12 +914,13 @@ const DispatchForm = ({
         const plantId = order.details?.plantID
         const plantSubtypeId = order.details?.plantSubtypeID
         const key = `${plantId}_${plantSubtypeId}`
-        const orderId = getOrderId(order)
-        
+        const rk = orderRowKey(order)
+
         // Get the dispatch quantity for this order (use updated qty if this is the changed order)
-        const dispatchQty = orderId === changedOrderId 
-          ? qty 
-          : (orderQuantitiesRef.current.get(orderId) || order.quantity || 0)
+        const dispatchQty =
+          rk === chKey
+            ? qty
+            : (orderQuantitiesRef.current.get(rk) || order.quantity || 0)
 
         if (!acc[key]) {
           acc[key] = {
@@ -876,67 +975,55 @@ const DispatchForm = ({
 
   useEffect(() => {
     if (mode === "view" && dispatchData) {
-      // Transform the existing dispatchData to match the new data structure with cavity groups
       const transformedPlants = dispatchData.plants.map((plant) => {
-        // Group by cavity
-        const cavityGroups = {}
-
-        // Group pickup details by cavity
-        if (plant.pickupDetails && plant.pickupDetails.length > 0) {
-          plant.pickupDetails.forEach((detail) => {
-            const cavityId = detail.cavity || "default"
-            if (!cavityGroups[cavityId]) {
-              cavityGroups[cavityId] = {
-                cavity: detail.cavity,
-                cavityName: detail.cavityName || "",
-                cavitySize: detail.cavitySize,
-                numberPerCrate: detail.numberPerCrate,
-                pickupDetails: [],
-                crates: []
-              }
-            }
-            // Copy all properties including cavity reference
-            cavityGroups[cavityId].pickupDetails.push({
-              shade: detail.shade,
-              shadeName: detail.shadeName,
-              quantity: detail.quantity,
-              cavity: detail.cavity,
-              cavityName: detail.cavityName
-            })
-          })
-        }
-
-        // Group crates by cavity
-        if (plant.crates && plant.crates.length > 0) {
-          plant.crates.forEach((crate) => {
-            const cavityId = crate.cavity || "default"
-            if (cavityGroups[cavityId]) {
-              // Convert crateDetails to the format expected in the form
-              const transformedCrates =
-                crate.crateDetails?.map((detail) => ({
-                  numberOfCrates: detail.crateCount || 0,
-                  quantity: detail.plantCount || 0,
-                  numberOfCavityTrays:
-                    Math.ceil(detail.plantCount / cavityGroups[cavityId].cavitySize) || 0
-                })) || []
-
-              cavityGroups[cavityId].crates = transformedCrates
-            }
-          })
-        }
-
+        const cavityGroups = buildCavityGroupsFromPlantForView(plant)
+        const pickupSum = cavityGroups.reduce(
+          (sum, g) =>
+            sum +
+            (g.pickupDetails || []).reduce(
+              (s, d) => s + Number(d.quantity || 0),
+              0
+            ),
+          0
+        )
         return {
           ...plant,
-          cavityGroups: Object.values(cavityGroups)
+          cavityGroups,
+          quantity: pickupSum > 0 ? pickupSum : plant.quantity
         }
       })
 
-      setFormData({
+      const nextForm = {
         name: dispatchData.name || "",
         driverName: dispatchData.driverName || "",
         vehicleName: dispatchData.vehicleName || "",
         plants: transformedPlants
+      }
+      setFormData(nextForm)
+
+      const qtyMap = new Map()
+      const details = Array.isArray(dispatchData.orderDispatchDetails)
+        ? dispatchData.orderDispatchDetails
+        : []
+      details.forEach((row) => {
+        if (row?.orderId != null) {
+          qtyMap.set(String(row.orderId), Number(row.dispatchQuantity || 0))
+        }
       })
+      if (qtyMap.size === 0) {
+        getSelectedOrdersArray().forEach((order) => {
+          const rk = orderRowKey(order)
+          const q = Number(order.quantity || 0)
+          if (rk) qtyMap.set(rk, q)
+        })
+      }
+      setOrderQuantities(qtyMap)
+      orderQuantitiesRef.current = qtyMap
+
+      initialViewSnapshotRef.current = {
+        formData: JSON.parse(JSON.stringify(nextForm)),
+        orderQuantities: new Map(qtyMap)
+      }
 
       const initialExpandedState = transformedPlants?.reduce((acc, plant) => {
         acc[plant.id] = true
@@ -949,9 +1036,9 @@ const DispatchForm = ({
       // Initialize order quantities with full order quantity or remaining quantity
       const initialQuantities = new Map()
       selectedOrdersArray.forEach(order => {
-        const orderId = getOrderId(order)
+        const rk = orderRowKey(order)
         const availableQty = order.details?.remainingPlants || order.quantity || 0
-        initialQuantities.set(orderId, availableQty)
+        initialQuantities.set(rk, availableQty)
       })
       setOrderQuantities(initialQuantities)
       orderQuantitiesRef.current = initialQuantities
@@ -960,10 +1047,10 @@ const DispatchForm = ({
         const plantId = order.details?.plantID
         const plantSubtypeId = order.details?.plantSubtypeID
         const key = `${plantId}_${plantSubtypeId}`
-        const orderId = getOrderId(order)
-        
+        const rk = orderRowKey(order)
+
         // Get the dispatch quantity for this order (from state or default to full quantity)
-        const dispatchQty = initialQuantities.get(orderId) || order.quantity || 0
+        const dispatchQty = initialQuantities.get(rk) || order.quantity || 0
 
         if (!acc[key]) {
           acc[key] = {
@@ -998,8 +1085,14 @@ const DispatchForm = ({
   }, [mode, dispatchData, selectedOrders?.size])
 
   const handleCancelEdit = () => {
-    if (dispatchData) {
-      setFormData(dispatchData)
+    const snap = initialViewSnapshotRef.current
+    if (snap?.formData) {
+      setFormData(JSON.parse(JSON.stringify(snap.formData)))
+    }
+    if (snap?.orderQuantities) {
+      const m = new Map(snap.orderQuantities)
+      setOrderQuantities(m)
+      orderQuantitiesRef.current = m
     }
     setIsEditing(false)
     setError("")
@@ -1039,8 +1132,46 @@ const DispatchForm = ({
     }))
   }
 
-  const handleUpdate = () => {
-    // Update functionality to be implemented
+  const handleUpdate = async () => {
+    if (!dispatchData?._id) {
+      setError("Missing dispatch id — cannot save.")
+      return
+    }
+    setLoading(true)
+    setError("")
+    try {
+      validateForm()
+      const payload = transformDispatchData(formData, selectedOrders)
+      if (!payload.driverMobile && dispatchData?.driverMobile) {
+        payload.driverMobile = dispatchData.driverMobile
+      }
+      const instance = NetworkManager(API.DISPATCHED.UPDATE_DISPATCH)
+      await instance.request(payload, [dispatchData._id])
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("dispatchCreated"))
+      }
+      onDispatchSuccess?.({
+        orderIds: payload.orderIds,
+        driverName: payload.driverName,
+        vehicleName: payload.vehicleName,
+        driverMobile: payload.driverMobile,
+      })
+      setIsEditing(false)
+      initialViewSnapshotRef.current = {
+        formData: JSON.parse(JSON.stringify(formData)),
+        orderQuantities: new Map(orderQuantitiesRef.current || orderQuantities)
+      }
+      onClose()
+    } catch (error) {
+      const apiMessage =
+        error?.response?.data?.message ||
+        error?.response?.data?.error ||
+        error?.message ||
+        "Error updating dispatch"
+      setError(apiMessage)
+    } finally {
+      setLoading(false)
+    }
   }
 
   const isViewMode = mode === "view"
@@ -1088,12 +1219,16 @@ const DispatchForm = ({
         {/* Order Summary Cards with Quantity Input */}
         <div className={`grid grid-cols-1 md:grid-cols-2 ${isMobile ? "gap-2" : "gap-3"}`}>
           {getSelectedOrdersArray().map((order) => {
-            const orderId = getOrderId(order)
+            const rk = orderRowKey(order)
+            const orderId = rk || getOrderId(order)
             const totalQty = order.quantity || 0
             const remainingQty = order.details?.remainingPlants || totalQty
-            const dispatchQty = orderQuantities.get(orderId) || remainingQty
+            const dispatchQty =
+              orderQuantities.get(rk) !== undefined
+                ? orderQuantities.get(rk)
+                : remainingQty
             const isPartialDispatch = dispatchQty < remainingQty
-            
+
             return (
               <div
                 key={orderId}
@@ -1158,13 +1293,13 @@ const DispatchForm = ({
                             max={remainingQty}
                             value={dispatchQty === 0 ? "" : dispatchQty}
                             onChange={(e) => {
-                              handleOrderQuantityChange(orderId, e.target.value, remainingQty)
+                              handleOrderQuantityChange(rk, e.target.value, remainingQty)
                             }}
                             className={`flex-1 px-2 ${isMobile ? "py-2 text-base" : "py-1 text-sm"} border border-gray-300 rounded focus:ring-2 focus:ring-green-500 focus:border-green-500`}
                             placeholder="Enter quantity"
                           />
                           <button
-                            onClick={() => handleOrderQuantityChange(orderId, remainingQty, remainingQty)}
+                            onClick={() => handleOrderQuantityChange(rk, remainingQty, remainingQty)}
                             className={`text-xs px-2 ${isMobile ? "py-2 min-w-[64px]" : "py-1"} bg-green-50 text-green-600 rounded hover:bg-green-100`}
                             title="Use full quantity">
                             Full
