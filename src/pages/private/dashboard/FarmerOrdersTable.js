@@ -130,6 +130,7 @@ function buildDashboardFarmerOrdersWatiPreviewText(watiDialogOrder, watiDialogMo
   const subtype =
     watiDialogOrder.plantType?.split?.(" -> ")?.[1] || watiDialogOrder.details?.plantSubtype?.name || "N/A"
   const { plantParam, subtypeParam } = watiPlantAndSubtypeParams(plantType, subtype)
+  const isPapayaOrder = /papaya/i.test(`${plantParam} ${subtypeParam}`)
   const watiPlantBlock = isMergedSubtypePlaceholder(subtypeParam)
     ? `🌱 रोप: *${plantParam}*`
     : `🌱 रोप प्रकार: *${plantParam}*
@@ -146,6 +147,16 @@ function buildDashboardFarmerOrdersWatiPreviewText(watiDialogOrder, watiDialogMo
       (watiDialogOrder.orderStatus === "DISPATCHED"
         ? watiDialogOrder.totalPlants || watiDialogOrder.quantity || 0
         : 0)
+    const driverContactBlock = isPapayaOrder
+      ? `कृपया ड्रायव्हरशी संपर्क साधा.
+📞 ड्रायव्हर नंबर: {{3}}
+धन्यवाद.`
+      : `🚛 ड्रायव्हर तपशील:
+👨 ड्रायव्हर नाव: ${latest?.driverName || "N/A"}
+🚚 वाहन क्रमांक: ${latest?.vehicleName || "N/A"}
+📅 डिस्पॅच तारीख: ${fmt(latest?.date)}
+आभार! 🙏
+डिलिव्हरी बाबत कृपया ड्रायव्हरशी संपर्क करावा.`
     return `🚚 नमस्कार ${name}
 आपली रोपांची ऑर्डर यशस्वीरित्या रवाना करण्यात आली आहे.
 📝 ऑर्डर / डिस्पॅच तपशील:
@@ -154,12 +165,7 @@ function buildDashboardFarmerOrdersWatiPreviewText(watiDialogOrder, watiDialogMo
 🏡 गाव: *${village}*
 ${watiPlantBlock}
 🌿 पाठवलेली एकूण रोपे: *${totalDispatched}*
-🚛 ड्रायव्हर तपशील:
-👨 ड्रायव्हर नाव: ${latest?.driverName || "N/A"}
-🚚 वाहन क्रमांक: ${latest?.vehicleName || "N/A"}
-📅 डिस्पॅच तारीख: ${fmt(latest?.date)}
-आभार! 🙏
-डिलिव्हरी बाबत कृपया ड्रायव्हरशी संपर्क करावा.`
+${driverContactBlock}`
   }
 
   const paid =
@@ -1232,6 +1238,7 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   const [selectedRow, setSelectedRow] = useState(null)
   const [showAgriSalesOrders, setShowAgriSalesOrders] = useState(false) // Regular orders by default (true = Ram Agri Inputs)
   const [showAddAgriSalesOrderForm, setShowAddAgriSalesOrderForm] = useState(false) // Dialog for adding Agri Sales order
+  const [linkedAgriSourceOrder, setLinkedAgriSourceOrder] = useState(null)
   const [agriSalesPendingCount, setAgriSalesPendingCount] = useState(0) // Pending payments count for badge
   const [agriStatusCounts, setAgriStatusCounts] = useState({
     ALL: 0,
@@ -1258,10 +1265,14 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   })
   const [agriDispatchLoading, setAgriDispatchLoading] = useState(false)
   const [agriVehicles, setAgriVehicles] = useState([])
+  const [agriDispatchPrefillLoading, setAgriDispatchPrefillLoading] = useState(false)
+  const [agriDispatchPrefillMeta, setAgriDispatchPrefillMeta] = useState(null)
   const [ramAgriSalesUsers, setRamAgriSalesUsers] = useState([]) // Ram Agri Inputs users for "Dispatched By" filter
   const [selectedDispatchedBy, setSelectedDispatchedBy] = useState("") // Filter by who dispatched
   const [hidePaymentDetails, setHidePaymentDetails] = useState(false) // Toggle to hide payment details
   const [agriDispatchStatusFilter, setAgriDispatchStatusFilter] = useState("ALL") // Ram Agri: ALL | ACCEPTED | ASSIGNED | DISPATCHED | COMPLETED
+  const [todayPendingAgriLoads, setTodayPendingAgriLoads] = useState([])
+  const [agriLoadActionBusyId, setAgriLoadActionBusyId] = useState(null)
   // Complete order state (for marking dispatched orders as delivered)
   const [selectedAgriOrdersForComplete, setSelectedAgriOrdersForComplete] = useState([])
   const [showAgriCompleteModal, setShowAgriCompleteModal] = useState(false)
@@ -1328,6 +1339,9 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   const isDispatchManager = useIsDispatchManager()
   const { walletData, loading: walletLoading } = useDealerWallet()
   const user = useUserData() // Get current user data
+  const isAgriLoadAdmin = ["RAM_AGRI_SALES_MANAGER", "ADMIN", "SUPER_ADMIN"].includes(
+    String(user?.jobTitle || user?.role || "").toUpperCase()
+  )
   const canChangeOrderStatus = !isDealer && (isOfficeAdmin || isSuperAdmin)
 
   const resolvePlantCounts = React.useCallback((order) => {
@@ -1435,6 +1449,8 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
   })
   const [isOrderModalOpen, setIsOrderModalOpen] = useState(false)
   const [selectedOrder, setSelectedOrder] = useState(null)
+  const [linkedAgriItems, setLinkedAgriItems] = useState([])
+  const [linkedAgriLoading, setLinkedAgriLoading] = useState(false)
 
   const selectedOrderCounts = React.useMemo(
     () => resolvePlantCounts(selectedOrder),
@@ -1548,6 +1564,17 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
     })
 
     setNewRemark("")
+  }
+
+  const handleCopyLinkedOrderCode = async (linkedOrderCode, event) => {
+    if (event?.stopPropagation) event.stopPropagation()
+    if (!linkedOrderCode) return
+    try {
+      await navigator.clipboard.writeText(String(linkedOrderCode))
+      Toast.success(`Linked order ID copied: ${linkedOrderCode}`)
+    } catch (err) {
+      Toast.error("Unable to copy linked order ID")
+    }
   }
 
   const handleAddPayment = async (orderId) => {
@@ -2451,6 +2478,37 @@ useEffect(() => {
     }
   }, [selectedOrder])
 
+  useEffect(() => {
+    const orderId = selectedOrder?.details?.orderid
+    if (!isOrderModalOpen || !orderId || selectedOrder?.isAgriSalesOrder || selectedOrder?.details?.isRamAgriProduct) {
+      setLinkedAgriItems([])
+      setLinkedAgriLoading(false)
+      return
+    }
+
+    let mounted = true
+    const fetchLinkedAgriItems = async () => {
+      try {
+        setLinkedAgriLoading(true)
+        const instance = NetworkManager(API.INVENTORY.GET_LINKED_AGRI_BY_NURSERY_ORDER)
+        const response = await instance.request({}, [orderId])
+        const rows = response?.data?.data || []
+        if (mounted) {
+          setLinkedAgriItems(Array.isArray(rows) ? rows : [])
+        }
+      } catch (error) {
+        if (mounted) setLinkedAgriItems([])
+      } finally {
+        if (mounted) setLinkedAgriLoading(false)
+      }
+    }
+
+    fetchLinkedAgriItems()
+    return () => {
+      mounted = false
+    }
+  }, [isOrderModalOpen, selectedOrder])
+
   // Load slots when selectedRow changes (for inline editing)
   useEffect(() => {
     if (selectedRow?.details?.plantID && selectedRow?.details?.plantSubtypeID) {
@@ -2631,6 +2689,115 @@ const loadFilterOptions = async () => {
     }
   }
 
+  const extractLinkedDispatchPrefill = (dispatchResponseData) => {
+    if (!dispatchResponseData) return null
+    const dispatches = Array.isArray(dispatchResponseData.dispatches)
+      ? dispatchResponseData.dispatches
+      : []
+    const history = Array.isArray(dispatchResponseData.dispatchHistory)
+      ? dispatchResponseData.dispatchHistory
+      : []
+    const latestDispatch = dispatches[0] || null
+    const latestHistory = history.length ? history[history.length - 1] : null
+    const vehicleNumber =
+      latestDispatch?.vehicleNumber ||
+      latestDispatch?.vehicleName ||
+      latestHistory?.dispatch?.vehicleNumber ||
+      latestHistory?.dispatch?.vehicleName ||
+      ""
+    const driverName =
+      latestDispatch?.driverName ||
+      latestHistory?.dispatch?.driverName ||
+      ""
+    const driverMobile =
+      latestDispatch?.driverMobile ||
+      latestHistory?.dispatch?.driverMobile ||
+      ""
+    const dispatchDate =
+      latestDispatch?.dispatchDate ||
+      latestHistory?.date ||
+      null
+    const transportId =
+      latestDispatch?.transportId ||
+      latestHistory?.dispatch?.transportId ||
+      null
+    if (!vehicleNumber && !driverName && !driverMobile) return null
+    return { vehicleNumber, driverName, driverMobile, dispatchDate, transportId }
+  }
+
+  const prefillAgriDispatchFromLinkedRegularOrder = async (selectedOrderIds = []) => {
+    const selectedRows = (orders || []).filter((row) =>
+      selectedOrderIds.includes(row?.details?.orderid)
+    )
+    const linkedOrderMap = new Map()
+    selectedRows.forEach((row) => {
+      const linkedIdRaw = row?.details?.linkedNurseryOrderId
+      const linkedId =
+        typeof linkedIdRaw === "object" && linkedIdRaw?._id
+          ? String(linkedIdRaw._id)
+          : linkedIdRaw
+          ? String(linkedIdRaw)
+          : ""
+      if (!linkedId) return
+      if (!linkedOrderMap.has(linkedId)) {
+        linkedOrderMap.set(linkedId, row?.details?.linkedNurseryOrderCode || "")
+      }
+    })
+    const linkedOrderIds = Array.from(linkedOrderMap.keys())
+    if (!linkedOrderIds.length) {
+      setAgriDispatchPrefillMeta(null)
+      return
+    }
+
+    setAgriDispatchPrefillLoading(true)
+    try {
+      const instance = NetworkManager(API.ORDER.GET_ORDER_DISPATCH_DETAILS)
+      const responses = await Promise.allSettled(
+        linkedOrderIds.map((orderId) => instance.request({}, [orderId]))
+      )
+      const candidates = responses
+        .map((res, idx) => {
+          if (res.status !== "fulfilled") return null
+          const prefill = extractLinkedDispatchPrefill(res.value?.data?.data)
+          if (!prefill) return null
+          return {
+            ...prefill,
+            linkedOrderId: linkedOrderIds[idx],
+            linkedOrderCode: linkedOrderMap.get(linkedOrderIds[idx]) || "",
+          }
+        })
+        .filter(Boolean)
+
+      if (!candidates.length) {
+        setAgriDispatchPrefillMeta(null)
+        return
+      }
+
+      const sortedByLatest = [...candidates].sort(
+        (a, b) => new Date(b.dispatchDate || 0).getTime() - new Date(a.dispatchDate || 0).getTime()
+      )
+      const best = sortedByLatest[0]
+      const vehicleVariants = new Set(candidates.map((c) => c.vehicleNumber).filter(Boolean))
+      const hasVehicleConflict = vehicleVariants.size > 1
+
+      setAgriDispatchForm((prev) => ({
+        ...prev,
+        vehicleNumber: best.vehicleNumber || prev.vehicleNumber,
+        driverName: best.driverName || prev.driverName,
+        driverMobile: best.driverMobile || prev.driverMobile,
+      }))
+      setAgriDispatchPrefillMeta({
+        ...best,
+        candidatesCount: candidates.length,
+        hasVehicleConflict,
+      })
+    } catch (error) {
+      setAgriDispatchPrefillMeta(null)
+    } finally {
+      setAgriDispatchPrefillLoading(false)
+    }
+  }
+
   // Handle vehicle selection for dispatch
   const handleAgriVehicleSelect = (vehicleId) => {
     const vehiclesArray = Array.isArray(agriVehicles) ? agriVehicles : []
@@ -2678,19 +2845,31 @@ const loadFilterOptions = async () => {
   }
 
   // Open dispatch modal
-  const openAgriDispatchModal = () => {
+  const openAgriDispatchModal = async () => {
     if (selectedAgriSalesOrders.length === 0) {
       Toast.error("Please select at least one order to dispatch")
       return
     }
     fetchAgriVehicles()
+    setAgriDispatchPrefillMeta(null)
     setShowAgriDispatchModal(true)
+  }
+
+  const handleAgriDispatchModeChange = async (mode) => {
+    setAgriDispatchForm((prev) => ({ ...prev, dispatchMode: mode }))
+    if (mode === "WITH_ORDER") {
+      await prefillAgriDispatchFromLinkedRegularOrder(selectedAgriSalesOrders)
+    }
   }
 
   // Handle dispatch submission
   const handleAgriDispatch = async () => {
     // Validate based on dispatch mode
-    if (agriDispatchForm.dispatchMode === "VEHICLE") {
+    if (agriDispatchForm.dispatchMode === "VEHICLE" || agriDispatchForm.dispatchMode === "WITH_ORDER") {
+      if (agriDispatchForm.dispatchMode === "WITH_ORDER" && !agriDispatchPrefillMeta) {
+        Toast.error("No linked regular dispatch found for 'With Order' mode")
+        return
+      }
       if (!agriDispatchForm.driverName || !agriDispatchForm.driverMobile) {
         Toast.error("Driver name and mobile are required")
         return
@@ -2721,7 +2900,7 @@ const loadFilterOptions = async () => {
       }
 
       // Add mode-specific fields
-      if (agriDispatchForm.dispatchMode === "VEHICLE") {
+      if (agriDispatchForm.dispatchMode === "VEHICLE" || agriDispatchForm.dispatchMode === "WITH_ORDER") {
         payload.vehicleId = agriDispatchForm.vehicleId || null
         payload.vehicleNumber = agriDispatchForm.vehicleNumber
         payload.driverName = agriDispatchForm.driverName
@@ -2735,9 +2914,18 @@ const loadFilterOptions = async () => {
       const response = await instance.request(payload)
 
       if (response?.data) {
-        Toast.success(`${selectedAgriSalesOrders.length} order(s) dispatched successfully via ${agriDispatchForm.dispatchMode === "VEHICLE" ? "vehicle" : "courier"}`)
+        Toast.success(
+          `${selectedAgriSalesOrders.length} order(s) dispatched successfully via ${
+            agriDispatchForm.dispatchMode === "COURIER"
+              ? "courier"
+              : agriDispatchForm.dispatchMode === "WITH_ORDER"
+              ? "linked order"
+              : "vehicle"
+          }`
+        )
         setShowAgriDispatchModal(false)
         setSelectedAgriSalesOrders([])
+        setAgriDispatchPrefillMeta(null)
         setAgriDispatchForm({
           dispatchMode: "VEHICLE",
           vehicleId: "",
@@ -2963,6 +3151,7 @@ const loadFilterOptions = async () => {
   useEffect(() => {
     if (showAgriSalesOrders) {
       loadRamAgriSalesUsers()
+      fetchTodayPendingAgriLoads()
     }
   }, [showAgriSalesOrders])
 
@@ -3304,6 +3493,37 @@ const mapSlotForUi = (slotData) => {
     }
   }
 
+  const fetchTodayPendingAgriLoads = async () => {
+    if (!showAgriSalesOrders || !isAgriLoadAdmin) {
+      setTodayPendingAgriLoads([])
+      return
+    }
+    try {
+      const instance = NetworkManager(API.INVENTORY.GET_TODAY_PENDING_LINKED_AGRI_LOAD)
+      const response = await instance.request()
+      const rows = response?.data?.data || []
+      setTodayPendingAgriLoads(Array.isArray(rows) ? rows : [])
+    } catch (error) {
+      setTodayPendingAgriLoads([])
+    }
+  }
+
+  const markLinkedAgriLoaded = async (agriOrderId) => {
+    if (!agriOrderId) return
+    try {
+      setAgriLoadActionBusyId(agriOrderId)
+      const instance = NetworkManager(API.INVENTORY.MARK_LINKED_AGRI_LOADED)
+      await instance.request({}, [agriOrderId])
+      Toast.success("Marked as loaded")
+      fetchTodayPendingAgriLoads()
+      getOrders()
+    } catch (error) {
+      Toast.error(error?.response?.data?.message || "Failed to mark loaded")
+    } finally {
+      setAgriLoadActionBusyId(null)
+    }
+  }
+
   const mapRegularOrdersForUi = (ordersData = []) =>
     (ordersData || [])
       .map((data) => {
@@ -3522,6 +3742,8 @@ const mapSlotForUi = (slotData) => {
             deliveredQuantity,
             returnReason,
             returnNotes,
+            linkedNurseryOrderId,
+            linkedNurseryOrderCode,
           } = order
 
           // Handle populated fields (productId, createdBy, assignedTo can be objects)
@@ -3604,6 +3826,8 @@ const mapSlotForUi = (slotData) => {
               // Return details
               returnReason,
               returnNotes,
+              linkedNurseryOrderId,
+              linkedNurseryOrderCode,
             },
           }
         })
@@ -5044,7 +5268,10 @@ const mapSlotForUi = (slotData) => {
               {showAgriSalesOrders && (
                 <>
                   <button
-                    onClick={() => setShowAddAgriSalesOrderForm(true)}
+                    onClick={() => {
+                      setLinkedAgriSourceOrder(null)
+                      setShowAddAgriSalesOrderForm(true)
+                    }}
                     className="px-3 py-1.5 text-xs font-medium rounded-md bg-green-600 text-white shadow-sm hover:bg-green-700 transition-colors flex items-center gap-1">
                     <span>+</span> Add Order
                   </button>
@@ -5122,6 +5349,35 @@ const mapSlotForUi = (slotData) => {
                     }`}>
                     Cancelled <span className="ml-1 text-xs font-semibold">({agriStatusCounts.CANCELLED})</span>
                   </button>
+                </div>
+              </div>
+            )}
+            {showAgriSalesOrders && isAgriLoadAdmin && (
+              <div className="ml-4 pl-4 border-l border-gray-300">
+                <div className="text-[11px] font-semibold text-amber-800 mb-1">
+                  Today Pending Load ({todayPendingAgriLoads.length})
+                </div>
+                <div className="flex flex-wrap gap-1 max-w-[520px]">
+                  {todayPendingAgriLoads.length === 0 ? (
+                    <span className="text-[11px] text-gray-500">No pending linked agri loads</span>
+                  ) : (
+                    todayPendingAgriLoads.slice(0, 6).map((item) => (
+                      <button
+                        key={item._id}
+                        type="button"
+                        onClick={() => markLinkedAgriLoaded(item._id)}
+                        disabled={agriLoadActionBusyId === item._id}
+                        className={`px-2 py-1 rounded text-[10px] font-semibold border ${
+                          agriLoadActionBusyId === item._id
+                            ? "bg-gray-100 text-gray-500 border-gray-300"
+                            : "bg-amber-100 text-amber-800 border-amber-300 animate-pulse"
+                        }`}
+                        title={`Mark loaded: ${item.orderNumber} / ${item.customerName}`}
+                      >
+                        {agriLoadActionBusyId === item._id ? "Updating..." : `${item.orderNumber} Loaded`}
+                      </button>
+                    ))
+                  )}
                 </div>
               </div>
             )}
@@ -5479,6 +5735,17 @@ const mapSlotForUi = (slotData) => {
                       <td className="px-2 py-2 whitespace-nowrap">
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="text-xs font-bold text-gray-900">#{(row.isAgriSalesOrder || row.details?.isRamAgriProduct) ? String(row.order).padStart(5, '0') : row.order}</span>
+                          {(row.isAgriSalesOrder || row.details?.isRamAgriProduct) && row.details?.linkedNurseryOrderCode && (
+                            <button
+                              type="button"
+                              onClick={(e) => handleCopyLinkedOrderCode(row.details.linkedNurseryOrderCode, e)}
+                              className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-700 border border-indigo-300"
+                              title="Copy linked regular order ID"
+                            >
+                              <FaCopy className="mr-1" />
+                              Linked #{row.details.linkedNurseryOrderCode}
+                            </button>
+                          )}
                           {/* Split order badges */}
                           {!(row.isAgriSalesOrder || row.details?.isRamAgriProduct) && row.details?.isSplit && (
                             <span
@@ -5970,7 +6237,7 @@ const mapSlotForUi = (slotData) => {
                         <div
                           key={showAgriSalesOrders && row.details?.orderid ? row.details.orderid : globalIndex}
                           className={`bg-white rounded-lg shadow-sm border hover:shadow-md transition-all duration-200 cursor-pointer ${
-                            row?.details?.payment.some((payment) => payment.paymentStatus === "PENDING")
+                            row?.details?.payment?.some((payment) => payment.paymentStatus === "PENDING")
                               ? "payment-blink"
                               : ""
                           } ${row?.details?.dealerOrder ? "border-sky-200 bg-sky-50" : ""}`}
@@ -5985,6 +6252,17 @@ const mapSlotForUi = (slotData) => {
                               <div className="flex-1">
                                 <div className="flex items-center gap-2 flex-wrap">
                                   <h3 className="font-semibold text-gray-900 text-sm">Order #{(row.isAgriSalesOrder || row.details?.isRamAgriProduct) ? String(row.order).padStart(5, '0') : row.order}</h3>
+                                  {(row.isAgriSalesOrder || row.details?.isRamAgriProduct) && row.details?.linkedNurseryOrderCode && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => handleCopyLinkedOrderCode(row.details.linkedNurseryOrderCode, e)}
+                                      className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-700 border border-indigo-300"
+                                      title="Copy linked regular order ID"
+                                    >
+                                      <FaCopy className="mr-1" />
+                                      Linked #{row.details.linkedNurseryOrderCode}
+                                    </button>
+                                  )}
                                   {!(row.isAgriSalesOrder || row.details?.isRamAgriProduct) && row.details?.isSplit && (
                                     <span
                                       className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-orange-100 text-orange-700 border border-orange-300"
@@ -6381,6 +6659,17 @@ const mapSlotForUi = (slotData) => {
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className="text-xl font-bold">Order #{selectedOrder.order}</h2>
+                  {(selectedOrder.isAgriSalesOrder || selectedOrder.details?.isRamAgriProduct) && selectedOrder.details?.linkedNurseryOrderCode && (
+                    <button
+                      type="button"
+                      onClick={(e) => handleCopyLinkedOrderCode(selectedOrder.details.linkedNurseryOrderCode, e)}
+                      className="inline-flex items-center text-brand-100/90 text-xs font-semibold mt-0.5 hover:text-white"
+                      title="Copy linked regular order ID"
+                    >
+                      <FaCopy className="mr-1" />
+                      Linked Regular Order #{selectedOrder.details.linkedNurseryOrderCode}
+                    </button>
+                  )}
                   <p className="text-brand-100 text-sm mt-1">
                     {selectedOrder.farmerName} • {selectedOrder.plantType}
                   </p>
@@ -6724,7 +7013,21 @@ const mapSlotForUi = (slotData) => {
                         )}
                         
                         <div className="bg-gray-50 rounded-lg p-3">
-                          <h3 className="font-medium text-gray-900 mb-3 text-sm">Order Details</h3>
+                          <div className="flex items-center justify-between mb-3">
+                            <h3 className="font-medium text-gray-900 text-sm">Order Details</h3>
+                            {!selectedOrder?.isAgriSalesOrder && !selectedOrder?.details?.isRamAgriProduct && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setLinkedAgriSourceOrder(selectedOrder)
+                                  setShowAddAgriSalesOrderForm(true)
+                                }}
+                                className="px-2 py-1 text-xs font-semibold rounded-md bg-orange-100 text-orange-800 hover:bg-orange-200"
+                              >
+                                Add Agri Input Products
+                              </button>
+                            )}
+                          </div>
                           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                             <div className="flex flex-col space-y-1">
                               <span className="text-xs text-gray-500 font-medium">Plant Type</span>
@@ -6805,6 +7108,87 @@ const mapSlotForUi = (slotData) => {
                             </div>
                           </div>
                         </div>
+
+                        {linkedAgriLoading && !selectedOrder?.isAgriSalesOrder && !selectedOrder?.details?.isRamAgriProduct && (
+                          <div className="bg-white rounded-lg border border-gray-200 p-3">
+                            <div className="text-sm text-gray-500">Loading Agri Inputs products...</div>
+                          </div>
+                        )}
+
+                        {!linkedAgriLoading &&
+                          !selectedOrder?.isAgriSalesOrder &&
+                          !selectedOrder?.details?.isRamAgriProduct &&
+                          linkedAgriItems.length > 0 &&
+                          (() => {
+                            const hasPendingLoad = linkedAgriItems.some(
+                              (item) => String(item?.agriLoadStatus || "PENDING_LOAD").toUpperCase() !== "LOADED"
+                            )
+                            const orderStatusUpper = String(selectedOrder?.orderStatus || "").toUpperCase()
+                            const dispatchStatusUpper = String(
+                              selectedOrder?.details?.dispatchStatus || selectedOrder?.dispatchStatus || ""
+                            ).toUpperCase()
+                            const isDispatchedOrder =
+                              orderStatusUpper === "DISPATCH_PROCESS" ||
+                              orderStatusUpper === "DISPATCHED" ||
+                              dispatchStatusUpper === "DISPATCHED"
+                            const dispatchHistory = selectedOrder?.details?.dispatchHistory || []
+                            const latestDispatch = dispatchHistory.length
+                              ? dispatchHistory[dispatchHistory.length - 1]
+                              : null
+                            const hasVehicleOrDriver =
+                              Boolean(latestDispatch?.dispatch?.vehicleName || latestDispatch?.vehicleName) ||
+                              Boolean(latestDispatch?.dispatch?.driverName || latestDispatch?.driverName)
+                            const showBlinkAlert = hasPendingLoad && isDispatchedOrder && hasVehicleOrDriver
+                            return (
+                              <div
+                                className={`rounded-lg border p-3 ${
+                                  showBlinkAlert
+                                    ? "bg-amber-50 border-amber-300"
+                                    : hasPendingLoad
+                                    ? "bg-amber-50/60 border-amber-200"
+                                    : "bg-white border-gray-200"
+                                }`}
+                              >
+                                <div className="flex items-center justify-between mb-2">
+                                  <h3 className="font-medium text-gray-900 text-sm">Agri Inputs Products</h3>
+                                  {showBlinkAlert && (
+                                    <span className="text-[11px] px-2 py-1 rounded bg-red-100 text-red-700 font-semibold animate-pulse">
+                                      Dispatch Done - Agri Load Pending
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="space-y-2">
+                                  {linkedAgriItems.map((item) => {
+                                    const loadStatus = String(item?.agriLoadStatus || "PENDING_LOAD").toUpperCase()
+                                    return (
+                                      <div
+                                        key={item?._id}
+                                        className="flex items-center justify-between text-sm border rounded-md px-3 py-2 bg-gray-50"
+                                      >
+                                        <div className="min-w-0">
+                                          <div className="font-medium text-gray-900 truncate">
+                                            {item?.productName || `${item?.ramAgriCropName || ""} ${item?.ramAgriVarietyName || ""}`.trim()}
+                                          </div>
+                                          <div className="text-xs text-gray-600">
+                                            Qty: {item?.quantity || 0} | Rate: ₹{item?.rate || 0} | Amount: ₹{Number(item?.totalAmount || (Number(item?.quantity || 0) * Number(item?.rate || 0))).toLocaleString()}
+                                          </div>
+                                        </div>
+                                        <span
+                                          className={`text-[11px] px-2 py-1 rounded font-semibold ${
+                                            loadStatus === "LOADED"
+                                              ? "bg-green-100 text-green-700"
+                                              : "bg-amber-100 text-amber-700"
+                                          }`}
+                                        >
+                                          {loadStatus === "LOADED" ? "Loaded" : "Pending Load"}
+                                        </span>
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              </div>
+                            )
+                          })()}
 
                         {/* Farm Ready Date History */}
                         {selectedOrder?.details?.farmReadyDateChanges &&
@@ -9166,9 +9550,14 @@ const mapSlotForUi = (slotData) => {
       {/* Add Agri Sales Order Dialog */}
       <AddAgriSalesOrderForm
         open={showAddAgriSalesOrderForm}
-        onClose={() => setShowAddAgriSalesOrderForm(false)}
+        linkedNurseryOrder={linkedAgriSourceOrder}
+        onClose={() => {
+          setShowAddAgriSalesOrderForm(false)
+          setLinkedAgriSourceOrder(null)
+        }}
         onSuccess={() => {
           setShowAddAgriSalesOrderForm(false)
+          setLinkedAgriSourceOrder(null)
           getOrders() // Refresh orders after creating
         }}
       />
@@ -9180,7 +9569,13 @@ const mapSlotForUi = (slotData) => {
             {/* Modal Header */}
             <div className="bg-gradient-to-r from-brand-600 to-brand-500 text-white p-4 flex items-center justify-between">
               <div className="flex items-center">
-                <span className="text-2xl mr-3">{agriDispatchForm.dispatchMode === "VEHICLE" ? "🚚" : "📦"}</span>
+                <span className="text-2xl mr-3">
+                  {agriDispatchForm.dispatchMode === "COURIER"
+                    ? "📦"
+                    : agriDispatchForm.dispatchMode === "WITH_ORDER"
+                    ? "🔗"
+                    : "🚚"}
+                </span>
                 <div>
                   <h2 className="text-lg font-bold">Dispatch Orders</h2>
                   <p className="text-sm text-brand-100">{selectedAgriSalesOrders.length} order(s) selected</p>
@@ -9189,6 +9584,7 @@ const mapSlotForUi = (slotData) => {
               <button
                 onClick={() => {
                   setShowAgriDispatchModal(false)
+                  setAgriDispatchPrefillMeta(null)
                   setAgriDispatchForm({
                     dispatchMode: "VEHICLE",
                     vehicleId: "",
@@ -9231,13 +9627,43 @@ const mapSlotForUi = (slotData) => {
                 </div>
               </div>
 
+              {agriDispatchPrefillLoading && (
+                <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                  <p className="text-xs text-blue-700 font-medium">
+                    Fetching linked regular dispatch details for prefill...
+                  </p>
+                </div>
+              )}
+
+              {!agriDispatchPrefillLoading && agriDispatchPrefillMeta && (
+                <div className="mb-4 p-3 bg-green-50 rounded-lg border border-green-200">
+                  <p className="text-xs text-green-800 font-semibold">
+                    Auto-prefilled from linked regular dispatch
+                    {agriDispatchPrefillMeta?.linkedOrderCode
+                      ? ` #${agriDispatchPrefillMeta.linkedOrderCode}`
+                      : ""}.
+                  </p>
+                  <p className="text-xs text-green-700 mt-1">
+                    Vehicle: {agriDispatchPrefillMeta.vehicleNumber || "-"} | Driver:{" "}
+                    {agriDispatchPrefillMeta.driverName || "-"} | Mobile:{" "}
+                    {agriDispatchPrefillMeta.driverMobile || "Fill manually"}
+                    {agriDispatchPrefillMeta.transportId ? ` | Dispatch #${agriDispatchPrefillMeta.transportId}` : ""}
+                  </p>
+                  {agriDispatchPrefillMeta.hasVehicleConflict && (
+                    <p className="text-xs text-amber-700 mt-1">
+                      Multiple linked vehicles found. Latest dispatch details are prefilled.
+                    </p>
+                  )}
+                </div>
+              )}
+
               {/* Dispatch Mode Selection */}
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 mb-2">Dispatch Mode *</label>
                 <div className="flex gap-3">
                   <button
                     type="button"
-                    onClick={() => setAgriDispatchForm((prev) => ({ ...prev, dispatchMode: "VEHICLE" }))}
+                    onClick={() => handleAgriDispatchModeChange("VEHICLE")}
                     className={`flex-1 py-3 px-4 rounded-lg border-2 transition-all flex items-center justify-center gap-2 ${
                       agriDispatchForm.dispatchMode === "VEHICLE"
                         ? "border-brand-500 bg-brand-50 text-brand-700"
@@ -9248,7 +9674,7 @@ const mapSlotForUi = (slotData) => {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setAgriDispatchForm((prev) => ({ ...prev, dispatchMode: "COURIER" }))}
+                    onClick={() => handleAgriDispatchModeChange("COURIER")}
                     className={`flex-1 py-3 px-4 rounded-lg border-2 transition-all flex items-center justify-center gap-2 ${
                       agriDispatchForm.dispatchMode === "COURIER"
                         ? "border-purple-500 bg-purple-50 text-purple-700"
@@ -9257,14 +9683,27 @@ const mapSlotForUi = (slotData) => {
                     <span className="text-xl">📦</span>
                     <span className="font-medium">By Courier</span>
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => handleAgriDispatchModeChange("WITH_ORDER")}
+                    className={`flex-1 py-3 px-4 rounded-lg border-2 transition-all flex items-center justify-center gap-2 ${
+                      agriDispatchForm.dispatchMode === "WITH_ORDER"
+                        ? "border-teal-500 bg-teal-50 text-teal-700"
+                        : "border-gray-300 bg-white text-gray-600 hover:border-gray-400"
+                    }`}>
+                    <span className="text-xl">🔗</span>
+                    <span className="font-medium">With Order</span>
+                  </button>
                 </div>
               </div>
 
               {/* Vehicle Mode Fields */}
-              {agriDispatchForm.dispatchMode === "VEHICLE" && (
+              {(agriDispatchForm.dispatchMode === "VEHICLE" ||
+                agriDispatchForm.dispatchMode === "WITH_ORDER") && (
                 <>
                   {/* Vehicle Selection */}
-                  <div className="mb-4">
+                  {agriDispatchForm.dispatchMode === "VEHICLE" && (
+                    <div className="mb-4">
                     <label className="block text-sm font-medium text-gray-700 mb-1">Select Vehicle</label>
                     <select
                       value={agriDispatchForm.vehicleId}
@@ -9278,7 +9717,16 @@ const mapSlotForUi = (slotData) => {
                         </option>
                       ))}
                     </select>
-                  </div>
+                    </div>
+                  )}
+
+                  {agriDispatchForm.dispatchMode === "WITH_ORDER" && !agriDispatchPrefillMeta && (
+                    <div className="mb-4 p-3 bg-amber-50 rounded-lg border border-amber-200">
+                      <p className="text-xs text-amber-700 font-medium">
+                        No linked regular dispatch found yet. Select orders linked to a dispatched regular order.
+                      </p>
+                    </div>
+                  )}
 
                   {/* Vehicle Number */}
                   <div className="mb-4">
@@ -9288,7 +9736,10 @@ const mapSlotForUi = (slotData) => {
                       value={agriDispatchForm.vehicleNumber}
                       onChange={(e) => setAgriDispatchForm((prev) => ({ ...prev, vehicleNumber: e.target.value.toUpperCase() }))}
                       placeholder="e.g., MH12AB1234"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-brand-500 focus:border-brand-500"
+                      readOnly={agriDispatchForm.dispatchMode === "WITH_ORDER"}
+                      className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-brand-500 focus:border-brand-500 ${
+                        agriDispatchForm.dispatchMode === "WITH_ORDER" ? "bg-gray-100" : ""
+                      }`}
                     />
                   </div>
 
@@ -9300,7 +9751,10 @@ const mapSlotForUi = (slotData) => {
                       value={agriDispatchForm.driverName}
                       onChange={(e) => setAgriDispatchForm((prev) => ({ ...prev, driverName: e.target.value }))}
                       placeholder="Enter driver name"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-brand-500 focus:border-brand-500"
+                      readOnly={agriDispatchForm.dispatchMode === "WITH_ORDER"}
+                      className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-brand-500 focus:border-brand-500 ${
+                        agriDispatchForm.dispatchMode === "WITH_ORDER" ? "bg-gray-100" : ""
+                      }`}
                     />
                   </div>
 
@@ -9316,7 +9770,10 @@ const mapSlotForUi = (slotData) => {
                       }}
                       placeholder="10 digit mobile number"
                       maxLength={10}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-brand-500 focus:border-brand-500"
+                      readOnly={agriDispatchForm.dispatchMode === "WITH_ORDER"}
+                      className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-brand-500 focus:border-brand-500 ${
+                        agriDispatchForm.dispatchMode === "WITH_ORDER" ? "bg-gray-100" : ""
+                      }`}
                     />
                   </div>
                 </>
@@ -9385,6 +9842,7 @@ const mapSlotForUi = (slotData) => {
               <button
                 onClick={() => {
                   setShowAgriDispatchModal(false)
+                  setAgriDispatchPrefillMeta(null)
                   setAgriDispatchForm({
                     dispatchMode: "VEHICLE",
                     vehicleId: "",
@@ -9403,7 +9861,8 @@ const mapSlotForUi = (slotData) => {
               <button
                 onClick={handleAgriDispatch}
                 disabled={
-                  (agriDispatchForm.dispatchMode === "VEHICLE" && (
+                  ((agriDispatchForm.dispatchMode === "VEHICLE" ||
+                    agriDispatchForm.dispatchMode === "WITH_ORDER") && (
                     !agriDispatchForm.vehicleNumber ||
                     !agriDispatchForm.driverName ||
                     agriDispatchForm.driverMobile.length !== 10
@@ -9412,8 +9871,10 @@ const mapSlotForUi = (slotData) => {
                   agriDispatchLoading
                 }
                 className={`px-4 py-2 text-sm font-medium text-white rounded-lg disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-2 ${
-                  agriDispatchForm.dispatchMode === "VEHICLE" 
+                  agriDispatchForm.dispatchMode === "VEHICLE"
                     ? "bg-brand-600 hover:bg-brand-700" 
+                    : agriDispatchForm.dispatchMode === "WITH_ORDER"
+                    ? "bg-teal-600 hover:bg-teal-700"
                     : "bg-purple-600 hover:bg-purple-700"
                 }`}>
                 {agriDispatchLoading ? (
@@ -9423,7 +9884,12 @@ const mapSlotForUi = (slotData) => {
                   </>
                 ) : (
                   <>
-                    {agriDispatchForm.dispatchMode === "VEHICLE" ? "🚚" : "📦"} Dispatch {selectedAgriSalesOrders.length} Order(s)
+                    {agriDispatchForm.dispatchMode === "COURIER"
+                      ? "📦"
+                      : agriDispatchForm.dispatchMode === "WITH_ORDER"
+                      ? "🔗"
+                      : "🚚"}{" "}
+                    Dispatch {selectedAgriSalesOrders.length} Order(s)
                   </>
                 )}
               </button>

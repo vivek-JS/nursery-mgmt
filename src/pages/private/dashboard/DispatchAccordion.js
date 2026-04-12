@@ -192,6 +192,8 @@ const DispatchAccordion = ({
 
   const isDelivered = dispatch?.transportStatus === "DELIVERED"
   const dispatchName = (dispatch?.name || "").trim() || "Unnamed Dispatch"
+  const agriLoadBlocked = Boolean(dispatch?.agriLoadBlocked)
+  const agriLoadBlockedBy = Array.isArray(dispatch?.agriLoadBlockedBy) ? dispatch.agriLoadBlockedBy : []
 
   return (
     <div className={`border rounded-lg mb-4 shadow-sm ${isDelivered ? 'border-green-300 bg-green-50/30' : 'border-gray-200 bg-white'}`}>
@@ -290,9 +292,16 @@ const DispatchAccordion = ({
                   <button
                     onClick={(e) => {
                       e.stopPropagation()
+                      if (agriLoadBlocked) return
                       onDeliveryChallan(dispatch)
                     }}
-                    className="inline-flex items-center justify-center px-4 py-2 bg-purple-50 text-purple-700 rounded-lg hover:bg-purple-100 transition-colors">
+                    disabled={agriLoadBlocked}
+                    title={agriLoadBlocked ? "Agri Input pending load by Agri admin" : ""}
+                    className={`inline-flex items-center justify-center px-4 py-2 rounded-lg transition-colors ${
+                      agriLoadBlocked
+                        ? "bg-gray-100 text-gray-400 cursor-not-allowed"
+                        : "bg-purple-50 text-purple-700 hover:bg-purple-100"
+                    }`}>
                     <FileText size={16} className="mr-2" />
                     Delivery Challan
                   </button>
@@ -330,6 +339,16 @@ const DispatchAccordion = ({
                   </div>
                 )}
               </div>
+              {agriLoadBlocked && (
+                <div className="mt-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+                  Agri Input pending load by Agri admin. Delivery challan is blocked until loaded.
+                  {agriLoadBlockedBy.length > 0 && (
+                    <span>
+                      {" "}Pending: {agriLoadBlockedBy.map((row) => row.agriOrderNumber || row.agriOrderId).filter(Boolean).join(", ")}
+                    </span>
+                  )}
+                </div>
+              )}
 
               {/* Summary Stats */}
               <div className="bg-white rounded-lg border border-gray-200 p-4">

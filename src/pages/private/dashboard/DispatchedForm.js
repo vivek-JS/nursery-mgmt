@@ -56,6 +56,8 @@ const DispatchForm = ({
   const [shades, setShades] = useState([])
   const [cavities, setCavities] = useState([])
   const [isEditing, setIsEditing] = useState(false)
+  const [linkedAgriBlockedBy, setLinkedAgriBlockedBy] = useState([])
+  const [linkedAgriCheckLoading, setLinkedAgriCheckLoading] = useState(false)
   // Track dispatch quantities per order (orderId -> quantity to dispatch)
   const [orderQuantities, setOrderQuantities] = useState(new Map())
   const orderQuantitiesRef = useRef(new Map())
@@ -64,6 +66,47 @@ const DispatchForm = ({
     order?.details?.orderid || order?.details?.orderId || order?._id || order?.id || ""
   const getSelectedOrdersArray = () =>
     Array.from(selectedOrders?.values?.() || []).filter((order) => Boolean(getOrderId(order)))
+
+  useEffect(() => {
+    if (!open || mode === "view") {
+      setLinkedAgriBlockedBy([])
+      setLinkedAgriCheckLoading(false)
+      return
+    }
+
+    const selectedOrdersArray = getSelectedOrdersArray()
+    const orderIds = selectedOrdersArray.map((order) => getOrderId(order)).filter(Boolean)
+    if (!orderIds.length) {
+      setLinkedAgriBlockedBy([])
+      return
+    }
+
+    let mounted = true
+    const loadLinkedAgriGuard = async () => {
+      try {
+        setLinkedAgriCheckLoading(true)
+        const instance = NetworkManager(API.INVENTORY.GET_DISPATCH_LOAD_STATUS)
+        const response = await instance.request({ orderIds })
+        const blockedBy = Array.isArray(response?.data?.data?.blockedBy)
+          ? response.data.data.blockedBy
+          : []
+        if (mounted) {
+          setLinkedAgriBlockedBy(blockedBy)
+        }
+      } catch (error) {
+        if (mounted) {
+          setLinkedAgriBlockedBy([])
+        }
+      } finally {
+        if (mounted) setLinkedAgriCheckLoading(false)
+      }
+    }
+
+    loadLinkedAgriGuard()
+    return () => {
+      mounted = false
+    }
+  }, [open, mode, selectedOrders])
 
   const loadFleetForOwner = async (ownerMongoId) => {
     if (!ownerMongoId) {
@@ -1227,6 +1270,33 @@ const DispatchForm = ({
               </>
             )}
           </div>
+
+          {!isViewMode && (linkedAgriCheckLoading || linkedAgriBlockedBy.length > 0) && (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 p-3">
+              <div className="flex items-start gap-2">
+                <div>
+                  <p className="text-sm font-semibold text-amber-900">
+                    Linked Agri Inputs pending load
+                  </p>
+                  <p className="text-xs text-amber-800 mt-1">
+                    Plant dispatch does <strong>not</strong> mark linked Agri Inputs as loaded anymore.
+                  </p>
+                  <p className="text-[11px] text-amber-700 mt-1">
+                    Delivery Challan stays blocked until Ram Agri team dispatches linked Agri order(s) from Ram Agri Dispatch flow (use <strong>With Order</strong> mode).
+                  </p>
+                  {linkedAgriBlockedBy.length > 0 && (
+                    <p className="text-[11px] text-amber-700 mt-1">
+                      Linked order(s): {Array.from(new Set(
+                        linkedAgriBlockedBy
+                          .map((row) => String(row?.linkedNurseryOrderCode || row?.linkedNurseryOrderId || "").trim())
+                          .filter(Boolean)
+                      )).join(", ")}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Plants Details */}
           <div className="space-y-4">

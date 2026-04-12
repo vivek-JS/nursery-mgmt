@@ -39,28 +39,41 @@ export function UnifiedPaymentsTable({
   onBulkAccept,
   onViewLedger,
   acceptingBulkId,
-  canEditStatus
+  canEditStatus,
+  statusFilter,
+  onStatusFilterChange
 }) {
   const [expandedId, setExpandedId] = useState(null)
-  const [filter, setFilter] = useState("ALL")
   const [typeFilter, setTypeFilter] = useState("ALL")
   const [attachModal, setAttachModal] = useState(null)
 
   const rows = [...orderPayments.map((d) => ({ kind: "order", data: d })), ...bulkPayments.map((d) => ({ kind: "bulk", data: d }))]
 
+  const activeStatusFilter = statusFilter || "ALL"
+
+  const resolveSortTimestamp = (row) => {
+    if (row.kind === "order") {
+      const payment = row.data.payment || {}
+      const ts = payment.updatedAt || payment.paymentDate || payment.createdAt || row.data.createdAt
+      const parsed = new Date(ts).getTime()
+      return Number.isFinite(parsed) ? parsed : 0
+    }
+    const ts = row.data.updatedAt || row.data.paymentDate || row.data.createdAt
+    const parsed = new Date(ts).getTime()
+    return Number.isFinite(parsed) ? parsed : 0
+  }
+
   const sorted = [...rows].sort((a, b) => {
-    const dateA = a.kind === "order" ? a.data.createdAt : a.data.createdAt
-    const dateB = b.kind === "order" ? b.data.createdAt : b.data.createdAt
-    return new Date(dateB).getTime() - new Date(dateA).getTime()
+    return resolveSortTimestamp(b) - resolveSortTimestamp(a)
   })
 
   const filtered = sorted.filter((r) => {
     const statusMatch =
-      filter === "ALL"
+      activeStatusFilter === "ALL"
         ? true
         : r.kind === "order"
-          ? r.data.orderPaymentStatus === filter
-          : r.data.paymentStatus === filter || (filter === "COLLECTED" && r.data.paymentStatus === "ACCEPTED")
+          ? r.data.orderPaymentStatus === activeStatusFilter
+          : r.data.paymentStatus === activeStatusFilter || (activeStatusFilter === "COLLECTED" && r.data.paymentStatus === "ACCEPTED")
     const typeMatch = typeFilter === "ALL" ? true : typeFilter === "ORDER" ? r.kind === "order" : r.kind === "bulk"
     return statusMatch && typeMatch
   })
@@ -97,10 +110,10 @@ export function UnifiedPaymentsTable({
               <button
                 key={s}
                 type="button"
-                onClick={() => setFilter(s)}
+                onClick={() => onStatusFilterChange?.(s)}
                 className={cn(
                   "text-[11px] font-semibold px-2.5 py-1 rounded-sm",
-                  filter === s
+                  activeStatusFilter === s
                     ? s === "ALL"
                       ? "bg-primary text-primary-foreground"
                       : s === "PENDING"

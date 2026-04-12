@@ -48,24 +48,105 @@ const CollectSlipPDF = ({ open, onClose, dispatchData }) => {
     }
   }
 
-  const totalPlants = dispatchData?.plants?.reduce((sum, plant) => {
-    return (
-      sum +
-      plant.crates?.reduce((plantSum, crate) => {
-        if (crate.crateDetails && crate.crateDetails.length > 0) {
-          return plantSum + crate.crateDetails.reduce((cdSum, cd) => cdSum + (cd.plantCount || 0), 0)
-        }
-        return plantSum + (crate.plantCount || crate.quantity || 0)
-      }, 0)
-    )
-  }, 0) || 0
+  const normalizeCrate = (crate, fallbackPlants = 0) => {
+    const details = Array.isArray(crate?.crateDetails) ? crate.crateDetails : []
+    const detailPlants = details.reduce((sum, row) => sum + Number(row?.plantCount || 0), 0)
+    const detailCrates = details.reduce((sum, row) => sum + Number(row?.crateCount || 0), 0)
+
+    return {
+      cavity: crate?.cavity || "",
+      cavityName: crate?.cavityName || "N/A",
+      crateCount: Number(crate?.crateCount ?? crate?.numberOfCrates ?? detailCrates ?? 0),
+      plantCount: Number(crate?.plantCount ?? crate?.quantity ?? detailPlants ?? fallbackPlants ?? 0),
+      crateDetails: details.map((row) => ({
+        crateCount: Number(row?.crateCount || 0),
+        plantCount: Number(row?.plantCount || 0),
+      })),
+    }
+  }
+
+  const buildPlantsFromOrderDispatchDetails = () => {
+    const details = Array.isArray(dispatchData?.orderDispatchDetails) ? dispatchData.orderDispatchDetails : []
+    const orders = Array.isArray(dispatchData?.orderIds) ? dispatchData.orderIds : []
+    if (!details.length || !orders.length) return []
+
+    const orderById = new Map(orders.map((order) => [String(order?._id || ""), order]))
+    const plantMap = new Map()
+
+    details.forEach((detail) => {
+      const dispatchQty = Number(detail?.dispatchQuantity || 0)
+      if (dispatchQty <= 0) return
+      const order = orderById.get(String(detail?.orderId || ""))
+      const plantName = order?.plantDetails?.name || "Unknown Plant"
+
+      if (!plantMap.has(plantName)) {
+        plantMap.set(plantName, {
+          name: plantName,
+          pickupDetails: [],
+          crates: [],
+        })
+      }
+
+      const currentPlant = plantMap.get(plantName)
+      const sourceCrates = Array.isArray(detail?.crates) ? detail.crates : []
+      if (sourceCrates.length > 0) {
+        sourceCrates.forEach((crate) => {
+          currentPlant.crates.push(normalizeCrate(crate))
+        })
+      } else {
+        currentPlant.crates.push(
+          normalizeCrate(
+            {
+              cavityName: "N/A",
+              crateCount: 0,
+              plantCount: dispatchQty,
+              crateDetails: [],
+            },
+            dispatchQty
+          )
+        )
+      }
+    })
+
+    return Array.from(plantMap.values())
+  }
+
+  const fallbackPlants = Array.isArray(dispatchData?.plants) ? dispatchData.plants : []
+  const detailPlants = buildPlantsFromOrderDispatchDetails()
+  const plantsForSlip = detailPlants.length > 0 ? detailPlants : fallbackPlants
+
+  const totalPlantsFromDetails = Array.isArray(dispatchData?.orderDispatchDetails)
+    ? dispatchData.orderDispatchDetails.reduce(
+        (sum, detail) => sum + Number(detail?.dispatchQuantity || 0),
+        0
+      )
+    : 0
+  const totalPlantsFromCrates =
+    plantsForSlip.reduce(
+      (sum, plant) =>
+        sum +
+        (Array.isArray(plant?.crates) ? plant.crates : []).reduce((plantSum, crate) => {
+          if (Array.isArray(crate?.crateDetails) && crate.crateDetails.length > 0) {
+            return (
+              plantSum +
+              crate.crateDetails.reduce(
+                (cdSum, cd) => cdSum + Number(cd?.plantCount || 0),
+                0
+              )
+            )
+          }
+          return plantSum + Number(crate?.plantCount || crate?.quantity || 0)
+        }, 0),
+      0
+    ) || 0
+  const totalPlants = totalPlantsFromDetails || totalPlantsFromCrates
 
   const renderPlants = (scale) => {
     const fs = (n) => `${Math.round(n * scale)}px`
-    return dispatchData?.plants?.map((plant, plantIndex) => {
+    return plantsForSlip.map((plant, plantIndex) => {
       const cleanPlantName = plant.name?.replace(/&gt;/g, ">").replace(/\s*-\s*>\s*/g, "-")
       const cavityShades = new Map()
-      plant.pickupDetails?.forEach((pickup) => {
+      ;(Array.isArray(plant?.pickupDetails) ? plant.pickupDetails : []).forEach((pickup) => {
         if (!cavityShades.has(pickup.cavityName)) cavityShades.set(pickup.cavityName, [])
         cavityShades.get(pickup.cavityName).push(pickup)
       })
@@ -76,7 +157,8 @@ const CollectSlipPDF = ({ open, onClose, dispatchData }) => {
             🌱 {cleanPlantName}
           </div>
 
-          {plant.crates?.map((crate, crateIndex) => {
+          {(Array.isArray(plant?.crates) ? plant.crates : []).map((rawCrate, crateIndex) => {
+            const crate = normalizeCrate(rawCrate)
             const shades = cavityShades.get(crate.cavityName) || []
             let totalCrates = 0, totalPlantsCount = 0
             if (crate.crateDetails && crate.crateDetails.length > 0) {

@@ -10,6 +10,7 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  Autocomplete,
   Radio,
   RadioGroup,
   FormControlLabel,
@@ -107,7 +108,13 @@ const useStyles = makeStyles()((theme) => ({
   },
 }));
 
-const AddAgriSalesOrderForm = ({ open = true, onClose, onSuccess, isStandalone = false }) => {
+const AddAgriSalesOrderForm = ({
+  open = true,
+  onClose,
+  onSuccess,
+  isStandalone = false,
+  linkedNurseryOrder = null,
+}) => {
   const { classes } = useStyles();
   const [loading, setLoading] = useState(false);
   const [mobileLoading, setMobileLoading] = useState(false);
@@ -115,6 +122,8 @@ const AddAgriSalesOrderForm = ({ open = true, onClose, onSuccess, isStandalone =
   const [units, setUnits] = useState([]);
   const [customerData, setCustomerData] = useState({});
   const [productType, setProductType] = useState("seed");
+  const linkedNurseryOrderId = linkedNurseryOrder?.details?.orderid || linkedNurseryOrder?._id || null;
+  const isLinkedFlow = Boolean(linkedNurseryOrderId);
 
   const productTypeLabel = productType === "chemical" ? "Chemical" : "Seed";
   const productTypeLabelPlural = productType === "chemical" ? "Chemicals" : "Seeds";
@@ -181,6 +190,24 @@ const AddAgriSalesOrderForm = ({ open = true, onClose, onSuccess, isStandalone =
     }
   }, [open]);
 
+  useEffect(() => {
+    if (!open || !isLinkedFlow) return;
+    const farmer = linkedNurseryOrder?.details?.farmer || {};
+    const mobile = farmer.mobileNumber || linkedNurseryOrder?.details?.contact || "";
+    const orderDeliveryDate =
+      linkedNurseryOrder?.details?.deliveryDate || linkedNurseryOrder?.deliveryDate;
+
+    setFormData((prev) => ({
+      ...prev,
+      customerName: farmer.name || linkedNurseryOrder?.farmerName || prev.customerName,
+      customerMobile: mobile ? String(mobile) : prev.customerMobile,
+      customerVillage: farmer.village || prev.customerVillage,
+      customerTaluka: farmer.taluka || prev.customerTaluka,
+      customerDistrict: farmer.district || prev.customerDistrict,
+      deliveryDate: orderDeliveryDate ? new Date(orderDeliveryDate) : prev.deliveryDate,
+    }));
+  }, [open, isLinkedFlow, linkedNurseryOrder]);
+
   // Update rate and UOM when variety is selected
   useEffect(() => {
     if (formData?.ramAgriCropId && formData?.ramAgriVarietyId) {
@@ -190,6 +217,9 @@ const AddAgriSalesOrderForm = ({ open = true, onClose, onSuccess, isStandalone =
         if (variety) {
           // Get current rate (from active rate or default rate)
           const getCurrentRate = (variety) => {
+            if (Number(variety.sellerRate) > 0) {
+              return Number(variety.sellerRate);
+            }
             if (variety.rates && variety.rates.length > 0) {
               const now = new Date();
               const activeRate = variety.rates.find(
@@ -209,7 +239,7 @@ const AddAgriSalesOrderForm = ({ open = true, onClose, onSuccess, isStandalone =
             ...prev,
             ramAgriCropName: crop.cropName,
             ramAgriVarietyName: variety.name,
-            rate: currentRate > 0 ? currentRate.toString() : prev.rate,
+            rate: currentRate > 0 ? currentRate.toString() : "",
           }));
         }
       }
@@ -767,11 +797,28 @@ const AddAgriSalesOrderForm = ({ open = true, onClose, onSuccess, isStandalone =
         ];
       }
 
-      const instance = NetworkManager(API.INVENTORY.CREATE_AGRI_SALES_ORDER);
-      const response = await instance.request(payload);
+      let response;
+      if (isLinkedFlow) {
+        const linkedInstance = NetworkManager(API.INVENTORY.CREATE_LINKED_AGRI_ORDER);
+        response = await linkedInstance.request({
+          linkedNurseryOrderId,
+          ramAgriCropId: payload.ramAgriCropId,
+          ramAgriVarietyId: payload.ramAgriVarietyId,
+          quantity: payload.quantity,
+          rate: payload.rate,
+          notes: payload.notes,
+        });
+      } else {
+        const instance = NetworkManager(API.INVENTORY.CREATE_AGRI_SALES_ORDER);
+        response = await instance.request(payload);
+      }
 
       if (response?.data) {
-        Toast.success("Agri Sales Order created successfully");
+        Toast.success(
+          isLinkedFlow
+            ? "Linked Agri Inputs added successfully"
+            : "Agri Sales Order created successfully"
+        );
         const orderDoc = response?.data?.data || response?.data;
         const totalAmount = parseFloat(formData.quantity || 0) * parseFloat(formData.rate || 0);
         const paidAmt = parseFloat(paymentData.paidAmount || 0);
@@ -789,6 +836,7 @@ const AddAgriSalesOrderForm = ({ open = true, onClose, onSuccess, isStandalone =
           paidAmt,
           remainingAmt: totalAmount - paidAmt,
           deliveryDate: formData.deliveryDate ? (formData.deliveryDate instanceof Date ? formData.deliveryDate.toLocaleDateString() : formData.deliveryDate) : "",
+          linkedNurseryOrderId: linkedNurseryOrderId || null,
         };
         handleClose();
         onSuccess?.(createdAgriOrderPayload);
@@ -836,6 +884,8 @@ const AddAgriSalesOrderForm = ({ open = true, onClose, onSuccess, isStandalone =
 
   const selectedCrop = ramAgriCrops.find((c) => c._id === formData.ramAgriCropId);
   const selectedVariety = selectedCrop?.varieties?.find((v) => v._id === formData.ramAgriVarietyId);
+  const selectedCropOption = ramAgriCrops.find((c) => c._id === formData.ramAgriCropId) || null;
+  const selectedVarietyOption = selectedCrop?.varieties?.find((v) => v._id === formData.ramAgriVarietyId) || null;
   const totalAmount = parseFloat(formData.quantity || 0) * parseFloat(formData.rate || 0);
   const paidAmount = parseFloat(paymentData.paidAmount || 0);
   const balanceAmount = totalAmount - paidAmount;
@@ -848,6 +898,27 @@ const AddAgriSalesOrderForm = ({ open = true, onClose, onSuccess, isStandalone =
     return unit;
   };
 
+  const searchableDropdownSx = {
+    "& .MuiOutlinedInput-root": {
+      borderRadius: 2,
+      backgroundColor: "#fff",
+      "& fieldset": {
+        borderColor: "#cfd8dc",
+        borderWidth: 1.2,
+      },
+      "&:hover fieldset": {
+        borderColor: "#4caf50",
+      },
+      "&.Mui-focused fieldset": {
+        borderColor: "#2e7d32",
+        borderWidth: 2,
+      },
+    },
+    "& .MuiInputLabel-root.Mui-focused": {
+      color: "#2e7d32",
+    },
+  };
+
   // Form content (shared between Dialog and standalone modes)
   const formContent = (
     <Box sx={isStandalone ? { p: { xs: 2, sm: 3 }, maxWidth: "100%" } : {}} className={!isStandalone ? classes.formContainer : ""}>
@@ -855,6 +926,13 @@ const AddAgriSalesOrderForm = ({ open = true, onClose, onSuccess, isStandalone =
           <Typography className={classes.sectionTitle}>
             <PersonIcon /> Customer Information
           </Typography>
+          {isLinkedFlow && (
+            <Alert severity="info" sx={{ mb: 1.5 }}>
+              Linked with nursery order #
+              {linkedNurseryOrder?.order || linkedNurseryOrder?.details?.publicOrderCode || linkedNurseryOrderId}.
+              Customer and delivery date are prefilled from that order.
+            </Alert>
+          )}
 
           {customerData?.name && (
             <Box className={classes.customerInfo}>
@@ -878,6 +956,7 @@ const AddAgriSalesOrderForm = ({ open = true, onClose, onSuccess, isStandalone =
                 label="Mobile Number *"
                 value={formData.customerMobile}
                 onChange={(e) => handleInputChange("customerMobile", e.target.value)}
+                disabled={isLinkedFlow}
                 inputProps={{ maxLength: 10, pattern: "[0-9]*" }}
                 InputProps={{
                   startAdornment: <Box sx={{ mr: 0.5, color: "text.secondary", fontSize: "0.875rem" }}>+91</Box>,
@@ -902,7 +981,7 @@ const AddAgriSalesOrderForm = ({ open = true, onClose, onSuccess, isStandalone =
                 label="Customer Name *"
                 value={formData.customerName}
                 onChange={(e) => handleInputChange("customerName", e.target.value)}
-                disabled={!!customerData?.name}
+                disabled={isLinkedFlow || !!customerData?.name}
                 placeholder="Enter customer name"
               />
             </Grid>
@@ -1018,63 +1097,64 @@ const AddAgriSalesOrderForm = ({ open = true, onClose, onSuccess, isStandalone =
               </FormControl>
             </Grid>
             <Grid item xs={12} sm={6}>
-              <FormControl fullWidth size="small">
-                <InputLabel>Select {productTypeLabel} *</InputLabel>
-                <Select
-                  value={formData.ramAgriCropId}
-                  onChange={(e) => {
-                    handleInputChange("ramAgriCropId", e.target.value);
-                    handleInputChange("ramAgriVarietyId", ""); // Reset variety when crop changes
-                  }}
-                  label={`Select ${productTypeLabel} *`}
-                  disabled={loading || ramAgriCrops.length === 0}
-                >
-                  {loading ? (
-                    <MenuItem disabled>
-                      <Box display="flex" alignItems="center" gap={1}>
-                        <CircularProgress size={16} />
-                        <span>Loading {productTypeLabelPlural.toLowerCase()}...</span>
-                      </Box>
-                    </MenuItem>
-                  ) : ramAgriCrops.length === 0 ? (
-                    <MenuItem disabled>
-                      <Typography variant="body2" color="text.secondary">
-                        No Ram Agri {productTypeLabelPlural.toLowerCase()} available.
-                      </Typography>
-                    </MenuItem>
-                  ) : (
-                    ramAgriCrops.map((crop) => (
-                      <MenuItem key={crop._id} value={crop._id}>
-                        {crop.cropName} ({crop.varieties?.length || 0} varieties)
-                      </MenuItem>
-                    ))
-                  )}
-                </Select>
-              </FormControl>
+              <Autocomplete
+                fullWidth
+                size="small"
+                sx={searchableDropdownSx}
+                options={ramAgriCrops}
+                value={selectedCropOption}
+                onChange={(_, crop) => {
+                  handleInputChange("ramAgriCropId", crop?._id || "");
+                  handleInputChange("ramAgriVarietyId", "");
+                }}
+                getOptionLabel={(option) =>
+                  `${option?.cropName || ""} (${option?.varieties?.length || 0} varieties)`
+                }
+                isOptionEqualToValue={(option, value) => option?._id === value?._id}
+                loading={loading}
+                disabled={loading || ramAgriCrops.length === 0}
+                noOptionsText={
+                  loading
+                    ? `Loading ${productTypeLabelPlural.toLowerCase()}...`
+                    : `No Ram Agri ${productTypeLabelPlural.toLowerCase()} available`
+                }
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label={`Search ${productTypeLabel} *`}
+                    placeholder={`Type to search ${productTypeLabel.toLowerCase()}`}
+                  />
+                )}
+              />
             </Grid>
 
             <Grid item xs={12} sm={6}>
-              <FormControl fullWidth size="small">
-                <InputLabel>Select Variety *</InputLabel>
-                <Select
-                  value={formData.ramAgriVarietyId}
-                  onChange={(e) => handleInputChange("ramAgriVarietyId", e.target.value)}
-                  label="Select Variety *"
-                  disabled={loading || !formData.ramAgriCropId || !selectedCrop?.varieties?.length}
-                >
-                  {!formData.ramAgriCropId ? (
-                    <MenuItem disabled>Select a {productTypeLabel.toLowerCase()} first</MenuItem>
-                  ) : !selectedCrop?.varieties?.length ? (
-                    <MenuItem disabled>No varieties available for this {productTypeLabel.toLowerCase()}</MenuItem>
-                  ) : (
-                    selectedCrop.varieties.map((variety) => (
-                      <MenuItem key={variety._id} value={variety._id}>
-                        {variety.name}
-                      </MenuItem>
-                    ))
-                  )}
-                </Select>
-              </FormControl>
+              <Autocomplete
+                fullWidth
+                size="small"
+                sx={searchableDropdownSx}
+                options={selectedCrop?.varieties || []}
+                value={selectedVarietyOption}
+                onChange={(_, variety) =>
+                  handleInputChange("ramAgriVarietyId", variety?._id || "")
+                }
+                getOptionLabel={(option) => option?.name || ""}
+                isOptionEqualToValue={(option, value) => option?._id === value?._id}
+                loading={loading}
+                disabled={loading || !formData.ramAgriCropId || !selectedCrop?.varieties?.length}
+                noOptionsText={
+                  !formData.ramAgriCropId
+                    ? `Select a ${productTypeLabel.toLowerCase()} first`
+                    : `No varieties available for this ${productTypeLabel.toLowerCase()}`
+                }
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Search Variety *"
+                    placeholder="Type to search variety"
+                  />
+                )}
+              />
             </Grid>
 
             {selectedVariety && (
@@ -1110,9 +1190,10 @@ const AddAgriSalesOrderForm = ({ open = true, onClose, onSuccess, isStandalone =
                 label="Rate per Unit *"
                 type="number"
                 value={formData.rate}
-                onChange={(e) => handleInputChange("rate", e.target.value)}
+                disabled
                 inputProps={{ min: 0, step: 0.01 }}
-                placeholder="Enter rate"
+                helperText="Auto-filled from seller rate"
+                placeholder="Auto-filled"
               />
             </Grid>
 

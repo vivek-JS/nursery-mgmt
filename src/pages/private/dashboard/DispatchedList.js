@@ -17,6 +17,30 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false 
   const [isDCOpen, setIsDCOpen] = useState(false)
   const [isOrderCompleteOpen, setIsOrderCompleteOpen] = useState(false)
 
+  const enrichDispatchLoadStatus = async (dispatchRows = []) => {
+    if (!Array.isArray(dispatchRows) || dispatchRows.length === 0) return []
+    return Promise.all(
+      dispatchRows.map(async (dispatch) => {
+        try {
+          const orderIds = (dispatch.orderIds || []).map((order) => order?._id).filter(Boolean)
+          if (orderIds.length === 0) {
+            return { ...dispatch, agriLoadBlocked: false, agriLoadBlockedBy: [] }
+          }
+          const instance = NetworkManager(API.INVENTORY.GET_DISPATCH_LOAD_STATUS)
+          const response = await instance.request({ orderIds })
+          const data = response?.data?.data || {}
+          return {
+            ...dispatch,
+            agriLoadBlocked: Boolean(data.isBlocked),
+            agriLoadBlockedBy: Array.isArray(data.blockedBy) ? data.blockedBy : [],
+          }
+        } catch (error) {
+          return { ...dispatch, agriLoadBlocked: false, agriLoadBlockedBy: [] }
+        }
+      })
+    )
+  }
+
   const fetchDispatches = useCallback(async () => {
     try {
       setLoading(true)
@@ -24,8 +48,9 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false 
       const response = await instance.request()
 
       if (response.data?.data) {
-        setDispatches(response.data.data)
-        setisDispatchtab(response?.data?.data[0])
+        const enrichedDispatches = await enrichDispatchLoadStatus(response.data.data)
+        setDispatches(enrichedDispatches)
+        setisDispatchtab(enrichedDispatches[0])
       }
     } catch (error) {
       console.error("Error fetching dispatches:", error)
@@ -101,7 +126,11 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false 
       driverMobile: dispatchData.driverMobile,
       vehicleName: dispatchData.vehicleName,
       transportId: dispatchData.transportId,
-      plants: plants
+      plants: plants,
+      orderIds: Array.isArray(dispatchData.orderIds) ? dispatchData.orderIds : [],
+      orderDispatchDetails: Array.isArray(dispatchData.orderDispatchDetails)
+        ? dispatchData.orderDispatchDetails
+        : []
     }
   }
   const handleOrderComplete = (dispatch, e) => {
@@ -248,7 +277,17 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false 
         setIsCollectSlipOpen(true)
         break
       case "dc":
-        // For DC we don't need to transform the data
+        if (dispatch?.agriLoadBlocked) {
+          const blockedOrders = (dispatch.agriLoadBlockedBy || [])
+            .map((row) => row.agriOrderNumber || row.agriOrderId)
+            .filter(Boolean)
+          Toast.error(
+            `Agri Input pending load by Agri admin. Challan blocked${
+              blockedOrders.length ? ` (${blockedOrders.join(", ")})` : ""
+            }`
+          )
+          return
+        }
         setSelectedDispatch(dispatch)
         setIsDCOpen(true)
         break

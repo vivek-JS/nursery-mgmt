@@ -345,6 +345,11 @@ export const API = {
     GET_OUTSTANDING_AGRI_SALES_ORDERS: new APIRouter("/inventory/agri-sales-orders/outstanding", HTTP_METHODS.GET),
     GET_AGRI_SALES_ORDER_BY_ID: new APIRouter("/inventory/agri-sales-orders", HTTP_METHODS.GET),
     CREATE_AGRI_SALES_ORDER: new APIRouter("/inventory/agri-sales-orders/create", HTTP_METHODS.POST),
+    CREATE_LINKED_AGRI_ORDER: new APIRouter("/inventory/agri-sales-orders/linked/create", HTTP_METHODS.POST),
+    GET_LINKED_AGRI_BY_NURSERY_ORDER: new APIRouter("/inventory/agri-sales-orders/linked/by-nursery-order/:orderId", HTTP_METHODS.GET),
+    GET_TODAY_PENDING_LINKED_AGRI_LOAD: new APIRouter("/inventory/agri-sales-orders/linked/today-pending-load", HTTP_METHODS.GET),
+    MARK_LINKED_AGRI_LOADED: new APIRouter("/inventory/agri-sales-orders/linked/:id/mark-loaded", HTTP_METHODS.PATCH),
+    GET_DISPATCH_LOAD_STATUS: new APIRouter("/inventory/agri-sales-orders/linked/dispatch-load-status", HTTP_METHODS.POST),
     UPDATE_AGRI_SALES_ORDER: new APIRouter("/inventory/agri-sales-orders/:id", HTTP_METHODS.PATCH),
     ACCEPT_AGRI_SALES_ORDER: new APIRouter("/inventory/agri-sales-orders/:id/accept", HTTP_METHODS.PATCH),
     REJECT_AGRI_SALES_ORDER: new APIRouter("/inventory/agri-sales-orders/:id/reject", HTTP_METHODS.PATCH),
@@ -475,6 +480,11 @@ export const API = {
     GET_SLOTS: new APIRouter("slots/getslots", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_BUCKETING: new APIRouter("/order/bucketing", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_SALESMEN_BUCKETING: new APIRouter("/order/salesmen-bucketing", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_ORDER_DISPATCH_DETAILS: new APIRouter(
+      "/order/dispatch-details/:orderId",
+      HTTP_METHODS.GET,
+      OFFLINE.PROFILE
+    ),
     // Payment Activity Logs
     CREATE_PAYMENT_ACTIVITY: new APIRouter("/order/payment-activity", HTTP_METHODS.POST, OFFLINE.PROFILE),
     GET_PAYMENT_ACTIVITIES: new APIRouter("/order/payment-activity", HTTP_METHODS.GET, OFFLINE.PROFILE),

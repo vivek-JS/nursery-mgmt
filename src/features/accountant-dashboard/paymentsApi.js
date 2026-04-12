@@ -92,8 +92,19 @@ export async function fetchBulkPaymentsList({ bulkPage, rowsPerPage, bulkStatusF
   const response = await instance.request({}, params)
   const data = response?.data?.data
   const rows = data?.data && Array.isArray(data.data) ? data.data : []
-  const total = data?.total ?? rows.length
-  return { rows, total }
+  const total = Number(data?.total ?? rows.length) || 0
+  const page = Number(data?.page ?? bulkPage) || bulkPage
+  const limit = Number(data?.limit ?? rowsPerPage) || rowsPerPage
+  const totalPages = Math.max(1, Math.ceil(total / Math.max(1, limit)))
+  return {
+    rows,
+    pagination: {
+      total,
+      page,
+      limit,
+      totalPages
+    }
+  }
 }
 
 /**

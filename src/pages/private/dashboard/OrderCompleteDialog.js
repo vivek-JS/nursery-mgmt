@@ -1,5 +1,5 @@
 import React, { useState } from "react"
-import { ChevronDown, ChevronRight, Plus, RefreshCw, Check } from "lucide-react"
+import { ChevronDown, ChevronRight, Plus, Check } from "lucide-react"
 import { API, NetworkManager } from "network/core"
 import { Toast } from "helpers/toasts/toastHelper"
 import ReplaceOrderDialog from "./ReplaceOrderDialog"
@@ -10,8 +10,15 @@ const getExistingReturnedPlants = (order) =>
     Number(order.details?.returnedPlants ?? order.returnedPlants ?? 0) || 0
   )
 
+const getExistingDamagedPlants = (order) =>
+  Math.max(
+    0,
+    Number(order.details?.damagedPlants ?? order.damagedPlants ?? 0) || 0
+  )
+
 const OrderCompleteDialog = ({ open, onClose, dispatchData }) => {
   const [returnedPlants, setReturnedPlants] = useState({})
+  const [damagedPlants, setDamagedPlants] = useState({})
   const [expandedRows, setExpandedRows] = useState(new Set())
   const [returnReasons, setReturnReasons] = useState({})
   const [showAddOrderDialog, setShowAddOrderDialog] = useState(false)
@@ -30,7 +37,6 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData }) => {
       const initialAdditionalPlants = {}
       dispatchData.orderIds.forEach((order) => {
         initialActions[order.details.orderid] = {
-          addToInventory: false, // Default to false
           completeOrder: true // Default to true
         }
         const existingAdditional =
@@ -51,6 +57,13 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData }) => {
 
   const handleReasonChange = (orderId, value) => {
     setReturnReasons((prev) => ({
+      ...prev,
+      [orderId]: value
+    }))
+  }
+
+  const handleDamagedPlantsChange = (orderId, value) => {
+    setDamagedPlants((prev) => ({
       ...prev,
       [orderId]: value
     }))
@@ -164,7 +177,13 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData }) => {
   )
 
   // Process returned plants function
-  const processReturnedPlants = (dispatchData, returnedPlants, returnReasons, orderActions) => {
+  const processReturnedPlants = (
+    dispatchData,
+    returnedPlants,
+    damagedPlants,
+    returnReasons,
+    orderActions
+  ) => {
     // Validate inputs
     if (!dispatchData?.orderIds) {
       throw new Error("Invalid dispatch data")
@@ -178,17 +197,20 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData }) => {
       const orderId = order.details.orderid
       const rawReturned = returnedPlants[orderId]
       const returnedQuantity = Math.max(0, Number.isNaN(Number(rawReturned)) ? 0 : Number(rawReturned))
+      const rawDamaged = damagedPlants[orderId]
+      const damagedQuantity = Math.max(0, Number.isNaN(Number(rawDamaged)) ? 0 : Number(rawDamaged))
       const { basePlants, additionalPlants: additionalPlantCount, totalPlants } = getPlantQuantities(order)
-      const actions = orderActions[orderId] || { addToInventory: false, completeOrder: true }
+      const actions = orderActions[orderId] || { completeOrder: true }
 
       const undispatchedAtNursery =
         Number(order.details?.remainingPlants ?? order.remainingPlants ?? 0) || 0
 
       const existingReturned = getExistingReturnedPlants(order)
-      const maxReturnThisBatch = Math.max(0, totalPlants - existingReturned)
-      if (returnedQuantity > maxReturnThisBatch) {
+      const existingDamaged = getExistingDamagedPlants(order)
+      const maxTrackableThisBatch = Math.max(0, totalPlants - existingReturned - existingDamaged)
+      if (returnedQuantity + damagedQuantity > maxTrackableThisBatch) {
         throw new Error(
-          `Return quantity for Order #${order.order} cannot exceed ${maxReturnThisBatch} (${existingReturned} already returned of ${totalPlants} total)`
+          `Return + damaged quantity for Order #${order.order} cannot exceed ${maxTrackableThisBatch} (${existingReturned} returned and ${existingDamaged} damaged already recorded of ${totalPlants} total)`
         )
       }
 
@@ -209,12 +231,12 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData }) => {
       orderUpdates.push({
         orderId: orderId,
         returnedPlants: returnedQuantity,
+        damagedPlants: damagedQuantity,
         returnReason: returnReasons[orderId] || "",
         additionalPlants: additionalPlantCount,
         basePlants,
         totalPlants,
         actions: {
-          addToInventory: actions.addToInventory,
           completeOrder: finalCompleteAction,
           finalStatus: finalStatus // Include the calculated final status
         }
@@ -238,7 +260,13 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData }) => {
       const instance = NetworkManager(API.DISPATCHED.UPDATE_COMPLETE)
       const user = await instance.request(
         {
-          ...processReturnedPlants(dispatchData, returnedPlants, returnReasons, orderActions)
+          ...processReturnedPlants(
+            dispatchData,
+            returnedPlants,
+            damagedPlants,
+            returnReasons,
+            orderActions
+          )
         },
         [dispatchData?._id]
       )
@@ -313,11 +341,16 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData }) => {
                     </th>
                     <th
                       className="px-4 py-3 text-left text-sm font-semibold text-gray-900"
-                      title="Quantity returned on this completion (added to prior returns)">
+                      title="Quantity returned on this completion and auto-added to inventory">
                       Returned Plants
                     </th>
+                    <th
+                      className="px-4 py-3 text-left text-sm font-semibold text-gray-900"
+                      title="Damaged quantity will be recorded but not added to inventory">
+                      Damaged Plants
+                    </th>
                     <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">
-                      Return Reason
+                      Return / Damage Reason
                     </th>
                     <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900 w-64">
                       Actions
@@ -329,18 +362,28 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData }) => {
                     const { basePlants, additionalPlants: additionalPlantCount, totalPlants } =
                       getPlantQuantities(order)
                     const returnedQuantity = Number(returnedPlants[order.details.orderid] || 0)
+                    const damagedQuantity = Number(damagedPlants[order.details.orderid] || 0)
                     const existingReturned = getExistingReturnedPlants(order)
-                    const maxReturnThisBatch = Math.max(0, totalPlants - existingReturned)
+                    const existingDamaged = getExistingDamagedPlants(order)
+                    const maxTrackableThisBatch = Math.max(
+                      0,
+                      totalPlants - existingReturned - existingDamaged
+                    )
+                    const maxReturnThisBatch = Math.max(
+                      0,
+                      maxTrackableThisBatch - damagedQuantity
+                    )
+                    const maxDamagedThisBatch = Math.max(
+                      0,
+                      maxTrackableThisBatch - returnedQuantity
+                    )
                     const undispatchedAtNursery =
                       Number(order.details?.remainingPlants ?? order.remainingPlants ?? 0) || 0
-                    const isDealerQuotaOrder =
-                      order.quotaSource === "dealer" ||
-                      order.details?.quotaSource === "dealer"
                     const isCompleteChecked =
                       orderActions[order.details.orderid]?.completeOrder !== false
                     const netWithFarmer = Math.max(
                       0,
-                      totalPlants - returnedQuantity - undispatchedAtNursery
+                      totalPlants - returnedQuantity - damagedQuantity - undispatchedAtNursery
                     )
 
                     return (
@@ -412,9 +455,22 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData }) => {
                         </td>
                         <td className="px-4 py-4">
                           <input
+                            type="number"
+                            min="0"
+                            max={maxDamagedThisBatch}
+                            className="w-24 px-2 py-1 border rounded focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                            placeholder="Damaged"
+                            value={damagedQuantity || ""}
+                            onChange={(e) =>
+                              handleDamagedPlantsChange(order.details.orderid, e.target.value)
+                            }
+                          />
+                        </td>
+                        <td className="px-4 py-4">
+                          <input
                             type="text"
                             className="w-full px-2 py-1 border rounded focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                            placeholder="Reason for return"
+                            placeholder="Reason for return/damage"
                             value={returnReasons[order.details.orderid] || ""}
                             onChange={(e) =>
                               handleReasonChange(order.details.orderid, e.target.value)
@@ -423,33 +479,6 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData }) => {
                         </td>
                         <td className="px-4 py-4">
                           <div className="space-y-2">
-                            {/* Per-row actions */}
-                            <div className="flex items-center">
-                              <input
-                                type="checkbox"
-                                id={`inventory-${order.details.orderid}`}
-                                className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
-                                checked={
-                                  orderActions[order.details.orderid]?.addToInventory !== false
-                                }
-                                onChange={(e) =>
-                                  handleActionChange(
-                                    order.details.orderid,
-                                    "addToInventory",
-                                    e.target.checked
-                                  )
-                                }
-                              />
-                              <label
-                                htmlFor={`inventory-${order.details.orderid}`}
-                                className="ml-2 flex items-center text-sm text-gray-900">
-                                <RefreshCw className="w-3.5 h-3.5 mr-1 text-blue-600" />
-                                {isDealerQuotaOrder
-                                  ? "Return to dealer quota"
-                                  : "Add to Inventory"}
-                              </label>
-                            </div>
-
                             <div className="flex items-center">
                               <input
                                 type="checkbox"
@@ -478,7 +507,7 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData }) => {
                       </tr>
                       {expandedRows.has(index) && (
                         <tr className="bg-gray-50">
-                          <td colSpan={8} className="px-4 py-4">
+                          <td colSpan={11} className="px-4 py-4">
                             <div className="text-sm space-y-4">
                               <div className="grid grid-cols-3 gap-4">
                                 <div>
@@ -526,11 +555,17 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData }) => {
                                     {returnedQuantity}
                                   </p>
                                   <p className="text-gray-700">
+                                    <span className="font-medium">Damaged Plants:</span>{" "}
+                                    {damagedQuantity}
+                                  </p>
+                                  <p className="text-gray-700">
                                     <span className="font-medium">Remaining at nursery (undispatched):</span>{" "}
                                     {undispatchedAtNursery}
                                   </p>
                                   <p className="text-gray-700">
-                                    <span className="font-medium">Net with farmer (after return):</span>{" "}
+                                    <span className="font-medium">
+                                      Net with farmer (after return + damage):
+                                    </span>{" "}
                                     {netWithFarmer}
                                   </p>
                                   <div className="mt-2 p-2 bg-white rounded border">
@@ -569,8 +604,10 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData }) => {
           <div className="p-6 border-t bg-gray-50">
             <div className="flex justify-between items-center">
               <div className="text-sm text-gray-600">
-                Total returned this submit:{" "}
-                {Object.values(returnedPlants).reduce((sum, qty) => sum + Number(qty || 0), 0)}
+                Total this submit - Returned:{" "}
+                {Object.values(returnedPlants).reduce((sum, qty) => sum + Number(qty || 0), 0)} |
+                Damaged:{" "}
+                {Object.values(damagedPlants).reduce((sum, qty) => sum + Number(qty || 0), 0)}
               </div>
               <div className="flex justify-end space-x-3">
                 <button

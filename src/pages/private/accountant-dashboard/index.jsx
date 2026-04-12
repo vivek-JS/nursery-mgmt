@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react"
+import React, { useCallback, useEffect, useRef, useState } from "react"
 import moment from "moment"
 import { Box, Card, CardContent, Typography } from "@mui/material"
 import { Shield } from "@mui/icons-material"
@@ -27,6 +27,21 @@ import BulkPaymentEntryDialog from "components/Modals/BulkPaymentEntryDialog"
 import DealerWalletCreditDialog from "components/Modals/DealerWalletCreditDialog"
 
 const ROWS = 25
+const BULK_STATUS_BY_UI_FILTER = {
+  PENDING: "PENDING",
+  COLLECTED: "ACCEPTED",
+  REJECTED: "REJECTED"
+}
+
+function getTotalPagesFromPagination(pagination, fallbackPage) {
+  if (!pagination) return fallbackPage
+  const totalPages = Number(
+    pagination.totalPages ??
+      pagination.pages ??
+      (pagination.total && pagination.limit ? Math.ceil(Number(pagination.total) / Math.max(1, Number(pagination.limit))) : 1)
+  )
+  return Math.max(1, Number.isFinite(totalPages) ? totalPages : fallbackPage)
+}
 
 const AccountantDashboard = () => {
   const hasPaymentsAccess = useHasPaymentsAccess()
@@ -48,8 +63,12 @@ const AccountantDashboard = () => {
   const [orderPayments, setOrderPayments] = useState([])
   const [bulkPayments, setBulkPayments] = useState([])
   const [loading, setLoading] = useState(false)
+  const [loadingMorePayments, setLoadingMorePayments] = useState(false)
   const [page, setPage] = useState(1)
-  const [totalPages, setTotalPages] = useState(1)
+  const [hasMorePayments, setHasMorePayments] = useState(false)
+  const [statusFilter, setStatusFilter] = useState("ALL")
+  const loadMoreRef = useRef(null)
+  const prevPaymentsFilterKeyRef = useRef("")
 
   const [unclearedList, setUnclearedList] = useState([])
   const [forApprovalList, setForApprovalList] = useState([])
@@ -75,75 +94,131 @@ const AccountantDashboard = () => {
     return () => clearTimeout(t)
   }, [searchTerm])
 
-  const fetchOrders = useCallback(async () => {
+  const loadPaymentsPage = useCallback(async ({ targetPage, append }) => {
+    const orderStatusFilter = statusFilter === "ALL" ? undefined : statusFilter
+    const bulkStatusFilter = statusFilter === "ALL" ? "" : BULK_STATUS_BY_UI_FILTER[statusFilter] || ""
+
     try {
+      let nextOrderRows = []
+      let orderPagination = null
       if (selectedOrg === "ram-biotech") {
         const { rows, pagination } = await fetchFarmerOrderPayments({
           debouncedSearchTerm,
-          page,
+          page: targetPage,
           rowsPerPage: ROWS,
           startDate,
           endDate,
-          allStatuses: true
+          allStatuses: statusFilter === "ALL",
+          paymentStatus: orderStatusFilter
         })
-        setOrderPayments(rows)
-        if (pagination) {
-          setTotalPages(pagination.totalPages || 1)
-        } else {
-          setTotalPages(1)
-        }
+        nextOrderRows = rows
+        orderPagination = pagination
       } else {
         const { rows, pagination } = await fetchAgriOrderPayments({
           debouncedSearchTerm,
-          page,
+          page: targetPage,
           rowsPerPage: ROWS,
           startDate,
           endDate,
-          paymentStatusFilter: ""
+          paymentStatusFilter: orderStatusFilter || ""
         })
-        setOrderPayments(rows)
-        if (pagination) {
-          setTotalPages(pagination.pages || pagination.totalPages || 1)
-        } else {
-          setTotalPages(1)
-        }
+        nextOrderRows = rows
+        orderPagination = pagination
       }
-    } catch (e) {
-      console.error(e)
-      Toast.error("Failed to load payments")
-      setOrderPayments([])
-    }
-  }, [selectedOrg, debouncedSearchTerm, page, startDate, endDate])
 
-  const fetchBulk = useCallback(async () => {
-    try {
-      const { rows } = await fetchBulkPaymentsList({
-        bulkPage: 1,
-        rowsPerPage: 100,
-        bulkStatusFilter: "",
+      const { rows: nextBulkRows, pagination: bulkPagination } = await fetchBulkPaymentsList({
+        bulkPage: targetPage,
+        rowsPerPage: ROWS,
+        bulkStatusFilter,
         startDate,
         endDate,
         debouncedSearchTerm
       })
-      setBulkPayments(rows)
+
+      setOrderPayments((prev) => (append ? [...prev, ...nextOrderRows] : nextOrderRows))
+      setBulkPayments((prev) => (append ? [...prev, ...nextBulkRows] : nextBulkRows))
+
+      const orderTotalPages = getTotalPagesFromPagination(orderPagination, targetPage)
+      const bulkTotalPages = getTotalPagesFromPagination(bulkPagination, targetPage)
+      setHasMorePayments(targetPage < Math.max(orderTotalPages, bulkTotalPages))
     } catch (e) {
       console.error(e)
-      Toast.error("Failed to load bulk payments")
-      setBulkPayments([])
+      Toast.error("Failed to load payments")
+      if (!append) {
+        setOrderPayments([])
+        setBulkPayments([])
+      }
+      setHasMorePayments(false)
     }
-  }, [startDate, endDate, debouncedSearchTerm])
+  }, [selectedOrg, debouncedSearchTerm, startDate, endDate, statusFilter])
 
   useEffect(() => {
     if (activeTab !== "payments") return
-    let cancelled = false
-    setLoading(true)
-    Promise.all([fetchOrders(), fetchBulk()]).finally(() => {
-      if (!cancelled) setLoading(false)
+    let mounted = true
+    const paymentsFilterKey = JSON.stringify({
+      selectedOrg,
+      debouncedSearchTerm,
+      startDate: startDate ? moment(startDate).format("YYYY-MM-DD") : null,
+      endDate: endDate ? moment(endDate).format("YYYY-MM-DD") : null,
+      statusFilter
     })
-    return () => {
-      cancelled = true
+
+    if (prevPaymentsFilterKeyRef.current !== paymentsFilterKey) {
+      prevPaymentsFilterKeyRef.current = paymentsFilterKey
+      setOrderPayments([])
+      setBulkPayments([])
+      setHasMorePayments(false)
+      if (page !== 1) {
+        setPage(1)
+        return
+      }
     }
-  }, [activeTab, fetchOrders, fetchBulk])
+
+    const load = async () => {
+      if (page === 1) setLoading(true)
+      else setLoadingMorePayments(true)
+      await loadPaymentsPage({ targetPage: page, append: page > 1 })
+      if (mounted) {
+        setLoading(false)
+        setLoadingMorePayments(false)
+      }
+    }
+
+    load()
+    return () => {
+      mounted = false
+    }
+  }, [activeTab, page, loadPaymentsPage, selectedOrg, debouncedSearchTerm, startDate, endDate, statusFilter])
+
+  const refreshPayments = useCallback(async () => {
+    if (activeTab !== "payments") return
+    if (page !== 1) {
+      setPage(1)
+      return
+    }
+    setPage(1)
+    setLoading(true)
+    await loadPaymentsPage({ targetPage: 1, append: false })
+    setLoading(false)
+  }, [activeTab, loadPaymentsPage, page])
+
+  useEffect(() => {
+    if (activeTab !== "payments") return undefined
+    const target = loadMoreRef.current
+    if (!target) return undefined
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const [entry] = entries
+        if (!entry?.isIntersecting) return
+        if (loading || loadingMorePayments || !hasMorePayments) return
+        setPage((prev) => prev + 1)
+      },
+      { root: null, rootMargin: "220px 0px", threshold: 0 }
+    )
+    observer.observe(target)
+    return () => observer.disconnect()
+  }, [activeTab, loading, loadingMorePayments, hasMorePayments])
 
   const fetchUncleared = async () => {
     setLoadingUncleared(true)
@@ -256,7 +331,7 @@ const AccountantDashboard = () => {
         })
       }
       Toast.success("Payment status updated")
-      fetchOrders()
+      refreshPayments()
       return true
     } catch (e) {
       Toast.error(e?.response?.data?.message || "Update failed")
@@ -277,7 +352,7 @@ const AccountantDashboard = () => {
       const instance = NetworkManager(API.ORDER.ACCEPT_BULK_PAYMENT)
       await instance.request({}, { pathParams: [bulkId] })
       Toast.success("Bulk payment accepted.")
-      fetchBulk()
+      refreshPayments()
     } catch (e) {
       Toast.error(e?.response?.data?.message || "Failed to accept bulk payment")
     } finally {
@@ -448,8 +523,7 @@ const AccountantDashboard = () => {
                 type="button"
                 className="btn-primary text-xs"
                 onClick={() => {
-                  fetchOrders()
-                  fetchBulk()
+                  refreshPayments()
                 }}
               >
                 Refresh
@@ -484,31 +558,23 @@ const AccountantDashboard = () => {
               onViewLedger={(mobile, name, farmerId) => fetchLedgerForCustomer(mobile, name, farmerId)}
               acceptingBulkId={acceptingBulkId}
               canEditStatus={hasPaymentAccess}
+              statusFilter={statusFilter}
+              onStatusFilterChange={(next) => {
+                setStatusFilter(next)
+                setPage(1)
+              }}
             />
 
-            <div className="flex justify-center gap-2 py-2 text-xs text-muted-foreground">
-              <button
-                type="button"
-                className="px-2 py-1 border border-border rounded-sm disabled:opacity-50"
-                disabled={page <= 1}
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-              >
-                Prev
-              </button>
-              <span>
-                Page {page} / {totalPages}
-              </span>
-              <button
-                type="button"
-                className="px-2 py-1 border border-border rounded-sm disabled:opacity-50"
-                disabled={page >= totalPages}
-                onClick={() => setPage((p) => p + 1)}
-              >
-                Next
-              </button>
+            <div className="flex justify-center py-2 text-xs text-muted-foreground">
+              {loadingMorePayments
+                ? "Loading more payments..."
+                : hasMorePayments
+                  ? "Scroll down to load more"
+                  : "All matching payments loaded"}
             </div>
+            <div ref={loadMoreRef} className="h-1 w-full" />
 
-            <p className="text-[11px] text-muted-foreground text-center">Bulk entries (up to 100) load with the same filters.</p>
+            <p className="text-[11px] text-muted-foreground text-center">Latest entries stay on top. Scrolling loads older pages automatically.</p>
           </>
         )}
 
@@ -553,8 +619,7 @@ const AccountantDashboard = () => {
         onClose={() => setBulkPaymentEntryOpen(false)}
         mode={selectedOrg === "ram-agri" ? "agri" : "plant"}
         onSuccess={() => {
-          fetchOrders()
-          fetchBulk()
+          refreshPayments()
         }}
       />
 

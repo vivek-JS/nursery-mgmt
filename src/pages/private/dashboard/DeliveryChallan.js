@@ -26,6 +26,7 @@ const sectionHeader = {
 const DeliveryChallanPDF = ({ open, onClose, dispatchData }) => {
   if (!dispatchData) return null
   const today = new Date().toLocaleDateString("mr-IN")
+  const agriLoadBlocked = Boolean(dispatchData?.agriLoadBlocked)
 
   const DeliveryChallanPage = ({ order }) => {
     const plantDetailsList = Array.isArray(dispatchData?.plantsDetails)
@@ -49,11 +50,12 @@ const DeliveryChallanPDF = ({ open, onClose, dispatchData }) => {
     const dispatchDetail = orderDispatchDetails.find(
       (d) => String(d.orderId) === String(order._id)
     )
+    const hasOrderDispatchBreakup = orderDispatchDetails.length > 0
     const dispatchQty = dispatchDetail?.dispatchQuantity ?? order.quantity
     const orderCrates =
       Array.isArray(dispatchDetail?.crates) && dispatchDetail.crates.length > 0
         ? dispatchDetail.crates
-        : Array.isArray(plant?.crates)
+        : !hasOrderDispatchBreakup && Array.isArray(plant?.crates)
         ? plant.crates
         : []
 
@@ -421,6 +423,9 @@ const DeliveryChallanPDF = ({ open, onClose, dispatchData }) => {
   }
 
   const handlePrint = () => {
+    if (agriLoadBlocked) {
+      return
+    }
     const printWindow = window.open("", "_blank")
     if (!printWindow) return
 
@@ -546,20 +551,26 @@ const DeliveryChallanPDF = ({ open, onClose, dispatchData }) => {
             background: "#fff",
           }}
         >
+          {agriLoadBlocked && (
+            <span style={{ fontSize: "12px", color: "#b45309", fontWeight: 600 }}>
+              Agri Input pending load by Agri admin. Printing is blocked.
+            </span>
+          )}
           <span style={{ fontSize: "12px", color: "#6b7280" }}>
             {dispatchData.orderIds?.length || 0} चलन · A5 Portrait
           </span>
           <button
             onClick={handlePrint}
+            disabled={agriLoadBlocked}
             style={{
-              background: ACCENT,
+              background: agriLoadBlocked ? "#9ca3af" : ACCENT,
               color: "#fff",
               border: "none",
               borderRadius: "7px",
               padding: "8px 20px",
               fontSize: "13px",
               fontWeight: "600",
-              cursor: "pointer",
+              cursor: agriLoadBlocked ? "not-allowed" : "pointer",
               display: "flex",
               alignItems: "center",
               gap: "7px",
