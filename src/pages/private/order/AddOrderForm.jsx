@@ -330,11 +330,18 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
     cavity: "",
     sales: null,
     dealer: null,
-    // Order For fields
+    // Order For fields (book-for beneficiary — separate from booking farmer location)
     orderForEnabled: false,
     orderForName: "",
     orderForAddress: "",
     orderForMobileNumber: "",
+    orderForState: "Maharashtra",
+    orderForStateName: "Maharashtra",
+    orderForDistrict: "",
+    orderForDistrictName: "",
+    orderForTaluka: "",
+    orderForTalukaName: "",
+    orderForVillage: "",
     // Screenshot fields
     screenshots: []
   }))
@@ -1758,6 +1765,21 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
         // We'll handle auto-filling in the LocationSelector component
         // by passing autoFill prop
       }
+    } else if (field === "orderForState") {
+      setFormData((prev) => ({
+        ...prev,
+        orderForStateName: value
+      }))
+    } else if (field === "orderForDistrict") {
+      setFormData((prev) => ({
+        ...prev,
+        orderForDistrictName: value
+      }))
+    } else if (field === "orderForTaluka") {
+      setFormData((prev) => ({
+        ...prev,
+        orderForTalukaName: value
+      }))
     }
 
     // Auto-set rate when subtype is selected (only if rate is empty or hasn't been manually set)
@@ -1955,20 +1977,24 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
       return false
     }
 
-    // Validate Order For fields if enabled
+    // Validate Order For fields if enabled (mobile optional; structured location required)
     if (formData?.orderForEnabled) {
       if (!formData?.orderForName || formData?.orderForName.trim() === '') {
         Toast.error("Please enter name for the person the order is for")
         return false
       }
-      if (!formData?.orderForAddress || formData?.orderForAddress.trim() === '') {
-        Toast.error("Please enter address for the person the order is for")
+      const ofLocOk =
+        (formData?.orderForState || "").toString().trim() &&
+        (formData?.orderForDistrict || "").toString().trim() &&
+        (formData?.orderForTaluka || "").toString().trim() &&
+        (formData?.orderForVillage || "").toString().trim()
+      if (!ofLocOk) {
+        Toast.error("Select state, district, taluka and village for the person the order is for")
         return false
       }
-      if (!formData?.orderForMobileNumber || 
-          formData?.orderForMobileNumber.length !== 10 || 
-          !/^\d{10}$/.test(formData?.orderForMobileNumber)) {
-        Toast.error("Please enter a valid 10-digit mobile number for the person the order is for")
+      const ofMob = (formData?.orderForMobileNumber || "").toString().trim()
+      if (ofMob && (ofMob.length !== 10 || !/^\d{10}$/.test(ofMob))) {
+        Toast.error("If entered, beneficiary mobile must be exactly 10 digits")
         return false
       }
     }
@@ -2240,12 +2266,28 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
         throw new Error("Selected slot ID is not in valid ObjectId format")
       }
 
-      // Prepare Order For data if enabled
-      const orderForData = formData?.orderForEnabled ? {
-        name: formData?.orderForName?.trim() || "",
-        address: formData?.orderForAddress?.trim() || "",
-        mobileNumber: parseInt(formData?.orderForMobileNumber) || 0
-      } : undefined
+      // Prepare Order For data if enabled (omit mobile when not 10 digits)
+      const orderForData = formData?.orderForEnabled
+        ? (() => {
+            const mobDigits = (formData?.orderForMobileNumber || "")
+              .toString()
+              .replace(/\D/g, "")
+            const base = {
+              name: formData?.orderForName?.trim() || "",
+              village: (formData?.orderForVillage || "").toString().trim(),
+              taluka: (formData?.orderForTaluka || "").toString().trim(),
+              district: (formData?.orderForDistrict || "").toString().trim(),
+              state: (formData?.orderForState || "").toString().trim(),
+              stateName: (formData?.orderForStateName || "").toString().trim(),
+              districtName: (formData?.orderForDistrictName || "").toString().trim(),
+              talukaName: (formData?.orderForTalukaName || "").toString().trim(),
+            }
+            const addr = (formData?.orderForAddress || "").toString().trim()
+            if (addr) base.address = addr
+            if (mobDigits.length === 10) base.mobileNumber = parseInt(mobDigits.slice(-10), 10)
+            return base
+          })()
+        : undefined
 
       // Product order snapshot - for future reference (not linked, just saved)
       const productOrderSnapshot = formData?.productMappingId ? (() => {
@@ -2569,6 +2611,13 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
       orderForName: "",
       orderForAddress: "",
       orderForMobileNumber: "",
+      orderForState: "Maharashtra",
+      orderForStateName: "Maharashtra",
+      orderForDistrict: "",
+      orderForDistrictName: "",
+      orderForTaluka: "",
+      orderForTalukaName: "",
+      orderForVillage: "",
       // Reset screenshots
       screenshots: []
     })
@@ -3069,7 +3118,25 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                           <Checkbox
                             size="small"
                             checked={formData?.orderForEnabled}
-                            onChange={(e) => handleInputChange("orderForEnabled", e.target.checked)}
+                            onChange={(e) => {
+                              const checked = e.target.checked
+                              setFormData((prev) => {
+                                const next = { ...prev, orderForEnabled: checked }
+                                if (checked) {
+                                  return {
+                                    ...next,
+                                    orderForState: prev.orderForState || prev.state || "Maharashtra",
+                                    orderForStateName: prev.orderForStateName || prev.stateName || "Maharashtra",
+                                    orderForDistrict: prev.orderForDistrict || prev.district || "",
+                                    orderForDistrictName: prev.orderForDistrictName || prev.districtName || "",
+                                    orderForTaluka: prev.orderForTaluka || prev.taluka || "",
+                                    orderForTalukaName: prev.orderForTalukaName || prev.talukaName || "",
+                                    orderForVillage: prev.orderForVillage || prev.village || "",
+                                  }
+                                }
+                                return next
+                              })
+                            }}
                             color="primary"
                           />
                         }
@@ -3082,12 +3149,12 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                     </Box>
                   </Grid>
 
-                  {/* Order For Fields - Show when enabled */}
+                  {/* Book-for beneficiary — show when enabled */}
                   {formData?.orderForEnabled && (
                     <>
                       <Grid item xs={12}>
                         <Divider sx={{ my: 0.5 }}>
-                          <Chip label="Order For Details" size="small" color="primary" />
+                          <Chip label="Book for (delivery)" size="small" color="primary" />
                         </Divider>
                       </Grid>
                       
@@ -3106,10 +3173,10 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                         <TextField
                           fullWidth
                           size="small"
-                          label="Mobile Number *"
+                          label="Mobile (optional)"
                           value={formData?.orderForMobileNumber}
                           onChange={(e) => handleInputChange("orderForMobileNumber", e.target.value)}
-                          placeholder="10-digit mobile"
+                          placeholder="10-digit mobile if known"
                           inputProps={{ maxLength: 10 }}
                         />
                       </Grid>
@@ -3118,18 +3185,40 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                         <TextField
                           fullWidth
                           size="small"
-                          label="Address *"
+                          label="Address (optional)"
                           value={formData?.orderForAddress}
                           onChange={(e) => handleInputChange("orderForAddress", e.target.value)}
-                          placeholder="Complete address"
+                          placeholder="Extra address / landmark"
                           multiline
                           rows={2}
+                        />
+                      </Grid>
+
+                      <Grid item xs={12}>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+                          Location for beneficiary (state → village) *
+                        </Typography>
+                        <LocationSelector
+                          selectedState={formData?.orderForState}
+                          selectedDistrict={formData?.orderForDistrict}
+                          selectedTaluka={formData?.orderForTaluka}
+                          selectedVillage={formData?.orderForVillage}
+                          onStateChange={(value) => handleInputChange("orderForState", value)}
+                          onDistrictChange={(value) => handleInputChange("orderForDistrict", value)}
+                          onTalukaChange={(value) => handleInputChange("orderForTaluka", value)}
+                          onVillageChange={(value) => handleInputChange("orderForVillage", value)}
+                          required={true}
+                          showLabels={false}
+                          compact={true}
+                          className="mt-1"
+                          disabled={false}
+                          autoFill={true}
                         />
                       </Grid>
                       
                       <Grid item xs={12}>
                         <Alert severity="info" sx={{ py: 0.5, "& .MuiAlert-message": { fontSize: "0.75rem" } }}>
-                          Stored for delivery & communication.
+                          Book-for name and location are stored on the order and used in lists and search.
                         </Alert>
                       </Grid>
                     </>
@@ -4692,21 +4781,29 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                 )}
               </Box>
 
-              {/* Order For Details */}
+              {/* Book-for summary */}
               {formData?.orderForEnabled && (
                 <Box sx={{ p: 2, bgcolor: "#e8f5e8", borderRadius: 1, border: "1px solid #4caf50" }}>
                   <Typography variant="subtitle1" sx={{ fontWeight: 600, color: "#2e7d32", mb: 1 }}>
-                    Order For Details
+                    Book for
                   </Typography>
                   <Typography variant="body2" sx={{ mb: 0.5 }}>
                     <strong>Name:</strong> {formData?.orderForName}
                   </Typography>
                   <Typography variant="body2" sx={{ mb: 0.5 }}>
-                    <strong>Mobile:</strong> {formData?.orderForMobileNumber}
+                    <strong>Location:</strong>{" "}
+                    {[formData?.orderForVillage, formData?.orderForTalukaName || formData?.orderForTaluka, formData?.orderForDistrictName || formData?.orderForDistrict].filter(Boolean).join(", ")}
                   </Typography>
-                  <Typography variant="body2" sx={{ mb: 0.5 }}>
-                    <strong>Address:</strong> {formData?.orderForAddress}
-                  </Typography>
+                  {formData?.orderForMobileNumber ? (
+                    <Typography variant="body2" sx={{ mb: 0.5 }}>
+                      <strong>Mobile:</strong> {formData?.orderForMobileNumber}
+                    </Typography>
+                  ) : null}
+                  {formData?.orderForAddress ? (
+                    <Typography variant="body2" sx={{ mb: 0.5 }}>
+                      <strong>Address:</strong> {formData?.orderForAddress}
+                    </Typography>
+                  ) : null}
                 </Box>
               )}
 

@@ -48,11 +48,14 @@ import { Toast } from "helpers/toasts/toastHelper"
 import { FaUser, FaCreditCard, FaEdit, FaFileAlt, FaWhatsapp, FaCopy } from "react-icons/fa"
 import ConfirmDialog from "components/Modals/ConfirmDialog"
 import BulkPaymentEntryDialog from "components/Modals/BulkPaymentEntryDialog"
+import PaymentTransferDialog from "components/Modals/PaymentTransferDialog"
 import PaymentQRModal from "components/Modals/PaymentQRModal"
+import { transferableFarmerPlantPayments } from "features/accountant-dashboard/farmerPlantPaymentTransfer.utils"
 import axiosInstance from "services/axiosConfig"
 import { getStatementMatchPresentation } from "lib/bankMatchLabels"
 import {
   useCanAddPayment,
+  useHasPaymentAccess,
   useIsOfficeAdmin,
   useIsSuperAdmin,
   useIsAccountant,
@@ -79,6 +82,56 @@ import { TableVirtuoso, Virtuoso } from "react-virtuoso"
 const ORDER_DATE_DISPLAY = "DD-MMMM-YYYY"
 const ORDER_DATETIME_DISPLAY = "DD-MMMM-YYYY HH:mm"
 const DASHBOARD_ORDERS_PAGE_SIZE = 10
+
+/** Comma-separated village → … for book-for beneficiary block on order. */
+function formatBookForLocation(orderFor) {
+  if (!orderFor || typeof orderFor !== "object") return ""
+  const parts = [
+    orderFor.village,
+    orderFor.talukaName || orderFor.taluka,
+    orderFor.districtName || orderFor.district,
+    orderFor.stateName || orderFor.state
+  ].filter((p) => p != null && String(p).trim() !== "")
+  return parts.join(", ")
+}
+
+/** API may return orderFor as object or (legacy) JSON string. */
+function normalizeOrderFor(orderFor) {
+  if (orderFor == null) return null
+  if (typeof orderFor === "object" && !Array.isArray(orderFor)) return orderFor
+  if (typeof orderFor === "string") {
+    const t = orderFor.trim()
+    if (!t || t === "null" || t === "undefined") return null
+    try {
+      const p = JSON.parse(t)
+      return p && typeof p === "object" && !Array.isArray(p) ? p : null
+    } catch {
+      return null
+    }
+  }
+  return null
+}
+
+/**
+ * Plants billed at `rate` after returns + damage (aligned with GET /order/payments and accountant dashboard).
+ */
+function computeBillablePlantsForAmount({
+  numberOfPlants,
+  additionalPlants,
+  totalPlants,
+  returnedPlants,
+  damagedPlants,
+}) {
+  const base = Number(numberOfPlants) || 0
+  const add = Number(additionalPlants) || 0
+  const gross =
+    totalPlants != null && Number.isFinite(Number(totalPlants))
+      ? Number(totalPlants)
+      : base + add
+  const ret = Number(returnedPlants) || 0
+  const dmg = Number(damagedPlants) || 0
+  return Math.max(0, gross - ret - dmg)
+}
 
 /** Maps orderStatus to CSS class suffix: READY_FOR_DISPATCH → ready-for-dispatch (all underscores → hyphens). */
 const toStatusBadgeCssClass = (status) => {
@@ -355,13 +408,6 @@ const mergeOrdersByIdPrimaryFirst = (primary, secondary) => {
   return Array.from(map.values())
 }
 
-/** Total row count from GET /order/getOrders pagination envelope (aligned with backend factory getAll for Order). */
-const getOrdersListEnvelopeTotal = (res) => {
-  const envelope = res?.data?.data
-  if (envelope && typeof envelope.total === "number") return envelope.total
-  return Array.isArray(envelope?.data) ? envelope.data.length : 0
-}
-
 /**
  * Query params for GET /order/getOrders (Farmer orders regular tabs).
  * Keeps list fetch, load-more, refresh, and tab-count requests aligned.
@@ -380,6 +426,10 @@ function buildRegularOrderListParams({
   user,
   page = 1,
   limit = DASHBOARD_ORDERS_PAGE_SIZE,
+  /** Ready-for-dispatch queue: narrow to rows with farm-ready signal + FIFO sort (see factory getOrders). */
+  queueFarmReadyOnly = false,
+  /** When true, GET /order/getOrders includes totalPlantsSum for all rows matching filters (not paginated). */
+  plantTotals = false,
 }) {
   const isCancelledTab = viewMode === "cancelled"
   const isBookingLikeTab =
@@ -467,6 +517,11 @@ function buildRegularOrderListParams({
     params.startDate = null
     params.endDate = null
     delete params.status
+    if (queueFarmReadyOnly && !debouncedSearchTerm?.trim()) {
+      params.farmReady = "true"
+      params.sortKey = "farmReadyEnteredAt"
+      params.sortOrder = "asc"
+    }
   }
 
   if (viewMode === "dispatch_process") {
@@ -474,6 +529,54 @@ function buildRegularOrderListParams({
     params.dispatched = false
   }
 
+  if (plantTotals) {
+    params.plantTotals = "true"
+  }
+
+  return params
+}
+
+/** Shared filter query for GET /order/dashboard-tab-counts (tab scopes applied on server). */
+function buildFarmerOrdersDashboardFiltersQuery({
+  startDate,
+  endDate,
+  debouncedSearchTerm,
+  orderDateRangeBy,
+  selectedSalesPerson,
+  selectedVillage,
+  selectedDistrict,
+  selectedPlant,
+  selectedSubtype,
+  user,
+  queueFarmReadyOnly,
+}) {
+  const params = buildRegularOrderListParams({
+    viewMode: "booking",
+    startDate,
+    endDate,
+    debouncedSearchTerm,
+    orderDateRangeBy,
+    selectedSalesPerson,
+    selectedVillage,
+    selectedDistrict,
+    selectedPlant,
+    selectedSubtype,
+    user,
+    page: 1,
+    limit: 1,
+    queueFarmReadyOnly: false,
+  })
+  delete params.page
+  delete params.limit
+  delete params.dispatched
+  delete params.status
+  delete params.ready_for_dispatch
+  delete params.farmReady
+  delete params.sortKey
+  delete params.sortOrder
+  if (queueFarmReadyOnly) {
+    params.queueFarmReadyOnly = "true"
+  }
   return params
 }
 
@@ -1225,7 +1328,14 @@ function isAbortedRequestError(err) {
   return err?.code === "ERR_CANCELED" || err?.name === "CanceledError"
 }
 
-const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
+const FarmerOrdersTable = ({
+  slotId,
+  monthName,
+  startDay,
+  endDay,
+  initialViewMode,
+  initialQueueFarmReadyOnly,
+}) => {
   const today = new Date()
   const [searchTerm, setSearchTerm] = useState("")
   const [expandedRows, setExpandedRows] = useState(new Set())
@@ -1239,6 +1349,11 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   const [orders, setOrders] = useState([])
   const [ordersPage, setOrdersPage] = useState(1)
   const [hasMoreOrders, setHasMoreOrders] = useState(false)
+  /** Pagination envelope for current list (total matching filters; plants sum when plantTotals requested). */
+  const [ordersListEnvelope, setOrdersListEnvelope] = useState({
+    total: null,
+    totalPlantsSum: null,
+  })
   const [patchLoading, setpatchLoading] = useState(false)
   const [startDate, endDate] = selectedDateRange
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("")
@@ -1303,6 +1418,9 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
   const [paymentReceiptBusy, setPaymentReceiptBusy] = useState(false)
   const [paymentQRModalOpen, setPaymentQRModalOpen] = useState(false)
   const [paymentQRModalData, setPaymentQRModalData] = useState(null)
+  const [paymentTransferOpen, setPaymentTransferOpen] = useState(false)
+  const [paymentTransferSourceId, setPaymentTransferSourceId] = useState(null)
+  const [paymentTransferPaymentId, setPaymentTransferPaymentId] = useState(null)
   const [verifyIciciLoadingPaymentId, setVerifyIciciLoadingPaymentId] = useState(null)
   const [generateQRLoading, setGenerateQRLoading] = useState(false)
   const ordersTableScrollRef = useRef(null)
@@ -1337,12 +1455,15 @@ const FarmerOrdersTable = ({ slotId, monthName, startDay, endDay }) => {
 
   // Role-based access control
   const canAddPayment = useCanAddPayment() // Anyone can add payments
+  const hasPaymentAccess = useHasPaymentAccess()
   const isOfficeAdmin = useIsOfficeAdmin()
   const isSuperAdmin = useIsSuperAdmin()
   const isAccountant = useIsAccountant()
   const canEditOrderCore = isOfficeAdmin || isSuperAdmin || isAccountant
   /** Reassign booked-by sales / dealer (same roles as full order status changes). */
   const canReassignSalesPerson = isOfficeAdmin || isSuperAdmin
+  /** Same roles as sales-person reassignment — subtype edits are admin-only. */
+  const canEditPlantSubtype = canReassignSalesPerson
   const isDealer = useIsDealer()
   const isDispatchManager = useIsDispatchManager()
   const { walletData, loading: walletLoading } = useDealerWallet()
@@ -1397,6 +1518,9 @@ const [selectedSubtype, setSelectedSubtype] = useState("")
 const [plants, setPlants] = useState([])
 const [subtypes, setSubtypes] = useState([])
 const [subtypesLoading, setSubtypesLoading] = useState(false)
+  /** Subtypes for the order-edit modal only (do not reuse dashboard filter `subtypes`). */
+  const [orderEditSubtypes, setOrderEditSubtypes] = useState([])
+  const [orderEditSubtypesLoading, setOrderEditSubtypesLoading] = useState(false)
 
   // Filter options
   const [salesPeople, setSalesPeople] = useState([])
@@ -1407,7 +1531,10 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
   const [slotsLoading, setSlotsLoading] = useState(false)
   const [updatedObject, setUpdatedObject] = useState(null)
   const [quantityDeltaInput, setQuantityDeltaInput] = useState("")
-  const [viewMode, setViewMode] = useState("booking")
+  const [viewMode, setViewMode] = useState(() =>
+    typeof initialViewMode === "string" && initialViewMode.trim() ? initialViewMode.trim() : "booking"
+  )
+  const [queueFarmReadyOnly, setQueueFarmReadyOnly] = useState(() => Boolean(initialQueueFarmReadyOnly))
   const isCancelledTab = viewMode === "cancelled"
   const isReadyForDispatchTab = viewMode === "ready_for_dispatch"
   const isDispatchedVehicleTab = viewMode === "dispatched_vehicle"
@@ -1564,11 +1691,7 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
       },
       selectedRow
     ).then(async () => {
-      // Refresh both modal data and main list
-      await getOrders()
-      setTimeout(() => {
-        refreshModalData()
-      }, 500)
+      await refreshModalData()
     })
 
     setNewRemark("")
@@ -1697,15 +1820,11 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
           setExpandedAddPaymentAccordion(false)
           resetPaymentForm(false)
           
-          // Refresh orders
-          await getOrders()
           refreshComponent()
-          
-          // Update selected order if modal is open
           if (selectedOrder) {
-            setTimeout(() => {
-              refreshModalData()
-            }, 500)
+            await refreshModalData()
+          } else {
+            await getOrders()
           }
         } else {
           Toast.error("Failed to add payment")
@@ -1784,6 +1903,7 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
             user,
             page: 1,
             limit: DASHBOARD_ORDERS_PAGE_SIZE,
+            queueFarmReadyOnly: viewMode === "ready_for_dispatch" ? queueFarmReadyOnly : false,
           })
 
           let ordersData = []
@@ -1836,21 +1956,30 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
                 plantSubtype,
                 remainingPlants,
                 returnedPlants,
+                damagedPlants,
                 statusChanges,
                 orderRemarks,
                 dealerOrder,
                 farmReadyDate,
                 orderBookingDate,
                 deliveryDate,
-                orderFor
+                orderFor: orderForRaw
               } = data || {}
+              const orderFor = normalizeOrderFor(orderForRaw)
               const basePlants = numberOfPlants || 0
               const extraPlants = additionalPlants || 0
               const totalPlantCount =
                 typeof totalPlants === "number" ? totalPlants : basePlants + extraPlants
               const remainingPlantCount =
                 typeof remainingPlants === "number" ? remainingPlants : totalPlantCount
-              const totalOrderAmount = Number(rate * totalPlantCount)
+              const billablePlantCount = computeBillablePlantsForAmount({
+                numberOfPlants: basePlants,
+                additionalPlants: extraPlants,
+                totalPlants,
+                returnedPlants,
+                damagedPlants,
+              })
+              const totalOrderAmount = Number(rate * billablePlantCount)
               const latestSlot = mapSlotForUi(bookingSlot)
               const { startDay, endDay } = latestSlot || {}
               const start = startDay ? moment(startDay, "DD-MM-YYYY").format("D") : "N/A"
@@ -1861,13 +1990,14 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
               return {
                 order: orderId != null && orderId !== "" ? orderId : publicOrderCode,
                 farmerName: orderFor
-                  ? `Order for: ${orderFor.name}`
+                  ? `${orderFor.name} · Booking: ${farmer?.name || "Unknown"}`
                   : dealerOrder
                   ? `via ${salesPerson?.name || "Unknown"}`
                   : farmer?.name || "Unknown",
                 plantType: `${plantType?.name || "Unknown"} -> ${plantSubtype?.name || "Unknown"}`,
                 quantity: basePlants,
                 totalPlants: totalPlantCount,
+                billablePlants: billablePlantCount,
                 additionalPlants: extraPlants,
                 basePlants,
                 orderDate: moment(orderBookingDate || createdAt).format(ORDER_DATE_DISPLAY),
@@ -1906,7 +2036,10 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
                 numberOfPlants: basePlants,
                 additionalPlants: extraPlants,
                 totalPlants: totalPlantCount,
+                billablePlants: billablePlantCount,
                 remainingPlants: remainingPlantCount,
+                returnedPlants: Number(returnedPlants) || 0,
+                damagedPlants: Number(damagedPlants) || 0,
                 orderFor: orderFor || null,
                 statusChanges: statusChanges || [],
                 orderRemarks: orderRemarks || [],
@@ -2099,19 +2232,19 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
   }
 
   const refreshModalData = async () => {
-    if (selectedOrder) {
-      try {
-        // Fast refresh: hydrate modal from current orders state (avoid full list refetch).
-        const updatedOrder = orders.find(
-          (order) => order.details.orderid === selectedOrder.details.orderid
-        )
-
-        if (updatedOrder) {
-          setSelectedOrder(updatedOrder)
-        }
-      } catch (error) {
-        console.error("Error refreshing modal data:", error)
+    const oid = selectedOrder?.details?.orderid
+    if (!oid) return
+    try {
+      const list = await getOrders()
+      if (!Array.isArray(list)) return
+      const updatedOrder = list.find(
+        (order) => String(order?.details?.orderid) === String(oid)
+      )
+      if (updatedOrder) {
+        setSelectedOrder(updatedOrder)
       }
+    } catch (error) {
+      console.error("Error refreshing modal data:", error)
     }
   }
 
@@ -2290,7 +2423,7 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
     }
   }
 
-  // Tab badges: totals from GET /order/getOrders pagination (`total`), same filters as the list.
+  // Tab badges: GET /order/dashboard-tab-counts (one round-trip; server runs count-only getOrders per tab).
   useEffect(() => {
     if (showAgriSalesOrders) return
     if (slotId) {
@@ -2308,61 +2441,37 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
     }
     const ac = new AbortController()
     const { signal } = ac
-    const baseArgs = {
-      startDate,
-      endDate,
-      debouncedSearchTerm,
-      orderDateRangeBy,
-      selectedSalesPerson,
-      selectedVillage,
-      selectedDistrict,
-      selectedPlant,
-      selectedSubtype,
-      user,
-      limit: 1,
-      page: 1,
-    }
     const run = async () => {
       try {
-        const instance = NetworkManager(API.ORDER.GET_ORDERS)
-        const tabIds = [
-          "booking",
-          "pending",
-          "accepted",
-          "cancelled",
-          "farmready",
-          "ready_for_dispatch",
-          "dispatched_vehicle",
-        ]
-        const singlePromises = tabIds.map((vm) =>
-          instance.request(
-            {},
-            buildRegularOrderListParams({ ...baseArgs, viewMode: vm }),
-            { signal }
-          )
+        const instance = NetworkManager(API.ORDER.DASHBOARD_TAB_COUNTS)
+        const res = await instance.request(
+          {},
+          buildFarmerOrdersDashboardFiltersQuery({
+            startDate,
+            endDate,
+            debouncedSearchTerm,
+            orderDateRangeBy,
+            selectedSalesPerson,
+            selectedVillage,
+            selectedDistrict,
+            selectedPlant,
+            selectedSubtype,
+            user,
+            queueFarmReadyOnly,
+          }),
+          { signal }
         )
-        const pIn = buildRegularOrderListParams({
-          ...baseArgs,
-          viewMode: "dispatch_process",
-        })
-        const pDisp = { ...pIn, dispatched: true, status: "ACCEPTED,FARM_READY" }
-        const dispatchPromises = [
-          instance.request({}, pIn, { signal }),
-          instance.request({}, pDisp, { signal }),
-        ]
-        const results = await Promise.all([...singlePromises, ...dispatchPromises])
-        const nDispatch =
-          getOrdersListEnvelopeTotal(results[results.length - 2]) +
-          getOrdersListEnvelopeTotal(results[results.length - 1])
+        const d = res?.data?.data
+        if (!d || typeof d !== "object") return
         setOrderViewTabTotals({
-          booking: getOrdersListEnvelopeTotal(results[0]),
-          pending: getOrdersListEnvelopeTotal(results[1]),
-          accepted: getOrdersListEnvelopeTotal(results[2]),
-          cancelled: getOrdersListEnvelopeTotal(results[3]),
-          farmready: getOrdersListEnvelopeTotal(results[4]),
-          ready_for_dispatch: getOrdersListEnvelopeTotal(results[5]),
-          dispatched_vehicle: getOrdersListEnvelopeTotal(results[6]),
-          dispatch_process: nDispatch,
+          booking: Number(d.booking) || 0,
+          pending: Number(d.pending) || 0,
+          accepted: Number(d.accepted) || 0,
+          cancelled: Number(d.cancelled) || 0,
+          farmready: Number(d.farmready) || 0,
+          ready_for_dispatch: Number(d.ready_for_dispatch) || 0,
+          dispatch_process: Number(d.dispatch_process) || 0,
+          dispatched_vehicle: Number(d.dispatched_vehicle) || 0,
         })
       } catch (e) {
         if (isAbortedRequestError(e)) return
@@ -2385,6 +2494,7 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
     selectedPlant,
     selectedSubtype,
     user,
+    queueFarmReadyOnly,
   ])
 
   const fetchOrdersForExport = React.useCallback(async () => {
@@ -2421,6 +2531,7 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
       user,
       page: 1,
       limit: 200000,
+      queueFarmReadyOnly: viewMode === "ready_for_dispatch" ? queueFarmReadyOnly : false,
     })
     const params = { ...base, ...exportFlags }
 
@@ -2461,6 +2572,7 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
     monthName,
     startDay,
     endDay,
+    queueFarmReadyOnly,
   ])
 
   const exportActiveFilterCount = React.useMemo(() => {
@@ -2505,6 +2617,7 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
     selectedDispatchedBy, // Filter by who dispatched (Ram Agri Inputs)
     agriDispatchStatusFilter, // Reload when status filter tab changes (Ram Agri Inputs)
     orderDateRangeBy,
+    queueFarmReadyOnly,
   ])
 
   useEffect(() => {
@@ -2640,11 +2753,34 @@ useEffect(() => {
           : null,
         salesPerson: selectedOrder?.details?.salesPerson?._id
           ? String(selectedOrder.details.salesPerson._id)
-          : ""
+          : "",
+        ...(canEditPlantSubtype &&
+        selectedOrder?.details?.plantSubtypeID &&
+        !selectedOrder?.isAgriSalesOrder &&
+        !selectedOrder?.details?.isRamAgriProduct
+          ? { plantSubtype: String(selectedOrder.details.plantSubtypeID) }
+          : {})
       })
       setQuantityDeltaInput("")
     }
-  }, [activeTab, selectedOrder, resolvePlantCounts, canEditOrderCore])
+  }, [activeTab, selectedOrder, resolvePlantCounts, canEditOrderCore, canEditPlantSubtype])
+
+  useEffect(() => {
+    if (
+      activeTab !== "edit" ||
+      !selectedOrder?.details?.plantID ||
+      selectedOrder?.isAgriSalesOrder ||
+      selectedOrder?.details?.isRamAgriProduct
+    ) {
+      return
+    }
+    loadOrderEditSubtypes(selectedOrder.details.plantID)
+  }, [
+    activeTab,
+    selectedOrder?.details?.plantID,
+    selectedOrder?.isAgriSalesOrder,
+    selectedOrder?.details?.isRamAgriProduct
+  ])
 
 const loadPlantOptions = async () => {
   try {
@@ -2701,6 +2837,37 @@ const loadSubtypeOptions = async (plantId) => {
     setSubtypes([])
   } finally {
     setSubtypesLoading(false)
+  }
+}
+
+const loadOrderEditSubtypes = async (plantId) => {
+  if (!plantId) {
+    setOrderEditSubtypes([])
+    return
+  }
+  setOrderEditSubtypesLoading(true)
+  try {
+    const instance = NetworkManager(API.slots.GET_PLANTS_SUBTYPE)
+    const response = await instance.request(null, {
+      plantId,
+      year: new Date().getFullYear()
+    })
+    const rawSubtypes = response?.data?.subtypes || []
+    const formattedSubtypes = rawSubtypes
+      .map((subtype) => {
+        const id = subtype.subtypeId || subtype._id || ""
+        return {
+          label: subtype.subtypeName || subtype.name,
+          value: id ? String(id) : ""
+        }
+      })
+      .filter((subtype) => subtype.value)
+    setOrderEditSubtypes(formattedSubtypes)
+  } catch (error) {
+    console.error("Error loading order edit subtypes:", error)
+    setOrderEditSubtypes([])
+  } finally {
+    setOrderEditSubtypesLoading(false)
   }
 }
 
@@ -3286,8 +3453,21 @@ const loadFilterOptions = async () => {
   const paymentSummary = React.useMemo(() => {
     if (!selectedOrder) return { total: 0, paid: 0, balance: 0 }
     const isAgri = selectedOrder?.isAgriSalesOrder || selectedOrder?.details?.isRamAgriProduct
-    const total = isAgri ? (Number(selectedOrder?.details?.totalAmount) || 0) : (selectedOrder?.rate || 0) * (selectedOrderCounts?.total || 0)
-    const paid = isAgri ? (Number(selectedOrder?.details?.totalPaidAmount) || getTotalPaidAmount(selectedOrder?.details?.payment || [])) : getTotalPaidAmount(selectedOrder?.details?.payment || [])
+    const billablePlantsForPay =
+      selectedOrder.billablePlants != null && Number.isFinite(Number(selectedOrder.billablePlants))
+        ? Math.max(0, Number(selectedOrder.billablePlants))
+        : Math.max(
+            0,
+            (selectedOrderCounts?.total ?? 0) -
+              (Number(selectedOrder["returned Plants"]) || 0) -
+              (Number(selectedOrder?.details?.damagedPlants) || 0)
+          )
+    const total = isAgri
+      ? Number(selectedOrder?.details?.totalAmount) || 0
+      : (selectedOrder?.rate || 0) * billablePlantsForPay
+    const paid = isAgri
+      ? Number(selectedOrder?.details?.totalPaidAmount) || getTotalPaidAmount(selectedOrder?.details?.payment || [])
+      : getTotalPaidAmount(selectedOrder?.details?.payment || [])
     return { total, paid, balance: Math.max(0, total - paid) }
   }, [selectedOrder, selectedOrderCounts])
 
@@ -3552,6 +3732,21 @@ const mapSlotForUi = (slotData) => {
     }
   }
 
+  const handleOrderEditPlantSubtypeChange = (newSubtypeId) => {
+    const plantId = selectedOrder?.details?.plantID
+    if (plantId && newSubtypeId) {
+      getSlots(plantId, newSubtypeId)
+    } else {
+      setSlots([])
+    }
+    setUpdatedObject((prev) => ({
+      ...(prev || {}),
+      plantSubtype: newSubtypeId,
+      bookingSlot: undefined,
+      deliveryDate: null
+    }))
+  }
+
   // Function to fetch counts for all statuses (without status filter)
   const fetchAgriStatusCounts = async () => {
     if (!showAgriSalesOrders) return
@@ -3654,6 +3849,7 @@ const mapSlotForUi = (slotData) => {
           plantSubtype,
           remainingPlants,
           returnedPlants,
+          damagedPlants,
           statusChanges,
           orderRemarks,
           dealerOrder,
@@ -3661,16 +3857,24 @@ const mapSlotForUi = (slotData) => {
           farmReadyDateChanges,
           orderBookingDate,
           deliveryDate,
-          orderFor,
+          orderFor: orderForRaw,
           cavity,
         } = data || {}
+        const orderFor = normalizeOrderFor(orderForRaw)
         const basePlants = numberOfPlants || 0
         const extraPlants = additionalPlants || 0
         const totalPlantCount =
           typeof totalPlants === "number" ? totalPlants : basePlants + extraPlants
         const remainingPlantCount =
           typeof remainingPlants === "number" ? remainingPlants : totalPlantCount
-        const totalOrderAmount = Number(rate * totalPlantCount)
+        const billablePlantCount = computeBillablePlantsForAmount({
+          numberOfPlants: basePlants,
+          additionalPlants: extraPlants,
+          totalPlants,
+          returnedPlants,
+          damagedPlants,
+        })
+        const totalOrderAmount = Number(rate * billablePlantCount)
 
         const latestSlot = mapSlotForUi(bookingSlot)
         const { startDay, endDay } = latestSlot || {}
@@ -3680,13 +3884,14 @@ const mapSlotForUi = (slotData) => {
         return {
           order: orderId != null && orderId !== "" ? orderId : publicOrderCode,
           farmerName: orderFor
-            ? `${farmer?.name || "Unknown"} (Order for: ${orderFor.name})`
+            ? `${orderFor.name} · Booking: ${farmer?.name || "Unknown"}`
             : dealerOrder
             ? `via ${salesPerson?.name || "Unknown"}`
             : farmer?.name || "Unknown",
           plantType: `${plantType?.name || "Unknown"} -> ${plantSubtype?.name || "Unknown"}`,
           quantity: basePlants,
           totalPlants: totalPlantCount,
+          billablePlants: billablePlantCount,
           additionalPlants: extraPlants,
           basePlants,
           orderDate: moment(orderBookingDate || createdAt).format(ORDER_DATE_DISPLAY),
@@ -3717,7 +3922,10 @@ const mapSlotForUi = (slotData) => {
             numberOfPlants: basePlants,
             additionalPlants: extraPlants,
             totalPlants: totalPlantCount,
+            billablePlants: billablePlantCount,
             remainingPlants: remainingPlantCount,
+            returnedPlants: Number(returnedPlants) || 0,
+            damagedPlants: Number(damagedPlants) || 0,
             orderFor: orderFor || null,
             statusChanges: statusChanges || [],
             orderRemarks: orderRemarks || [],
@@ -3953,23 +4161,25 @@ const mapSlotForUi = (slotData) => {
           })
         }
 
-        if (reqSeq !== getOrdersRequestSeqRef.current) return
+        if (reqSeq !== getOrdersRequestSeqRef.current) return null
         setOrders(filteredOrders)
         setOrdersPage(1)
         setHasMoreOrders(false)
-        return
+        setOrdersListEnvelope({ total: null, totalPlantsSum: null })
+        return filteredOrders
       } catch (error) {
-        if (isAbortedRequestError(error)) return
-        if (reqSeq !== getOrdersRequestSeqRef.current) return
+        if (isAbortedRequestError(error)) return null
+        if (reqSeq !== getOrdersRequestSeqRef.current) return null
         console.error("Error fetching Agri Sales orders:", error)
         Toast.error("Failed to load Agri Sales orders")
         setOrders([])
         setOrdersPage(1)
         setHasMoreOrders(false)
+        setOrdersListEnvelope({ total: null, totalPlantsSum: null })
       } finally {
         if (reqSeq === getOrdersRequestSeqRef.current) setLoading(false)
       }
-      return
+      return null
     }
 
     // Use appropriate endpoint based on slotId for regular orders
@@ -3991,6 +4201,8 @@ const mapSlotForUi = (slotData) => {
       user,
       page: 1,
       limit: DASHBOARD_ORDERS_PAGE_SIZE,
+      queueFarmReadyOnly: viewMode === "ready_for_dispatch" ? queueFarmReadyOnly : false,
+      plantTotals: viewMode !== "dispatch_process",
     })
 
     let ordersData = []
@@ -4012,6 +4224,7 @@ const mapSlotForUi = (slotData) => {
         )
         ordersData = emps?.data?.data?.data || []
         nextPageAvailable = false
+        setOrdersListEnvelope({ total: null, totalPlantsSum: null })
       } else if (viewMode === "dispatch_process") {
         const paramsInProcess = { ...params }
         const paramsDispatchedTab = {
@@ -4030,6 +4243,7 @@ const mapSlotForUi = (slotData) => {
           resDispatched?.data?.data?.data || []
         )
         nextPageAvailable = false
+        setOrdersListEnvelope({ total: null, totalPlantsSum: null })
       } else {
         const emps = await instance.request({}, params, { signal })
 
@@ -4037,24 +4251,33 @@ const mapSlotForUi = (slotData) => {
         const currentPage = Number(emps?.data?.data?.currentPage || 1)
         const totalPages = Number(emps?.data?.data?.totalPages || 1)
         nextPageAvailable = currentPage < totalPages
+        const env = emps?.data?.data
+        const t = env && typeof env.total === "number" ? env.total : null
+        const tp =
+          env && typeof env.totalPlantsSum === "number" ? env.totalPlantsSum : null
+        setOrdersListEnvelope({ total: t, totalPlantsSum: tp })
       }
 
-      if (reqSeq !== getOrdersRequestSeqRef.current) return
-      setOrders(mapRegularOrdersForUi(ordersData))
+      if (reqSeq !== getOrdersRequestSeqRef.current) return null
+      const mappedOrders = mapRegularOrdersForUi(ordersData)
+      setOrders(mappedOrders)
       setOrdersPage(1)
       setHasMoreOrders(nextPageAvailable)
+      return mappedOrders
     } catch (err) {
-      if (isAbortedRequestError(err)) return
-      if (reqSeq !== getOrdersRequestSeqRef.current) return
+      if (isAbortedRequestError(err)) return null
+      if (reqSeq !== getOrdersRequestSeqRef.current) return null
       console.error("Error fetching orders:", err)
       Toast.error(err?.message || "Failed to load orders")
       setOrders([])
       setOrdersPage(1)
       setHasMoreOrders(false)
+      setOrdersListEnvelope({ total: null, totalPlantsSum: null })
     } finally {
       if (reqSeq === getOrdersRequestSeqRef.current) setLoading(false)
     }
 
+    return null
     // setEmployees(emps?.data?.data)
   }
 
@@ -4084,6 +4307,7 @@ const mapSlotForUi = (slotData) => {
         user,
         page: ordersPage + 1,
         limit: DASHBOARD_ORDERS_PAGE_SIZE,
+        queueFarmReadyOnly: viewMode === "ready_for_dispatch" ? queueFarmReadyOnly : false,
       })
 
       const res = await instance.request({}, params, { signal })
@@ -4216,7 +4440,7 @@ const mapSlotForUi = (slotData) => {
         // Agri Sales Order update - use PATCH /inventory/agri-sales-orders/:id
         instance = NetworkManager(API.INVENTORY.UPDATE_AGRI_SALES_ORDER)
         // Remove fields that don't apply to agri sales orders
-        const { numberOfPlants, bookingSlot, id, ...agriPayload } = dataToSend
+        const { numberOfPlants, bookingSlot, plantSubtype, id, ...agriPayload } = dataToSend
         // For agri sales orders, id goes in URL params as array
         urlParams = [dataToSend.id]
         payload = agriPayload
@@ -4270,13 +4494,17 @@ const mapSlotForUi = (slotData) => {
             if (!editedOrderId || oid !== editedOrderId) return o
 
             const additional = Number(o?.additionalPlants || 0)
-            const totalPlants = Math.max(0, nextQty + additional)
+            const grossPlants = Math.max(0, nextQty + additional)
+            const returned =
+              Number(o?.["returned Plants"] ?? o?.details?.returnedPlants ?? 0) || 0
+            const damaged = Number(o?.details?.damagedPlants ?? 0) || 0
+            const billablePlants = Math.max(0, grossPlants - returned - damaged)
             const paidCollected = Array.isArray(o?.details?.payment)
               ? o.details.payment
                   .filter((p) => p?.paymentStatus === "COLLECTED")
                   .reduce((sum, p) => sum + Number(p?.paidAmount || 0), 0)
               : 0
-            const totalAmount = Number(nextRate || 0) * Number(totalPlants || 0)
+            const totalAmount = Number(nextRate || 0) * billablePlants
             const remainingAmount = totalAmount - paidCollected
             const nextDeliveryDate = dataToSend?.deliveryDate
               ? moment(dataToSend.deliveryDate).format(ORDER_DATE_DISPLAY)
@@ -4296,17 +4524,44 @@ const mapSlotForUi = (slotData) => {
                   }
                 : o.details?.salesPerson
 
+            const nextSubtypeId =
+              dataToSend?.plantSubtype != null
+                ? String(dataToSend.plantSubtype)
+                : o.details?.plantSubtypeID
+            const plantNamePart =
+              (o.plantType || "").split(" -> ")[0]?.trim() || "Unknown"
+            const subtypeLabel =
+              (orderEditSubtypes || []).find(
+                (s) => String(s.value) === String(nextSubtypeId)
+              )?.label ||
+              (o.plantType || "").split(" -> ")[1]?.trim() ||
+              "Unknown"
+            const slotPick =
+              dataToSend?.bookingSlot &&
+              (slots || []).find(
+                (s) => String(s.value) === String(dataToSend.bookingSlot)
+              )
+            const nextBookingSlotMeta = slotPick
+              ? {
+                  slotId: slotPick.value,
+                  startDay: slotPick.startDay,
+                  endDay: slotPick.endDay,
+                }
+              : o.details?.bookingSlot
+
             const patched = {
               ...o,
               ...(nextOrderStatus ? { orderStatus: nextOrderStatus } : {}),
               rate: nextRate,
               quantity: nextQty,
               basePlants: nextQty,
-              totalPlants,
+              totalPlants: grossPlants,
+              billablePlants,
               total: formatRupee(totalAmount),
               ["Paid Amt"]: formatRupee(paidCollected),
               ["remaining Amt"]: formatRupee(remainingAmount),
               deliveryDate: nextDeliveryDate,
+              plantType: `${plantNamePart} -> ${subtypeLabel}`,
               details: {
                 ...o.details,
                 ...(nextOrderStatus ? { orderStatus: nextOrderStatus } : {}),
@@ -4326,7 +4581,10 @@ const mapSlotForUi = (slotData) => {
                       .toISOString()
                   : o?.details?.dispatchTargetDate || null,
                 numberOfPlants: nextQty,
-                totalPlants,
+                totalPlants: grossPlants,
+                billablePlants,
+                plantSubtypeID: nextSubtypeId,
+                bookingSlot: nextBookingSlotMeta || o.details?.bookingSlot,
                 ...(dataToSend?.salesPerson
                   ? { salesPerson: nextSalesPerson }
                   : {}),
@@ -4346,9 +4604,15 @@ const mapSlotForUi = (slotData) => {
         }
 
         // Refresh slots to get updated capacity (only for regular orders, not agri sales orders)
-        if (!isAgriSalesOrder && (dataToSend.bookingSlot || dataToSend.quantity)) {
+        if (
+          !isAgriSalesOrder &&
+          (dataToSend.bookingSlot || dataToSend.quantity || dataToSend.plantSubtype)
+        ) {
           const plantId = row?.details?.plantID || selectedOrder?.details?.plantID
-          const subtypeId = row?.details?.plantSubtypeID || selectedOrder?.details?.plantSubtypeID
+          const subtypeId =
+            dataToSend.plantSubtype ||
+            row?.details?.plantSubtypeID ||
+            selectedOrder?.details?.plantSubtypeID
           if (plantId && subtypeId) {
             setTimeout(() => {
               getSlots(plantId, subtypeId)
@@ -5311,6 +5575,36 @@ const mapSlotForUi = (slotData) => {
                 </span>
               </button>
             </div>
+            {viewMode === "ready_for_dispatch" && !slotId && (
+              <div className="flex flex-wrap items-center gap-2 px-3 py-2 border-t border-gray-200 bg-white">
+                <span className="text-xs font-semibold text-gray-600 shrink-0">Queue:</span>
+                <button
+                  type="button"
+                  onClick={() => setQueueFarmReadyOnly(false)}
+                  className={`px-2.5 py-1 text-xs font-semibold rounded-md border transition-colors ${
+                    !queueFarmReadyOnly
+                      ? "bg-brand-600 text-white border-brand-600"
+                      : "bg-gray-50 text-gray-700 border-gray-300 hover:bg-gray-100"
+                  }`}
+                >
+                  All ready
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setQueueFarmReadyOnly(true)}
+                  className={`px-2.5 py-1 text-xs font-semibold rounded-md border transition-colors ${
+                    queueFarmReadyOnly
+                      ? "bg-brand-600 text-white border-brand-600"
+                      : "bg-gray-50 text-gray-700 border-gray-300 hover:bg-gray-100"
+                  }`}
+                >
+                  Farm-ready on file
+                </button>
+                <span className="text-[10px] text-gray-500 leading-tight max-w-[14rem] sm:max-w-none">
+                  When on: farm-ready filter + FIFO sort (<code className="text-[10px]">farmReadyEnteredAt</code>).
+                </span>
+              </div>
+            )}
           </div>
         )}
 
@@ -5936,9 +6230,18 @@ const mapSlotForUi = (slotData) => {
                             </span>
                           )}
                         </div>
-                        <div className="mt-0.5 inline-flex items-center gap-1 rounded-md border border-sky-200 bg-sky-50 px-1.5 py-0.5">
-                          <span className="text-[10px] font-semibold text-sky-800">Booked</span>
-                          <span className="text-[10px] font-bold text-sky-900">{row.orderDate}</span>
+                        <div className="mt-0.5 inline-flex items-center gap-1 flex-wrap">
+                          <span className="inline-flex items-center gap-1 rounded-md border border-sky-200 bg-sky-50 px-1.5 py-0.5">
+                            <span className="text-[10px] font-semibold text-sky-800">Booked</span>
+                            <span className="text-[10px] font-bold text-sky-900">{row.orderDate}</span>
+                          </span>
+                          {row.details?.orderFor?.name ? (
+                            <span
+                              className="inline-flex items-center rounded-md border border-violet-200 bg-violet-50 px-1.5 py-0.5 text-[10px] font-bold text-violet-900"
+                              title={`Book-for order · Booking farmer: ${row.details.farmer?.name || "—"}`}>
+                              Book for
+                            </span>
+                          ) : null}
                         </div>
                       </td>
                       <td className="px-2 py-2">
@@ -5946,11 +6249,17 @@ const mapSlotForUi = (slotData) => {
                           {row.details?.orderFor ? (
                             <div className="space-y-0.5">
                               <div className="text-[12px] font-semibold text-gray-900">
-                                {row.details.farmer?.name || "Unknown"}
+                                {row.details.orderFor.name}
                               </div>
-                              <div className="text-[11px] text-gray-700">
-                                Order For: {row.details.orderFor.name}
+                              <div className="text-[11px] font-medium inline-flex flex-wrap items-baseline gap-x-0.5 rounded border border-sky-200 bg-sky-50 px-1.5 py-0.5 max-w-full">
+                                <span className="text-sky-600 font-semibold shrink-0">Booking:</span>
+                                <span className="text-sky-900">{row.details.farmer?.name || "Unknown"}</span>
                               </div>
+                              {formatBookForLocation(row.details.orderFor) ? (
+                                <div className="text-[10px] text-gray-600 leading-tight">
+                                  {formatBookForLocation(row.details.orderFor)}
+                                </div>
+                              ) : null}
                             </div>
                           ) : (
                             <span className="text-[12px] font-semibold text-gray-900">
@@ -6226,42 +6535,51 @@ const mapSlotForUi = (slotData) => {
         </div>
         )}
 
-        {/* Table Footer with Summary */}
+        {/* Table footer: loaded page size + full matching counts (API), plants sum when plantTotals returned */}
         {viewType === "table" && filteredOrders && filteredOrders.length > 0 && (
           <div className="bg-gray-50 border-t border-gray-200 px-4 py-2">
-            <div className="flex items-center justify-between text-xs">
+            <div className="flex items-center justify-between text-xs flex-wrap gap-2">
               <div className="text-gray-600">
-                <>
-                  Showing <span className="font-semibold">{filteredOrders.length}</span> order{filteredOrders.length !== 1 ? "s" : ""}
-                </>
+                Showing <span className="font-semibold">{filteredOrders.length}</span> order
+                {filteredOrders.length !== 1 ? "s" : ""} on this page
+                {!showAgriSalesOrders && (
+                  <>
+                    {" · "}
+                    <span className="font-semibold">
+                      {viewMode === "dispatch_process" || ordersListEnvelope.total == null
+                        ? orderViewTabTotals[viewMode] ?? "—"
+                        : ordersListEnvelope.total}
+                    </span>{" "}
+                    matching filters
+                  </>
+                )}
               </div>
-              <div className="flex items-center gap-3 text-gray-600">
-                <div>
-                  Total: <span className="font-semibold text-gray-900">
-                    ₹{filteredOrders.reduce((sum, o) => {
-                      const total = parseFloat(o.total.replace(/[₹,\s]/g, '')) || 0
-                      return sum + total
-                    }, 0).toLocaleString()}
+              {!showAgriSalesOrders && typeof ordersListEnvelope.totalPlantsSum === "number" && (
+                <div className="text-gray-600">
+                  Plants (all matching):{" "}
+                  <span className="font-semibold text-brand-700">
+                    {ordersListEnvelope.totalPlantsSum.toLocaleString()}
                   </span>
                 </div>
-                <div>
-                  Paid: <span className="font-semibold text-green-600">
-                    ₹{filteredOrders.reduce((sum, o) => {
-                      const paid = parseFloat(o["Paid Amt"].replace(/[₹,\s]/g, '')) || 0
-                      return sum + paid
-                    }, 0).toLocaleString()}
-                  </span>
-                </div>
-                <div>
-                  Remaining: <span className="font-semibold text-amber-600">
-                    ₹{filteredOrders.reduce((sum, o) => {
-                      const remaining = parseFloat(o["remaining Amt"].replace(/[₹,\s]/g, '')) || 0
-                      return sum + remaining
-                    }, 0).toLocaleString()}
-                  </span>
-                </div>
-              </div>
+              )}
             </div>
+            {!showAgriSalesOrders && (
+              <div className="text-[11px] text-gray-600 mt-1.5 pt-1.5 border-t border-gray-200/80">
+                On this page — Returned plants:{" "}
+                <span className="font-semibold text-amber-800 tabular-nums">
+                  {filteredOrders
+                    .reduce((sum, o) => sum + (Number(o["returned Plants"]) || 0), 0)
+                    .toLocaleString()}
+                </span>
+                <span className="mx-2 text-gray-400">·</span>
+                Damaged plants:{" "}
+                <span className="font-semibold text-red-800 tabular-nums">
+                  {filteredOrders
+                    .reduce((sum, o) => sum + (Number(o?.details?.damagedPlants) || 0), 0)
+                    .toLocaleString()}
+                </span>
+              </div>
+            )}
           </div>
         )}
 
@@ -6384,13 +6702,12 @@ const mapSlotForUi = (slotData) => {
                                 <div className="flex items-center gap-1 mt-1 flex-wrap">
                                   {row.details?.orderFor ? (
                                     <>
-                                      <span className="text-xs text-gray-500">Farmer:</span>
-                                      <span className={`text-xs font-medium farmer-name-highlight`}>
-                                        {row.details.farmer?.name || "Unknown"}
-                                      </span>
-                                      <span className="text-xs text-gray-500">| Order For:</span>
-                                      <span className={`text-xs font-medium order-for-highlight`}>
+                                      <span className={`text-xs font-semibold order-for-highlight`}>
                                         {row.details.orderFor.name}
+                                      </span>
+                                      <span className="inline-flex items-center gap-0.5 rounded border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-[11px] font-medium text-sky-900">
+                                        <span className="text-sky-600 font-semibold">Booking:</span>
+                                        <span>{row.details.farmer?.name || "Unknown"}</span>
                                       </span>
                                     </>
                                   ) : (
@@ -6803,7 +7120,7 @@ const mapSlotForUi = (slotData) => {
                   <div className="bg-brand-50 rounded-lg p-3 border border-brand-200">
                     <div className="text-brand-600 text-xs font-medium">Total Value</div>
                     <div className="text-lg font-bold text-brand-900">
-                      ₹{(selectedOrder.rate * selectedOrderCounts.total).toLocaleString()}
+                      ₹{(paymentSummary.total).toLocaleString()}
                     </div>
                   </div>
                   <div className="bg-green-50 rounded-lg p-3 border border-green-200">
@@ -6815,11 +7132,7 @@ const mapSlotForUi = (slotData) => {
                   <div className="bg-amber-50 rounded-lg p-3 border border-amber-200">
                     <div className="text-amber-600 text-xs font-medium">Remaining</div>
                     <div className="text-lg font-bold text-amber-900">
-                      ₹
-                      {(
-                        selectedOrder.rate * selectedOrderCounts.total -
-                        getTotalPaidAmount(selectedOrder?.details?.payment)
-                      ).toLocaleString()}
+                      ₹{(paymentSummary.balance).toLocaleString()}
                     </div>
                   </div>
                   <div className="bg-purple-50 rounded-lg p-3 border border-purple-200">
@@ -6829,6 +7142,44 @@ const mapSlotForUi = (slotData) => {
                     </div>
                   </div>
                 </div>
+
+                {!(selectedOrder.isAgriSalesOrder || selectedOrder.details?.isRamAgriProduct) && (
+                  <div className="mb-4 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-700 flex flex-wrap items-center gap-x-4 gap-y-1">
+                    <span>
+                      Booked plants:{" "}
+                      <strong className="tabular-nums text-gray-900">
+                        {(selectedOrderCounts?.total ?? 0).toLocaleString()}
+                      </strong>
+                    </span>
+                    <span className="text-amber-800">
+                      Returned:{" "}
+                      <strong className="tabular-nums">
+                        {(Number(selectedOrder["returned Plants"] ?? selectedOrder?.details?.returnedPlants) || 0).toLocaleString()}
+                      </strong>
+                    </span>
+                    <span className="text-red-800">
+                      Damaged:{" "}
+                      <strong className="tabular-nums">
+                        {(Number(selectedOrder?.details?.damagedPlants) || 0).toLocaleString()}
+                      </strong>
+                    </span>
+                    <span className="text-brand-800">
+                      Billed (net) plants:{" "}
+                      <strong className="tabular-nums">
+                        {(
+                          selectedOrder.billablePlants != null && Number.isFinite(Number(selectedOrder.billablePlants))
+                            ? Number(selectedOrder.billablePlants)
+                            : Math.max(
+                                0,
+                                (selectedOrderCounts?.total ?? 0) -
+                                  (Number(selectedOrder["returned Plants"]) || 0) -
+                                  (Number(selectedOrder?.details?.damagedPlants) || 0)
+                              )
+                        ).toLocaleString()}
+                      </strong>
+                    </span>
+                  </div>
+                )}
 
                 {/* Main Content Tabs */}
                 <div className="bg-white rounded-lg border">
@@ -6867,7 +7218,17 @@ const mapSlotForUi = (slotData) => {
                               bookingSlot: selectedOrder?.details?.bookingSlot?.slotId,
                               deliveryDate: selectedOrder?.details?.deliveryDate 
                                 ? new Date(selectedOrder.details.deliveryDate) 
-                                : null
+                                : null,
+                              ...(canEditPlantSubtype &&
+                              selectedOrder?.details?.plantSubtypeID &&
+                              !selectedOrder?.isAgriSalesOrder &&
+                              !selectedOrder?.details?.isRamAgriProduct
+                                ? {
+                                    plantSubtype: String(
+                                      selectedOrder.details.plantSubtypeID
+                                    ),
+                                  }
+                                : {})
                             })
                             setQuantityDeltaInput("")
                           }
@@ -6923,8 +7284,8 @@ const mapSlotForUi = (slotData) => {
                             <h3 className="font-medium text-gray-900 mb-3 text-sm">
                               {selectedOrder?.isAgriSalesOrder || selectedOrder?.details?.isRamAgriProduct
                                 ? "Customer Information"
-                                : selectedOrder?.details?.orderFor 
-                                ? "Order For Information" 
+                                : selectedOrder?.details?.orderFor
+                                ? "Book for (main) & booking farmer"
                                 : "Farmer Information"}
                             </h3>
                             <div className="space-y-3">
@@ -6963,23 +7324,76 @@ const mapSlotForUi = (slotData) => {
                                 </>
                               ) : selectedOrder?.details?.orderFor ? (
                                 <>
-                                  <div className="flex flex-col space-y-1">
-                                    <span className="text-xs text-gray-500 font-medium">Customer Name</span>
-                                    <span className="font-medium text-sm text-orange-700 bg-orange-100 px-2 py-1 rounded">
-                                      👤 {selectedOrder?.details?.orderFor?.name}
+                                  <div className="rounded-md border border-amber-200 bg-amber-50/80 px-2 py-2 space-y-2">
+                                    <span className="text-[11px] font-bold uppercase tracking-wide text-amber-900">
+                                      Book for (main)
                                     </span>
+                                    <div className="flex flex-col space-y-1">
+                                      <span className="text-xs text-gray-500 font-medium">Name</span>
+                                      <span className="font-medium text-sm text-orange-800 bg-orange-100 px-2 py-1 rounded">
+                                        {selectedOrder?.details?.orderFor?.name}
+                                      </span>
+                                    </div>
+                                    {formatBookForLocation(selectedOrder?.details?.orderFor) ? (
+                                      <div className="flex flex-col space-y-1">
+                                        <span className="text-xs text-gray-500 font-medium">Location</span>
+                                        <span className="font-medium text-sm text-gray-900">
+                                          {formatBookForLocation(selectedOrder.details.orderFor)}
+                                        </span>
+                                      </div>
+                                    ) : null}
+                                    <div className="flex flex-col space-y-1">
+                                      <span className="text-xs text-gray-500 font-medium">Mobile</span>
+                                      <span className="font-medium text-sm text-gray-900">
+                                        {selectedOrder?.details?.orderFor?.mobileNumber != null &&
+                                        selectedOrder?.details?.orderFor?.mobileNumber !== "" &&
+                                        selectedOrder?.details?.orderFor?.mobileNumber !== 0
+                                          ? String(selectedOrder.details.orderFor.mobileNumber)
+                                          : "—"}
+                                      </span>
+                                    </div>
+                                    {selectedOrder?.details?.orderFor?.address ? (
+                                      <div className="flex flex-col space-y-1">
+                                        <span className="text-xs text-gray-500 font-medium">Address</span>
+                                        <span className="font-medium text-sm text-gray-900">
+                                          {selectedOrder.details.orderFor.address}
+                                        </span>
+                                      </div>
+                                    ) : null}
                                   </div>
-                                  <div className="flex flex-col space-y-1">
-                                    <span className="text-xs text-gray-500 font-medium">Mobile Number</span>
-                                    <span className="font-medium text-sm text-gray-900">
-                                      {selectedOrder?.details?.orderFor?.mobileNumber}
+                                  <div className="rounded-md border border-slate-200 bg-white px-2 py-2 space-y-2">
+                                    <span className="text-[11px] font-bold uppercase tracking-wide text-slate-600">
+                                      Booking farmer
                                     </span>
-                                  </div>
-                                  <div className="flex flex-col space-y-1">
-                                    <span className="text-xs text-gray-500 font-medium">Address</span>
-                                    <span className="font-medium text-sm text-gray-900">
-                                      {selectedOrder?.details?.orderFor?.address}
-                                    </span>
+                                    <div className="flex flex-col space-y-1">
+                                      <span className="text-xs text-gray-500 font-medium">Name</span>
+                                      <span className="font-medium text-sm text-gray-900">
+                                        {selectedOrder?.details?.farmer?.name || "—"}
+                                      </span>
+                                    </div>
+                                    <div className="flex flex-col space-y-1">
+                                      <span className="text-xs text-gray-500 font-medium">Mobile</span>
+                                      <span className="font-medium text-sm text-gray-900">
+                                        {selectedOrder?.details?.farmer?.mobileNumber != null &&
+                                        selectedOrder?.details?.farmer?.mobileNumber !== ""
+                                          ? String(selectedOrder.details.farmer.mobileNumber)
+                                          : "—"}
+                                      </span>
+                                    </div>
+                                    <div className="flex flex-col space-y-1">
+                                      <span className="text-xs text-gray-500 font-medium">Location</span>
+                                      <span className="font-medium text-sm text-gray-900">
+                                        {[
+                                          selectedOrder?.details?.farmer?.village,
+                                          selectedOrder?.details?.farmer?.talukaName ||
+                                            selectedOrder?.details?.farmer?.taluka,
+                                          selectedOrder?.details?.farmer?.districtName ||
+                                            selectedOrder?.details?.farmer?.district,
+                                        ]
+                                          .filter(Boolean)
+                                          .join(", ") || "—"}
+                                      </span>
+                                    </div>
                                   </div>
                                 </>
                               ) : (
@@ -8316,6 +8730,25 @@ const mapSlotForUi = (slotData) => {
                                               + Add payment
                                             </button>
                                           )}
+                                          {hasPaymentAccess &&
+                                            !isDealer &&
+                                            !selectedOrder?.isAgriSalesOrder &&
+                                            !selectedOrder?.details?.isRamAgriProduct &&
+                                            !selectedOrder?.details?.dealerOrder &&
+                                            payment?._id &&
+                                            transferableFarmerPlantPayments([payment]).length === 1 && (
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  setPaymentTransferSourceId(String(selectedOrder.details.orderid))
+                                                  setPaymentTransferPaymentId(String(payment._id))
+                                                  setPaymentTransferOpen(true)
+                                                }}
+                                                className="rounded-md border border-amber-600 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-950 shadow-sm hover:bg-amber-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                                              >
+                                                Order transfer
+                                              </button>
+                                            )}
                                         </div>
                                       </div>
                                       <div className="text-xs">
@@ -8385,6 +8818,46 @@ const mapSlotForUi = (slotData) => {
                               </div>
                             </div>
                           )}
+
+                          {canEditPlantSubtype &&
+                            !selectedOrder?.isAgriSalesOrder &&
+                            !selectedOrder?.details?.isRamAgriProduct &&
+                            selectedOrder?.details?.plantID && (
+                              <div className="mb-4 max-w-md">
+                                <label className="text-sm text-gray-500 font-medium">
+                                  Plant subtype
+                                </label>
+                                {orderEditSubtypesLoading ? (
+                                  <div className="mt-1 text-sm text-gray-500">
+                                    Loading subtypes...
+                                  </div>
+                                ) : (
+                                  <select
+                                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 mt-1 bg-white"
+                                    value={
+                                      updatedObject?.plantSubtype != null
+                                        ? String(updatedObject.plantSubtype)
+                                        : String(
+                                            selectedOrder?.details?.plantSubtypeID ||
+                                              ""
+                                          )
+                                    }
+                                    onChange={(e) =>
+                                      handleOrderEditPlantSubtypeChange(e.target.value)
+                                    }>
+                                    {(orderEditSubtypes || []).map((st) => (
+                                      <option key={st.value} value={st.value}>
+                                        {st.label}
+                                      </option>
+                                    ))}
+                                  </select>
+                                )}
+                                <p className="text-xs text-amber-700 mt-1">
+                                  Changing subtype clears the delivery slot — pick a new
+                                  delivery date below for the new subtype.
+                                </p>
+                              </div>
+                            )}
 
                           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                             <div>
@@ -8644,6 +9117,27 @@ const mapSlotForUi = (slotData) => {
                                   delete payloadForSave.salesPerson
                                 }
 
+                                const origSub = String(
+                                  selectedOrder?.details?.plantSubtypeID || ""
+                                )
+                                const nextSub =
+                                  updatedObject?.plantSubtype != null
+                                    ? String(updatedObject.plantSubtype)
+                                    : origSub
+                                if (
+                                  canEditPlantSubtype &&
+                                  origSub &&
+                                  nextSub &&
+                                  origSub !== nextSub &&
+                                  (!updatedObject?.bookingSlot ||
+                                    !updatedObject?.deliveryDate)
+                                ) {
+                                  Toast.error(
+                                    "Select a delivery date and slot for the new plant subtype before saving."
+                                  )
+                                  return
+                                }
+
                                 // Show confirmation dialog with changes summary
                                 const changes = []
                                 if (nextRate !== currentRate) {
@@ -8702,6 +9196,29 @@ const mapSlotForUi = (slotData) => {
                                   changes.push(`Sales person: ${curName} → ${nextName}`)
                                 }
 
+                                if (
+                                  canEditPlantSubtype &&
+                                  origSub &&
+                                  nextSub &&
+                                  origSub !== nextSub
+                                ) {
+                                  const prevName =
+                                    orderEditSubtypes.find(
+                                      (s) => String(s.value) === origSub
+                                    )?.label ||
+                                    (selectedOrder?.plantType || "")
+                                      .split(" -> ")[1]
+                                      ?.trim() ||
+                                    "—"
+                                  const nextName =
+                                    orderEditSubtypes.find(
+                                      (s) => String(s.value) === nextSub
+                                    )?.label || "—"
+                                  changes.push(
+                                    `Plant subtype: ${prevName} → ${nextName}`
+                                  )
+                                }
+
                                 if (changes.length === 0) {
                                   Toast.info("No changes to save")
                                   return
@@ -8715,12 +9232,7 @@ const mapSlotForUi = (slotData) => {
                                   )}`,
                                   onConfirm: () => {
                                     setConfirmDialog((d) => ({ ...d, open: false }))
-                                    
-                                    // pacthOrders will handle deliveryDate conversion
-                                    pacthOrders(payloadForSave, selectedOrder).then(() => {
-                                      // Refresh modal data after successful edit
-                                      refreshModalData()
-                                    })
+                                    pacthOrders(payloadForSave, selectedOrder)
                                   }
                                 })
                               }}
@@ -9642,6 +10154,22 @@ const mapSlotForUi = (slotData) => {
         onSuccess={() => {
           getOrders()
           if (showAgriSalesOrders) fetchAgriStatusCounts()
+        }}
+      />
+
+      <PaymentTransferDialog
+        open={paymentTransferOpen}
+        onClose={() => {
+          setPaymentTransferOpen(false)
+          setPaymentTransferSourceId(null)
+          setPaymentTransferPaymentId(null)
+        }}
+        initialSourceOrderId={paymentTransferSourceId || undefined}
+        initialPaymentId={paymentTransferPaymentId || undefined}
+        onSuccess={() => {
+          const oid = selectedOrder?.details?.orderid
+          if (oid) setPendingOrderUpdate(oid)
+          void getOrders()
         }}
       />
 

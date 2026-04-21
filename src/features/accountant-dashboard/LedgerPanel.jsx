@@ -35,7 +35,14 @@ const defaultLedgerApis = {
 }
 
 /** Centered modal — farmer plant nursery ledger (also Ram Agri when meta.ledgerApis is set) */
-function FarmerPlantLedgerModal({ ledger, onClose, canTransferAdvance, onRefresh }) {
+function FarmerPlantLedgerModal({
+  ledger,
+  onClose,
+  canTransferAdvance,
+  onRefresh,
+  canTransferOrderPayment,
+  onOpenPaymentTransfer
+}) {
   const { customer, summary, entries, meta } = ledger
   const orders = meta?.orders || []
   const ledgerApis = meta?.ledgerApis || defaultLedgerApis
@@ -265,6 +272,15 @@ function FarmerPlantLedgerModal({ ledger, onClose, canTransferAdvance, onRefresh
                 >
                   Add manual entry
                 </button>
+                {canTransferOrderPayment && typeof onOpenPaymentTransfer === "function" && (
+                  <button
+                    type="button"
+                    className="rounded-lg border border-white/40 bg-white/15 px-3 py-1.5 text-xs font-semibold text-white shadow-sm ring-1 ring-white/25 transition hover:bg-white/25 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
+                    onClick={() => onOpenPaymentTransfer()}
+                  >
+                    Order transfer
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -361,7 +377,7 @@ function FarmerPlantLedgerModal({ ledger, onClose, canTransferAdvance, onRefresh
                                     orderId: o?.orderId,
                                     farmer
                                   })
-                                  // Picking an order auto-selects the same farmer.
+                                  // Pre-fill target party from this order’s farmer (advance UI); payment transfer allows any eligible target order.
                                   if (farmer?.mobileNumber) {
                                     setSelectedTarget({
                                       _id: farmer?._id,
@@ -932,10 +948,19 @@ function LegacyLedgerPanel({ ledger, onClose }) {
   )
 }
 
-export function LedgerPanel({ ledger, onClose }) {
+export function LedgerPanel({ ledger, onClose, canTransferOrderPayment, onOpenPaymentTransfer }) {
   if (!ledger) return null
   if (ledger.meta?.variant === "farmerPlant") {
-    return <FarmerPlantLedgerModal ledger={ledger} onClose={onClose} canTransferAdvance={ledger?.meta?.canTransferAdvance} onRefresh={ledger?.meta?.onRefresh} />
+    return (
+      <FarmerPlantLedgerModal
+        ledger={ledger}
+        onClose={onClose}
+        canTransferAdvance={ledger?.meta?.canTransferAdvance}
+        onRefresh={ledger?.meta?.onRefresh}
+        canTransferOrderPayment={Boolean(canTransferOrderPayment)}
+        onOpenPaymentTransfer={onOpenPaymentTransfer}
+      />
+    )
   }
   return <LegacyLedgerPanel ledger={ledger} onClose={onClose} />
 }

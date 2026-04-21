@@ -25,6 +25,7 @@ import {
 import { LedgerPartiesTable } from "features/accountant-dashboard/LedgerPartiesTable"
 import BulkPaymentEntryDialog from "components/Modals/BulkPaymentEntryDialog"
 import DealerWalletCreditDialog from "components/Modals/DealerWalletCreditDialog"
+import PaymentTransferDialog from "components/Modals/PaymentTransferDialog"
 
 const ROWS = 25
 const BULK_STATUS_BY_UI_FILTER = {
@@ -84,10 +85,13 @@ const AccountantDashboard = () => {
 
   const [ledgerData, setLedgerData] = useState(null)
   const [loadingLedger, setLoadingLedger] = useState(false)
+  /** When ledger panel is open, used to re-fetch after farmer plant payment transfer. */
+  const ledgerRefreshContextRef = useRef(null)
 
   const [acceptingBulkId, setAcceptingBulkId] = useState(null)
   const [bulkPaymentEntryOpen, setBulkPaymentEntryOpen] = useState(false)
   const [dealerWalletCreditOpen, setDealerWalletCreditOpen] = useState(false)
+  const [paymentTransferOpen, setPaymentTransferOpen] = useState(false)
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearchTerm(searchTerm), 400)
@@ -363,6 +367,7 @@ const AccountantDashboard = () => {
   const fetchLedgerForCustomer = async (customerMobile, customerName, farmerId) => {
     setLoadingLedger(true)
     setLedgerData(null)
+    ledgerRefreshContextRef.current = null
     try {
       if (selectedOrg === "ram-agri") {
         const params = {}
@@ -378,6 +383,12 @@ const AccountantDashboard = () => {
         if (apiResponse?.status === "Success" || apiResponse?.success) {
           const mapped = mapRamAgriCustomerLedgerApiToFullPanel(apiResponse.data || {})
           if (mapped) {
+            ledgerRefreshContextRef.current = {
+              org: "ram-agri",
+              customerMobile,
+              customerName,
+              farmerId
+            }
             setLedgerData({
               ...mapped,
               meta: {
@@ -417,6 +428,12 @@ const AccountantDashboard = () => {
           endDate
         })
         if (mapped) {
+          ledgerRefreshContextRef.current = {
+            org: "ram-biotech",
+            customerMobile,
+            customerName,
+            farmerId
+          }
           // Add transfer helpers for plant ledger UI (kept in meta to avoid changing the ledger shape).
           const withMeta = {
             ...mapped,
@@ -537,6 +554,15 @@ const AccountantDashboard = () => {
                   New bulk payment
                 </button>
               )}
+              {hasPaymentAccess && (
+                <button
+                  type="button"
+                  className="rounded-md border border-amber-600 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-950 shadow-sm hover:bg-amber-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                  onClick={() => setPaymentTransferOpen(true)}
+                >
+                  Order transfer
+                </button>
+              )}
               {hasPaymentAccess && selectedOrg === "ram-biotech" && (
                 <button
                   type="button"
@@ -623,12 +649,32 @@ const AccountantDashboard = () => {
         }}
       />
 
+      <PaymentTransferDialog
+        open={paymentTransferOpen}
+        onClose={() => setPaymentTransferOpen(false)}
+        onSuccess={() => {
+          refreshPayments()
+          const ctx = ledgerRefreshContextRef.current
+          if (ctx?.org === selectedOrg) {
+            void fetchLedgerForCustomer(ctx.customerMobile, ctx.customerName, ctx.farmerId)
+          }
+        }}
+      />
+
       <DealerWalletCreditDialog
         open={dealerWalletCreditOpen}
         onClose={() => setDealerWalletCreditOpen(false)}
       />
 
-      <LedgerPanel ledger={ledgerData} onClose={() => setLedgerData(null)} />
+      <LedgerPanel
+        ledger={ledgerData}
+        onClose={() => {
+          ledgerRefreshContextRef.current = null
+          setLedgerData(null)
+        }}
+        canTransferOrderPayment={hasPaymentAccess}
+        onOpenPaymentTransfer={() => setPaymentTransferOpen(true)}
+      />
       {loadingLedger && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center bg-foreground/10 text-sm text-foreground">
           Loading ledger…

@@ -137,6 +137,40 @@ export async function fetchFarmerPlantLedger({
   return mapFarmerPlantLedgerApiToPanel(payload)
 }
 
+/**
+ * GET farmer plant order details (payments + ledger) by Mongo order _id.
+ * @param {string} orderMongoId
+ */
+export async function fetchFarmerPlantOrderDetails(orderMongoId) {
+  const id = orderMongoId != null ? String(orderMongoId).trim() : ""
+  if (!id) throw new Error("Order id is required")
+  const instance = NetworkManager(API.ORDER.GET_FARMER_PLANT_ORDER_DETAILS)
+  const res = await instance.request({}, { pathParams: [id] })
+  if (!res?.success) {
+    throw new Error(res?.error || res?.message || "Failed to load order details")
+  }
+  return res.data?.data ?? res.data
+}
+
+/**
+ * Move one COLLECTED payment from source order to target order (farmer plant; target may be another farmer).
+ * @param {{ sourceOrderId: string, targetOrderId: string, paymentId: string, message?: string }} params
+ */
+export async function transferFarmerPlantOrderPayment({ sourceOrderId, targetOrderId, paymentId, message }) {
+  const payload = {
+    sourceOrderId: sourceOrderId ? String(sourceOrderId).trim() : undefined,
+    targetOrderId: targetOrderId ? String(targetOrderId).trim() : undefined,
+    paymentId: paymentId ? String(paymentId).trim() : undefined,
+    message: message != null && String(message).trim() ? String(message).trim() : undefined
+  }
+  const instance = NetworkManager(API.ORDER.TRANSFER_FARMER_PLANT_ORDER_PAYMENT)
+  const res = await instance.request(payload)
+  if (!res?.success) {
+    throw new Error(res?.error || res?.message || "Payment transfer failed")
+  }
+  return res.data?.data ?? res.data
+}
+
 export async function transferFarmerPlantAdvance({ fromMobile, toMobile, amount, reason, orderId, toFarmerId, fromFarmerId }) {
   const payload = {
     fromFarmerId: fromFarmerId ? String(fromFarmerId).trim() : undefined,

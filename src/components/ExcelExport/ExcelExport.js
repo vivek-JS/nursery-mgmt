@@ -48,8 +48,13 @@ export function ordersListRowsToCsv(rows) {
     "Village",
     "Plant",
     "Subtype",
-    "Rate",
-    "Total qty",
+    "Quantity (plants)",
+    "Base qty",
+    "Extra qty",
+    "Returned plants",
+    "Damaged plants",
+    "Billable plants (net)",
+    "Rate (₹)",
     "Delivery date",
     "Order status",
     "Sales person",
@@ -59,21 +64,35 @@ export function ordersListRowsToCsv(rows) {
   let sr = 0
   for (const obj of rows) {
     const farmer = obj.farmer || {}
-    const plantName = obj.plantType?.name || "N/A"
-    const subName = obj.plantSubtype?.name || "N/A"
+    const plantName =
+      (obj.plantType && obj.plantType.name) ||
+      (typeof obj.plantName === "string" ? obj.plantName : obj.plantName?.name) ||
+      "N/A"
+    let subName = "N/A"
+    if (obj.plantSubtype != null) {
+      if (typeof obj.plantSubtype === "string") subName = obj.plantSubtype
+      else if (typeof obj.plantSubtype === "object" && obj.plantSubtype.name)
+        subName = obj.plantSubtype.name
+    }
     const bookingRef = obj.orderBookingDate || obj.createdAt
     const delivery = obj.deliveryDate ?? obj.farmReadyDate
     const refParts = []
     if (obj.salesPerson?.name) refParts.push(obj.salesPerson.name)
     const reference = refParts.length ? refParts.join(" / ") : "N/A"
-    const qty =
-      obj.totalPlants != null
-        ? obj.totalPlants
-        : (Number(obj.numberOfPlants) || 0) + (Number(obj.additionalPlants) || 0)
+    const baseQty = Number(obj.numberOfPlants) || 0
+    const extraQty = Number(obj.additionalPlants) || 0
+    const totalQty =
+      obj.totalPlants != null && obj.totalPlants !== ""
+        ? Number(obj.totalPlants)
+        : baseQty + extraQty
+    const ret = Number(obj.returnedPlants) || 0
+    const dmg = Number(obj.damagedPlants) || 0
+    const booked = Number.isFinite(totalQty) ? totalQty : 0
+    const billable = Math.max(0, booked - ret - dmg)
 
     const row = [
       ++sr,
-      obj.orderId ?? "",
+      obj.orderId != null ? obj.orderId : "",
       formatInDate(bookingRef),
       farmer.name || obj.orderFor?.name || "N/A",
       farmer.mobileNumber != null && farmer.mobileNumber !== ""
@@ -86,8 +105,13 @@ export function ordersListRowsToCsv(rows) {
       farmer.village || "N/A",
       plantName,
       subName,
+      Number.isFinite(totalQty) ? totalQty : "",
+      baseQty,
+      extraQty,
+      ret,
+      dmg,
+      billable,
       obj.rate ?? "",
-      qty,
       formatInDate(delivery),
       obj.orderStatus ?? "",
       obj.salesPerson?.name || "",

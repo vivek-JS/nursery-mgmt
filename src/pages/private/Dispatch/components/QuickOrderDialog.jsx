@@ -109,6 +109,35 @@ const INITIAL_FORM = {
   shadeId: "",
 }
 
+function refId(v) {
+  if (v == null || v === "") return ""
+  if (typeof v === "object" && v._id != null) return String(v._id)
+  return String(v)
+}
+
+/** Shade + cavity from this vehicle’s dispatch (all plant rows). */
+function pickupDefaultsFromDispatchSnapshot(snapshot) {
+  let shadeId = ""
+  let cavityId = ""
+  const rows = Array.isArray(snapshot?.plantsDetails) ? snapshot.plantsDetails : []
+  for (const pd of rows) {
+    const pickups = Array.isArray(pd?.pickupDetails) ? pd.pickupDetails : []
+    for (const p of pickups) {
+      const s = refId(p?.shade)
+      const c = refId(p?.cavity)
+      if (s && !shadeId) shadeId = s
+      if (c && !cavityId) cavityId = c
+      if (shadeId && cavityId) return { shadeId, cavityId }
+    }
+    for (const cr of Array.isArray(pd?.crates) ? pd.crates : []) {
+      const c = refId(cr?.cavity)
+      if (c && !cavityId) cavityId = c
+      if (shadeId && cavityId) return { shadeId, cavityId }
+    }
+  }
+  return { shadeId, cavityId }
+}
+
 /**
  * QuickOrderDialog — creates a DISPATCHED order directly and links it to a
  * dispatch vehicle via afterDispatchedOrderIds.
@@ -149,34 +178,23 @@ const QuickOrderDialog = ({ open, onClose, onSuccess, dispatchId, dispatchLabel,
 
   const debouncedMobile = useDebounce(form.mobileNumber, 500)
 
-  // Reset on open
+  // Reset on open; pre-fill shade + cavity from vehicle dispatch in same pass.
   useEffect(() => {
-    if (open) {
-      setForm({ ...INITIAL_FORM })
-      setFarmerData({})
-      setHistoryAnchor(null)
-      setRecentOrders([])
-      setSubTypes([])
-      setSlots([])
-      setErrors({})
-      loadPlants()
-      loadShadesAndCavities()
-    }
-  }, [open])
-
-  // Pre-fill cavity + shade from this vehicle’s dispatch (same as other orders on the truck)
-  useEffect(() => {
-    if (!open || !dispatchSnapshot?.plantsDetails?.length) return
-    const pd = dispatchSnapshot.plantsDetails[0]
-    const pickup = Array.isArray(pd?.pickupDetails) ? pd.pickupDetails[0] : null
-    const crate0 = Array.isArray(pd?.crates) ? pd.crates[0] : null
-    const cavityFrom = pickup?.cavity || crate0?.cavity
-    const shadeFrom = pickup?.shade
-    setForm((prev) => ({
-      ...prev,
-      ...(cavityFrom ? { cavityId: String(cavityFrom) } : {}),
-      ...(shadeFrom ? { shadeId: String(shadeFrom) } : {}),
-    }))
+    if (!open) return
+    const { shadeId, cavityId } = pickupDefaultsFromDispatchSnapshot(dispatchSnapshot)
+    setForm({
+      ...INITIAL_FORM,
+      ...(cavityId ? { cavityId } : {}),
+      ...(shadeId ? { shadeId } : {}),
+    })
+    setFarmerData({})
+    setHistoryAnchor(null)
+    setRecentOrders([])
+    setSubTypes([])
+    setSlots([])
+    setErrors({})
+    loadPlants()
+    loadShadesAndCavities()
   }, [open, dispatchSnapshot])
 
   // Farmer auto-fetch

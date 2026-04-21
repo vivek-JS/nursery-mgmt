@@ -32,6 +32,28 @@ function orderAttachmentUrls(p) {
   return [...r, ...s].filter(Boolean).map(resolvePaymentMediaUrl)
 }
 
+/** Row-level hint for order payment transfer (cross-order); listing + expand details. */
+function farmerOrderPaymentTransferHint(p) {
+  const pay = p?.payment || {}
+  if (pay.transferredFromOrderId) {
+    return {
+      role: "in",
+      label: "Transferred in",
+      mr: "इतर ऑर्डरवरून पेमेंट transfer (येथे जमा)",
+      short: "From another order"
+    }
+  }
+  if (pay.paymentStatus === "REJECTED" && /Transferred to order/i.test(String(pay.remark || ""))) {
+    return {
+      role: "out",
+      label: "Transferred out",
+      mr: "पेमेंट इतर ऑर्डरला transfer (येथून बाहेर)",
+      short: "Moved to another order"
+    }
+  }
+  return null
+}
+
 export function UnifiedPaymentsTable({
   orderPayments,
   bulkPayments,
@@ -196,6 +218,41 @@ export function UnifiedPaymentsTable({
                         <div className="text-[11px] text-muted-foreground tabular">
                           {(p.numberOfPlants || 0).toLocaleString("en-IN")} × ₹{p.rate}
                         </div>
+                        {(() => {
+                          const th = farmerOrderPaymentTransferHint(p)
+                          if (!th) return null
+                          return (
+                            <div className="mt-1.5">
+                              <span
+                                className={cn(
+                                  "inline-flex flex-col gap-0.5 rounded border px-1.5 py-1 text-[10px] font-bold leading-tight",
+                                  th.role === "in"
+                                    ? "border-emerald-600 bg-emerald-50 text-emerald-950"
+                                    : "border-amber-700 bg-amber-50 text-amber-950"
+                                )}
+                                title={`${th.mr} · ${th.short}`}
+                              >
+                                <span>{th.label}</span>
+                                <span className="font-semibold opacity-90">{th.mr}</span>
+                              </span>
+                            </div>
+                          )
+                        })()}
+                        {(p.returnedPlants > 0 || p.damagedPlants > 0) && (
+                          <div className="text-[10px] text-muted-foreground mt-0.5 tabular">
+                            {p.returnedPlants > 0 && (
+                              <span className="text-amber-800 font-medium">
+                                Ret {p.returnedPlants.toLocaleString("en-IN")}
+                              </span>
+                            )}
+                            {p.returnedPlants > 0 && p.damagedPlants > 0 && <span className="mx-1 text-gray-400">·</span>}
+                            {p.damagedPlants > 0 && (
+                              <span className="text-red-800 font-medium">
+                                Dmg {p.damagedPlants.toLocaleString("en-IN")}
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </td>
                       <td className="tabular font-semibold">{fmt(p.totalOrderAmount)}</td>
                       <td className="tabular text-status-collected font-semibold">{fmt(p.payment?.paidAmount || 0)}</td>
@@ -281,10 +338,31 @@ export function UnifiedPaymentsTable({
                     {isExpanded && (
                       <tr>
                         <td colSpan={13} className="p-0 border-0">
-                          <div className="px-5 py-3 bg-muted/40 border-b border-border grid grid-cols-2 md:grid-cols-4 gap-4">
+                          <div className="px-5 py-3 bg-muted/40 border-b border-border grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                             <DetailCell label="Sales Person" value={p.salesPerson?.name || "—"} sub={String(p.salesPerson?.phoneNumber ?? "")} />
                             <DetailCell label="Booking Date" value={fmtDate(p.orderBookingDate)} />
                             <DetailCell label="Remark" value={p.payment?.remark || "—"} />
+                            {(() => {
+                              const th = farmerOrderPaymentTransferHint(p)
+                              if (!th) return null
+                              return (
+                                <DetailCell
+                                  label="Order transfer"
+                                  value={
+                                    <div className="space-y-1">
+                                      <div className="font-semibold">{th.label}</div>
+                                      <div className="text-xs text-muted-foreground">{th.mr}</div>
+                                      <div className="text-xs">{th.short}</div>
+                                      {p.payment?.transferredFromOrderId ? (
+                                        <div className="text-[11px] font-mono text-muted-foreground">
+                                          from order _id: {p.payment.transferredFromOrderId}
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                  }
+                                />
+                              )
+                            })()}
                             <DetailCell label="Order Status" value={<StatusBadge status={String(p.orderStatus)} />} />
                           </div>
                         </td>

@@ -157,6 +157,43 @@ const EmployeeManagement = () => {
     setIsModalOpen(true)
   }
 
+  const handleRequirePasswordChange = async (employee) => {
+    if (!canManageEmployees) {
+      Toast.error("Only Super Admin or Office Admin can require a password change")
+      return
+    }
+
+    const name = employee?.name || "this employee"
+    if (
+      !window.confirm(
+        `${name} will keep their current password for this session, but on next login they must set a new password. Continue?`
+      )
+    ) {
+      return
+    }
+
+    const id = employee?._id || employee?.id
+    if (!id) {
+      Toast.error("Missing employee id")
+      return
+    }
+
+    try {
+      const instance = NetworkManager(API.EMPLOYEE.REQUIRE_PASSWORD_CHANGE)
+      const response = await instance.request({ id })
+
+      if (response?.success) {
+        Toast.success("Next login will prompt for a new password")
+        getEmployees()
+      } else {
+        Toast.error(response?.message || response?.data?.message || "Request failed")
+      }
+    } catch (error) {
+      console.error("Error requiring password change:", error)
+      Toast.error(error?.message || "Failed to update employee")
+    }
+  }
+
   const handleDelete = async (id) => {
     if (!isSuperAdmin) {
       Toast.error("Only Super Admins can delete employees")
@@ -252,6 +289,7 @@ const EmployeeManagement = () => {
         employees={filteredEmployees}
         onEdit={handleEdit}
         onDelete={handleDelete}
+        onRequirePasswordChange={handleRequirePasswordChange}
         loading={loading}
         canEditEmployees={canManageEmployees}
         canDeleteEmployees={isSuperAdmin}

@@ -448,11 +448,20 @@ export const API = {
 
     GET_EMPLOYEE: new APIRouter("employee/getEmployees", HTTP_METHODS.GET, OFFLINE.PROFILE),
     DELETE_EMPLOYEE: new APIRouter("/employee/deleteEmployee", HTTP_METHODS.DEL, OFFLINE.PROFILE),
-    UPDATE_EMPLOYEE: new APIRouter("/employee/updateEmployee", HTTP_METHODS.PATCH, OFFLINE.PROFILE)
+    UPDATE_EMPLOYEE: new APIRouter("/employee/updateEmployee", HTTP_METHODS.PATCH, OFFLINE.PROFILE),
+    REQUIRE_PASSWORD_CHANGE: new APIRouter(
+      "/employee/requirePasswordChange",
+      HTTP_METHODS.PATCH,
+      OFFLINE.PROFILE
+    )
   },
   ORDER: {
     GET_ORDERS: Object.assign(
       new APIRouter("/order/getOrders", HTTP_METHODS.GET, OFFLINE.PROFILE),
+      { __autoAbort: true, __abortScope: "order-get-orders" }
+    ),
+    DASHBOARD_TAB_COUNTS: Object.assign(
+      new APIRouter("/order/dashboard-tab-counts", HTTP_METHODS.GET, OFFLINE.PROFILE),
       { __autoAbort: true, __abortScope: "order-get-orders" }
     ),
     GET_ORDERS_SLOTS: Object.assign(
@@ -520,7 +529,18 @@ export const API = {
     TRANSFER_FARMER_PLANT_ADVANCE: new APIRouter("/order/farmer-plant-ledger/transfer-advance", HTTP_METHODS.POST, OFFLINE.PROFILE),
     SEARCH_FARMERS_FOR_LEDGER_TRANSFER: new APIRouter("/order/farmer-plant-ledger/search-farmers", HTTP_METHODS.GET, OFFLINE.PROFILE),
     CREATE_FARMER_PLANT_LEDGER_MANUAL_ENTRY: new APIRouter("/order/farmer-plant-ledger/manual-entry", HTTP_METHODS.POST, OFFLINE.PROFILE),
-    GET_FARMER_PLANT_LEDGER_PARTIES: new APIRouter("/order/farmer-plant-ledger/parties", HTTP_METHODS.GET, OFFLINE.PROFILE)
+    GET_FARMER_PLANT_LEDGER_PARTIES: new APIRouter("/order/farmer-plant-ledger/parties", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    /** Farmer plant order — payments + ledger lines (picker for payment transfer) */
+    GET_FARMER_PLANT_ORDER_DETAILS: new APIRouter(
+      "/order/farmer-plant/:orderId/details",
+      HTTP_METHODS.GET,
+      OFFLINE.PROFILE
+    ),
+    TRANSFER_FARMER_PLANT_ORDER_PAYMENT: new APIRouter(
+      "/order/farmer-plant-ledger/transfer-order-payment",
+      HTTP_METHODS.POST,
+      OFFLINE.PROFILE
+    )
   },
   plantCms: {
     POST_NEWPLANT: new APIRouter("/plantcms/plants", HTTP_METHODS.POST, OFFLINE.PROFILE),
@@ -627,6 +647,7 @@ export const API = {
 
   DISPATCHED: {
     GET_TRAYS: new APIRouter("dispatched", HTTP_METHODS.GET),
+    GET_BY_ID: new APIRouter("dispatched/:id", HTTP_METHODS.GET),
     CREATE_TRAY: new APIRouter("dispatched", HTTP_METHODS.POST),
     DELETE_TRANSPORT: new APIRouter("dispatched/transport", HTTP_METHODS.DEL),
     UPDATE_COMPLETE: new APIRouter("dispatched/complete", HTTP_METHODS.PATCH),
@@ -887,6 +908,15 @@ export const API = {
   EXOTEL: {
     SEND_SMS: new APIRouter("exotel/send", HTTP_METHODS.POST),
     TEST: new APIRouter("exotel/test", HTTP_METHODS.GET)
+  },
+  VOICE_FEEDBACK: {
+    LIST_CALLS: new APIRouter("voice-feedback/calls", HTTP_METHODS.GET),
+    GET_CALL: new APIRouter("voice-feedback/calls/:id", HTTP_METHODS.GET),
+    GET_TRANSCRIPT: new APIRouter("voice-feedback/calls/:id/transcript", HTTP_METHODS.GET),
+    GET_EVENTS: new APIRouter("voice-feedback/calls/:id/events", HTTP_METHODS.GET),
+    DASHBOARD_SUMMARY: new APIRouter("voice-feedback/dashboard/summary", HTTP_METHODS.GET),
+    START_CALL: new APIRouter("voice-feedback/calls/start/:id", HTTP_METHODS.POST),
+    RESOLVE_CALLBACK: new APIRouter("voice-feedback/calls/:id/resolve-callback", HTTP_METHODS.POST)
   },
   CALL_ASSIGNMENT: {
     GET_FILTER_VALUES: new APIRouter("call-assignment/filter-values", HTTP_METHODS.GET),

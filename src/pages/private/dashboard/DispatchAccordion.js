@@ -15,6 +15,7 @@ import {
 import { NetworkManager, API } from "network/core"
 import { Toast } from "helpers/toasts/toastHelper"
 import moment from "moment"
+import OrderCompleteDialog from "./OrderCompleteDialog"
 
 const DispatchAccordion = ({ 
   dispatch, 
@@ -28,6 +29,7 @@ const DispatchAccordion = ({
   const [isExpanded, setIsExpanded] = useState(false)
   const [relatedOrders, setRelatedOrders] = useState([])
   const [loading, setLoading] = useState(false)
+  const [orderCompleteOpen, setOrderCompleteOpen] = useState(false)
 
   // Debug: Log dispatch data
   useEffect(() => {
@@ -195,7 +197,11 @@ const DispatchAccordion = ({
   const agriLoadBlocked = Boolean(dispatch?.agriLoadBlocked)
   const agriLoadBlockedBy = Array.isArray(dispatch?.agriLoadBlockedBy) ? dispatch.agriLoadBlockedBy : []
 
+  const orderIdsForComplete =
+    relatedOrders.length > 0 ? relatedOrders : dispatch.orderIds || []
+
   return (
+    <>
     <div className={`border rounded-lg mb-4 shadow-sm ${isDelivered ? 'border-green-300 bg-green-50/30' : 'border-gray-200 bg-white'}`}>
       {/* Header */}
       <div
@@ -311,7 +317,7 @@ const DispatchAccordion = ({
                       <button
                         onClick={(e) => {
                           e.stopPropagation()
-                          onCompleteOrder(dispatch)
+                          setOrderCompleteOpen(true)
                         }}
                         className="inline-flex items-center justify-center px-4 py-2 bg-orange-50 text-orange-700 rounded-lg hover:bg-orange-100 transition-colors">
                         <CheckCircle size={16} className="mr-2" />
@@ -381,120 +387,146 @@ const DispatchAccordion = ({
                 </div>
               </div>
 
-              {/* Orders List */}
-              <div>
-                <h4 className="font-medium text-gray-900 mb-3">Related Orders</h4>
-                <div className="grid gap-3">
+              {/* Orders List — compact grid: 1 col mobile, 2 tablet, 3 wide desktop */}
+              <div className="min-w-0">
+                <h4 className="font-medium text-gray-900 mb-2 text-sm">Related Orders</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2 min-w-0">
                   {Array.isArray(relatedOrders) && relatedOrders.length > 0 ? (
                     relatedOrders.map((order) => {
                       const dispatchedQty = getDispatchedQuantity(order._id)
                       const dispatchedAmount = dispatchedQty * (order.rate || 0)
-                      const isPartialDispatch = dispatchedQty < order.numberOfPlants
+                      const additionalPlants =
+                        Number(order.additionalPlants ?? order.details?.additionalPlants) || 0
+                      const grossBookedPlants =
+                        Number(order.totalPlants ?? order.details?.totalPlants) ||
+                        (Number(order.numberOfPlants ?? order.details?.numberOfPlants) || 0) +
+                          additionalPlants
+                      const returnedOnOrder =
+                        Number(order.returnedPlants ?? order.details?.returnedPlants) || 0
+                      const damagedOnOrder =
+                        Number(order.damagedPlants ?? order.details?.damagedPlants) || 0
+                      const isPartialDispatch = dispatchedQty < grossBookedPlants
                       
                       // Calculate total paid from payment array
                       const totalPaid = (order.payment || [])
                         .filter(p => p.paymentStatus === "COLLECTED")
                         .reduce((sum, p) => sum + (p.paidAmount || 0), 0)
                       
-                      const totalOrderAmount = order.numberOfPlants * (order.rate || 0)
+                      const totalOrderAmount = grossBookedPlants * (order.rate || 0)
                       const remainingAmount = totalOrderAmount - totalPaid
                       
                       return (
                         <div
                           key={order._id}
-                          className={`bg-white rounded-lg border p-4 hover:shadow-sm transition-shadow ${
+                          className={`bg-white rounded-lg border p-2.5 hover:shadow-sm transition-shadow min-w-0 flex flex-col ${
                             isPartialDispatch ? 'border-orange-300' : 'border-gray-200'
                           }`}>
-                          <div className="flex items-start justify-between mb-3">
-                            <div className="flex items-center gap-2 flex-wrap">
+                          <div className="flex items-start justify-between gap-2 mb-2">
+                            <div className="flex items-center gap-1.5 flex-wrap min-w-0">
                               {getStatusIcon(order.orderStatus)}
-                              <span className="font-medium">Order #{order.orderId}</span>
+                              <span className="font-semibold text-sm text-gray-900">#{order.orderId}</span>
                               <span
-                                className={`px-2 py-1 rounded-full text-xs border ${getStatusColor(
+                                className={`px-1.5 py-0.5 rounded-full text-[10px] leading-tight border shrink-0 ${getStatusColor(
                                   order.orderStatus
                                 )}`}>
-                                {order.orderStatus?.replace("_", " ")}
+                                {order.orderStatus?.replace(/_/g, " ")}
                               </span>
                               {isPartialDispatch && (
-                                <span className="px-2 py-1 rounded-full text-xs bg-orange-100 text-orange-700 border border-orange-200">
+                                <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-orange-100 text-orange-700 border border-orange-200 shrink-0">
                                   Partial
                                 </span>
                               )}
                             </div>
-                            <div className="text-right text-sm">
-                              <div className="font-semibold text-blue-600">
+                            <div className="text-right text-[11px] shrink-0 leading-tight">
+                              <div className="font-bold text-blue-600">
                                 ₹{dispatchedAmount.toLocaleString()}
                               </div>
-                              <div className="text-blue-600 font-medium">
+                              <div className="text-blue-600 font-semibold">
                                 {dispatchedQty.toLocaleString()} plants
                               </div>
                               {isPartialDispatch && (
-                                <div className="text-xs text-gray-500 mt-1">
-                                  of {order.numberOfPlants?.toLocaleString()} total
+                                <div className="text-[10px] text-gray-500 mt-0.5">
+                                  of {grossBookedPlants.toLocaleString()} booked
                                 </div>
                               )}
-                              <div className="text-xs text-gray-600 mt-1">
+                              <div className="text-[10px] text-gray-600 mt-0.5">
                                 @ ₹{order.rate}/plant
                               </div>
                             </div>
                           </div>
 
-                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm mb-3">
-                            <div>
-                              <span className="text-gray-500">Farmer:</span>
-                              <div className="font-medium">{order.farmer?.name || "N/A"}</div>
+                          <div className="grid grid-cols-2 gap-x-2 gap-y-1.5 text-[11px] mb-2">
+                            <div className="min-w-0">
+                              <span className="text-gray-500">Farmer</span>
+                              <div className="font-medium text-gray-900 truncate" title={order.farmer?.name || ""}>
+                                {order.farmer?.name || "N/A"}
+                              </div>
                             </div>
-                            <div>
-                              <span className="text-gray-500">Village:</span>
-                              <div className="font-medium">{order.farmer?.village || "N/A"}</div>
+                            <div className="min-w-0">
+                              <span className="text-gray-500">Village</span>
+                              <div className="font-medium text-gray-900 truncate" title={order.farmer?.village || ""}>
+                                {order.farmer?.village || "N/A"}
+                              </div>
                             </div>
-                            <div>
-                              <span className="text-gray-500">Plant:</span>
-                              <div className="font-medium">{order.plantType?.name || "N/A"}</div>
-                            </div>
-                            <div>
-                              <span className="text-gray-500">Subtype:</span>
-                              <div className="font-medium">{order.plantSubtype?.name || "N/A"}</div>
+                            <div className="min-w-0 col-span-2">
+                              <span className="text-gray-500">Plant</span>
+                              <div className="font-medium text-gray-900 line-clamp-2 leading-snug">
+                                {order.plantType?.name || "N/A"}
+                                {order.plantSubtype?.name ? (
+                                  <span className="text-gray-600"> · {order.plantSubtype.name}</span>
+                                ) : null}
+                              </div>
                             </div>
                           </div>
                           
-                          <div className="grid grid-cols-2 gap-4 text-sm">
-                            <div>
-                              <span className="text-gray-500">Delivery:</span>
-                              <div className="font-medium">
+                          <div className="mb-1.5 rounded border border-gray-100 bg-gray-50/90 px-2 py-1 text-[10px] leading-snug text-gray-700">
+                            <span className="font-medium text-gray-600">Plants </span>
+                            booked {grossBookedPlants}
+                            {additionalPlants > 0 ? (
+                              <span className="text-gray-500"> ({order.numberOfPlants}+{additionalPlants})</span>
+                            ) : null}
+                            {returnedOnOrder > 0 ? (
+                              <span className="text-green-800"> · ret {returnedOnOrder}</span>
+                            ) : null}
+                            {damagedOnOrder > 0 ? (
+                              <span className="text-red-800"> · dmg {damagedOnOrder}</span>
+                            ) : null}
+                            {typeof order.remainingPlants === "number" ? (
+                              <span className="text-gray-600"> · nursery {order.remainingPlants}</span>
+                            ) : null}
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-[11px] mb-2">
+                            <div className="min-w-0">
+                              <span className="text-gray-500">Slot</span>
+                              <div className="font-medium text-gray-900 leading-snug line-clamp-2">
                                 {order.bookingSlot?.[0]?.startDay && order.bookingSlot?.[0]?.endDay
-                                  ? `${order.bookingSlot[0].startDay} - ${order.bookingSlot[0].endDay}`
-                                  : "Not specified"}
+                                  ? `${order.bookingSlot[0].startDay} – ${order.bookingSlot[0].endDay}`
+                                  : "—"}
                               </div>
                             </div>
                             <div>
-                              <span className="text-gray-500">Rate:</span>
+                              <span className="text-gray-500">Rate</span>
                               <div className="font-medium">₹{order.rate || 0}/plant</div>
                             </div>
                           </div>
 
                           {/* Dispatch Quantity Info */}
                           {isPartialDispatch && (
-                            <div className="mt-3 pt-3 border-t border-gray-100 bg-orange-50 p-3 rounded">
-                              <h5 className="font-medium text-orange-900 mb-2 text-sm">📦 Partial Dispatch Info</h5>
-                              <div className="grid grid-cols-3 gap-4 text-sm">
+                            <div className="mt-auto mb-2 pt-2 border-t border-orange-100 bg-orange-50/90 px-2 py-1.5 rounded">
+                              <h5 className="font-medium text-orange-900 mb-1 text-[10px] uppercase tracking-wide">Partial</h5>
+                              <div className="grid grid-cols-3 gap-1 text-[10px]">
                                 <div>
-                                  <span className="text-orange-700">Dispatched Now:</span>
-                                  <div className="font-bold text-orange-900">
-                                    {dispatchedQty.toLocaleString()} plants
-                                  </div>
+                                  <span className="text-orange-700">Now</span>
+                                  <div className="font-bold text-orange-900">{dispatchedQty.toLocaleString()}</div>
                                 </div>
                                 <div>
-                                  <span className="text-orange-700">Remaining:</span>
-                                  <div className="font-bold text-orange-900">
-                                    {(order.remainingPlants || 0).toLocaleString()} plants
-                                  </div>
+                                  <span className="text-orange-700">Rem</span>
+                                  <div className="font-bold text-orange-900">{(order.remainingPlants || 0).toLocaleString()}</div>
                                 </div>
                                 <div>
-                                  <span className="text-orange-700">Total Order:</span>
-                                  <div className="font-bold text-orange-900">
-                                    {order.numberOfPlants?.toLocaleString()} plants
-                                  </div>
+                                  <span className="text-orange-700">Booked</span>
+                                  <div className="font-bold text-orange-900">{grossBookedPlants.toLocaleString()}</div>
                                 </div>
                               </div>
                             </div>
@@ -502,39 +534,37 @@ const DispatchAccordion = ({
                           
                           {/* Dispatch History for this order */}
                           {order.dispatchHistory && order.dispatchHistory.length > 0 && (
-                            <div className="mt-3 pt-3 border-t border-gray-100 bg-blue-50 p-3 rounded">
-                              <h5 className="font-medium text-blue-900 mb-2 text-sm flex items-center">
-                                🚚 Dispatch Trail ({order.dispatchHistory.length} dispatch{order.dispatchHistory.length > 1 ? 'es' : ''})
+                            <div className="mt-auto mb-2 pt-2 border-t border-blue-100 bg-blue-50/80 px-2 py-1.5 rounded">
+                              <h5 className="font-medium text-blue-900 mb-1 text-[10px]">
+                                Trail ({order.dispatchHistory.length})
                               </h5>
-                              <div className="space-y-2">
+                              <div className="space-y-1 max-h-28 overflow-y-auto pr-0.5">
                                 {order.dispatchHistory.map((dispatch, idx) => (
-                                  <div key={idx} className="bg-white p-2 rounded border border-blue-200 text-xs">
-                                    <div className="flex items-center justify-between mb-1">
-                                      <span className="font-medium text-blue-700">
+                                  <div key={idx} className="bg-white px-1.5 py-1 rounded border border-blue-200 text-[10px] leading-snug">
+                                    <div className="flex items-center justify-between gap-1 mb-0.5">
+                                      <span className="font-semibold text-blue-700 shrink-0">
                                         {dispatch.quantity} plants
                                       </span>
-                                      <span className="text-gray-500">
-                                        {moment(dispatch.date).format("DD/MM/YYYY HH:mm")}
+                                      <span className="text-gray-500 shrink-0">
+                                        {moment(dispatch.date).format("DD/MM HH:mm")}
                                       </span>
                                     </div>
-                                    {/* Populated join (regular dispatches) */}
                                     {dispatch.dispatch && (
-                                      <div className="text-gray-600">
-                                        🚛 Dispatch #{dispatch.dispatch.transportId} • {dispatch.dispatch.vehicleName || dispatch.dispatch.driverName}
+                                      <div className="text-gray-600 line-clamp-2">
+                                        #{dispatch.dispatch.transportId} · {dispatch.dispatch.vehicleName || dispatch.dispatch.driverName}
                                       </div>
                                     )}
-                                    {/* Direct fields (Quick Orders added post-dispatch) */}
                                     {!dispatch.dispatch && (dispatch.vehicleName || dispatch.driverName) && (
-                                      <div className="text-gray-600">
-                                        🚛 {dispatch.vehicleName || ""}{dispatch.vehicleName && dispatch.driverName ? " • " : ""}{dispatch.driverName || ""}
+                                      <div className="text-gray-600 line-clamp-2">
+                                        {dispatch.vehicleName || ""}{dispatch.vehicleName && dispatch.driverName ? " · " : ""}{dispatch.driverName || ""}
                                       </div>
                                     )}
                                     <div className="text-gray-600">
-                                      Remaining after: {dispatch.remainingAfterDispatch} plants
+                                      After: {dispatch.remainingAfterDispatch} plants
                                     </div>
                                     {dispatch.processedBy && (
-                                      <div className="text-gray-500">
-                                        By: {dispatch.processedBy.name}
+                                      <div className="text-gray-500 truncate">
+                                        {dispatch.processedBy.name}
                                       </div>
                                     )}
                                   </div>
@@ -544,30 +574,30 @@ const DispatchAccordion = ({
                           )}
 
                           {/* Payment Summary */}
-                          <div className="mt-3 pt-3 border-t border-gray-100">
-                            <div className="grid grid-cols-4 gap-4 text-sm">
+                          <div className="mt-auto pt-2 border-t border-gray-100">
+                            <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-[11px]">
                               <div>
-                                <span className="text-gray-500">Total Amount:</span>
+                                <span className="text-gray-500">Order ₹</span>
                                 <div className="font-semibold text-gray-900">
                                   ₹{totalOrderAmount.toLocaleString()}
                                 </div>
                               </div>
                               <div>
-                                <span className="text-gray-500">Paid:</span>
-                                <div className="font-medium text-green-600">
+                                <span className="text-gray-500">Paid</span>
+                                <div className="font-semibold text-green-600">
                                   ₹{totalPaid.toLocaleString()}
                                 </div>
                               </div>
                               <div>
-                                <span className="text-gray-500">Remaining:</span>
-                                <div className="font-medium text-red-600">
+                                <span className="text-gray-500">Due</span>
+                                <div className="font-semibold text-red-600">
                                   ₹{remainingAmount.toLocaleString()}
                                 </div>
                               </div>
                               <div>
-                                <span className="text-gray-500">Payment Status:</span>
-                                <div className="font-medium">
-                                  {order.paymentCompleted ? "Completed" : "Pending"}
+                                <span className="text-gray-500">Payment</span>
+                                <div className="font-medium truncate" title={order.paymentCompleted ? "Completed" : "Pending"}>
+                                  {order.paymentCompleted ? "Complete" : "Pending"}
                                 </div>
                               </div>
                             </div>
@@ -576,9 +606,9 @@ const DispatchAccordion = ({
                       )
                     })
                   ) : (
-                    <div className="bg-white rounded-lg border border-gray-200 p-8 text-center">
-                      <div className="text-gray-500 mb-2">No related orders found</div>
-                      <div className="text-sm text-gray-400">
+                    <div className="col-span-full bg-white rounded-lg border border-gray-200 p-6 text-center">
+                      <div className="text-gray-500 mb-1 text-sm">No related orders found</div>
+                      <div className="text-xs text-gray-400">
                         This dispatch has no associated orders
                       </div>
                     </div>
@@ -590,6 +620,20 @@ const DispatchAccordion = ({
         </div>
       )}
     </div>
+
+    <OrderCompleteDialog
+      open={orderCompleteOpen}
+      onClose={() => setOrderCompleteOpen(false)}
+      dispatchData={{
+        ...dispatch,
+        orderIds: orderIdsForComplete
+      }}
+      onSuccess={() => {
+        onRefresh?.()
+        onCompleteOrder?.(dispatch)
+      }}
+    />
+    </>
   )
 }
 

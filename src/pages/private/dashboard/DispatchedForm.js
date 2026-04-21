@@ -196,6 +196,8 @@ const DispatchForm = ({
   const [shades, setShades] = useState([])
   const [cavities, setCavities] = useState([])
   const [isEditing, setIsEditing] = useState(false)
+  /** Snapshot of selected orders while editing in view mode (supports remove-from-dispatch). */
+  const [editOrdersMap, setEditOrdersMap] = useState(null)
   const [linkedAgriBlockedBy, setLinkedAgriBlockedBy] = useState([])
   const [linkedAgriCheckLoading, setLinkedAgriCheckLoading] = useState(false)
   // Track dispatch quantities per order (orderId -> quantity to dispatch)
@@ -210,8 +212,11 @@ const DispatchForm = ({
     const id = getOrderId(order)
     return id != null && id !== "" ? String(id) : ""
   }
+  const getOrdersSourceMap = () =>
+    mode === "view" && isEditing && editOrdersMap != null ? editOrdersMap : selectedOrders
+
   const getSelectedOrdersArray = () =>
-    Array.from(selectedOrders?.values?.() || []).filter((order) => Boolean(orderRowKey(order)))
+    Array.from(getOrdersSourceMap()?.values?.() || []).filter((order) => Boolean(orderRowKey(order)))
 
   useEffect(() => {
     if (!open || mode === "view") {
@@ -345,6 +350,13 @@ const DispatchForm = ({
     if (mode !== "view" && !selectedOwnerId) {
       throw new Error("Please select an owner")
     }
+
+    const selectedOrdersArray = getSelectedOrdersArray()
+    // Removing every order deletes the dispatch — no plant/driver validation needed.
+    if (mode === "view" && selectedOrdersArray.length === 0) {
+      return true
+    }
+
     if (!formData.driverName) {
       throw new Error("Please select a driver")
     }
@@ -353,7 +365,6 @@ const DispatchForm = ({
     }
 
     // Validate order quantities
-    const selectedOrdersArray = getSelectedOrdersArray()
     for (const order of selectedOrdersArray) {
       const orderId = orderRowKey(order)
       const dispatchQty = orderQuantities.get(orderId) || 0
@@ -375,6 +386,12 @@ const DispatchForm = ({
           `Dispatch quantity (${dispatchQty}) exceeds remaining quantity (${remainingQty}) for order #${order.order}`
         )
       }
+    }
+
+    if (!formData.plants?.length) {
+      throw new Error(
+        "Plant pickup layout is empty. Adjust cavity quantities or remove orders, then save."
+      )
     }
 
     formData.plants.forEach((plant) => {
@@ -945,6 +962,39 @@ const DispatchForm = ({
     })
   }
 
+  /** Drop an order from this dispatch while editing (saved via PATCH; backend reverts order to ready queue). */
+  const handleRemoveOrderFromDispatch = (rowKey) => {
+    if (!rowKey || mode !== "view" || !isEditing) return
+    setEditOrdersMap((prev) => {
+      const base = prev != null ? prev : selectedOrders ? new Map(selectedOrders) : new Map()
+      const next = new Map(base)
+      next.delete(rowKey)
+      return next
+    })
+    const nextQty = new Map(orderQuantitiesRef.current)
+    nextQty.delete(rowKey)
+    orderQuantitiesRef.current = nextQty
+    setOrderQuantities(nextQty)
+    setFormData((prev) => {
+      const nextPlants = (prev.plants || [])
+        .map((p) => ({
+          ...p,
+          orders: (p.orders || []).filter((o) => orderRowKey(o) !== rowKey),
+        }))
+        .filter((p) => (p.orders || []).length > 0)
+        .map((p) => {
+          const po = p.orders || []
+          const q = po.reduce((sum, o) => {
+            const k = orderRowKey(o)
+            const v = nextQty.get(k)
+            return sum + (v !== undefined ? Number(v) : Number(o.quantity) || 0)
+          }, 0)
+          return { ...p, quantity: q }
+        })
+      return { ...prev, plants: nextPlants }
+    })
+  }
+
   useEffect(() => {
     getShades()
     getCavities()
@@ -959,6 +1009,7 @@ const DispatchForm = ({
   useEffect(() => {
     if (!open) {
       setIsEditing(false)
+      setEditOrdersMap(null)
       setError("")
       setSelectedOwnerId("")
       setFleetDriverId("")
@@ -975,7 +1026,8 @@ const DispatchForm = ({
 
   useEffect(() => {
     if (mode === "view" && dispatchData) {
-      const transformedPlants = dispatchData.plants.map((plant) => {
+      const plantSource = dispatchData.plants || dispatchData.plantsDetails || []
+      const transformedPlants = plantSource.map((plant) => {
         const cavityGroups = buildCavityGroupsFromPlantForView(plant)
         const pickupSum = cavityGroups.reduce(
           (sum, g) =>
@@ -1095,6 +1147,7 @@ const DispatchForm = ({
       orderQuantitiesRef.current = m
     }
     setIsEditing(false)
+    setEditOrdersMap(null)
     setError("")
     setSelectedOwnerId("")
     setFleetDriverId("")
@@ -1157,6 +1210,7 @@ const DispatchForm = ({
         driverMobile: payload.driverMobile,
       })
       setIsEditing(false)
+      setEditOrdersMap(null)
       initialViewSnapshotRef.current = {
         formData: JSON.parse(JSON.stringify(formData)),
         orderQuantities: new Map(orderQuantitiesRef.current || orderQuantities)
@@ -1281,6 +1335,16 @@ const DispatchForm = ({
                     </div>
                     
                     {/* Dispatch Quantity Input */}
+                    {isViewMode && isEditing && (
+                      <div className="mt-2 pt-2 border-t border-red-100">
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveOrderFromDispatch(rk)}
+                          className={`text-xs font-medium text-red-700 hover:text-red-900 underline ${isMobile ? "py-2" : ""}`}>
+                          Remove from this dispatch
+                        </button>
+                      </div>
+                    )}
                     {!isViewMode && (
                       <div className="mt-2 pt-2 border-t border-gray-100">
                         <label className="block text-xs text-gray-600 mb-1">
@@ -1643,7 +1707,10 @@ const DispatchForm = ({
         </Button>
         {isViewMode && !isEditing && (
           <Button
-            onClick={() => setIsEditing(true)}
+            onClick={() => {
+              setEditOrdersMap(selectedOrders ? new Map(selectedOrders) : new Map())
+              setIsEditing(true)
+            }}
             variant="contained"
             className="bg-blue-600 hover:bg-blue-700 text-white">
             Edit

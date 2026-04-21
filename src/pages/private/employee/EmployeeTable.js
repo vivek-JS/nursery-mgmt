@@ -4,11 +4,16 @@ import { makeStyles } from "tss-react/mui"
 import DeleteIcon from "@mui/icons-material/Delete"
 import EditIcon from "@mui/icons-material/Edit"
 import LockIcon from "@mui/icons-material/Lock"
+import LockResetIcon from "@mui/icons-material/LockReset"
+
+const isSuperAdminEmployee = (employee) =>
+  employee?.jobTitle === "SUPER_ADMIN" || employee?.role === "SUPER_ADMIN"
 
 const EmployeeTable = ({
   employees,
   onEdit,
   onDelete,
+  onRequirePasswordChange,
   loading = false,
   canEditEmployees = false,
   canDeleteEmployees = false
@@ -121,6 +126,17 @@ const EmployeeTable = ({
                     Edit
                   </Button>
                 )}
+                {canEditEmployees && onRequirePasswordChange && !isSuperAdminEmployee(employee) && (
+                  <Button
+                    variant="outlined"
+                    color="warning"
+                    size="small"
+                    onClick={() => onRequirePasswordChange(employee)}
+                    className={classes.actionButton}
+                    startIcon={<LockResetIcon sx={{ fontSize: 16 }} />}>
+                    Reset password
+                  </Button>
+                )}
                 {canDeleteEmployees && (
                   <Button
                     variant="outlined"
@@ -204,6 +220,7 @@ const useStyles = makeStyles()(() => ({
   },
   actionCell: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: 8,
     justifyContent: "center"
   },

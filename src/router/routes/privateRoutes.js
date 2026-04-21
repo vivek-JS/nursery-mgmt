@@ -66,9 +66,12 @@ const FlowCharts = React.lazy(() => import("pages/private/FlowCharts"))
 const OrderBucketing = React.lazy(() => import("pages/private/OrderBucketing"))
 const TaskManagement = React.lazy(() => import("pages/private/tasks"))
 const DispatchedListPage = React.lazy(() => import("pages/private/Dispatch/DispatchedListPage"))
+const MobileDispatchOrdersPage = React.lazy(() => import("pages/private/Dispatch/MobileDispatchOrdersPage"))
 const CallAssignmentList = React.lazy(() => import("pages/private/callAssignment/CallAssignmentList"))
 const CashierPage = React.lazy(() => import("pages/private/cashier"))
 const UpiReceiptPage = React.lazy(() => import("pages/private/upi-receipt"))
+const VoiceFeedbackList = React.lazy(() => import("pages/private/voiceFeedback/VoiceFeedbackList"))
+const VoiceFeedbackDetail = React.lazy(() => import("pages/private/voiceFeedback/VoiceFeedbackDetail"))
 
 export const PrivateRoutes = [
   { path: "/u/dashboard", component: Dashboard },
@@ -144,7 +147,11 @@ export const PrivateRoutes = [
   { path: "/u/tasks", component: TaskManagement },
   { path: "/u/task-manager", component: TaskManagement },
   { path: "/u/dispatch-orders", component: DispatchedListPage },
+  /** Plant orders dispatch queue (FarmerOrdersTable Ready tab + farm-ready queue toggle). */
+  { path: "/mobile/dispatch-orders", component: MobileDispatchOrdersPage },
   { path: "/u/cashier", component: CashierPage },
   { path: "/u/call-assignment", component: CallAssignmentList },
-  { path: "/u/upi-receipt", component: UpiReceiptPage }
+  { path: "/u/upi-receipt", component: UpiReceiptPage },
+  { path: "/u/voice-feedback", component: VoiceFeedbackList },
+  { path: "/u/voice-feedback/:id", component: VoiceFeedbackDetail }
 ]

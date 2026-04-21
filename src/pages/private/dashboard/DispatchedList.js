@@ -7,6 +7,7 @@ import DeliveryChallanPDF from "./DeliveryChallan"
 import OrderCompleteDialog from "./OrderCompleteDialog"
 import DispatchAccordion from "./DispatchAccordion"
 import { Toast } from "helpers/toasts/toastHelper"
+import moment from "moment"
 const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false }) => {
   const [dispatches, setDispatches] = useState([])
   const [loading, setLoading] = useState(true)
@@ -67,6 +68,52 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false 
     setIsDispatchFormOpen(false)
     setIsOrderCompleteOpen(false)
   }, [viewMode, refresh, fetchDispatches])
+
+  /** Build DispatchForm `selectedOrders` Map from GET /dispatched/:id payload. */
+  const transformGetDispatchToMap = (d) => {
+    const m = new Map()
+    const rows = Array.isArray(d?.orderIds) ? d.orderIds : []
+    for (const o of rows) {
+      const id = o?._id
+      if (!id) continue
+      const subtypes = Array.isArray(o.plantName?.subtypes) ? o.plantName.subtypes : []
+      const stName =
+        subtypes.find((s) => String(s?._id) === String(o.plantSubtype))?.name || "Unknown"
+      const cavity = o.cavity
+      const cavityIdRaw =
+        typeof cavity === "object" && cavity?._id != null
+          ? String(cavity._id)
+          : cavity != null
+          ? String(cavity)
+          : ""
+      const qty = Number(o.numberOfPlants || 0) + Number(o.additionalPlants || 0)
+      m.set(String(id), {
+        order: o.orderId,
+        farmerName: o.farmer?.name || "Unknown",
+        plantType: `${o.plantName?.name || "Unknown"} -> ${stName}`,
+        quantity: qty,
+        orderDate: o.orderBookingDate ? moment(o.orderBookingDate).format("DD-MM-YYYY") : "",
+        rate: o.rate,
+        total: qty * Number(o.rate || 0),
+        "Paid Amt": 0,
+        "remaining Amt": 0,
+        orderStatus: o.orderStatus,
+        Delivery: o.deliveryDate ? moment(o.deliveryDate).format("DD-MM-YYYY") : "",
+        details: {
+          farmer: o.farmer || {},
+          orderid: id,
+          remainingPlants: Number(o.remainingPlants ?? qty),
+          plantID: o.plantName?._id || o.plantName,
+          plantSubtypeID: o.plantSubtype,
+          cavity: cavity ?? null,
+          cavityId: cavityIdRaw || undefined,
+          cavityName:
+            (typeof cavity === "object" && cavity?.name) || (cavityIdRaw ? "Tray" : ""),
+        },
+      })
+    }
+    return m
+  }
 
   const transformDispatchForForm = (dispatchData) => {
     const plants = dispatchData.plantsDetails?.map((plant) => {
@@ -278,12 +325,29 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false 
     let formattedData
 
     switch (type) {
-      case "view":
-        formattedData = transformDispatchForForm(dispatch)
-        setSelectedDispatch(formattedData)
-        setSelectedOrders(transformDataToMap(dispatch))
-        setIsDispatchFormOpen(true)
+      case "view": {
+        const openView = async () => {
+          try {
+            const inst = NetworkManager(API.DISPATCHED.GET_BY_ID)
+            const res = await inst.request({}, [String(dispatch._id)])
+            const raw = res?.data?.data ?? res?.data
+            const d = raw && raw._id ? raw : raw?.data
+            const merged = d?._id ? { ...dispatch, ...d } : dispatch
+            const fd = transformDispatchForForm(merged)
+            setSelectedDispatch(fd)
+            setSelectedOrders(d?._id ? transformGetDispatchToMap(d) : transformDataToMap(merged))
+            setIsDispatchFormOpen(true)
+          } catch (err) {
+            console.error("getDispatch for edit:", err)
+            const fd = transformDispatchForForm(dispatch)
+            setSelectedDispatch(fd)
+            setSelectedOrders(transformDataToMap(dispatch))
+            setIsDispatchFormOpen(true)
+          }
+        }
+        void openView()
         break
+      }
       case "collectSlip":
         formattedData = transformDispatchForForm(dispatch)
         setSelectedDispatch(formattedData)
@@ -311,22 +375,29 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false 
 
   const handleDialogOpenView = (type, dispatch, e) => {
     e.stopPropagation()
-    const formattedData = transformDispatchForForm(dispatch)
-    setSelectedDispatch(formattedData)
-    setSelectedOrders(transformDataToMap(dispatch))
-    setIsDispatchFormOpen(true)
+    handleDialogOpen("view", dispatch, { stopPropagation: () => {} })
   }
 
   const handleDelete = async (dispatch) => {
-    // Add delete functionality here
-    if (window.confirm("Are you sure you want to delete this dispatch?")) {
-      try {
-        const instance = NetworkManager(API.DISPATCHED.DELETE_TRANSPORT)
-        await instance.request({}, [dispatch.transportId])
-        fetchDispatches() // Refresh the list after deletion
-      } catch (error) {
-        console.error("Error deleting dispatch:", error)
+    if (
+      !window.confirm(
+        "Remove this transport and restore orders to ready for dispatch? This cannot be undone."
+      )
+    ) {
+      return
+    }
+    try {
+      const instance = NetworkManager(API.DISPATCHED.DELETE_TRANSPORT)
+      await instance.request({}, [dispatch.transportId])
+      Toast.success("Transport removed.")
+      fetchDispatches()
+      if (typeof refresh === "function") refresh()
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("dispatchCreated"))
       }
+    } catch (error) {
+      console.error("Error deleting dispatch:", error)
+      Toast.error(error?.response?.data?.message || error?.message || "Failed to remove transport")
     }
   }
   const getStatusChipStyles = (status) => {
@@ -412,6 +483,7 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false 
               onClose={() => {
                 setIsDispatchFormOpen(false)
                 setSelectedDispatch(null) // Reset selected dispatch when closing
+                if (typeof refresh === "function") refresh()
               }}
               dispatchData={selectedDispatch}
               mode="view"

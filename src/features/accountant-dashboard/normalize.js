@@ -7,11 +7,17 @@ export function normalizeFarmerPayment(raw) {
   // This table is payment-centric: show the payment status when present.
   const st = payment.paymentStatus || raw.orderPaymentStatus || "PENDING"
 
+  const billable =
+    raw.billablePlants != null && Number.isFinite(Number(raw.billablePlants))
+      ? Math.max(0, Number(raw.billablePlants))
+      : null
+
   return {
     id: String(payment._id || `${raw.orderId}-${raw.createdAt || ""}`),
     orderId: Number(raw.orderId) || 0,
     dealerOrder: Boolean(raw.dealerOrder),
-    numberOfPlants: Number(raw.numberOfPlants) || 0,
+    /** Billable qty after returns/damage when API sends it; else booked base count for display */
+    numberOfPlants: billable ?? (Number(raw.numberOfPlants) || 0),
     rate: Number(raw.rate) || 0,
     orderPaymentStatus: st,
     payment: {
@@ -30,6 +36,12 @@ export function normalizeFarmerPayment(raw) {
       bankVerificationSource: payment.bankVerificationSource,
       bankVerificationMatchedBy: payment.bankVerificationMatchedBy,
       bankReconciliationConflict: Boolean(payment.bankReconciliationConflict),
+      transferredFromOrderId: payment.transferredFromOrderId
+        ? String(payment.transferredFromOrderId)
+        : undefined,
+      transferredFromPaymentId: payment.transferredFromPaymentId
+        ? String(payment.transferredFromPaymentId)
+        : undefined,
     },
     screenshots: Array.isArray(raw.screenshots) ? raw.screenshots : [],
     orderStatus: raw.orderStatus || "PENDING",
@@ -39,6 +51,8 @@ export function normalizeFarmerPayment(raw) {
     farmer,
     plantType,
     salesPerson,
+    returnedPlants: Number(raw.returnedPlants) || 0,
+    damagedPlants: Number(raw.damagedPlants) || 0,
     __source: "farmer",
     __raw: raw
   }
