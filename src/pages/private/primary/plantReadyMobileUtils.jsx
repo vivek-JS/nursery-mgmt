@@ -1,5 +1,5 @@
 import React from "react";
-import { Box, Typography, Stack, alpha } from "@mui/material";
+import { Box, Typography, Stack, alpha, Chip } from "@mui/material";
 import { Spa as PlantReadyIcon } from "@mui/icons-material";
 import moment from "moment";
 
@@ -217,4 +217,55 @@ export const PlantReadyPanel = ({ pr, nowTick, theme }) => {
     return <PlantReadyDetailBlock pr={pr} nowTick={nowTick} theme={theme} />;
   }
   return <PlantReadyBatchDaysOnly pr={pr} theme={theme} />;
+};
+
+/** Compact strip for secondary Inward: availability + readiness (replaces PlantReadyPanel there). */
+export const BatchAvailReadyStrip = ({
+  avail,
+  total,
+  readyState,
+  expectedReadyLabel,
+  plantedOnLabel,
+  pr,
+  theme,
+}) => {
+  const stateColor =
+    readyState === "Upcoming"
+      ? "default"
+      : readyState === "Ready (bypass)"
+        ? "warning"
+        : "success";
+  return (
+    <Box
+      sx={{
+        mt: 1,
+        p: 1,
+        borderRadius: 1.5,
+        border: "1px solid",
+        borderColor: "divider",
+        bgcolor: alpha(theme.palette.background.paper, 0.95),
+      }}
+    >
+      <Stack spacing={0.5}>
+        <Typography variant="caption" fontWeight={800} color="text.primary">
+          Batch availability · {avail}/{total} plants
+        </Typography>
+        <Stack direction="row" flexWrap="wrap" alignItems="center" gap={0.5}>
+          <Chip size="small" label={readyState} color={stateColor} variant={readyState === "Upcoming" ? "outlined" : "filled"} />
+        </Stack>
+        <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.4 }}>
+          Expected ready: <strong>{expectedReadyLabel}</strong>
+          {plantedOnLabel ? ` · Planted ${plantedOnLabel}` : ""}
+        </Typography>
+        {pr?.hasAnchor && pr?.anchorSowingDate && (
+          <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.45, display: "block" }}>
+            Sowing-linked target (info): {pr.secondaryReadyAt ? moment(pr.secondaryReadyAt).format("DD MMM YYYY") : "—"} · sowing{" "}
+            {moment(pr.anchorSowingDate, "DD-MM-YYYY", true).isValid()
+              ? moment(pr.anchorSowingDate, "DD-MM-YYYY").format("DD MMM YYYY")
+              : pr.anchorSowingDate}
+          </Typography>
+        )}
+      </Stack>
+    </Box>
+  );
 };

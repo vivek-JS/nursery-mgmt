@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react"
+import React, { useCallback, useEffect, useState } from "react"
 import {
   Leaf,
   CheckCircle,
@@ -35,10 +35,10 @@ const SlotAccordionView = ({ plantId, year }) => {
   const [selectedSubtypeData, setSelectedSubtypeData] = useState(null)
 
   useEffect(() => {
-    fetchPlants()
-  }, [])
+    setSelectedSubtype(0)
+  }, [plantId, year])
 
-  const fetchPlants = async () => {
+  const fetchPlants = useCallback(async () => {
     setLoading(true)
     try {
       const instance = NetworkManager(API.slots.GET_PLANTS_SUBTYPE)
@@ -50,7 +50,11 @@ const SlotAccordionView = ({ plantId, year }) => {
       console.error("Error fetching plants:", error)
     }
     setLoading(false)
-  }
+  }, [plantId, year])
+
+  useEffect(() => {
+    fetchPlants()
+  }, [fetchPlants])
 
   const calculatePercentage = (booked, total) => {
     if (total === 0) return booked > 0 ? 100 : 0
@@ -233,10 +237,9 @@ const SlotAccordionView = ({ plantId, year }) => {
   const SubtypeDetailModal = () => {
     if (!selectedSubtypeData) return null
 
-    const totalCapacity =
-      selectedSubtypeData?.totalPlants + selectedSubtypeData?.totalBookedPlants || 0
-    const availablePlants = selectedSubtypeData?.totalPlants || 0
-    const bookedPlants = selectedSubtypeData?.totalBookedPlants || 0
+    const totalCapacity = Number(selectedSubtypeData?.totalPlants) || 0
+    const bookedPlants = Number(selectedSubtypeData?.totalBookedPlants) || 0
+    const availablePlants = Math.max(0, totalCapacity - bookedPlants)
     const bookedPercentage = calculatePercentage(bookedPlants, totalCapacity)
     const statusInfo = getStatusInfo(bookedPercentage, availablePlants)
     const isOverbooked = availablePlants < 0 || bookedPercentage > 100

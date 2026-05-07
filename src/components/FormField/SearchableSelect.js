@@ -17,7 +17,8 @@ export default function SearchableSelect({
   value,
   style,
   placeholder = "Search...",
-  disabled = false
+  disabled = false,
+  onOpen,
 }) {
   const [searchTerm, setSearchTerm] = useState("")
   const [filteredItems, setFilteredItems] = useState(items)
@@ -38,10 +39,6 @@ export default function SearchableSelect({
   }
 
   const handleSelectChange = (event) => {
-    console.log("=== SearchableSelect DEBUG ===")
-    console.log("SearchableSelect onChange called with:", event)
-    console.log("Event target value:", event.target.value)
-    console.log("Label:", label)
     onChange(event)
     setSearchTerm("") // Clear search when selection is made
   }
@@ -54,6 +51,7 @@ export default function SearchableSelect({
           value={value || ""}
           label={label}
           onChange={handleSelectChange}
+          onOpen={(e) => onOpen?.(e)}
           disabled={disabled}
           MenuProps={{
             PaperProps: {

@@ -5,6 +5,20 @@ const NAVY = "#000000"
 const ACCENT = "#111111"
 const BORDER = "#000000"
 
+/** Prefer immutable invoice # from dispatch history for this vehicle leg; then instant-sale order field; fallback empty → legacy ref in UI. */
+function resolveChallanInvoiceLabel(order, dispatchMongoId) {
+  const edited =
+    order?.deliveryChallanInvoiceNumber ||
+    order?.details?.deliveryChallanInvoiceNumber
+  if (edited) return String(edited).trim()
+  const hist = order?.details?.dispatchHistory || order?.dispatchHistory || []
+  const entry = hist.find(
+    (h) => h?.dispatchId && String(h.dispatchId) === String(dispatchMongoId)
+  )
+  if (entry?.invoiceNumber) return String(entry.invoiceNumber).trim()
+  return ""
+}
+
 const cell = (extra = {}) => ({
   border: `1px solid ${BORDER}`,
   padding: "1.8mm 2.5mm",
@@ -61,12 +75,26 @@ const DeliveryChallanPDF = ({ open, onClose, dispatchData }) => {
 
     const paymentEntries = Array.isArray(order?.details?.payment)
       ? order.details.payment
-      : []
+      : Array.isArray(order?.payment)
+        ? order.payment
+        : []
     const totalPaid = paymentEntries.reduce((s, p) => s + (p?.paidAmount || 0), 0)
     const dispatchTotal = dispatchQty * (order.rate || 0)
     const remaining = Math.max(0, dispatchTotal - totalPaid)
     const rawPlantName = plant?.name?.replace(/\s*-\s*>\s*/g, " ").trim() || "—"
     const plantName = /papaya/i.test(rawPlantName) ? "Papaya" : rawPlantName
+
+    const dispatchMongoId = dispatchData?._id
+    const invoiceLabel = resolveChallanInvoiceLabel(order, dispatchMongoId)
+    const orderNum =
+      order?.order != null
+        ? String(order.order)
+        : order?.details?.orderid != null
+        ? String(order.details.orderid)
+        : ""
+    const legacyRef = [dispatchData?.transportId, orderNum && `Order #${orderNum}`]
+      .filter(Boolean)
+      .join(" · ")
 
     const infoRows = [
       ["चालक", dispatchData.driverName, "वाहन", dispatchData.vehicleName],
@@ -137,7 +165,7 @@ const DeliveryChallanPDF = ({ open, onClose, dispatchData }) => {
                 fontWeight: "700",
               }}
             >
-              #{dispatchData.transportId}-{order.order}
+              {invoiceLabel || legacyRef || "—"}
             </div>
             <div style={{ color: "#000", fontSize: "6.5pt", marginTop: "1mm" }}>
               तारीख: {today}
@@ -510,36 +538,56 @@ const DeliveryChallanPDF = ({ open, onClose, dispatchData }) => {
           </button>
         </div>
 
-        {/* Preview area */}
-        <div
-          style={{
-            flex: 1,
-            overflowY: "auto",
-            background: "#e9edf2",
-            padding: "20px",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            gap: "20px",
-          }}
-        >
-          {dispatchData.orderIds?.map((order, index) => (
-            <div
-              key={index}
-              style={{
-                boxShadow: "0 6px 24px rgba(0,0,0,0.14)",
-                borderRadius: "2mm",
-                overflow: "hidden",
-                transform: "scale(0.82)",
-                transformOrigin: "top center",
-                marginBottom: "-36px",
-              }}
-            >
-              <DeliveryChallanPage order={order} />
-            </div>
-          ))}
-          <div style={{ height: "10px" }} />
-        </div>
+        {/* Preview: no challan HTML when Agri load is still pending (avoids browser print / screenshot of DC) */}
+        {agriLoadBlocked ? (
+          <div
+            style={{
+              flex: 1,
+              overflowY: "auto",
+              background: "#fff8e6",
+              padding: "32px 24px",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "12px",
+            }}
+          >
+            <p style={{ fontSize: "15px", color: "#b45309", fontWeight: 700, margin: 0, textAlign: "center" }}>
+              Linked Agri inputs must be marked loaded before this challan can print.
+            </p>
+          </div>
+        ) : (
+          <div
+            style={{
+              flex: 1,
+              overflowY: "auto",
+              background: "#e9edf2",
+              padding: "20px",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: "20px",
+            }}
+          >
+            {dispatchData.orderIds?.map((order, index) => (
+              <div
+                key={index}
+                style={{
+                  boxShadow: "0 6px 24px rgba(0,0,0,0.14)",
+                  borderRadius: "2mm",
+                  overflow: "hidden",
+                  transform: "scale(0.82)",
+                  transformOrigin: "top center",
+                  marginBottom: "-36px",
+                }}
+              >
+                <DeliveryChallanPage order={order} />
+              </div>
+            ))}
+            <div style={{ height: "10px" }} />
+          </div>
+        )}
 
         {/* Footer */}
         <div
@@ -552,14 +600,14 @@ const DeliveryChallanPDF = ({ open, onClose, dispatchData }) => {
             background: "#fff",
           }}
         >
-          {agriLoadBlocked && (
-            <span style={{ fontSize: "12px", color: "#b45309", fontWeight: 600 }}>
-              Agri Input pending load by Agri admin. Printing is blocked.
+          {agriLoadBlocked ? (
+            <span style={{ fontSize: "12px", color: "#b45309", fontWeight: 600 }}>Printing disabled until Agri load is cleared.</span>
+          ) : (
+            <span style={{ fontSize: "12px", color: "#6b7280" }}>
+              {dispatchData.orderIds?.length || 0} चलन · A5 Portrait
             </span>
           )}
-          <span style={{ fontSize: "12px", color: "#6b7280" }}>
-            {dispatchData.orderIds?.length || 0} चलन · A5 Portrait
-          </span>
+          <span style={{ flex: 1, minWidth: 8 }} />
           <button
             onClick={handlePrint}
             disabled={agriLoadBlocked}

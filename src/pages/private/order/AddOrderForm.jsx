@@ -26,7 +26,10 @@ import {
   Accordion,
   AccordionSummary,
   AccordionDetails,
-  FormControl
+  FormControl,
+  Badge,
+  Popover,
+  Paper
 } from "@mui/material"
 import { DatePicker } from "@mui/x-date-pickers/DatePicker"
 import { LocalizationProvider } from "lib/muiLocalizationProvider"
@@ -53,7 +56,9 @@ import {
   FlashOn as FlashIcon,
   Delete as DeleteIcon,
   CloudUpload as UploadIcon,
-  ExpandMore as ExpandMoreIcon
+  ExpandMore as ExpandMoreIcon,
+  History as HistoryIcon,
+  Inventory2 as InventoryIcon
 } from "@mui/icons-material"
 import moment from "moment"
 import LocationSelector from "components/LocationSelector"
@@ -63,6 +68,67 @@ import SearchableSelect from "components/FormField/SearchableSelect"
 const DATE_PICKER_FORMAT = "dd-MMMM-yyyy"
 /** moment — same display as DATE_PICKER_FORMAT */
 const DISPLAY_DATE_FORMAT = "DD-MMMM-YYYY"
+
+const RECENT_ORDER_LIMIT = 3
+
+function orderSortTime(o) {
+  const raw = o?.orderBookingDate || o?.createdAt || o?.orderDate || o?.updatedAt
+  const t = raw ? new Date(raw).getTime() : 0
+  return Number.isFinite(t) ? t : 0
+}
+
+function formatRecentPlantSubtypeLine(o) {
+  const pn = o?.plantName
+  const name = typeof pn === "object" && pn?.name ? pn.name : pn || ""
+  const st = o?.plantSubtype
+  const sub =
+    typeof st === "object" && (st?.subtypeName || st?.name)
+      ? st.subtypeName || st.name
+      : st || o?.subtypeName || ""
+  return [name, sub].filter(Boolean).join(" · ") || "—"
+}
+
+function formatRecentBookingWindow(o) {
+  const bs = o?.bookingSlot
+  if (bs && typeof bs === "object") {
+    const s = bs.startDay ?? bs.start
+    const e = bs.endDay ?? bs.end
+    if (s && e) return `${s} → ${e}`
+    if (s) return String(s)
+  }
+  const d = o?.deliveryDate
+  if (!d) return "—"
+  if (typeof d === "object" && d?.year != null && d?.month != null) {
+    const y = d.year
+    const m = String(d.month).padStart(2, "0")
+    const sd = d.startDay ?? d.day ?? "01"
+    return moment(`${y}-${m}-${String(sd).padStart(2, "0")}`, "YYYY-MM-DD").format("D MMM YYYY")
+  }
+  try {
+    return moment(d).format("D MMM YYYY")
+  } catch {
+    return "—"
+  }
+}
+
+function totalDispatchedPlantsRecent(o) {
+  const h = o?.dispatchHistory
+  if (Array.isArray(h) && h.length) {
+    const sum = h.reduce((s, x) => s + (Number(x?.quantity) || 0), 0)
+    if (sum > 0) return sum
+  }
+  const total = Number(o?.totalPlants ?? o?.numberOfPlants ?? 0) || 0
+  const remRaw = o?.remainingPlants
+  const rem =
+    remRaw != null && remRaw !== "" && Number.isFinite(Number(remRaw)) ? Number(remRaw) : null
+  if (total > 0 && rem != null) {
+    const diff = total - rem
+    if (diff > 0) return diff
+  }
+  const st = String(o?.orderStatus || "").toUpperCase()
+  if ((st === "DISPATCHED" || st === "COMPLETED") && total > 0 && rem === 0) return total
+  return null
+}
 
 const useStyles = makeStyles()((theme) => ({
   dialog: {
@@ -306,6 +372,13 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
   const token = useSelector((state) => state?.app?.token)
   const user = userData || appUser || {}
 
+  /** Instant orders credit the logged-in user as sales person (assign-order step not used). */
+  const getLoggedInSalesPersonId = () => {
+    const raw = user?._id ?? user?.id
+    if (raw == null || raw === "") return null
+    return typeof raw === "string" ? raw : String(raw)
+  }
+
   // ============================================================================
   // FORM STATE
   // ============================================================================
@@ -366,6 +439,15 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
   const [selectedSlotMonth, setSelectedSlotMonth] = useState("") // For dealer order: month-first then slot
   /** Farmer order + dealer quota: user must pick a wallet slot; delivery date only within that slot */
   const [selectedDealerQuotaSlotId, setSelectedDealerQuotaSlotId] = useState(null)
+
+  /** Last nursery orders for looked-up farmer (mobile Quick Order parity) */
+  const [recentOrders, setRecentOrders] = useState([])
+  const [recentOrdersLoading, setRecentOrdersLoading] = useState(false)
+  const [historyAnchor, setHistoryAnchor] = useState(null)
+
+  /** Admin/office: must pick Dealer or Sales (no implicit logged-in user — avoids empty salesPerson on submit). */
+  const [attributionMode, setAttributionMode] = useState("sales")
+  const [attributionId, setAttributionId] = useState("")
 
   // ============================================================================
   // FARMER DATA STATE
@@ -503,6 +585,19 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
       loadSlots(formData.plant, formData.subtype)
     }
   }, [formData?.plant, formData?.subtype, quotaType, dealerWallet, formData?.dealer, bulkOrder])
+
+  // Refresh catalog lists when the dialog opens so dropdowns are not stale.
+  useEffect(() => {
+    if (!open) return
+    void Promise.all([loadPlants(), loadSales(), loadDealers(), loadCavities()]).catch(() => {})
+  }, [open])
+
+  // When admin picks dealer vs sales attribution, refresh that list from the server.
+  useEffect(() => {
+    if (!open || bulkOrder) return
+    if (attributionMode === "dealer") void loadDealers()
+    if (attributionMode === "sales") void loadSales()
+  }, [open, attributionMode, bulkOrder])
 
   // Ensure wallet payment is unchecked for dealer orders
   useEffect(() => {
@@ -1130,6 +1225,26 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
     }
   }
 
+  const fetchRecentFarmerOrders = async (farmerId) => {
+    if (!farmerId) {
+      setRecentOrders([])
+      return
+    }
+    setRecentOrdersLoading(true)
+    try {
+      const instance = NetworkManager(API.FARMER.GET_FARMER_ORDERS)
+      const response = await instance.request({}, { pathParams: [farmerId], limit: RECENT_ORDER_LIMIT })
+      const data = response?.data?.data
+      const list = Array.isArray(data) ? data : []
+      const sorted = [...list].sort((a, b) => orderSortTime(b) - orderSortTime(a))
+      setRecentOrders(sorted.slice(0, RECENT_ORDER_LIMIT))
+    } catch {
+      setRecentOrders([])
+    } finally {
+      setRecentOrdersLoading(false)
+    }
+  }
+
   const getFarmerByMobile = async (mobileNumber) => {
     try {
       const instance = NetworkManager(API.FARMER.GET_FARMER_BY_MOBILE)
@@ -1138,6 +1253,11 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
       if (response?.data?.data) {
         const farmer = response.data.data
         setFarmerData(farmer)
+        if (farmer._id) {
+          fetchRecentFarmerOrders(farmer._id)
+        } else {
+          setRecentOrders([])
+        }
 
         // Auto-fill taluka and village regardless of selection values
         const farmerTaluka = farmer.talukaName || farmer.taluka || ""
@@ -1176,6 +1296,8 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
 
   const resetFarmerData = () => {
     setFarmerData({})
+    setRecentOrders([])
+    setHistoryAnchor(null)
     setMobileLoading(false)
     
     // Only reset farmer-specific fields, keep user defaults for location
@@ -1848,6 +1970,11 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
       setRate(isAdminUser ? parseFloat(formData?.rate) || null : null)
       setRateManuallySet(isAdminUser ? rateManuallySet : false) // Keep manual flag for admin users
       setSubTypes([]) // Clear subtypes when plant changes
+      void loadPlants()
+    }
+
+    if (field === "subtype" && formData?.plant) {
+      void loadSubTypes(formData.plant)
     }
 
     // Set available quantity when order date is selected
@@ -1948,10 +2075,13 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
       return false
     }
 
-    // Only validate quota type for SUPERADMIN/OFFICE_ADMIN when dealer is selected (dealers get default)
-    const isAdminOrOfficeAdmin = user?.jobTitle === "SUPERADMIN" || user?.jobTitle === "OFFICE_ADMIN"
+    // Quota type when a dealer is on the order (admins; dealers get default)
+    const isAdminQuotaPicker =
+      user?.jobTitle === "SUPERADMIN" ||
+      user?.jobTitle === "OFFICE_ADMIN" ||
+      user?.jobTitle === "SUPER_ADMIN"
     if (
-      isAdminOrOfficeAdmin &&
+      isAdminQuotaPicker &&
       formData?.dealer &&
       !bulkOrder &&
       !quotaType
@@ -1965,15 +2095,24 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
       return false
     }
 
-    // Validate dealer/sales selection only for SUPERADMIN and OFFICE_ADMIN (dealers auto-use self)
-    if (isAdminOrOfficeAdmin && !formData?.dealer && !formData?.sales) {
-      Toast.error("Please select either a dealer or sales person")
-      return false
+    const isAdminSalesCardUser = isAdminQuotaPicker
+    if (isAdminSalesCardUser && !bulkOrder && !isInstantOrder) {
+      const id =
+        attributionMode === "dealer"
+          ? String(attributionId || formData?.dealer || "").trim()
+          : String(attributionId || formData?.sales || "").trim()
+      if (!id) {
+        Toast.error(
+          attributionMode === "dealer"
+            ? "Please select a dealer"
+            : "Please select a sales person"
+        )
+        return false
+      }
     }
-    
-    // Ensure only one is selected (for admin/office admin only)
-    if (isAdminOrOfficeAdmin && formData?.dealer && formData?.sales) {
-      Toast.error("Please select either a dealer OR a sales person, not both")
+
+    if (isInstantOrder && !bulkOrder && !getLoggedInSalesPersonId()) {
+      Toast.error("Instant order uses your account as sales person — please sign in again.")
       return false
     }
 
@@ -2211,9 +2350,14 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
       numberOfPlants: formData?.noOfPlants || "",
       rate: formData?.rate || "",
       slotPeriod: selectedSlot ? formatSlotPeriod(selectedSlot.startDay, selectedSlot.endDay) : "",
-      salesPerson: selectedDealer?.label || selectedSales?.label || "",
+      salesPerson: isInstantOrder
+        ? user?.name || "You (logged in)"
+        : selectedDealer?.label || selectedSales?.label || "",
       location: `${formData?.village || ""}, ${formData?.taluka || ""}, ${formData?.district || ""}`,
-      orderType: isInstantOrder ? "Instant Order" : bulkOrder ? "Bulk Order" : "Normal Order"
+      orderType: isInstantOrder ? "Instant Order" : bulkOrder ? "Bulk Order" : "Normal Order",
+      // Mirrors backend: only OFFICE_ADMIN gets placedByOfficeAdmin on the order document
+      isOfficeAdminPlacement:
+        user?.jobTitle === "OFFICE_ADMIN" || user?.role === "OFFICE_ADMIN",
     })
 
     setShowConfirmation(true)
@@ -2374,8 +2518,29 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
           numberOfPlants: parseInt(formData?.noOfPlants) || 0,
           rate: parseFloat(formData?.rate) || 0,
           paymentStatus: "not paid",
-          // If dealer/sales selected, use that; otherwise use logged-in user ID when they are DEALER, SALES, or RAM_AGRI_SALES (plant order)
-          salesPerson: formData?.dealer || formData?.sales || (["DEALER", "SALES", "RAM_AGRI_SALES"].includes(user?.jobTitle) ? (user?._id || user?.id) : null),
+          salesPerson: (() => {
+            if (isInstantOrder && !bulkOrder) {
+              return getLoggedInSalesPersonId()
+            }
+            const isAssignAdmin =
+              user?.jobTitle === "SUPERADMIN" ||
+              user?.jobTitle === "OFFICE_ADMIN" ||
+              user?.jobTitle === "SUPER_ADMIN"
+            if (isAssignAdmin) {
+              const id =
+                attributionMode === "dealer"
+                  ? String(attributionId || formData?.dealer || "").trim()
+                  : String(attributionId || formData?.sales || "").trim()
+              return id || null
+            }
+            return (
+              formData?.dealer ||
+              formData?.sales ||
+              (["DEALER", "SALES", "RAM_AGRI_SALES"].includes(user?.jobTitle)
+                ? user?._id || user?.id
+                : null)
+            )
+          })(),
           orderStatus: defaultOrderStatusOnPlace(isInstantOrder, user),
           plantName: formData?.plant || "",
           plantSubtype: formData?.subtype || "",
@@ -2411,6 +2576,10 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
         endpoint = API.FARMER.CREATE_FARMER
       }
 
+      if (isInstantOrder && !bulkOrder && payload && endpoint === API.FARMER.CREATE_FARMER) {
+        const sid = getLoggedInSalesPersonId()
+        if (sid) payload.salesPerson = sid
+      }
 
       // Payment exists if there's an amount AND either a payment mode OR wallet payment
       const hasPaymentData = newPayment.paidAmount && (newPayment.modeOfPayment || newPayment.isWalletPayment)
@@ -2622,6 +2791,11 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
       screenshots: []
     })
     setFarmerData({})
+    setRecentOrders([])
+    setRecentOrdersLoading(false)
+    setHistoryAnchor(null)
+    setAttributionMode("sales")
+    setAttributionId("")
     // Always default to Normal Order (not Instant Order)
     setIsInstantOrder(false)
     setBulkOrder(false)
@@ -2676,6 +2850,8 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                 if (isBulkOrder) {
                   setNewPayment((prev) => ({ ...prev, isWalletPayment: false }))
                   handleInputChange("sales", "")
+                  setAttributionMode("sales")
+                  setAttributionId("")
                   if (user?.jobTitle === "DEALER" && !quotaType) setQuotaType("dealer")
                 }
               }}
@@ -2730,6 +2906,8 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                 if (value === "bulk") {
                   setNewPayment((prev) => ({ ...prev, isWalletPayment: false }))
                   handleInputChange("sales", "")
+                  setAttributionMode("sales")
+                  setAttributionId("")
                 }
               }}
               sx={{ gap: 1.5, flexWrap: "nowrap" }}>
@@ -3017,6 +3195,24 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
 
           {renderOrderTypeSelector()}
 
+          {isInstantOrder && !bulkOrder && (
+            <Alert severity="success" icon={<FlashIcon />} sx={{ mb: 1, py: 0.75 }}>
+              <Typography variant="body2" fontWeight={600}>
+                Quick order
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                Order is placed as <strong>DISPATCHED</strong> when you confirm (same flow as dispatch quick order).
+              </Typography>
+              {(user?.jobTitle === "SUPERADMIN" ||
+                user?.jobTitle === "OFFICE_ADMIN" ||
+                user?.jobTitle === "SUPER_ADMIN") && (
+                <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
+                  Sales person on the order: <strong>you</strong> (logged-in user); assign-order step is not required.
+                </Typography>
+              )}
+            </Alert>
+          )}
+
           {/* Farmer Details Section */}
           {!bulkOrder && (
             <Card className={classes.formCard}>
@@ -3048,6 +3244,182 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                       </Typography>
                     </Box>
                   </Box>
+                )}
+
+                {farmerData?._id && (
+                  <Paper
+                    elevation={0}
+                    sx={{
+                      p: 1.25,
+                      mt: 1.5,
+                      borderRadius: 1.5,
+                      border: "1px solid rgba(46, 125, 50, 0.22)",
+                      background: "linear-gradient(135deg, rgba(232,245,233,0.95) 0%, rgba(255,255,255,0.98) 100%)",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 1,
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Typography
+                        variant="caption"
+                        sx={{ fontWeight: 700, color: "#1b5e20", display: "block", lineHeight: 1.3 }}
+                      >
+                        Recent nursery orders
+                      </Typography>
+                      <Typography
+                        variant="caption"
+                        sx={{ color: "text.secondary", fontSize: "0.68rem", display: "block" }}
+                      >
+                        Booking window, booked plants &amp; dispatched qty (last {RECENT_ORDER_LIMIT})
+                      </Typography>
+                    </Box>
+                    <IconButton
+                      size="small"
+                      onClick={(e) => setHistoryAnchor(e.currentTarget)}
+                      sx={{
+                        bgcolor: "rgba(46, 125, 50, 0.12)",
+                        border: "1px solid rgba(46, 125, 50, 0.28)",
+                        "&:hover": { bgcolor: "rgba(46, 125, 50, 0.2)" },
+                      }}
+                      aria-label="View last orders"
+                    >
+                      <Badge
+                        color="primary"
+                        overlap="circular"
+                        badgeContent={recentOrders.length}
+                        invisible={recentOrdersLoading || recentOrders.length === 0}
+                        sx={{ "& .MuiBadge-badge": { fontSize: "0.65rem", minWidth: 18, height: 18 } }}
+                      >
+                        <HistoryIcon sx={{ fontSize: "1.15rem", color: "#2e7d32" }} />
+                      </Badge>
+                    </IconButton>
+                    {recentOrdersLoading && <CircularProgress size={18} sx={{ color: "#2e7d32" }} />}
+                    <Popover
+                      open={Boolean(historyAnchor)}
+                      anchorEl={historyAnchor}
+                      onClose={() => setHistoryAnchor(null)}
+                      anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
+                      transformOrigin={{ vertical: "top", horizontal: "left" }}
+                      slotProps={{
+                        paper: {
+                          sx: {
+                            mt: 0.75,
+                            width: { xs: "min(calc(100vw - 32px), 360px)", sm: 360 },
+                            maxWidth: "calc(100vw - 24px)",
+                            borderRadius: 2,
+                            overflow: "hidden",
+                            border: "1px solid rgba(0,0,0,0.08)",
+                          },
+                        },
+                      }}
+                    >
+                      <Box sx={{ px: 1.5, py: 1, bgcolor: "#1b5e20", color: "#fff" }}>
+                        <Typography sx={{ fontWeight: 700, fontSize: "0.82rem" }}>
+                          Last {RECENT_ORDER_LIMIT} orders
+                        </Typography>
+                        <Typography sx={{ fontSize: "0.68rem", opacity: 0.9 }}>{farmerData?.name || "Farmer"}</Typography>
+                      </Box>
+                      <Box sx={{ maxHeight: 320, overflow: "auto" }}>
+                        {recentOrdersLoading ? (
+                          <Box sx={{ p: 2, display: "flex", justifyContent: "center" }}>
+                            <CircularProgress size={22} />
+                          </Box>
+                        ) : recentOrders.length === 0 ? (
+                          <Typography variant="body2" sx={{ p: 2, color: "text.secondary" }}>
+                            No previous nursery orders for this mobile.
+                          </Typography>
+                        ) : (
+                          recentOrders.map((o, idx) => {
+                            const oid = String(o.orderId || o._id || "")
+                            const shortId = oid.length > 6 ? oid.slice(-6) : oid || "—"
+                            const booked = o.numberOfPlants ?? 0
+                            const dispatched = totalDispatchedPlantsRecent(o)
+                            const status = o.orderStatus || "—"
+                            return (
+                              <Box key={o._id || idx}>
+                                {idx > 0 && <Divider />}
+                                <Box sx={{ p: 1.5 }}>
+                                  <Box
+                                    sx={{
+                                      display: "flex",
+                                      justifyContent: "space-between",
+                                      alignItems: "flex-start",
+                                      gap: 1,
+                                      mb: 0.5,
+                                    }}
+                                  >
+                                    <Typography
+                                      sx={{
+                                        fontWeight: 800,
+                                        fontSize: "0.78rem",
+                                        fontFamily: "monospace",
+                                        color: "#0d47a1",
+                                      }}
+                                    >
+                                      #{shortId}
+                                    </Typography>
+                                    <Chip
+                                      size="small"
+                                      label={status}
+                                      sx={{
+                                        height: 22,
+                                        fontSize: "0.65rem",
+                                        fontWeight: 700,
+                                        bgcolor:
+                                          status === "DISPATCHED"
+                                            ? "rgba(46,125,50,0.15)"
+                                            : status === "CANCELLED"
+                                              ? "rgba(183,28,28,0.12)"
+                                              : "rgba(21,101,192,0.12)",
+                                      }}
+                                    />
+                                  </Box>
+                                  <Typography variant="caption" sx={{ color: "text.secondary", mb: 0.75, display: "block" }}>
+                                    {formatRecentPlantSubtypeLine(o)}
+                                  </Typography>
+                                  <Box sx={{ display: "flex", flexDirection: "column", gap: 0.35 }}>
+                                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                                      <Typography sx={{ fontSize: "0.68rem", color: "text.secondary", minWidth: 72 }}>
+                                        Booking
+                                      </Typography>
+                                      <Typography sx={{ fontSize: "0.72rem", fontWeight: 600 }}>
+                                        {formatRecentBookingWindow(o)}
+                                      </Typography>
+                                    </Box>
+                                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                                      <InventoryIcon sx={{ fontSize: 14, color: "#2e7d32" }} />
+                                      <Typography sx={{ fontSize: "0.72rem" }}>
+                                        <strong>{booked}</strong> booked
+                                        {dispatched != null && (
+                                          <>
+                                            {" · "}
+                                            <strong>{dispatched}</strong> dispatched
+                                            {booked > 0 && (
+                                              <span style={{ color: "#666" }}>
+                                                {" "}
+                                                ({Math.min(100, Math.round((dispatched / booked) * 100))}%)
+                                              </span>
+                                            )}
+                                          </>
+                                        )}
+                                      </Typography>
+                                    </Box>
+                                    {o.remainingPlants != null && o.remainingPlants !== "" && (
+                                      <Typography sx={{ fontSize: "0.68rem", color: "text.secondary" }}>
+                                        Remaining (nursery): {o.remainingPlants}
+                                      </Typography>
+                                    )}
+                                  </Box>
+                                </Box>
+                              </Box>
+                            )
+                          })
+                        )}
+                      </Box>
+                    </Popover>
+                  </Paper>
                 )}
 
                 <Grid container spacing={2}>
@@ -3313,119 +3685,146 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
             </Card>
           )}
 
-          {/* Sales Assignment - SUPERADMIN/OFFICE_ADMIN: dealer only when bulk, else sales or dealer */}
-          {(user?.jobTitle === "SUPERADMIN" || user?.jobTitle === "OFFICE_ADMIN" || user?.jobTitle === "SUPER_ADMIN") && (
+          {/* Assign order — radio + one dropdown (non-bulk, not instant); instant order uses logged-in user as salesPerson */}
+          {(user?.jobTitle === "SUPERADMIN" || user?.jobTitle === "OFFICE_ADMIN" || user?.jobTitle === "SUPER_ADMIN") && !isInstantOrder && (
           <Card className={classes.formCard}>
             <div className={classes.cardHeader}>
               <Typography variant="h6" className={classes.sectionTitle}>
-                <PersonIcon /> {bulkOrder ? "Select Dealer" : "Sales Assignment"}
+                <PersonIcon /> {bulkOrder ? "Select Dealer" : "Assign order"}
               </Typography>
             </div>
             <CardContent className={classes.formSection}>
               <Grid container spacing={2}>
-                {!bulkOrder && (
-                <Grid item xs={12} sm={6}>
-                  <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 1 }}>
-                    <Box sx={{ flex: 1 }}>
-                      <SearchableSelect
-                        label="Select Sales Person"
-                        items={[{ label: "Select a sales person", value: "" }, ...sales]}
-                        value={formData?.sales || ""}
-                        onChange={(e) => {
-                          const selectedSales = e.target.value
-                          handleInputChange("sales", selectedSales)
-                          if (selectedSales) {
+                {bulkOrder ? (
+                  <Grid item xs={12}>
+                    <Box sx={{ display: "flex", alignItems: "flex-end", gap: 1 }}>
+                      <Box sx={{ flex: 1 }}>
+                        <SearchableSelect
+                          label="Select Dealer"
+                          items={[{ label: "Select a dealer", value: "" }, ...dealers]}
+                          value={formData?.dealer || ""}
+                          onOpen={() => {
+                            void loadDealers()
+                          }}
+                          onChange={(e) => {
+                            const selectedDealer = e.target.value
+                            handleInputChange("dealer", selectedDealer)
+                            if (selectedDealer) {
+                              handleInputChange("sales", "")
+                            }
+                            void loadDealers()
+                          }}
+                          placeholder="Search dealer..."
+                        />
+                      </Box>
+                      {formData?.dealer && (
+                        <Button
+                          variant="outlined"
+                          color="secondary"
+                          size="small"
+                          onClick={() => {
                             handleInputChange("dealer", "")
                             setQuotaType(null)
                             setDealerWallet({})
-                          }
-                        }}
-                        placeholder="Search sales person..."
-                        disabled={!!formData?.dealer}
-                      />
+                          }}
+                          sx={{
+                            minWidth: "auto",
+                            px: 1,
+                            height: "40px",
+                            borderColor: "#f44336",
+                            color: "#f44336",
+                            "&:hover": {
+                              borderColor: "#d32f2f",
+                              backgroundColor: "#ffebee",
+                            },
+                          }}
+                          title="Clear Dealer Selection"
+                        >
+                          <CloseIcon fontSize="small" />
+                        </Button>
+                      )}
                     </Box>
-                    {formData?.sales && (
-                      <Button
-                        variant="outlined"
-                        color="secondary"
-                        size="small"
-                        onClick={() => {
-                          handleInputChange("sales", "")
-                        }}
-                        sx={{ 
-                          minWidth: 'auto',
-                          px: 1,
-                          height: '40px',
-                          borderColor: '#f44336',
-                          color: '#f44336',
-                          '&:hover': {
-                            borderColor: '#d32f2f',
-                            backgroundColor: '#ffebee'
-                          }
-                        }}
-                        title="Clear Sales Person Selection"
+                  </Grid>
+                ) : (
+                  <Grid item xs={12}>
+                    <FormControl component="fieldset" variant="standard" sx={{ width: "100%" }}>
+                      <Typography
+                        variant="caption"
+                        sx={{ fontWeight: 600, color: "text.secondary", display: "block", mb: 0.5 }}
                       >
-                        <CloseIcon fontSize="small" />
-                      </Button>
-                    )}
-                  </Box>
-                </Grid>
-                )}
-
-                <Grid item xs={12} sm={bulkOrder ? 12 : 6} md={bulkOrder ? 12 : 6}>
-                  <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 1 }}>
-                    <Box sx={{ flex: 1 }}>
-                      <SearchableSelect
-                        label="Select Dealer"
-                        items={[{ label: "Select a dealer", value: "" }, ...dealers]}
-                        value={formData?.dealer || ""}
+                        Assign order to
+                      </Typography>
+                      <RadioGroup
+                        value={attributionMode}
                         onChange={(e) => {
-                          const selectedDealer = e.target.value
-                          handleInputChange("dealer", selectedDealer)
-                          // Clear sales person selection when dealer is selected
-                          if (selectedDealer) {
-                            handleInputChange("sales", "")
-                          }
-                        }}
-                        placeholder="Search dealer..."
-                        disabled={!bulkOrder && !!formData?.sales}
-                      />
-                    </Box>
-                    {formData?.dealer && (
-                      <Button
-                        variant="outlined"
-                        color="secondary"
-                        size="small"
-                        onClick={() => {
-                          handleInputChange("dealer", "")
+                          const v = e.target.value
+                          setAttributionMode(v)
+                          setAttributionId("")
+                          handleInputChange("dealer", null)
+                          handleInputChange("sales", null)
                           setQuotaType(null)
                           setDealerWallet({})
                         }}
-                        sx={{ 
-                          minWidth: 'auto',
-                          px: 1,
-                          height: '40px',
-                          borderColor: '#f44336',
-                          color: '#f44336',
-                          '&:hover': {
-                            borderColor: '#d32f2f',
-                            backgroundColor: '#ffebee'
-                          }
-                        }}
-                        title="Clear Dealer Selection"
                       >
-                        <CloseIcon fontSize="small" />
-                      </Button>
-                    )}
-                  </Box>
-                </Grid>
+                        <FormControlLabel
+                          value="dealer"
+                          control={<Radio color="primary" size="small" />}
+                          label={<Typography sx={{ fontSize: "0.9rem" }}>Dealer</Typography>}
+                        />
+                        <FormControlLabel
+                          value="sales"
+                          control={<Radio color="primary" size="small" />}
+                          label={<Typography sx={{ fontSize: "0.9rem" }}>Sales person</Typography>}
+                        />
+                      </RadioGroup>
+                      {(attributionMode === "dealer" || attributionMode === "sales") && (
+                        <Box sx={{ mt: 1.5 }}>
+                          <SearchableSelect
+                            label={attributionMode === "dealer" ? "Dealer" : "Sales person"}
+                            items={[
+                              {
+                                label: attributionMode === "dealer" ? "Select a dealer" : "Select a sales person",
+                                value: "",
+                              },
+                              ...(attributionMode === "dealer" ? dealers : sales),
+                            ]}
+                            value={
+                              attributionId ||
+                              (attributionMode === "dealer" ? formData?.dealer || "" : formData?.sales || "")
+                            }
+                            onOpen={() => {
+                              if (attributionMode === "dealer") void loadDealers()
+                              else void loadSales()
+                            }}
+                            onChange={(e) => {
+                              const val = e.target.value
+                              setAttributionId(val)
+                              if (attributionMode === "dealer") {
+                                handleInputChange("dealer", val || null)
+                                handleInputChange("sales", null)
+                                void loadDealers()
+                              } else {
+                                handleInputChange("sales", val || null)
+                                handleInputChange("dealer", null)
+                                void loadSales()
+                              }
+                            }}
+                            placeholder={
+                              attributionMode === "dealer" ? "Search dealer…" : "Search sales…"
+                            }
+                          />
+                        </Box>
+                      )}
+                    </FormControl>
+                  </Grid>
+                )}
               </Grid>
 
               <Alert severity="info" sx={{ mt: 2 }}>
                 <Typography variant="body2">
                   {bulkOrder
                     ? "टीप: बल्क ऑर्डरसाठी फक्त डीलर निवड शक्य."
-                    : "टीप: सेल्स किंवा डीलर यापैकी फक्त एक निवडा. दुसरे आपोआप साफ होईल."}
+                    : "टीप: डीलर किंवा सेल्स यापैकी एक निवडा (लॉग-इन वापरकर्ता आपोआप श्रेय दिले जात नाही). रेडिओ बदलल्यावर निवड साफ होते."}
                 </Typography>
               </Alert>
             </CardContent>
@@ -3446,6 +3845,9 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                     label="Select Plant"
                     items={plants || []}
                     value={formData?.plant || ""}
+                    onOpen={() => {
+                      void loadPlants()
+                    }}
                     onChange={(e) => handleInputChange("plant", e.target.value)}
                     placeholder="Search plant..."
                   />
@@ -3456,6 +3858,9 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                     label="Select Subtype"
                     items={subTypes || []}
                     value={formData?.subtype || ""}
+                    onOpen={() => {
+                      if (formData?.plant) void loadSubTypes(formData.plant)
+                    }}
                     onChange={(e) => handleInputChange("subtype", e.target.value)}
                     placeholder="Search subtype..."
                     disabled={!formData?.plant}
@@ -4709,6 +5114,26 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
             <Typography variant="h6" sx={{ mb: 2, color: "#2c3e50" }}>
               Verify details below, then confirm to create the order.
             </Typography>
+
+            {confirmationData.isOfficeAdminPlacement ? (
+              <Box
+                sx={{
+                  mb: 2,
+                  p: 1.5,
+                  bgcolor: "#fff8e1",
+                  borderRadius: 1,
+                  border: "1px solid #ffc107",
+                }}>
+                <Typography variant="body2" sx={{ fontWeight: 600, color: "#b45309" }}>
+                  Office booking
+                </Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
+                  This order will be saved with the office-admin placement flag. The selected sales / dealer
+                  remains the attributed rep (<strong>{confirmationData.salesPerson || "—"}</strong>
+                  ). Your account is recorded as who submitted the booking for reports.
+                </Typography>
+              </Box>
+            ) : null}
 
             <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
               {/* Farmer Details */}

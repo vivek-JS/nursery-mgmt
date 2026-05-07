@@ -21,6 +21,7 @@ import ParkIcon from "@mui/icons-material/Park"
 import AccountBalanceIcon from "@mui/icons-material/AccountBalance"
 import DashboardCustomizeIcon from "@mui/icons-material/DashboardCustomize"
 import LocalShippingIcon from "@mui/icons-material/LocalShipping"
+import InsightsIcon from "@mui/icons-material/Insights"
 
 export const DashboardMenus = [
   new MenuPath("Orders", <HomeIcon />, "/u/dashboard"),
@@ -32,6 +33,7 @@ export const DashboardMenus = [
     ["DISPATCH_MANAGER", "ADMIN", "SUPER_ADMIN", "SUPERADMIN"]
   ),
   new MenuPath("Stats", <BiotechIcon />, "/u/stats"),
+  new MenuPath("Nursery Insights", <InsightsIcon />, "/u/nursery-insights"),
   new MenuPath("Plants and Products", <AlignHorizontalLeftIcon />, "/u/plants"),
   new MenuPath("Sowing Management", <GrassIcon />, "/u/sowing"),
   new MenuPath("Plant Availability", <AssessmentIcon />, "/u/plant-availability"),

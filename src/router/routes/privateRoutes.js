@@ -46,6 +46,7 @@ const Plants = React.lazy(() => import("pages/private/Plants/slots"))
 const Slots = React.lazy(() => import("pages/private/SlotsView/index"))
 const Hardening = React.lazy(() => import("pages/private/hardening/Index"))
 const Stats = React.lazy(() => import("pages/private/slotsStats"))
+const NurseryInsightsEmbed = React.lazy(() => import("pages/private/nurseryInsights"))
 const FarmerComponent = React.lazy(() => import("pages/private/farmer/Farmer"))
 const FarmerDetails = React.lazy(() => import("pages/private/farmer/FarmerDetails"))
 const OrdersUpload = React.lazy(() => import("pages/private/ordersUpload/OrdersUpload"))
@@ -125,6 +126,7 @@ export const PrivateRoutes = [
   { path: "/u/slots", component: Slots },
   { path: "/u/hardening", component: Hardening },
   { path: "/u/stats", component: Stats },
+  { path: "/u/nursery-insights", component: NurseryInsightsEmbed },
   { path: "/u/farmers", component: FarmerComponent },
   { path: "/u/farmers/:id", component: FarmerDetails },
   { path: "/u/upload-orders", component: OrdersUpload },

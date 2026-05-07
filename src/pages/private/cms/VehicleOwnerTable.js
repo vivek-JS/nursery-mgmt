@@ -9,6 +9,7 @@ import {
   TablePagination,
 } from "@mui/material"
 import { PageLoader } from "components"
+import { Toast } from "helpers/toasts/toastHelper"
 
 const emptyOwnerForm = () => ({ name: "", mobile: "", notes: "" })
 
@@ -29,11 +30,16 @@ const VehicleOwnerTable = () => {
   const [ownerForm, setOwnerForm] = useState(emptyOwnerForm())
 
   const [drivers, setDrivers] = useState([])
-  const [driverForm, setDriverForm] = useState({
+  const emptyDriverForm = () => ({
     name: "",
     mobile: "",
-    licenseNumber: ""
+    licenseNumber: "",
+    bankName: "",
+    accountNumber: "",
+    ifscCode: "",
+    paymentAccountPhotoUrl: ""
   })
+  const [driverForm, setDriverForm] = useState(emptyDriverForm())
   const [editingDriver, setEditingDriver] = useState(null)
 
   const [vehicles, setVehicles] = useState([])
@@ -128,7 +134,7 @@ const VehicleOwnerTable = () => {
 
   const resetModalChildren = () => {
     setDrivers([])
-    setDriverForm({ name: "", mobile: "", licenseNumber: "" })
+    setDriverForm(emptyDriverForm())
     setEditingDriver(null)
     setVehicles([])
     setVehicleForm({ name: "", number: "", capacity: "", defaultDriverId: "" })
@@ -219,11 +225,42 @@ const VehicleOwnerTable = () => {
   const ownerIdForChildren = activeOwnerId || editingOwner?._id
 
   const applyDriverSameAsOwner = () => {
-    setDriverForm({
+    setDriverForm((prev) => ({
+      ...prev,
       name: ownerForm.name || "",
-      mobile: ownerForm.mobile || "",
-      licenseNumber: driverForm.licenseNumber || ""
-    })
+      mobile: ownerForm.mobile || ""
+    }))
+  }
+
+  const handleDriverProofUpload = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (file.size > 8 * 1024 * 1024) {
+      Toast.error("Image must be 8MB or smaller")
+      return
+    }
+    setLoading(true)
+    try {
+      const formData = new FormData()
+      formData.append("media_key", file)
+      formData.append("media_type", "IMAGE")
+      formData.append("content_type", "multipart/form-data")
+      const instance = NetworkManager(API.MEDIA.UPLOAD)
+      const response = await instance.request(formData)
+      const url = response?.data?.data?.media_url || response?.data?.media_url
+      if (!url) {
+        Toast.error("Upload did not return a URL")
+        return
+      }
+      setDriverForm((prev) => ({ ...prev, paymentAccountPhotoUrl: String(url).trim() }))
+      Toast.success("Proof uploaded")
+    } catch (err) {
+      console.error(err)
+      Toast.error("Upload failed")
+    } finally {
+      setLoading(false)
+      e.target.value = ""
+    }
   }
 
   const handleDriverSubmit = async (e) => {
@@ -251,7 +288,7 @@ const VehicleOwnerTable = () => {
       const response = await instance.request(payload)
       if (response?.data != null) {
         setEditingDriver(null)
-        setDriverForm({ name: "", mobile: "", licenseNumber: "" })
+        setDriverForm(emptyDriverForm())
         await fetchDriversForOwner(ownerIdForChildren)
         setListVersion((v) => v + 1)
       }
@@ -551,18 +588,80 @@ const VehicleOwnerTable = () => {
                     />
                   </div>
                 </div>
+                <div className="border-t border-slate-100 pt-3 mt-1 space-y-3">
+                  <p className="text-xs font-semibold text-slate-700">
+                    Bank &amp; payment proof <span className="font-normal text-slate-500">(optional)</span>
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600">Bank name</label>
+                    <input
+                      type="text"
+                      value={driverForm.bankName}
+                      onChange={(e) => setDriverForm({ ...driverForm, bankName: e.target.value })}
+                      className="mt-1 block w-full border border-slate-300 rounded-lg p-2 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600">Account no.</label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      autoComplete="off"
+                      value={driverForm.accountNumber}
+                      onChange={(e) =>
+                        setDriverForm({ ...driverForm, accountNumber: e.target.value })
+                      }
+                      className="mt-1 block w-full border border-slate-300 rounded-lg p-2 text-sm font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600">IFSC</label>
+                    <input
+                      type="text"
+                      value={driverForm.ifscCode}
+                      onChange={(e) =>
+                        setDriverForm({
+                          ...driverForm,
+                          ifscCode: String(e.target.value || "").toUpperCase()
+                        })
+                      }
+                      className="mt-1 block w-full border border-slate-300 rounded-lg p-2 text-sm font-mono uppercase"
+                      maxLength={11}
+                    />
+                  </div>
+                  <div className="sm:col-span-2 lg:col-span-1">
+                    <label className="block text-xs font-medium text-slate-600">Account proof</label>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleDriverProofUpload}
+                      className="mt-1 block w-full text-xs"
+                    />
+                    {driverForm.paymentAccountPhotoUrl ? (
+                      <a
+                        href={driverForm.paymentAccountPhotoUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-indigo-600 mt-1 inline-block">
+                        View uploaded
+                      </a>
+                    ) : null}
+                  </div>
+                </div>
+                </div>
                 <div className="flex gap-2">
                   <button
                     type="submit"
                     className="px-3 py-2 text-sm font-medium text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg">
                     {editingDriver ? "Update driver" : "Add driver"}
                   </button>
-                  {editingDriver ? (
+                    {editingDriver ? (
                     <button
                       type="button"
                       onClick={() => {
                         setEditingDriver(null)
-                        setDriverForm({ name: "", mobile: "", licenseNumber: "" })
+                        setDriverForm(emptyDriverForm())
                       }}
                       className="px-3 py-2 text-sm border border-slate-300 rounded-lg">
                       Cancel
@@ -577,13 +676,14 @@ const VehicleOwnerTable = () => {
                       <th className="py-2 pr-2">Name</th>
                       <th className="py-2 pr-2">Mobile</th>
                       <th className="py-2 pr-2">License</th>
+                      <th className="py-2 pr-2">Bank / IFSC</th>
                       <th className="py-2"> </th>
                     </tr>
                   </thead>
                   <tbody>
                     {drivers.length === 0 ? (
                       <tr>
-                        <td colSpan={4} className="py-4 text-slate-400 text-center">
+                        <td colSpan={5} className="py-4 text-slate-400 text-center">
                           No drivers yet. Use &quot;Same as owner&quot; for the usual case.
                         </td>
                       </tr>
@@ -593,6 +693,9 @@ const VehicleOwnerTable = () => {
                           <td className="py-2 pr-2">{d.name}</td>
                           <td className="py-2 pr-2">{d.mobile || "—"}</td>
                           <td className="py-2 pr-2">{d.licenseNumber || "—"}</td>
+                          <td className="py-2 pr-2 text-[11px] text-slate-600 max-w-[140px] truncate" title={`${d.bankName || ""} ${d.ifscCode || ""}`}>
+                            {[d.bankName, d.ifscCode].filter(Boolean).join(" · ") || "—"}
+                          </td>
                           <td className="py-2 whitespace-nowrap">
                             <button
                               type="button"
@@ -601,7 +704,11 @@ const VehicleOwnerTable = () => {
                                 setDriverForm({
                                   name: d.name || "",
                                   mobile: d.mobile || "",
-                                  licenseNumber: d.licenseNumber || ""
+                                  licenseNumber: d.licenseNumber || "",
+                                  bankName: d.bankName || "",
+                                  accountNumber: d.accountNumber != null ? String(d.accountNumber) : "",
+                                  ifscCode: d.ifscCode || "",
+                                  paymentAccountPhotoUrl: d.paymentAccountPhotoUrl || ""
                                 })
                               }}
                               className="text-indigo-600 mr-2">

@@ -42,6 +42,14 @@ import useDebounce from "hooks/useDebounce";
 import moment from "moment";
 import { makeStyles } from "tss-react/mui";
 import LocationSelector from "components/LocationSelector";
+import { useUserData } from "utils/roleUtils";
+
+function isUserRamAgriSalesRep(user) {
+  if (!user) return false;
+  const jt = String(user.jobTitle || "").toUpperCase().trim();
+  const role = String(user.role || "").toUpperCase().trim();
+  return jt === "RAM_AGRI_SALES" || role === "RAM_AGRI_SALES" || jt === "SALES" || role === "SALES";
+}
 
 const useStyles = makeStyles()((theme) => ({
   dialog: {
@@ -116,6 +124,8 @@ const AddAgriSalesOrderForm = ({
   linkedNurseryOrder = null,
 }) => {
   const { classes } = useStyles();
+  const user = useUserData();
+  const isRamAgriRepUser = isUserRamAgriSalesRep(user);
   const [loading, setLoading] = useState(false);
   const [mobileLoading, setMobileLoading] = useState(false);
   const [ramAgriCrops, setRamAgriCrops] = useState([]);
@@ -163,6 +173,8 @@ const AddAgriSalesOrderForm = ({
   // State for OCR processing
   const [ocrProcessing, setOcrProcessing] = useState({});
   const [ocrResults, setOcrResults] = useState({});
+  const [ramAgriSalesRepOptions, setRamAgriSalesRepOptions] = useState([]);
+  const [agriSalesPersonId, setAgriSalesPersonId] = useState("");
 
   // Debounced mobile number for customer lookup
   const debouncedMobileNumber = useDebounce(formData?.customerMobile || "", 500);
@@ -189,6 +201,32 @@ const AddAgriSalesOrderForm = ({
       loadUnits();
     }
   }, [open]);
+
+  const loadRamAgriSalesReps = async () => {
+    try {
+      const instance = NetworkManager(API.EMPLOYEE.GET_EMPLOYEE);
+      const [ramAgriResp, salesResp] = await Promise.all([
+        instance.request(null, { jobTitle: "RAM_AGRI_SALES" }),
+        instance.request(null, { jobTitle: "SALES" }),
+      ]);
+      const list = [...(ramAgriResp?.data?.data || []), ...(salesResp?.data?.data || [])];
+      const uniqById = Array.from(
+        new Map((Array.isArray(list) ? list : []).map((u) => [String(u?._id || ""), u])).values()
+      ).filter((u) => u?._id);
+      setRamAgriSalesRepOptions(
+        uniqById.map((u) => ({ label: u.name || "—", value: u._id }))
+      );
+    } catch (e) {
+      console.error("Error loading Ram Agri/Sales reps:", e);
+      setRamAgriSalesRepOptions([]);
+    }
+  };
+
+  useEffect(() => {
+    if (open && !isRamAgriRepUser) {
+      loadRamAgriSalesReps();
+    }
+  }, [open, isRamAgriRepUser]);
 
   useEffect(() => {
     if (!open || !isLinkedFlow) return;
@@ -723,6 +761,15 @@ const AddAgriSalesOrderForm = ({
       return false;
     }
 
+    if (isRamAgriRepUser && !(user?._id || user?.id)) {
+      Toast.error("Unable to resolve your user id; please re-login");
+      return false;
+    }
+    if (!isRamAgriRepUser && !agriSalesPersonId) {
+      Toast.error("Please select sales person");
+      return false;
+    }
+
     // Validate payment if provided
     if (paymentData.paidAmount && parseFloat(paymentData.paidAmount) > 0) {
       if (!paymentData.isWalletPayment && !paymentData.modeOfPayment) {
@@ -775,6 +822,18 @@ const AddAgriSalesOrderForm = ({
         notes: formData.notes || "",
       };
 
+      if (isRamAgriRepUser) {
+        const sid = user?._id || user?.id;
+        if (!sid) {
+          Toast.error("Unable to resolve your user id; please re-login");
+          setLoading(false);
+          return;
+        }
+        payload.salesPerson = sid;
+      } else if (agriSalesPersonId) {
+        payload.salesPerson = agriSalesPersonId;
+      }
+
       // Add payment if provided
       if (paymentData.paidAmount && parseFloat(paymentData.paidAmount) > 0) {
         // Filter out null/undefined/empty values from receiptPhoto array
@@ -807,6 +866,7 @@ const AddAgriSalesOrderForm = ({
           quantity: payload.quantity,
           rate: payload.rate,
           notes: payload.notes,
+          salesPerson: payload.salesPerson,
         });
       } else {
         const instance = NetworkManager(API.INVENTORY.CREATE_AGRI_SALES_ORDER);
@@ -879,6 +939,7 @@ const AddAgriSalesOrderForm = ({
       isWalletPayment: false,
     });
     setCustomerData({});
+    setAgriSalesPersonId("");
     onClose();
   };
 
@@ -1074,6 +1135,32 @@ const AddAgriSalesOrderForm = ({
               )}
             </Grid>
           </Grid>
+
+          {!isRamAgriRepUser && (
+            <>
+              <Typography className={classes.sectionTitle} sx={{ mt: 0.5 }}>
+                <PersonIcon sx={{ fontSize: "1rem" }} /> Sales person
+              </Typography>
+              <Grid container spacing={1.5}>
+                <Grid item xs={12} sm={6}>
+                  <Autocomplete
+                    fullWidth
+                    size="small"
+                    sx={searchableDropdownSx}
+                    options={ramAgriSalesRepOptions}
+                    value={ramAgriSalesRepOptions.find((o) => o.value === agriSalesPersonId) || null}
+                    onChange={(_, opt) => setAgriSalesPersonId(opt?.value || "")}
+                    getOptionLabel={(o) => o?.label || ""}
+                    isOptionEqualToValue={(a, b) => a?.value === b?.value}
+                    loading={loading}
+                    renderInput={(params) => (
+                      <TextField {...params} label="Ram Agri / Sales *" placeholder="Select sales person" />
+                    )}
+                  />
+                </Grid>
+              </Grid>
+            </>
+          )}
 
           <Divider sx={{ my: 1.5 }} />
 

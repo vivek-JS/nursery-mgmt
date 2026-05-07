@@ -17,7 +17,9 @@ import {
   Box,
   Typography,
   IconButton,
-  Tooltip
+  Tooltip,
+  Chip,
+  Stack
 } from "@mui/material"
 import { green } from "@mui/material/colors"
 import AddCircleOutlineIcon from "@mui/icons-material/AddCircleOutline"
@@ -25,6 +27,7 @@ import LocalFloristIcon from "@mui/icons-material/LocalFlorist"
 import { createTheme, ThemeProvider } from "@mui/material/styles"
 import { API, NetworkManager } from "network/core"
 import { PageLoader } from "components"
+import { batchPlantSubtypeLabel } from "utils/batchPlantDisplay"
 
 const theme = createTheme({
   palette: {
@@ -182,6 +185,13 @@ const PlantTrackingTable = () => {
     }
     return bottles * multipliers[size]
   }
+
+  const selectedBatchForLabEntry =
+    Array.isArray(batches) && newEntry.batchNo
+      ? batches.find((b) => String(b._id ?? b.id) === String(newEntry.batchNo))
+      : null
+  const labEntryVariety = batchPlantSubtypeLabel(selectedBatchForLabEntry)
+
   return (
     <ThemeProvider theme={theme}>
       <Box sx={{ p: 4, backgroundColor: "#f5f9f5", minHeight: "100vh" }}>
@@ -211,10 +221,15 @@ const PlantTrackingTable = () => {
           </Box>
 
           <TableContainer component={Paper} elevation={2}>
-            {entries?.map((batchEntry) => (
+            {entries?.map((batchEntry) => {
+              const batchDoc =
+                batchEntry.batchId && typeof batchEntry.batchId === "object"
+                  ? batchEntry.batchId
+                  : null
+              const { plant: hdrPlant, subtype: hdrSubtype } = batchPlantSubtypeLabel(batchDoc)
+              return (
               <Box key={batchEntry._id} sx={{ mb: 4 }}>
-                <Typography
-                  variant="h6"
+                <Box
                   sx={{
                     p: 2,
                     bgcolor: green[100],
@@ -222,15 +237,28 @@ const PlantTrackingTable = () => {
                     borderTopLeftRadius: 12,
                     borderTopRightRadius: 12,
                     display: "flex",
+                    flexWrap: "wrap",
                     alignItems: "center",
-                    gap: 2
+                    gap: 1.5
                   }}>
-                  <LocalFloristIcon />
-                  Batch Number: {batchEntry?.batchId?.batchNumber}
-                  <Typography variant="body2" sx={{ ml: 2, color: green[800] }}>
-                    (Added on: {formatDate(batchEntry.batchId?.dateAdded)})
+                  <Stack direction="row" alignItems="center" gap={1} sx={{ flexWrap: "wrap" }}>
+                    <LocalFloristIcon />
+                    <Typography variant="h6" component="span" sx={{ fontWeight: 700 }}>
+                      Batch: {batchEntry?.batchId?.batchNumber ?? "—"}
+                    </Typography>
+                    <Chip size="small" label={hdrPlant} sx={{ fontWeight: 700 }} variant="outlined" />
+                    <Chip
+                      size="small"
+                      label={hdrSubtype}
+                      color="primary"
+                      sx={{ fontWeight: 600 }}
+                      variant="outlined"
+                    />
+                  </Stack>
+                  <Typography variant="body2" sx={{ color: green[800], ml: { xs: 0, sm: 1 } }}>
+                    Added on: {formatDate(batchEntry.batchId?.dateAdded)}
                   </Typography>
-                </Typography>
+                </Box>
 
                 <Table>
                   <TableHead>
@@ -274,7 +302,8 @@ const PlantTrackingTable = () => {
                   </TableBody>
                 </Table>
               </Box>
-            ))}
+              )
+            })}
           </TableContainer>
         </Paper>
 
@@ -313,12 +342,25 @@ const PlantTrackingTable = () => {
                 onChange={(e) => setNewEntry({ ...newEntry, batchNo: e.target.value })}
                 fullWidth
                 sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2 } }}>
-                {batches?.map(({ batchNumber, id }) => (
-                  <MenuItem key={batchNumber} value={id}>
-                    {batchNumber}
-                  </MenuItem>
-                ))}
+                {batches?.map((batch) => {
+                  const bid = batch._id ?? batch.id
+                  const { plant: bPlant, subtype: bSubtype } = batchPlantSubtypeLabel(batch)
+                  return (
+                    <MenuItem key={String(bid)} value={String(bid)}>
+                      {batch.batchNumber} — {bPlant} · {bSubtype}
+                    </MenuItem>
+                  )
+                })}
               </TextField>
+              {newEntry.batchNo ? (
+                <Stack direction="row" flexWrap="wrap" alignItems="center" gap={0.75}>
+                  <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>
+                    Variety
+                  </Typography>
+                  <Chip size="small" variant="outlined" label={labEntryVariety.plant} />
+                  <Chip size="small" variant="outlined" color="primary" label={labEntryVariety.subtype} />
+                </Stack>
+              ) : null}
               <TextField
                 type="number"
                 label="No. of Bottles"

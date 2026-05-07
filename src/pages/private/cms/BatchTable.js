@@ -4,9 +4,11 @@ import { Dialog, DialogTitle, DialogContent, DialogActions } from "@mui/material
 import { NetworkManager, API } from "network/core"
 import { PageLoader } from "components"
 import debounce from "lodash.debounce"
+import { batchPlantSubtypeLabel } from "utils/batchPlantDisplay"
 
 const BatchTable = () => {
   const [batches, setBatches] = useState([])
+  const [cmsPlants, setCmsPlants] = useState([])
   const [loading, setLoading] = useState(false)
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [editingBatch, setEditingBatch] = useState(null)
@@ -17,7 +19,9 @@ const BatchTable = () => {
     dateAdded: new Date().toISOString().split("T")[0],
     primaryPlantReadyDays: "",
     secondaryPlantReadyDays: "",
-    plantReadyDaysChangeReason: ""
+    plantReadyDaysChangeReason: "",
+    plantCmsId: "",
+    plantSubtypeId: ""
   })
   const [initialEditDays, setInitialEditDays] = useState(null)
   const [currentPage, setCurrentPage] = useState(1)
@@ -40,6 +44,25 @@ const BatchTable = () => {
   useEffect(() => {
     getBatches()
   }, [debouncedSearchTerm, currentPage, refresh])
+
+  useEffect(() => {
+    const loadPlants = async () => {
+      try {
+        const inst = NetworkManager(API.plantCms.GET_PLANTS)
+        const res = await inst.request({}, { page: 1, limit: 500 })
+        const raw = res?.data?.data
+        const list = Array.isArray(raw) ? raw : raw?.data
+        setCmsPlants(Array.isArray(list) ? list : [])
+      } catch (e) {
+        console.error(e)
+        setCmsPlants([])
+      }
+    }
+    loadPlants()
+  }, [])
+
+  const selectedPlant = cmsPlants.find((p) => String(p._id) === String(formData.plantCmsId))
+  const subtypeOptions = selectedPlant?.subtypes || []
 
   const getBatches = async () => {
     setLoading(true)
@@ -67,6 +90,10 @@ const BatchTable = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
+    if (!formData.plantCmsId?.trim() || !formData.plantSubtypeId?.trim()) {
+      alert("Please select plant and subtype.")
+      return
+    }
     if (editingBatch && initialEditDays) {
       const daysChanged =
         Number(formData.primaryPlantReadyDays) !==
@@ -96,7 +123,9 @@ const BatchTable = () => {
           dateAdded: new Date().toISOString().split("T")[0],
           primaryPlantReadyDays: "",
           secondaryPlantReadyDays: "",
-          plantReadyDaysChangeReason: ""
+          plantReadyDaysChangeReason: "",
+          plantCmsId: "",
+          plantSubtypeId: ""
         })
         setRefresh(!refresh)
       }
@@ -112,7 +141,9 @@ const BatchTable = () => {
       dateAdded: new Date().toISOString().split("T")[0],
       primaryPlantReadyDays: "",
       secondaryPlantReadyDays: "",
-      plantReadyDaysChangeReason: ""
+      plantReadyDaysChangeReason: "",
+      plantCmsId: "",
+      plantSubtypeId: ""
     })
     setEditingBatch(null)
     setInitialEditDays(null)
@@ -142,7 +173,20 @@ const BatchTable = () => {
           </div>
         </div>
         <button
-          onClick={() => setIsFormOpen(true)}
+          onClick={() => {
+            setEditingBatch(null)
+            setInitialEditDays(null)
+            setFormData({
+              batchNumber: "",
+              dateAdded: new Date().toISOString().split("T")[0],
+              primaryPlantReadyDays: "",
+              secondaryPlantReadyDays: "",
+              plantReadyDaysChangeReason: "",
+              plantCmsId: "",
+              plantSubtypeId: ""
+            })
+            setIsFormOpen(true)
+          }}
           className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">
           <Plus size={20} />
           Add Batch
@@ -155,6 +199,9 @@ const BatchTable = () => {
             <tr>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Batch Number
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Plant / Subtype
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Date Added
@@ -171,9 +218,15 @@ const BatchTable = () => {
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
-            {batches.map((batch) => (
+            {batches.map((batch) => {
+              const { plant, subtype } = batchPlantSubtypeLabel(batch)
+              return (
               <tr key={batch._id} className="hover:bg-gray-50">
                 <td className="px-6 py-4 whitespace-nowrap">{batch.batchNumber}</td>
+                <td className="px-6 py-4 text-sm max-w-[220px]">
+                  <div className="font-medium text-gray-800">{plant}</div>
+                  <div className="text-gray-500 text-xs">{subtype}</div>
+                </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   {new Date(batch.dateAdded).toLocaleDateString("en-GB")}
                 </td>
@@ -187,12 +240,15 @@ const BatchTable = () => {
                         primary: batch.primaryPlantReadyDays,
                         secondary: batch.secondaryPlantReadyDays
                       })
+                      const pid = batch.plantCmsId?._id ?? batch.plantCmsId
                       setFormData({
                         batchNumber: batch.batchNumber,
                         dateAdded: batch.dateAdded.split("T")[0],
                         primaryPlantReadyDays: batch.primaryPlantReadyDays,
                         secondaryPlantReadyDays: batch.secondaryPlantReadyDays,
-                        plantReadyDaysChangeReason: ""
+                        plantReadyDaysChangeReason: "",
+                        plantCmsId: pid ? String(pid) : "",
+                        plantSubtypeId: batch.plantSubtypeId ? String(batch.plantSubtypeId) : ""
                       })
                       setIsFormOpen(true)
                     }}
@@ -201,7 +257,8 @@ const BatchTable = () => {
                   </button>
                 </td>
               </tr>
-            ))}
+              )
+            })}
           </tbody>
         </table>
 
@@ -282,7 +339,9 @@ const BatchTable = () => {
             dateAdded: new Date().toISOString().split("T")[0],
             primaryPlantReadyDays: "",
             secondaryPlantReadyDays: "",
-            plantReadyDaysChangeReason: ""
+            plantReadyDaysChangeReason: "",
+            plantCmsId: "",
+            plantSubtypeId: ""
           })
         }}
         maxWidth="sm"
@@ -313,6 +372,65 @@ const BatchTable = () => {
                   className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2"
                 />
               </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  Plant (CMS) <span className="text-red-600">*</span>
+                </label>
+                <select
+                  required
+                  value={formData.plantCmsId}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      plantCmsId: e.target.value,
+                      plantSubtypeId: ""
+                    })
+                  }
+                  className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 bg-white"
+                >
+                  <option value="">Select plant</option>
+                  {cmsPlants.map((p) => (
+                    <option key={p._id} value={String(p._id)}>
+                      {p.name || p._id}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  Subtype <span className="text-red-600">*</span>
+                </label>
+                <select
+                  required
+                  disabled={!formData.plantCmsId}
+                  value={formData.plantSubtypeId}
+                  onChange={(e) => setFormData({ ...formData, plantSubtypeId: e.target.value })}
+                  className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 bg-white disabled:bg-gray-100"
+                >
+                  <option value="">{formData.plantCmsId ? "Select subtype" : "Select plant first"}</option>
+                  {subtypeOptions.map((s) => (
+                    <option key={s._id} value={String(s._id)}>
+                      {s.name || s._id}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {formData.plantCmsId && formData.plantSubtypeId && (
+                <div className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2.5">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-indigo-800">
+                    Selected variety
+                  </p>
+                  <div className="mt-1 flex flex-wrap gap-2">
+                    <span className="inline-flex rounded-full bg-white px-2.5 py-0.5 text-sm font-medium text-gray-900 ring-1 ring-indigo-100">
+                      {selectedPlant?.name ?? "—"}
+                    </span>
+                    <span className="inline-flex rounded-full bg-white px-2.5 py-0.5 text-sm font-medium text-gray-800 ring-1 ring-indigo-100">
+                      {subtypeOptions.find((s) => String(s._id) === String(formData.plantSubtypeId))
+                        ?.name ?? "—"}
+                    </span>
+                  </div>
+                </div>
+              )}
               <div>
                 <label className="block text-sm font-medium text-gray-700">
                   Primary Plant Ready Days
@@ -379,15 +497,7 @@ const BatchTable = () => {
           <DialogActions className="p-4 border-t">
             <button
               type="button"
-              onClick={() => {
-                setIsFormOpen(false)
-                setEditingBatch(null)
-                setFormData({
-                  batchNumber: "",
-                  dateAdded: new Date().toISOString().split("T")[0]
-                })
-                resetForm()
-              }}
+              onClick={resetForm}
               className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 border border-gray-300 rounded-md">
               Cancel
             </button>

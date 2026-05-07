@@ -1,29 +1,108 @@
-import React, { useState, useEffect, useCallback } from "react"
+import React, { useState, useEffect, useCallback, useRef } from "react"
 import { NetworkManager, API } from "network/core"
 import { Truck } from "lucide-react"
 import DispatchForm from "./DispatchedForm"
 import CollectSlipPDF from "./CollectSlipPDF"
 import DeliveryChallanPDF from "./DeliveryChallan"
+import CompleteInvoicePDF from "./CompleteInvoicePDF.js"
 import OrderCompleteDialog from "./OrderCompleteDialog"
 import DispatchAccordion from "./DispatchAccordion"
 import { Toast } from "helpers/toasts/toastHelper"
 import moment from "moment"
+const DISPATCH_PAGE_SIZE = 20
+
+/** Parse GET /dispatched/:id body (handles generateResponse nesting). */
+function parseDispatchFromGetByIdResponse(res) {
+  const raw = res?.data?.data ?? res?.data
+  if (raw && raw._id && typeof raw === "object" && !Array.isArray(raw)) return raw
+  const inner = raw?.data
+  if (inner && inner._id && typeof inner === "object" && !Array.isArray(inner)) return inner
+  return null
+}
+
+/**
+ * Merge list-row dispatch with GET_BY_ID payload while keeping list-shaped `orderIds`
+ * (so CollectSlip / transformDispatchForForm keep working) but overlay fresh DC, payment, farmer.
+ */
+function mergeDispatchWithFreshDetail(listRow, freshDetail) {
+  if (!freshDetail?._id) return listRow
+  const freshOrders = Array.isArray(freshDetail.orderIds) ? freshDetail.orderIds : []
+  const byId = new Map(freshOrders.map((o) => [String(o?._id ?? ""), o]))
+  const mergedOrderIds = (Array.isArray(listRow.orderIds) ? listRow.orderIds : []).map((o) => {
+    const id = String(o?._id ?? o?.details?.orderid ?? o?.details?.orderId ?? "")
+    const f = id ? byId.get(id) : null
+    if (!f) return o
+    const fromFresh =
+      f.deliveryChallanInvoiceNumber != null && String(f.deliveryChallanInvoiceNumber).trim() !== ""
+        ? String(f.deliveryChallanInvoiceNumber).trim()
+        : ""
+    const fromDetails = o.details?.deliveryChallanInvoiceNumber
+    const dcVal = fromFresh || (fromDetails != null ? String(fromDetails).trim() : "")
+    const farmer =
+      f.farmer && typeof f.farmer === "object"
+        ? {
+            name: f.farmer.name,
+            mobileNumber: f.farmer.mobileNumber,
+            village: f.farmer.village,
+          }
+        : o.details?.farmer
+    return {
+      ...o,
+      ...(dcVal ? { deliveryChallanInvoiceNumber: dcVal } : {}),
+      details: {
+        ...(o.details || {}),
+        ...(dcVal ? { deliveryChallanInvoiceNumber: dcVal } : {}),
+        ...(Array.isArray(f.payment) ? { payment: f.payment } : {}),
+        ...(farmer ? { farmer } : {}),
+      },
+    }
+  })
+  return {
+    ...listRow,
+    ...freshDetail,
+    plantsDetails: freshDetail.plantsDetails ?? listRow.plantsDetails,
+    orderDispatchDetails: freshDetail.orderDispatchDetails ?? listRow.orderDispatchDetails,
+    transportStatus: freshDetail.transportStatus ?? listRow.transportStatus,
+    orderIds: mergedOrderIds,
+  }
+}
+
 const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false }) => {
   const [dispatches, setDispatches] = useState([])
   const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [dispatchHasMore, setDispatchHasMore] = useState(true)
+  const pageRef = useRef(1)
+  const hasMoreRef = useRef(true)
   const [selectedDispatch, setSelectedDispatch] = useState(null)
   const [selectedOrders, setSelectedOrders] = useState(null)
   const [isDispatchFormOpen, setIsDispatchFormOpen] = useState(false)
   const [isCollectSlipOpen, setIsCollectSlipOpen] = useState(false)
   const [isDCOpen, setIsDCOpen] = useState(false)
+  const [isCompleteInvoiceOpen, setIsCompleteInvoiceOpen] = useState(false)
   const [isOrderCompleteOpen, setIsOrderCompleteOpen] = useState(false)
 
-  const enrichDispatchLoadStatus = async (dispatchRows = []) => {
+  const enrichDispatchLoadStatus = useCallback(async (dispatchRows = []) => {
     if (!Array.isArray(dispatchRows) || dispatchRows.length === 0) return []
     return Promise.all(
       dispatchRows.map(async (dispatch) => {
         try {
-          const orderIds = (dispatch.orderIds || []).map((order) => order?._id).filter(Boolean)
+          const orderIds = (dispatch.orderIds || [])
+            .map((entry) => {
+              if (entry == null) return null
+              if (typeof entry === "object") {
+                let id = entry._id ?? entry.id ?? null
+                if (id == null || id === "") {
+                  const det = entry.details
+                  if (det && typeof det === "object") {
+                    id = det.orderid ?? det.orderId ?? null
+                  }
+                }
+                return id
+              }
+              return entry
+            })
+            .filter(Boolean)
           if (orderIds.length === 0) {
             return { ...dispatch, agriLoadBlocked: false, agriLoadBlockedBy: [] }
           }
@@ -40,34 +119,77 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false 
         }
       })
     )
-  }
+  }, [])
 
-  const fetchDispatches = useCallback(async () => {
+  const loadDispatchPage = useCallback(async (page) => {
+    const instance = NetworkManager(API.DISPATCHED.GET_TRAYS)
+    const response = await instance.request({}, { paged: "1", page, limit: DISPATCH_PAGE_SIZE })
+    const rows = Array.isArray(response.data?.data) ? response.data.data : []
+    const pag = response.data?.pagination
+    const totalPages = Number(pag?.pages)
+    const curPage = Number(pag?.page) || page
+    let more = true
+    if (Number.isFinite(totalPages) && totalPages > 0) {
+      more = curPage < totalPages
+    } else if (Number.isFinite(Number(pag?.total))) {
+      const loadedSoFar = (curPage - 1) * DISPATCH_PAGE_SIZE + rows.length
+      more = loadedSoFar < Number(pag.total)
+    } else {
+      more = rows.length >= DISPATCH_PAGE_SIZE
+    }
+    return { rows, curPage, more }
+  }, [])
+
+  const refreshList = useCallback(async () => {
+    setLoading(true)
     try {
-      setLoading(true)
-      const instance = NetworkManager(API.DISPATCHED.GET_TRAYS)
-      const response = await instance.request()
-
-      if (response.data?.data) {
-        const enrichedDispatches = await enrichDispatchLoadStatus(response.data.data)
-        setDispatches(enrichedDispatches)
-        setisDispatchtab(enrichedDispatches[0])
-      }
+      pageRef.current = 1
+      hasMoreRef.current = true
+      setDispatchHasMore(true)
+      const { rows, curPage, more } = await loadDispatchPage(1)
+      pageRef.current = curPage
+      hasMoreRef.current = more
+      setDispatchHasMore(more)
+      const enriched = await enrichDispatchLoadStatus(rows)
+      setDispatches(enriched)
+      setisDispatchtab(enriched[0])
     } catch (error) {
       console.error("Error fetching dispatches:", error)
     } finally {
       setLoading(false)
     }
-  }, [setisDispatchtab])
+  }, [enrichDispatchLoadStatus, loadDispatchPage, setisDispatchtab])
+
+  const loadMore = useCallback(async () => {
+    if (!hasMoreRef.current) return
+    setLoadingMore(true)
+    try {
+      const nextPage = pageRef.current + 1
+      const { rows, curPage, more } = await loadDispatchPage(nextPage)
+      pageRef.current = curPage
+      hasMoreRef.current = more
+      setDispatchHasMore(more)
+      const enriched = await enrichDispatchLoadStatus(rows)
+      setDispatches((prev) => {
+        const seen = new Set(prev.map((d) => String(d._id)))
+        const extra = enriched.filter((d) => !seen.has(String(d._id)))
+        return [...prev, ...extra]
+      })
+    } catch (error) {
+      console.error("Error loading more dispatches:", error)
+    } finally {
+      setLoadingMore(false)
+    }
+  }, [enrichDispatchLoadStatus, loadDispatchPage])
 
   useEffect(() => {
-    fetchDispatches()
-    // Reset all dialog states when component re-renders due to viewMode or refresh changes
+    void refreshList()
     setIsCollectSlipOpen(false)
     setIsDCOpen(false)
+    setIsCompleteInvoiceOpen(false)
     setIsDispatchFormOpen(false)
     setIsOrderCompleteOpen(false)
-  }, [viewMode, refresh, fetchDispatches])
+  }, [viewMode, refresh, refreshList])
 
   /** Build DispatchForm `selectedOrders` Map from GET /dispatched/:id payload. */
   const transformGetDispatchToMap = (d) => {
@@ -318,11 +440,15 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false 
     e.stopPropagation() // Prevent the event from bubbling up
 
     // Prevent multiple opens by checking if already open
-    if (isCollectSlipOpen || isDCOpen || isDispatchFormOpen || isOrderCompleteOpen) {
+    if (
+      isCollectSlipOpen ||
+      isDCOpen ||
+      isDispatchFormOpen ||
+      isOrderCompleteOpen ||
+      isCompleteInvoiceOpen
+    ) {
       return
     }
-
-    let formattedData
 
     switch (type) {
       case "view": {
@@ -348,26 +474,61 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false 
         void openView()
         break
       }
-      case "collectSlip":
-        formattedData = transformDispatchForForm(dispatch)
-        setSelectedDispatch(formattedData)
-        setIsCollectSlipOpen(true)
-        break
-      case "dc":
-        if (dispatch?.agriLoadBlocked) {
-          const blockedOrders = (dispatch.agriLoadBlockedBy || [])
-            .map((row) => row.agriOrderNumber || row.agriOrderId)
-            .filter(Boolean)
-          Toast.error(
-            `Agri Input pending load by Agri admin. Challan blocked${
-              blockedOrders.length ? ` (${blockedOrders.join(", ")})` : ""
-            }`
-          )
-          return
+      case "collectSlip": {
+        const openCollectSlip = async () => {
+          try {
+            const inst = NetworkManager(API.DISPATCHED.GET_BY_ID)
+            const res = await inst.request({}, [String(dispatch._id)])
+            const d = parseDispatchFromGetByIdResponse(res)
+            const merged = mergeDispatchWithFreshDetail(dispatch, d || {})
+            const fd = transformDispatchForForm(merged)
+            setSelectedDispatch(fd)
+            setIsCollectSlipOpen(true)
+          } catch (err) {
+            console.error("getDispatch for collect slip:", err)
+            setSelectedDispatch(transformDispatchForForm(dispatch))
+            setIsCollectSlipOpen(true)
+          }
         }
-        setSelectedDispatch(dispatch)
-        setIsDCOpen(true)
+        void openCollectSlip()
         break
+      }
+      case "dc": {
+        const openDc = async () => {
+          try {
+            const inst = NetworkManager(API.DISPATCHED.GET_BY_ID)
+            const res = await inst.request({}, [String(dispatch._id)])
+            const d = parseDispatchFromGetByIdResponse(res)
+            const merged = mergeDispatchWithFreshDetail(dispatch, d || {})
+            setSelectedDispatch(merged)
+            setIsDCOpen(true)
+          } catch (err) {
+            console.error("getDispatch for delivery challan:", err)
+            setSelectedDispatch(dispatch)
+            setIsDCOpen(true)
+          }
+        }
+        void openDc()
+        break
+      }
+      case "completeInvoice": {
+        const openCompleteInvoice = async () => {
+          try {
+            const inst = NetworkManager(API.DISPATCHED.GET_BY_ID)
+            const res = await inst.request({}, [String(dispatch._id)])
+            const d = parseDispatchFromGetByIdResponse(res)
+            const merged = mergeDispatchWithFreshDetail(dispatch, d || {})
+            setSelectedDispatch(merged)
+            setIsCompleteInvoiceOpen(true)
+          } catch (err) {
+            console.error("getDispatch for complete invoice:", err)
+            setSelectedDispatch(dispatch)
+            setIsCompleteInvoiceOpen(true)
+          }
+        }
+        void openCompleteInvoice()
+        break
+      }
       default:
         break
     }
@@ -390,7 +551,7 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false 
       const instance = NetworkManager(API.DISPATCHED.DELETE_TRANSPORT)
       await instance.request({}, [dispatch.transportId])
       Toast.success("Transport removed.")
-      fetchDispatches()
+      void refreshList()
       if (typeof refresh === "function") refresh()
       if (typeof window !== "undefined") {
         window.dispatchEvent(new CustomEvent("dispatchCreated"))
@@ -419,6 +580,7 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false 
       isDispatchFormOpen ||
       isCollectSlipOpen ||
       isDCOpen ||
+      isCompleteInvoiceOpen ||
       isOrderCompleteOpen
     ) {
       return
@@ -447,7 +609,8 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false 
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-2xl font-semibold text-gray-800">Dispatch List</h2>
               <button
-                onClick={fetchDispatches}
+                type="button"
+                onClick={() => void refreshList()}
                 className="inline-flex items-center px-4 py-2 bg-green-50 text-green-700 rounded-lg hover:bg-green-100">
                 Refresh List
               </button>
@@ -466,14 +629,26 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false 
                 <DispatchAccordion
                   key={dispatch._id}
                   dispatch={dispatch}
-                  onRefresh={fetchDispatches}
+                  onRefresh={refreshList}
                   onViewDispatch={(dispatch) => handleDialogOpen("view", dispatch, { stopPropagation: () => {} })}
                   onCollectSlip={(dispatch) => handleDialogOpen("collectSlip", dispatch, { stopPropagation: () => {} })}
                   onDeliveryChallan={(dispatch) => handleDialogOpen("dc", dispatch, { stopPropagation: () => {} })}
+                  onCompleteInvoice={(dispatch) => handleDialogOpen("completeInvoice", dispatch, { stopPropagation: () => {} })}
                   onCompleteOrder={(dispatch) => handleOrderComplete(dispatch, { stopPropagation: () => {} })}
                   onDeleteDispatch={(dispatch) => handleDelete(dispatch)}
                 />
               ))}
+              {dispatchHasMore ? (
+                <div className="flex justify-center pt-2">
+                  <button
+                    type="button"
+                    disabled={loadingMore}
+                    onClick={() => void loadMore()}
+                    className="inline-flex items-center px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50">
+                    {loadingMore ? "Loading…" : "Load more dispatches"}
+                  </button>
+                </div>
+              ) : null}
             </div>
           )}
 
@@ -513,6 +688,17 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false 
             />
           )}
 
+          {isCompleteInvoiceOpen && selectedDispatch && (
+            <CompleteInvoicePDF
+              open={isCompleteInvoiceOpen}
+              onClose={() => {
+                setIsCompleteInvoiceOpen(false)
+                setSelectedDispatch(null)
+              }}
+              dispatchData={selectedDispatch}
+            />
+          )}
+
           {isOrderCompleteOpen && selectedDispatch && (
             <OrderCompleteDialog
               open={isOrderCompleteOpen}
@@ -521,6 +707,10 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false 
                 setSelectedDispatch(null) // Reset selected dispatch when closing
               }}
               dispatchData={selectedDispatch}
+              onSuccess={() => {
+                void refreshList()
+                if (typeof refresh === "function") refresh()
+              }}
             />
           )}
         </div>

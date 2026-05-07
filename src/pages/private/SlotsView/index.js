@@ -1,20 +1,41 @@
-import React, { useEffect, useState } from "react"
+import React, { useEffect, useState, useMemo } from "react"
 import SlotAccordionView from "./slots"
 import { API, NetworkManager } from "network/core"
-import { 
-  ChevronDown, 
-  ChevronUp, 
-  CheckCircle, 
-  AlertCircle, 
-  Plus, 
+import {
+  ChevronDown,
+  ChevronUp,
+  CheckCircle,
+  Plus,
   Calendar,
   Package,
   TrendingUp,
   Leaf,
   BarChart3,
-  Clock
+  Clock,
+  Loader2
 } from "lucide-react"
 import AddManualSlotModal from "./AddManualSlotModal"
+
+const getSectionStats = (section, rollupByPlantId) => {
+  const pid = section?.plantId
+  const r = pid != null ? rollupByPlantId[pid] : undefined
+  if (r) {
+    return {
+      totalCapacity: r.total,
+      bookedPlants: r.booked,
+      availablePlants: r.available,
+      fromRollup: true
+    }
+  }
+  const totalCapacity = Number(section?.totalPlants) || 0
+  const bookedPlants = Number(section?.totalBookedPlants) || 0
+  return {
+    totalCapacity,
+    bookedPlants,
+    availablePlants: Math.max(0, totalCapacity - bookedPlants),
+    fromRollup: false
+  }
+}
 
 const ParentAccordion = () => {
   const [expandedSections, setExpandedSections] = useState([])
@@ -23,6 +44,8 @@ const ParentAccordion = () => {
   const [selectedYear, setSelectedYear] = useState("2026")
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [plants, setPlants] = useState([])
+  const [rollupByPlantId, setRollupByPlantId] = useState({})
+  const [rollupLoading, setRollupLoading] = useState(false)
 
   const years = ["2026", "2027"]
 
@@ -38,6 +61,56 @@ const ParentAccordion = () => {
     fetchPlants()
     fetchAllPlants()
   }, [selectedYear])
+
+  useEffect(() => {
+    if (loading) {
+      setRollupByPlantId({})
+      return
+    }
+    if (!months.length) {
+      setRollupByPlantId({})
+      setRollupLoading(false)
+      return
+    }
+
+    let cancelled = false
+    ;(async () => {
+      setRollupLoading(true)
+      const map = {}
+      await Promise.all(
+        months.map(async (section) => {
+          const pid = section?.plantId
+          if (pid == null) return
+          try {
+            const instance = NetworkManager(API.slots.GET_PLANTS_SUBTYPE)
+            const response = await instance.request({}, { plantId: pid, year: selectedYear })
+            const subtypes = response?.data?.subtypes ?? []
+            let total = 0
+            let booked = 0
+            for (const st of subtypes) {
+              total += Number(st?.totalPlants) || 0
+              booked += Number(st?.totalBookedPlants) || 0
+            }
+            map[pid] = {
+              total,
+              booked,
+              available: Math.max(0, total - booked)
+            }
+          } catch (error) {
+            console.error("Subtype rollup failed for plant", pid, error)
+          }
+        })
+      )
+      if (!cancelled) {
+        setRollupByPlantId(map)
+        setRollupLoading(false)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [months, selectedYear, loading])
 
   const fetchPlants = async () => {
     setLoading(true)
@@ -73,59 +146,64 @@ const ParentAccordion = () => {
     setIsModalOpen(false)
   }
 
-  // Calculate summary statistics
-  // totalPlants = total capacity, available = totalPlants - totalBookedPlants
-  const totalStats = months.reduce(
-    (acc, section) => {
-      const total = Number(section?.totalPlants) || 0
-      const booked = Number(section?.totalBookedPlants) || 0
-      return {
-        available: acc.available + Math.max(0, total - booked),
-        booked: acc.booked + booked,
-        total: acc.total + total
-      }
-    },
-    { available: 0, booked: 0, total: 0 }
-  )
+  const totalStats = useMemo(() => {
+    return months.reduce(
+      (acc, section) => {
+        const { totalCapacity, bookedPlants, availablePlants } = getSectionStats(
+          section,
+          rollupByPlantId
+        )
+        return {
+          available: acc.available + availablePlants,
+          booked: acc.booked + bookedPlants,
+          total: acc.total + totalCapacity
+        }
+      },
+      { available: 0, booked: 0, total: 0 }
+    )
+  }, [months, rollupByPlantId])
+
+  const rollupCoverage =
+    months.length > 0 ? Object.keys(rollupByPlantId).length / months.length : 0
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-      {/* Header Section */}
-      <div className="bg-white border-b border-gray-200 shadow-sm">
-        <div className="max-w-7xl mx-auto px-6 py-6">
-          <div className="flex items-center justify-between mb-6">
+    <div className="min-h-screen bg-slate-50">
+      <div className="border-b border-slate-200 bg-white">
+        <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
+          <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h1 className="text-3xl font-bold text-gray-800 flex items-center gap-3">
-                <div className="w-10 h-10 bg-gradient-to-br from-green-500 to-green-600 rounded-xl flex items-center justify-center">
-                  <Leaf className="w-6 h-6 text-white" />
-                </div>
+              <h1 className="flex items-center gap-3 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
+                <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-600 text-white shadow-sm">
+                  <Leaf className="h-5 w-5" />
+                </span>
                 Plant Slot Management
               </h1>
-              <p className="text-gray-500 mt-1 ml-13">
-                Manage and monitor plant inventory across all slots
+              <p className="mt-1 text-sm text-slate-500">
+                Capacity and bookings aligned with subtype rollups (same source as slot tables)
               </p>
             </div>
 
             <button
+              type="button"
               onClick={() => setIsModalOpen(true)}
-              className="px-6 py-3 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-xl flex items-center gap-2 hover:from-green-700 hover:to-green-800 transition-all duration-200 shadow-md hover:shadow-lg transform hover:-translate-y-0.5">
-              <Plus className="w-5 h-5" />
-              <span className="font-medium">Add Manual Slot</span>
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2">
+              <Plus className="h-4 w-4" />
+              Add Manual Slot
             </button>
           </div>
 
-          {/* Year Selection Tabs */}
-          <div className="flex items-center gap-2 bg-gray-100 p-1.5 rounded-xl w-fit">
+          <div className="inline-flex rounded-lg border border-slate-200 bg-slate-100 p-1">
             {years.map((year) => (
               <button
                 key={year}
+                type="button"
                 onClick={() => setSelectedYear(year)}
-                className={`px-8 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 ${
+                className={`inline-flex items-center gap-2 rounded-md px-6 py-2 text-sm font-semibold transition ${
                   selectedYear === year
-                    ? "bg-white text-green-600 shadow-md"
-                    : "text-gray-600 hover:text-gray-800"
+                    ? "bg-white text-emerald-700 shadow-sm"
+                    : "text-slate-600 hover:text-slate-900"
                 }`}>
-                <Calendar className="w-4 h-4 inline-block mr-2" />
+                <Calendar className="h-4 w-4" />
                 {year}
               </button>
             ))}
@@ -133,195 +211,236 @@ const ParentAccordion = () => {
         </div>
       </div>
 
-      {/* Statistics Cards */}
-      <div className="max-w-7xl mx-auto px-6 py-8">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          {/* Total Capacity Card */}
-          <div className="bg-gradient-to-br from-indigo-500 to-indigo-600 rounded-2xl p-6 text-white shadow-lg hover:shadow-xl transition-shadow">
-            <div className="flex items-center justify-between mb-4">
-              <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
-                <Package className="w-6 h-6" />
-              </div>
-              <BarChart3 className="w-8 h-8 opacity-30" />
-            </div>
-            <h3 className="text-sm font-medium opacity-90 mb-1">Total Capacity</h3>
-            <p className="text-3xl font-bold">{totalStats.total.toLocaleString()}</p>
-            <p className="text-xs opacity-75 mt-2">All plants combined</p>
+      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
+        {loading ? (
+          <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-3">
+            {[1, 2, 3].map((i) => (
+              <div
+                key={i}
+                className="h-32 animate-pulse rounded-xl border border-slate-200 bg-slate-100"
+              />
+            ))}
           </div>
-
-          {/* Available Plants Card */}
-          <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-2xl p-6 text-white shadow-lg hover:shadow-xl transition-shadow">
-            <div className="flex items-center justify-between mb-4">
-              <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
-                <CheckCircle className="w-6 h-6" />
-              </div>
-              <TrendingUp className="w-8 h-8 opacity-30" />
-            </div>
-            <h3 className="text-sm font-medium opacity-90 mb-1">Available Plants</h3>
-            <p className="text-3xl font-bold">{totalStats.available.toLocaleString()}</p>
-            <p className="text-xs opacity-75 mt-2">
-              {totalStats.total > 0 
-                ? `${((totalStats.available / totalStats.total) * 100).toFixed(1)}% of total`
-                : 'No capacity'}
-            </p>
-          </div>
-
-          {/* Booked Plants Card */}
-          <div className="bg-gradient-to-br from-orange-500 to-orange-600 rounded-2xl p-6 text-white shadow-lg hover:shadow-xl transition-shadow">
-            <div className="flex items-center justify-between mb-4">
-              <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
-                <Clock className="w-6 h-6" />
-              </div>
-              <AlertCircle className="w-8 h-8 opacity-30" />
-            </div>
-            <h3 className="text-sm font-medium opacity-90 mb-1">Booked Plants</h3>
-            <p className="text-3xl font-bold">{totalStats.booked.toLocaleString()}</p>
-            <p className="text-xs opacity-75 mt-2">
-              {totalStats.total > 0 
-                ? `${((totalStats.booked / totalStats.total) * 100).toFixed(1)}% utilized`
-                : 'No bookings'}
-            </p>
-          </div>
-        </div>
-
-        {/* Plants Accordion */}
-        <div className="space-y-4">
-          {loading ? (
-            <div className="flex flex-col items-center justify-center py-20">
-              <div className="w-16 h-16 border-4 border-green-200 border-t-green-600 rounded-full animate-spin mb-4"></div>
-              <p className="text-gray-600 font-medium">Loading plant data...</p>
-            </div>
-          ) : months.length === 0 ? (
-            <div className="bg-white rounded-2xl p-12 text-center shadow-md">
-              <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Package className="w-10 h-10 text-gray-400" />
-              </div>
-              <h3 className="text-xl font-semibold text-gray-800 mb-2">No Plants Found</h3>
-              <p className="text-gray-500">No plant slots available for {selectedYear}</p>
-            </div>
-          ) : (
-            months.map((section, sectionIndex) => {
-              const totalCapacity = Number(section?.totalPlants) || 0
-              const bookedPlants = Number(section?.totalBookedPlants) || 0
-              const availablePlants = Math.max(0, totalCapacity - bookedPlants)
-              const utilizationRate = totalCapacity > 0 ? (bookedPlants / totalCapacity) * 100 : 0
-              const isExpanded = isSectionExpanded(sectionIndex)
-
-              return (
-                <div
-                  key={sectionIndex}
-                  className={`bg-white rounded-2xl shadow-md overflow-hidden transition-all duration-300 ${
-                    isExpanded ? 'ring-2 ring-green-500' : 'hover:shadow-lg'
-                  }`}>
-                  <button
-                    onClick={() => toggleSection(sectionIndex)}
-                    className="w-full px-6 py-5 flex items-center justify-between hover:bg-gray-50 transition-colors">
-                    <div className="flex items-center gap-4 flex-1">
-                      {/* Plant Icon */}
-                      <div className={`w-14 h-14 rounded-xl flex items-center justify-center ${
-                        utilizationRate > 80 
-                          ? 'bg-orange-100' 
-                          : utilizationRate > 50 
-                          ? 'bg-blue-100' 
-                          : 'bg-green-100'
-                      }`}>
-                        <Leaf className={`w-7 h-7 ${
-                          utilizationRate > 80 
-                            ? 'text-orange-600' 
-                            : utilizationRate > 50 
-                            ? 'text-blue-600' 
-                            : 'text-green-600'
-                        }`} />
-                      </div>
-
-                      {/* Plant Info */}
-                      <div className="flex-1 text-left">
-                        <h3 className="text-lg font-bold text-gray-800 mb-1">
-                          {section?.name}
-                        </h3>
-                        
-                        {/* Stats Row */}
-                        <div className="flex items-center gap-6 text-sm">
-                          <div className="flex items-center gap-1.5">
-                            <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                            <span className="text-gray-600">Available:</span>
-                            <span className="font-semibold text-green-600">
-                              {availablePlants.toLocaleString()}
-                            </span>
-                          </div>
-                          
-                          <div className="flex items-center gap-1.5">
-                            <div className="w-2 h-2 bg-orange-500 rounded-full"></div>
-                            <span className="text-gray-600">Booked:</span>
-                            <span className="font-semibold text-orange-600">
-                              {bookedPlants.toLocaleString()}
-                            </span>
-                          </div>
-                          
-                          <div className="flex items-center gap-1.5">
-                            <div className="w-2 h-2 bg-indigo-500 rounded-full"></div>
-                            <span className="text-gray-600">Total:</span>
-                            <span className="font-semibold text-indigo-600">
-                              {totalCapacity.toLocaleString()}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Utilization Indicator */}
-                      <div className="flex flex-col items-end gap-2">
-                        <div className="text-right">
-                          <div className="text-xs text-gray-500 mb-1">Utilization</div>
-                          <div className={`text-lg font-bold ${
-                            utilizationRate > 80 
-                              ? 'text-orange-600' 
-                              : utilizationRate > 50 
-                              ? 'text-blue-600' 
-                              : 'text-green-600'
-                          }`}>
-                            {utilizationRate.toFixed(1)}%
-                          </div>
-                        </div>
-                        
-                        {/* Progress Bar */}
-                        <div className="w-32 bg-gray-200 rounded-full h-2 overflow-hidden">
-                          <div
-                            className={`h-full transition-all duration-500 ${
-                              utilizationRate > 80 
-                                ? 'bg-orange-500' 
-                                : utilizationRate > 50 
-                                ? 'bg-blue-500' 
-                                : 'bg-green-500'
-                            }`}
-                            style={{ width: `${Math.min(utilizationRate, 100)}%` }}
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Expand Icon */}
-                    <div className="ml-4">
-                      {isExpanded ? (
-                        <ChevronUp className="w-6 h-6 text-gray-400" />
-                      ) : (
-                        <ChevronDown className="w-6 h-6 text-gray-400" />
-                      )}
-                    </div>
-                  </button>
-
-                  {isExpanded && (
-                    <div className="border-t border-gray-100 bg-gray-50">
-                      <SlotAccordionView plantId={section?.plantId} year={selectedYear} />
-                    </div>
-                  )}
+        ) : (
+          <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-3">
+            <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Total capacity
+                  </p>
+                  <p className="mt-1 tabular-nums text-3xl font-bold text-slate-900">
+                    {totalStats.total.toLocaleString()}
+                  </p>
+                  <p className="mt-2 flex items-center gap-1.5 text-xs text-slate-500">
+                    {rollupLoading ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" />
+                        Syncing subtype totals…
+                      </>
+                    ) : (
+                      <>
+                        <Package className="h-3.5 w-3.5 text-slate-400" />
+                        {rollupCoverage >= 1
+                          ? "Sum of all subtype capacities"
+                          : "Includes API fallback where needed"}
+                      </>
+                    )}
+                  </p>
                 </div>
-              )
-            })
-          )}
-        </div>
+                <div className="rounded-lg bg-indigo-50 p-2.5 text-indigo-600">
+                  <BarChart3 className="h-6 w-6" />
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Available
+                  </p>
+                  <p className="mt-1 tabular-nums text-3xl font-bold text-emerald-700">
+                    {totalStats.available.toLocaleString()}
+                  </p>
+                  <p className="mt-2 text-xs text-slate-500">
+                    {totalStats.total > 0
+                      ? `${((totalStats.available / totalStats.total) * 100).toFixed(1)}% of capacity`
+                      : "No capacity"}
+                  </p>
+                </div>
+                <div className="rounded-lg bg-emerald-50 p-2.5 text-emerald-600">
+                  <CheckCircle className="h-6 w-6" />
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Booked
+                  </p>
+                  <p className="mt-1 tabular-nums text-3xl font-bold text-amber-700">
+                    {totalStats.booked.toLocaleString()}
+                  </p>
+                  <p className="mt-2 text-xs text-slate-500">
+                    {totalStats.total > 0
+                      ? `${((totalStats.booked / totalStats.total) * 100).toFixed(1)}% utilized`
+                      : "No bookings"}
+                  </p>
+                </div>
+                <div className="rounded-lg bg-amber-50 p-2.5 text-amber-600">
+                  <Clock className="h-6 w-6" />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {loading ? (
+          <div className="flex flex-col items-center justify-center rounded-xl border border-slate-200 bg-white py-20 shadow-sm">
+            <div className="mb-4 h-12 w-12 animate-spin rounded-full border-2 border-slate-200 border-t-emerald-600" />
+            <p className="font-medium text-slate-600">Loading plant data…</p>
+          </div>
+        ) : months.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-slate-300 bg-white py-16 text-center shadow-sm">
+            <Package className="mx-auto mb-4 h-12 w-12 text-slate-300" />
+            <h3 className="text-lg font-semibold text-slate-800">No plants found</h3>
+            <p className="mt-1 text-slate-500">No plant slots for {selectedYear}</p>
+          </div>
+        ) : (
+          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+            <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-4 py-3 sm:px-5">
+              <div className="flex items-center gap-2">
+                <TrendingUp className="h-4 w-4 text-slate-500" />
+                <span className="text-sm font-semibold text-slate-800">Plants overview</span>
+              </div>
+              <span className="text-xs text-slate-500">
+                {months.length} row{months.length !== 1 ? "s" : ""}
+              </span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[720px] border-collapse text-left text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50/90 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    <th className="px-4 py-3 sm:px-5">Plant</th>
+                    <th className="px-3 py-3 text-right tabular-nums">Available</th>
+                    <th className="px-3 py-3 text-right tabular-nums">Booked</th>
+                    <th className="px-3 py-3 text-right tabular-nums">Capacity</th>
+                    <th className="hidden px-3 py-3 text-right sm:table-cell tabular-nums">
+                      Utilization
+                    </th>
+                    <th className="hidden w-40 px-3 py-3 md:table-cell">Load</th>
+                    <th className="w-12 px-3 py-3 text-center" aria-label="Expand" />
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {months.map((section, sectionIndex) => {
+                    const { totalCapacity, bookedPlants, availablePlants, fromRollup } =
+                      getSectionStats(section, rollupByPlantId)
+                    const utilizationRate =
+                      totalCapacity > 0 ? (bookedPlants / totalCapacity) * 100 : 0
+                    const isExpanded = isSectionExpanded(sectionIndex)
+                    const rowKey = section?.plantId ?? `idx-${sectionIndex}`
+
+                    return (
+                      <React.Fragment key={rowKey}>
+                        <tr
+                          className={`cursor-pointer transition-colors hover:bg-slate-50/90 ${
+                            isExpanded ? "bg-emerald-50/40" : ""
+                          }`}
+                          onClick={() => toggleSection(sectionIndex)}>
+                          <td className="px-4 py-4 sm:px-5">
+                            <div className="flex items-center gap-3">
+                              <div
+                                className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${
+                                  utilizationRate > 80
+                                    ? "bg-orange-100 text-orange-700"
+                                    : utilizationRate > 50
+                                      ? "bg-sky-100 text-sky-700"
+                                      : "bg-emerald-100 text-emerald-700"
+                                }`}>
+                                <Leaf className="h-5 w-5" />
+                              </div>
+                              <div className="min-w-0">
+                                <div className="font-semibold text-slate-900">{section?.name}</div>
+                                <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500">
+                                  {rollupLoading && !fromRollup ? (
+                                    <span className="inline-flex items-center gap-1">
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                      Totals updating…
+                                    </span>
+                                  ) : fromRollup ? (
+                                    <span className="text-emerald-700">Subtype rollup</span>
+                                  ) : (
+                                    <span className="text-amber-700">List API</span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-3 py-4 text-right tabular-nums font-medium text-emerald-700">
+                            {availablePlants.toLocaleString()}
+                          </td>
+                          <td className="px-3 py-4 text-right tabular-nums font-medium text-amber-800">
+                            {bookedPlants.toLocaleString()}
+                          </td>
+                          <td className="px-3 py-4 text-right tabular-nums font-semibold text-slate-900">
+                            {totalCapacity.toLocaleString()}
+                          </td>
+                          <td className="hidden px-3 py-4 text-right tabular-nums sm:table-cell">
+                            <span
+                              className={
+                                utilizationRate > 80
+                                  ? "font-semibold text-orange-600"
+                                  : utilizationRate > 50
+                                    ? "font-semibold text-sky-600"
+                                    : "font-semibold text-emerald-700"
+                              }>
+                              {utilizationRate.toFixed(1)}%
+                            </span>
+                          </td>
+                          <td className="hidden px-3 py-4 md:table-cell">
+                            <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200">
+                              <div
+                                className={`h-full rounded-full transition-all ${
+                                  utilizationRate > 80
+                                    ? "bg-orange-500"
+                                    : utilizationRate > 50
+                                      ? "bg-sky-500"
+                                      : "bg-emerald-500"
+                                }`}
+                                style={{ width: `${Math.min(utilizationRate, 100)}%` }}
+                              />
+                            </div>
+                          </td>
+                          <td className="px-3 py-4 text-center text-slate-400">
+                            {isExpanded ? (
+                              <ChevronUp className="mx-auto h-5 w-5" />
+                            ) : (
+                              <ChevronDown className="mx-auto h-5 w-5" />
+                            )}
+                          </td>
+                        </tr>
+                        {isExpanded && (
+                          <tr key={`${rowKey}-detail`} className="bg-slate-50">
+                            <td colSpan={7} className="border-t border-slate-100 p-0">
+                              <SlotAccordionView plantId={section?.plantId} year={selectedYear} />
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Add Manual Slot Modal */}
       {isModalOpen && (
         <AddManualSlotModal
           isOpen={isModalOpen}

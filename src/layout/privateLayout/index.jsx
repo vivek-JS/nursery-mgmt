@@ -162,6 +162,8 @@ export default function PrivateLayout(props) {
     const allowed =
       p === "/u/dashboard" ||
       p === "/u/inventory" ||
+      p === "/u/nursery-insights" ||
+      p.startsWith("/u/nursery-insights/") ||
       p.startsWith("/u/inventory/ram-agri-sales-dashboard") ||
       p.startsWith("/u/inventory/ram-agri-input-order") ||
       p.startsWith("/u/inventory/ram-agri-inputs-master")
@@ -233,7 +235,11 @@ export default function PrivateLayout(props) {
       p === "/u/inventory" ||
       p.startsWith("/u/inventory") ||
       p === "/u/dealers" ||
-      p.startsWith("/u/dealers/")
+      p.startsWith("/u/dealers/") ||
+      p === "/u/farmers" ||
+      p.startsWith("/u/farmers/") ||
+      p === "/u/nursery-insights" ||
+      p.startsWith("/u/nursery-insights/")
 
     if (!allowed) {
       console.log(`[PrivateLayout] OFFICEADMIN user accessing ${p}, redirecting to /u/dashboard`)
@@ -307,10 +313,12 @@ export default function PrivateLayout(props) {
         "Sowing Admin Cards",
         "Slots Managment",
         "CMS",
+        "Farmers",
         "Employees",
         "Inventory",
         "Ram Agri Input",
-        "Dealers"
+        "Dealers",
+        "Nursery Insights"
       ]
       const allowedRoutes = [
         "/u/dashboard",
@@ -320,10 +328,12 @@ export default function PrivateLayout(props) {
         "/u/sowing-admin-cards",
         "/u/slots",
         "/u/cms",
+        "/u/farmers",
         "/u/employeese",
         "/u/inventory",
         "/u/inventory/ram-agri-sales-dashboard",
-        "/u/dealers"
+        "/u/dealers",
+        "/u/nursery-insights"
       ]
       const hasAccess = allowedTitles.includes(menuItem.title) || allowedRoutes.includes(menuItem.route)
       return hasAccess
@@ -410,6 +420,7 @@ export default function PrivateLayout(props) {
                 if (isRamAgriSalesManager && !isSuperAdmin && !isAdmin) {
                   return (
                     item.route === "/u/dashboard" ||
+                    item.route === "/u/nursery-insights" ||
                     item.route === "/u/inventory/ram-agri-sales-dashboard" ||
                     item.route === "/u/inventory"
                   )

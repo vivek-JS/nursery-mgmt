@@ -37,10 +37,12 @@ const RamAgriInputsProductMaster = () => {
   const [formData, setFormData] = useState({
     cropName: '',
     description: '',
+    displayOrder: '',
   });
   const [varietyFormData, setVarietyFormData] = useState({
     name: '',
     description: '',
+    displayOrder: '',
     primaryUnit: '',
     secondaryUnit: '',
     conversionFactor: 1,
@@ -65,6 +67,15 @@ const RamAgriInputsProductMaster = () => {
 
   const productTypeLabel = productType === 'chemical' ? 'Chemical' : 'Seed';
   const productTypeLabelPlural = productType === 'chemical' ? 'Chemicals' : 'Seeds';
+
+  /** Returns undefined if empty, 'invalid' if bad, else integer ≥ 0 */
+  const parseOptionalDisplayOrder = (value) => {
+    const t = String(value ?? '').trim();
+    if (t === '') return undefined;
+    const n = Number(t);
+    if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0) return 'invalid';
+    return n;
+  };
 
   useEffect(() => {
     fetchCrops();
@@ -123,7 +134,7 @@ const RamAgriInputsProductMaster = () => {
 
   const openCreateDialog = () => {
     setEditingCrop(null);
-    setFormData({ cropName: '', description: '' });
+    setFormData({ cropName: '', description: '', displayOrder: '' });
     setErrors({});
     setDialogOpen(true);
   };
@@ -133,6 +144,7 @@ const RamAgriInputsProductMaster = () => {
     setFormData({
       cropName: crop.cropName,
       description: crop.description || '',
+      displayOrder: crop.displayOrder != null && crop.displayOrder !== '' ? String(crop.displayOrder) : '',
     });
     setErrors({});
     setDialogOpen(true);
@@ -145,6 +157,7 @@ const RamAgriInputsProductMaster = () => {
       setVarietyFormData({
         name: variety.name,
         description: variety.description || '',
+        displayOrder: variety.displayOrder != null && variety.displayOrder !== '' ? String(variety.displayOrder) : '',
         primaryUnit: variety.primaryUnit?._id || variety.primaryUnit || '',
         secondaryUnit: variety.secondaryUnit?._id || variety.secondaryUnit || '',
         conversionFactor: variety.conversionFactor || 1,
@@ -152,7 +165,16 @@ const RamAgriInputsProductMaster = () => {
         purchasePrice: variety.purchasePrice ? variety.purchasePrice.toString() : '',
       });
     } else {
-      setVarietyFormData({ name: '', description: '', primaryUnit: '', secondaryUnit: '', conversionFactor: 1, defaultRate: '', purchasePrice: '' });
+      setVarietyFormData({
+        name: '',
+        description: '',
+        displayOrder: '',
+        primaryUnit: '',
+        secondaryUnit: '',
+        conversionFactor: 1,
+        defaultRate: '',
+        purchasePrice: '',
+      });
     }
     setErrors({});
     setVarietyDialogOpen(true);
@@ -161,7 +183,7 @@ const RamAgriInputsProductMaster = () => {
   const closeDialog = () => {
     setDialogOpen(false);
     setEditingCrop(null);
-    setFormData({ cropName: '', description: '' });
+    setFormData({ cropName: '', description: '', displayOrder: '' });
     setErrors({});
   };
 
@@ -169,7 +191,16 @@ const RamAgriInputsProductMaster = () => {
     setVarietyDialogOpen(false);
     setEditingVariety(null);
     setSelectedCrop(null);
-    setVarietyFormData({ name: '', description: '', primaryUnit: '', secondaryUnit: '', conversionFactor: 1, defaultRate: '' });
+    setVarietyFormData({
+      name: '',
+      description: '',
+      displayOrder: '',
+      primaryUnit: '',
+      secondaryUnit: '',
+      conversionFactor: 1,
+      defaultRate: '',
+      purchasePrice: '',
+    });
     setErrors({});
   };
 
@@ -223,6 +254,10 @@ const RamAgriInputsProductMaster = () => {
     if (!formData.cropName.trim()) {
       newErrors.cropName = `${productTypeLabel} name is required`;
     }
+    const ord = parseOptionalDisplayOrder(formData.displayOrder);
+    if (ord === 'invalid') {
+      newErrors.displayOrder = 'Enter a whole number ≥ 0, or leave blank';
+    }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -235,6 +270,10 @@ const RamAgriInputsProductMaster = () => {
     if (!varietyFormData.primaryUnit) {
       newErrors.primaryUnit = 'Primary unit is required';
     }
+    const vOrd = parseOptionalDisplayOrder(varietyFormData.displayOrder);
+    if (vOrd === 'invalid') {
+      newErrors.displayOrder = 'Enter a whole number ≥ 0, or leave blank';
+    }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -246,20 +285,22 @@ const RamAgriInputsProductMaster = () => {
     try {
       setLoading(true);
       let response;
+      const cropOrder = parseOptionalDisplayOrder(formData.displayOrder);
       if (editingCrop) {
+        const payload = { cropName: formData.cropName.trim(), description: formData.description.trim(), productType };
+        if (cropOrder !== undefined && cropOrder !== 'invalid') payload.displayOrder = cropOrder;
         const instance = NetworkManager(API.INVENTORY.UPDATE_RAM_AGRI_INPUT);
-        response = await instance.request(
-          { cropName: formData.cropName.trim(), description: formData.description.trim(), productType },
-          [editingCrop._id]
-        );
+        response = await instance.request(payload, [editingCrop._id]);
       } else {
-        const instance = NetworkManager(API.INVENTORY.CREATE_RAM_AGRI_INPUT);
-        response = await instance.request({
+        const payload = {
           cropName: formData.cropName.trim(),
           description: formData.description.trim(),
           varieties: [],
           productType,
-        });
+        };
+        if (cropOrder !== undefined && cropOrder !== 'invalid') payload.displayOrder = cropOrder;
+        const instance = NetworkManager(API.INVENTORY.CREATE_RAM_AGRI_INPUT);
+        response = await instance.request(payload);
       }
 
       if (response?.data?.success || response?.data?.status === 'Success') {
@@ -284,34 +325,24 @@ const RamAgriInputsProductMaster = () => {
     try {
       setLoading(true);
       let response;
+      const varOrder = parseOptionalDisplayOrder(varietyFormData.displayOrder);
+      const varietyPayload = {
+        name: varietyFormData.name.trim(),
+        description: varietyFormData.description.trim(),
+        primaryUnit: varietyFormData.primaryUnit,
+        secondaryUnit: varietyFormData.secondaryUnit || undefined,
+        conversionFactor: varietyFormData.conversionFactor || 1,
+        defaultRate: varietyFormData.defaultRate ? varietyFormData.defaultRate : null,
+        purchasePrice: varietyFormData.purchasePrice ? varietyFormData.purchasePrice : null,
+      };
+      if (varOrder !== undefined && varOrder !== 'invalid') varietyPayload.displayOrder = varOrder;
+
       if (editingVariety) {
         const instance = NetworkManager(API.INVENTORY.UPDATE_VARIETY);
-        response = await instance.request(
-          {
-            name: varietyFormData.name.trim(),
-            description: varietyFormData.description.trim(),
-            primaryUnit: varietyFormData.primaryUnit,
-            secondaryUnit: varietyFormData.secondaryUnit || undefined,
-            conversionFactor: varietyFormData.conversionFactor || 1,
-            defaultRate: varietyFormData.defaultRate ? varietyFormData.defaultRate : null,
-            purchasePrice: varietyFormData.purchasePrice ? varietyFormData.purchasePrice : null,
-          },
-          [selectedCrop._id, editingVariety._id]
-        );
+        response = await instance.request(varietyPayload, [selectedCrop._id, editingVariety._id]);
       } else {
         const instance = NetworkManager(API.INVENTORY.ADD_VARIETY);
-        response = await instance.request(
-          {
-            name: varietyFormData.name.trim(),
-            description: varietyFormData.description.trim(),
-            primaryUnit: varietyFormData.primaryUnit,
-            secondaryUnit: varietyFormData.secondaryUnit || undefined,
-            conversionFactor: varietyFormData.conversionFactor || 1,
-            defaultRate: varietyFormData.defaultRate ? varietyFormData.defaultRate : null,
-            purchasePrice: varietyFormData.purchasePrice ? varietyFormData.purchasePrice : null,
-          },
-          [selectedCrop._id]
-        );
+        response = await instance.request(varietyPayload, [selectedCrop._id]);
       }
 
       if (response?.data?.success || response?.data?.status === 'Success') {
@@ -745,6 +776,12 @@ const RamAgriInputsProductMaster = () => {
                           <div className="flex items-center space-x-3 flex-wrap">
                             <h3 className="text-lg font-bold text-gray-800">{crop.cropName}</h3>
                             <div className="flex items-center space-x-2 flex-wrap">
+                              <span
+                                className="px-2.5 py-1 bg-gray-100 text-gray-700 text-xs font-semibold rounded-full"
+                                title="List order in dropdowns (lower = higher in list)"
+                              >
+                                Order {crop.displayOrder ?? 0}
+                              </span>
                               <span className="px-2.5 py-1 bg-blue-50 text-blue-700 text-xs font-semibold rounded-full">
                                 {varietiesCount} Variet{varietiesCount !== 1 ? 'ies' : 'y'}
                               </span>
@@ -818,9 +855,15 @@ const RamAgriInputsProductMaster = () => {
                                 >
                                   <div className="flex items-start justify-between mb-3">
                                     <div className="flex-1 min-w-0">
-                                      <div className="flex items-center space-x-2 mb-1">
+                                      <div className="flex items-center space-x-2 mb-1 flex-wrap">
                                         <Package className="w-4 h-4 text-gray-400 flex-shrink-0" />
                                         <span className="font-semibold text-gray-800 text-sm">{variety.name}</span>
+                                        <span
+                                          className="px-1.5 py-0.5 bg-gray-100 text-gray-600 text-[10px] font-semibold rounded"
+                                          title="Order within this product’s variety dropdown"
+                                        >
+                                          #{variety.displayOrder ?? 0}
+                                        </span>
                                         {variety.isActive ? (
                                           <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full">
                                             Active
@@ -1033,6 +1076,34 @@ const RamAgriInputsProductMaster = () => {
                 />
               </div>
 
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  List order <span className="text-gray-400 font-normal">(optional)</span>
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={formData.displayOrder}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      displayOrder: e.target.value === '' ? '' : e.target.value,
+                    })
+                  }
+                  className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all ${
+                    errors.displayOrder ? 'border-red-500' : 'border-gray-300'
+                  }`}
+                  placeholder={editingCrop ? 'e.g. 0, 1, 2…' : 'Leave blank to add at end'}
+                />
+                <p className="text-xs text-gray-500 mt-1.5">
+                  Lower numbers appear first in all {productTypeLabel.toLowerCase()} dropdowns. When adding a new item, leave blank to place it after existing rows.
+                </p>
+                {errors.displayOrder && (
+                  <p className="text-red-500 text-sm mt-1">{errors.displayOrder}</p>
+                )}
+              </div>
+
               <div className="flex space-x-3 pt-4">
                 <button
                   type="button"
@@ -1112,6 +1183,34 @@ const RamAgriInputsProductMaster = () => {
                   className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all resize-none"
                   placeholder="Optional description..."
                 />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+                  Variety list order <span className="text-gray-400 font-normal">(optional)</span>
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={varietyFormData.displayOrder}
+                  onChange={(e) =>
+                    setVarietyFormData({
+                      ...varietyFormData,
+                      displayOrder: e.target.value === '' ? '' : e.target.value,
+                    })
+                  }
+                  className={`w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all ${
+                    errors.displayOrder ? 'border-red-500' : 'border-gray-300'
+                  }`}
+                  placeholder={editingVariety ? 'e.g. 0, 1, 2…' : 'Leave blank to add at end'}
+                />
+                <p className="text-[11px] text-gray-500 mt-1">
+                  Lower numbers appear first in the variety dropdown for this product.
+                </p>
+                {errors.displayOrder && (
+                  <p className="text-red-500 text-xs mt-1">{errors.displayOrder}</p>
+                )}
               </div>
 
               {/* Unit of Measurement Section */}

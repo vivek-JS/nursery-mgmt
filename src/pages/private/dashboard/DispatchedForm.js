@@ -6,6 +6,7 @@ import {
   DialogActions,
   Button,
   IconButton,
+  TextField,
   useTheme,
   useMediaQuery
 } from "@mui/material"
@@ -13,12 +14,47 @@ import { Leaf, Truck, Trash2, ChevronDown, ChevronUp } from "lucide-react"
 import { ArrowLeft, X } from "lucide-react"
 
 import { NetworkManager, API } from "network/core"
+import { Toast } from "helpers/toasts/toastHelper"
 import {
+  getCavityIdString,
   getCavityLabelForDispatchOrder,
   orderRowHasTrayRef,
 } from "utils/cavityDisplay"
 
 const cavityKey = (v) => (v != null && v !== "" ? String(v) : "")
+
+const resolveMongoId = (v) => {
+  if (v == null || v === "") return ""
+  if (typeof v === "object") return String(v._id ?? v.id ?? "")
+  return String(v)
+}
+
+const formatPlantationDateShort = (raw) => {
+  if (!raw) return ""
+  const d = new Date(raw)
+  if (!Number.isFinite(d.getTime())) return ""
+  return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "2-digit" })
+}
+
+const clearPickupBatchMetaOnDetail = (detail) => {
+  if (!detail || typeof detail !== "object") return
+  detail.batchId = ""
+  detail.batchNumber = ""
+  detail.plantOutwardId = ""
+  detail.secondaryInwardId = ""
+  detail.secondaryInwardDate = null
+  detail.pollyhouseMatched = ""
+}
+
+const applyRecommendedBatchToDetail = (detail, rec) => {
+  if (!detail || !rec) return
+  detail.batchId = rec.batchId != null ? String(rec.batchId) : ""
+  detail.batchNumber = rec.batchNumber != null ? String(rec.batchNumber) : ""
+  detail.plantOutwardId = rec.plantOutwardId != null ? String(rec.plantOutwardId) : ""
+  detail.secondaryInwardId = rec.secondaryInwardId != null ? String(rec.secondaryInwardId) : ""
+  detail.secondaryInwardDate = rec.secondaryInwardDate ?? null
+  detail.pollyhouseMatched = rec.pollyhouse ? String(rec.pollyhouse) : ""
+}
 
 /** Same tray id resolution as Add Cavity + backend — cavityId field OR populated cavity object. */
 const getOrderCavityKey = (order) => {
@@ -31,6 +67,59 @@ const getOrderCavityKey = (order) => {
     return cavityKey(c._id ?? c.id)
   }
   return cavityKey(c)
+}
+
+const formatOrderDateForCard = (value) => {
+  if (!value) return "-"
+  const d = new Date(value)
+  return Number.isNaN(d.getTime()) ? "-" : d.toLocaleDateString("en-IN")
+}
+
+const orderFarmerDisplayName = (order) => {
+  const f = order?.farmer
+  if (f && typeof f === "object") {
+    if (f.name) return f.name
+    if (f.farmerName) return f.farmerName
+  }
+  if (typeof order?.farmerName === "string" && order.farmerName.trim()) return order.farmerName.trim()
+  return ""
+}
+
+const mapOrderToDispatchRow = (order) => {
+  const quantity = Number(order?.numberOfPlants || order?.totalPlants || 0)
+  const cavityIdStr = getCavityIdString(order?.cavity)
+  const hasTrayRef = cavityIdStr !== ""
+  const rate = Number(order?.rate || 0)
+  return {
+    order: order?.orderId,
+    farmerName: orderFarmerDisplayName(order) || (order?.dealerOrder ? "Dealer" : "Unknown"),
+    plantType: `${order?.plantType?.name || "Unknown"} -> ${order?.plantSubtype?.name || "Unknown"}`,
+    quantity,
+    orderDate: order?.orderBookingDate ? formatOrderDateForCard(order.orderBookingDate) : "-",
+    rate,
+    total: quantity * rate,
+    "Paid Amt": 0,
+    "remaining Amt": quantity * rate,
+    orderStatus: order?.orderStatus || "",
+    Delivery: order?.deliveryDate ? formatOrderDateForCard(order.deliveryDate) : "-",
+    details: {
+      orderid: order?._id || order?.id,
+      remainingPlants: Number(order?.remainingPlants ?? quantity),
+      plantID: order?.plantType?._id || order?.plantType?.id,
+      plantSubtypeID: order?.plantSubtype?._id || order?.plantSubtype?.id,
+      cavity: order?.cavity ?? null,
+      cavityId: cavityIdStr || undefined,
+      cavityName:
+        getCavityLabelForDispatchOrder(
+          { cavity: order?.cavity, cavityId: cavityIdStr || undefined },
+          [],
+          () => ""
+        ) ||
+        (hasTrayRef ? "Not specified" : "No tray on order"),
+      farmer: order?.farmer || null,
+      dealerOrder: order?.dealerOrder,
+    },
+  }
 }
 
 /**
@@ -129,7 +218,13 @@ const buildCavityGroupsFromPlantForView = (plant) => {
         shadeName: detail.shadeName,
         quantity: detail.quantity,
         cavity: cid,
-        cavityName: detail.cavityName
+        cavityName: detail.cavityName,
+        batchId: detail.batchId != null ? String(detail.batchId) : "",
+        batchNumber: detail.batchNumber != null ? String(detail.batchNumber) : "",
+        plantOutwardId: detail.plantOutwardId != null ? String(detail.plantOutwardId) : "",
+        secondaryInwardId: detail.secondaryInwardId != null ? String(detail.secondaryInwardId) : "",
+        secondaryInwardDate: detail.secondaryInwardDate ?? null,
+        pollyhouseMatched: detail.pollyhouseMatched != null ? String(detail.pollyhouseMatched) : "",
       })
     })
   }
@@ -195,11 +290,22 @@ const DispatchForm = ({
   const [fleetVehicleId, setFleetVehicleId] = useState("")
   const [shades, setShades] = useState([])
   const [cavities, setCavities] = useState([])
+  /** `"${plantIndex}-${groupIndex}-${detailIndex}"` while fetching FIFO batch for shade */
+  const [pickupBatchLoadingKey, setPickupBatchLoadingKey] = useState("")
   const [isEditing, setIsEditing] = useState(false)
   /** Snapshot of selected orders while editing in view mode (supports remove-from-dispatch). */
   const [editOrdersMap, setEditOrdersMap] = useState(null)
+  const [eligibleAddOrders, setEligibleAddOrders] = useState([])
+  const [addOrderDialogOpen, setAddOrderDialogOpen] = useState(false)
+  const [addOrderLoading, setAddOrderLoading] = useState(false)
+  const [eligibleAddLoading, setEligibleAddLoading] = useState(false)
+  const [selectedAddOrderIds, setSelectedAddOrderIds] = useState(new Set())
+  const [addOrderSearch, setAddOrderSearch] = useState("")
+  const [addOrderShadeId, setAddOrderShadeId] = useState("")
   const [linkedAgriBlockedBy, setLinkedAgriBlockedBy] = useState([])
   const [linkedAgriCheckLoading, setLinkedAgriCheckLoading] = useState(false)
+  const [nurserySites, setNurserySites] = useState([])
+  const [expectedNursery, setExpectedNursery] = useState("RB")
   // Track dispatch quantities per order (orderId -> quantity to dispatch)
   const [orderQuantities, setOrderQuantities] = useState(new Map())
   const orderQuantitiesRef = useRef(new Map())
@@ -217,6 +323,217 @@ const DispatchForm = ({
 
   const getSelectedOrdersArray = () =>
     Array.from(getOrdersSourceMap()?.values?.() || []).filter((order) => Boolean(orderRowKey(order)))
+
+  const applyDispatchDataToForm = (dispatchDoc) => {
+    if (!dispatchDoc) return
+    const plantSource = dispatchDoc.plants || dispatchDoc.plantsDetails || []
+    const transformedPlants = plantSource.map((plant) => {
+      const cavityGroups = buildCavityGroupsFromPlantForView(plant)
+      const pickupSum = cavityGroups.reduce(
+        (sum, g) =>
+          sum +
+          (g.pickupDetails || []).reduce(
+            (s, d) => s + Number(d.quantity || 0),
+            0
+          ),
+        0
+      )
+      return {
+        ...plant,
+        cavityGroups,
+        quantity: pickupSum > 0 ? pickupSum : plant.quantity
+      }
+    })
+
+    const nextForm = {
+      name: dispatchDoc.name || "",
+      driverName: dispatchDoc.driverName || "",
+      vehicleName: dispatchDoc.vehicleName || "",
+      plants: transformedPlants
+    }
+    setFormData(nextForm)
+
+    const qtyMap = new Map()
+    const details = Array.isArray(dispatchDoc.orderDispatchDetails)
+      ? dispatchDoc.orderDispatchDetails
+      : []
+    details.forEach((row) => {
+      if (row?.orderId != null) {
+        qtyMap.set(String(row.orderId), Number(row.dispatchQuantity || 0))
+      }
+    })
+    if (qtyMap.size === 0) {
+      getSelectedOrdersArray().forEach((order) => {
+        const rk = orderRowKey(order)
+        const q = Number(order.quantity || 0)
+        if (rk) qtyMap.set(rk, q)
+      })
+    }
+    setOrderQuantities(qtyMap)
+    orderQuantitiesRef.current = qtyMap
+
+    const oidRows = Array.isArray(dispatchDoc.orderIds) ? dispatchDoc.orderIds : []
+    const exView = oidRows
+      .map((o) => o?.expectedNursery)
+      .find((x) => x != null && String(x).trim() !== "")
+    const exNorm = exView ? String(exView).trim().toUpperCase() : "RB"
+    setExpectedNursery(exNorm)
+
+    initialViewSnapshotRef.current = {
+      formData: JSON.parse(JSON.stringify(nextForm)),
+      orderQuantities: new Map(qtyMap),
+      expectedNursery: exNorm
+    }
+
+    const initialExpandedState = transformedPlants?.reduce((acc, plant) => {
+      acc[plant.id] = true
+      return acc
+    }, {})
+    setExpandedPlants(initialExpandedState)
+  }
+
+  const refreshDispatchViewData = async () => {
+    const dispatchId = dispatchData?._id
+    if (!dispatchId) return
+    const inst = NetworkManager(API.DISPATCHED.GET_BY_ID)
+    const response = await inst.request({}, [String(dispatchId)])
+    const raw = response?.data?.data ?? response?.data
+    const doc =
+      raw && typeof raw === "object" && !Array.isArray(raw) && raw._id
+        ? raw
+        : raw?.data
+    if (!doc?._id) throw new Error("Could not refresh dispatch data")
+    applyDispatchDataToForm(doc)
+  }
+
+  const fetchEligibleOrdersForEditAdd = async () => {
+    if (!isViewMode || !isEditing) return
+    setEligibleAddLoading(true)
+    try {
+      const params = {
+        search: "",
+        dispatched: false,
+        status: "READY_FOR_DISPATCH,DISPATCH_PROCESS",
+        limit: 500,
+        page: 1,
+        sortKey: "deliveryDate",
+        sortOrder: "asc",
+      }
+      const instance = NetworkManager(API.ORDER.GET_ORDERS)
+      const response = await instance.request({}, params)
+      const payload = response?.data?.data
+      const list = Array.isArray(payload?.data)
+        ? payload.data
+        : response?.data?.data?.data || response?.data?.data || []
+      const existingKeys = new Set(getSelectedOrdersArray().map((o) => orderRowKey(o)))
+      const eligible = list.filter((order) => {
+        const oid = String(order?._id || order?.id || "")
+        if (!oid) return false
+        return !existingKeys.has(oid)
+      })
+      setEligibleAddOrders(eligible)
+    } catch (err) {
+      setEligibleAddOrders([])
+      setError(
+        err?.response?.data?.message ||
+          err?.response?.data?.error ||
+          err?.message ||
+          "Failed to load eligible orders"
+      )
+    } finally {
+      setEligibleAddLoading(false)
+    }
+  }
+
+  const toggleAddOrderSelection = (orderId) => {
+    setSelectedAddOrderIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(orderId)) next.delete(orderId)
+      else next.add(orderId)
+      return next
+    })
+  }
+
+  const handleConfirmAddOrders = async () => {
+    if (!dispatchData?._id || selectedAddOrderIds.size === 0) return
+    if (!addOrderShadeId) {
+      setError("Please select a shade before adding orders.")
+      return
+    }
+    const shade = shades.find((s) => getId(s) === addOrderShadeId)
+    if (!shade) {
+      setError("Selected shade is invalid.")
+      return
+    }
+
+    setAddOrderLoading(true)
+    setError("")
+    let addedCount = 0
+    let skippedNoCavity = 0
+    const nextMap = new Map(editOrdersMap || selectedOrders || new Map())
+
+    try {
+      const selectedOrdersToAdd = eligibleAddOrders.filter((o) =>
+        selectedAddOrderIds.has(String(o?._id || o?.id || ""))
+      )
+      for (const order of selectedOrdersToAdd) {
+        const orderId = String(order?._id || order?.id || "")
+        const row = mapOrderToDispatchRow(order)
+        const rowKey = orderRowKey(row)
+        if (!orderId || !rowKey) continue
+        if (nextMap.has(rowKey)) continue
+
+        const cavityId =
+          row?.details?.cavityId ||
+          getCavityIdString(row?.details?.cavity) ||
+          getCavityIdString(order?.cavity)
+        if (!cavityId) {
+          skippedNoCavity += 1
+          continue
+        }
+
+        const dispatchQuantity = Number(row?.details?.remainingPlants ?? row?.quantity ?? 0)
+        if (dispatchQuantity <= 0) continue
+
+        const instance = NetworkManager(API.DISPATCHED.ADD_ORDER_TO_DISPATCH)
+        await instance.request(
+          {
+            orderId,
+            dispatchQuantity,
+            cavityId,
+            shadeId: addOrderShadeId,
+            shadeName: shade?.name || "",
+          },
+          [dispatchData._id]
+        )
+        nextMap.set(rowKey, row)
+        addedCount += 1
+      }
+
+      setEditOrdersMap(nextMap)
+      await refreshDispatchViewData()
+      setSelectedAddOrderIds(new Set())
+      setAddOrderSearch("")
+      setAddOrderDialogOpen(false)
+      if (addedCount > 0) {
+        Toast.success(`${addedCount} order${addedCount > 1 ? "s" : ""} added to dispatch.`)
+      }
+      if (skippedNoCavity > 0) {
+        setError(
+          `${skippedNoCavity} selected order${skippedNoCavity > 1 ? "s were" : " was"} skipped because tray/cavity is missing.`
+        )
+      }
+    } catch (err) {
+      setError(
+        err?.response?.data?.message ||
+          err?.response?.data?.error ||
+          err?.message ||
+          "Failed to add selected orders"
+      )
+    } finally {
+      setAddOrderLoading(false)
+    }
+  }
 
   useEffect(() => {
     if (!open || mode === "view") {
@@ -257,7 +574,7 @@ const DispatchForm = ({
     return () => {
       mounted = false
     }
-  }, [open, mode, selectedOrders])
+  }, [open, mode, selectedOrders, isEditing, editOrdersMap])
 
   const loadFleetForOwner = async (ownerMongoId) => {
     if (!ownerMongoId) {
@@ -564,7 +881,15 @@ const DispatchForm = ({
             shadeName: detail.shadeName || "",
             quantity: Number(detail.quantity),
             cavity: cavityGroup.cavity,
-            cavityName: cavityGroup.cavityName
+            cavityName: cavityGroup.cavityName,
+            ...(detail.batchId ? { batchId: detail.batchId } : {}),
+            ...(detail.batchNumber ? { batchNumber: detail.batchNumber } : {}),
+            ...(detail.plantOutwardId ? { plantOutwardId: detail.plantOutwardId } : {}),
+            ...(detail.secondaryInwardId ? { secondaryInwardId: detail.secondaryInwardId } : {}),
+            ...(detail.secondaryInwardDate != null
+              ? { secondaryInwardDate: detail.secondaryInwardDate }
+              : {}),
+            ...(detail.pollyhouseMatched ? { pollyhouseMatched: detail.pollyhouseMatched } : {}),
           })
         })
 
@@ -611,6 +936,7 @@ const DispatchForm = ({
       }
     })
 
+    const exp = String(expectedNursery || "").trim().toUpperCase()
     return {
       name: formData.name?.trim() || "",
       driverName: formattedDriverName,
@@ -618,7 +944,8 @@ const DispatchForm = ({
       vehicleName: vehicleNameOut,
       orderIds: orderIds,
       orderDispatchDetails: orderDispatchDetails,
-      plantsDetails: plantsDetails
+      plantsDetails: plantsDetails,
+      ...(exp ? { expectedNursery: exp } : {})
     }
   }
 
@@ -630,6 +957,9 @@ const DispatchForm = ({
       const payload = transformDispatchData(formData, selectedOrders)
       if (readyDispatchGroupId) {
         payload.readyDispatchGroupId = readyDispatchGroupId
+      }
+      if (linkedAgriBlockedBy.length > 0) {
+        payload.autoMarkLinkedAgriLoaded = true
       }
       console.log("[DispatchForm] Creating dispatch with payload:", payload)
       const instance = NetworkManager(API.DISPATCHED.CREATE_TRAY)
@@ -747,7 +1077,13 @@ const DispatchForm = ({
             shade: "",
             quantity: autoFilledQuantity, // Auto-fill with dispatched quantity
             cavity: autoSelectedCavity,
-            cavityName: autoSelectedCavityName
+            cavityName: autoSelectedCavityName,
+            batchId: "",
+            batchNumber: "",
+            plantOutwardId: "",
+            secondaryInwardId: "",
+            secondaryInwardDate: null,
+            pollyhouseMatched: "",
           }]
           
           if (autoFilledQuantity > 0) {
@@ -800,7 +1136,13 @@ const DispatchForm = ({
           shade: "",
           quantity: 0,
           cavity: value,
-          cavityName: selectedCavity?.name || ""
+          cavityName: selectedCavity?.name || "",
+          batchId: "",
+          batchNumber: "",
+          plantOutwardId: "",
+          secondaryInwardId: "",
+          secondaryInwardDate: null,
+          pollyhouseMatched: "",
         }
       ]
 
@@ -831,7 +1173,13 @@ const DispatchForm = ({
         shade: "",
         quantity: 0,
         cavity: cavityGroup.cavity,
-        cavityName: cavityGroup.cavityName
+        cavityName: cavityGroup.cavityName,
+        batchId: "",
+        batchNumber: "",
+        plantOutwardId: "",
+        secondaryInwardId: "",
+        secondaryInwardDate: null,
+        pollyhouseMatched: "",
       })
 
       return { ...prev, plants: updatedPlants }
@@ -851,6 +1199,9 @@ const DispatchForm = ({
         // Make sure each pickup detail has the cavity reference
         cavityGroup.pickupDetails[detailIndex].cavity = cavityGroup.cavity
         cavityGroup.pickupDetails[detailIndex].cavityName = cavityGroup.cavityName
+        if (!value) {
+          clearPickupBatchMetaOnDetail(cavityGroup.pickupDetails[detailIndex])
+        }
       } else {
         cavityGroup.pickupDetails[detailIndex][field] = value
       }
@@ -873,6 +1224,97 @@ const DispatchForm = ({
 
       return { ...prev, plants: updatedPlants }
     })
+  }
+
+  const handleShadeSelectWithBatchLookup = async (
+    plantIndex,
+    groupIndex,
+    detailIndex,
+    shadeId,
+    plant,
+    cavityGroup
+  ) => {
+    handlePickupDetailChange(plantIndex, groupIndex, detailIndex, "shade", shadeId)
+    const loadKey = `${plantIndex}-${groupIndex}-${detailIndex}`
+    if (!shadeId) {
+      setPickupBatchLoadingKey("")
+      return
+    }
+    const firstDetails = plant?.orders?.[0]?.details
+    const plantCmsId = resolveMongoId(firstDetails?.plantID) || resolveMongoId(plant?.id)
+    const plantSubtypeId = resolveMongoId(firstDetails?.plantSubtypeID)
+    if (!plantCmsId || !plantSubtypeId) {
+      return
+    }
+    const selectedShade = shades.find((s) => getId(s) === String(shadeId))
+    const tray = cavities.find((c) => getId(c) === String(cavityGroup.cavity))
+    const trayCavity = tray != null && tray.cavity != null ? Number(tray.cavity) : null
+    setPickupBatchLoadingKey(loadKey)
+    try {
+      const inst = NetworkManager(API.PLANT_OUTWARD.FARMER_DISPATCH_PICKUP_BATCH_SUGGESTIONS)
+      const res = await inst.request(
+        {},
+        {
+          plantCmsId,
+          plantSubtypeId,
+          shadeName: selectedShade?.name || "",
+          shadeNumber: selectedShade?.number || "",
+          ...(trayCavity != null && Number.isFinite(trayCavity) && trayCavity > 0
+            ? { trayCavity }
+            : {}),
+        }
+      )
+      const payload = res?.data?.data ?? res?.data
+      const rec = payload?.recommended
+      setFormData((prev) => {
+        const plants = prev.plants.map((p, pi) => {
+          if (pi !== plantIndex) return p
+          return {
+            ...p,
+            cavityGroups: p.cavityGroups.map((g, gi) => {
+              if (gi !== groupIndex) return g
+              return {
+                ...g,
+                pickupDetails: g.pickupDetails.map((d, di) => {
+                  if (di !== detailIndex) return d
+                  if (String(d.shade) !== String(shadeId)) return d
+                  const next = { ...d }
+                  if (rec) applyRecommendedBatchToDetail(next, rec)
+                  else clearPickupBatchMetaOnDetail(next)
+                  return next
+                }),
+              }
+            }),
+          }
+        })
+        return { ...prev, plants }
+      })
+    } catch {
+      setFormData((prev) => {
+        const plants = prev.plants.map((p, pi) => {
+          if (pi !== plantIndex) return p
+          return {
+            ...p,
+            cavityGroups: p.cavityGroups.map((g, gi) => {
+              if (gi !== groupIndex) return g
+              return {
+                ...g,
+                pickupDetails: g.pickupDetails.map((d, di) => {
+                  if (di !== detailIndex) return d
+                  if (String(d.shade) !== String(shadeId)) return d
+                  const next = { ...d }
+                  clearPickupBatchMetaOnDetail(next)
+                  return next
+                }),
+              }
+            }),
+          }
+        })
+        return { ...prev, plants }
+      })
+    } finally {
+      setPickupBatchLoadingKey("")
+    }
   }
 
   const handleDeletePickupDetail = (plantIndex, groupIndex, detailIndex) => {
@@ -1001,6 +1443,24 @@ const DispatchForm = ({
   }, [])
 
   useEffect(() => {
+    if (!open) return undefined
+    let cancelled = false
+    ;(async () => {
+      try {
+        const inst = NetworkManager(API.NURSERY_SITE.LIST)
+        const res = await inst.request({}, { activeOnly: "true" })
+        const raw = res?.data?.data
+        if (!cancelled) setNurserySites(Array.isArray(raw) ? raw : [])
+      } catch {
+        if (!cancelled) setNurserySites([])
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [open])
+
+  useEffect(() => {
     if (open) {
       getFleetOwners(mode !== "view")
     }
@@ -1010,6 +1470,11 @@ const DispatchForm = ({
     if (!open) {
       setIsEditing(false)
       setEditOrdersMap(null)
+      setEligibleAddOrders([])
+      setAddOrderDialogOpen(false)
+      setSelectedAddOrderIds(new Set())
+      setAddOrderSearch("")
+      setAddOrderShadeId("")
       setError("")
       setSelectedOwnerId("")
       setFleetDriverId("")
@@ -1026,62 +1491,7 @@ const DispatchForm = ({
 
   useEffect(() => {
     if (mode === "view" && dispatchData) {
-      const plantSource = dispatchData.plants || dispatchData.plantsDetails || []
-      const transformedPlants = plantSource.map((plant) => {
-        const cavityGroups = buildCavityGroupsFromPlantForView(plant)
-        const pickupSum = cavityGroups.reduce(
-          (sum, g) =>
-            sum +
-            (g.pickupDetails || []).reduce(
-              (s, d) => s + Number(d.quantity || 0),
-              0
-            ),
-          0
-        )
-        return {
-          ...plant,
-          cavityGroups,
-          quantity: pickupSum > 0 ? pickupSum : plant.quantity
-        }
-      })
-
-      const nextForm = {
-        name: dispatchData.name || "",
-        driverName: dispatchData.driverName || "",
-        vehicleName: dispatchData.vehicleName || "",
-        plants: transformedPlants
-      }
-      setFormData(nextForm)
-
-      const qtyMap = new Map()
-      const details = Array.isArray(dispatchData.orderDispatchDetails)
-        ? dispatchData.orderDispatchDetails
-        : []
-      details.forEach((row) => {
-        if (row?.orderId != null) {
-          qtyMap.set(String(row.orderId), Number(row.dispatchQuantity || 0))
-        }
-      })
-      if (qtyMap.size === 0) {
-        getSelectedOrdersArray().forEach((order) => {
-          const rk = orderRowKey(order)
-          const q = Number(order.quantity || 0)
-          if (rk) qtyMap.set(rk, q)
-        })
-      }
-      setOrderQuantities(qtyMap)
-      orderQuantitiesRef.current = qtyMap
-
-      initialViewSnapshotRef.current = {
-        formData: JSON.parse(JSON.stringify(nextForm)),
-        orderQuantities: new Map(qtyMap)
-      }
-
-      const initialExpandedState = transformedPlants?.reduce((acc, plant) => {
-        acc[plant.id] = true
-        return acc
-      }, {})
-      setExpandedPlants(initialExpandedState)
+      applyDispatchDataToForm(dispatchData)
     } else if (selectedOrders?.size > 0) {
       const selectedOrdersArray = getSelectedOrdersArray()
       
@@ -1133,6 +1543,11 @@ const DispatchForm = ({
         return acc
       }, {})
       setExpandedPlants(initialExpandedState)
+
+      const exCreate = selectedOrdersArray
+        .map((o) => o?.details?.expectedNursery || o?.expectedNursery)
+        .find((x) => x != null && String(x).trim() !== "")
+      setExpectedNursery(exCreate ? String(exCreate).trim().toUpperCase() : "RB")
     }
   }, [mode, dispatchData, selectedOrders?.size])
 
@@ -1145,6 +1560,11 @@ const DispatchForm = ({
       const m = new Map(snap.orderQuantities)
       setOrderQuantities(m)
       orderQuantitiesRef.current = m
+    }
+    if (snap?.expectedNursery != null && String(snap.expectedNursery).trim() !== "") {
+      setExpectedNursery(String(snap.expectedNursery).trim().toUpperCase())
+    } else {
+      setExpectedNursery("RB")
     }
     setIsEditing(false)
     setEditOrdersMap(null)
@@ -1229,6 +1649,15 @@ const DispatchForm = ({
   }
 
   const isViewMode = mode === "view"
+  const filteredEligibleAddOrders = eligibleAddOrders.filter((order) => {
+    if (!addOrderSearch.trim()) return true
+    const s = addOrderSearch.trim().toLowerCase()
+    const farmer = orderFarmerDisplayName(order).toLowerCase()
+    const orderCode = String(order?.orderId || "").toLowerCase()
+    const plant = `${order?.plantType?.name || ""} ${order?.plantSubtype?.name || ""}`.toLowerCase()
+    return farmer.includes(s) || orderCode.includes(s) || plant.includes(s)
+  })
+  const selectedCount = selectedAddOrderIds.size
   const handleHeaderClose = () => {
     if (isEditing) {
       handleCancelEdit()
@@ -1270,6 +1699,24 @@ const DispatchForm = ({
       </DialogTitle>
 
       <DialogContent className={`space-y-6 bg-gray-50 ${isMobile ? "mt-2 px-2 pb-2" : "mt-6"}`}>
+        {isViewMode && isEditing && (
+          <div className="flex items-center justify-between gap-2 bg-white border border-blue-100 rounded-lg p-3">
+            <div className="text-sm text-blue-900">
+              Add more ready orders to this dispatch.
+            </div>
+            <Button
+              variant="outlined"
+              onClick={async () => {
+                setAddOrderDialogOpen(true)
+                setSelectedAddOrderIds(new Set())
+                await fetchEligibleOrdersForEditAdd()
+              }}
+              className="border-blue-300 text-blue-700">
+              Add Order
+            </Button>
+          </div>
+        )}
+
         {/* Order Summary Cards with Quantity Input */}
         <div className={`grid grid-cols-1 md:grid-cols-2 ${isMobile ? "gap-2" : "gap-3"}`}>
           {getSelectedOrdersArray().map((order) => {
@@ -1470,22 +1917,43 @@ const DispatchForm = ({
             )}
           </div>
 
+          <div className={`flex flex-wrap items-center gap-2 ${isMobile ? "text-base" : ""}`}>
+            <label className="text-sm text-gray-600 shrink-0">Expected nursery</label>
+            <select
+              className={`border rounded-lg bg-white ${isMobile ? "p-3 flex-1 min-w-[120px]" : "p-2"}`}
+              value={expectedNursery}
+              disabled={isViewMode && !isEditing}
+              onChange={(e) => setExpectedNursery(String(e.target.value || "").toUpperCase())}>
+              {nurserySites.length === 0 ? (
+                <option value="RB">RB</option>
+              ) : (
+                nurserySites.map((s) => (
+                  <option key={s._id} value={String(s.code || "").toUpperCase()}>
+                    {s.name} ({String(s.code || "").toUpperCase()})
+                  </option>
+                ))
+              )}
+            </select>
+          </div>
+
           {!isViewMode && (linkedAgriCheckLoading || linkedAgriBlockedBy.length > 0) && (
             <div className="rounded-lg border border-amber-300 bg-amber-50 p-3">
               <div className="flex items-start gap-2">
                 <div>
                   <p className="text-sm font-semibold text-amber-900">
-                    Linked Agri Inputs pending load
-                  </p>
-                  <p className="text-xs text-amber-800 mt-1">
-                    Plant dispatch does <strong>not</strong> mark linked Agri Inputs as loaded anymore.
+                    जोडलेल्या Agri Input चे लोड प्रलंबित
                   </p>
                   <p className="text-[11px] text-amber-700 mt-1">
-                    Delivery Challan stays blocked until Ram Agri team dispatches linked Agri order(s) from Ram Agri Dispatch flow (use <strong>With Order</strong> mode).
+                    Ram Agri Input राम कृषी डिस्पॅच प्रवाहात (<strong>ऑर्डरसह</strong> मोड) डिस्पॅच
+                    होईपर्यंत चलन निघणार नाही.
+                  </p>
+                  <p className="text-[11px] text-amber-800 mt-1">
+                    डिस्पॅच यशस्वी झाल्यावर वाहन/ड्रायव्हर निवडून सबमिट केल्यावर जोडलेले Agri Input ऑर्डर या डिस्पॅचसह
+                    आपोआप <strong>Loaded</strong> म्हणून चिन्हांकित होतील.
                   </p>
                   {linkedAgriBlockedBy.length > 0 && (
                     <p className="text-[11px] text-amber-700 mt-1">
-                      Linked order(s): {Array.from(new Set(
+                      जोडलेली ऑर्डर: {Array.from(new Set(
                         linkedAgriBlockedBy
                           .map((row) => String(row?.linkedNurseryOrderCode || row?.linkedNurseryOrderId || "").trim())
                           .filter(Boolean)
@@ -1600,61 +2068,92 @@ const DispatchForm = ({
                                   )}
                                 </div>
 
-                                {cavityGroup.pickupDetails?.map((detail, detailIndex) => (
-                                  <div key={detailIndex} className="flex gap-4 items-center">
-                                    <select
-                                      className="flex-1 p-2 border rounded"
-                                      value={detail.shade}
-                                      onChange={(e) =>
-                                        handlePickupDetailChange(
-                                          plantIndex,
-                                          groupIndex,
-                                          detailIndex,
-                                          "shade",
-                                          e.target.value
-                                        )
-                                      }
-                                      disabled={isViewMode && !isEditing}>
-                                      <option value="">Select Shade</option>
-                                      {shades?.map((shade) => (
-                                        <option key={getId(shade)} value={getId(shade)}>
-                                          {shade.name}
-                                        </option>
-                                      ))}
-                                    </select>
+                                {cavityGroup.pickupDetails?.map((detail, detailIndex) => {
+                                  const batchLoadKey = `${plantIndex}-${groupIndex}-${detailIndex}`
+                                  return (
+                                    <div key={detailIndex} className="flex flex-col gap-1 w-full">
+                                      <div className="flex gap-4 items-center">
+                                        <select
+                                          className="flex-1 p-2 border rounded"
+                                          value={detail.shade}
+                                          onChange={(e) =>
+                                            handleShadeSelectWithBatchLookup(
+                                              plantIndex,
+                                              groupIndex,
+                                              detailIndex,
+                                              e.target.value,
+                                              plant,
+                                              cavityGroup
+                                            )
+                                          }
+                                          disabled={
+                                            (isViewMode && !isEditing) ||
+                                            pickupBatchLoadingKey === batchLoadKey
+                                          }>
+                                          <option value="">Select Shade</option>
+                                          {shades?.map((shade) => (
+                                            <option key={getId(shade)} value={getId(shade)}>
+                                              {shade.name}
+                                            </option>
+                                          ))}
+                                        </select>
 
-                                    <input
-                                      type="number"
-                                      className="flex-1 p-2 border rounded"
-                                      value={detail.quantity}
-                                      onChange={(e) =>
-                                        handlePickupDetailChange(
-                                          plantIndex,
-                                          groupIndex,
-                                          detailIndex,
-                                          "quantity",
-                                          e.target.value
-                                        )
-                                      }
-                                      placeholder="Quantity"
-                                      disabled={isViewMode && !isEditing}
-                                    />
+                                        <input
+                                          type="number"
+                                          className="flex-1 p-2 border rounded"
+                                          value={detail.quantity}
+                                          onChange={(e) =>
+                                            handlePickupDetailChange(
+                                              plantIndex,
+                                              groupIndex,
+                                              detailIndex,
+                                              "quantity",
+                                              e.target.value
+                                            )
+                                          }
+                                          placeholder="Quantity"
+                                          disabled={isViewMode && !isEditing}
+                                        />
 
-                                    {!isViewMode && (
-                                      <IconButton
-                                        onClick={() =>
-                                          handleDeletePickupDetail(
-                                            plantIndex,
-                                            groupIndex,
-                                            detailIndex
-                                          )
-                                        }
-                                        disabled={cavityGroup.pickupDetails.length === 1}>
-                                        <Trash2 size={20} className="text-red-500" />
-                                      </IconButton>
-                                    )}
-                                  </div>
-                                ))}
+                                        {!isViewMode && (
+                                          <IconButton
+                                            onClick={() =>
+                                              handleDeletePickupDetail(
+                                                plantIndex,
+                                                groupIndex,
+                                                detailIndex
+                                              )
+                                            }
+                                            disabled={cavityGroup.pickupDetails.length === 1}>
+                                            <Trash2 size={20} className="text-red-500" />
+                                          </IconButton>
+                                        )}
+                                      </div>
+                                      {pickupBatchLoadingKey === batchLoadKey && (
+                                        <p className="text-xs text-gray-500 pl-0.5">
+                                          Looking up nursery batch (FIFO) for this shed…
+                                        </p>
+                                      )}
+                                      {(detail.batchNumber || detail.secondaryInwardId) &&
+                                        pickupBatchLoadingKey !== batchLoadKey && (
+                                          <p className="text-xs text-gray-600 pl-0.5">
+                                            <span className="font-medium">Plantation / batch:</span>{" "}
+                                            {detail.batchNumber
+                                              ? `Batch ${detail.batchNumber}`
+                                              : "—"}
+                                            {detail.secondaryInwardDate
+                                              ? ` · planted ${formatPlantationDateShort(
+                                                  detail.secondaryInwardDate
+                                                )}`
+                                              : ""}
+                                            {detail.pollyhouseMatched
+                                              ? ` · stock at ${detail.pollyhouseMatched}`
+                                              : ""}
+                                          </p>
+                                        )}
+                                    </div>
+                                  )
+                                })}
 
                                 {/* Crate Details */}
                                 {cavityGroup.crates?.length > 0 && (
@@ -1735,6 +2234,105 @@ const DispatchForm = ({
           </Button>
         )}
       </DialogActions>
+
+      <Dialog
+        open={addOrderDialogOpen}
+        onClose={() => {
+          if (!addOrderLoading) setAddOrderDialogOpen(false)
+        }}
+        fullScreen={isMobile}
+        maxWidth="sm"
+        fullWidth>
+        <DialogTitle className="bg-blue-50 border-b border-blue-100">Add Orders to Dispatch</DialogTitle>
+        <DialogContent className={`space-y-4 ${isMobile ? "mt-2 px-3 pb-3" : "mt-4"}`}>
+          <TextField
+            fullWidth
+            size="small"
+            label="Search order/farmer/plant"
+            value={addOrderSearch}
+            onChange={(e) => setAddOrderSearch(e.target.value)}
+          />
+
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Shade for quick add</label>
+            <select
+              value={addOrderShadeId}
+              onChange={(e) => setAddOrderShadeId(e.target.value)}
+              className="w-full p-2 border rounded-md bg-white">
+              <option value="">Select shade</option>
+              {shades.map((s) => {
+                const sid = getId(s)
+                return (
+                  <option key={sid} value={sid}>
+                    {s.name}
+                  </option>
+                )
+              })}
+            </select>
+          </div>
+
+          <div className="max-h-[360px] overflow-y-auto border rounded-md bg-white">
+            {eligibleAddLoading ? (
+              <div className="p-4 text-sm text-gray-600">Loading eligible orders...</div>
+            ) : filteredEligibleAddOrders.length === 0 ? (
+              <div className="p-4 text-sm text-gray-500">No eligible orders found.</div>
+            ) : (
+              filteredEligibleAddOrders.map((order) => {
+                const oid = String(order?._id || order?.id || "")
+                const cavityId = getCavityIdString(order?.cavity)
+                const disabled = !cavityId
+                const selected = selectedAddOrderIds.has(oid)
+                return (
+                  <label
+                    key={oid}
+                    className={`flex items-start gap-3 p-3 border-b last:border-b-0 ${
+                      disabled ? "bg-gray-50 opacity-70" : "cursor-pointer hover:bg-blue-50"
+                    }`}>
+                    <input
+                      type="checkbox"
+                      checked={selected}
+                      disabled={disabled}
+                      onChange={() => toggleAddOrderSelection(oid)}
+                      className="mt-1"
+                    />
+                    <div className="text-sm">
+                      <div className="font-semibold text-gray-900">
+                        #{order?.orderId || "N/A"} - {orderFarmerDisplayName(order) || "Unknown"}
+                      </div>
+                      <div className="text-gray-700">
+                        {(order?.plantType?.name || "Unknown")} {"->"} {(order?.plantSubtype?.name || "Unknown")}
+                      </div>
+                      <div className="text-gray-500">
+                        Remaining: {Number(order?.remainingPlants ?? order?.numberOfPlants ?? order?.totalPlants ?? 0).toLocaleString()}
+                      </div>
+                      {disabled && (
+                        <div className="text-xs text-red-600 mt-1">
+                          Tray/cavity missing on order (cannot quick add).
+                        </div>
+                      )}
+                    </div>
+                  </label>
+                )
+              })
+            )}
+          </div>
+        </DialogContent>
+        <DialogActions className={`${isMobile ? "p-2 pb-3" : "p-4"} bg-gray-50 border-t`}>
+          <Button
+            variant="outlined"
+            onClick={() => setAddOrderDialogOpen(false)}
+            disabled={addOrderLoading}>
+            Close
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleConfirmAddOrders}
+            disabled={addOrderLoading || selectedCount === 0 || !addOrderShadeId}
+            className="bg-blue-600 hover:bg-blue-700 text-white">
+            {addOrderLoading ? "Adding..." : `Add Selected (${selectedCount})`}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Dialog>
   )
 }

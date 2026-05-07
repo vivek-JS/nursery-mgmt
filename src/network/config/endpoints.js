@@ -624,6 +624,12 @@ export const API = {
     UPDATE: new APIRouter("vehicle-drivers/update", HTTP_METHODS.PATCH),
     DELETE: new APIRouter("vehicle-drivers/delete", HTTP_METHODS.DEL)
   },
+  NURSERY_SITE: {
+    LIST: new APIRouter("nursery-sites", HTTP_METHODS.GET),
+    CREATE: new APIRouter("nursery-sites", HTTP_METHODS.POST),
+    UPDATE: new APIRouter("nursery-sites/:id", HTTP_METHODS.PATCH),
+    DELETE: new APIRouter("nursery-sites/:id", HTTP_METHODS.DEL)
+  },
   TRIP: {
     CREATE_TRIP: new APIRouter("trips/create", HTTP_METHODS.POST),
     GET_TRIPS: new APIRouter("trips/all", HTTP_METHODS.GET),
@@ -653,8 +659,14 @@ export const API = {
     UPDATE_COMPLETE: new APIRouter("dispatched/complete", HTTP_METHODS.PATCH),
     UPDATE_DISPATCH: new APIRouter("dispatched/:id", HTTP_METHODS.PATCH),
     ADD_ORDER_TO_DISPATCH: new APIRouter("dispatched/:id/add-order", HTTP_METHODS.PATCH),
+    DETACH_ORDER: new APIRouter("dispatched/:id/detach-order", HTTP_METHODS.PATCH),
     ASSIGN_ROUTE: new APIRouter("dispatched/assign-route", HTTP_METHODS.PATCH),
     BULK_MARK_READY: new APIRouter("dispatched/bulk-mark-ready", HTTP_METHODS.PATCH),
+  },
+  /** Delivery challan invoice prefix + next sequence (GET public to auth users; PUT admin/accountant). */
+  INVOICE_SEQUENCE: {
+    GET: new APIRouter("invoice-sequence", HTTP_METHODS.GET),
+    PUT: new APIRouter("invoice-sequence", HTTP_METHODS.PUT),
   },
   READY_DISPATCH_GROUP: {
     SUGGEST: new APIRouter("ready-dispatch-groups/suggest", HTTP_METHODS.POST),
@@ -682,6 +694,10 @@ export const API = {
     GET_BY_BATCH: new APIRouter("laboutward/batch/:batchId", HTTP_METHODS.GET),
     PRIMARY_MOBILE_DASHBOARD: new APIRouter(
       "laboutward/primary-mobile-dashboard",
+      HTTP_METHODS.GET
+    ),
+    PRIMARY_INWARD_LINES: new APIRouter(
+      "laboutward/primary-inward-lines",
       HTTP_METHODS.GET
     ),
     SECONDARY_MOBILE_DASHBOARD: new APIRouter(
@@ -719,6 +735,18 @@ export const API = {
       "laboutward/secondary/from-primary-outward/:batchId",
       HTTP_METHODS.POST
     ),
+    SECONDARY_ACKNOWLEDGE_PRIMARY_OUTWARD: new APIRouter(
+      "laboutward/secondary/acknowledge-primary-outward/:batchId/:primaryOutwardId",
+      HTTP_METHODS.POST
+    ),
+    SECONDARY_PRIMARY_OUTWARD_MORTALITY: new APIRouter(
+      "laboutward/secondary/primary-outward/:batchId/:primaryOutwardId/mortality",
+      HTTP_METHODS.POST
+    ),
+    SECONDARY_PRIMARY_OUTWARD_SOWING_COMPLETE: new APIRouter(
+      "laboutward/secondary/primary-outward/:batchId/:primaryOutwardId/sowing-complete",
+      HTTP_METHODS.POST
+    ),
     SECONDARY_INWARD_TO_OUTWARD: new APIRouter(
       "laboutward/secondaryInward-to-secondaryOutward/:batchId",
       HTTP_METHODS.POST
@@ -727,7 +755,28 @@ export const API = {
     SECONDARY_INWARD_TO_OUTWARD_NS: new APIRouter(
       "laboutward/secondary/secondary-inward-to-outward/:batchId",
       HTTP_METHODS.POST
-    )
+    ),
+    SECONDARY_INWARD_READINESS_BYPASS: new APIRouter(
+      "laboutward/secondary/:batchId/secondary-inward/:secondaryInwardId/readiness-bypass",
+      HTTP_METHODS.PATCH
+    ),
+    SECONDARY_ORDERS_READY_FOR_DISPATCH: new APIRouter(
+      "laboutward/secondary/:batchId/orders-ready-for-dispatch",
+      HTTP_METHODS.GET
+    ),
+    SECONDARY_VEHICLE_DISPATCHES: new APIRouter(
+      "laboutward/secondary/vehicle-dispatches",
+      HTTP_METHODS.GET
+    ),
+    SECONDARY_VEHICLE_DISPATCH_ALLOCATION: new APIRouter(
+      "laboutward/secondary/vehicle-dispatch/:dispatchId/allocation-suggestions",
+      HTTP_METHODS.GET
+    ),
+    /** FIFO batch / secondary inward line for a shed — farmer dispatch form auto-fill */
+    FARMER_DISPATCH_PICKUP_BATCH_SUGGESTIONS: new APIRouter(
+      "laboutward/secondary/farmer-dispatch/pickup-batch-suggestions",
+      HTTP_METHODS.GET
+    ),
   },
   POLLY_HOUSE: {
     CREATE_HOUSE: new APIRouter("pollyhouse/create", HTTP_METHODS.POST),

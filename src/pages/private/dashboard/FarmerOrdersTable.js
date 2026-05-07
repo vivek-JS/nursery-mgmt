@@ -77,6 +77,7 @@ import {
 } from "utils/upiReceiptOcr"
 import { watiPlantAndSubtypeParams, isMergedSubtypePlaceholder } from "utils/watiPlantDisplay"
 import { TableVirtuoso, Virtuoso } from "react-virtuoso"
+import LocationSelector from "components/LocationSelector"
 
 /** User-visible order dates in table/modals — e.g. 12-March-2025 (API payloads still use DD-MM-YYYY / YYYY-MM-DD). */
 const ORDER_DATE_DISPLAY = "DD-MMMM-YYYY"
@@ -110,6 +111,77 @@ function normalizeOrderFor(orderFor) {
     }
   }
   return null
+}
+
+function emptyOrderForEditShape() {
+  return {
+    name: "",
+    village: "",
+    mobileNumber: "",
+    taluka: "",
+    district: "",
+    state: "Maharashtra",
+    stateName: "Maharashtra",
+    districtName: "",
+    talukaName: "",
+    address: ""
+  }
+}
+
+function normalizeOrderForMobileForCompare(m) {
+  if (m == null || m === "") return ""
+  const d = String(m).replace(/\D/g, "")
+  return d.length >= 10 ? d.slice(-10) : d
+}
+
+/** True if book-for / beneficiary fields differ (for save confirmation). */
+function orderForEditMeaningfullyChanged(prevRaw, nextRaw) {
+  const a = prevRaw ? { ...emptyOrderForEditShape(), ...normalizeOrderFor(prevRaw) } : { ...emptyOrderForEditShape() }
+  const b = nextRaw ? { ...emptyOrderForEditShape(), ...nextRaw } : { ...emptyOrderForEditShape() }
+  const keys = [
+    "name",
+    "village",
+    "address",
+    "state",
+    "stateName",
+    "district",
+    "districtName",
+    "taluka",
+    "talukaName"
+  ]
+  for (const k of keys) {
+    if (String(a[k] ?? "").trim() !== String(b[k] ?? "").trim()) return true
+  }
+  if (normalizeOrderForMobileForCompare(a.mobileNumber) !== normalizeOrderForMobileForCompare(b.mobileNumber)) {
+    return true
+  }
+  return false
+}
+
+/** Drop empty strings; return undefined if nothing meaningful (so PATCH does not send junk). */
+function compactOrderForForPatch(raw) {
+  if (!raw || typeof raw !== "object") return undefined
+  const o = { ...raw }
+  Object.keys(o).forEach((k) => {
+    const v = o[k]
+    if (v === "" || v === null || v === undefined) delete o[k]
+  })
+  const name = String(o.name || "").trim()
+  const village = String(o.village || "").trim()
+  const mobDigits = String(o.mobileNumber ?? "").replace(/\D/g, "")
+  const hasAddress = String(o.address || "").trim()
+  const hasLoc =
+    String(o.state || "").trim() ||
+    String(o.district || "").trim() ||
+    String(o.taluka || "").trim() ||
+    village
+  if (!name && !hasLoc && mobDigits.length < 10 && !hasAddress) return undefined
+  if (mobDigits.length === 10) {
+    o.mobileNumber = parseInt(mobDigits.slice(-10), 10)
+  } else if (o.mobileNumber !== undefined) {
+    delete o.mobileNumber
+  }
+  return o
 }
 
 /**
@@ -268,69 +340,88 @@ ${deliveryLine}
 7276386452`
 }
 
-/** Row/grid status dropdown: only these choices (plus current value if outside list). */
-const ORDER_STATUS_SELECT_OPTIONS = [
-  { label: "Pending", value: "PENDING" },
-  { label: "Accepted", value: "ACCEPTED" },
-  { label: "Ready to farm", value: "FARM_READY" },
-  { label: "Completed", value: "COMPLETED" },
-  { label: "Cancelled", value: "CANCELLED" },
-  { label: "Dispatched", value: "DISPATCHED" },
+/** English label for status in Marathi dialogs/toasts (uses ORDER_STATUS_LABELS; ASSIGNED → Accepted). */
+function orderStatusEnglishLabel(status) {
+  const u = String(status || "").toUpperCase()
+  if (!u) return "—"
+  if (u === "ASSIGNED") return ORDER_STATUS_LABELS.ACCEPTED
+  return (
+    ORDER_STATUS_LABELS[u] ||
+    String(status || "")
+      .replace(/_/g, " ")
+      .trim() ||
+    "—"
+  )
+}
+
+/** Legacy name — keep so older edits / tooling that still reference it do not trip no-undef. */
+const orderStatusMrShort = orderStatusEnglishLabel
+
+const FARMER_ORDER_STATUS_EDIT_OPTIONS = [
+  { value: "PENDING", label: "Pending" },
+  { value: "ACCEPTED", label: "Accepted" },
+  { value: "CANCELLED", label: "Cancelled" },
 ]
 
-/** Only sales / dealer / RAM agri sales may choose Ready to farm in the row status dropdown. */
-function canSelectFarmReadyInOrderStatus(user) {
-  const jt = user?.jobTitle || user?.role
-  return jt === "DEALER" || jt === "SALES" || jt === "RAM_AGRI_SALES"
+function farmerOrderStatusSelectValue(orderStatus) {
+  const cur = String(orderStatus || "").toUpperCase()
+  if (cur === "ASSIGNED") return "ACCEPTED"
+  if (["PENDING", "ACCEPTED", "CANCELLED"].includes(cur)) return cur
+  return ""
 }
 
-function orderStatusSelectOptionsForRow(currentStatus, user) {
-  const base = canSelectFarmReadyInOrderStatus(user)
-    ? ORDER_STATUS_SELECT_OPTIONS
-    : ORDER_STATUS_SELECT_OPTIONS.filter((o) => o.value !== "FARM_READY")
-  const cur = currentStatus != null && currentStatus !== "" ? String(currentStatus) : ""
-  if (!cur || base.some((o) => o.value === cur)) {
-    return base
-  }
-  const label = ORDER_STATUS_LABELS[cur] || String(cur).replace(/_/g, " ")
-  return [...base, { label, value: cur }]
+function farmerOrderStatusSelectCurrentHint(orderStatus) {
+  const cur = String(orderStatus || "").toUpperCase()
+  if (!cur) return "—"
+  if (cur === "ASSIGNED" || ["PENDING", "ACCEPTED", "CANCELLED"].includes(cur)) return null
+  return (
+    ORDER_STATUS_LABELS[cur] ||
+    String(orderStatus || "")
+      .replace(/_/g, " ")
+      .trim() ||
+    "—"
+  )
 }
 
-/** Vehicle grouping for dispatched orders tab (uses latest dispatchHistory entry). */
-const getLatestDispatchVehicleMeta = (row) => {
-  const hist = row?.details?.dispatchHistory || []
-  if (!hist.length) {
-    return {
-      key: "unknown",
-      displayTitle: "Unknown vehicle",
-      vehicleName: "—",
-      driverName: "—",
-      transportId: null,
-    }
-  }
-  const latest = hist[hist.length - 1]
-  const driverName = latest?.dispatch?.driverName || latest?.driverName || ""
-  const vehicleName = latest?.dispatch?.vehicleName || latest?.vehicleName || ""
-  const transportId =
-    latest?.dispatch?.transportId ?? latest?.transportId ?? null
-  const key =
-    [String(transportId ?? ""), vehicleName, driverName].filter(Boolean).join("|") ||
-    "unknown"
-  const displayTitle =
-    vehicleName || driverName
-      ? [vehicleName || "—", driverName ? `Driver: ${driverName}` : null]
-          .filter(Boolean)
-          .join(" · ")
-      : transportId != null && transportId !== ""
-        ? `Dispatch #${transportId}`
-        : "Unknown vehicle"
-  return {
-    key,
-    displayTitle,
-    vehicleName: vehicleName || "—",
-    driverName: driverName || "—",
-    transportId,
-  }
+/** Native select for row status — styled via CSS theme classes below. */
+function FarmerOrderStatusSelect({ row, onChange, disabled }) {
+  const v = farmerOrderStatusSelectValue(row?.orderStatus)
+  const hint = farmerOrderStatusSelectCurrentHint(row?.orderStatus)
+  const theme =
+    v === "PENDING"
+      ? "farmer-order-status-select--pending"
+      : v === "ACCEPTED"
+        ? "farmer-order-status-select--accepted"
+        : v === "CANCELLED"
+          ? "farmer-order-status-select--cancelled"
+          : "farmer-order-status-select--neutral"
+
+  return (
+    <select
+      className={`farmer-order-status-select ${theme}`}
+      value={v}
+      disabled={disabled}
+      title="Change status"
+      aria-label="Order status"
+      onClick={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
+      onChange={(e) => {
+        e.stopPropagation()
+        const next = e.target.value
+        if (next) onChange(next)
+      }}>
+      {hint != null && (
+        <option value="" disabled>
+          Current: {hint}
+        </option>
+      )}
+      {FARMER_ORDER_STATUS_EDIT_OPTIONS.map((o) => (
+        <option key={o.value} value={o.value}>
+          {o.label}
+        </option>
+      ))}
+    </select>
+  )
 }
 
 /** Matches `<th>` count in farmer orders table (incl. hidden Actions). */
@@ -354,45 +445,6 @@ const getFarmerOrdersTableColumnCount = ({
   if (showAgriSalesOrders) n += 1
   n += 2 // Status + Actions (hidden)
   return n
-}
-
-/** Flat list: group header rows + order rows with sr and dataIndex for tbody. */
-const buildDispatchedVehicleTableBodyItems = (filteredOrders) => {
-  const map = new Map()
-  filteredOrders.forEach((row, dataIndex) => {
-    const meta = getLatestDispatchVehicleMeta(row)
-    if (!map.has(meta.key)) {
-      map.set(meta.key, { meta, entries: [], totalPlants: 0 })
-    }
-    const g = map.get(meta.key)
-    g.entries.push({ row, dataIndex })
-    g.totalPlants += row.totalPlants ?? row.quantity ?? 0
-  })
-  const transportSort = (meta) => {
-    const t = meta.transportId
-    const n = parseInt(String(t ?? ""), 10)
-    return Number.isFinite(n) ? n : 1e12
-  }
-  const groups = Array.from(map.values()).sort((a, b) => {
-    const c = transportSort(a.meta) - transportSort(b.meta)
-    if (c !== 0) return c
-    return String(a.meta.displayTitle).localeCompare(String(b.meta.displayTitle))
-  })
-  const items = []
-  let sr = 0
-  for (const g of groups) {
-    items.push({
-      kind: "groupHeader",
-      meta: g.meta,
-      orderCount: g.entries.length,
-      totalPlants: g.totalPlants,
-    })
-    for (const { row, dataIndex } of g.entries) {
-      sr += 1
-      items.push({ kind: "order", row, sr, dataIndex })
-    }
-  }
-  return items
 }
 
 /** Merge two API order rows by id; primary list wins on duplicate (e.g. DISPATCH_PROCESS kept over duplicate). */
@@ -438,7 +490,7 @@ function buildRegularOrderListParams({
     viewMode === "accepted" ||
     isCancelledTab
   const isReadyForDispatchTab = viewMode === "ready_for_dispatch"
-  const isDispatchedVehicleTab = viewMode === "dispatched_vehicle"
+  const isCompletedTab = viewMode === "completed"
 
   const params = {
     search: debouncedSearchTerm,
@@ -505,11 +557,9 @@ function buildRegularOrderListParams({
     params.endDate = null
   }
 
-  if (isDispatchedVehicleTab) {
+  if (isCompletedTab) {
     params.dispatched = true
-    params.status = "DISPATCHED"
-    params.startDate = null
-    params.endDate = null
+    params.status = "COMPLETED,PARTIALLY_COMPLETED"
   }
 
   if (isReadyForDispatchTab) {
@@ -665,76 +715,80 @@ const customStyles = `
 
   /* Enhanced Dropdown Styles */
   .enhanced-select {
-    background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
-    border: 2px solid #e2e8f0;
-    border-radius: 12px;
-    padding: 8px 12px;
+    background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    padding: 10px 14px;
     font-size: 14px;
     font-weight: 500;
-    color: #374151;
-    transition: all 0.3s ease;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    color: #1e293b;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 1px 3px rgba(15, 23, 42, 0.04);
     cursor: pointer;
     outline: none;
   }
 
   .enhanced-select:hover {
-    border-color: #0f766e;
-    box-shadow: 0 4px 12px rgba(15, 118, 110, 0.15);
-    transform: translateY(-1px);
+    border-color: #5eead4;
+    box-shadow: 0 4px 14px rgba(13, 148, 136, 0.12), 0 2px 4px rgba(15, 23, 42, 0.06);
   }
 
   .enhanced-select:focus {
-    border-color: #0f766e;
-    box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.1);
+    border-color: #14b8a6;
+    box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.22), 0 1px 2px rgba(15, 23, 42, 0.06);
   }
 
   .enhanced-select option {
-    padding: 8px 12px;
+    padding: 10px 14px;
     background: white;
-    color: #374151;
+    color: #1e293b;
     font-weight: 500;
   }
 
   .enhanced-select option:hover {
-    background: #f3f4f6;
+    background: #f1f5f9;
   }
 
   /* Material-UI Select Enhancement */
   .mui-select-enhanced .MuiOutlinedInput-root {
-    border-radius: 12px;
-    background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
-    transition: all 0.3s ease;
+    border-radius: 14px;
+    background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
   }
 
   .mui-select-enhanced .MuiOutlinedInput-root:hover {
-    box-shadow: 0 4px 12px rgba(15, 118, 110, 0.15);
-    transform: translateY(-1px);
+    box-shadow: 0 4px 14px rgba(13, 148, 136, 0.1);
   }
 
   .mui-select-enhanced .MuiOutlinedInput-root.Mui-focused {
-    box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.1);
+    box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.2);
   }
 
   .mui-select-enhanced .MuiSelect-select {
     padding: 12px 16px;
     font-weight: 500;
-    color: #374151;
+    color: #1e293b;
   }
 
   .mui-select-enhanced .MuiMenuItem-root {
-    padding: 12px 16px;
+    padding: 10px 16px;
     font-weight: 500;
-    transition: all 0.2s ease;
+    border-radius: 10px;
+    margin: 2px 8px;
+    transition: background 0.15s ease, color 0.15s ease;
   }
 
   .mui-select-enhanced .MuiMenuItem-root:hover {
-    background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
+    background: #f1f5f9;
   }
 
   .mui-select-enhanced .MuiMenuItem-root.Mui-selected {
-    background: linear-gradient(135deg, #0f766e 0%, #14b8a6 100%);
+    background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%);
     color: white;
+  }
+
+  .mui-select-enhanced .MuiMenuItem-root.Mui-selected:hover {
+    background: linear-gradient(135deg, #14b8a6 0%, #0d9488 100%);
   }
 
   /* Status Badge Enhancement */
@@ -871,6 +925,15 @@ const customStyles = `
     }
   }
 
+  @keyframes farmer-dd-fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
   /* Searchable Dropdown Styles */
   .searchable-dropdown {
     position: relative;
@@ -878,15 +941,15 @@ const customStyles = `
   }
 
   .searchable-dropdown-button {
-    background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
-    border: 2px solid #e2e8f0;
-    border-radius: 12px;
-    padding: 12px 16px;
+    background: linear-gradient(180deg, #ffffff 0%, #fafbfc 100%);
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    padding: 11px 16px;
     font-size: 14px;
     font-weight: 500;
-    color: #374151;
-    transition: all 0.3s ease;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    color: #1e293b;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 1px 3px rgba(15, 23, 42, 0.04);
     cursor: pointer;
     outline: none;
     width: 100%;
@@ -896,15 +959,15 @@ const customStyles = `
     min-height: 48px;
   }
 
-  .searchable-dropdown-button:hover {
-    border-color: #3b82f6;
-    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
-    transform: translateY(-1px);
+  .searchable-dropdown-button:hover:not(:disabled) {
+    border-color: #99f6e4;
+    box-shadow: 0 4px 14px rgba(13, 148, 136, 0.12), 0 2px 4px rgba(15, 23, 42, 0.06);
+    background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
   }
 
   .searchable-dropdown-button:focus {
-    border-color: #3b82f6;
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    border-color: #14b8a6;
+    box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.22), 0 1px 2px rgba(15, 23, 42, 0.06);
   }
 
   .searchable-dropdown-menu {
@@ -912,81 +975,133 @@ const customStyles = `
     top: 100%;
     left: 0;
     right: 0;
-    background: white;
-    border: 2px solid #e2e8f0;
-    border-radius: 12px;
-    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+    background: #ffffff;
+    border: 1px solid rgba(148, 163, 184, 0.45);
+    border-radius: 14px;
+    box-shadow:
+      0 22px 44px -12px rgba(15, 23, 42, 0.2),
+      0 12px 24px -10px rgba(15, 23, 42, 0.12),
+      0 0 0 1px rgba(255, 255, 255, 0.75) inset;
     z-index: 9999;
     max-height: 600px;
-    overflow-y: auto;
-    margin-top: 4px;
+    overflow: hidden;
+    margin-top: 6px;
     opacity: 1;
     transform: translateY(0);
-    transition: all 0.2s ease-in-out;
+    transition: opacity 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+    animation: farmer-dd-fade-in 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   }
 
   .searchable-dropdown-menu.closing {
     opacity: 0;
-    transform: translateY(-10px);
+    pointer-events: none;
+  }
+
+  .searchable-dropdown-menu.closing:not(.searchable-dropdown-menu-portal) {
+    transform: translateY(-6px);
   }
 
   .searchable-dropdown-search {
-    padding: 12px 16px;
-    border-bottom: 1px solid #e5e7eb;
+    padding: 10px 10px 8px;
+    border-bottom: 1px solid #f1f5f9;
     position: sticky;
     top: 0;
-    background: white;
-    border-radius: 12px 12px 0 0;
+    background: linear-gradient(180deg, #ffffff 0%, #fafbfc 100%);
+    z-index: 1;
+    border-radius: 14px 14px 0 0;
   }
 
   .searchable-dropdown-search input {
     width: 100%;
-    padding: 8px 12px;
-    border: 1px solid #d1d5db;
-    border-radius: 8px;
+    padding: 10px 14px 10px 40px;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
     font-size: 14px;
     outline: none;
-    transition: all 0.2s ease;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    background: #f8fafc;
+    color: #0f172a;
+  }
+
+  .searchable-dropdown-search input::placeholder {
+    color: #94a3b8;
   }
 
   .searchable-dropdown-search input:focus {
-    border-color: #3b82f6;
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    border-color: #14b8a6;
+    background: #ffffff;
+    box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.18);
   }
 
   .searchable-dropdown-options {
     max-height: 500px;
     overflow-y: auto;
+    padding: 6px;
+    scrollbar-gutter: stable;
+  }
+
+  .searchable-dropdown-options::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .searchable-dropdown-options::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .searchable-dropdown-options::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+
+  .searchable-dropdown-options::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
   }
 
   .searchable-dropdown-option {
-    padding: 12px 16px;
+    padding: 10px 14px;
+    margin: 2px 0;
+    border-radius: 10px;
     cursor: pointer;
-    transition: all 0.2s ease;
-    border-bottom: 1px solid #f3f4f6;
+    transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+    border-bottom: none;
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 8px;
+    color: #334155;
+    font-weight: 500;
   }
 
   .searchable-dropdown-option:hover {
-    background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
+    background: #f1f5f9;
   }
 
   .searchable-dropdown-option.selected {
-    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-    color: white;
+    background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%);
+    color: #ffffff;
+    font-weight: 600;
+    box-shadow: 0 2px 8px rgba(13, 148, 136, 0.35);
+  }
+
+  .searchable-dropdown-option.selected:hover {
+    background: linear-gradient(135deg, #14b8a6 0%, #0d9488 100%);
   }
 
   .searchable-dropdown-option:last-child {
-    border-bottom: none;
+    margin-bottom: 0;
   }
 
   .searchable-dropdown-empty {
-    padding: 16px;
+    padding: 20px 16px;
     text-align: center;
-    color: #6b7280;
-    font-style: italic;
+    color: #64748b;
+    font-size: 13px;
+    font-weight: 500;
   }
 
   .searchable-dropdown-clear {
@@ -994,33 +1109,36 @@ const customStyles = `
     right: 40px;
     top: 50%;
     transform: translateY(-50%);
-    background: #ef4444;
-    color: white;
-    border: none;
-    border-radius: 50%;
-    width: 20px;
-    height: 20px;
+    background: #f1f5f9;
+    color: #64748b;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    width: 28px;
+    height: 28px;
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
     font-size: 12px;
-    transition: all 0.2s ease;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
   }
 
   .searchable-dropdown-clear:hover {
-    background: #dc2626;
-    transform: translateY(-50%) scale(1.1);
+    background: #fee2e2;
+    border-color: #fecaca;
+    color: #dc2626;
+    transform: translateY(-50%) scale(1.05);
   }
 
   .searchable-dropdown-count {
-    background: #3b82f6;
+    background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%);
     color: white;
-    border-radius: 12px;
-    padding: 2px 8px;
+    border-radius: 999px;
+    padding: 3px 10px;
     font-size: 11px;
     font-weight: 600;
     margin-left: 8px;
+    box-shadow: 0 1px 3px rgba(13, 148, 136, 0.35);
   }
 
   /* Compact status dropdown - appears above to avoid scroll */
@@ -1030,23 +1148,89 @@ const customStyles = `
 
   .searchable-dropdown.status-dropdown .searchable-dropdown-button {
     padding: 8px 12px;
-    min-height: 40px;
+    min-height: 42px;
     font-size: 12px;
     font-weight: 700;
+    border-radius: 12px;
   }
 
   .searchable-dropdown.status-dropdown .searchable-dropdown-menu {
-    min-width: 150px;
+    min-width: 180px;
     z-index: 9999;
     top: auto;
     bottom: 100%;
     margin-top: 0;
-    margin-bottom: 4px;
+    margin-bottom: 6px;
     transform: translateY(0);
   }
 
   .searchable-dropdown.status-dropdown .searchable-dropdown-menu.closing {
-    transform: translateY(10px);
+    opacity: 0;
+  }
+
+  .farmer-order-status-select {
+    box-sizing: border-box;
+    line-height: 1.35;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    min-width: 140px;
+    max-width: 100%;
+    padding: 9px 36px 9px 14px;
+    border-radius: 12px;
+    border-width: 1px;
+    border-style: solid;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    background-size: 16px 16px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23475569' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    transition: box-shadow 0.2s ease, border-color 0.2s ease, transform 0.15s ease;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+  }
+
+  .farmer-order-status-select:hover:not(:disabled) {
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+    transform: translateY(-1px);
+  }
+
+  .farmer-order-status-select:focus {
+    outline: none;
+    border-color: #14b8a6;
+    box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.25);
+  }
+
+  .farmer-order-status-select:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+  }
+
+  .farmer-order-status-select--pending {
+    background: linear-gradient(180deg, #fffbeb 0%, #fef3c7 100%);
+    color: #b45309;
+    border-color: #fbbf24;
+  }
+
+  .farmer-order-status-select--accepted {
+    background: linear-gradient(180deg, #ecfdf5 0%, #d1fae5 100%);
+    color: #047857;
+    border-color: #34d399;
+  }
+
+  .farmer-order-status-select--cancelled {
+    background: linear-gradient(180deg, #fef2f2 0%, #fee2e2 100%);
+    color: #b91c1c;
+    border-color: #f87171;
+  }
+
+  .farmer-order-status-select--neutral {
+    background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+    color: #334155;
+    border-color: #cbd5e1;
   }
 `
 
@@ -1328,6 +1512,92 @@ function isAbortedRequestError(err) {
   return err?.code === "ERR_CANCELED" || err?.name === "CanceledError"
 }
 
+/** True when any dispatch history leg already has a sequenced/formatted invoice number (prefer editing leg-level data via admins only). */
+function dispatchHistoryHasInvoiceNumber(dispatchHistory) {
+  return (
+    Array.isArray(dispatchHistory) &&
+    dispatchHistory.some(
+      (h) => h?.invoiceNumber && String(h.invoiceNumber).trim() !== ""
+    )
+  )
+}
+
+/** Mongo id string for nursery order linked from a Ram Agri sales row */
+function getLinkedNurseryOrderIdString(row) {
+  const raw = row?.details?.linkedNurseryOrderId
+  if (raw == null || raw === "") return ""
+  if (typeof raw === "object" && raw._id != null) return String(raw._id)
+  return String(raw)
+}
+
+/** Latest plant dispatch driver/vehicle from GET_ORDER_DISPATCH_DETAILS payload */
+function extractLinkedDispatchPrefill(dispatchResponseData) {
+  if (!dispatchResponseData) return null
+  const dispatches = Array.isArray(dispatchResponseData.dispatches)
+    ? dispatchResponseData.dispatches
+    : []
+  const history = Array.isArray(dispatchResponseData.dispatchHistory)
+    ? dispatchResponseData.dispatchHistory
+    : []
+  const latestDispatch = dispatches[0] || null
+  const latestHistory = history.length ? history[history.length - 1] : null
+  const vehicleNumber =
+    latestDispatch?.vehicleNumber ||
+    latestDispatch?.vehicleName ||
+    latestHistory?.dispatch?.vehicleNumber ||
+    latestHistory?.dispatch?.vehicleName ||
+    ""
+  const driverName =
+    latestDispatch?.driverName || latestHistory?.dispatch?.driverName || ""
+  const driverMobile =
+    latestDispatch?.driverMobile || latestHistory?.dispatch?.driverMobile || ""
+  const dispatchDate = latestDispatch?.dispatchDate || latestHistory?.date || null
+  const transportId =
+    latestDispatch?.transportId || latestHistory?.dispatch?.transportId || null
+  if (!vehicleNumber && !driverName && !driverMobile) return null
+  return { vehicleNumber, driverName, driverMobile, dispatchDate, transportId }
+}
+
+/** Ram Agri list: show linked nursery plant delivery / dispatch when plant row is not in this list */
+function RamAgriLinkedPlantDeliveryNote({ row, linkedPlantDispatchByNurseryId, variant }) {
+  const id = getLinkedNurseryOrderIdString(row)
+  if (!id) return null
+  const info = linkedPlantDispatchByNurseryId[id]
+  if (!info) return null
+  const isModal = variant === "modal"
+  const base = isModal
+    ? "text-[11px] mt-1 max-w-xl leading-snug"
+    : "text-[10px] mt-0.5 max-w-[16rem] leading-snug"
+  if (info.error) {
+    return (
+      <p className={`${base} ${isModal ? "text-red-200" : "text-red-600"}`}>
+        Linked plant delivery could not be loaded
+      </p>
+    )
+  }
+  const bits = []
+  if (info.deliveryLabel) bits.push(`Plant delivery ${info.deliveryLabel}`)
+  if (info.vehicleNumber) bits.push(info.vehicleNumber)
+  if (info.driverName) bits.push(info.driverName)
+  if (info.driverMobile) bits.push(info.driverMobile)
+  if (info.dispatchDateLabel) bits.push(`Dispatched ${info.dispatchDateLabel}`)
+  if (!bits.length) {
+    return (
+      <p className={`${base} ${isModal ? "text-brand-100/90" : "text-gray-500"}`}>
+        Linked plant order — no plant dispatch on file yet
+      </p>
+    )
+  }
+  return (
+    <p
+      className={`${base} ${isModal ? "text-brand-50" : "text-gray-600"}`}
+      title={bits.join(" · ")}
+    >
+      {bits.join(" · ")}
+    </p>
+  )
+}
+
 const FarmerOrdersTable = ({
   slotId,
   monthName,
@@ -1423,6 +1693,10 @@ const FarmerOrdersTable = ({
   const [paymentTransferPaymentId, setPaymentTransferPaymentId] = useState(null)
   const [verifyIciciLoadingPaymentId, setVerifyIciciLoadingPaymentId] = useState(null)
   const [generateQRLoading, setGenerateQRLoading] = useState(false)
+  const [dcInvoiceEditOpen, setDcInvoiceEditOpen] = useState(false)
+  const [dcInvoiceEditRow, setDcInvoiceEditRow] = useState(null)
+  const [dcInvoiceEditValue, setDcInvoiceEditValue] = useState("")
+  const [dcInvoiceEditSaving, setDcInvoiceEditSaving] = useState(false)
   const ordersTableScrollRef = useRef(null)
   const loadMoreOrdersRef = useRef(null)
   const getOrdersAbortRef = useRef(null)
@@ -1468,10 +1742,89 @@ const FarmerOrdersTable = ({
   const isDispatchManager = useIsDispatchManager()
   const { walletData, loading: walletLoading } = useDealerWallet()
   const user = useUserData() // Get current user data
+  const isRamAgriSalesManager =
+    String(user?.jobTitle || user?.role || "").toUpperCase() === "RAM_AGRI_SALES_MANAGER"
   const isAgriLoadAdmin = ["RAM_AGRI_SALES_MANAGER", "ADMIN", "SUPER_ADMIN"].includes(
     String(user?.jobTitle || user?.role || "").toUpperCase()
   )
+
+  // Ram Agri Sales Manager: land on Ram Agri Inputs (not regular nursery orders)
+  useEffect(() => {
+    if (!isRamAgriSalesManager) return
+    setShowAgriSalesOrders(true)
+  }, [isRamAgriSalesManager])
   const canChangeOrderStatus = !isDealer && (isOfficeAdmin || isSuperAdmin)
+
+  const canEditDcInvoiceLabelForRow = React.useCallback(
+    (row) => {
+      if (row?.isAgriSalesOrder || row?.details?.isRamAgriProduct) return false
+      if (!(canEditOrderCore || isDispatchManager)) return false
+      if (dispatchHistoryHasInvoiceNumber(row?.details?.dispatchHistory)) {
+        return canReassignSalesPerson
+      }
+      return true
+    },
+    [canEditOrderCore, isDispatchManager, canReassignSalesPerson]
+  )
+
+  const openDcInvoiceLabelEdit = React.useCallback((row) => {
+    setDcInvoiceEditRow(row)
+    setDcInvoiceEditValue(
+      row?.details?.deliveryChallanInvoiceNumber != null &&
+        String(row.details.deliveryChallanInvoiceNumber).trim() !== ""
+        ? String(row.details.deliveryChallanInvoiceNumber).trim()
+        : ""
+    )
+    setDcInvoiceEditOpen(true)
+  }, [])
+
+  const submitDcInvoiceLabelEdit = React.useCallback(async () => {
+    const row = dcInvoiceEditRow
+    if (!row) return
+    const id = row.details?.orderid || row.id || row._id
+    if (!id) {
+      Toast.error("Missing order id")
+      return
+    }
+    setDcInvoiceEditSaving(true)
+    try {
+      const instance = NetworkManager(API.ORDER.UPDATE_ORDER)
+      const trimmed = dcInvoiceEditValue.trim()
+      const payload = {
+        id,
+        deliveryChallanInvoiceNumber: trimmed === "" ? null : trimmed
+      }
+      const emps = await instance.request(payload)
+      if (emps?.error) {
+        Toast.error(emps.error)
+        return
+      }
+      if (emps?.data?.status !== "Success") {
+        Toast.error(emps?.data?.message || "Update failed")
+        return
+      }
+      Toast.success("DC invoice label updated")
+      const nextVal = trimmed === "" ? null : trimmed
+      setOrders((prev) =>
+        (prev || []).map((o) => {
+          const oid = String(o?.details?.orderid || o?.id || o?._id || "")
+          if (String(id) !== oid) return o
+          return {
+            ...o,
+            details: {
+              ...o.details,
+              deliveryChallanInvoiceNumber: nextVal
+            }
+          }
+        })
+      )
+      setDcInvoiceEditOpen(false)
+      setDcInvoiceEditRow(null)
+      setDcInvoiceEditValue("")
+    } finally {
+      setDcInvoiceEditSaving(false)
+    }
+  }, [dcInvoiceEditRow, dcInvoiceEditValue])
 
   const resolvePlantCounts = React.useCallback((order) => {
     if (!order) {
@@ -1530,6 +1883,7 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
   const [slots, setSlots] = useState([])
   const [slotsLoading, setSlotsLoading] = useState(false)
   const [updatedObject, setUpdatedObject] = useState(null)
+  const [nurserySiteEditOptions, setNurserySiteEditOptions] = useState([])
   const [quantityDeltaInput, setQuantityDeltaInput] = useState("")
   const [viewMode, setViewMode] = useState(() =>
     typeof initialViewMode === "string" && initialViewMode.trim() ? initialViewMode.trim() : "booking"
@@ -1537,7 +1891,7 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
   const [queueFarmReadyOnly, setQueueFarmReadyOnly] = useState(() => Boolean(initialQueueFarmReadyOnly))
   const isCancelledTab = viewMode === "cancelled"
   const isReadyForDispatchTab = viewMode === "ready_for_dispatch"
-  const isDispatchedVehicleTab = viewMode === "dispatched_vehicle"
+  const isCompletedOrdersTab = viewMode === "completed"
   const [orderViewTabTotals, setOrderViewTabTotals] = useState({
     booking: 0,
     pending: 0,
@@ -1546,7 +1900,7 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
     farmready: 0,
     ready_for_dispatch: 0,
     dispatch_process: 0,
-    dispatched_vehicle: 0,
+    completed: 0,
   })
   /** API `dateRangeField`: booking vs delivery for date-range filter (see factory.controller getOrders). */
   // Default date-range field should be "booking" (Booking date).
@@ -1586,6 +1940,8 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
   const [selectedOrder, setSelectedOrder] = useState(null)
   const [linkedAgriItems, setLinkedAgriItems] = useState([])
   const [linkedAgriLoading, setLinkedAgriLoading] = useState(false)
+  /** Ram Agri tab: GET_ORDER_DISPATCH_DETAILS by linkedNurseryOrderId (plant order not in agri list) */
+  const [linkedPlantDispatchByNurseryId, setLinkedPlantDispatchByNurseryId] = useState({})
 
   const selectedOrderCounts = React.useMemo(
     () => resolvePlantCounts(selectedOrder),
@@ -1963,7 +2319,8 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
                 farmReadyDate,
                 orderBookingDate,
                 deliveryDate,
-                orderFor: orderForRaw
+                orderFor: orderForRaw,
+                expectedNursery
               } = data || {}
               const orderFor = normalizeOrderFor(orderForRaw)
               const basePlants = numberOfPlants || 0
@@ -2041,24 +2398,26 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
                 returnedPlants: Number(returnedPlants) || 0,
                 damagedPlants: Number(damagedPlants) || 0,
                 orderFor: orderFor || null,
+                expectedNursery: expectedNursery != null ? String(expectedNursery).trim() : null,
                 statusChanges: statusChanges || [],
                 orderRemarks: orderRemarks || [],
                 deliveryChanges: data.deliveryChanges || [],
                 returnHistory: data?.returnHistory || [],
                 dispatchHistory: data?.dispatchHistory || [],
-              orderEditHistory: data?.orderEditHistory || [], // Include order edit history
-              publicOrderCode: publicOrderCode || null,
-              whatsappAcceptedSentAt: whatsappAcceptedSentAt || null,
-              whatsappAcceptedMessageKey: whatsappAcceptedMessageKey || null,
-              whatsappDispatchSentAt: whatsappDispatchSentAt || null,
-              whatsappDispatchMessageKey: whatsappDispatchMessageKey || null,
-              dealerOrder: dealerOrder || false,
-              farmReadyDate: farmReadyDate,
-              deliveryDate: deliveryDate || null, // Include deliveryDate in details
-              dispatchDayKey: data?.dispatchDayKey || null,
-              dispatchTargetDate: data?.dispatchTargetDate || null
+                orderEditHistory: data?.orderEditHistory || [], // Include order edit history
+                publicOrderCode: publicOrderCode || null,
+                whatsappAcceptedSentAt: whatsappAcceptedSentAt || null,
+                whatsappAcceptedMessageKey: whatsappAcceptedMessageKey || null,
+                whatsappDispatchSentAt: whatsappDispatchSentAt || null,
+                whatsappDispatchMessageKey: whatsappDispatchMessageKey || null,
+                dealerOrder: dealerOrder || false,
+                farmReadyDate: farmReadyDate,
+                deliveryDate: deliveryDate || null, // Include deliveryDate in details
+                dispatchDayKey: data?.dispatchDayKey || null,
+                dispatchTargetDate: data?.dispatchTargetDate || null,
+                deliveryChallanInvoiceNumber: data?.deliveryChallanInvoiceNumber || null
               }
-              }
+            }
             })
             .filter((order) => order != null && order.order != null && order.order !== "")
 
@@ -2435,7 +2794,7 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
         farmready: 0,
         ready_for_dispatch: 0,
         dispatch_process: 0,
-        dispatched_vehicle: 0,
+        completed: 0,
       })
       return
     }
@@ -2471,7 +2830,7 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
           farmready: Number(d.farmready) || 0,
           ready_for_dispatch: Number(d.ready_for_dispatch) || 0,
           dispatch_process: Number(d.dispatch_process) || 0,
-          dispatched_vehicle: Number(d.dispatched_vehicle) || 0,
+          completed: Number(d.completed) || 0,
         })
       } catch (e) {
         if (isAbortedRequestError(e)) return
@@ -2727,6 +3086,59 @@ useEffect(() => {
     }
   }, [isOrderModalOpen, selectedOrder])
 
+  // Ram Agri list: fetch linked nursery plant dispatch + delivery (plant rows are not in this list)
+  useEffect(() => {
+    if (!showAgriSalesOrders) {
+      setLinkedPlantDispatchByNurseryId({})
+      return
+    }
+    const ids = new Set()
+    for (const row of orders || []) {
+      const id = getLinkedNurseryOrderIdString(row)
+      if (id) ids.add(id)
+    }
+    if (!ids.size) {
+      setLinkedPlantDispatchByNurseryId({})
+      return
+    }
+    let cancelled = false
+    ;(async () => {
+      const fresh = {}
+      await Promise.all(
+        [...ids].map(async (orderId) => {
+          try {
+            const instance = NetworkManager(API.ORDER.GET_ORDER_DISPATCH_DETAILS)
+            const res = await instance.request({}, [orderId])
+            const data = res?.data?.data
+            const prefill = extractLinkedDispatchPrefill(data)
+            const deliveryRaw = data?.order?.deliveryDate
+            const deliveryLabel =
+              deliveryRaw != null && deliveryRaw !== ""
+                ? moment(deliveryRaw).format(ORDER_DATE_DISPLAY)
+                : null
+            const dispatchDateLabel =
+              prefill?.dispatchDate != null && prefill.dispatchDate !== ""
+                ? moment(prefill.dispatchDate).format(ORDER_DATETIME_DISPLAY)
+                : null
+            fresh[orderId] = {
+              deliveryLabel,
+              vehicleNumber: prefill?.vehicleNumber || "",
+              driverName: prefill?.driverName || "",
+              driverMobile: prefill?.driverMobile || "",
+              dispatchDateLabel,
+            }
+          } catch {
+            fresh[orderId] = { error: true }
+          }
+        })
+      )
+      if (!cancelled) setLinkedPlantDispatchByNurseryId(fresh)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [showAgriSalesOrders, orders])
+
   // Load slots when selectedRow changes (for inline editing)
   useEffect(() => {
     if (selectedRow?.details?.plantID && selectedRow?.details?.plantSubtypeID) {
@@ -2742,28 +3154,59 @@ useEffect(() => {
   }, [activeTab, canEditOrderCore])
 
   useEffect(() => {
-    if (activeTab === "edit" && selectedOrder && canEditOrderCore) {
-      const { base } = resolvePlantCounts(selectedOrder)
-      setUpdatedObject({
-        rate: selectedOrder.rate,
-        quantity: base,
-        bookingSlot: selectedOrder?.details?.bookingSlot?.slotId,
-        deliveryDate: selectedOrder?.details?.deliveryDate 
-          ? new Date(selectedOrder.details.deliveryDate) 
-          : null,
-        salesPerson: selectedOrder?.details?.salesPerson?._id
-          ? String(selectedOrder.details.salesPerson._id)
-          : "",
-        ...(canEditPlantSubtype &&
-        selectedOrder?.details?.plantSubtypeID &&
-        !selectedOrder?.isAgriSalesOrder &&
-        !selectedOrder?.details?.isRamAgriProduct
-          ? { plantSubtype: String(selectedOrder.details.plantSubtypeID) }
-          : {})
-      })
-      setQuantityDeltaInput("")
+    if (activeTab !== "edit" || !selectedOrder || !canEditOrderCore) return
+    if (!selectedOrder?.details?.orderid) return
+    const { base } = resolvePlantCounts(selectedOrder)
+    const rof = normalizeOrderFor(selectedOrder.details?.orderFor)
+    setUpdatedObject({
+      rate: selectedOrder.rate,
+      quantity: base,
+      bookingSlot: selectedOrder?.details?.bookingSlot?.slotId,
+      deliveryDate: selectedOrder?.details?.deliveryDate
+        ? new Date(selectedOrder.details.deliveryDate)
+        : null,
+      salesPerson: selectedOrder?.details?.salesPerson?._id
+        ? String(selectedOrder.details.salesPerson._id)
+        : "",
+      orderFor: rof ? { ...emptyOrderForEditShape(), ...rof } : { ...emptyOrderForEditShape() },
+      expectedNursery: selectedOrder?.details?.expectedNursery
+        ? String(selectedOrder.details.expectedNursery).trim().toUpperCase()
+        : "RB",
+      ...(canEditPlantSubtype &&
+      selectedOrder?.details?.plantSubtypeID &&
+      !selectedOrder?.isAgriSalesOrder &&
+      !selectedOrder?.details?.isRamAgriProduct
+        ? { plantSubtype: String(selectedOrder.details.plantSubtypeID) }
+        : {})
+    })
+    setQuantityDeltaInput("")
+    // Only re-run when the opened order id or edit eligibility changes — not on every
+    // selectedOrder reference refresh (which was wiping in-progress book-for edits).
+  }, [
+    activeTab,
+    selectedOrder?.details?.orderid,
+    resolvePlantCounts,
+    canEditOrderCore,
+    canEditPlantSubtype
+  ])
+
+  useEffect(() => {
+    if (activeTab !== "edit" || !canEditOrderCore) return undefined
+    let cancelled = false
+    ;(async () => {
+      try {
+        const inst = NetworkManager(API.NURSERY_SITE.LIST)
+        const res = await inst.request({}, { activeOnly: "true" })
+        const raw = res?.data?.data
+        if (!cancelled) setNurserySiteEditOptions(Array.isArray(raw) ? raw : [])
+      } catch {
+        if (!cancelled) setNurserySiteEditOptions([])
+      }
+    })()
+    return () => {
+      cancelled = true
     }
-  }, [activeTab, selectedOrder, resolvePlantCounts, canEditOrderCore, canEditPlantSubtype])
+  }, [activeTab, canEditOrderCore])
 
   useEffect(() => {
     if (
@@ -2961,42 +3404,6 @@ const loadFilterOptions = async () => {
     }
   }
 
-  const extractLinkedDispatchPrefill = (dispatchResponseData) => {
-    if (!dispatchResponseData) return null
-    const dispatches = Array.isArray(dispatchResponseData.dispatches)
-      ? dispatchResponseData.dispatches
-      : []
-    const history = Array.isArray(dispatchResponseData.dispatchHistory)
-      ? dispatchResponseData.dispatchHistory
-      : []
-    const latestDispatch = dispatches[0] || null
-    const latestHistory = history.length ? history[history.length - 1] : null
-    const vehicleNumber =
-      latestDispatch?.vehicleNumber ||
-      latestDispatch?.vehicleName ||
-      latestHistory?.dispatch?.vehicleNumber ||
-      latestHistory?.dispatch?.vehicleName ||
-      ""
-    const driverName =
-      latestDispatch?.driverName ||
-      latestHistory?.dispatch?.driverName ||
-      ""
-    const driverMobile =
-      latestDispatch?.driverMobile ||
-      latestHistory?.dispatch?.driverMobile ||
-      ""
-    const dispatchDate =
-      latestDispatch?.dispatchDate ||
-      latestHistory?.date ||
-      null
-    const transportId =
-      latestDispatch?.transportId ||
-      latestHistory?.dispatch?.transportId ||
-      null
-    if (!vehicleNumber && !driverName && !driverMobile) return null
-    return { vehicleNumber, driverName, driverMobile, dispatchDate, transportId }
-  }
-
   const prefillAgriDispatchFromLinkedRegularOrder = async (selectedOrderIds = []) => {
     const selectedRows = (orders || []).filter((row) =>
       selectedOrderIds.includes(row?.details?.orderid)
@@ -3142,15 +3549,15 @@ const loadFilterOptions = async () => {
         Toast.error("No linked regular dispatch found for 'With Order' mode")
         return
       }
-      if (!agriDispatchForm.driverName || !agriDispatchForm.driverMobile) {
-        Toast.error("Driver name and mobile are required")
+      if (!agriDispatchForm.driverName) {
+        Toast.error("Driver name is required")
         return
       }
       if (!agriDispatchForm.vehicleNumber && !agriDispatchForm.vehicleId) {
         Toast.error("Please select a vehicle or enter vehicle number")
         return
       }
-      if (agriDispatchForm.driverMobile.length !== 10) {
+      if (agriDispatchForm.driverMobile && agriDispatchForm.driverMobile.length !== 10) {
         Toast.error("Driver mobile must be 10 digits")
         return
       }
@@ -3767,7 +4174,7 @@ const mapSlotForUi = (slotData) => {
 
       // Don't apply status filter - fetch all orders to calculate counts
       if (selectedSalesPerson) {
-        params.createdBy = selectedSalesPerson
+        params.salesPerson = selectedSalesPerson
       }
 
       const response = await instance.request({}, params)
@@ -3858,6 +4265,7 @@ const mapSlotForUi = (slotData) => {
           orderBookingDate,
           deliveryDate,
           orderFor: orderForRaw,
+          expectedNursery,
           cavity,
         } = data || {}
         const orderFor = normalizeOrderFor(orderForRaw)
@@ -3927,6 +4335,7 @@ const mapSlotForUi = (slotData) => {
             returnedPlants: Number(returnedPlants) || 0,
             damagedPlants: Number(damagedPlants) || 0,
             orderFor: orderFor || null,
+            expectedNursery: expectedNursery != null ? String(expectedNursery).trim() : null,
             statusChanges: statusChanges || [],
             orderRemarks: orderRemarks || [],
             deliveryChanges: data.deliveryChanges || [],
@@ -3947,6 +4356,7 @@ const mapSlotForUi = (slotData) => {
             cavity: cavity || null,
             cavityName: getCavityDisplayLabel(cavity),
             cavityId: getCavityIdString(cavity) || null,
+            deliveryChallanInvoiceNumber: data?.deliveryChallanInvoiceNumber || null,
             slotHistory: Array.isArray(bookingSlot)
               ? bookingSlot.filter(Boolean)
               : bookingSlot
@@ -3998,7 +4408,7 @@ const mapSlotForUi = (slotData) => {
         // ALL: omit orderStatus / dispatchStatus
 
         if (selectedSalesPerson) {
-          params.createdBy = selectedSalesPerson
+          params.salesPerson = selectedSalesPerson
         }
 
         const response = await instance.request({}, params, { signal })
@@ -4030,6 +4440,7 @@ const mapSlotForUi = (slotData) => {
             createdAt,
             notes,
             createdBy,
+            salesPerson,
             productId,
             _id,
             // Dispatch fields
@@ -4064,6 +4475,16 @@ const mapSlotForUi = (slotData) => {
           const productNameValue = productName || productId?.name || ""
           const createdByValue = createdBy?._id || createdBy || null
           const createdByName = createdBy?.name || ""
+          const salesPersonObj =
+            (salesPerson && typeof salesPerson === "object" && salesPerson._id
+              ? salesPerson
+              : null) ||
+            (createdBy &&
+            typeof createdBy === "object" &&
+            createdBy._id &&
+            ["RAM_AGRI_SALES", "SALES"].includes(String(createdBy.jobTitle || createdBy.role || "").toUpperCase())
+              ? createdBy
+              : null)
           const assignedToValue = assignedTo?._id || assignedTo || null
           const assignedToName = assignedTo?.name || ""
 
@@ -4115,6 +4536,7 @@ const mapSlotForUi = (slotData) => {
                 notes,
                 createdBy: createdByValue,
                 createdByName: createdByName,
+                salesPerson: salesPersonObj,
                 orderid: _id,
               orderNumber,
               // Dispatch details
@@ -4337,6 +4759,12 @@ const mapSlotForUi = (slotData) => {
       // Handle Date objects for farmReadyDate and deliveryDate
       const dataToSend = { ...patchObj }
 
+      if (dataToSend.orderFor !== undefined && dataToSend.orderFor !== null) {
+        const compactOf = compactOrderForForPatch(dataToSend.orderFor)
+        if (compactOf) dataToSend.orderFor = compactOf
+        else delete dataToSend.orderFor
+      }
+
       // Convert deliveryDate to ISO format if it's a Date object
       if (dataToSend.deliveryDate && dataToSend.deliveryDate instanceof Date) {
         dataToSend.deliveryDate = dataToSend.deliveryDate.toISOString()
@@ -4464,7 +4892,13 @@ const mapSlotForUi = (slotData) => {
       }
 
       if (emps?.data?.status === "Success") {
-        Toast.success("Order updated successfully")
+        if (!isAgriSalesOrder && dataToSend.orderStatus) {
+          Toast.success(
+            `ऑर्डर स्थिती "${orderStatusEnglishLabel(dataToSend.orderStatus)}" यशस्वीरीत्या अपडेट झाली.`
+          )
+        } else {
+          Toast.success("Order updated successfully")
+        }
 
         setEditingRows(new Set())
         setUpdatedObject(null)
@@ -4588,6 +5022,20 @@ const mapSlotForUi = (slotData) => {
                 ...(dataToSend?.salesPerson
                   ? { salesPerson: nextSalesPerson }
                   : {}),
+                ...(dataToSend?.orderFor !== undefined
+                  ? {
+                      orderFor:
+                        normalizeOrderFor(dataToSend.orderFor) ||
+                        dataToSend.orderFor ||
+                        null
+                    }
+                  : {}),
+                ...(dataToSend?.expectedNursery !== undefined
+                  ? {
+                      expectedNursery:
+                        String(dataToSend.expectedNursery || "").trim().toUpperCase() || null
+                    }
+                  : {}),
               },
             }
             patchedOrderForModal = patched
@@ -4657,13 +5105,21 @@ const mapSlotForUi = (slotData) => {
     }
   }
   const saveEditedRow = (index, row) => {
-    pacthOrders(
-      {
-        id: row?.details?.orderid,
-        ...updatedObject
-      },
-      row
-    )
+    const patch = {
+      id: row?.details?.orderid,
+      ...updatedObject
+    }
+    if (patch.orderFor) {
+      const compact = compactOrderForForPatch(patch.orderFor)
+      if (compact) patch.orderFor = compact
+      else delete patch.orderFor
+    }
+    if (patch.expectedNursery != null && String(patch.expectedNursery).trim() !== "") {
+      patch.expectedNursery = String(patch.expectedNursery).trim().toUpperCase()
+    } else {
+      delete patch.expectedNursery
+    }
+    pacthOrders(patch, row)
   }
 
   const getStatusColor = (status) => {
@@ -4706,11 +5162,16 @@ const mapSlotForUi = (slotData) => {
   const toggleEditing = (index, row) => {
     // console.log(row)
     setSelectedRow(row)
+    const rofGrid = normalizeOrderFor(row?.details?.orderFor)
     setUpdatedObject({
       rate: row?.rate,
       quantity: row?.quantity,
       bookingSlot: row?.details?.bookingSlot?.slotId,
-      deliveryDate: row?.details?.deliveryDate ? new Date(row?.details?.deliveryDate) : null
+      deliveryDate: row?.details?.deliveryDate ? new Date(row?.details?.deliveryDate) : null,
+      orderFor: rofGrid ? { ...emptyOrderForEditShape(), ...rofGrid } : { ...emptyOrderForEditShape() },
+      expectedNursery: row?.details?.expectedNursery
+        ? String(row.details.expectedNursery).trim().toUpperCase()
+        : "RB"
     })
     setQuantityDeltaInput("")
     // setSelectedRow(row)
@@ -4723,10 +5184,7 @@ const mapSlotForUi = (slotData) => {
     setEditingRows(newEditingRows)
   }
   const handleInputChange = (index, key, value) => {
-    //const newData = [...orders]
-    // newData[index][key] = value
-    //  setData(newData)
-    setUpdatedObject({ ...updatedObject, [key]: value })
+    setUpdatedObject((prev) => ({ ...prev, [key]: value }))
   }
 
   function parseDeltaInput(raw) {
@@ -4856,12 +5314,13 @@ const mapSlotForUi = (slotData) => {
     if (requiresRemark) {
       setStatusRemarkDialog({
         open: true,
-        title: newStatus === "REJECTED" ? "Reject order" : "Cancel order",
-        description: `Enter a remark before changing Order #${row.order} to ${
-          newStatus === "REJECTED" ? "Rejected" : "Cancelled"
-        }.`,
+        title: newStatus === "REJECTED" ? "ऑर्डर नाकारा" : "ऑर्डर रद्द करा",
+        description:
+          newStatus === "REJECTED"
+            ? `ऑर्डर क्र. ${row.order} नाकारण्यापूर्वी कारण (टिप्पणी) लिहा.`
+            : `ऑर्डर क्र. ${row.order} रद्द करण्यापूर्वी कारण (टिप्पणी) लिहा.`,
         remark: "",
-        confirmLabel: "Apply status",
+        confirmLabel: newStatus === "REJECTED" ? "नाकारणे निश्चित" : "रद्द करून लागू करा",
         onSubmit: async (remarkText) => {
           pacthOrders(
             {
@@ -4879,8 +5338,8 @@ const mapSlotForUi = (slotData) => {
     // Handle regular orders (existing flow)
     setConfirmDialog({
       open: true,
-      title: "Confirm Status Change",
-      description: `Change status of Order #${row.order} from ${row.orderStatus} to ${newStatus}?`,
+      title: "स्थिती बदल निश्चित करा",
+      description: `ऑर्डर क्र. ${row.order}: स्थिती "${orderStatusEnglishLabel(row.orderStatus)}" वरून "${orderStatusEnglishLabel(newStatus)}" करायची?`,
       onConfirm: () => {
         setConfirmDialog((d) => ({ ...d, open: false }))
         pacthOrders(
@@ -5363,11 +5822,12 @@ const mapSlotForUi = (slotData) => {
             </div>
           </div>
         )}
-        {isDispatchedVehicleTab && !showAgriSalesOrders && (
-          <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 mb-4">
-            <p className="text-sm text-slate-800">
-              <span className="font-semibold">🚛 Vehicle view:</span> Orders with status{" "}
-              <span className="font-semibold">Dispatched</span>, not limited by booking date. In the table view, rows are grouped by vehicle and dispatch (from the latest dispatch on each order).
+        {isCompletedOrdersTab && !showAgriSalesOrders && (
+          <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 mb-4">
+            <p className="text-sm text-emerald-900">
+              <span className="font-semibold">✅ पूर्ण ऑर्डर:</span> स्थिती{" "}
+              <span className="font-semibold">पूर्ण / अंशतः पूर्ण</span> असलेल्या सर्व ऑर्डर — तारीख फिल्टर
+              डिलिव्हरी तारखेवर लागू होते (इतर डिस्पॅच टॅब्स प्रमाणे).
             </p>
           </div>
         )}
@@ -5563,15 +6023,15 @@ const mapSlotForUi = (slotData) => {
                 </span>
               </button>
               <button
-                onClick={() => setViewMode("dispatched_vehicle")}
+                onClick={() => setViewMode("completed")}
                 className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
-                  viewMode === "dispatched_vehicle"
+                  viewMode === "completed"
                     ? "border-brand-500 text-brand-600 bg-white"
                     : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
                 }`}>
-                <span className="hidden sm:inline">🚛 </span>Vehicle{" "}
+                <span className="hidden sm:inline">✅ </span>Completed{" "}
                 <span className="ml-1 text-xs bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full">
-                  ({orderViewTabTotals.dispatched_vehicle})
+                  ({orderViewTabTotals.completed})
                 </span>
               </button>
             </div>
@@ -5631,32 +6091,72 @@ const mapSlotForUi = (slotData) => {
               🎴 Grid
             </button>
             
-            {/* Order Type: Toggle between Regular Orders and Ram Agri Inputs */}
-            <div className="ml-4 pl-4 border-l border-gray-300 flex items-center gap-2">
+            {/* Order Type: full toggle (default UI) vs Ram Agri Sales Manager: Agri by default + “Regular Orders” button */}
+            <div className="ml-4 pl-4 border-l border-gray-300 flex items-center gap-2 flex-wrap">
               <span className="text-sm font-medium text-gray-700">Order Type:</span>
-              <button
-                onClick={() => setShowAgriSalesOrders(false)}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors flex items-center gap-1 ${
-                  !showAgriSalesOrders
-                    ? "bg-brand-600 text-white shadow-sm"
-                    : "bg-white text-gray-600 hover:bg-gray-100 border border-gray-300"
-                }`}>
-                📋 Regular Orders
-              </button>
-              <button
-                onClick={() => setShowAgriSalesOrders(true)}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors flex items-center gap-1 relative ${
-                  showAgriSalesOrders
-                    ? "bg-orange-600 text-white shadow-sm"
-                    : "bg-white text-gray-600 hover:bg-gray-100 border border-gray-300"
-                }`}>
-                📦 Ram Agri Inputs
-                {showAgriSalesOrders && agriSalesPendingCount > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center border-2 border-white">
-                    {agriSalesPendingCount > 99 ? "99+" : agriSalesPendingCount}
-                  </span>
-                )}
-              </button>
+              {isRamAgriSalesManager ? (
+                showAgriSalesOrders ? (
+                  <>
+                    <span className="px-3 py-1.5 text-xs font-medium rounded-md bg-orange-600 text-white shadow-sm flex items-center gap-1 relative">
+                      📦 Ram Agri Inputs
+                      {agriSalesPendingCount > 0 && (
+                        <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center border-2 border-white">
+                          {agriSalesPendingCount > 99 ? "99+" : agriSalesPendingCount}
+                        </span>
+                      )}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setShowAgriSalesOrders(false)}
+                      className="px-3 py-1.5 text-xs font-medium rounded-md bg-white text-gray-600 hover:bg-gray-100 border border-gray-300 transition-colors">
+                      📋 Regular Orders
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <span className="px-3 py-1.5 text-xs font-medium rounded-md bg-brand-600 text-white shadow-sm">
+                      📋 Regular Orders
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setShowAgriSalesOrders(true)}
+                      className="px-3 py-1.5 text-xs font-medium rounded-md bg-white text-gray-600 hover:bg-gray-100 border border-orange-300 text-orange-700 transition-colors flex items-center gap-1 relative">
+                      📦 Ram Agri Inputs
+                      {agriSalesPendingCount > 0 && (
+                        <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold rounded-full min-w-[1.25rem] h-5 px-0.5 flex items-center justify-center border-2 border-white">
+                          {agriSalesPendingCount > 99 ? "99+" : agriSalesPendingCount}
+                        </span>
+                      )}
+                    </button>
+                  </>
+                )
+              ) : (
+                <>
+                  <button
+                    onClick={() => setShowAgriSalesOrders(false)}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors flex items-center gap-1 ${
+                      !showAgriSalesOrders
+                        ? "bg-brand-600 text-white shadow-sm"
+                        : "bg-white text-gray-600 hover:bg-gray-100 border border-gray-300"
+                    }`}>
+                    📋 Regular Orders
+                  </button>
+                  <button
+                    onClick={() => setShowAgriSalesOrders(true)}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors flex items-center gap-1 relative ${
+                      showAgriSalesOrders
+                        ? "bg-orange-600 text-white shadow-sm"
+                        : "bg-white text-gray-600 hover:bg-gray-100 border border-gray-300"
+                    }`}>
+                    📦 Ram Agri Inputs
+                    {showAgriSalesOrders && agriSalesPendingCount > 0 && (
+                      <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center border-2 border-white">
+                        {agriSalesPendingCount > 99 ? "99+" : agriSalesPendingCount}
+                      </span>
+                    )}
+                  </button>
+                </>
+              )}
               {showAgriSalesOrders && (
                 <>
                   <button
@@ -5860,15 +6360,12 @@ const mapSlotForUi = (slotData) => {
                   hidePaymentDetails,
                   viewMode,
                 })
-                const farmerTableBodyItems =
-                  isDispatchedVehicleTab && !showAgriSalesOrders
-                    ? buildDispatchedVehicleTableBodyItems(filteredOrders)
-                    : filteredOrders.map((row, dataIndex) => ({
-                        kind: "order",
-                        row,
-                        sr: dataIndex + 1,
-                        dataIndex,
-                      }))
+                const farmerTableBodyItems = filteredOrders.map((row, dataIndex) => ({
+                  kind: "order",
+                  row,
+                  sr: dataIndex + 1,
+                  dataIndex,
+                }))
                 return (
                   <TableVirtuoso
                     className="w-full"
@@ -6124,7 +6621,12 @@ const mapSlotForUi = (slotData) => {
                       <td className="px-2 py-2 whitespace-nowrap">
                         <div className="text-xs font-medium text-gray-900">{sr}</div>
                       </td>
-                      <td className="px-2 py-2 whitespace-nowrap">
+                      <td
+                        className={`px-2 py-2 ${
+                          showAgriSalesOrders && getLinkedNurseryOrderIdString(row)
+                            ? "whitespace-normal align-top"
+                            : "whitespace-nowrap"
+                        }`}>
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="text-xs font-bold text-gray-900">#{(row.isAgriSalesOrder || row.details?.isRamAgriProduct) ? String(row.order).padStart(5, '0') : row.order}</span>
                           {(row.isAgriSalesOrder || row.details?.isRamAgriProduct) && row.details?.linkedNurseryOrderCode && (
@@ -6159,6 +6661,45 @@ const mapSlotForUi = (slotData) => {
                             >
                               ✂ {row.details.splitOrderIds.length} split
                             </span>
+                          )}
+                          {!(row.isAgriSalesOrder || row.details?.isRamAgriProduct) && (
+                            <>
+                              {canEditDcInvoiceLabelForRow(row) ? (
+                                <span className="inline-flex items-center gap-0.5">
+                                  {row.details?.deliveryChallanInvoiceNumber ? (
+                                    <span
+                                      className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-stone-800 text-white border border-stone-900 font-mono tracking-tight"
+                                      title="Delivery challan invoice number">
+                                      DC {row.details.deliveryChallanInvoiceNumber}
+                                    </span>
+                                  ) : (
+                                    <span
+                                      className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-stone-100 text-stone-600 border border-stone-300 font-mono tracking-tight"
+                                      title="No DC label yet (legacy orders — set to match challan)">
+                                      DC —
+                                    </span>
+                                  )}
+                                  <button
+                                    type="button"
+                                    title="Edit delivery challan (DC) invoice number"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      openDcInvoiceLabelEdit(row)
+                                    }}
+                                    className="p-0.5 rounded text-stone-600 hover:bg-stone-100">
+                                    <FaEdit className="w-3.5 h-3.5" />
+                                  </button>
+                                </span>
+                              ) : (
+                                row.details?.deliveryChallanInvoiceNumber && (
+                                  <span
+                                    className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-stone-800 text-white border border-stone-900 font-mono tracking-tight"
+                                    title="Delivery challan invoice number (instant sale or assigned)">
+                                    DC {row.details.deliveryChallanInvoiceNumber}
+                                  </span>
+                                )
+                              )}
+                            </>
                           )}
                           {!(row.isAgriSalesOrder || row.details?.isRamAgriProduct) && (
                             <DownloadPDFButton order={row} />
@@ -6230,6 +6771,13 @@ const mapSlotForUi = (slotData) => {
                             </span>
                           )}
                         </div>
+                        {(row.isAgriSalesOrder || row.details?.isRamAgriProduct) &&
+                          getLinkedNurseryOrderIdString(row) && (
+                          <RamAgriLinkedPlantDeliveryNote
+                            row={row}
+                            linkedPlantDispatchByNurseryId={linkedPlantDispatchByNurseryId}
+                          />
+                        )}
                         <div className="mt-0.5 inline-flex items-center gap-1 flex-wrap">
                           <span className="inline-flex items-center gap-1 rounded-md border border-sky-200 bg-sky-50 px-1.5 py-0.5">
                             <span className="text-[10px] font-semibold text-sky-800">Booked</span>
@@ -6424,15 +6972,10 @@ const mapSlotForUi = (slotData) => {
                               )}
                             </div>
                         ) : (row.orderStatus !== "COMPLETED" && row.orderStatus !== "DISPATCHED" && canChangeOrderStatus) ? (
-                          <SearchableDropdown
+                          <FarmerOrderStatusSelect
                             key={`order-status-${row.details?.orderid}-${row.orderStatus}`}
-                            label=""
-                            value={row.orderStatus}
+                            row={row}
                             onChange={(newStatus) => handleStatusChange(row, newStatus)}
-                            options={orderStatusSelectOptionsForRow(row.orderStatus, user)}
-                            placeholder="Select status"
-                            maxHeight="320px"
-                            isStatusDropdown={true}
                             disabled={patchLoading}
                           />
                         ) : (
@@ -6586,15 +7129,7 @@ const mapSlotForUi = (slotData) => {
         {/* Grid View */}
         {viewType === "grid" && (() => {
           const gridOrdersList =
-            filteredOrders && filteredOrders.length > 0
-              ? isDispatchedVehicleTab && !showAgriSalesOrders
-                ? [...filteredOrders].sort((a, b) =>
-                    getLatestDispatchVehicleMeta(a).key.localeCompare(
-                      getLatestDispatchVehicleMeta(b).key
-                    )
-                  )
-                : filteredOrders
-              : []
+            filteredOrders && filteredOrders.length > 0 ? filteredOrders : []
           const gridRowChunks = []
           const cols = farmerOrdersGridColumnCount
           for (let i = 0; i < gridOrdersList.length; i += cols) {
@@ -6678,6 +7213,15 @@ const mapSlotForUi = (slotData) => {
                                       <FaCopy className="mr-1" />
                                       Linked #{row.details.linkedNurseryOrderCode}
                                     </button>
+                                  )}
+                                  {(row.isAgriSalesOrder || row.details?.isRamAgriProduct) &&
+                                    getLinkedNurseryOrderIdString(row) && (
+                                    <div className="w-full basis-full min-w-0">
+                                      <RamAgriLinkedPlantDeliveryNote
+                                        row={row}
+                                        linkedPlantDispatchByNurseryId={linkedPlantDispatchByNurseryId}
+                                      />
+                                    </div>
                                   )}
                                   {!(row.isAgriSalesOrder || row.details?.isRamAgriProduct) && row.details?.isSplit && (
                                     <span
@@ -6791,15 +7335,10 @@ const mapSlotForUi = (slotData) => {
                                 </div>
                               ) : (row.orderStatus !== "COMPLETED" && row.orderStatus !== "DISPATCHED" && canChangeOrderStatus) ? (
                                 <div className="relative" onClick={(e) => e.stopPropagation()}>
-                                  <SearchableDropdown
+                                  <FarmerOrderStatusSelect
                                     key={`grid-status-${row.details?.orderid}-${row.orderStatus}`}
-                                    label=""
-                                    value={row.orderStatus}
+                                    row={row}
                                     onChange={(newStatus) => handleStatusChange(row, newStatus)}
-                                    options={orderStatusSelectOptionsForRow(row.orderStatus, user)}
-                                    placeholder="Select status"
-                                    maxHeight="320px"
-                                    isStatusDropdown={true}
                                     disabled={patchLoading}
                                   />
                                 </div>
@@ -6923,6 +7462,32 @@ const mapSlotForUi = (slotData) => {
                                 </span>
                                 <span className="text-xs font-semibold text-green-800">
                                   {row["Farm Ready"]}
+                                </span>
+                              </div>
+                            )}
+
+                            {(row.details?.deliveryChallanInvoiceNumber ||
+                              canEditDcInvoiceLabelForRow(row)) && (
+                              <div className="flex items-center justify-between gap-2 rounded-md border border-stone-300 bg-stone-900 px-2 py-1.5">
+                                <span className="text-[10px] font-semibold uppercase tracking-wide text-stone-300">
+                                  DC invoice
+                                </span>
+                                <span className="flex items-center gap-1 min-w-0">
+                                  <span className="text-xs font-mono font-bold text-white truncate">
+                                    {row.details?.deliveryChallanInvoiceNumber || "—"}
+                                  </span>
+                                  {canEditDcInvoiceLabelForRow(row) && (
+                                    <button
+                                      type="button"
+                                      title="Edit DC invoice number"
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        openDcInvoiceLabelEdit(row)
+                                      }}
+                                      className="shrink-0 p-0.5 rounded text-stone-300 hover:text-white hover:bg-stone-700">
+                                      <FaEdit className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
                                 </span>
                               </div>
                             )}
@@ -7085,9 +7650,23 @@ const mapSlotForUi = (slotData) => {
                       Linked Regular Order #{selectedOrder.details.linkedNurseryOrderCode}
                     </button>
                   )}
+                  {(selectedOrder.isAgriSalesOrder || selectedOrder.details?.isRamAgriProduct) &&
+                    getLinkedNurseryOrderIdString(selectedOrder) && (
+                    <RamAgriLinkedPlantDeliveryNote
+                      row={selectedOrder}
+                      linkedPlantDispatchByNurseryId={linkedPlantDispatchByNurseryId}
+                      variant="modal"
+                    />
+                  )}
                   <p className="text-brand-100 text-sm mt-1">
                     {selectedOrder.farmerName} • {selectedOrder.plantType}
                   </p>
+                  {(selectedOrder.isAgriSalesOrder || selectedOrder.details?.isRamAgriProduct) &&
+                    selectedOrder.details?.salesPerson && (
+                    <p className="text-brand-100/90 text-xs mt-1">
+                      Booked by: {selectedOrder.details.salesPerson.name}
+                    </p>
+                  )}
                 </div>
                 <div className="flex items-center space-x-2">
                   <button
@@ -7212,13 +7791,23 @@ const mapSlotForUi = (slotData) => {
                           setActiveTab("edit")
                           // Always initialize updatedObject with current values when edit tab is opened
                           if (selectedOrder) {
+                            const rofTab = normalizeOrderFor(selectedOrder.details?.orderFor)
                             setUpdatedObject({
                               rate: selectedOrder.rate,
-                                quantity: selectedOrderCounts.base,
+                              quantity: selectedOrderCounts.base,
                               bookingSlot: selectedOrder?.details?.bookingSlot?.slotId,
-                              deliveryDate: selectedOrder?.details?.deliveryDate 
-                                ? new Date(selectedOrder.details.deliveryDate) 
+                              deliveryDate: selectedOrder?.details?.deliveryDate
+                                ? new Date(selectedOrder.details.deliveryDate)
                                 : null,
+                              salesPerson: selectedOrder?.details?.salesPerson?._id
+                                ? String(selectedOrder.details.salesPerson._id)
+                                : "",
+                              orderFor: rofTab
+                                ? { ...emptyOrderForEditShape(), ...rofTab }
+                                : { ...emptyOrderForEditShape() },
+                              expectedNursery: selectedOrder?.details?.expectedNursery
+                                ? String(selectedOrder.details.expectedNursery).trim().toUpperCase()
+                                : "RB",
                               ...(canEditPlantSubtype &&
                               selectedOrder?.details?.plantSubtypeID &&
                               !selectedOrder?.isAgriSalesOrder &&
@@ -8819,6 +9408,184 @@ const mapSlotForUi = (slotData) => {
                             </div>
                           )}
 
+                          {!selectedOrder?.isAgriSalesOrder &&
+                            !selectedOrder?.details?.isRamAgriProduct && (
+                            <div className="mb-4 rounded-lg border border-gray-200 bg-white p-4 space-y-3">
+                              <h4 className="text-sm font-medium text-gray-900">Book for &amp; nursery</h4>
+                              <p className="text-xs text-gray-500">
+                                Who the delivery is for (if not the booking farmer) and which nursery site is
+                                expected. Editable until the order is completed or cancelled.
+                              </p>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <div>
+                                  <label className="text-xs text-gray-600">Book-for name</label>
+                                  <input
+                                    type="text"
+                                    className="mt-1 w-full rounded border px-2 py-2 text-sm"
+                                    value={updatedObject?.orderFor?.name ?? ""}
+                                    onChange={(e) =>
+                                      setUpdatedObject((prev) => ({
+                                        ...prev,
+                                        orderFor: {
+                                          ...emptyOrderForEditShape(),
+                                          ...(prev?.orderFor || {}),
+                                          name: e.target.value
+                                        }
+                                      }))
+                                    }
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-xs text-gray-600">Book-for mobile</label>
+                                  <input
+                                    type="text"
+                                    inputMode="numeric"
+                                    className="mt-1 w-full rounded border px-2 py-2 text-sm"
+                                    value={updatedObject?.orderFor?.mobileNumber ?? ""}
+                                    onChange={(e) => {
+                                      const digits = e.target.value.replace(/[^0-9]/g, "").slice(0, 10)
+                                      setUpdatedObject((prev) => ({
+                                        ...prev,
+                                        orderFor: {
+                                          ...emptyOrderForEditShape(),
+                                          ...(prev?.orderFor || {}),
+                                          mobileNumber: digits
+                                        }
+                                      }))
+                                    }}
+                                  />
+                                </div>
+                                <div className="md:col-span-2">
+                                  <label className="text-xs text-gray-600">Address (optional)</label>
+                                  <textarea
+                                    rows={2}
+                                    className="mt-1 w-full rounded border px-2 py-2 text-sm"
+                                    placeholder="Extra address / landmark"
+                                    value={updatedObject?.orderFor?.address ?? ""}
+                                    onChange={(e) =>
+                                      setUpdatedObject((prev) => ({
+                                        ...prev,
+                                        orderFor: {
+                                          ...emptyOrderForEditShape(),
+                                          ...(prev?.orderFor || {}),
+                                          address: e.target.value
+                                        }
+                                      }))
+                                    }
+                                  />
+                                </div>
+                                <div className="md:col-span-2">
+                                  <Box sx={{ mt: 0.5 }}>
+                                    <Typography
+                                      variant="caption"
+                                      color="text.secondary"
+                                      sx={{ display: "block", mb: 0.5 }}>
+                                      Location for beneficiary (state → village)
+                                    </Typography>
+                                    <LocationSelector
+                                      selectedState={updatedObject?.orderFor?.state ?? ""}
+                                      selectedDistrict={updatedObject?.orderFor?.district ?? ""}
+                                      selectedTaluka={updatedObject?.orderFor?.taluka ?? ""}
+                                      selectedVillage={updatedObject?.orderFor?.village ?? ""}
+                                      onStateChange={(value) =>
+                                        setUpdatedObject((prev) => ({
+                                          ...prev,
+                                          orderFor: {
+                                            ...emptyOrderForEditShape(),
+                                            ...(prev?.orderFor || {}),
+                                            state: value,
+                                            stateName: value,
+                                            district: "",
+                                            districtName: "",
+                                            taluka: "",
+                                            talukaName: "",
+                                            village: ""
+                                          }
+                                        }))
+                                      }
+                                      onDistrictChange={(value) =>
+                                        setUpdatedObject((prev) => ({
+                                          ...prev,
+                                          orderFor: {
+                                            ...emptyOrderForEditShape(),
+                                            ...(prev?.orderFor || {}),
+                                            district: value,
+                                            districtName: value,
+                                            taluka: "",
+                                            talukaName: "",
+                                            village: ""
+                                          }
+                                        }))
+                                      }
+                                      onTalukaChange={(value) =>
+                                        setUpdatedObject((prev) => ({
+                                          ...prev,
+                                          orderFor: {
+                                            ...emptyOrderForEditShape(),
+                                            ...(prev?.orderFor || {}),
+                                            taluka: value,
+                                            talukaName: value,
+                                            village: ""
+                                          }
+                                        }))
+                                      }
+                                      onVillageChange={(value) =>
+                                        setUpdatedObject((prev) => ({
+                                          ...prev,
+                                          orderFor: {
+                                            ...emptyOrderForEditShape(),
+                                            ...(prev?.orderFor || {}),
+                                            village: value
+                                          }
+                                        }))
+                                      }
+                                      required={false}
+                                      showLabels={false}
+                                      compact={true}
+                                      autoFill={true}
+                                      className="mt-1"
+                                      disabled={false}
+                                    />
+                                  </Box>
+                                </div>
+                                <div>
+                                  <label className="text-xs text-gray-600">Expected nursery</label>
+                                  <select
+                                    className="mt-1 w-full rounded border px-2 py-2 text-sm bg-white"
+                                    value={updatedObject?.expectedNursery ?? "RB"}
+                                    onFocus={() => {
+                                      void (async () => {
+                                        try {
+                                          const inst = NetworkManager(API.NURSERY_SITE.LIST)
+                                          const res = await inst.request({}, { activeOnly: "true" })
+                                          const raw = res?.data?.data
+                                          setNurserySiteEditOptions(Array.isArray(raw) ? raw : [])
+                                        } catch {
+                                          setNurserySiteEditOptions([])
+                                        }
+                                      })()
+                                    }}
+                                    onChange={(e) =>
+                                      setUpdatedObject((prev) => ({
+                                        ...prev,
+                                        expectedNursery: String(e.target.value || "").toUpperCase()
+                                      }))
+                                    }>
+                                    {nurserySiteEditOptions.length === 0 ? (
+                                      <option value="RB">RB</option>
+                                    ) : (
+                                      nurserySiteEditOptions.map((s) => (
+                                        <option key={s._id} value={String(s.code || "").toUpperCase()}>
+                                          {s.name} ({String(s.code || "").toUpperCase()})
+                                        </option>
+                                      ))
+                                    )}
+                                  </select>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
                           {canEditPlantSubtype &&
                             !selectedOrder?.isAgriSalesOrder &&
                             !selectedOrder?.details?.isRamAgriProduct &&
@@ -9219,6 +9986,31 @@ const mapSlotForUi = (slotData) => {
                                   )
                                 }
 
+                                const origExpectedNursery = selectedOrder?.details?.expectedNursery
+                                  ? String(selectedOrder.details.expectedNursery).trim().toUpperCase()
+                                  : "RB"
+                                const nextExpectedNursery =
+                                  updatedObject?.expectedNursery != null &&
+                                  String(updatedObject.expectedNursery).trim() !== ""
+                                    ? String(updatedObject.expectedNursery).trim().toUpperCase()
+                                    : "RB"
+                                if (origExpectedNursery !== nextExpectedNursery) {
+                                  changes.push(
+                                    `Expected nursery: ${origExpectedNursery} → ${nextExpectedNursery}`
+                                  )
+                                }
+
+                                if (
+                                  orderForEditMeaningfullyChanged(
+                                    selectedOrder?.details?.orderFor,
+                                    updatedObject?.orderFor
+                                  )
+                                ) {
+                                  changes.push(
+                                    "Book-for / beneficiary (name, mobile, address, location)"
+                                  )
+                                }
+
                                 if (changes.length === 0) {
                                   Toast.info("No changes to save")
                                   return
@@ -9354,6 +10146,12 @@ const mapSlotForUi = (slotData) => {
                                               : "N/A"}
                                           </span>
                                         </div>
+
+                                        {dispatchItem.invoiceNumber && (
+                                          <div className="mb-2 text-xs font-mono font-semibold text-stone-800">
+                                            Invoice: {dispatchItem.invoiceNumber}
+                                          </div>
+                                        )}
 
                                         {/* Dispatch Details */}
                                         {dispatchItem.dispatch && (
@@ -9630,6 +10428,57 @@ const mapSlotForUi = (slotData) => {
             sx={{ textTransform: "none" }}
           >
             Close
+          </Button>
+        </DialogActions>
+      </Dialog>
+      <Dialog
+        open={dcInvoiceEditOpen}
+        onClose={() => {
+          if (dcInvoiceEditSaving) return
+          setDcInvoiceEditOpen(false)
+          setDcInvoiceEditRow(null)
+          setDcInvoiceEditValue("")
+        }}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle sx={{ fontWeight: 700 }}>Delivery challan (DC) number</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+            Set the invoice label shown on delivery challan PDFs for orders that were dispatched before
+            automatic sequencing, or to correct a manual entry. Leave empty to clear.
+          </Typography>
+          <TextField
+            autoFocus
+            fullWidth
+            size="small"
+            label="DC invoice number"
+            placeholder="e.g. R640"
+            value={dcInvoiceEditValue}
+            onChange={(e) => setDcInvoiceEditValue(e.target.value)}
+            disabled={dcInvoiceEditSaving}
+            inputProps={{ maxLength: 64 }}
+          />
+        </DialogContent>
+        <DialogActions sx={{ px: 2, pb: 2 }}>
+          <Button
+            onClick={() => {
+              setDcInvoiceEditOpen(false)
+              setDcInvoiceEditRow(null)
+              setDcInvoiceEditValue("")
+            }}
+            disabled={dcInvoiceEditSaving}
+            sx={{ textTransform: "none" }}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={() => void submitDcInvoiceLabelEdit()}
+            variant="contained"
+            disabled={dcInvoiceEditSaving}
+            sx={{ textTransform: "none" }}
+          >
+            {dcInvoiceEditSaving ? "Saving…" : "Save"}
           </Button>
         </DialogActions>
       </Dialog>
@@ -10386,7 +11235,7 @@ const mapSlotForUi = (slotData) => {
 
                   {/* Driver Mobile */}
                   <div className="mb-4">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Driver Mobile *</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Driver Mobile</label>
                     <input
                       type="text"
                       value={agriDispatchForm.driverMobile}
@@ -10394,7 +11243,7 @@ const mapSlotForUi = (slotData) => {
                         const value = e.target.value.replace(/\D/g, "").slice(0, 10)
                         setAgriDispatchForm((prev) => ({ ...prev, driverMobile: value }))
                       }}
-                      placeholder="10 digit mobile number"
+                      placeholder="10 digit mobile number (optional)"
                       maxLength={10}
                       readOnly={agriDispatchForm.dispatchMode === "WITH_ORDER"}
                       className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-brand-500 focus:border-brand-500 ${
@@ -10491,7 +11340,7 @@ const mapSlotForUi = (slotData) => {
                     agriDispatchForm.dispatchMode === "WITH_ORDER") && (
                     !agriDispatchForm.vehicleNumber ||
                     !agriDispatchForm.driverName ||
-                    agriDispatchForm.driverMobile.length !== 10
+                    (agriDispatchForm.driverMobile && agriDispatchForm.driverMobile.length !== 10)
                   )) ||
                   (agriDispatchForm.dispatchMode === "COURIER" && !agriDispatchForm.courierName) ||
                   agriDispatchLoading

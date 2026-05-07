@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from "react"
-import { ChevronDown, ChevronRight, Plus, Check, ImageIcon, X, Loader2 } from "lucide-react"
+import React, { useState, useEffect, useRef, useCallback } from "react"
+import { ChevronDown, ChevronRight, Plus, Check, ImageIcon, X, Loader2, Trash2 } from "lucide-react"
 import { API, NetworkManager } from "network/core"
 import { Toast } from "helpers/toasts/toastHelper"
 import { useHasPaymentAccess } from "utils/roleUtils"
@@ -127,8 +127,34 @@ function computePlantQuantities(order, additionalPlantInputs) {
   return { basePlants, additionalPlants: additionalValue, totalPlants }
 }
 
+function defaultNurserySiteCode(sites) {
+  if (!sites?.length) return "RB"
+  const rb = sites.find((s) => String(s.code).toUpperCase() === "RB")
+  return rb?.code
+    ? String(rb.code).toUpperCase()
+    : String(sites[0]?.code || "RB").toUpperCase()
+}
+
+/** Normalize GET /dispatched/:id — axios + generateResponse shapes. */
+function parseDispatchFromGetByIdResponse(res) {
+  const top = res?.data
+  if (!top || typeof top !== "object") return null
+  const inner = top.data
+  if (inner && typeof inner === "object" && !Array.isArray(inner) && inner._id) return inner
+  if (top._id && typeof top === "object" && !Array.isArray(top)) return top
+  const nested = inner && typeof inner === "object" && inner.data
+  if (nested?._id) return nested
+  return null
+}
+
 const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
   const hasPaymentAccess = useHasPaymentAccess()
+  const [localDispatch, setLocalDispatch] = useState(() => dispatchData ?? null)
+  /** One-time seed per dialog open — avoids parent re-renders & Strict Mode remounts overwriting GET results. */
+  const dialogSessionStartedRef = useRef(false)
+  const [nurserySites, setNurserySites] = useState([])
+  /** Per order row: nursery site code (persisted on Order.expectedNursery). */
+  const [expectedNurseryByOrder, setExpectedNurseryByOrder] = useState({})
   const [paymentTransferOpen, setPaymentTransferOpen] = useState(false)
   const [paymentTransferSourceId, setPaymentTransferSourceId] = useState(null)
   const [paymentTransferPaymentId, setPaymentTransferPaymentId] = useState(null)
@@ -137,8 +163,62 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
   const [damagedPlants, setDamagedPlants] = useState({})
   const [expandedRows, setExpandedRows] = useState(new Set())
   const [returnReasons, setReturnReasons] = useState({})
+  const [batchNumbers, setBatchNumbers] = useState({})
   const [showAddOrderDialog, setShowAddOrderDialog] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+
+  const refreshDispatchPayload = useCallback(async (explicitDispatchId) => {
+    const id = String(explicitDispatchId ?? "").trim()
+    if (!id) return false
+    try {
+      const inst = NetworkManager(API.DISPATCHED.GET_BY_ID)
+      const res = await inst.request({}, [id])
+      const d = parseDispatchFromGetByIdResponse(res)
+      if (d?._id) {
+        const orderIds = Array.isArray(d.orderIds) ? d.orderIds : []
+        setLocalDispatch({ ...d, orderIds })
+        return true
+      }
+    } catch (e) {
+      console.error("refreshDispatchPayload:", e)
+    }
+    return false
+  }, [])
+
+  useEffect(() => {
+    if (!open) {
+      dialogSessionStartedRef.current = false
+      return
+    }
+    if (!dispatchData?._id) return
+    if (dialogSessionStartedRef.current) return
+    dialogSessionStartedRef.current = true
+    setLocalDispatch(dispatchData)
+    void refreshDispatchPayload(String(dispatchData._id))
+  }, [open, dispatchData, refreshDispatchPayload])
+
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const inst = NetworkManager(API.NURSERY_SITE.LIST)
+        const res = await inst.request({}, { activeOnly: "true" })
+        const raw = res?.data?.data
+        const list = Array.isArray(raw) ? raw : []
+        if (cancelled) return
+        setNurserySites(list)
+      } catch {
+        if (!cancelled) {
+          setNurserySites([])
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [open])
+
   const [orderActions, setOrderActions] = useState({})
   const [additionalPlantInputs, setAdditionalPlantInputs] = useState({})
   const [paymentDraftByOrder, setPaymentDraftByOrder] = useState({})
@@ -146,11 +226,13 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
   const [paymentOcrBusy, setPaymentOcrBusy] = useState({})
 
   useEffect(() => {
-    if (!dispatchData?.orderIds) return
+    if (!localDispatch?.orderIds) return
     const initialActions = {}
     const initialAdditional = {}
     const initialPay = {}
-    dispatchData.orderIds.forEach((order) => {
+    const initialBatch = {}
+    const initialExpectedNursery = {}
+    localDispatch.orderIds.forEach((order) => {
       const k = rowKey(order)
       if (!k) return
       initialActions[k] = { completeOrder: true }
@@ -158,17 +240,26 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
         Number(order.details?.additionalPlants ?? order.additionalPlants ?? 0) || 0
       initialAdditional[k] = existingAdditional
       initialPay[k] = defaultPaymentDraft()
+      const bn = order.details?.batchNumber ?? order.batchNumber
+      initialBatch[k] = bn != null && bn !== "" ? String(bn) : ""
+      const savedN =
+        order.details?.expectedNursery != null || order.expectedNursery != null
+          ? String(order.details?.expectedNursery ?? order.expectedNursery).trim().toUpperCase()
+          : ""
+      initialExpectedNursery[k] = savedN || "RB"
     })
     setOrderActions(initialActions)
     setAdditionalPlantInputs(initialAdditional)
     setPaymentDraftByOrder(initialPay)
+    setBatchNumbers(initialBatch)
+    setExpectedNurseryByOrder(initialExpectedNursery)
     setReturnedPlants({})
     setDamagedPlants({})
     setReturnReasons({})
     setExpandedRows(new Set())
     setPaymentUploadBusy({})
     setPaymentOcrBusy({})
-  }, [dispatchData])
+  }, [localDispatch])
 
   const handleReturnedPlantsChange = (k, value) => {
     setReturnedPlants((prev) => ({ ...prev, [k]: value }))
@@ -176,6 +267,17 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
 
   const handleReasonChange = (k, value) => {
     setReturnReasons((prev) => ({ ...prev, [k]: value }))
+  }
+
+  const handleBatchNumberChange = (k, value) => {
+    setBatchNumbers((prev) => ({ ...prev, [k]: value }))
+  }
+
+  const handleExpectedNurseryChange = (k, value) => {
+    setExpectedNurseryByOrder((prev) => ({
+      ...prev,
+      [k]: String(value || "").toUpperCase()
+    }))
   }
 
   const handleDamagedPlantsChange = (k, value) => {
@@ -213,6 +315,27 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
 
   const handleOpenAddOrderDialog = () => setShowAddOrderDialog(true)
   const handleCloseAddOrderDialog = () => setShowAddOrderDialog(false)
+
+  const handleDetachOrder = async (orderMongoId) => {
+    const oid = String(orderMongoId || "").trim()
+    if (!oid) return
+    if (!window.confirm("Remove this order from the vehicle? It returns to ready for dispatch.")) return
+    try {
+      setIsLoading(true)
+      const inst = NetworkManager(API.DISPATCHED.DETACH_ORDER)
+      await inst.request({ orderId: oid }, [String(localDispatch?._id || dispatchData?._id)])
+      Toast.success("Order removed from dispatch")
+      const rid = String(localDispatch?._id || dispatchData?._id || "")
+      const ok = await refreshDispatchPayload(rid)
+      if (!ok) Toast.error("Removed, but could not refresh — close and reopen the dialog.")
+      onSuccess?.()
+    } catch (err) {
+      console.error(err)
+      Toast.error(err?.response?.data?.message || err?.message || "Could not remove order")
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   const removePaymentImage = (k, index) => {
     setPaymentDraftByOrder((prev) => {
@@ -306,7 +429,10 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
     damagedPlants,
     returnReasons,
     orderActions,
-    paymentDraftByOrder
+    paymentDraftByOrder,
+    batchNumbersByOrderKey = {},
+    expectedNurseryByOrderKey = {},
+    nurserySitesList = []
   ) => {
     if (!dispatchData?.orderIds) throw new Error("Invalid dispatch data")
     const orderUpdates = []
@@ -410,11 +536,20 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
         })
       }
 
+      const nurseryCode =
+        String(expectedNurseryByOrderKey[k] ?? "").trim().toUpperCase() ||
+        defaultNurserySiteCode(nurserySitesList)
+
       orderUpdates.push({
         orderId: oid,
         returnedPlants: returnedQuantity,
         damagedPlants: damagedQuantity,
         returnReason: returnReasons[k] || "",
+        batchNumber:
+          batchNumbersByOrderKey[k] != null
+            ? String(batchNumbersByOrderKey[k]).trim()
+            : "",
+        expectedNursery: nurseryCode,
         additionalPlants: additionalPlantCount,
         basePlants,
         totalPlants,
@@ -438,15 +573,18 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
       const user = await instance.request(
         {
           ...processReturnedPlants(
-            dispatchData,
+            localDispatch,
             returnedPlants,
             damagedPlants,
             returnReasons,
             orderActions,
-            paymentDraftByOrder
+            paymentDraftByOrder,
+            batchNumbers,
+            expectedNurseryByOrder,
+            nurserySites
           )
         },
-        [dispatchData?._id]
+        [localDispatch?._id || dispatchData?._id]
       )
       if (user?.data?.status) {
         Toast.success(user?.data?.message)
@@ -473,6 +611,16 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
 
   if (!open) return null
 
+  const pickup0 = localDispatch?.plantsDetails?.[0]?.pickupDetails?.[0]
+  const defaultShadeId = pickup0?.shade != null ? String(pickup0.shade) : ""
+  const defaultCavityId = pickup0?.cavity != null ? String(pickup0.cavity) : ""
+  const defaultLinkQty =
+    Number(
+      localDispatch?.orderIds?.[0]?.details?.remainingPlants ??
+        localDispatch?.orderIds?.[0]?.remainingPlants ??
+        0
+    ) || ""
+
   return (
     <>
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-2 sm:p-4">
@@ -481,10 +629,11 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0">
                 <h2 className="truncate text-base font-semibold text-gray-900 sm:text-lg">
-                  Complete delivery · Transport {dispatchData.transportId}
+                  Complete delivery · Transport {localDispatch?.transportId ?? dispatchData?.transportId}
                 </h2>
                 <p className="truncate text-xs text-gray-600 sm:text-sm">
-                  {dispatchData.driverName || "—"} · {dispatchData.vehicleName || "—"}
+                  {localDispatch?.driverName || dispatchData?.driverName || "—"} ·{" "}
+                  {localDispatch?.vehicleName || dispatchData?.vehicleName || "—"}
                 </p>
                 <p className="mt-1 line-clamp-2 text-[11px] text-gray-500">
                   Returns / damaged adjust plants and credits (same rate). Wallet rules unchanged on server.
@@ -501,8 +650,10 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2 sm:px-3 sm:py-3">
-            <div className="space-y-2">
-              {dispatchData.orderIds?.map((order) => {
+            <div
+              className="space-y-2"
+              key={`orders-${String(localDispatch?._id || "")}-${(localDispatch?.orderIds || []).length}-${localDispatch?.updatedAt != null ? String(localDispatch.updatedAt) : ""}`}>
+              {localDispatch?.orderIds?.map((order) => {
                 const k = rowKey(order)
                 if (!k) return null
                 const { basePlants, additionalPlants: additionalPlantCount, totalPlants } =
@@ -607,17 +758,28 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
                           </span>
                         </div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => toggleRow(k)}
-                        className="inline-flex h-fit shrink-0 items-center gap-0.5 self-start rounded border border-gray-200 bg-gray-50 px-2 py-1 text-[11px] font-medium text-gray-700 hover:bg-gray-100">
-                        {expandedRows.has(k) ? (
-                          <ChevronDown className="h-3.5 w-3.5" />
-                        ) : (
-                          <ChevronRight className="h-3.5 w-3.5" />
-                        )}
-                        More
-                      </button>
+                      <div className="flex shrink-0 flex-col gap-1 self-start">
+                        <button
+                          type="button"
+                          title="Remove from this vehicle"
+                          disabled={isLoading}
+                          onClick={() => handleDetachOrder(apiOrderId(order))}
+                          className="inline-flex h-fit items-center gap-0.5 rounded border border-red-200 bg-red-50 px-2 py-1 text-[11px] font-medium text-red-800 hover:bg-red-100 disabled:opacity-50">
+                          <Trash2 className="h-3.5 w-3.5" />
+                          Remove
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => toggleRow(k)}
+                          className="inline-flex h-fit items-center gap-0.5 rounded border border-gray-200 bg-gray-50 px-2 py-1 text-[11px] font-medium text-gray-700 hover:bg-gray-100">
+                          {expandedRows.has(k) ? (
+                            <ChevronDown className="h-3.5 w-3.5" />
+                          ) : (
+                            <ChevronRight className="h-3.5 w-3.5" />
+                          )}
+                          More
+                        </button>
+                      </div>
                     </div>
 
                     <div className="mt-2 grid gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(220px,300px)]">
@@ -700,14 +862,43 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
                           </div>
                         </div>
                         <div>
-                          <label className="text-[11px] font-medium text-gray-600">Note</label>
-                          <input
-                            type="text"
-                            className="mt-0.5 w-full rounded border border-gray-200 px-2 py-1 text-xs"
-                            placeholder="Reason"
-                            value={returnReasons[k] || ""}
-                            onChange={(e) => handleReasonChange(k, e.target.value)}
-                          />
+                          <label className="text-[11px] font-medium text-gray-600">Nursery (expected)</label>
+                          <select
+                            className="mt-0.5 w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs"
+                            value={expectedNurseryByOrder[k] ?? defaultNurserySiteCode(nurserySites)}
+                            onChange={(e) => handleExpectedNurseryChange(k, e.target.value)}>
+                            {nurserySites.length === 0 ? (
+                              <option value="RB">RB</option>
+                            ) : (
+                              nurserySites.map((s) => (
+                                <option key={s._id} value={String(s.code || "").toUpperCase()}>
+                                  {s.name} ({String(s.code || "").toUpperCase()})
+                                </option>
+                              ))
+                            )}
+                          </select>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="min-w-0">
+                            <label className="text-[11px] font-medium text-gray-600">Batch no.</label>
+                            <input
+                              type="text"
+                              className="mt-0.5 w-full rounded border border-amber-200 bg-amber-50/50 px-2 py-1 text-xs"
+                              placeholder="Lot / batch"
+                              value={batchNumbers[k] != null ? batchNumbers[k] : ""}
+                              onChange={(e) => handleBatchNumberChange(k, e.target.value)}
+                            />
+                          </div>
+                          <div className="min-w-0">
+                            <label className="text-[11px] font-medium text-gray-600">Note</label>
+                            <input
+                              type="text"
+                              className="mt-0.5 w-full rounded border border-gray-200 px-2 py-1 text-xs"
+                              placeholder="Reason"
+                              value={returnReasons[k] || ""}
+                              onChange={(e) => handleReasonChange(k, e.target.value)}
+                            />
+                          </div>
                         </div>
                         <label className="flex cursor-pointer items-center gap-1.5 text-xs text-gray-800">
                           <input
@@ -1188,7 +1379,20 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
       </div>
 
       {showAddOrderDialog && (
-        <ReplaceOrderDialog open={showAddOrderDialog} onClose={handleCloseAddOrderDialog} />
+        <ReplaceOrderDialog
+          open={showAddOrderDialog}
+          onClose={handleCloseAddOrderDialog}
+          dispatchId={localDispatch?._id || dispatchData?._id}
+          defaultCavityId={defaultCavityId}
+          defaultShadeId={defaultShadeId}
+          defaultDispatchQuantity={defaultLinkQty}
+          onLinked={async () => {
+            const rid = String(localDispatch?._id || dispatchData?._id || "")
+            const ok = await refreshDispatchPayload(rid)
+            if (!ok) Toast.error("Linked, but could not refresh the list — close and reopen.")
+            onSuccess?.()
+          }}
+        />
       )}
 
       <PaymentTransferDialog

@@ -1,6 +1,6 @@
 // Higher Order Class to make all network calls
 import axios from "axios"
-import { APIWithOfflineRouter, HTTP_METHODS } from "./httpHelper"
+import { APICustomRouter, APIWithOfflineRouter, HTTP_METHODS } from "./httpHelper"
 import { APIConfig } from "../config/serverConfig"
 import { APIError, APIResponse } from "./responseParser"
 import { refreshAuthToken } from "./tokenRefresher"
@@ -33,6 +33,24 @@ import { UserState } from "redux/dispatcher/UserState"
 // Optional third argument to request: { signal } — when set, that signal is used instead of per-route auto-abort.
 // ********************
 
+/** Axios merges relative URLs against baseURL; strip trailing /api/v1 so paths like /api/v1/laboutward/… never double-prefix. */
+function stripTrailingApiV1FromOrigin(baseURL) {
+  const fallback = String(APIConfig.BASE_URL || "")
+    .replace(/\/api\/v1\/?$/u, "")
+    .replace(/\/+$/u, "");
+  if (!baseURL || typeof baseURL !== "string") return fallback;
+  return baseURL.replace(/\/api\/v1\/?$/u, "").replace(/\/+$/u, "");
+}
+
+/** urlBuilder returns paths such as laboutward/… or /order/… — Express mounts APIs under /api/v1. */
+function normalizeMainApiPath(rawPath) {
+  if (typeof rawPath !== "string" || rawPath.length === 0) return rawPath;
+  if (/^https?:\/\//iu.test(rawPath)) return rawPath;
+  const slash = rawPath.startsWith("/") ? rawPath : `/${rawPath}`;
+  if (/^\/api\//iu.test(slash)) return slash;
+  return `/api/v1${slash}`;
+}
+
 export default function networkManager(router, withFile = false, nmOptions = {}) {
   const { abortScope } = nmOptions
   const shouldAutoAbort = router?.__autoAbort === true
@@ -48,8 +66,7 @@ export default function networkManager(router, withFile = false, nmOptions = {})
       : router
 
   const { TIMEOUT, API_AUTH_HEADER, AUTH_TYPE, CONTENT_TYPE } = APIConfig
-  
-  axios.defaults.baseURL = router.baseURL
+
   axios.defaults.timeout = TIMEOUT
   // Don't set default Content-Type - let each request determine it based on body type
   // FormData will be auto-detected and axios will set Content-Type with boundary automatically
@@ -76,7 +93,17 @@ export default function networkManager(router, withFile = false, nmOptions = {})
       router.endpoint.startsWith("/state"))
 
   async function request(body = {}, params = {} || [], requestOptions = {}) {
-    const url = urlBuilder(router, params)
+    const built = urlBuilder(router, params)
+    let url = built
+    if (router instanceof APICustomRouter) {
+      axios.defaults.baseURL = router.baseURL
+      if (!/^https?:\/\//iu.test(url) && !url.startsWith("/")) {
+        url = `/${url}`
+      }
+    } else {
+      axios.defaults.baseURL = stripTrailingApiV1FromOrigin(router.baseURL || APIConfig.BASE_URL)
+      url = normalizeMainApiPath(built)
+    }
     const getHttpMethod = router.method !== HTTP_METHODS.GET
     // Query params: exclude pathParams from axios params
     const queryParams = params && typeof params === "object" && !Array.isArray(params) && params.pathParams

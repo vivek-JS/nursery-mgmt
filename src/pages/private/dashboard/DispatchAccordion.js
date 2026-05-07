@@ -23,11 +23,16 @@ const DispatchAccordion = ({
   onViewDispatch, 
   onCollectSlip, 
   onDeliveryChallan, 
+  onCompleteInvoice,
   onCompleteOrder, 
   onDeleteDispatch 
 }) => {
   const [isExpanded, setIsExpanded] = useState(false)
   const [relatedOrders, setRelatedOrders] = useState([])
+  const [dcInvoiceByOrder, setDcInvoiceByOrder] = useState({})
+  const [dcInvoiceSavingByOrder, setDcInvoiceSavingByOrder] = useState({})
+  const [invoicePrefix, setInvoicePrefix] = useState("R")
+  const [invoiceNext, setInvoiceNext] = useState(null)
   const [loading, setLoading] = useState(false)
   const [orderCompleteOpen, setOrderCompleteOpen] = useState(false)
 
@@ -43,6 +48,65 @@ const DispatchAccordion = ({
       console.log('First order sample:', relatedOrders[0])
     }
   }, [relatedOrders])
+
+  useEffect(() => {
+    let cancelled = false
+    const loadInvoiceSequence = async () => {
+      try {
+        const inst = NetworkManager(API.INVOICE_SEQUENCE.GET)
+        const res = await inst.request({})
+        const payload = res?.data?.data || {}
+        const prefix = String(payload.prefix || "R").trim() || "R"
+        const next = Number(payload.nextNumber)
+        if (cancelled) return
+        setInvoicePrefix(prefix)
+        setInvoiceNext(Number.isFinite(next) ? next : null)
+      } catch (error) {
+        if (cancelled) return
+        setInvoicePrefix("R")
+        setInvoiceNext(null)
+      }
+    }
+    void loadInvoiceSequence()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!Array.isArray(relatedOrders) || relatedOrders.length === 0) {
+      setDcInvoiceByOrder({})
+      return
+    }
+    setDcInvoiceByOrder((prev) => {
+      const nextByOrder = {}
+      let generatedCounter = Number.isFinite(invoiceNext) ? invoiceNext : 1
+      relatedOrders.forEach((order) => {
+        const orderKey = String(order?._id || "")
+        if (!orderKey) return
+        const existing = String(
+          order?.deliveryChallanInvoiceNumber ??
+            order?.details?.deliveryChallanInvoiceNumber ??
+            ""
+        ).trim()
+        if (existing) {
+          nextByOrder[orderKey] = existing
+          return
+        }
+        const prevDraft = Object.prototype.hasOwnProperty.call(prev, orderKey)
+          ? String(prev[orderKey] ?? "").trim()
+          : ""
+        if (prevDraft) {
+          nextByOrder[orderKey] = prev[orderKey]
+          return
+        }
+        const generated = `${invoicePrefix}${generatedCounter}`
+        nextByOrder[orderKey] = generated
+        generatedCounter += 1
+      })
+      return nextByOrder
+    })
+  }, [relatedOrders, invoicePrefix, invoiceNext])
 
   useEffect(() => {
     if (isExpanded && dispatch?.orderIds?.length > 0) {
@@ -63,13 +127,25 @@ const DispatchAccordion = ({
 
       console.log('Fetched related orders response:', response.data)
 
-      // Ensure we always set an array, even if the response is unexpected
-      if (response.data?.data?.data && Array.isArray(response.data.data.data)) {
-        console.log('Using nested data structure, orders:', response.data.data.data)
-        setRelatedOrders(response.data.data.data)
-      } else if (response.data?.data && Array.isArray(response.data.data)) {
-        console.log('Using flat data structure, orders:', response.data.data)
-        setRelatedOrders(response.data.data)
+      const pickDc = (row) =>
+        row?.deliveryChallanInvoiceNumber ??
+        row?.details?.deliveryChallanInvoiceNumber ??
+        null
+
+      const normalizeOrders = (rows) =>
+        (rows || []).map((row) => ({
+          ...row,
+          deliveryChallanInvoiceNumber: pickDc(row),
+        }))
+
+      const raw = response.data
+      let list = null
+      if (raw?.data?.data && Array.isArray(raw.data.data)) list = raw.data.data
+      else if (raw?.data && Array.isArray(raw.data)) list = raw.data
+      else if (Array.isArray(raw)) list = raw
+
+      if (list) {
+        setRelatedOrders(normalizeOrders(list))
       } else {
         console.warn("API returned non-array data for related orders:", response.data?.data)
         setRelatedOrders([])
@@ -192,6 +268,50 @@ const DispatchAccordion = ({
     return getTotalAmount() - getTotalPaid()
   }
 
+  const handleDcInvoiceChange = (orderId, value) => {
+    const key = String(orderId || "")
+    if (!key) return
+    setDcInvoiceByOrder((prev) => ({ ...prev, [key]: value }))
+  }
+
+  const handleDcInvoiceSave = async (order) => {
+    const orderId = String(order?._id || order?.details?.orderid || "")
+    if (!orderId) return
+    const nextValue = String(dcInvoiceByOrder[orderId] || "").trim()
+    setDcInvoiceSavingByOrder((prev) => ({ ...prev, [orderId]: true }))
+    try {
+      const instance = NetworkManager(API.ORDER.UPDATE_ORDER)
+      const response = await instance.request({
+        id: orderId,
+        deliveryChallanInvoiceNumber: nextValue === "" ? null : nextValue
+      })
+      if (response?.data?.status !== "Success") {
+        throw new Error(response?.data?.message || "Could not update DC number")
+      }
+      setRelatedOrders((prev) =>
+        (prev || []).map((item) =>
+          String(item?._id || "") === orderId
+            ? {
+                ...item,
+                deliveryChallanInvoiceNumber: nextValue === "" ? null : nextValue,
+                details: {
+                  ...(item.details || {}),
+                  deliveryChallanInvoiceNumber: nextValue === "" ? null : nextValue
+                }
+              }
+            : item
+        )
+      )
+      Toast.success(`DC updated for order #${order.orderId || "—"}`)
+      void fetchRelatedOrders()
+      onRefresh?.()
+    } catch (error) {
+      Toast.error(error?.response?.data?.message || error?.message || "Failed to update DC")
+    } finally {
+      setDcInvoiceSavingByOrder((prev) => ({ ...prev, [orderId]: false }))
+    }
+  }
+
   const isDelivered = dispatch?.transportStatus === "DELIVERED"
   const dispatchName = (dispatch?.name || "").trim() || "Unnamed Dispatch"
   const agriLoadBlocked = Boolean(dispatch?.agriLoadBlocked)
@@ -299,7 +419,11 @@ const DispatchAccordion = ({
                     onClick={(e) => {
                       e.stopPropagation()
                       if (agriLoadBlocked) return
-                      onDeliveryChallan(dispatch)
+                      const dispatchWithOrders = {
+                        ...dispatch,
+                        orderIds: relatedOrders.length > 0 ? relatedOrders : dispatch.orderIds || []
+                      }
+                      onDeliveryChallan(dispatchWithOrders)
                     }}
                     disabled={agriLoadBlocked}
                     title={agriLoadBlocked ? "Agri Input pending load by Agri admin" : ""}
@@ -311,6 +435,21 @@ const DispatchAccordion = ({
                     <FileText size={16} className="mr-2" />
                     Delivery Challan
                   </button>
+                  {isDelivered && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        const dispatchWithOrders = {
+                          ...dispatch,
+                          orderIds: relatedOrders.length > 0 ? relatedOrders : dispatch.orderIds || []
+                        }
+                        onCompleteInvoice?.(dispatchWithOrders)
+                      }}
+                      className="inline-flex items-center justify-center px-4 py-2 bg-slate-50 text-slate-700 rounded-lg hover:bg-slate-100 transition-colors">
+                      <Download size={16} className="mr-2" />
+                      Complete Invoice
+                    </button>
+                  )}
                   
                   {!isDelivered && (
                     <>
@@ -508,6 +647,26 @@ const DispatchAccordion = ({
                             <div>
                               <span className="text-gray-500">Rate</span>
                               <div className="font-medium">₹{order.rate || 0}/plant</div>
+                            </div>
+                          </div>
+
+                          <div className="mb-2 rounded border border-stone-200 bg-stone-50 px-2 py-1.5">
+                            <div className="text-[10px] font-medium text-stone-700 mb-1">DC Number</div>
+                            <div className="flex items-center gap-1.5">
+                              <input
+                                type="text"
+                                value={dcInvoiceByOrder[String(order._id || "")] ?? ""}
+                                onChange={(e) => handleDcInvoiceChange(order._id, e.target.value)}
+                                className="w-full rounded border border-stone-300 bg-white px-2 py-1 text-[11px] font-mono"
+                                placeholder="Enter DC number"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => handleDcInvoiceSave(order)}
+                                disabled={Boolean(dcInvoiceSavingByOrder[String(order._id || "")])}
+                                className="shrink-0 rounded border border-stone-300 bg-white px-2 py-1 text-[10px] font-semibold text-stone-700 hover:bg-stone-100 disabled:opacity-50">
+                                {dcInvoiceSavingByOrder[String(order._id || "")] ? "Saving..." : "Save"}
+                              </button>
                             </div>
                           </div>
 
