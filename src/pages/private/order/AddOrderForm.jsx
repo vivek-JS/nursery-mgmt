@@ -786,7 +786,8 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
           return {
             label: subtype.subtypeName,
             value: subtype.subtypeId,
-            rate: rate
+            rate: rate,
+            monthlyRates: Array.isArray(subtype.monthlyRates) ? subtype.monthlyRates : [],
           }
         })
         setSubTypes(subtypes)
@@ -1015,6 +1016,7 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
               availableQuantity: available,
               startDay,
               endDay,
+              month: month || moment(startDay, "DD-MM-YYYY").format("MMMM"),
               totalPlants,
               totalBookedPlants,
               productStock: productStock // Include productStock for product selection
@@ -1984,6 +1986,27 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
       // Reload plant product mappings with date filter (filtering happens in UI)
       if (formData?.plant && formData?.subtype) {
         loadPlantProductMappings(formData.plant, formData.subtype)
+      }
+
+      // Autofill rate based on delivery date's month (if monthlyRates are configured for this subtype)
+      if (value && formData?.subtype && !rateManuallySet) {
+        const deliveryMonth = moment(value).format("MMMM") // e.g. "June", "September"
+        const selectedSubtype = subTypes.find((st) => st.value === formData.subtype)
+        if (selectedSubtype && deliveryMonth && Array.isArray(selectedSubtype.monthlyRates) && selectedSubtype.monthlyRates.length > 0) {
+          const monthEntry = selectedSubtype.monthlyRates.find((mr) => mr.month === deliveryMonth)
+          if (monthEntry && monthEntry.rate) {
+            const monthlyRateValue = parseFloat(monthEntry.rate) || 0
+            setFormData((prev) => ({ ...prev, rate: monthlyRateValue.toString() }))
+            setRate(monthlyRateValue)
+          } else {
+            // No monthly override — fall back to rates[0]
+            const fallbackRate = parseFloat(selectedSubtype.rate) || 0
+            if (fallbackRate) {
+              setFormData((prev) => ({ ...prev, rate: fallbackRate.toString() }))
+              setRate(fallbackRate)
+            }
+          }
+        }
       }
     }
 

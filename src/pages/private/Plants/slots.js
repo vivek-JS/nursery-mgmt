@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
-import { Plus, Pencil, Trash2, ChevronDown } from "lucide-react"
+import { Plus, Pencil, Trash2, ChevronDown, IndianRupee } from "lucide-react"
 import { API, NetworkManager } from "network/core"
 import { Formik, Form, FieldArray } from "formik"
 import * as Yup from "yup"
@@ -112,6 +112,8 @@ const Label = ({ className = "", ...props }) => (
   />
 )
 
+const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"]
+
 const Slots = () => {
   const navigate = useNavigate()
   const [plants, setPlants] = useState([])
@@ -120,6 +122,12 @@ const Slots = () => {
   const [editPlant, setEditPlant] = useState(null)
   const [expandedPlants, setExpandedPlants] = useState({})
   const [activeTab, setActiveTab] = useState("plants") // "plants" or "slots"
+
+  // Monthly rates dedicated modal state
+  const [ratesModalOpen, setRatesModalOpen] = useState(false)
+  const [ratesTarget, setRatesTarget] = useState(null) // { plantId, subtypeId, subtypeName, defaultRate }
+  const [monthlyRatesForm, setMonthlyRatesForm] = useState({}) // { January: "15", February: "", ... }
+  const [ratesSaving, setRatesSaving] = useState(false)
 
   const handleOpen = (plant = null) => {
     setEditPlant(plant)
@@ -213,6 +221,69 @@ const Slots = () => {
                           "Failed to delete plant. Please try again."
       
       alert(`Cannot delete plant:\n\n${errorMessage}`)
+    }
+  }
+
+  const openRatesModal = (plantId, subtype) => {
+    const existing = {}
+    MONTHS.forEach((m) => { existing[m] = "" })
+    ;(subtype.monthlyRates || []).forEach((mr) => {
+      if (mr.month) existing[mr.month] = String(mr.rate ?? "")
+    })
+    setRatesTarget({
+      plantId,
+      subtypeId: subtype._id,
+      subtypeName: subtype.name,
+      defaultRate: (subtype.rates || []).join(", "),
+    })
+    setMonthlyRatesForm(existing)
+    setRatesModalOpen(true)
+  }
+
+  const closeRatesModal = () => {
+    setRatesModalOpen(false)
+    setRatesTarget(null)
+    setMonthlyRatesForm({})
+  }
+
+  const handleRatesMonthChange = (month, value) => {
+    setMonthlyRatesForm((prev) => ({ ...prev, [month]: value }))
+  }
+
+  const saveMonthlyRates = async () => {
+    if (!ratesTarget) return
+    setRatesSaving(true)
+    try {
+      const payload = {
+        monthlyRates: MONTHS
+          .filter((m) => monthlyRatesForm[m] !== "" && monthlyRatesForm[m] !== undefined)
+          .map((m) => ({ month: m, rate: parseFloat(monthlyRatesForm[m]) || 0 }))
+      }
+      const instance = NetworkManager(API.plantCms.UPDATE_SUBTYPE)
+      const response = await instance.request(payload, {
+        pathParams: [ratesTarget.plantId, ratesTarget.subtypeId]
+      })
+      if (response?.data?.message) {
+        // Update local plants state so badges refresh without a full reload
+        setPlants((prev) =>
+          prev.map((plant) => {
+            if (String(plant._id) !== String(ratesTarget.plantId)) return plant
+            return {
+              ...plant,
+              subtypes: plant.subtypes.map((st) => {
+                if (String(st._id) !== String(ratesTarget.subtypeId)) return st
+                return { ...st, monthlyRates: payload.monthlyRates }
+              })
+            }
+          })
+        )
+        closeRatesModal()
+      }
+    } catch (error) {
+      console.error("Error saving monthly rates:", error)
+      alert("Failed to save monthly rates. Please try again.")
+    } finally {
+      setRatesSaving(false)
     }
   }
 
@@ -374,7 +445,15 @@ const Slots = () => {
                             <div className="bg-white p-4 space-y-3 animate-in slide-in-from-top-2 duration-300">
                               {plant.subtypes.map((subtype) => (
                                 <div key={subtype._id} className="bg-gradient-to-r from-gray-50 to-gray-100 rounded-xl p-4 border border-gray-200">
-                                  <div className="font-semibold text-gray-900 mb-2">{subtype.name}</div>
+                                  <div className="flex items-center justify-between mb-2">
+                                    <div className="font-semibold text-gray-900">{subtype.name}</div>
+                                    <button
+                                      onClick={() => openRatesModal(plant._id, subtype)}
+                                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 hover:border-amber-300 transition-all duration-200">
+                                      <IndianRupee className="h-3.5 w-3.5" />
+                                      Monthly Rates
+                                    </button>
+                                  </div>
                                   {subtype.description && (
                                     <div className="text-sm text-gray-600 mb-3">
                                       {subtype.description}
@@ -382,7 +461,7 @@ const Slots = () => {
                                   )}
                                   <div className="grid grid-cols-2 gap-3 text-sm">
                                     <div>
-                                      <span className="font-medium text-gray-700">Rates:</span>
+                                      <span className="font-medium text-gray-700">Default Rate:</span>
                                       <div className="text-gray-600 mt-1">
                                         {subtype.rates.join(", ")}
                                       </div>
@@ -394,6 +473,18 @@ const Slots = () => {
                                       </div>
                                     </div>
                                   </div>
+                                  {subtype.monthlyRates && subtype.monthlyRates.length > 0 && (
+                                    <div className="mt-2 text-sm">
+                                      <span className="font-medium text-gray-700">Monthly Rates:</span>
+                                      <div className="text-gray-600 mt-1 flex flex-wrap gap-2">
+                                        {subtype.monthlyRates.map((mr, i) => (
+                                          <span key={i} className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded text-xs font-medium">
+                                            {mr.month}: ₹{mr.rate}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
                                 </div>
                               ))}
                             </div>
@@ -426,8 +517,9 @@ const Slots = () => {
                       slotDays: subtype.slotDays || "",
                       slotStartDate: subtype.slotStartDate || "",
                       slotEndDate: subtype.slotEndDate || "",
-                      slotCapacity: subtype.slotCapacity || ""
-                    })) || [{ name: "", description: "", rates: [""], buffer: 0, plantReadyDays: 0, slotDays: "", slotStartDate: "", slotEndDate: "", slotCapacity: "" }]
+                      slotCapacity: subtype.slotCapacity || "",
+                      monthlyRates: Array.isArray(subtype.monthlyRates) ? subtype.monthlyRates : [],
+                    })) || [{ name: "", description: "", rates: [""], monthlyRates: [], buffer: 0, plantReadyDays: 0, slotDays: "", slotStartDate: "", slotEndDate: "", slotCapacity: "" }]
                   }}
                   validationSchema={plantSchema}
                   onSubmit={handleSubmit}>
@@ -710,7 +802,7 @@ const Slots = () => {
                                     </div>
 
                                     <div className="space-y-3">
-                                      <Label className="text-sm font-semibold text-gray-700">Rates</Label>
+                                      <Label className="text-sm font-semibold text-gray-700">Default Rate (fallback)</Label>
                                       <FieldArray name={`subtypes.${index}.rates`}>
                                         {({ push, remove }) => (
                                           <div className="space-y-3">
@@ -751,6 +843,58 @@ const Slots = () => {
                                         )}
                                       </FieldArray>
                                     </div>
+
+                                    <div className="space-y-3">
+                                      <Label className="text-sm font-semibold text-gray-700">Monthly Rates (optional overrides)</Label>
+                                      <p className="text-xs text-gray-500">Set a rate for specific months. When an order is placed in that month&apos;s slot, this rate will be used instead of the default rate above.</p>
+                                      <FieldArray name={`subtypes.${index}.monthlyRates`}>
+                                        {({ push: pushMonthly, remove: removeMonthly }) => (
+                                          <div className="space-y-2">
+                                            {(subtype.monthlyRates || []).map((mr, mrIndex) => (
+                                              <div key={mrIndex} className="flex items-center gap-2">
+                                                <select
+                                                  name={`subtypes.${index}.monthlyRates.${mrIndex}.month`}
+                                                  value={mr.month}
+                                                  onChange={handleChange}
+                                                  onBlur={handleBlur}
+                                                  className="h-12 rounded-xl border-2 border-gray-200 bg-white/80 px-3 text-sm font-medium shadow-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-400 w-40">
+                                                  <option value="">Month</option>
+                                                  {["January","February","March","April","May","June","July","August","September","October","November","December"].map(m => (
+                                                    <option key={m} value={m}>{m}</option>
+                                                  ))}
+                                                </select>
+                                                <Input
+                                                  name={`subtypes.${index}.monthlyRates.${mrIndex}.rate`}
+                                                  placeholder="Rate"
+                                                  type="number"
+                                                  value={mr.rate}
+                                                  onChange={handleChange}
+                                                  onBlur={handleBlur}
+                                                  className="w-32"
+                                                />
+                                                <Button
+                                                  type="button"
+                                                  variant="danger"
+                                                  size="sm"
+                                                  onClick={() => removeMonthly(mrIndex)}
+                                                  className="px-2">
+                                                  <Trash2 className="h-4 w-4" />
+                                                </Button>
+                                              </div>
+                                            ))}
+                                            <Button
+                                              type="button"
+                                              variant="outline"
+                                              size="sm"
+                                              onClick={() => pushMonthly({ month: "", rate: "" })}
+                                              className="gap-2">
+                                              <Plus className="h-4 w-4" />
+                                              Add Monthly Rate
+                                            </Button>
+                                          </div>
+                                        )}
+                                      </FieldArray>
+                                    </div>
                                   </div>
                                 ))}
                                 <Button
@@ -758,7 +902,7 @@ const Slots = () => {
                                   variant="outline"
                                   size="lg"
                                   onClick={() =>
-                                    push({ name: "", description: "", rates: [""], buffer: 0, plantReadyDays: 0, slotDays: "", slotStartDate: "", slotEndDate: "", slotCapacity: "" })
+                                    push({ name: "", description: "", rates: [""], monthlyRates: [], buffer: 0, plantReadyDays: 0, slotDays: "", slotStartDate: "", slotEndDate: "", slotCapacity: "" })
                                   }
                                   className="w-full gap-3 border-2 border-dashed border-gray-300 hover:border-blue-400 hover:bg-blue-50">
                                   <Plus className="h-5 w-5" />
@@ -787,6 +931,73 @@ const Slots = () => {
           <SlotManager />
         )}
       </div>
+
+      {/* ── Dedicated Monthly Rates Modal ── */}
+      {ratesModalOpen && ratesTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={closeRatesModal} />
+          <div className="z-50 w-full max-w-lg rounded-3xl bg-white/98 backdrop-blur-xl shadow-2xl border border-white/20 animate-in fade-in-0 zoom-in-95 duration-300 overflow-hidden">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-amber-500 to-orange-500 px-6 py-5">
+              <div className="flex items-center gap-3">
+                <div className="bg-white/20 rounded-xl p-2">
+                  <IndianRupee className="h-5 w-5 text-white" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-white">Monthly Rates</h2>
+                  <p className="text-amber-100 text-sm">{ratesTarget.subtypeName}</p>
+                </div>
+              </div>
+              {ratesTarget.defaultRate && (
+                <div className="mt-3 bg-white/15 rounded-xl px-4 py-2 text-sm text-white">
+                  Default rate (fallback): <span className="font-bold">₹{ratesTarget.defaultRate}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Body */}
+            <div className="px-6 py-5 max-h-[55vh] overflow-y-auto">
+              <p className="text-xs text-gray-500 mb-4">
+                Enter a rate for specific months. Leave blank to use the default rate. Changes take effect on new orders immediately.
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                {MONTHS.map((month) => (
+                  <div key={month} className="flex items-center gap-2 bg-gray-50 rounded-xl px-3 py-2 border border-gray-200 hover:border-amber-300 transition-colors">
+                    <span className="text-xs font-semibold text-gray-600 w-20 shrink-0">{month.slice(0,3)}</span>
+                    <div className="flex items-center gap-1 flex-1">
+                      <span className="text-gray-400 text-sm">₹</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder="Default"
+                        value={monthlyRatesForm[month] ?? ""}
+                        onChange={(e) => handleRatesMonthChange(month, e.target.value)}
+                        className="w-full text-sm font-medium bg-transparent outline-none placeholder-gray-300 text-gray-800"
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-3 bg-gray-50/50">
+              <button
+                onClick={closeRatesModal}
+                className="px-5 py-2.5 rounded-xl border-2 border-gray-200 text-sm font-semibold text-gray-600 hover:bg-gray-100 transition-all duration-200">
+                Cancel
+              </button>
+              <button
+                onClick={saveMonthlyRates}
+                disabled={ratesSaving}
+                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-white text-sm font-semibold shadow-lg hover:shadow-xl hover:from-amber-600 hover:to-orange-600 disabled:opacity-50 transition-all duration-200">
+                {ratesSaving ? "Saving..." : "Save Monthly Rates"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

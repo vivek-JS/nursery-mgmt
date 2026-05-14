@@ -245,19 +245,18 @@ const RateApprovalPage = () => {
             />
             <DetailRow
               label="Village"
-              value={orderSnapshot?.village || "—"}
+              value={[orderSnapshot?.village, orderSnapshot?.taluka].filter(Boolean).join(", ") || "—"}
             />
             <DetailRow
               label="Plant"
-              value={
-                orderSnapshot?.plantName
-                  ? `${orderSnapshot.plantName}${
-                      orderSnapshot?.numberOfPlants
-                        ? ` × ${orderSnapshot.numberOfPlants}`
-                        : ""
-                    }`
-                  : "—"
-              }
+              value={(() => {
+                const name = orderSnapshot?.plantName
+                const isObjectId = name && /^[a-f0-9]{24}$/i.test(String(name))
+                const displayName = isObjectId ? "—" : (name || "—")
+                const subtype = orderSnapshot?.plantSubtypeName ? ` (${orderSnapshot.plantSubtypeName})` : ""
+                const qty = orderSnapshot?.numberOfPlants ? ` × ${orderSnapshot.numberOfPlants}` : ""
+                return `${displayName}${subtype}${qty}`
+              })()}
             />
           </Stack>
 
