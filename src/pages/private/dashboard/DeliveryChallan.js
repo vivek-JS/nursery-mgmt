@@ -5,8 +5,12 @@ const NAVY = "#000000"
 const ACCENT = "#111111"
 const BORDER = "#000000"
 
-/** Prefer immutable invoice # from dispatch history for this vehicle leg; then instant-sale order field; fallback empty → legacy ref in UI. */
+/** Prefer system official DC; then manual label; then dispatch-history invoice for this leg. */
 function resolveChallanInvoiceLabel(order, dispatchMongoId) {
+  const official =
+    order?.officialDeliveryChallanNumber ||
+    order?.details?.officialDeliveryChallanNumber
+  if (official) return String(official).trim()
   const edited =
     order?.deliveryChallanInvoiceNumber ||
     order?.details?.deliveryChallanInvoiceNumber
@@ -17,6 +21,19 @@ function resolveChallanInvoiceLabel(order, dispatchMongoId) {
   )
   if (entry?.invoiceNumber) return String(entry.invoiceNumber).trim()
   return ""
+}
+
+function optionalManualDcSeparateFromOfficial(order) {
+  const official = String(
+    order?.officialDeliveryChallanNumber ??
+      order?.details?.officialDeliveryChallanNumber ??
+      ""
+  ).trim()
+  const manual = String(
+    order?.deliveryChallanInvoiceNumber ?? order?.details?.deliveryChallanInvoiceNumber ?? ""
+  ).trim()
+  if (!official || !manual || manual === official) return ""
+  return manual
 }
 
 const cell = (extra = {}) => ({
@@ -86,6 +103,7 @@ const DeliveryChallanPDF = ({ open, onClose, dispatchData }) => {
 
     const dispatchMongoId = dispatchData?._id
     const invoiceLabel = resolveChallanInvoiceLabel(order, dispatchMongoId)
+    const optionalManualDc = optionalManualDcSeparateFromOfficial(order)
     const orderNum =
       order?.order != null
         ? String(order.order)
@@ -167,6 +185,11 @@ const DeliveryChallanPDF = ({ open, onClose, dispatchData }) => {
             >
               {invoiceLabel || legacyRef || "—"}
             </div>
+            {optionalManualDc ? (
+              <div style={{ color: "#000", fontSize: "6.5pt", marginTop: "0.8mm", fontWeight: 600 }}>
+                मॅन्युअल DC: {optionalManualDc}
+              </div>
+            ) : null}
             <div style={{ color: "#000", fontSize: "6.5pt", marginTop: "1mm" }}>
               तारीख: {today}
             </div>

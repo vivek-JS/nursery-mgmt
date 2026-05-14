@@ -11,6 +11,7 @@ import WhatsAppIcon from "@mui/icons-material/WhatsApp"
 import LinkIcon from "@mui/icons-material/Link"
 import GrassIcon from "@mui/icons-material/Grass"
 import AssessmentIcon from "@mui/icons-material/Assessment"
+import PriceChangeIcon from "@mui/icons-material/PriceChange"
 import AccountTreeIcon from "@mui/icons-material/AccountTree"
 import TrendingDownIcon from "@mui/icons-material/TrendingDown"
 import TaskIcon from "@mui/icons-material/Task"
@@ -61,6 +62,7 @@ export const DashboardMenus = [
   new MenuPath("Excel Import", <CloudUploadIcon />, "/u/upload-orders"),
   new MenuPath("Dealers", <ListAltIcon />, "/u/dealers"),
   new MenuPath("Accounting Dashboard", <AccountBalanceIcon />, "/u/accountant-dashboard", null, ["ACCOUNTANT", "SUPER_ADMIN"]),
+  new MenuPath("Rate Approvals", <PriceChangeIcon />, "/u/rate-approvals", null, ["SUPER_ADMIN", "SUPERADMIN"]),
   new MenuPath("WhatsApp Management", <WhatsAppIcon />, "/u/whatsapp", ["SUPER_ADMIN"]),
   new MenuPath("Public Farmer Links", <LinkIcon />, "/u/public-links", ["SUPER_ADMIN"])
 ]

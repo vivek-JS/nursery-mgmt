@@ -219,6 +219,8 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
     }
   }, [open])
 
+  const [tripData, setTripData] = useState({ kmRun: "", rent: "", otherCharges: "", remark: "", expanded: false })
+
   const [orderActions, setOrderActions] = useState({})
   const [additionalPlantInputs, setAdditionalPlantInputs] = useState({})
   const [paymentDraftByOrder, setPaymentDraftByOrder] = useState({})
@@ -259,6 +261,7 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
     setExpandedRows(new Set())
     setPaymentUploadBusy({})
     setPaymentOcrBusy({})
+    setTripData({ kmRun: "", rent: "", otherCharges: "", remark: "", expanded: false })
   }, [localDispatch])
 
   const handleReturnedPlantsChange = (k, value) => {
@@ -570,22 +573,28 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
     try {
       setIsLoading(true)
       const instance = NetworkManager(API.DISPATCHED.UPDATE_COMPLETE)
-      const user = await instance.request(
-        {
-          ...processReturnedPlants(
-            localDispatch,
-            returnedPlants,
-            damagedPlants,
-            returnReasons,
-            orderActions,
-            paymentDraftByOrder,
-            batchNumbers,
-            expectedNurseryByOrder,
-            nurserySites
-          )
-        },
-        [localDispatch?._id || dispatchData?._id]
-      )
+      const payload = {
+        ...processReturnedPlants(
+          localDispatch,
+          returnedPlants,
+          damagedPlants,
+          returnReasons,
+          orderActions,
+          paymentDraftByOrder,
+          batchNumbers,
+          expectedNurseryByOrder,
+          nurserySites
+        )
+      }
+      if (tripData.kmRun !== "" || tripData.rent !== "" || tripData.otherCharges !== "" || tripData.remark) {
+        payload.tripData = {
+          kmRun: tripData.kmRun !== "" ? Number(tripData.kmRun) : null,
+          rent: tripData.rent !== "" ? Number(tripData.rent) : null,
+          otherCharges: tripData.otherCharges !== "" ? Number(tripData.otherCharges) : null,
+          remark: tripData.remark || "",
+        }
+      }
+      const user = await instance.request(payload, [localDispatch?._id || dispatchData?._id])
       if (user?.data?.status) {
         Toast.success(user?.data?.message)
         onSuccess?.()
@@ -1324,6 +1333,76 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
                   </div>
                 )
               })}
+            </div>
+
+            {/* Vehicle trip details — dispatch-level optional accordion */}
+            <div className="mt-3 rounded-lg border border-violet-200 bg-violet-50/60 px-3 py-2.5">
+              <button
+                type="button"
+                onClick={() => setTripData((prev) => ({ ...prev, expanded: !prev.expanded }))}
+                className="flex w-full items-center gap-1.5 text-left text-xs font-semibold text-violet-800 hover:text-violet-900">
+                {tripData.expanded ? (
+                  <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+                ) : (
+                  <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+                )}
+                Vehicle trip details
+                <span className="ml-1 font-normal text-violet-600">(optional — km, rent, charges)</span>
+                {(tripData.kmRun !== "" || tripData.rent !== "" || tripData.otherCharges !== "") && (
+                  <span className="ml-auto inline-flex items-center rounded-full bg-violet-200 px-2 py-0.5 text-[10px] font-medium text-violet-900">
+                    filled
+                  </span>
+                )}
+              </button>
+              {tripData.expanded && (
+                <div className="mt-3 space-y-2">
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <label className="text-[10px] font-medium text-gray-600">KM Run</label>
+                      <input
+                        type="number"
+                        min={0}
+                        className="mt-0.5 w-full rounded border border-violet-200 bg-white px-2 py-1 text-xs focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-300"
+                        placeholder="km"
+                        value={tripData.kmRun}
+                        onChange={(e) => setTripData((prev) => ({ ...prev, kmRun: e.target.value }))}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-medium text-gray-600">Rent (₹)</label>
+                      <input
+                        type="number"
+                        min={0}
+                        className="mt-0.5 w-full rounded border border-violet-200 bg-white px-2 py-1 text-xs focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-300"
+                        placeholder="₹"
+                        value={tripData.rent}
+                        onChange={(e) => setTripData((prev) => ({ ...prev, rent: e.target.value }))}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-medium text-gray-600">Other Charges (₹)</label>
+                      <input
+                        type="number"
+                        min={0}
+                        className="mt-0.5 w-full rounded border border-violet-200 bg-white px-2 py-1 text-xs focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-300"
+                        placeholder="₹"
+                        value={tripData.otherCharges}
+                        onChange={(e) => setTripData((prev) => ({ ...prev, otherCharges: e.target.value }))}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-medium text-gray-600">Remark</label>
+                    <textarea
+                      rows={2}
+                      className="mt-0.5 w-full rounded border border-violet-200 bg-white px-2 py-1 text-xs focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-300"
+                      placeholder="Optional note about this trip"
+                      value={tripData.remark}
+                      onChange={(e) => setTripData((prev) => ({ ...prev, remark: e.target.value }))}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 

@@ -38,6 +38,15 @@ function mergeDispatchWithFreshDetail(listRow, freshDetail) {
         : ""
     const fromDetails = o.details?.deliveryChallanInvoiceNumber
     const dcVal = fromFresh || (fromDetails != null ? String(fromDetails).trim() : "")
+    const fromFreshOff =
+      f.officialDeliveryChallanNumber != null &&
+      String(f.officialDeliveryChallanNumber).trim() !== ""
+        ? String(f.officialDeliveryChallanNumber).trim()
+        : ""
+    const fromDetailsOff = o.details?.officialDeliveryChallanNumber
+    const offVal =
+      fromFreshOff ||
+      (fromDetailsOff != null ? String(fromDetailsOff).trim() : "")
     const farmer =
       f.farmer && typeof f.farmer === "object"
         ? {
@@ -49,9 +58,11 @@ function mergeDispatchWithFreshDetail(listRow, freshDetail) {
     return {
       ...o,
       ...(dcVal ? { deliveryChallanInvoiceNumber: dcVal } : {}),
+      ...(offVal ? { officialDeliveryChallanNumber: offVal } : {}),
       details: {
         ...(o.details || {}),
         ...(dcVal ? { deliveryChallanInvoiceNumber: dcVal } : {}),
+        ...(offVal ? { officialDeliveryChallanNumber: offVal } : {}),
         ...(Array.isArray(f.payment) ? { payment: f.payment } : {}),
         ...(farmer ? { farmer } : {}),
       },
@@ -159,6 +170,12 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false 
       setLoading(false)
     }
   }, [enrichDispatchLoadStatus, loadDispatchPage, setisDispatchtab])
+
+  const patchDispatchPdfFields = useCallback((dispatchId, patch) => {
+    setDispatches((prev) =>
+      prev.map((d) => (String(d._id) === String(dispatchId) ? { ...d, ...patch } : d))
+    )
+  }, [])
 
   const loadMore = useCallback(async () => {
     if (!hasMoreRef.current) return
@@ -630,6 +647,7 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false 
                   key={dispatch._id}
                   dispatch={dispatch}
                   onRefresh={refreshList}
+                  onDispatchPdfFields={patchDispatchPdfFields}
                   onViewDispatch={(dispatch) => handleDialogOpen("view", dispatch, { stopPropagation: () => {} })}
                   onCollectSlip={(dispatch) => handleDialogOpen("collectSlip", dispatch, { stopPropagation: () => {} })}
                   onDeliveryChallan={(dispatch) => handleDialogOpen("dc", dispatch, { stopPropagation: () => {} })}

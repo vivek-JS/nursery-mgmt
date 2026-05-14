@@ -53,6 +53,7 @@ export function normalizeFarmerPayment(raw) {
     salesPerson,
     returnedPlants: Number(raw.returnedPlants) || 0,
     damagedPlants: Number(raw.damagedPlants) || 0,
+    dispatch: raw.dispatch || null,
     __source: "farmer",
     __raw: raw
   }

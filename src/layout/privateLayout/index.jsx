@@ -93,8 +93,14 @@ export default function PrivateLayout(props) {
   const isSecondaryEmployee = userType && (userType.toUpperCase() === "SECONDARY")
   const isSuperAdmin = userRole === "SUPER_ADMIN" || userRole === "SUPERADMIN"
   const isAdmin = userRole === "ADMIN"
-  // Check RAM_AGRI_SALES_MANAGER by jobTitle (sidebar + restricted routes)
-  const isRamAgriSalesManager = userType === "RAM_AGRI_SALES_MANAGER" || userData?.jobTitle === "RAM_AGRI_SALES_MANAGER"
+  const jtUpper = String(userData?.jobTitle || "").toUpperCase().trim()
+  const roleUpper = String(userRole || "").toUpperCase().trim()
+  // Ram Agri programme leads: restricted nav like sales manager (Dashboard, Nursery insights, Ram Agri inventory only)
+  const isRamAgriSalesManager =
+    jtUpper === "RAM_AGRI_SALES_MANAGER" ||
+    roleUpper === "RAM_AGRI_SALES_MANAGER" ||
+    jtUpper === "RAM_AGRI_SALES_OFFICE_MANAGER" ||
+    roleUpper === "RAM_AGRI_SALES_OFFICE_MANAGER"
   const isCashier = userType === "CASHIER" || userRole === "CASHIER" || userData?.jobTitle === "CASHIER"
 
   // Reset redirect flags when path changes (user navigated to a different route)
@@ -153,7 +159,7 @@ export default function PrivateLayout(props) {
     }
   }, [isSecondaryEmployee, isSuperAdmin, isAdmin, location.pathname, navigate, userData])
 
-  // RAM_AGRI_SALES_MANAGER can ONLY access: Dashboard, Ram Agri Input dashboard, Inventory, Ram Agri Input Order, Ram Agri Inputs Master
+  // RAM_AGRI_SALES_MANAGER / RAM_AGRI_SALES_OFFICE_MANAGER can ONLY access: Dashboard, Ram Agri Input dashboard, Inventory, Ram Agri Input Order, Ram Agri Inputs Master
   useEffect(() => {
     if (!userData) return
     if (ramAgriSalesManagerRedirectRef.current) return
@@ -281,7 +287,7 @@ export default function PrivateLayout(props) {
     }
     
     // SUPER_ADMIN has access to everything
-    if (userRole === "SUPER_ADMIN") {
+    if (userRole === "SUPER_ADMIN" || userRole === "SUPERADMIN") {
       return true
     }
     
@@ -416,7 +422,7 @@ export default function PrivateLayout(props) {
                   return false
                 }
                 
-                // RAM_AGRI_SALES_MANAGER: only Dashboard, Ram Agri Input + Inventory
+                // RAM_AGRI_SALES_MANAGER / RAM_AGRI_SALES_OFFICE_MANAGER: only Dashboard, Ram Agri Input + Inventory
                 if (isRamAgriSalesManager && !isSuperAdmin && !isAdmin) {
                   return (
                     item.route === "/u/dashboard" ||

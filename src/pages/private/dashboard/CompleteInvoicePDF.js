@@ -6,12 +6,27 @@ const ACCENT = "#111111"
 const BORDER = "#000000"
 
 function resolveChallanInvoiceLabel(order, dispatchMongoId) {
+  const official =
+    order?.officialDeliveryChallanNumber ||
+    order?.details?.officialDeliveryChallanNumber
+  if (official) return String(official).trim()
   const edited = order?.deliveryChallanInvoiceNumber || order?.details?.deliveryChallanInvoiceNumber
   if (edited) return String(edited).trim()
   const history = order?.dispatchHistory || order?.details?.dispatchHistory || []
   const entry = history.find((h) => String(h?.dispatchId || "") === String(dispatchMongoId || ""))
   if (entry?.invoiceNumber) return String(entry.invoiceNumber).trim()
   return ""
+}
+
+function optionalManualDcSeparateFromOfficial(order) {
+  const official = String(
+    order?.officialDeliveryChallanNumber ?? order?.details?.officialDeliveryChallanNumber ?? ""
+  ).trim()
+  const manual = String(
+    order?.deliveryChallanInvoiceNumber ?? order?.details?.deliveryChallanInvoiceNumber ?? ""
+  ).trim()
+  if (!official || !manual || manual === official) return ""
+  return manual
 }
 
 function getCollectedPayments(order) {
@@ -66,6 +81,7 @@ const CompleteInvoicePDF = ({ open, onClose, dispatchData }) => {
     const plantSubtypeName = order?.plantSubtype?.name || ""
     const plantName = plantSubtypeName ? `${rawPlantName} · ${plantSubtypeName}` : rawPlantName
     const dcNo = resolveChallanInvoiceLabel(order, dispatchData?._id)
+    const optionalManualDc = optionalManualDcSeparateFromOfficial(order)
     const orderNum = order?.orderId != null ? String(order.orderId) : ""
     const legacyRef = [dispatchData?.transportId, orderNum && `Order #${orderNum}`]
       .filter(Boolean)
@@ -141,6 +157,11 @@ const CompleteInvoicePDF = ({ open, onClose, dispatchData }) => {
             >
               {dcNo || legacyRef || "—"}
             </div>
+            {optionalManualDc ? (
+              <div style={{ color: "#000", fontSize: "6.5pt", marginTop: "0.8mm", fontWeight: 600 }}>
+                मॅन्युअल DC: {optionalManualDc}
+              </div>
+            ) : null}
             <div style={{ color: "#000", fontSize: "6.5pt", marginTop: "1mm" }}>
               तारीख: {today}
             </div>

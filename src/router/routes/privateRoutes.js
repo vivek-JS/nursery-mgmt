@@ -73,6 +73,7 @@ const CashierPage = React.lazy(() => import("pages/private/cashier"))
 const UpiReceiptPage = React.lazy(() => import("pages/private/upi-receipt"))
 const VoiceFeedbackList = React.lazy(() => import("pages/private/voiceFeedback/VoiceFeedbackList"))
 const VoiceFeedbackDetail = React.lazy(() => import("pages/private/voiceFeedback/VoiceFeedbackDetail"))
+const RateApprovalsPage = React.lazy(() => import("pages/private/rateApprovals/RateApprovalsPage"))
 
 export const PrivateRoutes = [
   { path: "/u/dashboard", component: Dashboard },
@@ -155,5 +156,6 @@ export const PrivateRoutes = [
   { path: "/u/call-assignment", component: CallAssignmentList },
   { path: "/u/upi-receipt", component: UpiReceiptPage },
   { path: "/u/voice-feedback", component: VoiceFeedbackList },
-  { path: "/u/voice-feedback/:id", component: VoiceFeedbackDetail }
+  { path: "/u/voice-feedback/:id", component: VoiceFeedbackDetail },
+  { path: "/u/rate-approvals", component: RateApprovalsPage }
 ]

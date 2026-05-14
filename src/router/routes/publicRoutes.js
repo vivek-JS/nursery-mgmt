@@ -8,6 +8,8 @@ const ResetPassword = React.lazy(() => import("pages/public/reset-password"))
 const HospitalOnboarding = React.lazy(() => import("components/Modals/HospitalOnboarding"))
 const PublicAddFarmer = React.lazy(() => import("pages/public/add-farmer/PublicAddFarmer"))
 const CallListMobile = React.lazy(() => import("pages/public/CallListMobile"))
+const RateApprovalPage = React.lazy(() => import("pages/public/RateApprovalPage"))
+const AgriLoadPage = React.lazy(() => import("pages/public/AgriLoadPage"))
 
 export const PublicRoutes = [
   { path: "/auth/login", component: Login },
@@ -19,5 +21,9 @@ export const PublicRoutes = [
   // Public farmer form: accessible even when logged in
   { path: "/public/add-farmer/:slug", component: PublicAddFarmer, allowWhenLoggedIn: true },
   // Call list mobile page: token-based, no login required
-  { path: "/call-list/:id/:token", component: CallListMobile, allowWhenLoggedIn: true }
+  { path: "/call-list/:id/:token", component: CallListMobile, allowWhenLoggedIn: true },
+  // Rate change approval page: WhatsApp link with token + phone, accessible without login
+  { path: "/rate-approval", component: RateApprovalPage, allowWhenLoggedIn: true },
+  // Agri load mark-loaded page: WhatsApp one-click link, auto-marks order as LOADED
+  { path: "/agri-load", component: AgriLoadPage, allowWhenLoggedIn: true },
 ]

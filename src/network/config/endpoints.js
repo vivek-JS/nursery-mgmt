@@ -343,6 +343,22 @@ export const API = {
     // Agri Sales Orders (Ram Agri Sales)
     GET_ALL_AGRI_SALES_ORDERS: new APIRouter("/inventory/agri-sales-orders", HTTP_METHODS.GET),
     GET_OUTSTANDING_AGRI_SALES_ORDERS: new APIRouter("/inventory/agri-sales-orders/outstanding", HTTP_METHODS.GET),
+    GET_AGRI_SALES_OUTSTANDING_LIMIT_SUMMARY: new APIRouter(
+      "/inventory/agri-sales-orders/outstanding-limit/summary",
+      HTTP_METHODS.GET
+    ),
+    GET_AGRI_SALES_OUTSTANDING_LIMIT_SETTINGS: new APIRouter(
+      "/inventory/agri-sales-orders/outstanding-limit/settings",
+      HTTP_METHODS.GET
+    ),
+    PATCH_AGRI_SALES_OUTSTANDING_LIMIT_GLOBAL: new APIRouter(
+      "/inventory/agri-sales-orders/outstanding-limit/global",
+      HTTP_METHODS.PATCH
+    ),
+    PATCH_AGRI_SALES_OUTSTANDING_LIMIT_USER: new APIRouter(
+      "/inventory/agri-sales-orders/outstanding-limit/user/:userId",
+      HTTP_METHODS.PATCH
+    ),
     GET_AGRI_SALES_ORDER_BY_ID: new APIRouter("/inventory/agri-sales-orders", HTTP_METHODS.GET),
     CREATE_AGRI_SALES_ORDER: new APIRouter("/inventory/agri-sales-orders/create", HTTP_METHODS.POST),
     CREATE_LINKED_AGRI_ORDER: new APIRouter("/inventory/agri-sales-orders/linked/create", HTTP_METHODS.POST),
@@ -540,7 +556,34 @@ export const API = {
       "/order/farmer-plant-ledger/transfer-order-payment",
       HTTP_METHODS.POST,
       OFFLINE.PROFILE
+    ),
+    CREATE_FARMER_ORDER_TRANSFER_REQUEST: new APIRouter(
+      "/order/farmer-plant-ledger/transfer-requests",
+      HTTP_METHODS.POST,
+      OFFLINE.PROFILE
+    ),
+    GET_FARMER_ORDER_TRANSFER_REQUESTS: new APIRouter(
+      "/order/farmer-plant-ledger/transfer-requests",
+      HTTP_METHODS.GET,
+      OFFLINE.PROFILE
+    ),
+    APPROVE_FARMER_ORDER_TRANSFER_REQUEST: new APIRouter(
+      "/order/farmer-plant-ledger/transfer-requests/:id/approve",
+      HTTP_METHODS.PATCH,
+      OFFLINE.PROFILE
+    ),
+    REJECT_FARMER_ORDER_TRANSFER_REQUEST: new APIRouter(
+      "/order/farmer-plant-ledger/transfer-requests/:id/reject",
+      HTTP_METHODS.PATCH,
+      OFFLINE.PROFILE
     )
+  },
+  RATE_CHANGE_REQUEST: {
+    GET_ALL: new APIRouter("/rate-change-requests", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_BY_TOKEN: new APIRouter("/rate-change-requests/by-token/:token", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    APPROVE_VIA_LINK: new APIRouter("/rate-change-requests/approve-via-link", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    APPROVE_VIA_UI: new APIRouter("/rate-change-requests/:id/approve", HTTP_METHODS.PATCH, OFFLINE.PROFILE),
+    REJECT_VIA_UI: new APIRouter("/rate-change-requests/:id/reject", HTTP_METHODS.PATCH, OFFLINE.PROFILE),
   },
   plantCms: {
     POST_NEWPLANT: new APIRouter("/plantcms/plants", HTTP_METHODS.POST, OFFLINE.PROFILE),
@@ -654,6 +697,7 @@ export const API = {
   DISPATCHED: {
     GET_TRAYS: new APIRouter("dispatched", HTTP_METHODS.GET),
     GET_BY_ID: new APIRouter("dispatched/:id", HTTP_METHODS.GET),
+    GENERATE_PDFS: new APIRouter("dispatched/:id/generate-pdfs", HTTP_METHODS.POST),
     CREATE_TRAY: new APIRouter("dispatched", HTTP_METHODS.POST),
     DELETE_TRANSPORT: new APIRouter("dispatched/transport", HTTP_METHODS.DEL),
     UPDATE_COMPLETE: new APIRouter("dispatched/complete", HTTP_METHODS.PATCH),

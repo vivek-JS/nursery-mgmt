@@ -20,6 +20,7 @@ import OrderCompleteDialog from "./OrderCompleteDialog"
 const DispatchAccordion = ({ 
   dispatch, 
   onRefresh, 
+  onDispatchPdfFields,
   onViewDispatch, 
   onCollectSlip, 
   onDeliveryChallan, 
@@ -35,6 +36,7 @@ const DispatchAccordion = ({
   const [invoiceNext, setInvoiceNext] = useState(null)
   const [loading, setLoading] = useState(false)
   const [orderCompleteOpen, setOrderCompleteOpen] = useState(false)
+  const [pdfBusy, setPdfBusy] = useState(false)
 
   // Debug: Log dispatch data
   useEffect(() => {
@@ -84,13 +86,19 @@ const DispatchAccordion = ({
       relatedOrders.forEach((order) => {
         const orderKey = String(order?._id || "")
         if (!orderKey) return
-        const existing = String(
+        const official = String(
+          order?.officialDeliveryChallanNumber ??
+            order?.details?.officialDeliveryChallanNumber ??
+            ""
+        ).trim()
+        const rawManual = String(
           order?.deliveryChallanInvoiceNumber ??
             order?.details?.deliveryChallanInvoiceNumber ??
             ""
         ).trim()
-        if (existing) {
-          nextByOrder[orderKey] = existing
+        const manualStored = official && rawManual === official ? "" : rawManual
+        if (manualStored) {
+          nextByOrder[orderKey] = manualStored
           return
         }
         const prevDraft = Object.prototype.hasOwnProperty.call(prev, orderKey)
@@ -98,6 +106,10 @@ const DispatchAccordion = ({
           : ""
         if (prevDraft) {
           nextByOrder[orderKey] = prev[orderKey]
+          return
+        }
+        if (official) {
+          nextByOrder[orderKey] = ""
           return
         }
         const generated = `${invoicePrefix}${generatedCounter}`
@@ -114,9 +126,10 @@ const DispatchAccordion = ({
     }
   }, [isExpanded, dispatch])
 
-  const fetchRelatedOrders = async () => {
+  const fetchRelatedOrders = async (opts = {}) => {
+    const silent = Boolean(opts.silent)
     try {
-      setLoading(true)
+      if (!silent) setLoading(true)
       const orderIds = dispatch.orderIds.map((order) => order._id)
 
       const instance = NetworkManager(API.ORDER.GET_ORDERS)
@@ -127,16 +140,35 @@ const DispatchAccordion = ({
 
       console.log('Fetched related orders response:', response.data)
 
-      const pickDc = (row) =>
-        row?.deliveryChallanInvoiceNumber ??
-        row?.details?.deliveryChallanInvoiceNumber ??
+      const pickOfficial = (row) =>
+        row?.officialDeliveryChallanNumber ??
+        row?.details?.officialDeliveryChallanNumber ??
         null
 
+      /** Keep manual `deliveryChallanInvoiceNumber` separate from system `officialDeliveryChallanNumber`. */
       const normalizeOrders = (rows) =>
-        (rows || []).map((row) => ({
-          ...row,
-          deliveryChallanInvoiceNumber: pickDc(row),
-        }))
+        (rows || []).map((row) => {
+          const official = pickOfficial(row)
+          const officialStr = official != null ? String(official).trim() : ""
+          let manual =
+            row?.deliveryChallanInvoiceNumber ??
+            row?.details?.deliveryChallanInvoiceNumber ??
+            null
+          if (manual != null && String(manual).trim() === "") manual = null
+          if (manual != null && officialStr && String(manual).trim() === officialStr) {
+            manual = null
+          }
+          return {
+            ...row,
+            officialDeliveryChallanNumber: official,
+            deliveryChallanInvoiceNumber: manual,
+            details: {
+              ...(row.details || {}),
+              ...(official ? { officialDeliveryChallanNumber: official } : {}),
+              deliveryChallanInvoiceNumber: manual,
+            },
+          }
+        })
 
       const raw = response.data
       let list = null
@@ -155,7 +187,7 @@ const DispatchAccordion = ({
       Toast.error("Failed to load related orders")
       setRelatedOrders([])
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }
 
@@ -288,6 +320,14 @@ const DispatchAccordion = ({
       if (response?.data?.status !== "Success") {
         throw new Error(response?.data?.message || "Could not update DC number")
       }
+      const rejected = Array.isArray(response?.data?.rejectedFields)
+        ? response.data.rejectedFields
+        : []
+      const dcRejected = rejected.find((r) => r?.field === "deliveryChallanInvoiceNumber")
+      if (dcRejected) {
+        Toast.error(dcRejected.detail || dcRejected.reason || "DC label was not saved")
+        return
+      }
       setRelatedOrders((prev) =>
         (prev || []).map((item) =>
           String(item?._id || "") === orderId
@@ -296,8 +336,8 @@ const DispatchAccordion = ({
                 deliveryChallanInvoiceNumber: nextValue === "" ? null : nextValue,
                 details: {
                   ...(item.details || {}),
-                  deliveryChallanInvoiceNumber: nextValue === "" ? null : nextValue
-                }
+                  deliveryChallanInvoiceNumber: nextValue === "" ? null : nextValue,
+                },
               }
             : item
         )
@@ -316,6 +356,103 @@ const DispatchAccordion = ({
   const dispatchName = (dispatch?.name || "").trim() || "Unnamed Dispatch"
   const agriLoadBlocked = Boolean(dispatch?.agriLoadBlocked)
   const agriLoadBlockedBy = Array.isArray(dispatch?.agriLoadBlockedBy) ? dispatch.agriLoadBlockedBy : []
+  const dcPdfUrl = String(dispatch?.deliveryChallanPdfUrl || "").trim()
+  const invPdfUrl = String(dispatch?.completeInvoicePdfUrl || "").trim()
+
+  /** Persist manual (secondary) DC numbers typed in the order cards so server PDFs match the old flow. */
+  const persistUnsavedManualDcNumbers = async () => {
+    const rows = Array.isArray(relatedOrders) ? relatedOrders : []
+    const updates = []
+    for (const order of rows) {
+      const orderId = String(order?._id || "")
+      if (!orderId) continue
+      const officialStr = String(
+        order?.officialDeliveryChallanNumber ??
+          order?.details?.officialDeliveryChallanNumber ??
+          ""
+      ).trim()
+      const rawPersisted = String(
+        order?.deliveryChallanInvoiceNumber ??
+          order?.details?.deliveryChallanInvoiceNumber ??
+          ""
+      ).trim()
+      const persisted =
+        officialStr && rawPersisted === officialStr ? "" : rawPersisted
+      const draft = String(dcInvoiceByOrder[orderId] ?? "").trim()
+      if (draft === persisted) continue
+      updates.push({ orderId, draft, order })
+    }
+    if (!updates.length) return
+    for (const { orderId, draft } of updates) {
+      const instance = NetworkManager(API.ORDER.UPDATE_ORDER)
+      const response = await instance.request({
+        id: orderId,
+        deliveryChallanInvoiceNumber: draft === "" ? null : draft,
+      })
+      if (response?.data?.status !== "Success") {
+        throw new Error(response?.data?.message || `Could not save DC for order ${orderId}`)
+      }
+      const rejected = Array.isArray(response?.data?.rejectedFields)
+        ? response.data.rejectedFields
+        : []
+      const dcRejected = rejected.find((r) => r?.field === "deliveryChallanInvoiceNumber")
+      if (dcRejected) {
+        throw new Error(
+          dcRejected.detail || dcRejected.reason || `DC label was not saved for order ${orderId}`
+        )
+      }
+    }
+    setRelatedOrders((prev) =>
+      (prev || []).map((item) => {
+        const oid = String(item?._id || "")
+        const u = updates.find((x) => x.orderId === oid)
+        if (!u) return item
+        const val = u.draft === "" ? null : u.draft
+        return {
+          ...item,
+          deliveryChallanInvoiceNumber: val,
+          details: {
+            ...(item.details || {}),
+            deliveryChallanInvoiceNumber: val,
+          },
+        }
+      })
+    )
+  }
+
+  const handleRegenerateServerPdfs = async (types) => {
+    if (pdfBusy) return
+    setPdfBusy(true)
+    try {
+      await persistUnsavedManualDcNumbers()
+      if (Array.isArray(dispatch.orderIds) && dispatch.orderIds.length > 0) {
+        await fetchRelatedOrders({ silent: true })
+      }
+      const inst = NetworkManager(API.DISPATCHED.GENERATE_PDFS)
+      const res = await inst.request({ types }, [String(dispatch._id)])
+      const raw = res?.data?.data ?? res?.data
+      const data =
+        raw && typeof raw === "object" && !Array.isArray(raw) ? raw : raw?.data
+      if (data && typeof data === "object") {
+        onDispatchPdfFields?.(String(dispatch._id), {
+          deliveryChallanPdfUrl: data.deliveryChallanPdfUrl || "",
+          deliveryChallanPdfGeneratedAt: data.deliveryChallanPdfGeneratedAt ?? null,
+          completeInvoicePdfUrl: data.completeInvoicePdfUrl || "",
+          completeInvoicePdfGeneratedAt: data.completeInvoicePdfGeneratedAt ?? null,
+        })
+      }
+      Toast.success("PDF link(s) updated")
+      void onRefresh?.()
+    } catch (error) {
+      const msg =
+        error?.response?.data?.message ||
+        error?.message ||
+        "Failed to generate PDFs"
+      Toast.error(msg)
+    } finally {
+      setPdfBusy(false)
+    }
+  }
 
   const orderIdsForComplete =
     relatedOrders.length > 0 ? relatedOrders : dispatch.orderIds || []
@@ -651,14 +788,42 @@ const DispatchAccordion = ({
                           </div>
 
                           <div className="mb-2 rounded border border-stone-200 bg-stone-50 px-2 py-1.5">
-                            <div className="text-[10px] font-medium text-stone-700 mb-1">DC Number</div>
+                            {String(
+                              order?.officialDeliveryChallanNumber ??
+                                order?.details?.officialDeliveryChallanNumber ??
+                                ""
+                            ).trim() ? (
+                              <div className="mb-2 pb-2 border-b border-stone-200">
+                                <div className="text-[10px] font-medium text-stone-700 mb-0.5">
+                                  System DC (generated)
+                                </div>
+                                <div className="text-[11px] font-mono font-semibold text-stone-900">
+                                  {String(
+                                    order?.officialDeliveryChallanNumber ??
+                                      order?.details?.officialDeliveryChallanNumber ??
+                                      ""
+                                  ).trim()}
+                                </div>
+                              </div>
+                            ) : null}
+                            <div className="text-[10px] font-medium text-stone-700 mb-0.5">
+                              Optional manual DC
+                            </div>
                             <div className="flex items-center gap-1.5">
                               <input
                                 type="text"
                                 value={dcInvoiceByOrder[String(order._id || "")] ?? ""}
                                 onChange={(e) => handleDcInvoiceChange(order._id, e.target.value)}
                                 className="w-full rounded border border-stone-300 bg-white px-2 py-1 text-[11px] font-mono"
-                                placeholder="Enter DC number"
+                                placeholder={
+                                  String(
+                                    order?.officialDeliveryChallanNumber ??
+                                      order?.details?.officialDeliveryChallanNumber ??
+                                      ""
+                                  ).trim()
+                                    ? "e.g. secondary / sticker number"
+                                    : "Enter DC number"
+                                }
                               />
                               <button
                                 type="button"
@@ -772,6 +937,70 @@ const DispatchAccordion = ({
                       </div>
                     </div>
                   )}
+                </div>
+              </div>
+
+              <div className="bg-white rounded-lg border border-gray-200 p-4">
+                <h4 className="font-medium text-gray-900 mb-1">PDF (server)</h4>
+                <p className="text-xs text-gray-500 mb-3">
+                  Enter manual DC numbers on each order above (when there is no system DC), then Save — or use
+                  Regenerate: any unsaved manual DC values are saved first, then the PDF is built from the server
+                  (same labels as the browser preview).
+                </p>
+                <div className="flex flex-col gap-3 text-sm">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <span className="text-gray-600 shrink-0">Delivery challan</span>
+                    {dcPdfUrl ? (
+                      <a
+                        href={dcPdfUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-600 hover:underline"
+                        onClick={(e) => e.stopPropagation()}>
+                        Open
+                      </a>
+                    ) : (
+                      <span className="text-gray-400">Not generated</span>
+                    )}
+                    <button
+                      type="button"
+                      disabled={pdfBusy || agriLoadBlocked}
+                      title={agriLoadBlocked ? "Agri Input pending load" : ""}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        void handleRegenerateServerPdfs(["delivery_challan"])
+                      }}
+                      className="text-purple-700 hover:underline disabled:opacity-40 disabled:cursor-not-allowed">
+                      {pdfBusy ? "Working…" : "Regenerate"}
+                    </button>
+                  </div>
+                  {isDelivered ? (
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-gray-100 pt-2">
+                      <span className="text-gray-600 shrink-0">Complete invoice</span>
+                      {invPdfUrl ? (
+                        <a
+                          href={invPdfUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 hover:underline"
+                          onClick={(e) => e.stopPropagation()}>
+                          Open
+                        </a>
+                      ) : (
+                        <span className="text-gray-400">Not generated</span>
+                      )}
+                      <button
+                        type="button"
+                        disabled={pdfBusy}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          void handleRegenerateServerPdfs(["complete_invoice"])
+                        }}
+                        className="text-slate-700 hover:underline disabled:opacity-40">
+                        {pdfBusy ? "Working…" : "Regenerate"}
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </div>

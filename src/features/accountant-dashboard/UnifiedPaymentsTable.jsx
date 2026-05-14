@@ -1,10 +1,10 @@
-import React, { useState } from "react"
-import { FileImage, ChevronDown, ChevronUp, BookOpen, Layers, Users, ArrowUpRight } from "lucide-react"
+import React, { useState, useCallback } from "react"
+import { FileImage, ChevronDown, ChevronUp, BookOpen, Layers, Users, ArrowUpRight, Loader2, Truck } from "lucide-react"
 import { StatusBadge } from "./StatusBadge"
 import { StatusChangePopover } from "./StatusChangePopover"
 import { cn } from "lib/cn"
 import { getStatementMatchPresentation } from "lib/bankMatchLabels"
-import { normalizeFarmerIdForLedger } from "./paymentsApi"
+import { normalizeFarmerIdForLedger, fetchFarmerPlantOrderDetails } from "./paymentsApi"
 import AttachmentViewerModal, { resolvePaymentMediaUrl } from "components/Modals/AttachmentViewerModal"
 
 const fmt = (n) => `₹${n.toLocaleString("en-IN")}`
@@ -68,6 +68,25 @@ export function UnifiedPaymentsTable({
   const [expandedId, setExpandedId] = useState(null)
   const [typeFilter, setTypeFilter] = useState("ALL")
   const [attachModal, setAttachModal] = useState(null)
+  const [orderDetailsCache, setOrderDetailsCache] = useState({})
+  const [orderDetailsLoading, setOrderDetailsLoading] = useState({})
+
+  const handleOrderExpand = useCallback(async (id, p) => {
+    const next = expandedId === id ? null : id
+    setExpandedId(next)
+    if (!next || p.dealerOrder || orderDetailsCache[id]) return
+    const mongoId = p.__raw?._id
+    if (!mongoId) return
+    setOrderDetailsLoading((prev) => ({ ...prev, [id]: true }))
+    try {
+      const details = await fetchFarmerPlantOrderDetails(mongoId)
+      setOrderDetailsCache((prev) => ({ ...prev, [id]: details }))
+    } catch {
+      setOrderDetailsCache((prev) => ({ ...prev, [id]: null }))
+    } finally {
+      setOrderDetailsLoading((prev) => ({ ...prev, [id]: false }))
+    }
+  }, [expandedId, orderDetailsCache])
 
   const rows = [...orderPayments.map((d) => ({ kind: "order", data: d })), ...bulkPayments.map((d) => ({ kind: "bulk", data: d }))]
 
@@ -161,6 +180,7 @@ export function UnifiedPaymentsTable({
               <th>Ref #</th>
               <th>Customer / Party</th>
               <th>Detail</th>
+              <th>Sales / Ref By</th>
               <th>Total</th>
               <th>Paid</th>
               <th>Balance</th>
@@ -196,7 +216,7 @@ export function UnifiedPaymentsTable({
                             title={isExpanded ? "Hide details" : "Show details"}
                             onClick={(e) => {
                               e.stopPropagation()
-                              setExpandedId(isExpanded ? null : id)
+                              handleOrderExpand(id, p)
                             }}
                           >
                             {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
@@ -252,6 +272,12 @@ export function UnifiedPaymentsTable({
                               </span>
                             )}
                           </div>
+                        )}
+                      </td>
+                      <td>
+                        <div className="font-medium text-foreground">{p.salesPerson?.name || "—"}</div>
+                        {p.salesPerson?.phoneNumber && (
+                          <div className="text-[11px] text-muted-foreground">{p.salesPerson.phoneNumber}</div>
                         )}
                       </td>
                       <td className="tabular font-semibold">{fmt(p.totalOrderAmount)}</td>
@@ -337,33 +363,50 @@ export function UnifiedPaymentsTable({
 
                     {isExpanded && (
                       <tr>
-                        <td colSpan={13} className="p-0 border-0">
-                          <div className="px-5 py-3 bg-muted/40 border-b border-border grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                            <DetailCell label="Sales Person" value={p.salesPerson?.name || "—"} sub={String(p.salesPerson?.phoneNumber ?? "")} />
-                            <DetailCell label="Booking Date" value={fmtDate(p.orderBookingDate)} />
-                            <DetailCell label="Remark" value={p.payment?.remark || "—"} />
-                            {(() => {
-                              const th = farmerOrderPaymentTransferHint(p)
-                              if (!th) return null
-                              return (
-                                <DetailCell
-                                  label="Order transfer"
-                                  value={
-                                    <div className="space-y-1">
-                                      <div className="font-semibold">{th.label}</div>
-                                      <div className="text-xs text-muted-foreground">{th.mr}</div>
-                                      <div className="text-xs">{th.short}</div>
-                                      {p.payment?.transferredFromOrderId ? (
-                                        <div className="text-[11px] font-mono text-muted-foreground">
-                                          from order _id: {p.payment.transferredFromOrderId}
-                                        </div>
-                                      ) : null}
-                                    </div>
-                                  }
-                                />
-                              )
-                            })()}
-                            <DetailCell label="Order Status" value={<StatusBadge status={String(p.orderStatus)} />} />
+                        <td colSpan={14} className="p-0 border-0">
+                          <div className="bg-muted/40 border-b border-border">
+                            {/* Static summary grid */}
+                            <div className="px-5 py-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 border-b border-border/60">
+                              <DetailCell label="Sales Person" value={p.salesPerson?.name || "—"} sub={String(p.salesPerson?.phoneNumber ?? "")} />
+                              <DetailCell label="Booking Date" value={fmtDate(p.orderBookingDate)} />
+                              <DetailCell label="Remark" value={p.payment?.remark || "—"} />
+                              <DetailCell label="Order Status" value={<StatusBadge status={String(p.orderStatus)} />} />
+                              <DetailCell label="Vehicle" value={p.dispatch?.vehicleName || "—"} sub={p.dispatch?.vehicleNumber || ""} />
+                              <DetailCell label="Driver" value={p.dispatch?.driverName || "—"} sub={p.dispatch?.driverMobile || ""} />
+                              {(() => {
+                                const th = farmerOrderPaymentTransferHint(p)
+                                if (!th) return null
+                                return (
+                                  <DetailCell
+                                    label="Order transfer"
+                                    value={
+                                      <div className="space-y-1">
+                                        <div className="font-semibold">{th.label}</div>
+                                        <div className="text-xs text-muted-foreground">{th.mr}</div>
+                                        <div className="text-xs">{th.short}</div>
+                                        {p.payment?.transferredFromOrderId ? (
+                                          <div className="text-[11px] font-mono text-muted-foreground">
+                                            from order _id: {p.payment.transferredFromOrderId}
+                                          </div>
+                                        ) : null}
+                                      </div>
+                                    }
+                                  />
+                                )
+                              })()}
+                            </div>
+
+                            {/* API-fetched details */}
+                            {orderDetailsLoading[id] ? (
+                              <div className="flex items-center gap-2 px-5 py-4 text-xs text-muted-foreground">
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                Loading order details…
+                              </div>
+                            ) : orderDetailsCache[id] === null ? (
+                              <div className="px-5 py-3 text-xs text-muted-foreground">Could not load full order details.</div>
+                            ) : orderDetailsCache[id] ? (
+                              <OrderDetailsPanel details={orderDetailsCache[id]} />
+                            ) : null}
                           </div>
                         </td>
                       </tr>
@@ -410,6 +453,7 @@ export function UnifiedPaymentsTable({
                         </span>
                       </div>
                     </td>
+                    <td className="text-[11px] text-muted-foreground">—</td>
                     <td className="tabular font-bold">{fmt(b.totalAmount)}</td>
                     <td className="tabular text-status-collected font-semibold">
                       {b.paymentStatus === "ACCEPTED" ? fmt(b.totalAmount) : "—"}
@@ -489,7 +533,7 @@ export function UnifiedPaymentsTable({
 
                   {isExpanded && (
                     <tr>
-                      <td colSpan={13} className="p-0 border-0">
+                      <td colSpan={14} className="p-0 border-0">
                         <div className="px-5 py-3 bg-muted/40 border-b border-border space-y-2">
                           <div className="flex items-center justify-between mb-1">
                             <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Allocation Breakdown</span>
@@ -518,7 +562,7 @@ export function UnifiedPaymentsTable({
 
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={13} className="text-center text-muted-foreground py-10 text-sm">
+                <td colSpan={14} className="text-center text-muted-foreground py-10 text-sm">
                   No entries found
                 </td>
               </tr>
@@ -559,6 +603,158 @@ function DetailCell({ label, value, sub }) {
       <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">{label}</div>
       <div className="text-sm font-medium">{value}</div>
       {sub && <div className="text-xs text-muted-foreground">{sub}</div>}
+    </div>
+  )
+}
+
+function OrderDetailsPanel({ details }) {
+  const payments = Array.isArray(details?.payments) ? details.payments : []
+  const dispatchHistory = Array.isArray(details?.order?.dispatchHistory) ? details.order.dispatchHistory : []
+  const order = details?.order || {}
+  const notes = order.notes || (Array.isArray(order.orderRemarks) ? order.orderRemarks.join(", ") : order.orderRemarks) || ""
+
+  // Compute totals client-side (backend computed may be {} if not awaited)
+  const totalOrderedPlants = (Number(order.numberOfPlants) || 0) + (Number(order.additionalPlants) || 0)
+  const orderTotal = Math.round((Number(order.rate) || 0) * totalOrderedPlants * 100) / 100
+  const totalCollected = payments
+    .filter((p) => p.paymentStatus === "COLLECTED")
+    .reduce((sum, p) => sum + (Number(p.paidAmount) || 0), 0)
+  const outstanding = Math.round((orderTotal - totalCollected) * 100) / 100
+
+  const plantName = order.plantName?.name || "—"
+  const returned = Number(order.returnedPlants) || 0
+  const damaged = Number(order.damagedPlants) || 0
+
+  return (
+    <div className="divide-y divide-border/60">
+      {/* Order summary strip */}
+      <div className="px-5 py-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-x-6 gap-y-2 text-xs">
+        <div>
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-0.5">Plant</div>
+          <div className="font-semibold">{plantName}</div>
+        </div>
+        <div>
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-0.5">Ordered</div>
+          <div className="font-semibold tabular">{totalOrderedPlants.toLocaleString("en-IN")} plants × ₹{order.rate}</div>
+        </div>
+        {returned > 0 && (
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-0.5">Returned</div>
+            <div className="font-semibold tabular text-amber-700">{returned.toLocaleString("en-IN")} plants</div>
+          </div>
+        )}
+        {damaged > 0 && (
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-0.5">Damaged</div>
+            <div className="font-semibold tabular text-red-700">{damaged.toLocaleString("en-IN")} plants</div>
+          </div>
+        )}
+        {order.deliveryDate && (
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-0.5">Delivery Date</div>
+            <div className="font-semibold">{fmtDate(order.deliveryDate)}</div>
+          </div>
+        )}
+        {notes && (
+          <div className="col-span-2 sm:col-span-3 lg:col-span-5">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-0.5">Notes</div>
+            <div className="italic text-muted-foreground">{notes}</div>
+          </div>
+        )}
+      </div>
+
+      {/* Totals bar */}
+      <div className="px-5 py-2.5 flex items-center gap-6 flex-wrap text-xs bg-muted/30">
+        <span className="font-semibold text-muted-foreground uppercase tracking-wider">Totals</span>
+        <span className="tabular">
+          <span className="text-muted-foreground mr-1">Billed</span>
+          <span className="font-bold">{fmt(orderTotal)}</span>
+        </span>
+        <span className="tabular">
+          <span className="text-muted-foreground mr-1">Collected</span>
+          <span className="font-bold text-status-collected">{fmt(totalCollected)}</span>
+        </span>
+        <span className="tabular">
+          <span className="text-muted-foreground mr-1">Outstanding</span>
+          <span className={cn("font-bold", outstanding > 0 ? "text-status-rejected" : "text-status-collected")}>
+            {outstanding > 0 ? `-${fmt(outstanding)}` : "✓ Clear"}
+          </span>
+        </span>
+      </div>
+
+      {/* All payments */}
+      {payments.length > 0 && (
+        <div className="px-5 py-3">
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+            Payment History ({payments.length})
+          </div>
+          <div className="rounded border border-border overflow-hidden">
+            <table className="w-full text-xs">
+              <thead className="bg-muted/60">
+                <tr>
+                  <th className="text-left px-3 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">#</th>
+                  <th className="text-left px-3 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Date</th>
+                  <th className="text-right px-3 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Amount</th>
+                  <th className="text-left px-3 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Mode</th>
+                  <th className="text-left px-3 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Status</th>
+                  <th className="text-left px-3 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Remark</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/40">
+                {payments.map((pay, i) => (
+                  <tr key={String(pay._id || i)} className="bg-card hover:bg-muted/30 transition-colors">
+                    <td className="px-3 py-1.5 text-muted-foreground tabular">{i + 1}</td>
+                    <td className="px-3 py-1.5 tabular text-muted-foreground">{fmtDate(pay.paymentDate || pay.createdAt)}</td>
+                    <td className="px-3 py-1.5 tabular font-semibold text-right">{fmt(Number(pay.paidAmount) || 0)}</td>
+                    <td className="px-3 py-1.5">
+                      <span className="bg-muted px-1.5 py-0.5 rounded-sm font-medium">{pay.modeOfPayment || "—"}</span>
+                    </td>
+                    <td className="px-3 py-1.5">
+                      <StatusBadge status={pay.paymentStatus || "PENDING"} />
+                    </td>
+                    <td className="px-3 py-1.5 text-muted-foreground max-w-[200px] truncate">{pay.remark || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Dispatch history */}
+      {dispatchHistory.length > 0 && (
+        <div className="px-5 py-3">
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
+            <Truck className="w-3.5 h-3.5" /> Dispatch History ({dispatchHistory.length})
+          </div>
+          <div className="rounded border border-border overflow-hidden">
+            <table className="w-full text-xs">
+              <thead className="bg-muted/60">
+                <tr>
+                  <th className="text-left px-3 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Date</th>
+                  <th className="text-right px-3 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Qty Dispatched</th>
+                  <th className="text-right px-3 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Remaining</th>
+                  <th className="text-left px-3 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Vehicle</th>
+                  <th className="text-left px-3 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Driver</th>
+                  <th className="text-left px-3 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Invoice #</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/40">
+                {dispatchHistory.map((d, i) => (
+                  <tr key={String(d._id || i)} className="bg-card hover:bg-muted/30 transition-colors">
+                    <td className="px-3 py-1.5 tabular text-muted-foreground">{d.date ? fmtDate(d.date) : "—"}</td>
+                    <td className="px-3 py-1.5 tabular font-semibold text-right">{(d.quantity || 0).toLocaleString("en-IN")}</td>
+                    <td className="px-3 py-1.5 tabular text-muted-foreground text-right">{(d.remainingAfterDispatch ?? "—").toLocaleString ? (d.remainingAfterDispatch ?? 0).toLocaleString("en-IN") : "—"}</td>
+                    <td className="px-3 py-1.5 font-medium">{d.vehicleName || "—"}</td>
+                    <td className="px-3 py-1.5 text-muted-foreground">{d.driverName || "—"}</td>
+                    <td className="px-3 py-1.5 font-mono text-primary">{d.invoiceNumber || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

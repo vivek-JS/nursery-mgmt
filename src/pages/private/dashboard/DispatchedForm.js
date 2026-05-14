@@ -1936,34 +1936,7 @@ const DispatchForm = ({
             </select>
           </div>
 
-          {!isViewMode && (linkedAgriCheckLoading || linkedAgriBlockedBy.length > 0) && (
-            <div className="rounded-lg border border-amber-300 bg-amber-50 p-3">
-              <div className="flex items-start gap-2">
-                <div>
-                  <p className="text-sm font-semibold text-amber-900">
-                    जोडलेल्या Agri Input चे लोड प्रलंबित
-                  </p>
-                  <p className="text-[11px] text-amber-700 mt-1">
-                    Ram Agri Input राम कृषी डिस्पॅच प्रवाहात (<strong>ऑर्डरसह</strong> मोड) डिस्पॅच
-                    होईपर्यंत चलन निघणार नाही.
-                  </p>
-                  <p className="text-[11px] text-amber-800 mt-1">
-                    डिस्पॅच यशस्वी झाल्यावर वाहन/ड्रायव्हर निवडून सबमिट केल्यावर जोडलेले Agri Input ऑर्डर या डिस्पॅचसह
-                    आपोआप <strong>Loaded</strong> म्हणून चिन्हांकित होतील.
-                  </p>
-                  {linkedAgriBlockedBy.length > 0 && (
-                    <p className="text-[11px] text-amber-700 mt-1">
-                      जोडलेली ऑर्डर: {Array.from(new Set(
-                        linkedAgriBlockedBy
-                          .map((row) => String(row?.linkedNurseryOrderCode || row?.linkedNurseryOrderId || "").trim())
-                          .filter(Boolean)
-                      )).join(", ")}
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
+
 
           {/* Plants Details */}
           <div className="space-y-4">

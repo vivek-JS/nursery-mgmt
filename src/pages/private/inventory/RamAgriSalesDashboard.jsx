@@ -18,10 +18,13 @@ import {
   MessageCircle,
   Copy,
   Check,
+  Shield,
+  Save,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { API, NetworkManager } from '../../../network/core';
 import { Toast } from "helpers/toasts/toastHelper";
+import { useUserData } from "utils/roleUtils";
 import {
   BarChart,
   Bar,
@@ -39,7 +42,7 @@ import {
 
 const RamAgriSalesDashboard = () => {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState('overview'); // 'overview', 'stock', 'sales', 'targets', 'orders'
+  const [activeTab, setActiveTab] = useState('overview'); // 'overview', 'stock', 'directStock', 'sales', 'targets', 'orders', 'credit'
   const [orderStatusTab, setOrderStatusTab] = useState('pending'); // 'pending', 'accepted', 'dispatched', 'completed', 'outstanding'
   const [outstandingOrders, setOutstandingOrders] = useState([]);
   const [outstandingOrdersLoading, setOutstandingOrdersLoading] = useState(false);
@@ -85,6 +88,136 @@ const RamAgriSalesDashboard = () => {
   const [exporting, setExporting] = useState(false);
   const [copied, setCopied] = useState(false);
 
+  const user = useUserData();
+  const userJobUpper = String(user?.jobTitle || "").toUpperCase().trim();
+  const userRoleUpper = String(user?.role || "").toUpperCase().trim();
+  const canManageCreditLimits = [
+    "SUPER_ADMIN",
+    "ADMIN",
+    "OFFICE_ADMIN",
+    "RAM_AGRI_SALES_MANAGER",
+    "RAM_AGRI_SALES_OFFICE_MANAGER",
+  ].some((x) => x === userJobUpper || x === userRoleUpper);
+  const isRamAgriSalesRep =
+    userJobUpper === "RAM_AGRI_SALES" || userRoleUpper === "RAM_AGRI_SALES";
+  const isSuperAdmin =
+    userJobUpper === "SUPER_ADMIN" ||
+    userRoleUpper === "SUPER_ADMIN" ||
+    userJobUpper === "SUPERADMIN" ||
+    userRoleUpper === "SUPERADMIN";
+
+  const [outstandingLimitSummary, setOutstandingLimitSummary] = useState(null);
+  const [creditSettings, setCreditSettings] = useState(null);
+  const [creditSettingsLoading, setCreditSettingsLoading] = useState(false);
+  const [globalLimitInput, setGlobalLimitInput] = useState("");
+  const [savingGlobalLimit, setSavingGlobalLimit] = useState(false);
+  const [userLimitDrafts, setUserLimitDrafts] = useState({});
+  const [savingUserId, setSavingUserId] = useState(null);
+  const [directStockTypeTab, setDirectStockTypeTab] = useState('seed');
+  const [stockDrafts, setStockDrafts] = useState({});
+  const [savingStockKey, setSavingStockKey] = useState(null);
+
+  const fetchOutstandingLimitSummary = async () => {
+    if (!isRamAgriSalesRep) return;
+    try {
+      const instance = NetworkManager(API.INVENTORY.GET_AGRI_SALES_OUTSTANDING_LIMIT_SUMMARY);
+      const response = await instance.request({}, {});
+      const api = response?.data;
+      if (api?.status === "Success" && api.data) {
+        setOutstandingLimitSummary(api.data);
+      }
+    } catch (e) {
+      console.error("Outstanding limit summary:", e);
+    }
+  };
+
+  const fetchCreditSettings = async () => {
+    if (!canManageCreditLimits) return;
+    setCreditSettingsLoading(true);
+    try {
+      const instance = NetworkManager(API.INVENTORY.GET_AGRI_SALES_OUTSTANDING_LIMIT_SETTINGS);
+      const response = await instance.request({}, {});
+      const api = response?.data;
+      if (api?.status === "Success" && api.data) {
+        setCreditSettings(api.data);
+        setGlobalLimitInput(String(api.data.defaultOutstandingLimitRupees ?? ""));
+        const drafts = {};
+        (api.data.salesUsers || []).forEach((u) => {
+          drafts[u._id] =
+            u.ramAgriOutstandingLimitRupees == null ? "" : String(u.ramAgriOutstandingLimitRupees);
+        });
+        setUserLimitDrafts(drafts);
+      }
+    } catch (e) {
+      console.error(e);
+      Toast.error("Failed to load credit limit settings");
+    } finally {
+      setCreditSettingsLoading(false);
+    }
+  };
+
+  const saveGlobalOutstandingLimit = async () => {
+    const n = Number(globalLimitInput);
+    if (!Number.isFinite(n) || n < 0) {
+      Toast.error("Enter a valid non-negative number");
+      return;
+    }
+    setSavingGlobalLimit(true);
+    try {
+      const instance = NetworkManager(API.INVENTORY.PATCH_AGRI_SALES_OUTSTANDING_LIMIT_GLOBAL);
+      const response = await instance.request({ defaultOutstandingLimitRupees: n }, {});
+      const api = response?.data;
+      if (api?.status === "Success") {
+        Toast.success("Global default limit updated");
+        await fetchCreditSettings();
+      } else {
+        Toast.error(api?.message || "Update failed");
+      }
+    } catch (e) {
+      Toast.error(e?.response?.data?.message || "Update failed");
+    } finally {
+      setSavingGlobalLimit(false);
+    }
+  };
+
+  const saveUserOutstandingLimit = async (userId) => {
+    const raw = userLimitDrafts[userId];
+    const body =
+      raw === "" || raw == null
+        ? { ramAgriOutstandingLimitRupees: null }
+        : { ramAgriOutstandingLimitRupees: Number(raw) };
+    if (body.ramAgriOutstandingLimitRupees != null && (!Number.isFinite(body.ramAgriOutstandingLimitRupees) || body.ramAgriOutstandingLimitRupees < 0)) {
+      Toast.error("Per-user limit must be empty (use global) or a non-negative number");
+      return;
+    }
+    setSavingUserId(userId);
+    try {
+      const instance = NetworkManager(API.INVENTORY.PATCH_AGRI_SALES_OUTSTANDING_LIMIT_USER);
+      const response = await instance.request(body, { userId });
+      const api = response?.data;
+      if (api?.status === "Success") {
+        Toast.success("User limit updated");
+        await fetchCreditSettings();
+      } else {
+        Toast.error(api?.message || "Update failed");
+      }
+    } catch (e) {
+      Toast.error(e?.response?.data?.message || "Update failed");
+    } finally {
+      setSavingUserId(null);
+    }
+  };
+
+  useEffect(() => {
+    void fetchOutstandingLimitSummary();
+  }, [isRamAgriSalesRep, user?._id]);
+
+  useEffect(() => {
+    if (activeTab === "credit" && canManageCreditLimits) {
+      void fetchCreditSettings();
+    }
+  }, [activeTab, canManageCreditLimits]);
+
   useEffect(() => {
     fetchData();
     fetchSalesTargets();
@@ -106,6 +239,18 @@ const RamAgriSalesDashboard = () => {
     }
   }, [showTargetModal, targetUserId, salesTargets]);
 
+  const buildStockDraftsFromDashboard = (data) => {
+    const drafts = {};
+    const stockByCrop = data?.stock?.stockByCrop || [];
+    stockByCrop.forEach((crop) => {
+      (crop.varieties || []).forEach((variety) => {
+        const key = `${crop.cropId}_${variety.varietyId}`;
+        drafts[key] = String(variety.currentStock ?? 0);
+      });
+    });
+    return drafts;
+  };
+
   const fetchData = async () => {
     try {
       setLoading(true);
@@ -121,6 +266,7 @@ const RamAgriSalesDashboard = () => {
         if (apiResponse.status === 'Success' || apiResponse.success) {
           const data = apiResponse.data;
           setDashboardData(data);
+          setStockDrafts(buildStockDraftsFromDashboard(data));
         } else {
           console.error('API Error:', apiResponse.message || 'Unknown error');
         }
@@ -276,7 +422,59 @@ const RamAgriSalesDashboard = () => {
   const handleRefresh = async () => {
     setRefreshing(true);
     await fetchData();
+    await fetchOutstandingLimitSummary();
     setTimeout(() => setRefreshing(false), 500);
+  };
+
+  const updateStockDraftValue = (cropId, varietyId, value) => {
+    const key = `${cropId}_${varietyId}`;
+    setStockDrafts((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const saveDirectStockUpdate = async (cropId, variety) => {
+    if (!isSuperAdmin) {
+      Toast.error("Only Super Admin can directly update stock");
+      return;
+    }
+
+    const varietyId = variety?.varietyId;
+    const key = `${cropId}_${varietyId}`;
+    const raw = String(stockDrafts[key] ?? '').trim();
+    if (raw === '') {
+      Toast.error('Stock is required');
+      return;
+    }
+
+    const nextStock = Number(raw);
+    if (!Number.isFinite(nextStock) || nextStock < 0) {
+      Toast.error('Stock must be a non-negative number');
+      return;
+    }
+
+    const existingStock = Number(variety.currentStock || 0);
+    if (nextStock === existingStock) {
+      Toast.success('No stock change to save');
+      return;
+    }
+
+    setSavingStockKey(key);
+    try {
+      const instance = NetworkManager(API.INVENTORY.UPDATE_VARIETY);
+      const response = await instance.request(
+        { currentStock: nextStock },
+        [cropId, varietyId]
+      );
+      if (response?.data?.status === 'Success' || response?.data?.success) {
+        Toast.success('Stock updated successfully');
+        await fetchData();
+      } else {
+        Toast.error(response?.data?.message || 'Failed to update stock');
+      }
+    } catch (error) {
+      Toast.error(error?.response?.data?.message || 'Failed to update stock');
+    } finally {
+      setSavingStockKey(null);
+    }
   };
 
   const generateVideoSummary = async (period = 'day') => {
@@ -1075,6 +1273,127 @@ const RamAgriSalesDashboard = () => {
               ))}
             </div>
           </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderDirectStockUpdateTab = () => {
+    if (loading) {
+      return (
+        <div className="flex items-center justify-center h-96">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-600"></div>
+        </div>
+      );
+    }
+
+    if (!dashboardData) return null;
+    if (!isSuperAdmin) {
+      return (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-6">
+          <p className="text-sm text-yellow-900 font-medium">
+            Only Super Admin can directly update Ram Agri stock.
+          </p>
+        </div>
+      );
+    }
+
+    const stockByCrop = dashboardData?.stock?.stockByCrop || [];
+    const cropsByType = stockByCrop.reduce(
+      (acc, crop) => {
+        const type = crop.productType === 'chemical' ? 'chemical' : 'seed';
+        acc[type].push(crop);
+        return acc;
+      },
+      { seed: [], chemical: [] }
+    );
+    const activeCrops = directStockTypeTab === 'chemical' ? cropsByType.chemical : cropsByType.seed;
+
+    return (
+      <div className="space-y-6">
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+          <p className="text-sm text-amber-900 font-medium">
+            Super Admin bypass: Direct stock update is applied immediately without PO/GRN.
+          </p>
+        </div>
+
+        <div className="inline-flex rounded-xl bg-white shadow-sm border border-gray-200 p-1">
+          <button
+            type="button"
+            onClick={() => setDirectStockTypeTab('seed')}
+            className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
+              directStockTypeTab === 'seed'
+                ? 'bg-brand-600 text-white'
+                : 'text-gray-600 hover:text-gray-800 hover:bg-gray-50'
+            }`}
+          >
+            Crops (Seeds)
+          </button>
+          <button
+            type="button"
+            onClick={() => setDirectStockTypeTab('chemical')}
+            className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
+              directStockTypeTab === 'chemical'
+                ? 'bg-brand-600 text-white'
+                : 'text-gray-600 hover:text-gray-800 hover:bg-gray-50'
+            }`}
+          >
+            Chemicals
+          </button>
+        </div>
+
+        {activeCrops.length === 0 ? (
+          <div className="bg-white rounded-xl shadow-lg p-10 text-center text-gray-500">
+            No products found for this type.
+          </div>
+        ) : (
+          activeCrops.map((crop) => (
+            <div key={crop.cropId} className="bg-white rounded-xl shadow-lg p-5 border border-gray-100">
+              <h3 className="text-lg font-bold text-gray-800 mb-4">{crop.cropName}</h3>
+              <div className="space-y-3">
+                {(crop.varieties || []).map((variety) => {
+                  const key = `${crop.cropId}_${variety.varietyId}`;
+                  const isSaving = savingStockKey === key;
+                  const unit = variety.primaryUnit?.abbreviation || variety.primaryUnit?.name || '';
+                  return (
+                    <div
+                      key={key}
+                      className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end border border-gray-100 rounded-lg p-3"
+                    >
+                      <div className="md:col-span-4">
+                        <p className="text-sm font-semibold text-gray-900">{variety.name}</p>
+                        <p className="text-xs text-gray-500">
+                          Current: {formatNumber(variety.currentStock || 0)} {unit}
+                        </p>
+                      </div>
+                      <div className="md:col-span-4">
+                        <label className="block text-xs text-gray-600 mb-1">New Stock</label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={stockDrafts[key] ?? ''}
+                          onChange={(e) => updateStockDraftValue(crop.cropId, variety.varietyId, e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
+                        />
+                      </div>
+                      <div className="md:col-span-4">
+                        <button
+                          type="button"
+                          disabled={isSaving}
+                          onClick={() => saveDirectStockUpdate(crop.cropId, variety)}
+                          className="w-full flex items-center justify-center space-x-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-60 transition-colors"
+                        >
+                          <Save className={`w-4 h-4 ${isSaving ? 'animate-pulse' : ''}`} />
+                          <span>{isSaving ? 'Saving...' : 'Update Stock'}</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))
         )}
       </div>
     );
@@ -1886,6 +2205,113 @@ const RamAgriSalesDashboard = () => {
     );
   };
 
+  const renderCreditLimitsTab = () => {
+    if (!canManageCreditLimits) {
+      return (
+        <div className="text-center py-12 text-gray-500">
+          You do not have permission to manage Ram Agri credit limits.
+        </div>
+      );
+    }
+    if (creditSettingsLoading && !creditSettings) {
+      return <div className="text-center py-12 text-gray-500">Loading settings…</div>;
+    }
+    const rows = creditSettings?.salesUsers || [];
+    return (
+      <div className="space-y-8 max-w-5xl">
+        <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
+          <h2 className="text-lg font-semibold text-gray-800 mb-2 flex items-center gap-2">
+            <Shield className="w-5 h-5 text-brand-600" />
+            Global default outstanding limit
+          </h2>
+          <p className="text-sm text-gray-600 mb-4">
+            Default cap (₹) for each Ram Agri sales person when they have no individual override. New orders are blocked
+            if attributed outstanding would exceed this limit (or the user override).
+          </p>
+          <div className="flex flex-wrap items-end gap-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Default (₹)</label>
+              <input
+                type="number"
+                min={0}
+                className="border border-gray-300 rounded-lg px-3 py-2 w-40"
+                value={globalLimitInput}
+                onChange={(e) => setGlobalLimitInput(e.target.value)}
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => void saveGlobalOutstandingLimit()}
+              disabled={savingGlobalLimit}
+              className="px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50">
+              {savingGlobalLimit ? "Saving…" : "Save default"}
+            </button>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-200">
+            <h2 className="text-lg font-semibold text-gray-800">Per sales person override</h2>
+            <p className="text-sm text-gray-600 mt-1">
+              Leave blank to use the global default. Individual limits cannot be exceeded by new Ram Agri order unpaid
+              totals.
+            </p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead className="bg-gray-50 text-gray-600">
+                <tr>
+                  <th className="text-left px-4 py-2">Name</th>
+                  <th className="text-left px-4 py-2">Phone</th>
+                  <th className="text-left px-4 py-2">Override (₹)</th>
+                  <th className="text-left px-4 py-2">Effective limit (₹)</th>
+                  <th className="text-left px-4 py-2" />
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <tr key={row._id} className="border-t border-gray-100">
+                    <td className="px-4 py-2 font-medium text-gray-900">{row.name}</td>
+                    <td className="px-4 py-2 text-gray-600">{row.phoneNumber ?? "—"}</td>
+                    <td className="px-4 py-2">
+                      <input
+                        type="number"
+                        min={0}
+                        className="border border-gray-300 rounded px-2 py-1 w-32"
+                        placeholder="global"
+                        value={userLimitDrafts[row._id] ?? ""}
+                        onChange={(e) =>
+                          setUserLimitDrafts((prev) => ({ ...prev, [row._id]: e.target.value }))
+                        }
+                      />
+                    </td>
+                    <td className="px-4 py-2 text-gray-800">{row.effectiveLimitRupees ?? "—"}</td>
+                    <td className="px-4 py-2">
+                      <button
+                        type="button"
+                        onClick={() => void saveUserOutstandingLimit(row._id)}
+                        disabled={savingUserId === row._id}
+                        className="text-brand-600 font-medium hover:underline disabled:opacity-50">
+                        {savingUserId === row._id ? "Saving…" : "Save"}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {rows.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-8 text-center text-gray-500">
+                      No Ram Agri sales users found.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const customerLedgerEntries = (customerLedgerData?.entries || []).map((entry) => {
     const rawDate = entry?.date || entry?.details?.entryDate || entry?.createdAt;
     return {
@@ -1977,6 +2403,21 @@ const RamAgriSalesDashboard = () => {
           </div>
         </div>
 
+        {isRamAgriSalesRep && outstandingLimitSummary?.overLimit && (
+          <div className="bg-red-50 border-b border-red-200">
+            <div className="max-w-full mx-auto px-6 py-3 flex items-start gap-3 text-sm text-red-900">
+              <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-semibold">Ram Agri sales outstanding exceeds your allowed limit.</p>
+                <p className="mt-1">
+                  Current outstanding: ₹{Number(outstandingLimitSummary.outstanding || 0).toLocaleString("en-IN")} ·
+                  Limit: ₹{Number(outstandingLimitSummary.limit || 0).toLocaleString("en-IN")}. New orders cannot be
+                  placed until outstanding is reduced or an admin raises your limit.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Tabs */}
         <div className="bg-white border-b border-gray-200">
@@ -2021,6 +2462,21 @@ const RamAgriSalesDashboard = () => {
                   <span>Sales</span>
                 </div>
               </button>
+              {isSuperAdmin && (
+                <button
+                  onClick={() => setActiveTab('directStock')}
+                  className={`py-4 px-2 border-b-2 font-medium text-sm transition-colors ${
+                    activeTab === 'directStock'
+                      ? 'border-brand-600 text-brand-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  <div className="flex items-center space-x-2">
+                    <Shield className="w-5 h-5" />
+                    <span>Direct stock update</span>
+                  </div>
+                </button>
+              )}
               <button
                 onClick={() => setActiveTab('targets')}
                 className={`py-4 px-2 border-b-2 font-medium text-sm transition-colors ${
@@ -2047,6 +2503,21 @@ const RamAgriSalesDashboard = () => {
                   <span>Orders</span>
                 </div>
               </button>
+              {canManageCreditLimits && (
+                <button
+                  onClick={() => setActiveTab('credit')}
+                  className={`py-4 px-2 border-b-2 font-medium text-sm transition-colors ${
+                    activeTab === 'credit'
+                      ? 'border-brand-600 text-brand-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  <div className="flex items-center space-x-2">
+                    <Shield className="w-5 h-5" />
+                    <span>Credit limits</span>
+                  </div>
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -2055,9 +2526,11 @@ const RamAgriSalesDashboard = () => {
         <div className="max-w-full mx-auto px-6 py-8">
           {activeTab === 'overview' && renderOverviewTab()}
           {activeTab === 'stock' && renderStockTab()}
+          {activeTab === 'directStock' && renderDirectStockUpdateTab()}
           {activeTab === 'sales' && renderSalesTab()}
           {activeTab === 'targets' && renderTargetsTab()}
           {activeTab === 'orders' && renderOrdersTab()}
+          {activeTab === 'credit' && renderCreditLimitsTab()}
         </div>
       </div>
 

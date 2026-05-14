@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useLayoutEffect, lazy, Suspense } from "react"
+import { Joyride, STATUS } from "react-joyride"
 
 const OrderMapView = lazy(() => import("../Dispatch/components/OrderMapView"))
 import ReactDOM from "react-dom"
@@ -360,20 +361,25 @@ const orderStatusMrShort = orderStatusEnglishLabel
 const FARMER_ORDER_STATUS_EDIT_OPTIONS = [
   { value: "PENDING", label: "Pending" },
   { value: "ACCEPTED", label: "Accepted" },
+  { value: "DISPATCHED", label: "Dispatched" },
   { value: "CANCELLED", label: "Cancelled" },
 ]
 
 function farmerOrderStatusSelectValue(orderStatus) {
   const cur = String(orderStatus || "").toUpperCase()
   if (cur === "ASSIGNED") return "ACCEPTED"
-  if (["PENDING", "ACCEPTED", "CANCELLED"].includes(cur)) return cur
+  if (["PENDING", "ACCEPTED", "DISPATCHED", "CANCELLED"].includes(cur)) return cur
   return ""
 }
 
 function farmerOrderStatusSelectCurrentHint(orderStatus) {
   const cur = String(orderStatus || "").toUpperCase()
   if (!cur) return "—"
-  if (cur === "ASSIGNED" || ["PENDING", "ACCEPTED", "CANCELLED"].includes(cur)) return null
+  if (
+    cur === "ASSIGNED" ||
+    ["PENDING", "ACCEPTED", "DISPATCHED", "CANCELLED"].includes(cur)
+  )
+    return null
   return (
     ORDER_STATUS_LABELS[cur] ||
     String(orderStatus || "")
@@ -392,9 +398,11 @@ function FarmerOrderStatusSelect({ row, onChange, disabled }) {
       ? "farmer-order-status-select--pending"
       : v === "ACCEPTED"
         ? "farmer-order-status-select--accepted"
-        : v === "CANCELLED"
-          ? "farmer-order-status-select--cancelled"
-          : "farmer-order-status-select--neutral"
+        : v === "DISPATCHED"
+          ? "farmer-order-status-select--dispatched"
+          : v === "CANCELLED"
+            ? "farmer-order-status-select--cancelled"
+            : "farmer-order-status-select--neutral"
 
   return (
     <select
@@ -1227,6 +1235,12 @@ const customStyles = `
     border-color: #f87171;
   }
 
+  .farmer-order-status-select--dispatched {
+    background: linear-gradient(180deg, #eff6ff 0%, #dbeafe 100%);
+    color: #1d4ed8;
+    border-color: #60a5fa;
+  }
+
   .farmer-order-status-select--neutral {
     background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
     color: #334155;
@@ -1512,16 +1526,6 @@ function isAbortedRequestError(err) {
   return err?.code === "ERR_CANCELED" || err?.name === "CanceledError"
 }
 
-/** True when any dispatch history leg already has a sequenced/formatted invoice number (prefer editing leg-level data via admins only). */
-function dispatchHistoryHasInvoiceNumber(dispatchHistory) {
-  return (
-    Array.isArray(dispatchHistory) &&
-    dispatchHistory.some(
-      (h) => h?.invoiceNumber && String(h.invoiceNumber).trim() !== ""
-    )
-  )
-}
-
 /** Mongo id string for nursery order linked from a Ram Agri sales row */
 function getLinkedNurseryOrderIdString(row) {
   const raw = row?.details?.linkedNurseryOrderId
@@ -1680,6 +1684,10 @@ const FarmerOrdersTable = ({
   const [assignToUser, setAssignToUser] = useState("")
   const [assignmentNotes, setAssignmentNotes] = useState("")
   const [assignLoading, setAssignLoading] = useState(false)
+  // React Joyride guided tour state
+  const [joyrideRun, setJoyrideRun] = useState(false)
+  const [joyrideStepIndex, setJoyrideStepIndex] = useState(0)
+  const [joyrideKey, setJoyrideKey] = useState(0)
   // Bulk payment dialog (shared); accept only on /payments page
   const [showBulkPaymentDialog, setShowBulkPaymentDialog] = useState(false)
   const [filtersExpanded, setFiltersExpanded] = useState(true)
@@ -1716,6 +1724,159 @@ const FarmerOrdersTable = ({
     return () => window.removeEventListener("resize", update)
   }, [])
 
+  // React Joyride tour steps for Ram Agri dispatch workflow
+  const joyrideSteps = [
+    {
+      target: "body",
+      title: "📦 Ram Agri Inputs — Welcome!",
+      content: (
+        <div className="text-sm space-y-2">
+          <p>तुम्ही आत्ता <strong>Ram Agri Inputs</strong> view मध्ये आहात.</p>
+          <p className="text-gray-600 text-xs">हा guide तुम्हाला dispatch workflow step-by-step समजावून सांगेल. <strong>पुढे →</strong> दाबत राहा.</p>
+        </div>
+      ),
+      disableBeacon: true,
+      placement: "center",
+    },
+    {
+      target: "body",
+      title: "🚚 Dispatch चे दोन प्रकार",
+      content: (
+        <div className="space-y-2 text-sm">
+          <p className="font-semibold">Order dispatch करण्याचे दोन मार्ग आहेत:</p>
+          <div className="bg-blue-50 rounded p-2">
+            <p className="font-medium text-blue-800">1. आपल्या Nursery गाडीसोबत (With Order)</p>
+            <p className="text-blue-700 text-xs">Order आपल्याच nursery च्या गाडीतून जाणार असेल तर हा पर्याय निवडा.</p>
+          </div>
+          <div className="bg-amber-50 rounded p-2">
+            <p className="font-medium text-amber-800">2. वेगळ्या गाडीने / स्वतः (By Vehicle / Courier / Office)</p>
+            <p className="text-amber-700 text-xs">शेतकरी स्वतः घेऊन जाणार, वेगळ्या गाडीने जाणार, किंवा कुरिअरने पाठवणार असेल तर.</p>
+          </div>
+        </div>
+      ),
+      placement: "center",
+      disableBeacon: true,
+    },
+    {
+      target: "body",
+      title: "☑️ Orders Select करा",
+      content: (
+        <div className="text-sm space-y-2">
+          <p>प्रत्येक order च्या रांगेत असलेला <strong>checkbox</strong> दाबा म्हणजे ती order select होईल.</p>
+          <p className="text-gray-600">एक किंवा अनेक orders select केल्यावर वरती <strong>Action Bar</strong> दिसेल — Dispatch, Assign, आणि Complete बटणे येतील.</p>
+        </div>
+      ),
+      placement: "center",
+      disableBeacon: true,
+    },
+    {
+      target: "body",
+      title: "🚚 Dispatch बटण",
+      content: (
+        <div className="text-sm space-y-2">
+          <p>Orders select केल्यावर वरती <strong>🚚 Dispatch</strong> बटण येते — ते दाबा.</p>
+          <p className="text-gray-600 text-xs">Dispatch modal उघडेल — तिथे dispatch mode निवडायची आहे (By Vehicle / Courier / With Order / From Office).</p>
+        </div>
+      ),
+      placement: "center",
+      disableBeacon: true,
+    },
+    {
+      target: "body",
+      title: "🚚 By Vehicle — स्वतंत्र गाडी",
+      content: (
+        <div className="text-sm space-y-2">
+          <p><strong>By Vehicle</strong> निवडा जेव्हा order <em>वेगळ्या</em> गाडीतून जाणार असेल.</p>
+          <ul className="list-disc list-inside text-gray-700 text-xs space-y-1 mt-1">
+            <li>गाडी <strong>select</strong> करा (vehicle list मधून)</li>
+            <li>Vehicle number, Driver नाव, Driver mobile भरा</li>
+            <li>Submit केल्यावर order Dispatched होईल</li>
+          </ul>
+        </div>
+      ),
+      placement: "center",
+      disableBeacon: true,
+    },
+    {
+      target: "body",
+      title: "📦 By Courier — कुरिअर",
+      content: (
+        <div className="text-sm space-y-2">
+          <p><strong>By Courier</strong> निवडा जेव्हा order courier ने पाठवणार असेल.</p>
+          <ul className="list-disc list-inside text-gray-700 text-xs space-y-1 mt-1">
+            <li>Courier कंपनीचे नाव भरा</li>
+            <li>Tracking ID टाका (optional)</li>
+            <li>Courier contact number भरा</li>
+          </ul>
+        </div>
+      ),
+      placement: "center",
+      disableBeacon: true,
+    },
+    {
+      target: "body",
+      title: "🔗 With Order — Nursery गाडीसोबत",
+      content: (
+        <div className="text-sm space-y-2">
+          <p><strong>With Order</strong> निवडा जेव्हा agri input order आपल्याच nursery च्या plant delivery गाडीसोबत जाणार असेल.</p>
+          <div className="bg-teal-50 rounded p-2 mt-1">
+            <p className="text-teal-800 text-xs font-medium">🔄 Auto-fill होते</p>
+            <p className="text-teal-700 text-xs">Linked regular dispatch निवडल्यावर vehicle, driver details आपोआप भरतात. Loading होताना थांबा.</p>
+          </div>
+          <p className="text-gray-600 text-xs">Nursery order select केल्यावर गाडीचे details prefill होतात — manually बदलता येतात.</p>
+        </div>
+      ),
+      placement: "center",
+      disableBeacon: true,
+    },
+    {
+      target: "body",
+      title: "🏢 From Office — Office मधून",
+      content: (
+        <div className="text-sm space-y-2">
+          <p><strong>From Office</strong> निवडा जेव्हा:</p>
+          <ul className="list-disc list-inside text-gray-700 text-xs space-y-1">
+            <li>शेतकरी <em>स्वतः</em> office मधून घेऊन गेला, किंवा</li>
+            <li>कुणाच्या मार्फत office मधून पाठवली</li>
+          </ul>
+          <p className="text-gray-600 text-xs mt-1">एक <strong>remark</strong> टाकणे आवश्यक आहे — कोणी नेली, कुठून गेली ते लिहा.</p>
+        </div>
+      ),
+      placement: "center",
+      disableBeacon: true,
+    },
+    {
+      target: "body",
+      title: "👤 Assign बटण",
+      content: (
+        <div className="text-sm space-y-2">
+          <p>Orders select केल्यावर <strong>👤 Assign</strong> बटण येते.</p>
+          <p className="text-gray-600 text-xs">ज्या व्यक्तीने ही order काढायची आहे त्याचे नाव निवडा. त्या व्यक्तीला हे orders assigned होतील आणि त्यांना दिसतील.</p>
+          <p className="text-gray-500 text-xs mt-1">बऱ्याच वेळा order company मधून न जाता office मधून निघते — त्यासाठी आधी Assign करणे उपयुक्त आहे.</p>
+        </div>
+      ),
+      placement: "center",
+      disableBeacon: true,
+    },
+    {
+      target: "body",
+      title: "✅ Complete बटण",
+      content: (
+        <div className="text-sm space-y-2">
+          <p>Dispatched orders select केल्यावर <strong>✅ Complete</strong> बटण येते.</p>
+          <ul className="list-disc list-inside text-gray-700 text-xs space-y-1 mt-1">
+            <li>प्रत्येक order साठी <strong>delivered qty</strong> confirm करा</li>
+            <li>काही stock <strong>परत</strong> आले असल्यास return qty भरा</li>
+            <li>Damaged असल्यास ते नोंद करा</li>
+          </ul>
+          <p className="text-gray-600 text-xs mt-1">Submit केल्यावर order Completed होईल आणि stock update होईल.</p>
+        </div>
+      ),
+      placement: "center",
+      disableBeacon: true,
+    },
+  ]
+
   // Inject custom CSS for blinking animation and enhanced dropdowns
   useEffect(() => {
     const styleElement = document.createElement("style")
@@ -1742,10 +1903,16 @@ const FarmerOrdersTable = ({
   const isDispatchManager = useIsDispatchManager()
   const { walletData, loading: walletLoading } = useDealerWallet()
   const user = useUserData() // Get current user data
+  const userJobRoleUpper = String(user?.jobTitle || user?.role || "").toUpperCase()
   const isRamAgriSalesManager =
-    String(user?.jobTitle || user?.role || "").toUpperCase() === "RAM_AGRI_SALES_MANAGER"
-  const isAgriLoadAdmin = ["RAM_AGRI_SALES_MANAGER", "ADMIN", "SUPER_ADMIN"].includes(
-    String(user?.jobTitle || user?.role || "").toUpperCase()
+    userJobRoleUpper === "RAM_AGRI_SALES_MANAGER" || userJobRoleUpper === "RAM_AGRI_SALES_OFFICE_MANAGER"
+  const isAgriLoadAdmin = ["RAM_AGRI_SALES_MANAGER", "RAM_AGRI_SALES_OFFICE_MANAGER", "ADMIN", "SUPER_ADMIN"].includes(
+    userJobRoleUpper
+  )
+  // Count of orders in the current list that have a pending rate change request
+  const pendingRateApprovalCount = React.useMemo(
+    () => (orders || []).filter((o) => o?.details?.pendingRateChangeRequestId).length,
+    [orders]
   )
 
   // Ram Agri Sales Manager: land on Ram Agri Inputs (not regular nursery orders)
@@ -1758,22 +1925,18 @@ const FarmerOrdersTable = ({
   const canEditDcInvoiceLabelForRow = React.useCallback(
     (row) => {
       if (row?.isAgriSalesOrder || row?.details?.isRamAgriProduct) return false
-      if (!(canEditOrderCore || isDispatchManager)) return false
-      if (dispatchHistoryHasInvoiceNumber(row?.details?.dispatchHistory)) {
-        return canReassignSalesPerson
-      }
-      return true
+      /** Optional manual/sticker DC — editable even when official plant/subtype DC exists. */
+      return Boolean(canEditOrderCore || isDispatchManager)
     },
-    [canEditOrderCore, isDispatchManager, canReassignSalesPerson]
+    [canEditOrderCore, isDispatchManager]
   )
 
   const openDcInvoiceLabelEdit = React.useCallback((row) => {
     setDcInvoiceEditRow(row)
+    const rawManual =
+      row?.deliveryChallanInvoiceNumber ?? row?.details?.deliveryChallanInvoiceNumber
     setDcInvoiceEditValue(
-      row?.details?.deliveryChallanInvoiceNumber != null &&
-        String(row.details.deliveryChallanInvoiceNumber).trim() !== ""
-        ? String(row.details.deliveryChallanInvoiceNumber).trim()
-        : ""
+      rawManual != null && String(rawManual).trim() !== "" ? String(rawManual).trim() : ""
     )
     setDcInvoiceEditOpen(true)
   }, [])
@@ -1781,7 +1944,7 @@ const FarmerOrdersTable = ({
   const submitDcInvoiceLabelEdit = React.useCallback(async () => {
     const row = dcInvoiceEditRow
     if (!row) return
-    const id = row.details?.orderid || row.id || row._id
+    const id = row._id || row.details?.orderid || row.id
     if (!id) {
       Toast.error("Missing order id")
       return
@@ -1803,14 +1966,21 @@ const FarmerOrdersTable = ({
         Toast.error(emps?.data?.message || "Update failed")
         return
       }
+      const rejected = Array.isArray(emps?.data?.rejectedFields) ? emps.data.rejectedFields : []
+      const dcRejected = rejected.find((r) => r?.field === "deliveryChallanInvoiceNumber")
+      if (dcRejected) {
+        Toast.error(dcRejected.detail || dcRejected.reason || "DC label was not saved")
+        return
+      }
       Toast.success("DC invoice label updated")
       const nextVal = trimmed === "" ? null : trimmed
       setOrders((prev) =>
         (prev || []).map((o) => {
-          const oid = String(o?.details?.orderid || o?.id || o?._id || "")
+          const oid = String(o?._id || o?.details?.orderid || o?.id || "")
           if (String(id) !== oid) return o
           return {
             ...o,
+            deliveryChallanInvoiceNumber: nextVal,
             details: {
               ...o.details,
               deliveryChallanInvoiceNumber: nextVal
@@ -1938,6 +2108,9 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
   })
   const [isOrderModalOpen, setIsOrderModalOpen] = useState(false)
   const [selectedOrder, setSelectedOrder] = useState(null)
+  const [pendingRateRequest, setPendingRateRequest] = useState(null) // {_id, previousRate, requestedRate, requestedBy, status, tokenExpiresAt}
+  const [pendingRateRequestLoading, setPendingRateRequestLoading] = useState(false)
+  const [rateApprovalActionLoading, setRateApprovalActionLoading] = useState(false)
   const [linkedAgriItems, setLinkedAgriItems] = useState([])
   const [linkedAgriLoading, setLinkedAgriLoading] = useState(false)
   /** Ram Agri tab: GET_ORDER_DISPATCH_DETAILS by linkedNurseryOrderId (plant order not in agri list) */
@@ -2415,8 +2588,9 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
                 deliveryDate: deliveryDate || null, // Include deliveryDate in details
                 dispatchDayKey: data?.dispatchDayKey || null,
                 dispatchTargetDate: data?.dispatchTargetDate || null,
-                deliveryChallanInvoiceNumber: data?.deliveryChallanInvoiceNumber || null
-              }
+                deliveryChallanInvoiceNumber: data?.deliveryChallanInvoiceNumber || null,
+                officialDeliveryChallanNumber: data?.officialDeliveryChallanNumber || null,
+              },
             }
             })
             .filter((order) => order != null && order.order != null && order.order !== "")
@@ -3055,6 +3229,34 @@ useEffect(() => {
     }
   }, [selectedOrder])
 
+  // Fetch pending rate change request for the selected order (if any)
+  useEffect(() => {
+    const mongoId = selectedOrder?.details?._id || selectedOrder?.details?.mongoId
+    const hasPending = selectedOrder?.details?.pendingRateChangeRequestId
+    if (!mongoId || !hasPending) {
+      setPendingRateRequest(null)
+      return
+    }
+    let cancelled = false
+    const fetchPending = async () => {
+      setPendingRateRequestLoading(true)
+      try {
+        const instance = NetworkManager(API.RATE_CHANGE_REQUEST.GET_ALL)
+        const res = await instance.request(null, { orderId: mongoId, status: "PENDING" })
+        const list = res?.data?.data || []
+        if (!cancelled) {
+          setPendingRateRequest(list.length > 0 ? list[0] : null)
+        }
+      } catch (e) {
+        if (!cancelled) setPendingRateRequest(null)
+      } finally {
+        if (!cancelled) setPendingRateRequestLoading(false)
+      }
+    }
+    fetchPending()
+    return () => { cancelled = true }
+  }, [selectedOrder])
+
   useEffect(() => {
     const orderId = selectedOrder?.details?.orderid
     if (!isOrderModalOpen || !orderId || selectedOrder?.isAgriSalesOrder || selectedOrder?.details?.isRamAgriProduct) {
@@ -3566,6 +3768,11 @@ const loadFilterOptions = async () => {
         Toast.error("Courier service name is required")
         return
       }
+    } else if (agriDispatchForm.dispatchMode === "OFFICE") {
+      if (!agriDispatchForm.dispatchNotes || !String(agriDispatchForm.dispatchNotes).trim()) {
+        Toast.error("Remark is required when dispatching from office")
+        return
+      }
     }
 
     try {
@@ -3599,6 +3806,8 @@ const loadFilterOptions = async () => {
               ? "courier"
               : agriDispatchForm.dispatchMode === "WITH_ORDER"
               ? "linked order"
+              : agriDispatchForm.dispatchMode === "OFFICE"
+              ? "office"
               : "vehicle"
           }`
         )
@@ -4311,6 +4520,7 @@ const mapSlotForUi = (slotData) => {
           "remaining Plants": remainingPlantCount,
           "returned Plants": returnedPlants || 0,
           orderStatus: orderStatus,
+          officialDeliveryChallanNumber: data?.officialDeliveryChallanNumber || null,
           Delivery: `${start} - ${end} ${monthYear}`,
           "Farm Ready": farmReadyDate ? moment(farmReadyDate).format(ORDER_DATE_DISPLAY) : "-",
           details: {
@@ -4357,6 +4567,7 @@ const mapSlotForUi = (slotData) => {
             cavityName: getCavityDisplayLabel(cavity),
             cavityId: getCavityIdString(cavity) || null,
             deliveryChallanInvoiceNumber: data?.deliveryChallanInvoiceNumber || null,
+            officialDeliveryChallanNumber: data?.officialDeliveryChallanNumber || null,
             slotHistory: Array.isArray(bookingSlot)
               ? bookingSlot.filter(Boolean)
               : bookingSlot
@@ -4468,6 +4679,7 @@ const mapSlotForUi = (slotData) => {
             returnNotes,
             linkedNurseryOrderId,
             linkedNurseryOrderCode,
+            lineItems,
           } = order
 
           // Handle populated fields (productId, createdBy, assignedTo can be objects)
@@ -4563,6 +4775,7 @@ const mapSlotForUi = (slotData) => {
               returnNotes,
               linkedNurseryOrderId,
               linkedNurseryOrderCode,
+              lineItems: lineItems || [],
             },
           }
         })
@@ -4887,6 +5100,27 @@ const mapSlotForUi = (slotData) => {
 
       if (emps?.error) {
         Toast.error(emps?.error)
+        setpatchLoading(false)
+        return
+      }
+
+      if (emps?.data?.pendingRateApproval === true) {
+        Toast.success("Rate change request submitted — waiting for Super Admin approval.")
+        setEditingRows(new Set())
+        setUpdatedObject(null)
+        setQuantityDeltaInput("")
+        // Mark the order as having a pending request so the badge shows
+        setOrders((prev) =>
+          (prev || []).map((o) => {
+            const oid = String(o?.details?.orderid || "")
+            const editedId = String(dataToSend?.id || row?.details?.orderid || "")
+            if (!editedId || oid !== editedId) return o
+            return {
+              ...o,
+              details: { ...o.details, pendingRateChangeRequestId: true },
+            }
+          })
+        )
         setpatchLoading(false)
         return
       }
@@ -5694,26 +5928,50 @@ const mapSlotForUi = (slotData) => {
                 <div className="flex items-center gap-2 md:gap-4 overflow-x-auto pb-2 lg:pb-0">
                   {/* Dispatch Button - Only show when orders are selected */}
                   {selectedAgriSalesOrders.length > 0 && (
-                    <button
-                      onClick={openAgriDispatchModal}
-                      className="px-3 md:px-4 py-2 text-xs md:text-sm font-medium rounded-lg transition-all flex items-center gap-1 md:gap-2 whitespace-nowrap bg-orange-100 text-orange-700 hover:bg-orange-200 shadow-sm border border-orange-300">
-                      🚚 Dispatch
-                      <span className="bg-orange-600 text-white text-xs px-2 py-0.5 rounded-full">
-                        {selectedAgriSalesOrders.length}
-                      </span>
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button
+                        id="agri-dispatch-btn"
+                        onClick={openAgriDispatchModal}
+                        className="px-3 md:px-4 py-2 text-xs md:text-sm font-medium rounded-lg transition-all flex items-center gap-1 md:gap-2 whitespace-nowrap bg-orange-100 text-orange-700 hover:bg-orange-200 shadow-sm border border-orange-300">
+                        🚚 Dispatch
+                        <span className="bg-orange-600 text-white text-xs px-2 py-0.5 rounded-full">
+                          {selectedAgriSalesOrders.length}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setJoyrideKey(k => k + 1); setJoyrideRun(true); }}
+                        title="Dispatch कसे करावे — Guide पहा"
+                        className="p-1.5 rounded-full text-white hover:bg-white hover:bg-opacity-20 transition-colors flex-shrink-0">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                          <path fillRule="evenodd" d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm0 4a1 1 0 110 2 1 1 0 010-2zm1 4a1 1 0 00-2 0v5a1 1 0 002 0v-5z" clipRule="evenodd" />
+                        </svg>
+                      </button>
+                    </div>
                   )}
 
                   {/* Assign to Sales Person Button */}
                   {selectedAgriSalesOrders.length > 0 && (
-                    <button
-                      onClick={openAssignModal}
-                      className="px-3 md:px-4 py-2 text-xs md:text-sm font-medium rounded-lg transition-all flex items-center gap-1 md:gap-2 whitespace-nowrap bg-purple-100 text-purple-700 hover:bg-purple-200 shadow-sm border border-purple-300">
-                      👤 Assign
-                      <span className="bg-purple-600 text-white text-xs px-2 py-0.5 rounded-full">
-                        {selectedAgriSalesOrders.length}
-                      </span>
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button
+                        id="agri-assign-btn"
+                        onClick={openAssignModal}
+                        className="px-3 md:px-4 py-2 text-xs md:text-sm font-medium rounded-lg transition-all flex items-center gap-1 md:gap-2 whitespace-nowrap bg-purple-100 text-purple-700 hover:bg-purple-200 shadow-sm border border-purple-300">
+                        👤 Assign
+                        <span className="bg-purple-600 text-white text-xs px-2 py-0.5 rounded-full">
+                          {selectedAgriSalesOrders.length}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setJoyrideKey(k => k + 1); setJoyrideRun(true); }}
+                        title="Assign कसे करावे — Guide पहा"
+                        className="p-1.5 rounded-full text-white hover:bg-white hover:bg-opacity-20 transition-colors flex-shrink-0">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                          <path fillRule="evenodd" d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm0 4a1 1 0 110 2 1 1 0 010-2zm1 4a1 1 0 00-2 0v5a1 1 0 002 0v-5z" clipRule="evenodd" />
+                        </svg>
+                      </button>
+                    </div>
                   )}
 
                   {selectedAgriSalesOrders.length > 0 && selectedAgriOrdersAreAllAccepted() && (
@@ -5731,6 +5989,7 @@ const mapSlotForUi = (slotData) => {
                   {/* Complete Button */}
                   {selectedAgriOrdersForComplete.length > 0 && (
                     <button
+                      id="agri-complete-btn"
                       onClick={openAgriCompleteModal}
                       className="px-3 md:px-4 py-2 text-xs md:text-sm font-medium rounded-lg transition-all flex items-center gap-1 md:gap-2 whitespace-nowrap bg-green-100 text-green-700 hover:bg-green-200 shadow-sm border border-green-300">
                       ✅ Complete
@@ -6117,10 +6376,11 @@ const mapSlotForUi = (slotData) => {
                     <span className="px-3 py-1.5 text-xs font-medium rounded-md bg-brand-600 text-white shadow-sm">
                       📋 Regular Orders
                     </span>
-                    <button
-                      type="button"
-                      onClick={() => setShowAgriSalesOrders(true)}
-                      className="px-3 py-1.5 text-xs font-medium rounded-md bg-white text-gray-600 hover:bg-gray-100 border border-orange-300 text-orange-700 transition-colors flex items-center gap-1 relative">
+                  <button
+                    id="ram-agri-inputs-btn"
+                    type="button"
+                    onClick={() => setShowAgriSalesOrders(true)}
+                    className="px-3 py-1.5 text-xs font-medium rounded-md bg-white text-gray-600 hover:bg-gray-100 border border-orange-300 text-orange-700 transition-colors flex items-center gap-1 relative">
                       📦 Ram Agri Inputs
                       {agriSalesPendingCount > 0 && (
                         <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold rounded-full min-w-[1.25rem] h-5 px-0.5 flex items-center justify-center border-2 border-white">
@@ -6142,6 +6402,7 @@ const mapSlotForUi = (slotData) => {
                     📋 Regular Orders
                   </button>
                   <button
+                    id="ram-agri-inputs-btn"
                     onClick={() => setShowAgriSalesOrders(true)}
                     className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors flex items-center gap-1 relative ${
                       showAgriSalesOrders
@@ -6179,6 +6440,17 @@ const mapSlotForUi = (slotData) => {
                       Hide Payment
                     </label>
                   </div>
+                  <button
+                    id="agri-tour-help-btn"
+                    type="button"
+                    onClick={() => { setJoyrideKey(k => k + 1); setJoyrideRun(true); }}
+                    title="How to use Ram Agri dispatch"
+                    className="ml-1 flex items-center gap-1 px-2 py-1 rounded-full text-orange-600 hover:bg-orange-100 border border-orange-300 transition-colors text-xs font-medium">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+                      <path fillRule="evenodd" d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm0 4a1 1 0 110 2 1 1 0 010-2zm1 4a1 1 0 00-2 0v5a1 1 0 002 0v-5z" clipRule="evenodd" />
+                    </svg>
+                    Guide
+                  </button>
                 </>
               )}
             </div>
@@ -6350,6 +6622,27 @@ const mapSlotForUi = (slotData) => {
 
           return (
             <>
+        {/* Pending Rate Approvals banner — visible to SUPER_ADMIN only */}
+        {isSuperAdmin && !showAgriSalesOrders && pendingRateApprovalCount > 0 && (
+          <div className="mx-2 mb-2 flex items-center justify-between gap-3 rounded-xl border-2 border-amber-400 bg-amber-50 px-4 py-2.5 shadow-sm">
+            <div className="flex items-center gap-2">
+              <span className="text-lg">⏳</span>
+              <div>
+                <span className="text-sm font-bold text-amber-900">
+                  {pendingRateApprovalCount} order{pendingRateApprovalCount > 1 ? "s" : ""} with pending rate change
+                  {pendingRateApprovalCount > 1 ? "s" : ""}
+                </span>
+                <p className="text-xs text-amber-700 mt-0.5">
+                  Click any order with ⏳ Rate Pending badge to review and approve.
+                </p>
+              </div>
+            </div>
+            <span className="flex-shrink-0 rounded-full bg-amber-400 text-amber-950 text-sm font-black w-7 h-7 flex items-center justify-center">
+              {pendingRateApprovalCount}
+            </span>
+          </div>
+        )}
+
         {/* Table View */}
         {viewType === "table" && (
           <div className="overflow-x-auto">
@@ -6409,7 +6702,11 @@ const mapSlotForUi = (slotData) => {
                           <tr
                             {...trProps}
                             className={`hover:bg-brand-50 transition-all duration-150 cursor-pointer border-l-4 ${
-                              hasPendingPayment && !showAgriSalesOrders ? "payment-blink border-l-amber-400" : "border-l-transparent"
+                              row?.details?.pendingRateChangeRequestId && !showAgriSalesOrders
+                                ? "border-l-amber-500 bg-amber-50/40"
+                                : hasPendingPayment && !showAgriSalesOrders
+                                ? "payment-blink border-l-amber-400"
+                                : "border-l-transparent"
                             } ${row?.details?.dealerOrder ? "bg-sky-50" : ""} ${
                               selectedRows.has(row.details.orderid) && !showAgriSalesOrders ? "bg-brand-100 border-l-brand-500" : ""
                             } ${agri}`}
@@ -6664,41 +6961,77 @@ const mapSlotForUi = (slotData) => {
                           )}
                           {!(row.isAgriSalesOrder || row.details?.isRamAgriProduct) && (
                             <>
-                              {canEditDcInvoiceLabelForRow(row) ? (
-                                <span className="inline-flex items-center gap-0.5">
-                                  {row.details?.deliveryChallanInvoiceNumber ? (
+                              {(() => {
+                                const official = String(
+                                  row?.details?.officialDeliveryChallanNumber ||
+                                    row?.officialDeliveryChallanNumber ||
+                                    ""
+                                ).trim()
+                                const manual = String(
+                                  row?.deliveryChallanInvoiceNumber ??
+                                    row?.details?.deliveryChallanInvoiceNumber ??
+                                    ""
+                                ).trim()
+                                const canDcEdit = canEditDcInvoiceLabelForRow(row)
+
+                                if (canDcEdit) {
+                                  return (
+                                    <span className="inline-flex flex-wrap items-center gap-1">
+                                      {official ? (
+                                        <span
+                                          className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-900 text-white border border-emerald-950 font-mono tracking-tight"
+                                          title="Official system DC (plant/subtype). Manual sticker below is optional.">
+                                          Sys {official}
+                                        </span>
+                                      ) : null}
+                                      <span className="inline-flex items-center gap-0.5">
+                                        {manual ? (
+                                          <span
+                                            className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-stone-800 text-white border border-stone-900 font-mono tracking-tight"
+                                            title="Optional manual DC / sticker">
+                                            Man {manual}
+                                          </span>
+                                        ) : (
+                                          <span
+                                            className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-stone-100 text-stone-600 border border-stone-300 font-mono tracking-tight"
+                                            title="Optional manual DC — click pencil">
+                                            Man —
+                                          </span>
+                                        )}
+                                        <button
+                                          type="button"
+                                          title="Edit optional manual DC / sticker"
+                                          onClick={(e) => {
+                                            e.stopPropagation()
+                                            openDcInvoiceLabelEdit(row)
+                                          }}
+                                          className="p-0.5 rounded text-stone-600 hover:bg-stone-100">
+                                          <FaEdit className="w-3.5 h-3.5" />
+                                        </button>
+                                      </span>
+                                    </span>
+                                  )
+                                }
+                                if (official) {
+                                  return (
+                                    <span
+                                      className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-900 text-white border border-emerald-950 font-mono tracking-tight"
+                                      title="Official system DC number (plant/subtype sequence)">
+                                      DC {official}
+                                    </span>
+                                  )
+                                }
+                                if (manual) {
+                                  return (
                                     <span
                                       className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-stone-800 text-white border border-stone-900 font-mono tracking-tight"
-                                      title="Delivery challan invoice number">
-                                      DC {row.details.deliveryChallanInvoiceNumber}
+                                      title="Manual DC label">
+                                      DC {manual}
                                     </span>
-                                  ) : (
-                                    <span
-                                      className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-stone-100 text-stone-600 border border-stone-300 font-mono tracking-tight"
-                                      title="No DC label yet (legacy orders — set to match challan)">
-                                      DC —
-                                    </span>
-                                  )}
-                                  <button
-                                    type="button"
-                                    title="Edit delivery challan (DC) invoice number"
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      openDcInvoiceLabelEdit(row)
-                                    }}
-                                    className="p-0.5 rounded text-stone-600 hover:bg-stone-100">
-                                    <FaEdit className="w-3.5 h-3.5" />
-                                  </button>
-                                </span>
-                              ) : (
-                                row.details?.deliveryChallanInvoiceNumber && (
-                                  <span
-                                    className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-stone-800 text-white border border-stone-900 font-mono tracking-tight"
-                                    title="Delivery challan invoice number (instant sale or assigned)">
-                                    DC {row.details.deliveryChallanInvoiceNumber}
-                                  </span>
-                                )
-                              )}
+                                  )
+                                }
+                                return null
+                              })()}
                             </>
                           )}
                           {!(row.isAgriSalesOrder || row.details?.isRamAgriProduct) && (
@@ -6831,6 +7164,18 @@ const mapSlotForUi = (slotData) => {
                         <div className="inline-flex items-center rounded-md border border-teal-200 bg-teal-50 px-2 py-0.5 text-[12px] font-bold text-teal-900 leading-tight">
                           {row.plantType}
                         </div>
+                        {Array.isArray(row.details?.lineItems) && row.details.lineItems.length > 1 && (
+                          <div className="text-[10px] text-gray-600 mt-1 space-y-0.5 max-w-[220px]">
+                            {row.details.lineItems.slice(0, 4).map((ln, i) => (
+                              <div key={ln._id || i} className="truncate leading-tight">
+                                · {ln.productName || "—"} × {ln.quantity}
+                              </div>
+                            ))}
+                            {row.details.lineItems.length > 4 && (
+                              <div className="text-gray-400">+{row.details.lineItems.length - 4} more</div>
+                            )}
+                          </div>
+                        )}
                       </td>
                       <td className="px-2 py-2 whitespace-nowrap">
                         {row.deliveryDate && row.deliveryDate !== "-" ? (
@@ -6878,6 +7223,12 @@ const mapSlotForUi = (slotData) => {
                       </td>
                       <td className="px-2 py-2 whitespace-nowrap">
                         <div className="text-xs font-bold text-gray-900">₹{Number(row.rate).toFixed(2)}</div>
+                        {row.details?.pendingRateChangeRequestId && (
+                          <div className="mt-0.5 inline-flex items-center gap-0.5 rounded-full bg-amber-100 border border-amber-400 px-1.5 py-0.5">
+                            <span className="text-[9px]">⏳</span>
+                            <span className="text-[9px] font-bold text-amber-800">Rate Pending</span>
+                          </div>
+                        )}
                       </td>
                       <td className="px-2 py-2">
                         <div className="text-xs font-bold text-gray-900">{row.total}</div>
@@ -6971,7 +7322,7 @@ const mapSlotForUi = (slotData) => {
                                 </div>
                               )}
                             </div>
-                        ) : (row.orderStatus !== "COMPLETED" && row.orderStatus !== "DISPATCHED" && canChangeOrderStatus) ? (
+                        ) : (row.orderStatus !== "COMPLETED" && canChangeOrderStatus) ? (
                           <FarmerOrderStatusSelect
                             key={`order-status-${row.details?.orderid}-${row.orderStatus}`}
                             row={row}
@@ -7333,7 +7684,7 @@ const mapSlotForUi = (slotData) => {
                                     </div>
                                   )}
                                 </div>
-                              ) : (row.orderStatus !== "COMPLETED" && row.orderStatus !== "DISPATCHED" && canChangeOrderStatus) ? (
+                              ) : (row.orderStatus !== "COMPLETED" && canChangeOrderStatus) ? (
                                 <div className="relative" onClick={(e) => e.stopPropagation()}>
                                   <FarmerOrderStatusSelect
                                     key={`grid-status-${row.details?.orderid}-${row.orderStatus}`}
@@ -7466,20 +7817,44 @@ const mapSlotForUi = (slotData) => {
                               </div>
                             )}
 
-                            {(row.details?.deliveryChallanInvoiceNumber ||
-                              canEditDcInvoiceLabelForRow(row)) && (
+                            {(() => {
+                              const official = String(
+                                row?.details?.officialDeliveryChallanNumber ||
+                                  row?.officialDeliveryChallanNumber ||
+                                  ""
+                              ).trim()
+                              const manual = String(
+                                row?.deliveryChallanInvoiceNumber ??
+                                  row?.details?.deliveryChallanInvoiceNumber ??
+                                  ""
+                              ).trim()
+                              const canDcEdit = canEditDcInvoiceLabelForRow(row)
+                              if (!official && !manual && !canDcEdit) return null
+                              return (
                               <div className="flex items-center justify-between gap-2 rounded-md border border-stone-300 bg-stone-900 px-2 py-1.5">
-                                <span className="text-[10px] font-semibold uppercase tracking-wide text-stone-300">
-                                  DC invoice
+                                <span className="text-[10px] font-semibold uppercase tracking-wide text-stone-300 shrink-0">
+                                  DC
                                 </span>
-                                <span className="flex items-center gap-1 min-w-0">
-                                  <span className="text-xs font-mono font-bold text-white truncate">
-                                    {row.details?.deliveryChallanInvoiceNumber || "—"}
-                                  </span>
-                                  {canEditDcInvoiceLabelForRow(row) && (
+                                <span className="flex items-center gap-1 min-w-0 justify-end flex-wrap">
+                                  {official ? (
+                                    <span className="text-xs font-mono font-bold text-white truncate max-w-[46%]" title="Official system DC">
+                                      Sys {official}
+                                    </span>
+                                  ) : null}
+                                  {official && (manual || canDcEdit) ? (
+                                    <span className="text-[9px] text-stone-500 shrink-0">·</span>
+                                  ) : null}
+                                  {manual ? (
+                                    <span className="text-xs font-mono font-bold text-amber-100 truncate max-w-[46%]" title="Optional manual DC">
+                                      Man {manual}
+                                    </span>
+                                  ) : canDcEdit ? (
+                                    <span className="text-[10px] text-stone-400 truncate">Man —</span>
+                                  ) : null}
+                                  {canDcEdit && (
                                     <button
                                       type="button"
-                                      title="Edit DC invoice number"
+                                      title="Edit optional manual DC"
                                       onClick={(e) => {
                                         e.stopPropagation()
                                         openDcInvoiceLabelEdit(row)
@@ -7490,7 +7865,8 @@ const mapSlotForUi = (slotData) => {
                                   )}
                                 </span>
                               </div>
-                            )}
+                              )
+                            })()}
                       
                             {/* Dispatch Details */}
                             {(row.orderStatus === "DISPATCHED" || row.orderStatus === "DISPATCH_PROCESS") && row.details?.dispatchHistory && row.details.dispatchHistory.length > 0 && (() => {
@@ -7866,6 +8242,117 @@ const mapSlotForUi = (slotData) => {
 
                   {/* Tab Content */}
                   <div className="p-4">
+
+                    {/* Pending Rate Change Approval Card — Super Admin only */}
+                    {pendingRateRequest && pendingRateRequest.status === "PENDING" &&
+                      isSuperAdmin && (
+                      <div className="mb-4 rounded-xl border border-amber-300 bg-amber-50 p-4 shadow-sm">
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-lg">⏳</span>
+                              <h4 className="font-semibold text-amber-900 text-sm">Pending Rate Change Approval</h4>
+                            </div>
+                            <div className="flex items-center gap-3 mt-2">
+                              <span className="text-red-600 font-medium line-through text-base">₹{pendingRateRequest.previousRate}</span>
+                              <span className="text-amber-700">→</span>
+                              <span className="text-green-700 font-bold text-base">₹{pendingRateRequest.requestedRate}</span>
+                            </div>
+                            {pendingRateRequest.requestedBy?.name && (
+                              <p className="text-xs text-amber-700 mt-1">
+                                Requested by: <strong>{pendingRateRequest.requestedBy.name}</strong>
+                                {pendingRateRequest.tokenExpiresAt && (
+                                  <span className="ml-2 text-gray-500">
+                                    · Expires {moment(pendingRateRequest.tokenExpiresAt).fromNow()}
+                                  </span>
+                                )}
+                              </p>
+                            )}
+                          </div>
+                          <div className="flex gap-2 flex-shrink-0">
+                            <button
+                              disabled={rateApprovalActionLoading}
+                              onClick={async () => {
+                                setRateApprovalActionLoading(true)
+                                try {
+                                  const instance = NetworkManager(API.RATE_CHANGE_REQUEST.APPROVE_VIA_UI)
+                                  const res = await instance.request({}, [pendingRateRequest._id])
+                                  if (res?.data?.status === "success" || res?.data?.status === "Success") {
+                                    Toast.success("Rate change approved!")
+                                    setPendingRateRequest(null)
+                                    setOrders((prev) =>
+                                      (prev || []).map((o) => {
+                                        const oid = String(o?.details?.orderid || "")
+                                        const selId = String(selectedOrder?.details?.orderid || "")
+                                        if (!oid || oid !== selId) return o
+                                        return {
+                                          ...o,
+                                          rate: pendingRateRequest.requestedRate,
+                                          details: {
+                                            ...o.details,
+                                            rate: pendingRateRequest.requestedRate,
+                                            pendingRateChangeRequestId: null,
+                                          },
+                                        }
+                                      })
+                                    )
+                                  } else {
+                                    Toast.error(res?.data?.message || "Approval failed")
+                                  }
+                                } catch (e) {
+                                  Toast.error(e?.response?.data?.message || "Approval failed")
+                                } finally {
+                                  setRateApprovalActionLoading(false)
+                                }
+                              }}
+                              className="px-3 py-1.5 rounded-lg bg-green-600 text-white text-xs font-semibold hover:bg-green-700 disabled:opacity-50 flex items-center gap-1"
+                            >
+                              {rateApprovalActionLoading ? "…" : "✅ Approve"}
+                            </button>
+                            <button
+                              disabled={rateApprovalActionLoading}
+                              onClick={async () => {
+                                const reason = window.prompt("Rejection reason (optional):", "")
+                                if (reason === null) return // cancelled
+                                setRateApprovalActionLoading(true)
+                                try {
+                                  const instance = NetworkManager(API.RATE_CHANGE_REQUEST.REJECT_VIA_UI)
+                                  const res = await instance.request(
+                                    { rejectionReason: reason },
+                                    [pendingRateRequest._id]
+                                  )
+                                  if (res?.data?.status === "success" || res?.data?.status === "Success") {
+                                    Toast.success("Rate change rejected.")
+                                    setPendingRateRequest(null)
+                                    setOrders((prev) =>
+                                      (prev || []).map((o) => {
+                                        const oid = String(o?.details?.orderid || "")
+                                        const selId = String(selectedOrder?.details?.orderid || "")
+                                        if (!oid || oid !== selId) return o
+                                        return {
+                                          ...o,
+                                          details: { ...o.details, pendingRateChangeRequestId: null },
+                                        }
+                                      })
+                                    )
+                                  } else {
+                                    Toast.error(res?.data?.message || "Rejection failed")
+                                  }
+                                } catch (e) {
+                                  Toast.error(e?.response?.data?.message || "Rejection failed")
+                                } finally {
+                                  setRateApprovalActionLoading(false)
+                                }
+                              }}
+                              className="px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-semibold hover:bg-red-700 disabled:opacity-50 flex items-center gap-1"
+                            >
+                              ❌ Reject
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     {activeTab === "overview" && (
                       <div className="space-y-4">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -9628,17 +10115,78 @@ const mapSlotForUi = (slotData) => {
 
                           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                             <div>
-                              <label className="text-sm text-gray-500 font-medium">Rate (₹)</label>
-                              <input
-                                type="number"
-                                value={
-                                  updatedObject?.rate !== undefined
-                                    ? updatedObject.rate
-                                    : selectedOrder?.rate
-                                }
-                                onChange={(e) => handleInputChange(0, "rate", e.target.value)}
-                                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 mt-1"
-                              />
+                              <label className="text-sm text-gray-500 font-medium mb-1 block">Rate (₹)</label>
+
+                              {/* Pending rate change — show as a visual card instead of an editable field */}
+                              {pendingRateRequest && pendingRateRequest.status === "PENDING" ? (
+                                <div className="rounded-xl border-2 border-amber-400 bg-amber-50 overflow-hidden">
+                                  {/* Header badge */}
+                                  <div className="flex items-center gap-1.5 bg-amber-400 px-3 py-1.5">
+                                    <span className="text-sm">⏳</span>
+                                    <span className="text-xs font-bold text-amber-950 tracking-wide uppercase">
+                                      Approval Pending
+                                    </span>
+                                  </div>
+                                  {/* Rate values */}
+                                  <div className="px-3 py-3">
+                                    {/* Current (locked) rate */}
+                                    <div className="flex items-center justify-between mb-2">
+                                      <span className="text-xs text-gray-500 font-medium">Current Rate</span>
+                                      <span className="text-base font-semibold text-gray-500 line-through">
+                                        ₹{pendingRateRequest.previousRate}
+                                      </span>
+                                    </div>
+                                    {/* Requested new rate — prominent */}
+                                    <div className="flex items-center justify-between bg-white rounded-lg border border-amber-300 px-3 py-2">
+                                      <span className="text-xs font-semibold text-amber-800">New Rate (Requested)</span>
+                                      <span className="text-xl font-bold text-amber-700">
+                                        ₹{pendingRateRequest.requestedRate}
+                                      </span>
+                                    </div>
+                                    {/* Meta */}
+                                    {pendingRateRequest.requestedBy?.name && (
+                                      <p className="text-xs text-gray-500 mt-2">
+                                        By <strong>{pendingRateRequest.requestedBy.name}</strong>
+                                        {pendingRateRequest.tokenExpiresAt && (
+                                          <span className="ml-1 text-amber-600">
+                                            · expires {moment(pendingRateRequest.tokenExpiresAt).fromNow()}
+                                          </span>
+                                        )}
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                              ) : (
+                                <>
+                                  <input
+                                    type="number"
+                                    value={
+                                      updatedObject?.rate !== undefined
+                                        ? updatedObject.rate
+                                        : selectedOrder?.rate
+                                    }
+                                    onChange={(e) => handleInputChange(0, "rate", e.target.value)}
+                                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
+                                  />
+                                  {updatedObject?.rate !== undefined &&
+                                    Number(updatedObject.rate) !== Number(selectedOrder?.rate) &&
+                                    !isSuperAdmin && (
+                                      <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+                                        <p className="text-xs font-semibold text-amber-800 flex items-center gap-1">
+                                          <span>⚠️</span> Requires Super Admin Approval
+                                        </p>
+                                        <div className="mt-1.5 flex items-center gap-2">
+                                          <span className="text-sm text-gray-400 line-through">₹{selectedOrder?.rate}</span>
+                                          <span className="text-gray-400">→</span>
+                                          <span className="text-base font-bold text-amber-700">₹{updatedObject.rate}</span>
+                                        </div>
+                                        <p className="text-xs text-amber-600 mt-1">
+                                          A WhatsApp approval link will be sent to the Super Admin.
+                                        </p>
+                                      </div>
+                                    )}
+                                </>
+                              )}
                             </div>
                             <div>
                               <label className="text-sm text-gray-500 font-medium">Quantity Delta</label>
@@ -10246,6 +10794,56 @@ const mapSlotForUi = (slotData) => {
                               </div>
                             </div>
 
+                            {/* Rate Change Log — highlighted section */}
+                            {(() => {
+                              const rateEdits = (selectedOrder.details.orderEditHistory || []).filter(
+                                (e) => e.field === "rate"
+                              )
+                              if (rateEdits.length === 0) return null
+                              return (
+                                <div className="bg-yellow-50 rounded-lg border border-yellow-200">
+                                  <div className="p-3 border-b border-yellow-200 flex items-center gap-2">
+                                    <span className="text-base">💰</span>
+                                    <h4 className="font-semibold text-yellow-900 text-sm">
+                                      Rate Change Log ({rateEdits.length})
+                                    </h4>
+                                  </div>
+                                  <div className="divide-y divide-yellow-100">
+                                    {rateEdits.map((edit, idx) => (
+                                      <div key={idx} className="p-3 flex items-center justify-between gap-4">
+                                        <div className="flex items-center gap-3">
+                                          <span className="text-red-500 line-through font-medium text-sm">
+                                            ₹{edit.previousValue}
+                                          </span>
+                                          <span className="text-yellow-600">→</span>
+                                          <span className="text-green-700 font-bold text-sm">
+                                            ₹{edit.newValue}
+                                          </span>
+                                          {edit.notes?.includes("approved by Super Admin") && (
+                                            <span className="px-1.5 py-0.5 rounded bg-green-100 text-green-700 text-xs font-medium">
+                                              Approved
+                                            </span>
+                                          )}
+                                        </div>
+                                        <div className="text-right">
+                                          <div className="text-xs text-gray-500">
+                                            {edit.createdAt
+                                              ? moment(edit.createdAt).format(ORDER_DATETIME_DISPLAY)
+                                              : "—"}
+                                          </div>
+                                          {edit.changedBy?.name && (
+                                            <div className="text-xs text-gray-400">
+                                              by {edit.changedBy.name}
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )
+                            })()}
+
                             {/* Edit Timeline */}
                             <div className="bg-white rounded-lg border">
                               <div className="p-3 border-b bg-purple-50">
@@ -10279,20 +10877,26 @@ const mapSlotForUi = (slotData) => {
                                       newValueDisplay = moment(edit.newValue).format(ORDER_DATE_DISPLAY);
                                     }
 
+                                    const isRateEntry = edit.field === "rate"
+
                                     return (
                                       <div 
                                         key={editIndex} 
-                                        className="relative pl-8 pb-6 border-l-2 border-purple-300 last:border-l-0 last:pb-0">
+                                        className={`relative pl-8 pb-6 last:pb-0 ${
+                                          isRateEntry
+                                            ? "border-l-2 border-yellow-400"
+                                            : "border-l-2 border-purple-300 last:border-l-0"
+                                        }`}>
                                         {/* Timeline dot */}
-                                        <div className="absolute left-0 top-0 -ml-2 w-4 h-4 bg-purple-600 rounded-full border-2 border-white"></div>
+                                        <div className={`absolute left-0 top-0 -ml-2 w-4 h-4 rounded-full border-2 border-white ${isRateEntry ? "bg-yellow-500" : "bg-purple-600"}`}></div>
                                         
-                                        <div className="bg-purple-50 p-4 rounded-lg border border-purple-200">
+                                        <div className={`p-4 rounded-lg border ${isRateEntry ? "bg-yellow-50 border-yellow-300" : "bg-purple-50 border-purple-200"}`}>
                                           <div className="flex items-center justify-between mb-3">
                                             <div className="flex items-center gap-2">
-                                              <span className="text-sm font-semibold text-purple-900">
-                                                {fieldDisplayName} Changed
+                                              <span className={`text-sm font-semibold ${isRateEntry ? "text-yellow-900" : "text-purple-900"}`}>
+                                                {isRateEntry ? "💰 " : ""}{fieldDisplayName} Changed
                                               </span>
-                                              <span className="px-2 py-1 bg-purple-200 text-purple-800 rounded text-xs font-medium">
+                                              <span className={`px-2 py-1 rounded text-xs font-medium ${isRateEntry ? "bg-yellow-200 text-yellow-800" : "bg-purple-200 text-purple-800"}`}>
                                                 Edit #{editIndex + 1}
                                               </span>
                                             </div>
@@ -10304,7 +10908,7 @@ const mapSlotForUi = (slotData) => {
                                           </div>
 
                                           {/* Change Details */}
-                                          <div className="bg-white p-3 rounded border border-purple-100 mb-3">
+                                          <div className={`bg-white p-3 rounded mb-3 border ${isRateEntry ? "border-yellow-200" : "border-purple-100"}`}>
                                             {edit.field === "salesPerson" ? (
                                               <div className="text-sm text-gray-800">
                                                 {edit.notes ||
@@ -10340,7 +10944,7 @@ const mapSlotForUi = (slotData) => {
 
                                           {/* Changed By */}
                                           {edit.changedBy && (
-                                            <div className="pt-3 border-t border-purple-100">
+                                            <div className={`pt-3 border-t ${isRateEntry ? "border-yellow-200" : "border-purple-100"}`}>
                                               <div className="text-xs text-gray-600">
                                                 <span className="font-medium">Changed by:</span>{" "}
                                                 {edit.changedBy.name || "Unknown User"}
@@ -11135,8 +11739,9 @@ const mapSlotForUi = (slotData) => {
               {/* Dispatch Mode Selection */}
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 mb-2">Dispatch Mode *</label>
-                <div className="flex gap-3">
+                <div className="flex flex-wrap gap-3">
                   <button
+                    id="agri-dispatch-modal-vehicle"
                     type="button"
                     onClick={() => handleAgriDispatchModeChange("VEHICLE")}
                     className={`flex-1 py-3 px-4 rounded-lg border-2 transition-all flex items-center justify-center gap-2 ${
@@ -11148,6 +11753,7 @@ const mapSlotForUi = (slotData) => {
                     <span className="font-medium">By Vehicle</span>
                   </button>
                   <button
+                    id="agri-dispatch-modal-courier"
                     type="button"
                     onClick={() => handleAgriDispatchModeChange("COURIER")}
                     className={`flex-1 py-3 px-4 rounded-lg border-2 transition-all flex items-center justify-center gap-2 ${
@@ -11159,6 +11765,7 @@ const mapSlotForUi = (slotData) => {
                     <span className="font-medium">By Courier</span>
                   </button>
                   <button
+                    id="agri-dispatch-modal-with-order"
                     type="button"
                     onClick={() => handleAgriDispatchModeChange("WITH_ORDER")}
                     className={`flex-1 py-3 px-4 rounded-lg border-2 transition-all flex items-center justify-center gap-2 ${
@@ -11168,6 +11775,18 @@ const mapSlotForUi = (slotData) => {
                     }`}>
                     <span className="text-xl">🔗</span>
                     <span className="font-medium">With Order</span>
+                  </button>
+                  <button
+                    id="agri-dispatch-modal-office"
+                    type="button"
+                    onClick={() => setAgriDispatchForm((prev) => ({ ...prev, dispatchMode: "OFFICE" }))}
+                    className={`flex-1 min-w-[140px] py-3 px-4 rounded-lg border-2 transition-all flex items-center justify-center gap-2 ${
+                      agriDispatchForm.dispatchMode === "OFFICE"
+                        ? "border-amber-500 bg-amber-50 text-amber-800"
+                        : "border-gray-300 bg-white text-gray-600 hover:border-gray-400"
+                    }`}>
+                    <span className="text-xl">🏢</span>
+                    <span className="font-medium">From Office</span>
                   </button>
                 </div>
               </div>
@@ -11301,7 +11920,11 @@ const mapSlotForUi = (slotData) => {
 
               {/* Dispatch Notes */}
               <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Remarks / Notes (Optional)</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {agriDispatchForm.dispatchMode === "OFFICE"
+                    ? "Office dispatch remark *"
+                    : "Remarks / Notes (Optional)"}
+                </label>
                 <textarea
                   value={agriDispatchForm.dispatchNotes}
                   onChange={(e) => setAgriDispatchForm((prev) => ({ ...prev, dispatchNotes: e.target.value }))}
@@ -11343,13 +11966,17 @@ const mapSlotForUi = (slotData) => {
                     (agriDispatchForm.driverMobile && agriDispatchForm.driverMobile.length !== 10)
                   )) ||
                   (agriDispatchForm.dispatchMode === "COURIER" && !agriDispatchForm.courierName) ||
+                  (agriDispatchForm.dispatchMode === "OFFICE" &&
+                    (!agriDispatchForm.dispatchNotes || !String(agriDispatchForm.dispatchNotes).trim())) ||
                   agriDispatchLoading
                 }
                 className={`px-4 py-2 text-sm font-medium text-white rounded-lg disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-2 ${
                   agriDispatchForm.dispatchMode === "VEHICLE"
-                    ? "bg-brand-600 hover:bg-brand-700" 
+                    ? "bg-brand-600 hover:bg-brand-700"
                     : agriDispatchForm.dispatchMode === "WITH_ORDER"
                     ? "bg-teal-600 hover:bg-teal-700"
+                    : agriDispatchForm.dispatchMode === "OFFICE"
+                    ? "bg-amber-600 hover:bg-amber-700"
                     : "bg-purple-600 hover:bg-purple-700"
                 }`}>
                 {agriDispatchLoading ? (
@@ -11363,6 +11990,8 @@ const mapSlotForUi = (slotData) => {
                       ? "📦"
                       : agriDispatchForm.dispatchMode === "WITH_ORDER"
                       ? "🔗"
+                      : agriDispatchForm.dispatchMode === "OFFICE"
+                      ? "🏢"
                       : "🚚"}{" "}
                     Dispatch {selectedAgriSalesOrders.length} Order(s)
                   </>
@@ -11698,6 +12327,60 @@ const mapSlotForUi = (slotData) => {
           <OrderMapView orders={orders} onClose={() => setRouteMapOpen(false)} />
         </Suspense>
       </Dialog>
+
+      {/* Ram Agri Dispatch Guided Tour */}
+      <Joyride
+        key={joyrideKey}
+        steps={joyrideSteps}
+        run={joyrideRun}
+        continuous
+        showSkipButton
+        showProgress
+        scrollToFirstStep
+        disableScrolling={false}
+        callback={({ status }) => {
+          if ([STATUS.FINISHED, STATUS.SKIPPED].includes(status)) {
+            setJoyrideRun(false)
+            setJoyrideStepIndex(0)
+          }
+        }}
+        styles={{
+          options: {
+            primaryColor: "#ea580c",
+            zIndex: 10000,
+          },
+          tooltip: {
+            borderRadius: "12px",
+            maxWidth: "360px",
+          },
+          tooltipTitle: {
+            fontSize: "14px",
+            fontWeight: 600,
+          },
+          tooltipContent: {
+            fontSize: "13px",
+            padding: "8px 0 4px",
+          },
+          buttonNext: {
+            borderRadius: "8px",
+            fontSize: "13px",
+          },
+          buttonBack: {
+            fontSize: "13px",
+          },
+          buttonSkip: {
+            fontSize: "12px",
+            color: "#9ca3af",
+          },
+        }}
+        locale={{
+          back: "मागे",
+          close: "बंद",
+          last: "संपवा",
+          next: "पुढे →",
+          skip: "वगळा",
+        }}
+      />
     </div>
   )
 }

@@ -21,6 +21,8 @@ import {
   CircularProgress,
   IconButton,
   Divider,
+  Paper,
+  Stack,
 } from "@mui/material";
 import {
   Close as CloseIcon,
@@ -32,6 +34,7 @@ import {
   Delete as DeleteIcon,
   ZoomIn as ZoomInIcon,
   TextFields as TextFieldsIcon,
+  CheckCircleOutline as CheckCircleOutlineIcon,
 } from "@mui/icons-material";
 import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 import { LocalizationProvider } from "lib/muiLocalizationProvider";
@@ -68,10 +71,10 @@ const useStyles = makeStyles()((theme) => ({
   dialogTitle: {
     background: "linear-gradient(135deg, #4caf50 0%, #2e7d32 100%)",
     color: "white",
-    padding: "16px 24px",
+    padding: "12px 18px",
     position: "relative",
     [theme.breakpoints.down("sm")]: {
-      padding: "12px 16px",
+      padding: "10px 12px",
     },
   },
   closeButton: {
@@ -84,35 +87,35 @@ const useStyles = makeStyles()((theme) => ({
     },
   },
   formContainer: {
-    padding: "12px 16px",
+    padding: "8px 10px",
     maxWidth: 1000,
     margin: "0 auto",
     background: "#fafafa",
     [theme.breakpoints.down("sm")]: {
-      padding: "12px",
+      padding: "6px 8px",
     },
   },
   sectionTitle: {
     fontWeight: 600,
-    fontSize: "0.9rem",
-    marginBottom: 8,
+    fontSize: "0.82rem",
+    marginBottom: 4,
     display: "flex",
     alignItems: "center",
-    gap: 6,
+    gap: 4,
     color: "#2c3e50",
   },
   customerInfo: {
-    padding: 8,
+    padding: 6,
     backgroundColor: "#e8f5e9",
-    borderRadius: 6,
-    marginBottom: 8,
+    borderRadius: 4,
+    marginBottom: 6,
     border: "1px solid #4caf50",
   },
   paymentCard: {
-    marginTop: 8,
-    padding: 12,
+    marginTop: 4,
+    padding: 8,
     backgroundColor: "#f5f5f5",
-    borderRadius: 6,
+    borderRadius: 4,
   },
 }));
 
@@ -138,6 +141,14 @@ const AddAgriSalesOrderForm = ({
   const productTypeLabel = productType === "chemical" ? "Chemical" : "Seed";
   const productTypeLabelPlural = productType === "chemical" ? "Chemicals" : "Seeds";
 
+  const emptyProductLine = () => ({
+    ramAgriCropId: "",
+    ramAgriCropName: "",
+    varietySlots: [],
+  });
+  const [productLines, setProductLines] = useState([emptyProductLine()]);
+  const [confirmSubmitOpen, setConfirmSubmitOpen] = useState(false);
+
   const [formData, setFormData] = useState({
     customerName: "",
     customerMobile: "",
@@ -145,12 +156,6 @@ const AddAgriSalesOrderForm = ({
     customerTaluka: "",
     customerDistrict: "",
     customerState: "Maharashtra",
-    ramAgriCropId: "",
-    ramAgriVarietyId: "",
-    ramAgriCropName: "",
-    ramAgriVarietyName: "",
-    quantity: "",
-    rate: "",
     orderDate: new Date(),
     deliveryDate: null,
     notes: "",
@@ -175,6 +180,7 @@ const AddAgriSalesOrderForm = ({
   const [ocrResults, setOcrResults] = useState({});
   const [ramAgriSalesRepOptions, setRamAgriSalesRepOptions] = useState([]);
   const [agriSalesPersonId, setAgriSalesPersonId] = useState("");
+  const [ramAgriLimitSummary, setRamAgriLimitSummary] = useState(null);
 
   // Debounced mobile number for customer lookup
   const debouncedMobileNumber = useDebounce(formData?.customerMobile || "", 500);
@@ -229,6 +235,35 @@ const AddAgriSalesOrderForm = ({
   }, [open, isRamAgriRepUser]);
 
   useEffect(() => {
+    if (!open || isLinkedFlow) {
+      setRamAgriLimitSummary(null);
+      return;
+    }
+    const sp = isRamAgriRepUser ? user?._id || user?.id : agriSalesPersonId;
+    if (!sp) {
+      setRamAgriLimitSummary(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const inst = NetworkManager(API.INVENTORY.GET_AGRI_SALES_OUTSTANDING_LIMIT_SUMMARY);
+        const params = isRamAgriRepUser ? {} : { userId: sp };
+        const res = await inst.request({}, params);
+        const api = res?.data;
+        if (!cancelled && api?.status === "Success" && api.data) {
+          setRamAgriLimitSummary(api.data);
+        }
+      } catch {
+        if (!cancelled) setRamAgriLimitSummary(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, isLinkedFlow, isRamAgriRepUser, user?._id, user?.id, agriSalesPersonId]);
+
+  useEffect(() => {
     if (!open || !isLinkedFlow) return;
     const farmer = linkedNurseryOrder?.details?.farmer || {};
     const mobile = farmer.mobileNumber || linkedNurseryOrder?.details?.contact || "";
@@ -246,43 +281,80 @@ const AddAgriSalesOrderForm = ({
     }));
   }, [open, isLinkedFlow, linkedNurseryOrder]);
 
-  // Update rate and UOM when variety is selected
-  useEffect(() => {
-    if (formData?.ramAgriCropId && formData?.ramAgriVarietyId) {
-      const crop = ramAgriCrops.find((c) => c._id === formData.ramAgriCropId);
-      if (crop) {
-        const variety = crop.varieties?.find((v) => v._id === formData.ramAgriVarietyId);
-        if (variety) {
-          // Get current rate (from active rate or default rate)
-          const getCurrentRate = (variety) => {
-            if (Number(variety.sellerRate) > 0) {
-              return Number(variety.sellerRate);
-            }
-            if (variety.rates && variety.rates.length > 0) {
-              const now = new Date();
-              const activeRate = variety.rates.find(
-                (r) => new Date(r.startDate) <= now && new Date(r.endDate) >= now
-              );
-              if (activeRate) {
-                return activeRate.minRate && activeRate.maxRate
-                  ? (Number(activeRate.minRate) + Number(activeRate.maxRate)) / 2
-                  : activeRate.rate || variety.defaultRate || 0;
-              }
-            }
-            return variety.defaultRate || 0;
-          };
-
-          const currentRate = getCurrentRate(variety);
-          setFormData((prev) => ({
-            ...prev,
-            ramAgriCropName: crop.cropName,
-            ramAgriVarietyName: variety.name,
-            rate: currentRate > 0 ? currentRate.toString() : "",
-          }));
-        }
+  const getCurrentRate = (variety) => {
+    if (!variety) return 0;
+    if (Number(variety.sellerRate) > 0) {
+      return Number(variety.sellerRate);
+    }
+    if (variety.rates && variety.rates.length > 0) {
+      const now = new Date();
+      const activeRate = variety.rates.find(
+        (r) => new Date(r.startDate) <= now && new Date(r.endDate) >= now
+      );
+      if (activeRate) {
+        return activeRate.minRate && activeRate.maxRate
+          ? (Number(activeRate.minRate) + Number(activeRate.maxRate)) / 2
+          : activeRate.rate || variety.defaultRate || 0;
       }
     }
-  }, [formData?.ramAgriCropId, formData?.ramAgriVarietyId, ramAgriCrops]);
+    return variety.defaultRate || 0;
+  };
+
+  const updateProductLineCrop = (index, cropId) => {
+    const crop = ramAgriCrops.find((c) => c._id === cropId);
+    setProductLines((prev) => {
+      const next = [...prev];
+      next[index] = {
+        ...next[index],
+        ramAgriCropId: cropId || "",
+        ramAgriCropName: crop?.cropName || "",
+        varietySlots: [],
+      };
+      return next;
+    });
+  };
+
+  /** `selectedVarieties` = array of variety subdocuments from the crop, or one element for linked flow */
+  const handleVarietyMultiChange = (index, selectedVarieties) => {
+    setProductLines((prev) => {
+      const next = [...prev];
+      const row = { ...next[index] };
+      const prevSlots = row.varietySlots || [];
+      let list = Array.isArray(selectedVarieties)
+        ? selectedVarieties
+        : selectedVarieties
+          ? [selectedVarieties]
+          : [];
+      if (isLinkedFlow && list.length > 1) {
+        list = list.slice(0, 1);
+      }
+      row.varietySlots = list.map((v) => {
+        const existing = prevSlots.find((s) => String(s.ramAgriVarietyId) === String(v._id));
+        const cr = getCurrentRate(v);
+        return {
+          ramAgriVarietyId: v._id,
+          ramAgriVarietyName: v.name,
+          quantity: existing?.quantity ?? "",
+          rate: existing?.rate || (cr > 0 ? String(cr) : ""),
+        };
+      });
+      next[index] = row;
+      return next;
+    });
+  };
+
+  const updateVarietySlot = (lineIndex, slotIndex, updates) => {
+    setProductLines((prev) => {
+      const next = [...prev];
+      const row = { ...next[lineIndex] };
+      const slots = [...(row.varietySlots || [])];
+      if (!slots[slotIndex]) return prev;
+      slots[slotIndex] = { ...slots[slotIndex], ...updates };
+      row.varietySlots = slots;
+      next[lineIndex] = row;
+      return next;
+    });
+  };
 
   const loadRamAgriCrops = async (type = productType) => {
     try {
@@ -407,13 +479,7 @@ const AddAgriSalesOrderForm = ({
   const handleProductTypeChange = (event) => {
     const nextType = event.target.value;
     setProductType(nextType);
-    setFormData((prev) => ({
-      ...prev,
-      ramAgriCropId: "",
-      ramAgriVarietyId: "",
-      ramAgriCropName: "",
-      ramAgriVarietyName: "",
-    }));
+    setProductLines([emptyProductLine()]);
   };
 
   const handlePaymentInputChange = (field, value) => {
@@ -744,21 +810,35 @@ const AddAgriSalesOrderForm = ({
       Toast.error("Please enter valid 10-digit mobile number");
       return false;
     }
-    if (!formData.ramAgriCropId) {
-      Toast.error(`Please select a ${productTypeLabel.toLowerCase()}`);
-      return false;
-    }
-    if (!formData.ramAgriVarietyId) {
-      Toast.error("Please select a variety");
-      return false;
-    }
-    if (!formData.quantity || parseFloat(formData.quantity) <= 0) {
-      Toast.error("Please enter valid quantity");
-      return false;
-    }
-    if (!formData.rate || parseFloat(formData.rate) <= 0) {
-      Toast.error("Please enter valid rate");
-      return false;
+    const linesToCheck = isLinkedFlow ? productLines.slice(0, 1) : productLines;
+    for (let i = 0; i < linesToCheck.length; i++) {
+      const row = linesToCheck[i];
+      const label = linesToCheck.length > 1 ? ` (product ${i + 1})` : "";
+      if (!row.ramAgriCropId) {
+        Toast.error(`Please select a ${productTypeLabel.toLowerCase()}${label}`);
+        return false;
+      }
+      const slots = row.varietySlots || [];
+      if (!slots.length) {
+        Toast.error(`Select at least one variety${label} · किमान एक वान निवडा`);
+        return false;
+      }
+      for (let j = 0; j < slots.length; j++) {
+        const slot = slots[j];
+        const vlabel = slots.length > 1 ? `${label} (${slot.ramAgriVarietyName || `variety ${j + 1}`})` : label;
+        if (!slot.ramAgriVarietyId) {
+          Toast.error(`Invalid variety selection${vlabel}`);
+          return false;
+        }
+        if (!slot.quantity || parseFloat(slot.quantity) <= 0) {
+          Toast.error(`Please enter valid quantity${vlabel}`);
+          return false;
+        }
+        if (!slot.rate || parseFloat(slot.rate) <= 0) {
+          Toast.error(`Please enter valid rate${vlabel}`);
+          return false;
+        }
+      }
     }
 
     if (isRamAgriRepUser && !(user?._id || user?.id)) {
@@ -788,17 +868,65 @@ const AddAgriSalesOrderForm = ({
       }
     }
 
+    if (!isLinkedFlow && ramAgriLimitSummary) {
+      const rows = isLinkedFlow ? productLines.slice(0, 1) : productLines;
+      const orderTot = rows.reduce(
+        (acc, row) =>
+          acc +
+          (row.varietySlots || []).reduce(
+            (s, slot) => s + parseFloat(slot.quantity || 0) * parseFloat(slot.rate || 0),
+            0
+          ),
+        0
+      );
+      if (
+        orderTot > 0 &&
+        ramAgriLimitSummary.outstanding + orderTot > ramAgriLimitSummary.limit + 1e-6
+      ) {
+        Toast.error(
+          "Ram Agri sales outstanding limit would be exceeded for the selected sales person. Reduce the order or collect payment (marked collected) before submitting."
+        );
+        return false;
+      }
+    }
+
     return true;
   };
 
-  const handleSubmit = async () => {
+  const handleRequestSubmit = () => {
     if (!validateForm()) return;
+    setConfirmSubmitOpen(true);
+  };
 
+  const submitAgriOrder = async () => {
     setLoading(true);
     try {
-      // Get crop and variety for UOM
-      const crop = ramAgriCrops.find((c) => c._id === formData.ramAgriCropId);
-      const variety = crop?.varieties?.find((v) => v._id === formData.ramAgriVarietyId);
+      const buildLineItemsPayload = () => {
+        const linesSrc = isLinkedFlow ? productLines.slice(0, 1) : productLines;
+        const items = [];
+        linesSrc.forEach((row) => {
+          const crop = ramAgriCrops.find((c) => c._id === row.ramAgriCropId);
+          (row.varietySlots || []).forEach((slot) => {
+            if (!slot.ramAgriVarietyId) return;
+            const variety = crop?.varieties?.find((v) => v._id === slot.ramAgriVarietyId);
+            items.push({
+              isRamAgriProduct: true,
+              ramAgriCropId: row.ramAgriCropId,
+              ramAgriVarietyId: slot.ramAgriVarietyId,
+              ramAgriCropName: row.ramAgriCropName || crop?.cropName || "",
+              ramAgriVarietyName: slot.ramAgriVarietyName || variety?.name || "",
+              primaryUnit: variety?.primaryUnit?._id || variety?.primaryUnit || "",
+              secondaryUnit: variety?.secondaryUnit?._id || variety?.secondaryUnit || null,
+              conversionFactor: variety?.conversionFactor || 1,
+              quantity: parseFloat(slot.quantity),
+              rate: parseFloat(slot.rate),
+            });
+          });
+        });
+        return items;
+      };
+
+      const lineItems = buildLineItemsPayload();
 
       const payload = {
         customerName: formData.customerName.trim(),
@@ -807,16 +935,7 @@ const AddAgriSalesOrderForm = ({
         customerTaluka: formData.customerTaluka || "",
         customerDistrict: formData.customerDistrict || "",
         customerState: formData.customerState || "Maharashtra",
-        isRamAgriProduct: true,
-        ramAgriCropId: formData.ramAgriCropId,
-        ramAgriVarietyId: formData.ramAgriVarietyId,
-        ramAgriCropName: formData.ramAgriCropName || crop?.cropName || "",
-        ramAgriVarietyName: formData.ramAgriVarietyName || variety?.name || "",
-        primaryUnit: variety?.primaryUnit?._id || variety?.primaryUnit || "",
-        secondaryUnit: variety?.secondaryUnit?._id || variety?.secondaryUnit || null,
-        conversionFactor: variety?.conversionFactor || 1,
-        quantity: parseFloat(formData.quantity),
-        rate: parseFloat(formData.rate),
+        lineItems,
         orderDate: formData.orderDate instanceof Date ? formData.orderDate.toISOString() : formData.orderDate,
         deliveryDate: formData.deliveryDate ? (formData.deliveryDate instanceof Date ? formData.deliveryDate.toISOString() : formData.deliveryDate) : null,
         notes: formData.notes || "",
@@ -858,13 +977,15 @@ const AddAgriSalesOrderForm = ({
 
       let response;
       if (isLinkedFlow) {
+        const row = productLines[0];
+        const slot0 = row.varietySlots?.[0];
         const linkedInstance = NetworkManager(API.INVENTORY.CREATE_LINKED_AGRI_ORDER);
         response = await linkedInstance.request({
           linkedNurseryOrderId,
-          ramAgriCropId: payload.ramAgriCropId,
-          ramAgriVarietyId: payload.ramAgriVarietyId,
-          quantity: payload.quantity,
-          rate: payload.rate,
+          ramAgriCropId: row.ramAgriCropId,
+          ramAgriVarietyId: slot0?.ramAgriVarietyId,
+          quantity: parseFloat(slot0?.quantity),
+          rate: parseFloat(slot0?.rate),
           notes: payload.notes,
           salesPerson: payload.salesPerson,
         });
@@ -880,7 +1001,20 @@ const AddAgriSalesOrderForm = ({
             : "Agri Sales Order created successfully"
         );
         const orderDoc = response?.data?.data || response?.data;
-        const totalAmount = parseFloat(formData.quantity || 0) * parseFloat(formData.rate || 0);
+        const totalAmountComputed = (() => {
+          const rows = isLinkedFlow ? productLines.slice(0, 1) : productLines;
+          return rows.reduce(
+            (acc, row) =>
+              acc +
+              (row.varietySlots || []).reduce(
+                (s, slot) => s + parseFloat(slot.quantity || 0) * parseFloat(slot.rate || 0),
+                0
+              ),
+            0
+          );
+        })();
+        const row0 = productLines[0];
+        const slot0 = row0?.varietySlots?.[0];
         const paidAmt = parseFloat(paymentData.paidAmount || 0);
         const createdAgriOrderPayload = {
           _id: orderDoc?._id,
@@ -888,13 +1022,13 @@ const AddAgriSalesOrderForm = ({
           customerName: formData.customerName?.trim() || orderDoc?.customerName || "",
           customerMobile: formData.customerMobile || orderDoc?.customerMobile || "",
           customerVillage: formData.customerVillage || "",
-          productName: formData.ramAgriCropName || "",
-          varietyName: formData.ramAgriVarietyName || "",
-          quantity: parseFloat(formData.quantity) || 0,
-          rate: parseFloat(formData.rate) || 0,
-          total: totalAmount,
+          productName: row0?.ramAgriCropName || "",
+          varietyName: slot0?.ramAgriVarietyName || "",
+          quantity: parseFloat(slot0?.quantity) || 0,
+          rate: parseFloat(slot0?.rate) || 0,
+          total: totalAmountComputed,
           paidAmt,
-          remainingAmt: totalAmount - paidAmt,
+          remainingAmt: totalAmountComputed - paidAmt,
           deliveryDate: formData.deliveryDate ? (formData.deliveryDate instanceof Date ? formData.deliveryDate.toLocaleDateString() : formData.deliveryDate) : "",
           linkedNurseryOrderId: linkedNurseryOrderId || null,
         };
@@ -910,7 +1044,13 @@ const AddAgriSalesOrderForm = ({
     }
   };
 
+  const handleConfirmSubmit = async () => {
+    setConfirmSubmitOpen(false);
+    await submitAgriOrder();
+  };
+
   const handleClose = () => {
+    setConfirmSubmitOpen(false);
     setFormData({
       customerName: "",
       customerMobile: "",
@@ -918,16 +1058,11 @@ const AddAgriSalesOrderForm = ({
       customerTaluka: "",
       customerDistrict: "",
       customerState: "Maharashtra",
-      ramAgriCropId: "",
-      ramAgriVarietyId: "",
-      ramAgriCropName: "",
-      ramAgriVarietyName: "",
-      quantity: "",
-      rate: "",
       orderDate: new Date(),
       deliveryDate: null,
       notes: "",
     });
+    setProductLines([emptyProductLine()]);
     setPaymentData({
       paidAmount: "",
       paymentDate: moment().format("YYYY-MM-DD"),
@@ -940,24 +1075,33 @@ const AddAgriSalesOrderForm = ({
     });
     setCustomerData({});
     setAgriSalesPersonId("");
+    setRamAgriLimitSummary(null);
     onClose();
   };
 
-  const selectedCrop = ramAgriCrops.find((c) => c._id === formData.ramAgriCropId);
-  const selectedVariety = selectedCrop?.varieties?.find((v) => v._id === formData.ramAgriVarietyId);
-  const selectedCropOption = ramAgriCrops.find((c) => c._id === formData.ramAgriCropId) || null;
-  const selectedVarietyOption = selectedCrop?.varieties?.find((v) => v._id === formData.ramAgriVarietyId) || null;
-  const totalAmount = parseFloat(formData.quantity || 0) * parseFloat(formData.rate || 0);
+  const totalAmount = (() => {
+    const rows = isLinkedFlow ? productLines.slice(0, 1) : productLines;
+    return rows.reduce(
+      (acc, row) =>
+        acc +
+        (row.varietySlots || []).reduce(
+          (s, slot) => s + parseFloat(slot.quantity || 0) * parseFloat(slot.rate || 0),
+          0
+        ),
+      0
+    );
+  })();
   const paidAmount = parseFloat(paymentData.paidAmount || 0);
   const balanceAmount = totalAmount - paidAmount;
 
-  const getUnitDisplayName = (unit) => {
-    if (!unit) return "N/A";
-    if (typeof unit === "object") {
-      return unit.abbreviation || unit.name || "N/A";
-    }
-    return unit;
-  };
+  const ramAgriNewOrderUnpaidExposure = totalAmount;
+  const ramAgriCreditBlocksSubmit =
+    !isLinkedFlow &&
+    ramAgriLimitSummary &&
+    totalAmount > 0 &&
+    ramAgriLimitSummary.outstanding + ramAgriNewOrderUnpaidExposure > ramAgriLimitSummary.limit + 1e-6;
+  const ramAgriCreditShowAlert =
+    !isLinkedFlow && ramAgriLimitSummary && (ramAgriLimitSummary.overLimit || ramAgriCreditBlocksSubmit);
 
   const searchableDropdownSx = {
     "& .MuiOutlinedInput-root": {
@@ -982,16 +1126,36 @@ const AddAgriSalesOrderForm = ({
 
   // Form content (shared between Dialog and standalone modes)
   const formContent = (
-    <Box sx={isStandalone ? { p: { xs: 2, sm: 3 }, maxWidth: "100%" } : {}} className={!isStandalone ? classes.formContainer : ""}>
+    <Box sx={isStandalone ? { p: { xs: 1, sm: 1.5 }, maxWidth: "100%" } : {}} className={!isStandalone ? classes.formContainer : ""}>
           {/* Customer Information */}
           <Typography className={classes.sectionTitle}>
             <PersonIcon /> Customer Information
           </Typography>
           {isLinkedFlow && (
-            <Alert severity="info" sx={{ mb: 1.5 }}>
+            <Alert severity="info" sx={{ mb: 1, py: 0.5 }}>
               Linked with nursery order #
               {linkedNurseryOrder?.order || linkedNurseryOrder?.details?.publicOrderCode || linkedNurseryOrderId}.
               Customer and delivery date are prefilled from that order.
+            </Alert>
+          )}
+
+          {ramAgriCreditShowAlert && (
+            <Alert severity="error" sx={{ mb: 1, py: 0.5 }}>
+              {ramAgriLimitSummary?.overLimit
+                ? `Ram Agri outstanding is already above the limit (₹${Number(
+                    ramAgriLimitSummary.outstanding || 0
+                  ).toLocaleString("en-IN", { maximumFractionDigits: 2 })} outstanding vs ₹${Number(
+                    ramAgriLimitSummary.limit || 0
+                  ).toLocaleString("en-IN", { maximumFractionDigits: 2 })} cap). New unpaid orders cannot be placed until outstanding is reduced.`
+                : `This order would exceed the Ram Agri outstanding cap for ${
+                    ramAgriLimitSummary?.userName || "this sales person"
+                  }: current ₹${Number(ramAgriLimitSummary.outstanding || 0).toLocaleString("en-IN", {
+                    maximumFractionDigits: 2,
+                  })} + new unpaid ₹${Number(ramAgriNewOrderUnpaidExposure || 0).toLocaleString("en-IN", {
+                    maximumFractionDigits: 2,
+                  })} exceeds limit ₹${Number(ramAgriLimitSummary.limit || 0).toLocaleString("en-IN", {
+                    maximumFractionDigits: 2,
+                  })}.`}
             </Alert>
           )}
 
@@ -1009,11 +1173,12 @@ const AddAgriSalesOrderForm = ({
             </Box>
           )}
 
-          <Grid container spacing={1.5}>
+          <Grid container spacing={1}>
             <Grid item xs={12} sm={6}>
               <TextField
                 fullWidth
                 size="small"
+                margin="dense"
                 label="Mobile Number *"
                 value={formData.customerMobile}
                 onChange={(e) => handleInputChange("customerMobile", e.target.value)}
@@ -1039,6 +1204,7 @@ const AddAgriSalesOrderForm = ({
               <TextField
                 fullWidth
                 size="small"
+                margin="dense"
                 label="Customer Name *"
                 value={formData.customerName}
                 onChange={(e) => handleInputChange("customerName", e.target.value)}
@@ -1056,7 +1222,7 @@ const AddAgriSalesOrderForm = ({
                     sx={{ mb: 1, fontWeight: 600, color: "#2c3e50", fontSize: "0.875rem" }}>
                     Location (Auto-filled from customer data)
                   </Typography>
-                  <Grid container spacing={1.5}>
+                  <Grid container spacing={1}>
                     <Grid item xs={12} md={3}>
                       <TextField
                         fullWidth
@@ -1141,7 +1307,7 @@ const AddAgriSalesOrderForm = ({
               <Typography className={classes.sectionTitle} sx={{ mt: 0.5 }}>
                 <PersonIcon sx={{ fontSize: "1rem" }} /> Sales person
               </Typography>
-              <Grid container spacing={1.5}>
+              <Grid container spacing={1}>
                 <Grid item xs={12} sm={6}>
                   <Autocomplete
                     fullWidth
@@ -1162,133 +1328,272 @@ const AddAgriSalesOrderForm = ({
             </>
           )}
 
-          <Divider sx={{ my: 1.5 }} />
+          <Divider sx={{ my: 1 }} />
 
           {/* Product Information */}
-          <Typography className={classes.sectionTitle}>
-            <PackageIcon /> Ram Agri {productTypeLabel} Information
+          <Typography className={classes.sectionTitle} sx={{ alignItems: "flex-start", mt: 0.25 }}>
+            <PackageIcon sx={{ fontSize: "1rem" }} /> Ram Agri {productTypeLabel} — उत्पादने
+          </Typography>
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            display="block"
+            sx={{ mb: 0.5, ml: 0.25, lineHeight: 1.35, fontSize: "0.7rem" }}
+          >
+            एकाच पिकासाठी एकाधिक वान (multi). प्रत्येक वानासाठी प्रमाण · सेलर दर auto.
           </Typography>
 
-          <Grid container spacing={1.5}>
+          <Grid container spacing={1}>
             <Grid item xs={12}>
-              <FormControl component="fieldset">
+              <FormControl component="fieldset" sx={{ mb: 0 }}>
                 <RadioGroup
                   row
                   name="ramAgriProductType"
                   value={productType}
                   onChange={handleProductTypeChange}
+                  sx={{ flexWrap: "wrap", gap: 0.25, "& .MuiFormControlLabel-root": { mr: 1, my: 0 } }}
                 >
-                  <FormControlLabel value="seed" control={<Radio />} label="Seeds" />
-                  <FormControlLabel value="chemical" control={<Radio />} label="Chemicals" />
+                  <FormControlLabel value="seed" control={<Radio size="small" />} label="Seeds · बियाणे" />
+                  <FormControlLabel value="chemical" control={<Radio size="small" />} label="Chemicals · रसायने" />
                 </RadioGroup>
               </FormControl>
             </Grid>
-            <Grid item xs={12} sm={6}>
-              <Autocomplete
-                fullWidth
-                size="small"
-                sx={searchableDropdownSx}
-                options={ramAgriCrops}
-                value={selectedCropOption}
-                onChange={(_, crop) => {
-                  handleInputChange("ramAgriCropId", crop?._id || "");
-                  handleInputChange("ramAgriVarietyId", "");
-                }}
-                getOptionLabel={(option) =>
-                  `${option?.cropName || ""} (${option?.varieties?.length || 0} varieties)`
-                }
-                isOptionEqualToValue={(option, value) => option?._id === value?._id}
-                loading={loading}
-                disabled={loading || ramAgriCrops.length === 0}
-                noOptionsText={
-                  loading
-                    ? `Loading ${productTypeLabelPlural.toLowerCase()}...`
-                    : `No Ram Agri ${productTypeLabelPlural.toLowerCase()} available`
-                }
-                renderInput={(params) => (
-                  <TextField
-                    {...params}
-                    label={`Search ${productTypeLabel} *`}
-                    placeholder={`Type to search ${productTypeLabel.toLowerCase()}`}
-                  />
-                )}
-              />
-            </Grid>
 
-            <Grid item xs={12} sm={6}>
-              <Autocomplete
-                fullWidth
-                size="small"
-                sx={searchableDropdownSx}
-                options={selectedCrop?.varieties || []}
-                value={selectedVarietyOption}
-                onChange={(_, variety) =>
-                  handleInputChange("ramAgriVarietyId", variety?._id || "")
-                }
-                getOptionLabel={(option) => option?.name || ""}
-                isOptionEqualToValue={(option, value) => option?._id === value?._id}
-                loading={loading}
-                disabled={loading || !formData.ramAgriCropId || !selectedCrop?.varieties?.length}
-                noOptionsText={
-                  !formData.ramAgriCropId
-                    ? `Select a ${productTypeLabel.toLowerCase()} first`
-                    : `No varieties available for this ${productTypeLabel.toLowerCase()}`
-                }
-                renderInput={(params) => (
-                  <TextField
-                    {...params}
-                    label="Search Variety *"
-                    placeholder="Type to search variety"
-                  />
-                )}
-              />
-            </Grid>
+            {(isLinkedFlow ? productLines.slice(0, 1) : productLines).map((line, idx) => {
+              const selectedCropRow = ramAgriCrops.find((c) => c._id === line.ramAgriCropId);
+              const selectedCropOptionRow = selectedCropRow || null;
+              const varietyOptions = selectedCropRow?.varieties || [];
+              const slots = line.varietySlots || [];
+              const selectedVarietyObjects = slots
+                .map((s) => varietyOptions.find((v) => String(v._id) === String(s.ramAgriVarietyId)))
+                .filter(Boolean);
+              const linkedSingleVariety = isLinkedFlow
+                ? varietyOptions.find((v) => String(v._id) === String(slots[0]?.ramAgriVarietyId)) || null
+                : null;
 
-            {selectedVariety && (
+              const realIndex = isLinkedFlow ? 0 : idx;
+              const lineLabel = isLinkedFlow ? "Product" : `Product ${idx + 1}`;
+              const lineLabelMr = isLinkedFlow ? "उत्पादन" : `उत्पादन ${idx + 1}`;
+              return (
+                <Grid item xs={12} key={isLinkedFlow ? "linked-line" : `line-${idx}`}>
+                  <Paper
+                    variant="outlined"
+                    sx={{
+                      p: { xs: 1, sm: 1.25 },
+                      borderRadius: 1.5,
+                      borderColor: "divider",
+                      bgcolor: "#fff",
+                      boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+                    }}
+                  >
+                    <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
+                      <Typography variant="subtitle2" fontWeight={700} color="primary.dark">
+                        {lineLabel} · {lineLabelMr}
+                      </Typography>
+                      {!isLinkedFlow && productLines.length > 1 && (
+                        <Button
+                          size="small"
+                          color="error"
+                          variant="text"
+                          startIcon={<DeleteIcon sx={{ fontSize: 18 }} />}
+                          sx={{ minHeight: 32, px: 0.5 }}
+                          onClick={() =>
+                            setProductLines((prev) => prev.filter((_, i) => i !== realIndex))
+                          }
+                        >
+                          Remove · काढा
+                        </Button>
+                      )}
+                    </Stack>
+                    <Grid container spacing={1}>
+                      <Grid item xs={12} sm={isLinkedFlow ? 12 : 6}>
+                        <Autocomplete
+                          fullWidth
+                          size="small"
+                          sx={searchableDropdownSx}
+                          options={ramAgriCrops}
+                          value={selectedCropOptionRow}
+                          onChange={(_, crop) => {
+                            updateProductLineCrop(realIndex, crop?._id || "");
+                          }}
+                          getOptionLabel={(option) =>
+                            `${option?.cropName || ""} (${option?.varieties?.length || 0} varieties)`
+                          }
+                          isOptionEqualToValue={(option, value) => option?._id === value?._id}
+                          loading={loading}
+                          disabled={loading || ramAgriCrops.length === 0}
+                          noOptionsText={
+                            loading
+                              ? `Loading ${productTypeLabelPlural.toLowerCase()}...`
+                              : `No Ram Agri ${productTypeLabelPlural.toLowerCase()} available`
+                          }
+                          renderInput={(params) => (
+                            <TextField
+                              {...params}
+                              label={`पिक / ${productTypeLabel} *`}
+                              placeholder={`Search ${productTypeLabel.toLowerCase()}`}
+                            />
+                          )}
+                        />
+                      </Grid>
+
+                      <Grid item xs={12} sm={isLinkedFlow ? 12 : 6}>
+                        <Autocomplete
+                          multiple={!isLinkedFlow}
+                          fullWidth
+                          size="small"
+                          limitTags={isLinkedFlow ? undefined : 3}
+                          ChipProps={
+                            isLinkedFlow
+                              ? undefined
+                              : { size: "small", sx: { maxWidth: { xs: "100%", sm: 200 }, height: 22 } }
+                          }
+                          sx={{
+                            ...searchableDropdownSx,
+                            "& .MuiAutocomplete-inputRoot": { flexWrap: "wrap", py: 0.5 },
+                          }}
+                          options={varietyOptions}
+                          value={isLinkedFlow ? linkedSingleVariety || null : selectedVarietyObjects}
+                          onChange={(_, val) => {
+                            if (isLinkedFlow) {
+                              handleVarietyMultiChange(realIndex, val ? [val] : []);
+                            } else {
+                              handleVarietyMultiChange(realIndex, val || []);
+                            }
+                          }}
+                          getOptionLabel={(option) => option?.name || ""}
+                          isOptionEqualToValue={(option, value) => option?._id === value?._id}
+                          loading={loading}
+                          disabled={loading || !line.ramAgriCropId || !varietyOptions.length}
+                          disableCloseOnSelect={!isLinkedFlow}
+                          noOptionsText={
+                            !line.ramAgriCropId
+                              ? `आधी ${productTypeLabel.toLowerCase()} निवडा`
+                              : `No varieties for this ${productTypeLabel.toLowerCase()}`
+                          }
+                          renderInput={(params) => (
+                            <TextField
+                              {...params}
+                              label={
+                                isLinkedFlow
+                                  ? "वान · Variety *"
+                                  : "वान · Varieties (multi) *"
+                              }
+                              placeholder={
+                                isLinkedFlow ? "One variety" : "Select one or more varieties"
+                              }
+                            />
+                          )}
+                        />
+                      </Grid>
+
+                      {slots.length > 0 && (
+                        <Grid item xs={12}>
+                          <Typography
+                            variant="caption"
+                            color="text.secondary"
+                            sx={{ mb: 0.5, display: "block", fontSize: "0.65rem" }}
+                          >
+                            प्रमाण व दर · per variety
+                          </Typography>
+                          <Stack spacing={0.75}>
+                            {slots.map((slot, sidx) => (
+                              <Paper
+                                key={slot.ramAgriVarietyId || `slot-${sidx}`}
+                                variant="outlined"
+                                sx={{ p: { xs: 0.75, sm: 1 }, bgcolor: "#fafafa", borderRadius: 1 }}
+                              >
+                                <Typography
+                                  variant="caption"
+                                  fontWeight={700}
+                                  color="primary.dark"
+                                  display="block"
+                                  sx={{ fontSize: "0.7rem", mb: 0.25 }}
+                                >
+                                  {slot.ramAgriVarietyName || "Variety"}
+                                </Typography>
+                                <Grid container spacing={0.75}>
+                                  <Grid item xs={6} sm={6}>
+                                    <TextField
+                                      fullWidth
+                                      size="small"
+                                      margin="dense"
+                                      label="प्रमाण · Qty *"
+                                      type="number"
+                                      value={slot.quantity}
+                                      onChange={(e) =>
+                                        updateVarietySlot(realIndex, sidx, { quantity: e.target.value })
+                                      }
+                                      inputProps={{ min: 0.01, step: 0.01 }}
+                                      placeholder="Qty"
+                                    />
+                                  </Grid>
+                                  <Grid item xs={6} sm={6}>
+                                    <TextField
+                                      fullWidth
+                                      size="small"
+                                      margin="dense"
+                                      label="दर · Rate *"
+                                      type="number"
+                                      value={slot.rate}
+                                      disabled
+                                      inputProps={{ min: 0, step: 0.01 }}
+                                      title="सेलर दर · Auto"
+                                    />
+                                  </Grid>
+                                </Grid>
+                              </Paper>
+                            ))}
+                          </Stack>
+                        </Grid>
+                      )}
+                    </Grid>
+                  </Paper>
+                </Grid>
+              );
+            })}
+
+            {!isLinkedFlow && (
               <Grid item xs={12}>
-                <Alert severity="info" sx={{ mt: 0.5, py: 0.5 }}>
-                  <Typography variant="caption" sx={{ fontSize: "0.75rem" }}>
-                    <strong>{productTypeLabel}:</strong> {formData.ramAgriCropName} | <strong>Variety:</strong> {formData.ramAgriVarietyName} |{" "}
-                    <strong>Unit:</strong> {getUnitDisplayName(selectedVariety.primaryUnit)}
-                    {selectedVariety.secondaryUnit && ` (1 ${getUnitDisplayName(selectedVariety.primaryUnit)} = ${selectedVariety.conversionFactor || 1} ${getUnitDisplayName(selectedVariety.secondaryUnit)})`}
-                    {selectedVariety.defaultRate && ` | Default Rate: ₹${selectedVariety.defaultRate}/${getUnitDisplayName(selectedVariety.primaryUnit)}`}
-                  </Typography>
-                </Alert>
+                <Button
+                  variant="outlined"
+                  color="primary"
+                  fullWidth
+                  size="small"
+                  startIcon={<AddIcon fontSize="small" />}
+                  onClick={() => setProductLines((prev) => [...prev, emptyProductLine()])}
+                  sx={{
+                    py: { xs: 0.75, sm: 1 },
+                    borderStyle: "dashed",
+                    borderWidth: 1.5,
+                    justifyContent: "flex-start",
+                    textAlign: "left",
+                  }}
+                >
+                  <Box sx={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 0.25 }}>
+                    <Typography variant="body2" component="span" fontWeight={600}>
+                      आणखी एक प्रॉडक्ट जोडा
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Add another product line
+                    </Typography>
+                  </Box>
+                </Button>
               </Grid>
             )}
 
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                size="small"
-                label="Quantity *"
-                type="number"
-                value={formData.quantity}
-                onChange={(e) => handleInputChange("quantity", e.target.value)}
-                inputProps={{ min: 0.01, step: 0.01 }}
-                placeholder="Enter quantity"
-              />
-            </Grid>
-
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                size="small"
-                label="Rate per Unit *"
-                type="number"
-                value={formData.rate}
-                disabled
-                inputProps={{ min: 0, step: 0.01 }}
-                helperText="Auto-filled from seller rate"
-                placeholder="Auto-filled"
-              />
-            </Grid>
-
             {totalAmount > 0 && (
               <Grid item xs={12}>
-                <Box sx={{ p: 1, bgcolor: "#e3f2fd", borderRadius: 1 }}>
-                  <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.875rem" }}>
-                    Total Amount: <strong>₹{totalAmount.toLocaleString()}</strong>
+                <Box
+                  sx={{
+                    p: { xs: 0.75, sm: 1 },
+                    borderRadius: 1.5,
+                    background: "linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%)",
+                    border: "1px solid #90caf9",
+                  }}
+                >
+                  <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.8rem" }}>
+                    एकूण रक्कम · Total: <strong>₹{totalAmount.toLocaleString()}</strong>
                   </Typography>
                 </Box>
               </Grid>
@@ -1300,7 +1605,7 @@ const AddAgriSalesOrderForm = ({
                   label="Order Date"
                   value={formData.orderDate}
                   onChange={(date) => handleInputChange("orderDate", date)}
-                  renderInput={(params) => <TextField {...params} fullWidth size="small" />}
+                  renderInput={(params) => <TextField {...params} fullWidth size="small" margin="dense" />}
                 />
               </LocalizationProvider>
             </Grid>
@@ -1312,7 +1617,7 @@ const AddAgriSalesOrderForm = ({
                   value={formData.deliveryDate}
                   onChange={(date) => handleInputChange("deliveryDate", date)}
                   minDate={formData.orderDate}
-                  renderInput={(params) => <TextField {...params} fullWidth size="small" />}
+                  renderInput={(params) => <TextField {...params} fullWidth size="small" margin="dense" />}
                 />
               </LocalizationProvider>
             </Grid>
@@ -1321,22 +1626,24 @@ const AddAgriSalesOrderForm = ({
               <TextField
                 fullWidth
                 size="small"
+                margin="dense"
                 label="Notes (Optional)"
                 value={formData.notes}
                 onChange={(e) => handleInputChange("notes", e.target.value)}
                 multiline
-                rows={2}
+                minRows={1}
+                maxRows={3}
                 placeholder="Additional notes or remarks"
               />
             </Grid>
           </Grid>
 
-          <Divider sx={{ my: 1.5 }} />
+          <Divider sx={{ my: 1 }} />
 
           {/* Payment Information */}
           <Typography className={classes.sectionTitle}>Payment Information (Optional)</Typography>
 
-          <Grid container spacing={1.5}>
+          <Grid container spacing={1}>
             <Grid item xs={12} sm={6}>
               <TextField
                 fullWidth
@@ -1641,16 +1948,170 @@ const AddAgriSalesOrderForm = ({
         Cancel
       </Button>
       <Button
-        onClick={handleSubmit}
+        onClick={handleRequestSubmit}
         variant="contained"
         color="primary"
-        disabled={loading}
+        disabled={loading || ramAgriCreditBlocksSubmit}
         startIcon={loading ? <CircularProgress size={16} /> : <AddIcon />}
         sx={isStandalone ? { width: { xs: "100%", sm: "auto" } } : undefined}
       >
-        {loading ? "Creating..." : "Create Order"}
+        {loading ? "Creating..." : "Review & create · तपासून तयार करा"}
       </Button>
     </Box>
+  );
+
+  const summaryFlatLines = (() => {
+    const rows = isLinkedFlow ? productLines.slice(0, 1) : productLines;
+    const out = [];
+    rows.forEach((row) => {
+      const cropName =
+        row.ramAgriCropName ||
+        ramAgriCrops.find((c) => c._id === row.ramAgriCropId)?.cropName ||
+        "—";
+      (row.varietySlots || []).forEach((slot) => {
+        if (!slot.ramAgriVarietyId) return;
+        const qty = parseFloat(slot.quantity || 0);
+        const rate = parseFloat(slot.rate || 0);
+        out.push({
+          cropName,
+          varietyName: slot.ramAgriVarietyName || "—",
+          qty,
+          rate,
+          lineTot: qty * rate,
+        });
+      });
+    });
+    return out;
+  })();
+
+  const orderConfirmDialog = (
+    <Dialog
+      open={confirmSubmitOpen}
+      onClose={() => !loading && setConfirmSubmitOpen(false)}
+      maxWidth="sm"
+      fullWidth
+      PaperProps={{
+        sx: {
+          borderRadius: 3,
+          overflow: "hidden",
+          boxShadow: "0 12px 40px rgba(0,0,0,0.18)",
+        },
+      }}
+    >
+      <DialogTitle
+        sx={{
+          background: "linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%)",
+          py: { xs: 1.25, sm: 2 },
+          px: { xs: 1.5, sm: 3 },
+          borderBottom: "1px solid rgba(46,125,50,0.2)",
+        }}
+      >
+        <Stack direction="row" alignItems="center" spacing={1}>
+          <CheckCircleOutlineIcon color="success" sx={{ fontSize: { xs: 26, sm: 32 } }} />
+          <Box>
+            <Typography variant="h6" component="div" fontWeight={700}>
+              Confirm order
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              ऑर्डर तपासून पुष्टी करा · Quick summary before submit
+            </Typography>
+          </Box>
+        </Stack>
+      </DialogTitle>
+      <DialogContent sx={{ pt: { xs: 1.5, sm: 3 }, pb: 1, px: { xs: 1.5, sm: 3 } }}>
+        <Stack spacing={{ xs: 1.25, sm: 2 }}>
+          {ramAgriCreditBlocksSubmit && (
+            <Alert severity="error">
+              Cannot create: Ram Agri outstanding limit exceeded for this sales person. Adjust the order or collect
+              verified payment first.
+            </Alert>
+          )}
+          <Paper variant="outlined" sx={{ p: { xs: 1.25, sm: 2 }, borderRadius: 2, bgcolor: "#f5f5f5" }}>
+            <Typography variant="caption" color="text.secondary" fontWeight={600}>
+              Customer · ग्राहक
+            </Typography>
+            <Typography variant="body1" fontWeight={700} sx={{ mt: 0.5 }}>
+              {formData.customerName?.trim() || "—"}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              +91 {formData.customerMobile}
+            </Typography>
+          </Paper>
+
+          <Typography variant="subtitle2" color="text.secondary">
+            Lines · ओळी ({summaryFlatLines.length})
+          </Typography>
+
+          {summaryFlatLines.map((line, i) => (
+            <Paper key={`sum-${i}`} variant="outlined" sx={{ p: { xs: 1, sm: 1.75 }, borderRadius: 1.5, bgcolor: "#fafafa" }}>
+              <Typography variant="caption" color="primary.dark" fontWeight={600}>
+                {i + 1}. {line.cropName}
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+                {line.varietyName}
+              </Typography>
+              <Typography variant="body2">
+                {line.qty} × ₹{line.rate.toLocaleString("en-IN", { maximumFractionDigits: 2 })} ={" "}
+                <Box component="span" fontWeight={700} color="success.dark">
+                  ₹{line.lineTot.toLocaleString("en-IN", { maximumFractionDigits: 2 })}
+                </Box>
+              </Typography>
+            </Paper>
+          ))}
+
+          <Paper
+            sx={{
+              p: { xs: 1.25, sm: 2 },
+              borderRadius: 2,
+              background: "linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%)",
+              border: "1px solid #90caf9",
+            }}
+          >
+            <Stack direction="row" justifyContent="space-between" alignItems="baseline">
+              <Typography variant="subtitle2">Total · एकूण</Typography>
+              <Typography variant="h6" fontWeight={800} color="primary.dark">
+                ₹{totalAmount.toLocaleString("en-IN", { maximumFractionDigits: 2 })}
+              </Typography>
+            </Stack>
+            {paidAmount > 0 && (
+              <Stack spacing={0.5} sx={{ mt: 1.5, pt: 1.5, borderTop: "1px dashed rgba(0,0,0,0.15)" }}>
+                <Typography variant="caption">
+                  Paid · भरलेले: <strong>₹{paidAmount.toLocaleString("en-IN", { maximumFractionDigits: 2 })}</strong>
+                </Typography>
+                <Typography variant="caption" color={balanceAmount > 0 ? "warning.dark" : "success.dark"}>
+                  Balance · उर्वरित: <strong>₹{balanceAmount.toLocaleString("en-IN", { maximumFractionDigits: 2 })}</strong>
+                </Typography>
+              </Stack>
+            )}
+          </Paper>
+        </Stack>
+      </DialogContent>
+      <DialogActions
+        sx={{
+          px: { xs: 1.5, sm: 3 },
+          py: { xs: 1.25, sm: 2.5 },
+          bgcolor: "#fafafa",
+          borderTop: "1px solid #e0e0e0",
+          gap: 1,
+          flexWrap: "wrap",
+        }}
+      >
+        <Button variant="outlined" size="small" onClick={() => setConfirmSubmitOpen(false)} disabled={loading}>
+          Back · परत
+        </Button>
+        <Button
+          variant="contained"
+          color="success"
+          size="medium"
+          onClick={handleConfirmSubmit}
+          disabled={loading || ramAgriCreditBlocksSubmit}
+          startIcon={loading ? <CircularProgress size={18} color="inherit" /> : <CheckIcon />}
+          sx={{ px: { xs: 2, sm: 3 }, fontWeight: 700 }}
+        >
+          {loading ? "Saving…" : "Confirm & create · निश्चित करा"}
+        </Button>
+      </DialogActions>
+    </Dialog>
   );
 
   // If standalone mode, render without Dialog wrapper
@@ -1661,6 +2122,8 @@ const AddAgriSalesOrderForm = ({
           {formContent}
           {actionButtons}
         </Box>
+
+        {orderConfirmDialog}
 
         {/* Image Preview Dialog */}
         <Dialog
@@ -1705,6 +2168,7 @@ const AddAgriSalesOrderForm = ({
             )}
           </DialogContent>
         </Dialog>
+        {orderConfirmDialog}
       </>
     );
   }
@@ -1712,7 +2176,7 @@ const AddAgriSalesOrderForm = ({
   // Dialog mode (default)
   return (
     <>
-      <Dialog open={open} onClose={handleClose} className={classes.dialog} maxWidth="sm">
+      <Dialog open={open} onClose={handleClose} className={classes.dialog} maxWidth="md" fullWidth>
         <DialogTitle component="div" className={classes.dialogTitle}>
           <Box display="flex" alignItems="center" justifyContent="space-between">
             <Box display="flex" alignItems="center" gap={1}>
@@ -1724,16 +2188,18 @@ const AddAgriSalesOrderForm = ({
             </IconButton>
           </Box>
         </DialogTitle>
-        <DialogContent sx={{ p: 1 }}>{formContent}</DialogContent>
-        <DialogActions sx={{ p: 1, borderTop: "1px solid #e0e0e0" }}>
-          <Button onClick={handleClose} color="secondary" disabled={loading}>
+        <DialogContent sx={{ p: { xs: 0.5, sm: 1 }, pt: { xs: 0.5, sm: 1 } }}>{formContent}</DialogContent>
+        <DialogActions sx={{ px: { xs: 1, sm: 2 }, py: { xs: 1, sm: 1.25 }, borderTop: "1px solid #e0e0e0", gap: 0.5, flexWrap: "wrap" }}>
+          <Button onClick={handleClose} color="secondary" size="small" disabled={loading}>
             Cancel
           </Button>
-          <Button onClick={handleSubmit} variant="contained" color="primary" disabled={loading} startIcon={loading ? <CircularProgress size={16} /> : <AddIcon />}>
-            {loading ? "Creating..." : "Create Order"}
+          <Button onClick={handleRequestSubmit} variant="contained" color="primary" size="small" disabled={loading || ramAgriCreditBlocksSubmit} startIcon={loading ? <CircularProgress size={16} /> : <AddIcon />}>
+            {loading ? "Creating..." : "Review & create · तपासून तयार करा"}
           </Button>
         </DialogActions>
       </Dialog>
+
+      {orderConfirmDialog}
 
       {/* Image Preview Dialog */}
       <Dialog

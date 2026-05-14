@@ -68,12 +68,12 @@ const RamAgriInputsProductMaster = () => {
   const productTypeLabel = productType === 'chemical' ? 'Chemical' : 'Seed';
   const productTypeLabelPlural = productType === 'chemical' ? 'Chemicals' : 'Seeds';
 
-  /** Returns undefined if empty, 'invalid' if bad, else integer ≥ 0 */
+  /** Returns undefined if empty/0, 'invalid' if bad, else integer ≥ 1 */
   const parseOptionalDisplayOrder = (value) => {
     const t = String(value ?? '').trim();
-    if (t === '') return undefined;
+    if (t === '' || t === '0') return undefined;
     const n = Number(t);
-    if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0) return 'invalid';
+    if (!Number.isFinite(n) || !Number.isInteger(n) || n < 1) return 'invalid';
     return n;
   };
 
@@ -256,7 +256,7 @@ const RamAgriInputsProductMaster = () => {
     }
     const ord = parseOptionalDisplayOrder(formData.displayOrder);
     if (ord === 'invalid') {
-      newErrors.displayOrder = 'Enter a whole number ≥ 0, or leave blank';
+      newErrors.displayOrder = 'Enter a whole number ≥ 1, or leave blank';
     }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -272,7 +272,7 @@ const RamAgriInputsProductMaster = () => {
     }
     const vOrd = parseOptionalDisplayOrder(varietyFormData.displayOrder);
     if (vOrd === 'invalid') {
-      newErrors.displayOrder = 'Enter a whole number ≥ 0, or leave blank';
+      newErrors.displayOrder = 'Enter a whole number ≥ 1, or leave blank';
     }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -778,9 +778,9 @@ const RamAgriInputsProductMaster = () => {
                             <div className="flex items-center space-x-2 flex-wrap">
                               <span
                                 className="px-2.5 py-1 bg-gray-100 text-gray-700 text-xs font-semibold rounded-full"
-                                title="List order in dropdowns (lower = higher in list)"
+                                title="List order in dropdowns (1 = first, blank/0 = end)"
                               >
-                                Order {crop.displayOrder ?? 0}
+                                {crop.displayOrder ? `Order ${crop.displayOrder}` : 'Order —'}
                               </span>
                               <span className="px-2.5 py-1 bg-blue-50 text-blue-700 text-xs font-semibold rounded-full">
                                 {varietiesCount} Variet{varietiesCount !== 1 ? 'ies' : 'y'}
@@ -862,7 +862,7 @@ const RamAgriInputsProductMaster = () => {
                                           className="px-1.5 py-0.5 bg-gray-100 text-gray-600 text-[10px] font-semibold rounded"
                                           title="Order within this product’s variety dropdown"
                                         >
-                                          #{variety.displayOrder ?? 0}
+                                          {variety.displayOrder ? `#${variety.displayOrder}` : '#—'}
                                         </span>
                                         {variety.isActive ? (
                                           <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full">
@@ -1082,7 +1082,7 @@ const RamAgriInputsProductMaster = () => {
                 </label>
                 <input
                   type="number"
-                  min={0}
+                  min={1}
                   step={1}
                   value={formData.displayOrder}
                   onChange={(e) =>
@@ -1094,10 +1094,10 @@ const RamAgriInputsProductMaster = () => {
                   className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all ${
                     errors.displayOrder ? 'border-red-500' : 'border-gray-300'
                   }`}
-                  placeholder={editingCrop ? 'e.g. 0, 1, 2…' : 'Leave blank to add at end'}
+                  placeholder="Leave blank to add at end"
                 />
                 <p className="text-xs text-gray-500 mt-1.5">
-                  Lower numbers appear first in all {productTypeLabel.toLowerCase()} dropdowns. When adding a new item, leave blank to place it after existing rows.
+                  1 = first in dropdown, 2 = second, etc. Leave blank (or 0) to place at end.
                 </p>
                 {errors.displayOrder && (
                   <p className="text-red-500 text-sm mt-1">{errors.displayOrder}</p>
@@ -1191,7 +1191,7 @@ const RamAgriInputsProductMaster = () => {
                 </label>
                 <input
                   type="number"
-                  min={0}
+                  min={1}
                   step={1}
                   value={varietyFormData.displayOrder}
                   onChange={(e) =>
@@ -1203,10 +1203,10 @@ const RamAgriInputsProductMaster = () => {
                   className={`w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all ${
                     errors.displayOrder ? 'border-red-500' : 'border-gray-300'
                   }`}
-                  placeholder={editingVariety ? 'e.g. 0, 1, 2…' : 'Leave blank to add at end'}
+                  placeholder="Leave blank to add at end"
                 />
                 <p className="text-[11px] text-gray-500 mt-1">
-                  Lower numbers appear first in the variety dropdown for this product.
+                  1 = first in dropdown, 2 = second, etc. Leave blank (or 0) to place at end.
                 </p>
                 {errors.displayOrder && (
                   <p className="text-red-500 text-xs mt-1">{errors.displayOrder}</p>

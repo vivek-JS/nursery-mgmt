@@ -4,7 +4,7 @@ import { CookieKeys } from '../constants/cookieKeys';
 // Get base URL from environment or use default
 // Following farmerService.js pattern - baseURL should NOT include /api/v1
 // Normalize: Remove /api/v1 if present in the environment variable
-let BASE_URL = process.env.REACT_APP_BASE_URL || 'http://localhost:8000';
+let BASE_URL = process.env.REACT_APP_BASE_URL || 'https://erp.rambiotechplants.com';
 // Remove trailing /api/v1 if present
 BASE_URL = BASE_URL.replace(/\/api\/v1\/?$/, '');
 
