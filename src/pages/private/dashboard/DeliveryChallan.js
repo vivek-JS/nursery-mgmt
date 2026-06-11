@@ -23,6 +23,13 @@ function resolveChallanInvoiceLabel(order, dispatchMongoId) {
   return ""
 }
 
+function resolveOrderFreightCharges(order) {
+  return Math.max(
+    0,
+    Number(order?.freightCharges ?? order?.details?.freightCharges ?? 0) || 0
+  )
+}
+
 function optionalManualDcSeparateFromOfficial(order) {
   const official = String(
     order?.officialDeliveryChallanNumber ??
@@ -96,7 +103,10 @@ const DeliveryChallanPDF = ({ open, onClose, dispatchData }) => {
         ? order.payment
         : []
     const totalPaid = paymentEntries.reduce((s, p) => s + (p?.paidAmount || 0), 0)
-    const dispatchTotal = dispatchQty * (order.rate || 0)
+    const rate = Number(order.rate || order.details?.rate || 0)
+    const freightCharges = resolveOrderFreightCharges(order)
+    const plantAmount = dispatchQty * rate
+    const dispatchTotal = plantAmount + freightCharges
     const remaining = Math.max(0, dispatchTotal - totalPaid)
     const rawPlantName = plant?.name?.replace(/\s*-\s*>\s*/g, " ").trim() || "—"
     const plantName = /papaya/i.test(rawPlantName) ? "Papaya" : rawPlantName
@@ -330,8 +340,12 @@ const DeliveryChallanPDF = ({ open, onClose, dispatchData }) => {
                 {[
                   ["वर्णन", plantName],
                   ["प्रमाण", dispatchQty],
-                  ["दर", `₹${order.rate}`],
-                  ["रक्कम", `₹${dispatchTotal.toLocaleString()}`],
+                  ["दर", `₹${rate.toLocaleString()}`],
+                  ["रोप रक्कम", `₹${plantAmount.toLocaleString()}`],
+                  ...(freightCharges > 0
+                    ? [["वाहतूक / Freight", `₹${freightCharges.toLocaleString()}`]]
+                    : []),
+                  ["एकूण रक्कम", `₹${dispatchTotal.toLocaleString()}`],
                 ].map(([label, value]) => (
                   <React.Fragment key={label}>
                     <div

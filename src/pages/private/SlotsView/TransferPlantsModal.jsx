@@ -128,11 +128,36 @@ const TransferPlantsModal = ({ open, onClose, slot, onSuccess }) => {
     return 0
   }, [ordersList.length, selectedPlantsTotal, legacyNoOrderList, sourceTotalPlants])
 
+  const allTargetOptions = ordersData?.options || []
+
   const eligibleTargetOptions = useMemo(() => {
-    const opts = ordersData?.options || []
     if (plantsForTargetFilter <= 0) return []
-    return opts.filter((o) => (Number(o.availableCapacity) || 0) >= plantsForTargetFilter)
-  }, [ordersData?.options, plantsForTargetFilter])
+    return allTargetOptions.filter(
+      (o) => (Number(o.availableCapacity) || 0) >= plantsForTargetFilter
+    )
+  }, [allTargetOptions, plantsForTargetFilter])
+
+  const selectedOrdersTarget = useMemo(
+    () =>
+      allTargetOptions.find((o) => normalizeSlotId(o.slotId) === normalizeSlotId(targetSlotId)),
+    [allTargetOptions, targetSlotId]
+  )
+
+  const projectedTargetAvailable = useMemo(() => {
+    if (!selectedOrdersTarget || plantsForTargetFilter <= 0) return null
+    return (Number(selectedOrdersTarget.availableCapacity) || 0) - plantsForTargetFilter
+  }, [selectedOrdersTarget, plantsForTargetFilter])
+
+  const hasGlobalCapacityShortfall =
+    plantsForTargetFilter > 0 &&
+    allTargetOptions.length > 0 &&
+    eligibleTargetOptions.length === 0
+
+  const hasSelectedCapacityShortfall =
+    Boolean(targetSlotId) &&
+    plantsForTargetFilter > 0 &&
+    selectedOrdersTarget != null &&
+    (Number(selectedOrdersTarget.availableCapacity) || 0) < plantsForTargetFilter
 
   const toggleOrder = (orderId) => {
     if (!orderId) return
@@ -180,7 +205,10 @@ const TransferPlantsModal = ({ open, onClose, slot, onSuccess }) => {
         reason,
       })
       if (response?.data?.success) {
-        Toast.success(response?.data?.message || "Capacity transferred successfully")
+        Toast.success(
+          response?.data?.message ||
+            "Capacity transferred successfully. Use History on each slot to review the trail."
+        )
         onSuccess?.()
         onClose()
       } else {
@@ -224,7 +252,23 @@ const TransferPlantsModal = ({ open, onClose, slot, onSuccess }) => {
       }
       const response = await instance.request(payload)
       if (response?.data?.success) {
-        Toast.success(response?.data?.message || "Orders transferred successfully")
+        const data = response?.data?.data || {}
+        const skipped = data.skippedDealerQuota
+        Toast.success(
+          response?.data?.message ||
+            `Transferred ${data.ordersCount ?? ""} order(s). Check History on source and target slots.`
+        )
+        if (skipped > 0) {
+          Toast.warn(
+            `${skipped} dealer-quota order(s) on this slot were not moved (dealer quota is excluded).`
+          )
+        }
+        const targetAvail = Number(data.target?.availablePlants)
+        if (Number.isFinite(targetAvail) && targetAvail < 0) {
+          Toast.warn(
+            `Target slot available is now ${targetAvail.toLocaleString()} (over capacity).`
+          )
+        }
         onSuccess?.()
         onClose()
       } else {
@@ -257,7 +301,7 @@ const TransferPlantsModal = ({ open, onClose, slot, onSuccess }) => {
     mode === "orders" &&
     targetSlotId &&
     plantsForTargetFilter > 0 &&
-    eligibleTargetOptions.some((o) => normalizeSlotId(o.slotId) === normalizeSlotId(targetSlotId))
+    (allTargetOptions.length > 0 || legacyNoOrderList)
 
   return (
     <Dialog open={open} onClose={submitting ? undefined : onClose} maxWidth="md" fullWidth>
@@ -415,16 +459,25 @@ const TransferPlantsModal = ({ open, onClose, slot, onSuccess }) => {
                   </>
                 )}
 
-                {(ordersData.options?.length ?? 0) > 0 &&
-                  eligibleTargetOptions.length === 0 &&
-                  plantsForTargetFilter > 0 && (
+                {hasGlobalCapacityShortfall && (
                   <Typography variant="body2" color="warning.main">
-                    No target slot has enough free capacity for the selected {plantsForTargetFilter.toLocaleString()}{" "}
-                    plants. Select fewer orders or pick another slot window.
+                    No target slot has enough free capacity for the selected{" "}
+                    {plantsForTargetFilter.toLocaleString()} plants. Select fewer orders or pick another slot
+                    window. You can still transfer — available on the target slot will be{" "}
+                    <strong>negative</strong> after the move.
                   </Typography>
                 )}
 
-                {eligibleTargetOptions.length > 0 ? (
+                {hasSelectedCapacityShortfall && projectedTargetAvailable != null && (
+                  <Typography variant="body2" color="warning.main">
+                    This target only has{" "}
+                    {(Number(selectedOrdersTarget?.availableCapacity) || 0).toLocaleString()} free capacity. After
+                    transfer, available will be{" "}
+                    <strong>{projectedTargetAvailable.toLocaleString()}</strong> (negative).
+                  </Typography>
+                )}
+
+                {allTargetOptions.length > 0 ? (
                   <>
                     <TextField
                       select
@@ -434,12 +487,22 @@ const TransferPlantsModal = ({ open, onClose, slot, onSuccess }) => {
                       onChange={(e) => setTargetSlotId(e.target.value)}
                       fullWidth
                     >
-                      {eligibleTargetOptions.map((opt) => (
-                        <MenuItem key={opt.slotId} value={opt.slotId}>
-                          {opt.startDay} – {opt.endDay} ({opt.month}) • Available:{" "}
-                          {opt.availableCapacity?.toLocaleString() ?? 0}
-                        </MenuItem>
-                      ))}
+                      {allTargetOptions.map((opt) => {
+                        const avail = Number(opt.availableCapacity) || 0
+                        const afterTransfer =
+                          plantsForTargetFilter > 0 ? avail - plantsForTargetFilter : avail
+                        const overAfter =
+                          plantsForTargetFilter > 0 && afterTransfer < 0
+                        return (
+                          <MenuItem key={opt.slotId} value={opt.slotId}>
+                            {opt.startDay} – {opt.endDay} ({opt.month}) • Available: {avail.toLocaleString()}
+                            {opt.isOverflow || avail < 0 ? " (currently over capacity)" : ""}
+                            {overAfter
+                              ? ` → ${afterTransfer.toLocaleString()} after transfer`
+                              : ""}
+                          </MenuItem>
+                        )
+                      })}
                     </TextField>
                     <TextField
                       label="Reason (optional)"
@@ -457,15 +520,13 @@ const TransferPlantsModal = ({ open, onClose, slot, onSuccess }) => {
                   </Typography>
                 ) : legacyNoOrderList ? (
                   <Typography variant="body2" color="textSecondary">
-                    {(ordersData.options?.length ?? 0) === 0
-                      ? "No target slots with free capacity in the date window."
-                      : "Pick a target slot with enough free capacity for all orders in this slot."}
+                    No target slots found in the date window.
                   </Typography>
                 ) : (
                   <Typography variant="body2" color="textSecondary">
-                    {(ordersData.options?.length ?? 0) === 0
-                      ? "No target slots with free capacity in the date window."
-                      : "Select order(s) above, then choose a target slot with enough free capacity."}
+                    {plantsForTargetFilter <= 0
+                      ? "Select order(s) above to choose a target slot."
+                      : "No target slots found in the date window."}
                   </Typography>
                 )}
               </>

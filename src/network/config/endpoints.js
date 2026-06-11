@@ -110,6 +110,7 @@ export const API = {
     ),
     GET_DEALER_PLANT_LEDGER: new APIRouter("/user/dealers", HTTP_METHODS.GET),
     GET_DEALER_LEDGER: new APIRouter("/user/dealers", HTTP_METHODS.GET),
+    REPAIR_DEALER_LEDGER: new APIRouter("/user/dealers", HTTP_METHODS.POST),
     POST_DEALER_WALLET_CREDIT: new APIRouter(
       "/user/dealers/:dealerId/wallet/credit",
       HTTP_METHODS.POST
@@ -360,6 +361,11 @@ export const API = {
       HTTP_METHODS.PATCH
     ),
     GET_AGRI_SALES_ORDER_BY_ID: new APIRouter("/inventory/agri-sales-orders", HTTP_METHODS.GET),
+    GET_AGRI_ORDER_TIMELINE: new APIRouter(
+      "/inventory/agri-sales-orders/:id/timeline",
+      HTTP_METHODS.GET,
+      OFFLINE.PROFILE
+    ),
     CREATE_AGRI_SALES_ORDER: new APIRouter("/inventory/agri-sales-orders/create", HTTP_METHODS.POST),
     CREATE_LINKED_AGRI_ORDER: new APIRouter("/inventory/agri-sales-orders/linked/create", HTTP_METHODS.POST),
     GET_LINKED_AGRI_BY_NURSERY_ORDER: new APIRouter("/inventory/agri-sales-orders/linked/by-nursery-order/:orderId", HTTP_METHODS.GET),
@@ -469,6 +475,11 @@ export const API = {
       "/employee/requirePasswordChange",
       HTTP_METHODS.PATCH,
       OFFLINE.PROFILE
+    ),
+    RESET_PASSWORD_TO_DEFAULT: new APIRouter(
+      "/employee/resetPasswordToDefault",
+      HTTP_METHODS.PATCH,
+      OFFLINE.PROFILE
     )
   },
   ORDER: {
@@ -480,6 +491,12 @@ export const API = {
       new APIRouter("/order/dashboard-tab-counts", HTTP_METHODS.GET, OFFLINE.PROFILE),
       { __autoAbort: true, __abortScope: "order-get-orders" }
     ),
+    ADMIN_DASHBOARD_STATS: new APIRouter("/order/admin-dashboard-stats", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    ADMIN_DAILY_MIS: new APIRouter("/order/admin-daily-mis", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    ADMIN_MIS_SALES: new APIRouter("/order/admin-mis-sales", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    ADMIN_MIS_DEALER: new APIRouter("/order/admin-mis-dealer", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    ADMIN_MIS_DUE: new APIRouter("/order/admin-mis-due", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    ADMIN_MIS_ORDERS: new APIRouter("/order/admin-mis-orders", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_ORDERS_SLOTS: Object.assign(
       new APIRouter("/order/getOrders", HTTP_METHODS.GET, OFFLINE.PROFILE),
       { __abortScope: "order-get-orders-slots" }
@@ -517,10 +534,33 @@ export const API = {
       OFFLINE.PROFILE
     ),
     ADD_PAYMENT: new APIRouter("order/payment/:orderId", HTTP_METHODS.PATCH, OFFLINE.PROFILE),
+    ADD_PAYMENTS_BATCH: new APIRouter("order/payments/:orderId", HTTP_METHODS.POST, OFFLINE.PROFILE),
     GENERATE_PAYMENT_QR: new APIRouter("order/:orderId/generate-payment-qr", HTTP_METHODS.POST, OFFLINE.PROFILE),
     SEND_ACCEPTED_WHATSAPP: new APIRouter("order/:orderId/send-accepted-whatsapp", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    SEND_PLACED_WHATSAPP: new APIRouter("order/:orderId/send-placed-whatsapp", HTTP_METHODS.POST, OFFLINE.PROFILE),
     SEND_DISPATCH_WHATSAPP: new APIRouter("order/:orderId/send-dispatch-whatsapp", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    SEND_FARM_READY_WHATSAPP: new APIRouter(
+      "order/:orderId/send-farm-ready-whatsapp",
+      HTTP_METHODS.POST,
+      OFFLINE.PROFILE
+    ),
+    WHATSAPP_SEND_SELECTED: new APIRouter(
+      "order/whatsapp/send-selected",
+      HTTP_METHODS.POST,
+      OFFLINE.PROFILE
+    ),
+    WHATSAPP_OUTBOUND_LOG: new APIRouter(
+      "order/whatsapp/outbound",
+      HTTP_METHODS.GET,
+      OFFLINE.PROFILE
+    ),
+    WHATSAPP_CAMPAIGNS: new APIRouter(
+      "order/whatsapp/campaigns",
+      HTTP_METHODS.GET,
+      OFFLINE.PROFILE
+    ),
     SPLIT_ORDER: new APIRouter("order/:orderId/split", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    GET_ORDER_TIMELINE: new APIRouter("order/:orderId/timeline", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_CSV: new APIRouter("order/getCSV", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_SLOTS: new APIRouter("slots/getslots", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_BUCKETING: new APIRouter("/order/bucketing", HTTP_METHODS.GET, OFFLINE.PROFILE),
@@ -552,6 +592,11 @@ export const API = {
       HTTP_METHODS.GET,
       OFFLINE.PROFILE
     ),
+    GET_ORDER_PAYMENT_TRANSFER_CONTEXT: new APIRouter(
+      "/order/farmer-plant-ledger/transfer-context",
+      HTTP_METHODS.GET,
+      OFFLINE.PROFILE
+    ),
     TRANSFER_FARMER_PLANT_ORDER_PAYMENT: new APIRouter(
       "/order/farmer-plant-ledger/transfer-order-payment",
       HTTP_METHODS.POST,
@@ -578,12 +623,50 @@ export const API = {
       OFFLINE.PROFILE
     )
   },
+  FINANCE: {
+    TRIAL_BALANCE: new APIRouter("/finance/reports/trial-balance", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    PARTY_STATEMENT: new APIRouter("/finance/reports/party-statement", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    LEDGER_LINES: new APIRouter("/finance/reports/ledger-lines", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    CASHBOOK: new APIRouter("/finance/reports/cashbook", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    BANKBOOK: new APIRouter("/finance/reports/bankbook", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    SHADOW_RECONCILE: new APIRouter("/finance/reconcile/shadow", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    SEED_COA: new APIRouter("/finance/coa/seed", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    REPLAY_SUBLEDGERS: new APIRouter("/finance/replay/subledgers", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    REPLAY_SUBLEDGERS_STATUS: new APIRouter("/finance/replay/subledgers/status", HTTP_METHODS.GET, OFFLINE.PROFILE),
+  },
   RATE_CHANGE_REQUEST: {
     GET_ALL: new APIRouter("/rate-change-requests", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_BY_TOKEN: new APIRouter("/rate-change-requests/by-token/:token", HTTP_METHODS.GET, OFFLINE.PROFILE),
     APPROVE_VIA_LINK: new APIRouter("/rate-change-requests/approve-via-link", HTTP_METHODS.POST, OFFLINE.PROFILE),
     APPROVE_VIA_UI: new APIRouter("/rate-change-requests/:id/approve", HTTP_METHODS.PATCH, OFFLINE.PROFILE),
     REJECT_VIA_UI: new APIRouter("/rate-change-requests/:id/reject", HTTP_METHODS.PATCH, OFFLINE.PROFILE),
+  },
+  REWARDS: {
+    LIST_PROGRAMS: new APIRouter("/rewards/programs", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    CREATE_PROGRAM: new APIRouter("/rewards/programs", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    UPDATE_PROGRAM: new APIRouter("/rewards/programs/:id", HTTP_METHODS.PUT, OFFLINE.PROFILE),
+    DELETE_PROGRAM: new APIRouter("/rewards/programs/:id", HTTP_METHODS.DEL, OFFLINE.PROFILE),
+    GET_PARTICIPANTS: new APIRouter("/rewards/programs/:id/participants", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    REFRESH_PROGRESS: new APIRouter("/rewards/programs/:id/refresh-progress", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    PATCH_PROGRESS: new APIRouter("/rewards/programs/:programId/progress/:userId", HTTP_METHODS.PATCH, OFFLINE.PROFILE),
+    MY_PROGRAMS: new APIRouter("/rewards/my-programs", HTTP_METHODS.GET, OFFLINE.PROFILE),
+  },
+  COMMISSION: {
+    GET_RATES: new APIRouter("/commission/rates", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    PATCH_RATE: new APIRouter("/commission/rates/:id", HTTP_METHODS.PATCH, OFFLINE.PROFILE),
+    BULK_DEFAULT: new APIRouter("/commission/rates/bulk-default", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    SYNC_RATES: new APIRouter("/commission/rates/sync-from-plants", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    GET_DEALER_ANALYSIS: new APIRouter(
+      "/commission/dealers/:dealerId/analysis",
+      HTTP_METHODS.GET,
+      OFFLINE.PROFILE
+    ),
+    GET_SETTLEMENTS: new APIRouter(
+      "/commission/dealers/:dealerId/settlements",
+      HTTP_METHODS.GET,
+      OFFLINE.PROFILE
+    ),
+    SETTLE: new APIRouter("/commission/dealers/:dealerId/settle", HTTP_METHODS.POST, OFFLINE.PROFILE),
   },
   plantCms: {
     POST_NEWPLANT: new APIRouter("/plantcms/plants", HTTP_METHODS.POST, OFFLINE.PROFILE),
@@ -608,7 +691,28 @@ export const API = {
     GET_PLANTS: new APIRouter("/slots/get-plants", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_PLANTS_SUBTYPE: new APIRouter("/slots/subtyps", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_PLANTS_SLOTS: new APIRouter("/slots/getslots", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_STOCK_ENTRY: new APIRouter("/slots/stock-entry", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_SLOT_SECONDARY_SHED_BREAKDOWN: new APIRouter(
+      "/slots/:slotId/secondary-shed-breakdown",
+      HTTP_METHODS.GET,
+      OFFLINE.PROFILE
+    ),
+    RUN_PAST_DUE_ROLLOVER: new APIRouter(
+      "/slots/past-due-rollover/run",
+      HTTP_METHODS.POST,
+      OFFLINE.PROFILE
+    ),
+    BULK_UPDATE_STOCK_ENTRY: new APIRouter(
+      "/slots/stock-entry/bulk",
+      HTTP_METHODS.PUT,
+      OFFLINE.PROFILE
+    ),
     GET_SIMPLE_SLOTS: new APIRouter("/slots/simple", HTTP_METHODS.GET, OFFLINE.PROFILE), // Fast endpoint for sowing
+    GET_AVAILABILITY_OVERVIEW: new APIRouter(
+      "/slots/availability-overview",
+      HTTP_METHODS.GET,
+      OFFLINE.PROFILE
+    ),
     GET_TRANSFER_OPTIONS: new APIRouter(
       "/slots/transfer-options",
       HTTP_METHODS.GET,
@@ -630,7 +734,7 @@ export const API = {
       HTTP_METHODS.PUT,
       OFFLINE.PROFILE
     ),
-    UPDATE_SLOT_BUFFER: new APIRouter("/slots/buffer", HTTP_METHODS.PUT, OFFLINE.PROFILE),
+    UPDATE_SLOT_BUFFER: new APIRouter("/slots/:slotId/buffer", HTTP_METHODS.PUT, OFFLINE.PROFILE),
     RELEASE_BUFFER_PLANTS: new APIRouter("/slots", HTTP_METHODS.POST, OFFLINE.PROFILE),
     ADD_PLANTS_TO_CAPACITY: new APIRouter("/slots", HTTP_METHODS.POST, OFFLINE.PROFILE),
     CREATE_SLOTS_FOR_MULTIPLE_YEARS: new APIRouter(
@@ -682,6 +786,10 @@ export const API = {
     UPDATE_TRIP: new APIRouter("trips/update/:id", HTTP_METHODS.PATCH),
     DELETE_TRIP: new APIRouter("trips/:id", HTTP_METHODS.DEL)
   },
+  FLEET: {
+    GET_LEDGER: new APIRouter("fleet/ledger", HTTP_METHODS.GET),
+    GET_LEDGER_DETAIL: new APIRouter("fleet/ledger/:dispatchId", HTTP_METHODS.GET)
+  },
   SHADE: {
     CREATE_SHADE: new APIRouter("shade/create", HTTP_METHODS.POST),
     GET_SHADES: new APIRouter("shade/all", HTTP_METHODS.GET),
@@ -717,6 +825,7 @@ export const API = {
     SUGGEST: new APIRouter("ready-dispatch-groups/suggest", HTTP_METHODS.POST),
     CREATE: new APIRouter("ready-dispatch-groups", HTTP_METHODS.POST),
     GET_ALL: new APIRouter("ready-dispatch-groups", HTTP_METHODS.GET),
+    GET_BY_ID: new APIRouter("ready-dispatch-groups/:id", HTTP_METHODS.GET),
     UPDATE: new APIRouter("ready-dispatch-groups/:id", HTTP_METHODS.PATCH),
     CONVERT_TO_DISPATCH: new APIRouter("ready-dispatch-groups/:id/convert-to-dispatch", HTTP_METHODS.POST),
   },
@@ -1037,5 +1146,10 @@ export const API = {
     GET_LEADS_BY_LINK: (linkId) => `/api/v1/public-links/links/leads/${linkId}`,
     GET_ALL_LEADS: new APIRouter("/public-links/links/all-leads", HTTP_METHODS.GET),
     GET_FILTER_OPTIONS: new APIRouter("/public-links/filter-options", HTTP_METHODS.GET)
+  },
+  BACKUP: {
+    CREATE: new APIRouter("/backup/create", HTTP_METHODS.POST),
+    LIST: new APIRouter("/backup/list", HTTP_METHODS.GET),
+    DOWNLOAD: new APIRouter("/backup/download", HTTP_METHODS.GET)
   }
 }

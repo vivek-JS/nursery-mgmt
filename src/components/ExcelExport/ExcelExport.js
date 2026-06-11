@@ -35,6 +35,22 @@ function formatInDate(d) {
   }
 }
 
+/** Latest dispatch flag/date from order row (matches dashboard list). */
+export function resolveLatestDispatchInfo(obj) {
+  const hist = Array.isArray(obj?.dispatchHistory) ? obj.dispatchHistory : []
+  if (!hist.length) {
+    const dispatched =
+      obj?.orderStatus === "DISPATCHED" ||
+      obj?.orderStatus === "DISPATCH_PROCESS" ||
+      obj?.orderStatus === "COMPLETED" ||
+      obj?.orderStatus === "PARTIALLY_COMPLETED"
+    return { dispatched: dispatched ? "Y" : "N", date: null }
+  }
+  const latest = hist[hist.length - 1]
+  const date = latest?.dispatchDate || latest?.dispatchedAt || latest?.createdAt || null
+  return { dispatched: "Y", date }
+}
+
 /** Build CSV text from GET /order/getOrders rows (aligned with dashboard list). */
 export function ordersListRowsToCsv(rows) {
   const headers = [
@@ -56,6 +72,9 @@ export function ordersListRowsToCsv(rows) {
     "Billable plants (net)",
     "Rate (₹)",
     "Delivery date",
+    "Dispatched",
+    "Dispatched date",
+    "Manual DC number",
     "Order status",
     "Sales person",
     "Reference"
@@ -89,6 +108,7 @@ export function ordersListRowsToCsv(rows) {
     const dmg = Number(obj.damagedPlants) || 0
     const booked = Number.isFinite(totalQty) ? totalQty : 0
     const billable = Math.max(0, booked - ret - dmg)
+    const dispatchInfo = resolveLatestDispatchInfo(obj)
 
     const row = [
       ++sr,
@@ -113,6 +133,11 @@ export function ordersListRowsToCsv(rows) {
       billable,
       obj.rate ?? "",
       formatInDate(delivery),
+      dispatchInfo.dispatched,
+      formatInDate(dispatchInfo.date),
+      obj.deliveryChallanInvoiceNumber != null && obj.deliveryChallanInvoiceNumber !== ""
+        ? String(obj.deliveryChallanInvoiceNumber)
+        : "",
       obj.orderStatus ?? "",
       obj.salesPerson?.name || "",
       reference
@@ -137,7 +162,7 @@ const ExcelExport = ({
   const [exportFilters, setExportFilters] = useState({
     startDate: "",
     endDate: "",
-    orderStatus: "",
+    orderStatuses: [],
     paymentStatus: "",
     ...filters
   })
@@ -163,10 +188,16 @@ const ExcelExport = ({
     { value: "", label: "All statuses" },
     { value: "PENDING", label: "Pending" },
     { value: "ACCEPTED", label: "Accepted" },
-    { value: "FARM_READY", label: "Ready to farm" },
+    { value: "ASSIGNED", label: "Assigned" },
+    { value: "FARM_READY", label: "Farm ready" },
+    { value: "READY_FOR_DISPATCH", label: "Ready for dispatch" },
+    { value: "DISPATCH_PROCESS", label: "Dispatch process" },
+    { value: "DISPATCHED", label: "Dispatched" },
     { value: "COMPLETED", label: "Completed" },
+    { value: "PARTIALLY_COMPLETED", label: "Partially completed" },
     { value: "CANCELLED", label: "Cancelled" },
-    { value: "DISPATCHED", label: "Dispatched" }
+    { value: "TEMPORARY_CANCELLED", label: "Temp. cancelled" },
+    { value: "REJECTED", label: "Rejected" }
   ]
 
   const paymentStatusOptions = [
@@ -228,6 +259,11 @@ const ExcelExport = ({
       const params = new URLSearchParams()
 
       Object.entries(exportFilters).forEach(([key, value]) => {
+        if (key === "orderStatuses") {
+          const statuses = Array.isArray(value) ? value.filter(Boolean) : []
+          if (statuses.length) params.append("orderStatus", statuses.join(","))
+          return
+        }
         const isValuePresent =
           value !== undefined &&
           value !== null &&
@@ -294,9 +330,12 @@ const ExcelExport = ({
   }
 
   const getActiveFiltersCount = () => {
-    return Object.values(exportFilters).filter(
-      (value) => value !== undefined && value !== null && value !== ""
-    ).length
+    let n = 0
+    if (exportFilters.startDate) n += 1
+    if (exportFilters.endDate) n += 1
+    if (Array.isArray(exportFilters.orderStatuses) && exportFilters.orderStatuses.length) n += 1
+    if (exportFilters.paymentStatus) n += 1
+    return n
   }
 
   const badgeCount =
@@ -366,14 +405,34 @@ const ExcelExport = ({
                 <FormControl fullWidth>
                   <InputLabel>Order Status</InputLabel>
                   <Select
-                    value={exportFilters.orderStatus}
-                    onChange={(e) => handleFilterChange("orderStatus", e.target.value)}
-                    label="Order Status">
-                    {orderStatusOptions.map((option) => (
-                      <MenuItem key={option.value} value={option.value}>
-                        {option.label}
-                      </MenuItem>
-                    ))}
+                    multiple
+                    value={exportFilters.orderStatuses || []}
+                    onChange={(e) =>
+                      handleFilterChange(
+                        "orderStatuses",
+                        typeof e.target.value === "string"
+                          ? e.target.value.split(",")
+                          : e.target.value
+                      )
+                    }
+                    label="Order Status"
+                    renderValue={(selected) =>
+                      (selected || []).length
+                        ? (selected || [])
+                            .map(
+                              (v) =>
+                                orderStatusOptions.find((o) => o.value === v)?.label || v
+                            )
+                            .join(", ")
+                        : "All statuses"
+                    }>
+                    {orderStatusOptions
+                      .filter((option) => option.value)
+                      .map((option) => (
+                        <MenuItem key={option.value} value={option.value}>
+                          {option.label}
+                        </MenuItem>
+                      ))}
                   </Select>
                 </FormControl>
 

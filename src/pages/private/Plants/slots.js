@@ -5,6 +5,7 @@ import { API, NetworkManager } from "network/core"
 import { Formik, Form, FieldArray } from "formik"
 import * as Yup from "yup"
 import SlotManager from "./SlotManager"
+import SlotStockPanel from "../SlotsView/SlotStockPanel"
 
 // Validation Schema
 const plantSchema = Yup.object().shape({
@@ -317,6 +318,15 @@ const Slots = () => {
                     : "text-gray-600 hover:text-blue-600 hover:bg-blue-50"
                 }`}>
                 📦 Slot Management
+              </button>
+              <button
+                onClick={() => setActiveTab("stock")}
+                className={`px-6 py-3 rounded-xl font-semibold transition-all duration-300 transform hover:scale-105 ${
+                  activeTab === "stock"
+                    ? "bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg"
+                    : "text-gray-600 hover:text-blue-600 hover:bg-blue-50"
+                }`}>
+                📊 Stock entry
               </button>
             </div>
           </div>
@@ -927,6 +937,8 @@ const Slots = () => {
               </DialogContent>
             </Dialog>
           </>
+        ) : activeTab === "stock" ? (
+          <SlotStockPanel plants={plants} />
         ) : (
           <SlotManager />
         )}

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react"
-import { Trash2, Calendar, Settings, Save, X, Leaf, Sparkles, Clock, Target } from "lucide-react"
+import { Trash2, Calendar, Settings, Save, X, Leaf, Sparkles, Clock, Target, Package } from "lucide-react"
 import { API, NetworkManager } from "network/core"
 import { Formik, Form, FieldArray } from "formik"
 import * as Yup from "yup"
@@ -125,7 +125,6 @@ const SlotManager = () => {
   const [slotLoading, setSlotLoading] = useState(false)
   const [message, setMessage] = useState({ type: "", text: "" })
   const [deleteLoading, setDeleteLoading] = useState(false)
-
   const months = [
     "January",
     "February",
@@ -169,7 +168,8 @@ const SlotManager = () => {
       const response = await instance.request({}, { plantId, year: new Date().getFullYear() })
 
       if (response?.data?.slots) {
-        setExistingSlots(response.data.slots)
+        const flatSlots = (response.data.slots || []).flatMap((group) => group.slots || [])
+        setExistingSlots(flatSlots)
       }
     } catch (error) {
       console.error("Error fetching existing slots:", error)
@@ -865,22 +865,37 @@ const SlotManager = () => {
                     </div>
                   </CardHeader>
                   <CardContent>
-                    <div className="max-h-60 overflow-y-auto border-2 border-gray-100 rounded-xl p-4 bg-gradient-to-br from-gray-50 to-white">
+                    <div className="max-h-96 overflow-y-auto border-2 border-gray-100 rounded-xl p-4 bg-gradient-to-br from-gray-50 to-white">
                       <div className="space-y-2">
                         {existingSlots.map((slot, index) => (
-                          <div key={index} className="flex items-center justify-between p-3 bg-white rounded-lg border border-gray-100 shadow-sm hover:shadow-md transition-all duration-200">
-                            <div className="flex items-center gap-3">
-                              <div className="p-1 bg-green-100 rounded-lg">
+                          <div
+                            key={slot._id || index}
+                            className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 p-3 bg-white rounded-lg border border-gray-100 shadow-sm hover:shadow-md transition-all duration-200">
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className="p-1 bg-green-100 rounded-lg shrink-0">
                                 <Clock className="h-4 w-4 text-green-600" />
                               </div>
-                              <span className="font-medium text-gray-800">
+                              <span className="font-medium text-gray-800 truncate">
                                 {slot.startDay} - {slot.endDay}
                               </span>
                             </div>
-                            <div className="flex items-center gap-2 text-sm text-gray-600">
-                              <Leaf className="h-4 w-4" />
-                              <span className="font-bold text-green-600">{slot.totalPlants} plants</span>
+                            <div className="flex flex-wrap items-center gap-3 text-sm">
+                              <span className="flex items-center gap-1 text-green-700 font-semibold">
+                                <Leaf className="h-4 w-4" />
+                                {slot.totalPlants?.toLocaleString() ?? 0} cap
+                              </span>
+                              <span className="flex items-center gap-1 text-teal-700">
+                                <Package className="h-4 w-4" />
+                                Actual: {(slot.actualPlants ?? 0).toLocaleString()}
+                              </span>
+                              <span className="flex items-center gap-1 text-amber-700">
+                                <Target className="h-4 w-4" />
+                                Close: {(slot.closingStock ?? 0).toLocaleString()}
+                              </span>
                             </div>
+                            <p className="text-xs text-indigo-600 mt-1 sm:mt-0">
+                              Use the Stock entry tab to edit values
+                            </p>
                           </div>
                         ))}
                       </div>
@@ -892,6 +907,7 @@ const SlotManager = () => {
           </div>
         )}
       </div>
+
     </div>
   )
 }

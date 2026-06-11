@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react"
+import React, { useState, useEffect, useRef } from "react"
 import {
   Grid,
   TextField,
@@ -128,6 +128,20 @@ function totalDispatchedPlantsRecent(o) {
   const st = String(o?.orderStatus || "").toUpperCase()
   if ((st === "DISPATCHED" || st === "COMPLETED") && total > 0 && rem === 0) return total
   return null
+}
+
+function resolveRecentOrderSalesPerson(order) {
+  if (!order) return "—"
+  if (order.salesPersonName) return order.salesPersonName
+  const sp = order.salesPerson
+  if (sp && typeof sp === "object" && sp.name) return sp.name
+  return "—"
+}
+
+function resolveRecentOrderSalesPhone(order) {
+  const sp = order?.salesPerson
+  if (sp && typeof sp === "object" && sp.phoneNumber) return String(sp.phoneNumber)
+  return ""
 }
 
 const useStyles = makeStyles()((theme) => ({
@@ -361,8 +375,21 @@ function defaultOrderStatusOnPlace(isInstantOrder, user) {
   return "PENDING"
 }
 
-const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
+const AddOrderForm = ({
+  open,
+  onClose,
+  onSuccess,
+  fullScreen = false,
+  initialPlantId = null,
+  initialSubtypeId = null,
+  initialSlotId = null,
+  initialStartDay = null,
+  /** From buildCopyOrderPrefillFromRow — plant/slot/location copied; farmer name & payment cleared */
+  copyFromOrder = null,
+}) => {
   const { classes } = useStyles()
+  const prefillAppliedRef = useRef(false)
+  const copyPrefillAppliedRef = useRef(false)
   
   // ============================================================================
   // REDUX & USER DATA
@@ -588,9 +615,87 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
 
   // Refresh catalog lists when the dialog opens so dropdowns are not stale.
   useEffect(() => {
-    if (!open) return
+    if (!open) {
+      prefillAppliedRef.current = false
+      copyPrefillAppliedRef.current = false
+      return
+    }
     void Promise.all([loadPlants(), loadSales(), loadDealers(), loadCavities()]).catch(() => {})
   }, [open])
+
+  // Prefill from "Copy order" on dashboard (excludes farmer name & payment)
+  useEffect(() => {
+    if (!open || !copyFromOrder || copyPrefillAppliedRef.current) return
+    if (plants.length === 0) return
+    copyPrefillAppliedRef.current = true
+
+    const { formData: fd, bulkOrder: bb, quotaType: qt } = copyFromOrder
+    if (fd && typeof fd === "object") {
+      setFormData((prev) => ({
+        ...prev,
+        ...fd,
+        name: "",
+        mobileNumber: "",
+      }))
+      if (fd.dealer) {
+        setAttributionMode("dealer")
+        setAttributionId(fd.dealer)
+      } else if (fd.sales) {
+        setAttributionMode("sales")
+        setAttributionId(fd.sales)
+      }
+    }
+    if (bb != null) setBulkOrder(Boolean(bb))
+    if (qt != null) setQuotaType(qt)
+    setIsInstantOrder(false)
+    setRateManuallySet(true)
+    setNewPayment({
+      paidAmount: "",
+      paymentDate: moment().format("YYYY-MM-DD"),
+      modeOfPayment: "",
+      bankName: "",
+      transactionId: "",
+      remark: "",
+      receiptPhoto: [],
+      receiptPayeeName: "",
+      paymentStatus: "PENDING",
+      isWalletPayment: false,
+    })
+    setPaymentAccordionExpanded(false)
+    Toast.success("Order copied — enter farmer name and payment")
+  }, [open, copyFromOrder, plants])
+
+  // Prefill from Available Stock "Book" action
+  useEffect(() => {
+    if (!open || !initialPlantId || prefillAppliedRef.current || copyFromOrder) return
+    if (plants.length === 0) return
+    prefillAppliedRef.current = true
+    setFormData((prev) => ({
+      ...prev,
+      plant: initialPlantId,
+      subtype: initialSubtypeId || prev.subtype,
+    }))
+  }, [open, initialPlantId, initialSubtypeId, plants, copyFromOrder])
+
+  useEffect(() => {
+    if (!open || !initialSlotId || copyFromOrder) return
+    if (allSlots.length === 0) return
+    const slot = allSlots.find((s) => String(s.value) === String(initialSlotId))
+    const start = initialStartDay || slot?.startDay
+    if (!start || !moment(start, "DD-MM-YYYY", true).isValid()) return
+    const orderDate = moment(start, "DD-MM-YYYY").toDate()
+    setFormData((prev) => ({
+      ...prev,
+      orderDate,
+      transferredSlotId: initialSlotId,
+    }))
+    const availableQty = getAvailableQuantityForDate(
+      orderDate,
+      formData?.productMappingId,
+      formData?.productName
+    )
+    if (availableQty != null) setAvailable(availableQty)
+  }, [open, initialSlotId, initialStartDay, allSlots])
 
   // When admin picks dealer vs sales attribution, refresh that list from the server.
   useEffect(() => {
@@ -3434,6 +3539,17 @@ const AddOrderForm = ({ open, onClose, onSuccess, fullScreen = false }) => {
                                         Remaining (nursery): {o.remainingPlants}
                                       </Typography>
                                     )}
+                                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                                      <Typography sx={{ fontSize: "0.68rem", color: "text.secondary", minWidth: 72 }}>
+                                        Sales
+                                      </Typography>
+                                      <Typography sx={{ fontSize: "0.72rem", fontWeight: 600 }}>
+                                        {resolveRecentOrderSalesPerson(o)}
+                                        {resolveRecentOrderSalesPhone(o)
+                                          ? ` · ${resolveRecentOrderSalesPhone(o)}`
+                                          : ""}
+                                      </Typography>
+                                    </Box>
                                   </Box>
                                 </Box>
                               </Box>

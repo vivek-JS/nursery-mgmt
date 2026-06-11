@@ -13,7 +13,7 @@ const EmployeeTable = ({
   employees,
   onEdit,
   onDelete,
-  onRequirePasswordChange,
+  onResetPasswordToDefault,
   loading = false,
   canEditEmployees = false,
   canDeleteEmployees = false
@@ -126,15 +126,16 @@ const EmployeeTable = ({
                     Edit
                   </Button>
                 )}
-                {canEditEmployees && onRequirePasswordChange && !isSuperAdminEmployee(employee) && (
+                {canEditEmployees && onResetPasswordToDefault && !isSuperAdminEmployee(employee) && (
                   <Button
                     variant="outlined"
                     color="warning"
                     size="small"
-                    onClick={() => onRequirePasswordChange(employee)}
+                    onClick={() => onResetPasswordToDefault(employee)}
                     className={classes.actionButton}
-                    startIcon={<LockResetIcon sx={{ fontSize: 16 }} />}>
-                    Reset password
+                    startIcon={<LockResetIcon sx={{ fontSize: 16 }} />}
+                    title="Reset to default password (1234); user must set a new password on login">
+                    Reset to default
                   </Button>
                 )}
                 {canDeleteEmployees && (

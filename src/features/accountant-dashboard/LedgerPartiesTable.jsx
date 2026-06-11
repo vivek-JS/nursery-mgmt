@@ -62,7 +62,7 @@ export function LedgerPartiesTable({ selectedOrg, onOpenLedger, dateRangeLabel }
   const totalPages = Math.max(1, pagination.pages || 1)
 
   return (
-    <div className="erp-card animate-fade-up stagger-2">
+    <div className="erp-card animate-fade-up stagger-2 min-w-0 max-w-full">
       <div className="px-4 py-3 border-b border-border flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold text-foreground">All farmers / parties with ledger</h2>

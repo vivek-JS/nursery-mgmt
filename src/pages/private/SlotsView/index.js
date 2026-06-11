@@ -15,6 +15,7 @@ import {
   Loader2
 } from "lucide-react"
 import AddManualSlotModal from "./AddManualSlotModal"
+import SlotStockPanel from "./SlotStockPanel"
 
 const getSectionStats = (section, rollupByPlantId) => {
   const pid = section?.plantId
@@ -27,12 +28,12 @@ const getSectionStats = (section, rollupByPlantId) => {
       fromRollup: true
     }
   }
-  const totalCapacity = Number(section?.totalPlants) || 0
-  const bookedPlants = Number(section?.totalBookedPlants) || 0
+  const total = Number(section?.totalPlants) || 0
+  const booked = Number(section?.totalBookedPlants) || 0
   return {
-    totalCapacity,
-    bookedPlants,
-    availablePlants: Math.max(0, totalCapacity - bookedPlants),
+    totalCapacity: total,
+    bookedPlants: booked,
+    availablePlants: total - booked,
     fromRollup: false
   }
 }
@@ -46,6 +47,7 @@ const ParentAccordion = () => {
   const [plants, setPlants] = useState([])
   const [rollupByPlantId, setRollupByPlantId] = useState({})
   const [rollupLoading, setRollupLoading] = useState(false)
+  const [viewMode, setViewMode] = useState("overview")
 
   const years = ["2026", "2027"]
 
@@ -94,7 +96,7 @@ const ParentAccordion = () => {
             map[pid] = {
               total,
               booked,
-              available: Math.max(0, total - booked)
+              available: total - booked
             }
           } catch (error) {
             console.error("Subtype rollup failed for plant", pid, error)
@@ -183,13 +185,26 @@ const ParentAccordion = () => {
               </p>
             </div>
 
-            <button
-              type="button"
-              onClick={() => setIsModalOpen(true)}
-              className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2">
-              <Plus className="h-4 w-4" />
-              Add Manual Slot
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setViewMode(viewMode === "stock" ? "overview" : "stock")}
+                className={`inline-flex items-center justify-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold shadow-sm transition focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+                  viewMode === "stock"
+                    ? "bg-teal-700 text-white hover:bg-teal-800 focus:ring-teal-500"
+                    : "border border-teal-600 text-teal-700 bg-white hover:bg-teal-50 focus:ring-teal-500"
+                }`}>
+                <Package className="h-4 w-4" />
+                {viewMode === "stock" ? "Back to overview" : "Stock entry panel"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsModalOpen(true)}
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2">
+                <Plus className="h-4 w-4" />
+                Add Manual Slot
+              </button>
+            </div>
           </div>
 
           <div className="inline-flex rounded-lg border border-slate-200 bg-slate-100 p-1">
@@ -212,7 +227,9 @@ const ParentAccordion = () => {
       </div>
 
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
-        {loading ? (
+        {viewMode === "stock" ? (
+          <SlotStockPanel plants={plants} defaultYear={selectedYear} />
+        ) : loading ? (
           <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-3">
             {[1, 2, 3].map((i) => (
               <div

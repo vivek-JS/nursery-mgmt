@@ -1,6 +1,7 @@
 import { API, NetworkManager } from "network/core"
 import React, { useState, useEffect } from "react"
-import { useParams } from "react-router-dom"
+import { useParams, useNavigate, useSearchParams } from "react-router-dom"
+import DealerWalletLedgerPanel from "./DealerWalletLedgerPanel"
 import { PieChart as PieChartIcon } from "@mui/icons-material"
 
 import {
@@ -156,6 +157,13 @@ const txnTypeMap = {
   INVENTORY_RELEASE: { bg: C.blueBg, color: C.blueText, icon: <SwapIcon sx={{ fontSize: 16 }} />, label: "Inv. Release" },
 }
 
+const orderCustomerLabel = (orderDoc) => {
+  if (!orderDoc || typeof orderDoc !== "object") return ""
+  if (orderDoc.orderFor?.name) return String(orderDoc.orderFor.name).trim()
+  if (orderDoc.farmer?.name) return String(orderDoc.farmer.name).trim()
+  return ""
+}
+
 const extractDescription = (desc) => {
   if (!desc) return desc
   const patterns = ["Wallet payment collected for Order #", "Wallet payment for Order #", "Payment collected for Order #"]
@@ -173,12 +181,15 @@ const extractDescription = (desc) => {
 
 const ledgerRefTypeLabel = (refType) => {
   const map = {
+    ORDER_BOOKING: "Order booked (outstanding +)",
+    ORDER_RECEIVABLE_PAYMENT: "Payment (outstanding −)",
     ORDER_PAYMENT: "Order Payment",
     PAYMENT_STATUS_UPDATE: "Status Update",
     ADJUSTMENT: "Adjustment",
     REVERSAL: "Reversal",
     MANUAL_CREDIT: "Manual Credit",
     MANUAL_DEBIT: "Manual Debit",
+    COMMISSION_SETTLEMENT: "Commission Settlement",
   }
   return map[refType] || refType || "—"
 }
@@ -199,8 +210,12 @@ const plantLedgerTypeLabel = (t) => {
 // ================================================================
 // MAIN COMPONENT
 // ================================================================
+const LEDGER_TAB_INDEX = 3
+
 const DealerDetails = () => {
   const { id } = useParams()
+  const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const theme = useTheme()
   const isMobile = useMediaQuery(theme.breakpoints.down("md"))
 
@@ -231,21 +246,19 @@ const DealerDetails = () => {
   const [plantLedgerTotal, setPlantLedgerTotal] = useState(0)
   const [plantLedgerType, setPlantLedgerType] = useState("")
 
-  const [ledgerEntries, setLedgerEntries] = useState([])
-  const [ledgerSummary, setLedgerSummary] = useState(null)
-  const [ledgerPagination, setLedgerPagination] = useState({ page: 1, limit: 20, total: 0, totalPages: 0 })
-  const [ledgerLoading, setLedgerLoading] = useState(false)
-  const [ledgerPage, setLedgerPage] = useState(1)
-  const [ledgerLimit] = useState(20)
-  const [ledgerStartDate, setLedgerStartDate] = useState("")
-  const [ledgerEndDate, setLedgerEndDate] = useState("")
-
   useEffect(() => {
     if (id) {
       getDealerDetails(id)
       getDealersStats(id)
     }
   }, [id])
+
+  useEffect(() => {
+    if (searchParams.get("tab") === "ledger") {
+      setTabValue(LEDGER_TAB_INDEX)
+      setMobileTab(LEDGER_TAB_INDEX)
+    }
+  }, [searchParams])
 
   useEffect(() => {
     if (id) {
@@ -258,12 +271,6 @@ const DealerDetails = () => {
       getPlantLedger(id, plantLedgerPage + 1, plantLedgerLimit, plantLedgerType)
     }
   }, [id, tabValue, mobileTab, plantLedgerPage, plantLedgerLimit, plantLedgerType])
-
-  useEffect(() => {
-    if (id && (tabValue === 3 || mobileTab === 3)) {
-      getDealerLedger(id, ledgerPage, ledgerLimit, ledgerStartDate || undefined, ledgerEndDate || undefined)
-    }
-  }, [id, tabValue, mobileTab, ledgerPage, ledgerLimit, ledgerStartDate, ledgerEndDate])
 
   const getDealerDetails = async (dealerId) => {
     setLoading(true)
@@ -356,28 +363,6 @@ const DealerDetails = () => {
     }
   }
 
-  const getDealerLedger = async (dealerId, pageNum = 1, limitNum = 20, startDate, endDate) => {
-    setLedgerLoading(true)
-    try {
-      const instance = NetworkManager(API.USER.GET_DEALER_LEDGER)
-      const params = { pathParams: [dealerId, "ledger"], page: pageNum, limit: limitNum }
-      if (startDate) params.startDate = startDate
-      if (endDate) params.endDate = endDate
-      const response = await instance.request({}, params)
-      if (response?.data?.data) {
-        setLedgerEntries(response.data.data.entries || [])
-        setLedgerSummary(response.data.data.summary || null)
-        setLedgerPagination(response.data.data.pagination || { page: 1, limit: limitNum, total: 0, totalPages: 0 })
-      }
-    } catch (err) {
-      console.error("Error fetching dealer ledger:", err)
-      setLedgerEntries([])
-      setLedgerSummary(null)
-    } finally {
-      setLedgerLoading(false)
-    }
-  }
-
   const handleChangePage = (_, newPage) => setPage(newPage)
   const handleChangeRowsPerPage = (e) => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0) }
   const handleTabChange = (_, newValue) => setTabValue(newValue)
@@ -439,7 +424,7 @@ const DealerDetails = () => {
               </Box>
             </Box>
           </Box>
-          <Box sx={{ display: "flex", gap: 1 }}>
+          <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center" }}>
             {dealer.phoneNumber && (
               <Chip icon={<PhoneIcon sx={{ fontSize: "12px !important", color: "rgba(255,255,255,0.8) !important" }} />} label={dealer.phoneNumber} size="small"
                 sx={{ height: 22, fontSize: "0.62rem", fontWeight: 600, bgcolor: "rgba(255,255,255,0.15)", color: "white", borderRadius: 1, "& .MuiChip-icon": { ml: 0.25, mr: -0.25 } }} />
@@ -449,6 +434,14 @@ const DealerDetails = () => {
                 label={[dealer.location?.village, dealer.location?.district].filter(Boolean).join(", ")} size="small"
                 sx={{ height: 22, fontSize: "0.62rem", fontWeight: 600, bgcolor: "rgba(255,255,255,0.15)", color: "white", borderRadius: 1, "& .MuiChip-icon": { ml: 0.25, mr: -0.25 } }} />
             )}
+            <Button
+              size="small"
+              variant="contained"
+              onClick={() => navigate(`/u/commission?dealerId=${id}`)}
+              sx={{ height: 22, fontSize: "0.62rem", fontWeight: 700, textTransform: "none", bgcolor: "rgba(255,255,255,0.25)" }}
+            >
+              Commission
+            </Button>
           </Box>
         </CardContent>
       </Card>
@@ -496,7 +489,9 @@ const DealerDetails = () => {
 
     const renderMobileLedger = () => (
       <Box sx={{ px: 1.25, pb: 2 }}>
-        <Alert severity="info" sx={{ mb: 1, py: 0.5, fontSize: "0.68rem" }}>₹ money only. Plant quota movements → <strong>Plant Ledger</strong> tab.</Alert>
+        <Alert severity="info" sx={{ mb: 1, py: 0.5, fontSize: "0.68rem" }}>
+          Cash transactions only — wallet moves when dealer pays <strong>from wallet</strong> or admin adds wallet credit. Commission &amp; order collections are on <strong>Ledger</strong>.
+        </Alert>
         {/* Filter + Export */}
         <Box sx={{ display: "flex", gap: 0.75, mb: 1, alignItems: "center" }}>
           <FormControl size="small" sx={{ flex: 1 }}>
@@ -532,7 +527,8 @@ const DealerDetails = () => {
           <>
             {walletTransactions.map((txn, idx) => {
               const tc = txnTypeMap[txn.type] || { bg: C.bg, color: C.textSecondary, icon: <CircleIcon sx={{ fontSize: 16 }} />, label: txn.type }
-              const isPositive = txn.type === "CREDIT" || txn.type === "INVENTORY_ADD" || txn.type === "INVENTORY_RELEASE"
+              const isAuditBooking = txn.type === "ORDER_BOOKING" || txn.auditOnly
+              const isPositive = !isAuditBooking && (txn.type === "CREDIT" || txn.type === "INVENTORY_ADD" || txn.type === "INVENTORY_RELEASE")
               return (
                 <Card key={txn._id || idx} elevation={0} sx={{ borderRadius: 2, border: `1px solid ${C.border}`, mb: 0.5 }}>
                   <CardContent sx={{ py: 0.75, px: 1.25, "&:last-child": { pb: 0.75 } }}>
@@ -545,21 +541,30 @@ const DealerDetails = () => {
                           <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, color: C.textPrimary }} noWrap>
                             {extractDescription(txn.description)}
                           </Typography>
-                          <Typography sx={{ fontWeight: 900, fontSize: "0.85rem", color: isPositive ? C.greenText : C.redText, flexShrink: 0, ml: 0.5 }}>
-                            {isPositive ? "+" : "−"}₹{Math.abs(txn.amount || 0).toLocaleString()}
+                          <Typography sx={{ fontWeight: 900, fontSize: "0.85rem", color: isAuditBooking ? C.textMuted : isPositive ? C.greenText : C.redText, flexShrink: 0, ml: 0.5 }}>
+                            {isAuditBooking ? "Audit" : `${isPositive ? "+" : "−"}₹${Math.abs(txn.amount || 0).toLocaleString()}`}
                           </Typography>
                         </Box>
+                        {(txn.orderNumericId || txn.customerName) && (
+                          <Typography sx={{ fontSize: "0.62rem", fontWeight: 700, color: C.primary, mt: 0.2 }}>
+                            {txn.orderNumericId ? `#${txn.orderNumericId}` : ""}
+                            {txn.orderNumericId && txn.customerName ? " · " : ""}
+                            {txn.customerName || ""}
+                          </Typography>
+                        )}
                         <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mt: 0.15 }}>
                           <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                            <Chip label={tc.label} size="small" sx={{ height: 16, fontSize: "0.52rem", fontWeight: 700, bgcolor: tc.bg, color: tc.color, borderRadius: 0.75 }} />
-                            <Chip label={txn.status} size="small" variant="outlined"
-                              sx={{ height: 16, fontSize: "0.52rem", fontWeight: 600, borderColor: txn.status === "COMPLETED" ? C.green : C.orange, color: txn.status === "COMPLETED" ? C.greenText : C.orangeText, borderRadius: 0.75 }} />
+                            <Chip label={txn.reasonLabel || tc.label} size="small" sx={{ height: 16, fontSize: "0.52rem", fontWeight: 700, bgcolor: tc.bg, color: tc.color, borderRadius: 0.75 }} />
+                            {txn.status ? (
+                              <Chip label={txn.status} size="small" variant="outlined"
+                                sx={{ height: 16, fontSize: "0.52rem", fontWeight: 600, borderColor: txn.status === "COMPLETED" ? C.green : C.orange, color: txn.status === "COMPLETED" ? C.greenText : C.orangeText, borderRadius: 0.75 }} />
+                            ) : null}
                           </Box>
                           <Typography sx={{ fontSize: "0.6rem", color: C.textMuted }}>{txn.createdAt ? formatDateShort(txn.createdAt) : ""}</Typography>
                         </Box>
-                        {(txn.balanceBefore !== undefined || txn.balanceAfter !== undefined) && (
+                        {!isAuditBooking && txn.balanceBefore != null && txn.balanceAfter != null && (
                           <Typography sx={{ fontSize: "0.58rem", color: C.textMuted, mt: 0.25 }}>
-                            Bal: ₹{(txn.balanceBefore || 0).toLocaleString()} → ₹{(txn.balanceAfter || 0).toLocaleString()}
+                            Wallet: ₹{Number(txn.balanceBefore).toLocaleString()} → ₹{Number(txn.balanceAfter).toLocaleString()}
                           </Typography>
                         )}
                       </Box>
@@ -738,85 +743,6 @@ const DealerDetails = () => {
       </Box>
     )
 
-    const renderMobileWalletLedger = () => (
-      <Box sx={{ px: 1.25, pb: 2 }}>
-        <Alert severity="info" sx={{ mb: 1, py: 0.5, fontSize: "0.68rem" }}>Audit trail in <strong>₹</strong>. For plant counts use <strong>Plant Ledger</strong>.</Alert>
-        <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75, mb: 1, alignItems: "center" }}>
-          <TextField size="small" label="Start" type="date" value={ledgerStartDate} onChange={(e) => { setLedgerStartDate(e.target.value); setLedgerPage(1) }}
-            InputLabelProps={{ shrink: true }} sx={{ width: 120 }} inputProps={{ style: { fontSize: "0.75rem" } }} />
-          <TextField size="small" label="End" type="date" value={ledgerEndDate} onChange={(e) => { setLedgerEndDate(e.target.value); setLedgerPage(1) }}
-            InputLabelProps={{ shrink: true }} sx={{ width: 120 }} inputProps={{ style: { fontSize: "0.75rem" } }} />
-          <Button size="small" variant="contained" onClick={() => getDealerLedger(id, 1, ledgerLimit, ledgerStartDate || undefined, ledgerEndDate || undefined)}
-            sx={{ fontSize: "0.7rem", textTransform: "none", fontWeight: 700 }}>Apply</Button>
-        </Box>
-        {ledgerSummary != null && (
-          <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 0.5, mb: 1 }}>
-            <Box sx={{ p: 0.75, bgcolor: C.redBg, borderRadius: 1.5, textAlign: "center" }}>
-              <Typography sx={{ fontSize: "0.52rem", color: C.textMuted, fontWeight: 600 }}>Debit</Typography>
-              <Typography sx={{ fontSize: "0.78rem", fontWeight: 800, color: C.redText }}>₹{(ledgerSummary.totalDebit || 0).toLocaleString()}</Typography>
-            </Box>
-            <Box sx={{ p: 0.75, bgcolor: C.greenBg, borderRadius: 1.5, textAlign: "center" }}>
-              <Typography sx={{ fontSize: "0.52rem", color: C.textMuted, fontWeight: 600 }}>Credit</Typography>
-              <Typography sx={{ fontSize: "0.78rem", fontWeight: 800, color: C.greenText }}>₹{(ledgerSummary.totalCredit || 0).toLocaleString()}</Typography>
-            </Box>
-            <Box sx={{ p: 0.75, bgcolor: C.blueBg, borderRadius: 1.5, textAlign: "center" }}>
-              <Typography sx={{ fontSize: "0.52rem", color: C.textMuted, fontWeight: 600 }}>Balance</Typography>
-              <Typography sx={{ fontSize: "0.78rem", fontWeight: 800, color: C.blueText }}>₹{(ledgerSummary.balance != null ? ledgerSummary.balance : 0).toLocaleString()}</Typography>
-            </Box>
-          </Box>
-        )}
-        {ledgerLoading ? (
-          <Box sx={{ py: 3, display: "flex", justifyContent: "center" }}><CircularProgress size={28} /></Box>
-        ) : ledgerEntries.length === 0 ? (
-          <Box sx={{ py: 4, textAlign: "center" }}>
-            <ReceiptIcon sx={{ fontSize: 36, color: C.textMuted, mb: 0.5 }} />
-            <Typography sx={{ fontSize: "0.82rem", color: C.textMuted, fontWeight: 600 }}>No ledger entries</Typography>
-          </Box>
-        ) : (
-          <>
-            <Box sx={{ display: "flex", flexDirection: "column", gap: 0.6 }}>
-              {ledgerEntries.map((entry) => {
-                const hasCredit = (entry.credit || 0) > 0
-                return (
-                  <Card key={entry._id} elevation={0} sx={{ borderRadius: 2, border: `1px solid ${C.border}` }}>
-                    <CardContent sx={{ py: 0.75, px: 1.25, "&:last-child": { pb: 0.75 } }}>
-                      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 0.25 }}>
-                        <Chip label={ledgerRefTypeLabel(entry.refType)} size="small"
-                          sx={{ height: 18, fontSize: "0.58rem", fontWeight: 700, bgcolor: hasCredit ? C.greenBg : C.redBg, color: hasCredit ? C.greenText : C.redText, borderRadius: 1 }} />
-                        <Typography sx={{ fontSize: "0.72rem", fontWeight: 800, color: hasCredit ? C.greenText : C.redText }}>
-                          {hasCredit ? "+" : "−"}₹{((entry.credit || 0) || (entry.debit || 0)).toLocaleString()}
-                        </Typography>
-                      </Box>
-                      <Typography sx={{ fontSize: "0.65rem", color: C.textSecondary }}>{entry.description || entry.reference || "—"}</Typography>
-                      <Typography sx={{ fontSize: "0.58rem", color: C.textMuted, mt: 0.15 }}>
-                        {entry.entryDate ? formatDateShort(entry.entryDate) : ""} · Bal: ₹{(entry.balanceBefore || 0).toLocaleString()} → ₹{(entry.balanceAfter || 0).toLocaleString()}
-                      </Typography>
-                      {(entry.orderId?.orderId || entry.createdBy?.name) && (
-                        <Typography sx={{ fontSize: "0.52rem", color: C.textMuted, mt: 0.1 }}>
-                          {entry.orderId?.orderId ? `Order #${entry.orderId.orderId}` : ""}{entry.orderId?.orderId && entry.createdBy?.name ? " · " : ""}{entry.createdBy?.name || ""}
-                        </Typography>
-                      )}
-                    </CardContent>
-                  </Card>
-                )
-              })}
-            </Box>
-            {ledgerPagination.totalPages > 1 && (
-              <Box sx={{ display: "flex", justifyContent: "center", gap: 1, mt: 1 }}>
-                <Button size="small" disabled={ledgerPage <= 1} onClick={() => setLedgerPage((p) => Math.max(1, p - 1))}
-                  sx={{ fontSize: "0.7rem", textTransform: "none", fontWeight: 700, color: C.primary }}>Prev</Button>
-                <Typography sx={{ fontSize: "0.72rem", color: C.textSecondary, py: 0.5 }}>
-                  Page {ledgerPage} of {ledgerPagination.totalPages || 1}
-                </Typography>
-                <Button size="small" disabled={ledgerPage >= (ledgerPagination.totalPages || 1)} onClick={() => setLedgerPage((p) => p + 1)}
-                  sx={{ fontSize: "0.7rem", textTransform: "none", fontWeight: 700, color: C.primary }}>Next</Button>
-              </Box>
-            )}
-          </>
-        )}
-      </Box>
-    )
-
     const renderMobileStats = () => (
       <Box sx={{ px: 1.25, pb: 2 }}>
         {statsLoading ? (
@@ -926,14 +852,16 @@ const DealerDetails = () => {
           {mobileTab === 0 && renderMobileLedger()}
           {mobileTab === 1 && renderMobileInventory()}
           {mobileTab === 2 && renderMobilePlantLedger()}
-          {mobileTab === 3 && renderMobileWalletLedger()}
+          {mobileTab === LEDGER_TAB_INDEX && (
+            <DealerWalletLedgerPanel dealerId={id} dealerName={dealer?.name} embedded />
+          )}
           {mobileTab === 4 && renderMobileStats()}
         </Box>
 
         {/* Refresh */}
         <Box sx={{ px: 1.25, pb: 2 }}>
           <Button size="small" variant="outlined" fullWidth
-            onClick={() => { getDealerDetails(id); getDealersStats(id); getDealerWalletTransactions(id, page + 1, rowsPerPage, transactionType); if (tabValue === 2 || mobileTab === 2) getPlantLedger(id, plantLedgerPage + 1, plantLedgerLimit, plantLedgerType); if (tabValue === 3 || mobileTab === 3) getDealerLedger(id, ledgerPage, ledgerLimit, ledgerStartDate || undefined, ledgerEndDate || undefined) }}
+            onClick={() => { getDealerDetails(id); getDealersStats(id); getDealerWalletTransactions(id, page + 1, rowsPerPage, transactionType); if (tabValue === 2 || mobileTab === 2) getPlantLedger(id, plantLedgerPage + 1, plantLedgerLimit, plantLedgerType) }}
             startIcon={<RefreshIcon sx={{ fontSize: 14 }} />}
             sx={{ fontSize: "0.72rem", textTransform: "none", borderRadius: 2, borderColor: C.primary, color: C.primary, fontWeight: 700, height: 36 }}>
             Refresh All Data
@@ -960,7 +888,17 @@ const DealerDetails = () => {
               <Typography variant="subtitle1">Dealer ID: {id.substring(id.length - 8)}</Typography>
             </Box>
           </Box>
-          <Chip label={dealer.isOnboarded ? "Onboarded" : "Not Onboarded"} color={dealer.isOnboarded ? "success" : "warning"} sx={{ fontWeight: "bold" }} />
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            <Button
+              size="small"
+              variant="contained"
+              sx={{ bgcolor: "rgba(255,255,255,0.2)", color: "white", fontWeight: 700, textTransform: "none" }}
+              onClick={() => navigate(`/u/commission?dealerId=${id}`)}
+            >
+              Commission
+            </Button>
+            <Chip label={dealer.isOnboarded ? "Onboarded" : "Not Onboarded"} color={dealer.isOnboarded ? "success" : "warning"} sx={{ fontWeight: "bold" }} />
+          </Box>
         </Box>
         <CardContent sx={{ p: 3 }}>
           <Grid container spacing={3}>
@@ -1122,6 +1060,9 @@ const DealerDetails = () => {
       {tabValue === 0 && (
         <Box>
           <Alert severity="info" sx={{ mb: 2 }}>Wallet transactions below are <strong>money</strong> (₹). Plant movements are in the <strong>Plant Ledger</strong> tab.</Alert>
+          <Alert severity="info" sx={{ mb: 2 }}>
+            <strong>Wallet transactions</strong> = cash credits/debits only. <strong>Wallet Ledger</strong> tab has order bookings, commission, and full audit trail.
+          </Alert>
           <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
             <DealerPDFExport dealer={dealer} dealerFinancial={dealerFinancial} dealerInventory={dealerInventory} transactions={walletTransactions} />
             <Button variant="outlined" startIcon={<DownloadIcon />} onClick={exportTransactionsCSV} disabled={!dealer || walletTransactions.length === 0}
@@ -1158,6 +1099,8 @@ const DealerDetails = () => {
                   <TableRow>
                     <TableCell sx={{ fontWeight: "bold" }}>Date & Time</TableCell>
                     <TableCell sx={{ fontWeight: "bold" }}>Type</TableCell>
+                    <TableCell sx={{ fontWeight: "bold" }}>Order</TableCell>
+                    <TableCell sx={{ fontWeight: "bold" }}>Farmer</TableCell>
                     <TableCell sx={{ fontWeight: "bold" }}>Amount</TableCell>
                     <TableCell sx={{ fontWeight: "bold" }}>Balance Before</TableCell>
                     <TableCell sx={{ fontWeight: "bold" }}>Balance After</TableCell>
@@ -1166,21 +1109,25 @@ const DealerDetails = () => {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {walletTransactions.map((transaction) => (
+                  {walletTransactions.map((transaction) => {
+                    const isAuditBooking = transaction.type === "ORDER_BOOKING" || transaction.auditOnly
+                    return (
                     <TableRow key={transaction._id}
-                      sx={{ "&:last-child td, &:last-child th": { border: 0 }, bgcolor: transaction.type === "CREDIT" ? "rgba(76, 175, 80, 0.04)" : transaction.type === "DEBIT" ? "rgba(244, 67, 54, 0.04)" : "inherit" }} hover>
+                      sx={{ "&:last-child td, &:last-child th": { border: 0 }, bgcolor: transaction.type === "CREDIT" ? "rgba(76, 175, 80, 0.04)" : transaction.type === "DEBIT" ? "rgba(244, 67, 54, 0.04)" : isAuditBooking ? "rgba(33, 150, 243, 0.04)" : "inherit" }} hover>
                       <TableCell>{formatDate(transaction.createdAt)}</TableCell>
                       <TableCell>
                         <Chip icon={transaction.type === "CREDIT" ? <AddCircleIcon fontSize="small" /> : transaction.type === "DEBIT" ? <RemoveCircleIcon fontSize="small" /> : <CircleIcon fontSize="small" />}
-                          label={transaction.type} size="small"
+                          label={transaction.reasonLabel || txnTypeMap[transaction.type]?.label || transaction.type} size="small"
                           color={transaction.type === "CREDIT" || transaction.type === "INVENTORY_ADD" ? "success" : transaction.type === "DEBIT" || transaction.type === "INVENTORY_BOOK" ? "error" : "info"}
                           sx={{ fontWeight: "medium", "& .MuiChip-icon": { ml: 0.5 } }} />
                       </TableCell>
-                      <TableCell sx={{ fontWeight: "bold", color: transaction.type === "CREDIT" || transaction.type === "INVENTORY_ADD" ? "success.main" : transaction.type === "DEBIT" || transaction.type === "INVENTORY_BOOK" ? "error.main" : "text.primary", ...numberCellSx }}>
-                        {transaction.type === "CREDIT" || transaction.type === "INVENTORY_ADD" ? "+ " : "- "}{formatCurrency(transaction.amount)}
+                      <TableCell>{transaction.orderNumericId ? `#${transaction.orderNumericId}` : "—"}</TableCell>
+                      <TableCell>{transaction.customerName || "—"}</TableCell>
+                      <TableCell sx={{ fontWeight: "bold", color: isAuditBooking ? "text.secondary" : transaction.type === "CREDIT" || transaction.type === "INVENTORY_ADD" ? "success.main" : transaction.type === "DEBIT" || transaction.type === "INVENTORY_BOOK" ? "error.main" : "text.primary", ...numberCellSx }}>
+                        {isAuditBooking ? "—" : `${transaction.type === "CREDIT" || transaction.type === "INVENTORY_ADD" ? "+ " : "- "}${formatCurrency(transaction.amount)}`}
                       </TableCell>
-                      <TableCell sx={numberCellSx}>{formatCurrency(transaction.balanceBefore)}</TableCell>
-                      <TableCell sx={numberCellSx}>{formatCurrency(transaction.balanceAfter)}</TableCell>
+                      <TableCell sx={numberCellSx}>{isAuditBooking ? "—" : formatCurrency(transaction.balanceBefore)}</TableCell>
+                      <TableCell sx={numberCellSx}>{isAuditBooking ? "—" : formatCurrency(transaction.balanceAfter)}</TableCell>
                       <TableCell>
                         <Tooltip title={transaction.description} arrow>
                           <Typography sx={{ maxWidth: 250, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
@@ -1189,12 +1136,18 @@ const DealerDetails = () => {
                         </Tooltip>
                       </TableCell>
                       <TableCell>
-                        <Chip label={transaction.status} size="small"
-                          color={transaction.status === "COMPLETED" ? "success" : transaction.status === "PENDING" ? "warning" : "error"}
-                          variant="outlined" sx={{ fontWeight: "medium" }} />
+                        {transaction.status ? (
+                          <Chip label={transaction.status} size="small"
+                            color={transaction.status === "COMPLETED" ? "success" : transaction.status === "PENDING" ? "warning" : "error"}
+                            variant="outlined" sx={{ fontWeight: "medium" }} />
+                        ) : isAuditBooking ? (
+                          <Chip label="Audit" size="small" variant="outlined" color="info" sx={{ fontWeight: "medium" }} />
+                        ) : (
+                          "—"
+                        )}
                       </TableCell>
                     </TableRow>
-                  ))}
+                  )})}
                 </TableBody>
               </Table>
               <TablePagination rowsPerPageOptions={[5, 10, 25]} component="div" count={totalTransactions} rowsPerPage={rowsPerPage} page={page}
@@ -1365,101 +1318,8 @@ const DealerDetails = () => {
         </Box>
       )}
 
-      {/* Wallet Ledger Tab (auditable) */}
-      {tabValue === 3 && (
-        <Box>
-          <Alert severity="info" sx={{ mb: 2 }}>This ledger is <strong>money</strong> (₹): debits/credits and running balance. Plant quota is in <strong>Plant Ledger</strong>.</Alert>
-          <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 2, mb: 2 }}>
-            <Typography variant="h6">Audit ledger (₹)</Typography>
-            <TextField size="small" label="Start date" type="date" value={ledgerStartDate} onChange={(e) => { setLedgerStartDate(e.target.value); setLedgerPage(1) }}
-              InputLabelProps={{ shrink: true }} sx={{ width: 160 }} />
-            <TextField size="small" label="End date" type="date" value={ledgerEndDate} onChange={(e) => { setLedgerEndDate(e.target.value); setLedgerPage(1) }}
-              InputLabelProps={{ shrink: true }} sx={{ width: 160 }} />
-            <Button variant="outlined" size="small" onClick={() => getDealerLedger(id, 1, ledgerLimit, ledgerStartDate || undefined, ledgerEndDate || undefined)}>
-              Apply
-            </Button>
-          </Box>
-          {ledgerSummary != null && (
-            <Grid container spacing={2} sx={{ mb: 2 }}>
-              <Grid item xs={12} sm={4}>
-                <Card sx={{ bgcolor: "error.50", borderRadius: 2 }}>
-                  <CardContent sx={{ py: 1.5 }}>
-                    <Typography variant="caption" color="text.secondary">Total Debit</Typography>
-                    <Typography variant="h6" fontWeight="bold" color="error.main">{formatCurrency(ledgerSummary.totalDebit || 0)}</Typography>
-                  </CardContent>
-                </Card>
-              </Grid>
-              <Grid item xs={12} sm={4}>
-                <Card sx={{ bgcolor: "success.50", borderRadius: 2 }}>
-                  <CardContent sx={{ py: 1.5 }}>
-                    <Typography variant="caption" color="text.secondary">Total Credit</Typography>
-                    <Typography variant="h6" fontWeight="bold" color="success.main">{formatCurrency(ledgerSummary.totalCredit || 0)}</Typography>
-                  </CardContent>
-                </Card>
-              </Grid>
-              <Grid item xs={12} sm={4}>
-                <Card sx={{ bgcolor: "primary.50", borderRadius: 2 }}>
-                  <CardContent sx={{ py: 1.5 }}>
-                    <Typography variant="caption" color="text.secondary">Balance (Credit − Debit)</Typography>
-                    <Typography variant="h6" fontWeight="bold" color="primary.main">{formatCurrency(ledgerSummary.balance != null ? ledgerSummary.balance : 0)}</Typography>
-                  </CardContent>
-                </Card>
-              </Grid>
-            </Grid>
-          )}
-          {ledgerLoading ? (
-            <Box sx={{ width: "100%", mt: 3 }}><LinearProgress /></Box>
-          ) : ledgerEntries.length === 0 ? (
-            <Paper sx={{ p: 4, textAlign: "center" }}>
-              <ReceiptIcon sx={{ fontSize: 48, color: "text.secondary", mb: 2 }} />
-              <Typography variant="h6">No ledger entries</Typography>
-              <Typography variant="body2" color="text.secondary">Audit ledger entries will appear here when payments or adjustments are recorded.</Typography>
-            </Paper>
-          ) : (
-            <TableContainer component={Paper} sx={{ boxShadow: "0 4px 20px rgba(0,0,0,0.08)", borderRadius: 2 }}>
-              <Table sx={{ minWidth: 650 }}>
-                <TableHead sx={{ bgcolor: "grey.100" }}>
-                  <TableRow>
-                    <TableCell sx={{ fontWeight: "bold" }}>Date</TableCell>
-                    <TableCell sx={{ fontWeight: "bold" }}>Type</TableCell>
-                    <TableCell sx={{ fontWeight: "bold" }}>Debit</TableCell>
-                    <TableCell sx={{ fontWeight: "bold" }}>Credit</TableCell>
-                    <TableCell sx={{ fontWeight: "bold" }}>Balance Before</TableCell>
-                    <TableCell sx={{ fontWeight: "bold" }}>Balance After</TableCell>
-                    <TableCell sx={{ fontWeight: "bold" }}>Order</TableCell>
-                    <TableCell sx={{ fontWeight: "bold" }}>Description</TableCell>
-                    <TableCell sx={{ fontWeight: "bold" }}>By</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {ledgerEntries.map((entry) => (
-                    <TableRow key={entry._id} hover sx={{ bgcolor: (entry.credit || 0) > 0 ? "rgba(76, 175, 80, 0.04)" : "rgba(244, 67, 54, 0.04)" }}>
-                      <TableCell>{formatDate(entry.entryDate || entry.createdAt)}</TableCell>
-                      <TableCell>
-                        <Chip label={ledgerRefTypeLabel(entry.refType)} size="small" sx={{ fontWeight: "medium" }} />
-                      </TableCell>
-                      <TableCell sx={{ fontWeight: 600, color: "error.main", ...numberCellSx }}>{(entry.debit || 0) > 0 ? formatCurrency(entry.debit) : "—"}</TableCell>
-                      <TableCell sx={{ fontWeight: 600, color: "success.main", ...numberCellSx }}>{(entry.credit || 0) > 0 ? formatCurrency(entry.credit) : "—"}</TableCell>
-                      <TableCell sx={numberCellSx}>{formatCurrency(entry.balanceBefore != null ? entry.balanceBefore : 0)}</TableCell>
-                      <TableCell sx={{ ...numberCellSx, fontWeight: 700 }}>{formatCurrency(entry.balanceAfter != null ? entry.balanceAfter : 0)}</TableCell>
-                      <TableCell>{entry.orderId?.orderId ? `#${entry.orderId.orderId}` : "—"}</TableCell>
-                      <TableCell>
-                        <Tooltip title={entry.description} arrow>
-                          <Typography sx={{ maxWidth: 180, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                            {entry.description || entry.reference || "—"}
-                          </Typography>
-                        </Tooltip>
-                      </TableCell>
-                      <TableCell>{entry.createdBy?.name || "—"}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-              <TablePagination rowsPerPageOptions={[20, 50]} component="div" count={ledgerPagination.total || 0} rowsPerPage={ledgerLimit} page={(ledgerPagination.page || 1) - 1}
-                onPageChange={(_, p) => setLedgerPage(p + 1)} onRowsPerPageChange={() => {}} />
-            </TableContainer>
-          )}
-        </Box>
+      {tabValue === LEDGER_TAB_INDEX && (
+        <DealerWalletLedgerPanel dealerId={id} dealerName={dealer?.name} />
       )}
     </Box>
   )

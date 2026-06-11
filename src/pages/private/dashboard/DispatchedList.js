@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback, useRef } from "react"
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { NetworkManager, API } from "network/core"
-import { Truck } from "lucide-react"
+import { Truck, Search, User, Package } from "lucide-react"
 import DispatchForm from "./DispatchedForm"
 import CollectSlipPDF from "./CollectSlipPDF"
 import DeliveryChallanPDF from "./DeliveryChallan"
@@ -55,16 +55,22 @@ function mergeDispatchWithFreshDetail(listRow, freshDetail) {
             village: f.farmer.village,
           }
         : o.details?.farmer
+    const freightVal =
+      f.freightCharges != null && f.freightCharges !== ""
+        ? Math.max(0, Number(f.freightCharges) || 0)
+        : null
     return {
       ...o,
       ...(dcVal ? { deliveryChallanInvoiceNumber: dcVal } : {}),
       ...(offVal ? { officialDeliveryChallanNumber: offVal } : {}),
+      ...(freightVal != null ? { freightCharges: freightVal } : {}),
       details: {
         ...(o.details || {}),
         ...(dcVal ? { deliveryChallanInvoiceNumber: dcVal } : {}),
         ...(offVal ? { officialDeliveryChallanNumber: offVal } : {}),
         ...(Array.isArray(f.payment) ? { payment: f.payment } : {}),
         ...(farmer ? { farmer } : {}),
+        ...(freightVal != null ? { freightCharges: freightVal } : {}),
       },
     }
   })
@@ -78,7 +84,44 @@ function mergeDispatchWithFreshDetail(listRow, freshDetail) {
   }
 }
 
-const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false }) => {
+function normalizeDispatchListOrder(entry, dispatch) {
+  const det = entry?.details || {}
+  const farmer = det.farmer || {}
+  const qty = Number(entry.quantity ?? entry.numberOfPlants ?? 0)
+  const rate = Number(entry.rate ?? 0)
+  return {
+    orderMongoId: String(entry._id ?? det.orderid ?? ""),
+    orderId: entry.order ?? entry.orderId ?? "—",
+    farmerName: entry.farmerName || farmer.name || "—",
+    farmerMobile: entry.contact || farmer.mobileNumber || "",
+    village: farmer.village || "",
+    plantName: entry.plantDetails?.name || entry.plantType?.name || "—",
+    plantSubtype: entry.plantDetails?.subtype || entry.plantSubtype?.name || "",
+    quantity: qty,
+    rate,
+    amount: qty * rate,
+    orderStatus: entry.orderStatus || "",
+    dispatchId: String(dispatch?._id || ""),
+    transportId: dispatch?.transportId ?? "—",
+    driverName: dispatch?.driverName || "",
+  }
+}
+
+function collectDispatchSearchHits(dispatches = []) {
+  const hits = []
+  const seen = new Set()
+  for (const dispatch of dispatches) {
+    for (const entry of dispatch.orderIds || []) {
+      const row = normalizeDispatchListOrder(entry, dispatch)
+      if (!row.orderMongoId || seen.has(row.orderMongoId)) continue
+      seen.add(row.orderMongoId)
+      hits.push(row)
+    }
+  }
+  return hits
+}
+
+const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false, dispatchSearch = "" }) => {
   const [dispatches, setDispatches] = useState([])
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -95,46 +138,68 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false 
 
   const enrichDispatchLoadStatus = useCallback(async (dispatchRows = []) => {
     if (!Array.isArray(dispatchRows) || dispatchRows.length === 0) return []
-    return Promise.all(
-      dispatchRows.map(async (dispatch) => {
-        try {
-          const orderIds = (dispatch.orderIds || [])
-            .map((entry) => {
-              if (entry == null) return null
-              if (typeof entry === "object") {
-                let id = entry._id ?? entry.id ?? null
-                if (id == null || id === "") {
-                  const det = entry.details
-                  if (det && typeof det === "object") {
-                    id = det.orderid ?? det.orderId ?? null
-                  }
-                }
-                return id
-              }
-              return entry
-            })
-            .filter(Boolean)
-          if (orderIds.length === 0) {
-            return { ...dispatch, agriLoadBlocked: false, agriLoadBlockedBy: [] }
+    const allHaveFlags = dispatchRows.every((d) => typeof d.agriLoadBlocked === "boolean")
+    if (allHaveFlags) return dispatchRows
+
+    const allOrderIds = []
+    for (const dispatch of dispatchRows) {
+      for (const entry of dispatch.orderIds || []) {
+        if (entry == null) continue
+        if (typeof entry === "object") {
+          let id = entry._id ?? entry.id ?? null
+          if (id == null || id === "") {
+            const det = entry.details
+            if (det && typeof det === "object") {
+              id = det.orderid ?? det.orderId ?? null
+            }
           }
-          const instance = NetworkManager(API.INVENTORY.GET_DISPATCH_LOAD_STATUS)
-          const response = await instance.request({ orderIds })
-          const data = response?.data?.data || {}
-          return {
-            ...dispatch,
-            agriLoadBlocked: Boolean(data.isBlocked),
-            agriLoadBlockedBy: Array.isArray(data.blockedBy) ? data.blockedBy : [],
-          }
-        } catch (error) {
-          return { ...dispatch, agriLoadBlocked: false, agriLoadBlockedBy: [] }
+          if (id) allOrderIds.push(String(id))
+        } else {
+          allOrderIds.push(String(entry))
+        }
+      }
+    }
+    const uniqueOrderIds = [...new Set(allOrderIds)]
+    if (uniqueOrderIds.length === 0) {
+      return dispatchRows.map((d) => ({ ...d, agriLoadBlocked: false, agriLoadBlockedBy: [] }))
+    }
+
+    try {
+      const instance = NetworkManager(API.INVENTORY.GET_DISPATCH_LOAD_STATUS)
+      const response = await instance.request({ orderIds: uniqueOrderIds })
+      const data = response?.data?.data || {}
+      const blockedBy = Array.isArray(data.blockedBy) ? data.blockedBy : []
+
+      return dispatchRows.map((dispatch) => {
+        const dispatchOrderIds = (dispatch.orderIds || [])
+          .map((entry) => {
+            if (entry == null) return null
+            if (typeof entry === "object") {
+              return String(entry._id ?? entry.id ?? entry.details?.orderid ?? "")
+            }
+            return String(entry)
+          })
+          .filter(Boolean)
+        const dispatchBlockedBy = blockedBy.filter((row) =>
+          dispatchOrderIds.includes(String(row?.linkedNurseryOrderId ?? row?.nurseryOrderId ?? ""))
+        )
+        return {
+          ...dispatch,
+          agriLoadBlocked: dispatchBlockedBy.length > 0,
+          agriLoadBlockedBy: dispatchBlockedBy,
         }
       })
-    )
+    } catch (error) {
+      return dispatchRows.map((d) => ({ ...d, agriLoadBlocked: false, agriLoadBlockedBy: [] }))
+    }
   }, [])
 
   const loadDispatchPage = useCallback(async (page) => {
     const instance = NetworkManager(API.DISPATCHED.GET_TRAYS)
-    const response = await instance.request({}, { paged: "1", page, limit: DISPATCH_PAGE_SIZE })
+    const query = { paged: "1", page, limit: DISPATCH_PAGE_SIZE }
+    const q = String(dispatchSearch || "").trim()
+    if (q) query.search = q
+    const response = await instance.request({}, query)
     const rows = Array.isArray(response.data?.data) ? response.data.data : []
     const pag = response.data?.pagination
     const totalPages = Number(pag?.pages)
@@ -149,7 +214,7 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false 
       more = rows.length >= DISPATCH_PAGE_SIZE
     }
     return { rows, curPage, more }
-  }, [])
+  }, [dispatchSearch])
 
   const refreshList = useCallback(async () => {
     setLoading(true)
@@ -206,7 +271,39 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false 
     setIsCompleteInvoiceOpen(false)
     setIsDispatchFormOpen(false)
     setIsOrderCompleteOpen(false)
-  }, [viewMode, refresh, refreshList])
+  }, [viewMode, dispatchSearch, refreshList])
+
+  const searchTrim = String(dispatchSearch || "").trim()
+  const searchActive = searchTrim.length >= 2
+
+  const searchHits = useMemo(() => {
+    if (!searchActive) return []
+    return collectDispatchSearchHits(dispatches)
+  }, [dispatches, searchActive])
+
+  const searchDispatchIds = useMemo(
+    () => new Set(searchHits.map((h) => h.dispatchId).filter(Boolean)),
+    [searchHits]
+  )
+
+  const [focusedOrderId, setFocusedOrderId] = useState(null)
+
+  useEffect(() => {
+    setFocusedOrderId(null)
+  }, [dispatchSearch])
+
+  const scrollToDispatch = useCallback((dispatchId, orderMongoId) => {
+    if (orderMongoId) setFocusedOrderId(String(orderMongoId))
+    const el = document.getElementById(`dispatch-accordion-${dispatchId}`)
+    if (!el) return
+    el.scrollIntoView({ behavior: "smooth", block: "start" })
+    el.dataset.highlightOrder = orderMongoId || ""
+    el.classList.add("ring-2", "ring-teal-400", "ring-offset-2")
+    window.setTimeout(() => {
+      el.classList.remove("ring-2", "ring-teal-400", "ring-offset-2")
+      delete el.dataset.highlightOrder
+    }, 2400)
+  }, [])
 
   /** Build DispatchForm `selectedOrders` Map from GET /dispatched/:id payload. */
   const transformGetDispatchToMap = (d) => {
@@ -623,7 +720,7 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false 
     <>
         <div className="space-y-4 px-4 py-3 border-b border-gray-100">
           {!hideHeader && (
-            <div className="flex justify-between items-center mb-6">
+            <div className="flex justify-between items-center mb-4">
               <h2 className="text-2xl font-semibold text-gray-800">Dispatch List</h2>
               <button
                 type="button"
@@ -634,11 +731,85 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false 
             </div>
           )}
 
+          {searchActive && !loading ? (
+            searchHits.length > 0 ? (
+              <div className="mb-4 rounded-xl border-2 border-teal-300 bg-gradient-to-br from-teal-50 to-white p-3 shadow-sm">
+                <div className="mb-2 flex items-start gap-2">
+                  <Search className="mt-0.5 h-4 w-4 shrink-0 text-teal-700" aria-hidden />
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wide text-teal-800">
+                      Search matches for &ldquo;{searchTrim}&rdquo;
+                    </p>
+                    <p className="text-sm text-teal-900">
+                      {searchHits.length} order{searchHits.length !== 1 ? "s" : ""} in{" "}
+                      {searchDispatchIds.size} dispatch
+                      {searchDispatchIds.size !== 1 ? "es" : ""}
+                    </p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+                  {searchHits.slice(0, 3).map((hit) => (
+                    <button
+                      key={hit.orderMongoId}
+                      type="button"
+                      onClick={() => scrollToDispatch(hit.dispatchId, hit.orderMongoId)}
+                      className="rounded-lg border border-teal-200 bg-white p-3 text-left shadow-sm transition hover:border-teal-400 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    >
+                      <div className="mb-1 flex items-center justify-between gap-2">
+                        <span className="text-sm font-bold text-gray-900">#{hit.orderId}</span>
+                        <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-semibold text-green-800">
+                          Dispatch #{hit.transportId}
+                        </span>
+                      </div>
+                      <div className="mb-1 flex items-center gap-1.5 text-xs text-gray-800">
+                        <User className="h-3.5 w-3.5 shrink-0 text-gray-500" aria-hidden />
+                        <span className="truncate font-medium" title={hit.farmerName}>
+                          {hit.farmerName}
+                        </span>
+                      </div>
+                      {hit.farmerMobile ? (
+                        <p className="mb-1 text-[11px] text-gray-600">{hit.farmerMobile}</p>
+                      ) : null}
+                      <div className="flex items-center gap-1.5 text-[11px] text-gray-700">
+                        <Package className="h-3.5 w-3.5 shrink-0 text-gray-500" aria-hidden />
+                        <span className="line-clamp-1">
+                          {hit.plantName}
+                          {hit.plantSubtype ? ` · ${hit.plantSubtype}` : ""}
+                        </span>
+                      </div>
+                      <p className="mt-1.5 text-xs font-semibold text-blue-700">
+                        {hit.quantity.toLocaleString()} plants · ₹{hit.amount.toLocaleString()}
+                      </p>
+                      {hit.driverName ? (
+                        <p className="mt-0.5 truncate text-[10px] text-gray-500">{hit.driverName}</p>
+                      ) : null}
+                    </button>
+                  ))}
+                </div>
+                {searchHits.length > 3 ? (
+                  <p className="mt-2 text-center text-xs font-semibold text-teal-800">
+                    +{searchHits.length - 3} more order{searchHits.length - 3 !== 1 ? "s" : ""} in
+                    the dispatch list below
+                  </p>
+                ) : null}
+              </div>
+            ) : (
+              <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                No dispatches found for &ldquo;{searchTrim}&rdquo;. Try order ID, farmer name,
+                mobile, or transport #.
+              </div>
+            )
+          ) : null}
+
           {dispatches.length === 0 ? (
             <div className="text-center py-8">
               <Truck className="text-gray-400 mx-auto mb-4" size={48} />
               <h3 className="text-lg font-medium text-gray-900 mb-2">No Dispatches Found</h3>
-              <p className="text-gray-500">No dispatches are currently in process.</p>
+              <p className="text-gray-500">
+                {searchActive
+                  ? `No loading dispatches match "${searchTrim}".`
+                  : "No dispatches are currently in process."}
+              </p>
             </div>
           ) : (
             <div className="space-y-4">
@@ -646,6 +817,19 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false 
                 <DispatchAccordion
                   key={dispatch._id}
                   dispatch={dispatch}
+                  expandOnMount={searchActive && searchDispatchIds.has(String(dispatch._id))}
+                  highlightOrderId={
+                    searchActive
+                      ? focusedOrderId &&
+                        searchHits.some(
+                          (h) =>
+                            h.dispatchId === String(dispatch._id) && h.orderMongoId === focusedOrderId
+                        )
+                        ? focusedOrderId
+                        : searchHits.find((h) => h.dispatchId === String(dispatch._id))?.orderMongoId ||
+                          null
+                      : null
+                  }
                   onRefresh={refreshList}
                   onDispatchPdfFields={patchDispatchPdfFields}
                   onViewDispatch={(dispatch) => handleDialogOpen("view", dispatch, { stopPropagation: () => {} })}
@@ -727,7 +911,6 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false 
               dispatchData={selectedDispatch}
               onSuccess={() => {
                 void refreshList()
-                if (typeof refresh === "function") refresh()
               }}
             />
           )}

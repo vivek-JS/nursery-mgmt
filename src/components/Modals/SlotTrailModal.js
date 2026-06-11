@@ -1,37 +1,127 @@
-import React, { useState, useEffect } from "react"
-import { Dialog, DialogTitle, DialogContent, DialogActions, Button } from "@mui/material"
+import React, { useState, useEffect, useMemo, useCallback } from "react"
+import {
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Button,
+  Tabs,
+  Tab,
+  Chip,
+  Tooltip,
+  IconButton
+} from "@mui/material"
+import { useNavigate } from "react-router-dom"
 import { NetworkManager, API } from "../../network/core"
-import { History, TrendingUp, TrendingDown, Shield, RotateCcw, Package, User } from "lucide-react"
+import {
+  History,
+  TrendingUp,
+  TrendingDown,
+  Shield,
+  RotateCcw,
+  Package,
+  ArrowRightLeft,
+  ExternalLink,
+  ChevronRight
+} from "lucide-react"
 import { Toast } from "../../helpers/toasts/toastHelper"
 import moment from "moment"
 
-const SlotTrailModal = ({ open, onClose, slotId, slotInfo }) => {
+const TRANSFER_ACTIONS = new Set([
+  "SOWING_TRANSFER_OUT",
+  "SOWING_TRANSFER_IN",
+  "CAPACITY_TRANSFER_OUT",
+  "CAPACITY_TRANSFER_IN",
+  "ORDER_SLOT_TRANSFER_OUT",
+  "ORDER_SLOT_TRANSFER_IN"
+])
+
+const ORDER_TRANSFER_ACTIONS = new Set([
+  "ORDER_SLOT_TRANSFER_OUT",
+  "ORDER_SLOT_TRANSFER_IN"
+])
+
+const STOCK_ACTIONS = new Set([
+  "ACTUAL_PLANTS_UPDATED",
+  "CLOSING_STOCK_UPDATED",
+  "AVAILABLE_PLANTS_UPDATED"
+])
+
+const OUT_ACTIONS = new Set([
+  "SUBTRACT",
+  "CAPACITY_TRANSFER_OUT",
+  "SOWING_TRANSFER_OUT",
+  "ORDER_SLOT_TRANSFER_OUT"
+])
+
+const IN_ACTIONS = new Set([
+  "ADD",
+  "CAPACITY_TRANSFER_IN",
+  "SOWING_TRANSFER_IN",
+  "ORDER_SLOT_TRANSFER_IN"
+])
+
+const ACTION_STYLES = {
+  ORDER_SLOT_TRANSFER_OUT: "border-l-violet-500 bg-violet-50/80",
+  ORDER_SLOT_TRANSFER_IN: "border-l-violet-500 bg-violet-50/80",
+  SOWING_TRANSFER_OUT: "border-l-emerald-500 bg-emerald-50/70",
+  SOWING_TRANSFER_IN: "border-l-emerald-500 bg-emerald-50/70",
+  CAPACITY_TRANSFER_OUT: "border-l-indigo-500 bg-indigo-50/70",
+  CAPACITY_TRANSFER_IN: "border-l-indigo-500 bg-indigo-50/70",
+  ADD: "border-l-green-500 bg-green-50/60",
+  SUBTRACT: "border-l-red-500 bg-red-50/60",
+  BUFFER_APPLIED: "border-l-blue-500 bg-blue-50/60",
+  BUFFER_RELEASED: "border-l-orange-500 bg-orange-50/60",
+  ACTUAL_PLANTS_UPDATED: "border-l-teal-500 bg-teal-50/60",
+  CLOSING_STOCK_UPDATED: "border-l-amber-500 bg-amber-50/60",
+  AVAILABLE_PLANTS_UPDATED: "border-l-sky-500 bg-sky-50/60",
+  default: "border-l-gray-400 bg-gray-50/80"
+}
+
+const formatQty = (action, quantity) => {
+  const n = Number(quantity) || 0
+  if (OUT_ACTIONS.has(action)) return `−${n.toLocaleString()}`
+  if (IN_ACTIONS.has(action)) return `+${n.toLocaleString()}`
+  return n.toLocaleString()
+}
+
+const formatAvail = (value) => {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return "—"
+  return n.toLocaleString()
+}
+
+const entryKey = (entry, index) =>
+  `${entry.action}-${entry.createdAt}-${entry.orderMongoId || entry.orderId || ""}-${index}`
+
+const SlotTrailModal = ({ open, onClose, slotId, slotInfo, onOpenOrder }) => {
+  const navigate = useNavigate()
   const [trail, setTrail] = useState([])
   const [loading, setLoading] = useState(false)
+  const [tab, setTab] = useState("all")
 
   useEffect(() => {
     if (open && slotId) {
-      fetchSlotTrail()
+      fetchSlotTrail(tab)
+    } else {
+      setTrail([])
+      setTab("all")
     }
-  }, [open, slotId])
+  }, [open, slotId, tab])
 
-  const fetchSlotTrail = async () => {
+  const fetchSlotTrail = async (activeTab) => {
     try {
       setLoading(true)
-      console.log("Fetching slot trail for slotId:", slotId)
-      console.log("API endpoint:", API.SLOTS.GET_SLOT_TRAIL)
-
       const instance = NetworkManager(API.SLOTS.GET_SLOT_TRAIL)
-      console.log("NetworkManager instance created")
+      const query = {}
+      if (activeTab === "stock") query.types = "stock"
+      if (activeTab === "transfer") query.types = "transfer"
 
-      const response = await instance.request({}, [slotId])
-      console.log("API response:", response)
+      const response = await instance.request({}, { pathParams: [slotId], ...query })
 
-      if (response.data?.success) {
-        setTrail(response.data.data)
-        console.log("Trail data set:", response.data.data)
+      if (response?.data?.success) {
+        setTrail(response.data.data || [])
       } else {
-        console.error("API response not successful:", response)
         Toast.error("Failed to load slot trail")
       }
     } catch (error) {
@@ -42,192 +132,255 @@ const SlotTrailModal = ({ open, onClose, slotId, slotInfo }) => {
     }
   }
 
-  const getActionIcon = (action) => {
-    switch (action) {
-      case "ADD":
-        return <TrendingUp className="text-green-600" size={16} />
-      case "SUBTRACT":
-        return <TrendingDown className="text-red-600" size={16} />
-      case "BUFFER_APPLIED":
-        return <Shield className="text-blue-600" size={16} />
-      case "BUFFER_RELEASED":
-        return <RotateCcw className="text-orange-600" size={16} />
-      case "ORDER_CANCELLED":
-      case "ORDER_RETURNED":
-        return <Package className="text-purple-600" size={16} />
-      default:
-        return <History className="text-gray-600" size={16} />
-    }
-  }
+  const displayEntries = useMemo(() => {
+    if (tab === "transfer") return trail.filter((e) => TRANSFER_ACTIONS.has(e.action))
+    if (tab === "stock") return trail.filter((e) => STOCK_ACTIONS.has(e.action))
+    return trail
+  }, [trail, tab])
 
-  const getActionColor = (action) => {
-    switch (action) {
-      case "ADD":
-        return "text-green-600 bg-green-50 border-green-200"
-      case "SUBTRACT":
-        return "text-red-600 bg-red-50 border-red-200"
-      case "BUFFER_APPLIED":
-        return "text-blue-600 bg-blue-50 border-blue-200"
-      case "BUFFER_RELEASED":
-        return "text-orange-600 bg-orange-50 border-orange-200"
-      case "ORDER_CANCELLED":
-      case "ORDER_RETURNED":
-        return "text-purple-600 bg-purple-50 border-purple-200"
-      default:
-        return "text-gray-600 bg-gray-50 border-gray-200"
-    }
-  }
+  const counts = useMemo(
+    () => ({
+      all: trail.length,
+      transfer: trail.filter((e) => TRANSFER_ACTIONS.has(e.action)).length,
+      stock: trail.filter((e) => STOCK_ACTIONS.has(e.action)).length
+    }),
+    [trail]
+  )
 
-  const formatQuantity = (action, quantity) => {
-    if (action === "ADD") {
-      return `+${quantity.toLocaleString()}`
-    } else if (action === "SUBTRACT") {
-      return `-${quantity.toLocaleString()}`
-    }
-    return quantity.toLocaleString()
-  }
+  const openOrderFromEntry = useCallback(
+    (entry) => {
+      const orderNum = entry.orderNumber
+      const mongoId = entry.orderMongoId || entry.orderId
+
+      if (onOpenOrder) {
+        onOpenOrder({ orderNumber: orderNum, orderMongoId: mongoId, entry })
+        return
+      }
+
+      const search = orderNum != null && orderNum !== "" ? String(orderNum) : mongoId ? String(mongoId) : ""
+      if (!search) {
+        Toast.info("No order linked to this entry")
+        return
+      }
+
+      navigate(`/u/dashboard?search=${encodeURIComponent(search)}`)
+      onClose?.()
+    },
+    [navigate, onClose, onOpenOrder]
+  )
+
+  const isOrderClickable = (entry) =>
+    ORDER_TRANSFER_ACTIONS.has(entry.action) &&
+    (entry.orderNumber != null || entry.orderMongoId || entry.orderId)
+
+  const availableNow = Number(slotInfo?.availablePlants)
+  const isOverCapacity = Number.isFinite(availableNow) && availableNow < 0
 
   return (
     <Dialog
       open={open}
       onClose={onClose}
-      maxWidth="md"
+      maxWidth="sm"
       fullWidth
-      PaperProps={{
-        className: "max-h-[90vh] overflow-y-auto"
-      }}>
-      <DialogTitle className="bg-blue-50 border-b border-blue-100 flex items-center gap-2">
-        <History className="text-blue-600" size={24} />
-        <span className="text-blue-800">Slot Trail History</span>
+      PaperProps={{ sx: { maxHeight: "88vh" } }}>
+      <DialogTitle sx={{ py: 1.5, px: 2, borderBottom: 1, borderColor: "divider" }}>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <History className="text-blue-600 shrink-0" size={20} />
+            <span className="text-base font-semibold text-gray-900 truncate">Slot history</span>
+          </div>
+          {displayEntries.length > 0 && (
+            <Chip size="small" label={`${displayEntries.length} events`} variant="outlined" />
+          )}
+        </div>
       </DialogTitle>
 
-      <DialogContent className="space-y-4 mt-4">
-        {/* Slot Info Summary */}
+      <DialogContent sx={{ px: 2, py: 1.5 }}>
         {slotInfo && (
-          <div className="bg-gray-50 rounded-lg p-4 mb-4">
-            <h3 className="font-semibold text-gray-900 mb-2">Slot Information</h3>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-              <div>
-                <span className="text-gray-500">Period:</span>
-                <div className="font-medium">
-                  {slotInfo.startDay} - {slotInfo.endDay}
-                </div>
-              </div>
-              <div>
-                <span className="text-gray-500">Total Capacity:</span>
-                <div className="font-medium">{slotInfo.totalPlants?.toLocaleString()} plants</div>
-              </div>
-              <div>
-                <span className="text-gray-500">Available:</span>
-                <div className="font-medium">
-                  {slotInfo.availablePlants?.toLocaleString()} plants
-                </div>
-              </div>
-              <div>
-                <span className="text-gray-500">Buffer:</span>
-                <div className="font-medium">
-                  {slotInfo.effectiveBuffer || slotInfo.buffer || 0}%
-                </div>
-              </div>
+          <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs mb-2 py-2 px-2 rounded-lg bg-slate-50 border border-slate-100">
+            <div className="col-span-2 font-medium text-gray-800">
+              {slotInfo.startDay} – {slotInfo.endDay}
+              {slotInfo.month ? ` · ${slotInfo.month}` : ""}
+            </div>
+            <div>
+              <span className="text-gray-500">Capacity </span>
+              <span className="font-semibold tabular-nums">
+                {(slotInfo.totalPlants ?? 0).toLocaleString()}
+              </span>
+            </div>
+            <div>
+              <span className="text-gray-500">Available </span>
+              <span
+                className={`font-semibold tabular-nums ${
+                  isOverCapacity ? "text-red-600" : "text-gray-900"
+                }`}>
+                {formatAvail(slotInfo.availablePlants)}
+                {isOverCapacity ? " (over)" : ""}
+              </span>
+            </div>
+            <div className="col-span-2">
+              <span className="text-gray-500">Buffer </span>
+              <span className="font-medium">{slotInfo.effectiveBuffer ?? slotInfo.buffer ?? 0}%</span>
             </div>
           </div>
         )}
 
-        {/* Trail Entries */}
+        <Tabs
+          value={tab}
+          onChange={(_, v) => setTab(v)}
+          variant="fullWidth"
+          sx={{ minHeight: 36, mb: 1, "& .MuiTab-root": { minHeight: 36, py: 0.5, fontSize: "0.8rem" } }}>
+          <Tab label={`All (${counts.all})`} value="all" />
+          <Tab label={`Transfers (${counts.transfer})`} value="transfer" />
+          <Tab label={`Stock (${counts.stock})`} value="stock" />
+        </Tabs>
+
         {loading ? (
-          <div className="flex justify-center items-center py-8">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+          <div className="flex justify-center py-10">
+            <div className="h-7 w-7 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
           </div>
-        ) : trail.length > 0 ? (
-          <div className="space-y-3">
-            <h3 className="font-semibold text-gray-900">Activity History</h3>
-            {trail.map((entry, index) => {
-              // Safely handle undefined/null values
-              const action = entry?.action || entry?.activityName || "UNKNOWN";
-              const activityName = entry?.activityName || action;
-              const quantity = entry?.quantity || 0;
-              const reason = entry?.reason || "No reason provided";
-              const notes = entry?.notes || "";
-              const createdAt = entry?.createdAt ? moment(entry.createdAt) : moment();
-              const previousAvailablePlants = entry?.previousAvailablePlants ?? entry?.before?.availablePlants ?? 0;
-              const newAvailablePlants = entry?.newAvailablePlants ?? entry?.after?.availablePlants ?? 0;
-              const bufferPercentage = entry?.bufferPercentage ?? 0;
-              const bufferAmount = entry?.bufferAmount ?? 0;
-              const performedBy = entry?.performedBy;
-              const orderId = entry?.orderId;
-
-              return (
-                <div key={index} className={`border rounded-lg p-4 ${getActionColor(action)}`}>
-                  <div className="flex items-start justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      {getActionIcon(action)}
-                      <span className="font-medium capitalize">
-                        {(activityName || action || "Unknown").replace(/_/g, " ").toLowerCase()}
-                      </span>
-                      <span className="text-sm font-bold">
-                        {formatQuantity(action, quantity)}
-                      </span>
-                    </div>
-                    <span className="text-xs text-gray-500">
-                      {createdAt.isValid() ? createdAt.format("DD/MM/YYYY HH:mm") : "N/A"}
-                    </span>
-                  </div>
-
-                  <div className="text-sm mb-2">
-                    <p className="font-medium">{reason}</p>
-                    {notes && <p className="text-gray-600 mt-1">{notes}</p>}
-                  </div>
-
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-                    <div>
-                      <span className="text-gray-500">Previous Available:</span>
-                      <div className="font-medium">
-                        {previousAvailablePlants?.toLocaleString() || "0"}
-                      </div>
-                    </div>
-                    <div>
-                      <span className="text-gray-500">New Available:</span>
-                      <div className="font-medium">{newAvailablePlants?.toLocaleString() || "0"}</div>
-                    </div>
-                    <div>
-                      <span className="text-gray-500">Buffer:</span>
-                      <div className="font-medium">
-                        {bufferPercentage}% ({bufferAmount?.toLocaleString() || "0"})
-                      </div>
-                    </div>
-                    <div>
-                      <span className="text-gray-500">Performed By:</span>
-                      <div className="font-medium flex items-center gap-1">
-                        <User size={12} />
-                        {performedBy?.name || "System"}
-                      </div>
-                    </div>
-                  </div>
-
-                  {orderId && (
-                    <div className="mt-2 text-xs">
-                      <span className="text-gray-500">Order ID:</span>
-                      <span className="font-medium ml-1">#{orderId}</span>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+        ) : displayEntries.length === 0 ? (
+          <div className="text-center py-10 text-sm text-gray-500">
+            {tab === "transfer"
+              ? "No transfer activity yet."
+              : tab === "stock"
+                ? "No stock changes yet."
+                : "No activity recorded yet."}
           </div>
         ) : (
-          <div className="text-center py-8">
-            <History className="text-gray-400 mx-auto mb-4" size={48} />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">No Trail History</h3>
-            <p className="text-gray-500">No activity has been recorded for this slot yet.</p>
-          </div>
+          <ul className="space-y-1 max-h-[52vh] overflow-y-auto pr-0.5">
+            {displayEntries.map((entry, index) => {
+              const action = entry?.action || "UNKNOWN"
+              const style = ACTION_STYLES[action] || ACTION_STYLES.default
+              const activityName = entry?.activityName || action.replace(/_/g, " ")
+              const createdAt = entry?.createdAt ? moment(entry.createdAt) : null
+              const prevAvail =
+                entry?.previousAvailablePlants ?? entry?.before?.availablePlants
+              const newAvail = entry?.newAvailablePlants ?? entry?.after?.availablePlants
+              const prevBooked = entry?.before?.totalBookedPlants
+              const newBooked = entry?.after?.totalBookedPlants
+              const showBooked =
+                prevBooked !== undefined &&
+                newBooked !== undefined &&
+                prevBooked !== newBooked
+              const peerWindow = entry?.metadata?.peerSlotWindow
+              const peerSlotId = entry?.metadata?.peerSlotId
+              const performer = entry?.performedBy?.name || "System"
+              const clickable = isOrderClickable(entry)
+              const orderLabel =
+                entry.orderNumber != null && entry.orderNumber !== ""
+                  ? `#${entry.orderNumber}`
+                  : null
+              const newAvailNegative = Number(newAvail) < 0
+
+              return (
+                <li key={entryKey(entry, index)}>
+                  <div
+                    role={clickable ? "button" : undefined}
+                    tabIndex={clickable ? 0 : undefined}
+                    onClick={() => clickable && openOrderFromEntry(entry)}
+                    onKeyDown={(e) => {
+                      if (clickable && (e.key === "Enter" || e.key === " ")) {
+                        e.preventDefault()
+                        openOrderFromEntry(entry)
+                      }
+                    }}
+                    className={`border-l-[3px] rounded-r-md px-2 py-1.5 text-xs ${style} ${
+                      clickable
+                        ? "cursor-pointer hover:brightness-[0.97] active:scale-[0.99] transition-all"
+                        : ""
+                    }`}>
+                    <div className="flex items-start gap-1.5">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-semibold text-gray-900 leading-tight">
+                            {activityName}
+                          </span>
+                          <span
+                            className={`tabular-nums font-bold ${
+                              OUT_ACTIONS.has(action)
+                                ? "text-red-700"
+                                : IN_ACTIONS.has(action)
+                                  ? "text-green-700"
+                                  : "text-gray-700"
+                            }`}>
+                            {formatQty(action, entry?.quantity)}
+                          </span>
+                          {orderLabel && (
+                            <span className="inline-flex items-center gap-0.5 text-violet-800 font-semibold">
+                              {orderLabel}
+                              {clickable && <ExternalLink size={11} className="opacity-70" />}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="mt-0.5 text-[11px] text-gray-600 leading-snug space-y-0.5">
+                          {(entry.farmerName || entry.farmerMobile) && (
+                            <div className="truncate">
+                              {entry.farmerName}
+                              {entry.farmerMobile ? ` · ${entry.farmerMobile}` : ""}
+                            </div>
+                          )}
+                          {(peerWindow || peerSlotId) && (
+                            <div className="truncate text-gray-500">
+                              {TRANSFER_ACTIONS.has(action) ? "↔ " : ""}
+                              {peerWindow || `Slot ${String(peerSlotId).slice(-6)}`}
+                            </div>
+                          )}
+                          <div className="flex flex-wrap gap-x-2 gap-y-0 tabular-nums">
+                            <span>
+                              Avail {formatAvail(prevAvail)}
+                              <ChevronRight className="inline w-3 h-3 -mt-px mx-0.5 opacity-50" />
+                              <span className={newAvailNegative ? "text-red-600 font-semibold" : ""}>
+                                {formatAvail(newAvail)}
+                              </span>
+                            </span>
+                            {showBooked && (
+                              <span>
+                                Booked {formatAvail(prevBooked)}
+                                <ChevronRight className="inline w-3 h-3 -mt-px mx-0.5 opacity-50" />
+                                {formatAvail(newBooked)}
+                              </span>
+                            )}
+                          </div>
+                          {entry.reason && entry.reason !== activityName && (
+                            <div className="truncate text-gray-500 italic">{entry.reason}</div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="shrink-0 text-right flex flex-col items-end gap-0.5">
+                        <span className="text-[10px] text-gray-500 whitespace-nowrap">
+                          {createdAt?.isValid() ? createdAt.format("DD/MM/YY HH:mm") : "—"}
+                        </span>
+                        <span className="text-[10px] text-gray-500 max-w-[72px] truncate" title={performer}>
+                          {performer}
+                        </span>
+                        {clickable && (
+                          <Tooltip title="Open order on dashboard">
+                            <IconButton
+                              size="small"
+                              sx={{ p: 0.25 }}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                openOrderFromEntry(entry)
+                              }}>
+                              <ExternalLink size={14} className="text-violet-700" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
         )}
       </DialogContent>
 
-      <DialogActions className="bg-gray-50 px-6 py-4">
-        <Button
-          onClick={onClose}
-          variant="outlined"
-          className="border-gray-300 text-gray-700 hover:bg-gray-50">
+      <DialogActions sx={{ px: 2, py: 1, borderTop: 1, borderColor: "divider" }}>
+        <Button onClick={onClose} size="small" variant="outlined">
           Close
         </Button>
       </DialogActions>

@@ -14,18 +14,43 @@ import AssessmentIcon from "@mui/icons-material/Assessment"
 import PriceChangeIcon from "@mui/icons-material/PriceChange"
 import AccountTreeIcon from "@mui/icons-material/AccountTree"
 import TrendingDownIcon from "@mui/icons-material/TrendingDown"
-import TaskIcon from "@mui/icons-material/Task"
-import CloudUploadIcon from "@mui/icons-material/CloudUpload"
 import DashboardIcon from "@mui/icons-material/Dashboard"
-import PhoneIcon from "@mui/icons-material/Phone"
 import ParkIcon from "@mui/icons-material/Park"
 import AccountBalanceIcon from "@mui/icons-material/AccountBalance"
-import DashboardCustomizeIcon from "@mui/icons-material/DashboardCustomize"
 import LocalShippingIcon from "@mui/icons-material/LocalShipping"
-import InsightsIcon from "@mui/icons-material/Insights"
+import DirectionsBusIcon from "@mui/icons-material/DirectionsBus"
+import BackupIcon from "@mui/icons-material/Backup"
+import PercentIcon from "@mui/icons-material/Percent"
+import EmojiEventsIcon from "@mui/icons-material/EmojiEvents"
+import QueryStatsIcon from "@mui/icons-material/QueryStats"
 
 export const DashboardMenus = [
-  new MenuPath("Orders", <HomeIcon />, "/u/dashboard"),
+  new MenuPath("Accounting Dashboard", <AccountBalanceIcon />, "/u/accountant-dashboard", null, ["ACCOUNTANT", "SUPER_ADMIN"]),
+  new MenuPath("Admin Stats", <QueryStatsIcon />, "/u/admin-stats", null, ["ADMIN", "SUPER_ADMIN", "SUPERADMIN"]),
+  new MenuPath("CMS", <AodIcon />, "/u/cms"),
+  new MenuPath(
+    "Commission Management",
+    <PercentIcon />,
+    "/u/commission",
+    null,
+    ["ACCOUNTANT", "SUPER_ADMIN", "SUPERADMIN"]
+  ),
+  new MenuPath(
+    "Reward Programs",
+    <EmojiEventsIcon />,
+    "/u/rewards-admin",
+    null,
+    ["ADMIN", "SUPER_ADMIN", "SUPERADMIN", "OFFICE_ADMIN"]
+  ),
+  new MenuPath(
+    "My Rewards",
+    <EmojiEventsIcon />,
+    "/u/my-rewards",
+    null,
+    ["DEALER", "SALES", "RAM_AGRI_SALES", "RAM_AGRI_SALES_MANAGER", "RAM_AGRI_SALES_OFFICE_MANAGER", "AGRI_INPUT_DEALER"]
+  ),
+  new MenuPath("Database Backup", <BackupIcon />, "/u/database-backup", null, ["SUPER_ADMIN", "SUPERADMIN"]),
+  new MenuPath("Dealers", <ListAltIcon />, "/u/dealers"),
   new MenuPath(
     "Dispatch Orders",
     <LocalShippingIcon />,
@@ -33,36 +58,29 @@ export const DashboardMenus = [
     null,
     ["DISPATCH_MANAGER", "ADMIN", "SUPER_ADMIN", "SUPERADMIN"]
   ),
-  new MenuPath("Stats", <BiotechIcon />, "/u/stats"),
-  new MenuPath("Nursery Insights", <InsightsIcon />, "/u/nursery-insights"),
-  new MenuPath("Plants and Products", <AlignHorizontalLeftIcon />, "/u/plants"),
-  new MenuPath("Sowing Management", <GrassIcon />, "/u/sowing"),
-  new MenuPath("Plant Availability", <AssessmentIcon />, "/u/plant-availability"),
-  new MenuPath("Sowing Gap Analysis", <TrendingDownIcon />, "/u/sowing-gap-analysis"),
-  new MenuPath("Sowing Admin Cards", <DashboardCustomizeIcon />, "/u/sowing-admin-cards"),
-  // new MenuPath("Flow Charts", <AccountTreeIcon />, "/u/flow-charts"),
-  new MenuPath("Slots Managment", <BiotechIcon />, "/u/slots"),
-  new MenuPath("Hardening", <BiotechIcon />, "/u/hardening"),
-  new MenuPath("CMS", <AodIcon />, "/u/cms"),
-  new MenuPath("Farmers", <BiotechIcon />, "/u/farmers"),
-  new MenuPath("Call Assignment", <PhoneIcon />, "/u/call-assignment"),
-  new MenuPath("Primary ops", <GrassIcon />, "/u/primary-mobile", null, ["SUPER_ADMIN", "ADMIN"]),
-  new MenuPath("Secondary ops", <ParkIcon />, "/u/secondary-sowing-entry", null, ["SUPER_ADMIN", "ADMIN"]),
-  // new MenuPath("Weekly", <DateRangeOutlinedIcon />, "/u/weekly"),
-  // new MenuPath("Transactions", <PaidIcon />, "/u/transactions"),
   new MenuPath("Employees", <GroupIcon />, "/u/employeese"),
-  new MenuPath("Task Manager", <TaskIcon />, "/u/task-manager", null, ["SUPER_ADMIN", "ADMIN"]),
+  new MenuPath("Farmers", <BiotechIcon />, "/u/farmers"),
+  new MenuPath(
+    "Fleet",
+    <DirectionsBusIcon />,
+    "/u/fleet",
+    null,
+    ["DISPATCH_MANAGER", "ADMIN", "SUPER_ADMIN", "SUPERADMIN", "ACCOUNTANT"]
+  ),
+  new MenuPath("Hardening", <BiotechIcon />, "/u/hardening"),
   new MenuPath("Inventory", <InventoryIcon />, "/u/inventory"),
-  new MenuPath("Ram Agri Input", <DashboardIcon />, "/u/inventory/ram-agri-sales-dashboard"),
-  new MenuPath("Old Sales Analytics", <AssessmentIcon />, "/u/inventory/old-sales-analytics"),
-  // new MenuPath("Settings", <SettingsSuggestIcon />, "/u/settings"),
-  // new MenuPath("Admin", <AdminPanelSettingsIcon />, "/u/admin"),
   new MenuPath("Labs", <BiotechIcon />, "/u/labs", ["LABORATORY_MANAGER", "SUPER_ADMIN"]),
+  new MenuPath("Old Sales Analytics", <AssessmentIcon />, "/u/inventory/old-sales-analytics"),
   new MenuPath("Order Bucketing", <AccountTreeIcon />, "/u/order-bucketing"),
-  new MenuPath("Excel Import", <CloudUploadIcon />, "/u/upload-orders"),
-  new MenuPath("Dealers", <ListAltIcon />, "/u/dealers"),
-  new MenuPath("Accounting Dashboard", <AccountBalanceIcon />, "/u/accountant-dashboard", null, ["ACCOUNTANT", "SUPER_ADMIN"]),
+  new MenuPath("Orders", <HomeIcon />, "/u/dashboard"),
+  new MenuPath("Plants and Products", <AlignHorizontalLeftIcon />, "/u/plants"),
+  new MenuPath("Primary ops", <GrassIcon />, "/u/primary-mobile", null, ["SUPER_ADMIN", "ADMIN"]),
+  new MenuPath("Public Farmer Links", <LinkIcon />, "/u/public-links", null, ["SUPER_ADMIN", "SUPERADMIN"]),
   new MenuPath("Rate Approvals", <PriceChangeIcon />, "/u/rate-approvals", null, ["SUPER_ADMIN", "SUPERADMIN"]),
-  new MenuPath("WhatsApp Management", <WhatsAppIcon />, "/u/whatsapp", ["SUPER_ADMIN"]),
-  new MenuPath("Public Farmer Links", <LinkIcon />, "/u/public-links", ["SUPER_ADMIN"])
+  new MenuPath("Ram Agri Input", <DashboardIcon />, "/u/inventory/ram-agri-sales-dashboard"),
+  new MenuPath("Secondary ops", <ParkIcon />, "/u/secondary-sowing-entry", null, ["SUPER_ADMIN", "ADMIN"]),
+  new MenuPath("Slots Managment", <BiotechIcon />, "/u/slots"),
+  new MenuPath("Sowing Gap Analysis", <TrendingDownIcon />, "/u/sowing-gap-analysis"),
+  new MenuPath("Sowing Management", <GrassIcon />, "/u/sowing"),
+  new MenuPath("WhatsApp Management", <WhatsAppIcon />, "/u/whatsapp", null, ["SUPER_ADMIN", "SUPERADMIN"])
 ]

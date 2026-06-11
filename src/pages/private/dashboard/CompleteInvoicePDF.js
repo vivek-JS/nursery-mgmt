@@ -29,6 +29,13 @@ function optionalManualDcSeparateFromOfficial(order) {
   return manual
 }
 
+function resolveOrderFreightCharges(order) {
+  return Math.max(
+    0,
+    Number(order?.freightCharges ?? order?.details?.freightCharges ?? 0) || 0
+  )
+}
+
 function getCollectedPayments(order) {
   const rows = Array.isArray(order?.payment) ? order.payment : Array.isArray(order?.details?.payment) ? order.details.payment : []
   return rows.filter((p) => p?.paymentStatus === "COLLECTED")
@@ -65,8 +72,10 @@ const CompleteInvoicePDF = ({ open, onClose, dispatchData }) => {
       (d) => String(d.orderId) === String(order._id)
     )
     const dispatchedQty = Number(dispatchDetail?.dispatchQuantity || 0)
-    const rate = Number(order?.rate || 0)
-    const gross = dispatchedQty * rate
+    const rate = Number(order?.rate || order?.details?.rate || 0)
+    const freight = resolveOrderFreightCharges(order)
+    const plantAmount = dispatchedQty * rate
+    const gross = plantAmount + freight
 
     const returned = Number(order?.returnedPlants ?? order?.details?.returnedPlants ?? 0)
     const damaged = Number(order?.damagedPlants ?? order?.details?.damagedPlants ?? 0)
@@ -206,6 +215,10 @@ const CompleteInvoicePDF = ({ open, onClose, dispatchData }) => {
                 {[
                   ["डिस्पॅच प्रमाण", `${dispatchedQty} रोपे`],
                   ["दर", `₹${rate.toLocaleString()} / रोप`],
+                  ["रोप रक्कम", `₹${plantAmount.toLocaleString()}`],
+                  ...(freight > 0
+                    ? [["वाहतूक / Freight", `₹${freight.toLocaleString()}`]]
+                    : []),
                   ["ग्रॉस", `₹${gross.toLocaleString()}`],
                   ["परत (रक्कम)", `-${returned} / -₹${returnedAmount.toLocaleString()}`],
                   ["डॅमेज (रक्कम)", `-${damaged} / -₹${damagedAmount.toLocaleString()}`],

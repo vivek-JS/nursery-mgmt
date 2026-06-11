@@ -44,14 +44,17 @@ const Cms = React.lazy(() => import("pages/private/cms"))
 const Labs = React.lazy(() => import("pages/private/labs"))
 const Plants = React.lazy(() => import("pages/private/Plants/slots"))
 const Slots = React.lazy(() => import("pages/private/SlotsView/index"))
+const SlotSubtypeManagePage = React.lazy(() =>
+  import("pages/private/SlotsView/SlotSubtypeManagePage")
+)
 const Hardening = React.lazy(() => import("pages/private/hardening/Index"))
 const Stats = React.lazy(() => import("pages/private/slotsStats"))
-const NurseryInsightsEmbed = React.lazy(() => import("pages/private/nurseryInsights"))
 const FarmerComponent = React.lazy(() => import("pages/private/farmer/Farmer"))
 const FarmerDetails = React.lazy(() => import("pages/private/farmer/FarmerDetails"))
 const OrdersUpload = React.lazy(() => import("pages/private/ordersUpload/OrdersUpload"))
 const Dealers = React.lazy(() => import("pages/private/dealers/Dealer"))
 const DealersDetails = React.lazy(() => import("pages/private/dealers/DelaerDetails"))
+const DealerMyLedgerPage = React.lazy(() => import("pages/private/dealers/DealerMyLedgerPage"))
 const CapacityInsights = React.lazy(() => import("pages/private/capacityinsights/CapacityInsights"))
 const AccountantDashboard = React.lazy(() => import("pages/private/accountant-dashboard"))
 const WhatsAppManagement = React.lazy(() => import("pages/private/whatsapp/WhatsAppManagement"))
@@ -67,13 +70,21 @@ const FlowCharts = React.lazy(() => import("pages/private/FlowCharts"))
 const OrderBucketing = React.lazy(() => import("pages/private/OrderBucketing"))
 const TaskManagement = React.lazy(() => import("pages/private/tasks"))
 const DispatchedListPage = React.lazy(() => import("pages/private/Dispatch/DispatchedListPage"))
-const MobileDispatchOrdersPage = React.lazy(() => import("pages/private/Dispatch/MobileDispatchOrdersPage"))
 const CallAssignmentList = React.lazy(() => import("pages/private/callAssignment/CallAssignmentList"))
 const CashierPage = React.lazy(() => import("pages/private/cashier"))
 const UpiReceiptPage = React.lazy(() => import("pages/private/upi-receipt"))
 const VoiceFeedbackList = React.lazy(() => import("pages/private/voiceFeedback/VoiceFeedbackList"))
 const VoiceFeedbackDetail = React.lazy(() => import("pages/private/voiceFeedback/VoiceFeedbackDetail"))
 const RateApprovalsPage = React.lazy(() => import("pages/private/rateApprovals/RateApprovalsPage"))
+const CommissionManagementPage = React.lazy(() =>
+  import("pages/private/commission/CommissionManagementPage")
+)
+const RewardProgramsAdmin = React.lazy(() => import("pages/private/rewards/RewardProgramsAdmin"))
+const MyRewardsPage = React.lazy(() => import("pages/private/rewards/MyRewardsPage"))
+const DatabaseBackupPage = React.lazy(() => import("pages/private/backup/DatabaseBackupPage"))
+const AdminStatsPage = React.lazy(() => import("pages/private/adminStats/AdminStatsPage"))
+const NurseryAIAgentPage = React.lazy(() => import("pages/private/aiAgent/NurseryAIAgentPage"))
+const FleetManagementPage = React.lazy(() => import("pages/private/fleet/FleetManagementPage"))
 
 export const PrivateRoutes = [
   { path: "/u/dashboard", component: Dashboard },
@@ -124,15 +135,16 @@ export const PrivateRoutes = [
   { path: "/u/cms", component: Cms },
   { path: "/u/labs", component: Labs },
   { path: "/u/plants", component: Plants },
+  { path: "/u/slots/:plantId/:subtypeId", component: SlotSubtypeManagePage },
   { path: "/u/slots", component: Slots },
   { path: "/u/hardening", component: Hardening },
   { path: "/u/stats", component: Stats },
-  { path: "/u/nursery-insights", component: NurseryInsightsEmbed },
   { path: "/u/farmers", component: FarmerComponent },
   { path: "/u/farmers/:id", component: FarmerDetails },
   { path: "/u/upload-orders", component: OrdersUpload },
   { path: "/u/dealers", component: Dealers },
   { path: "/u/dealers/:id", component: DealersDetails },
+  { path: "/u/my-ledger", component: DealerMyLedgerPage },
   { path: "/u/capacity-insights", component: CapacityInsights },
   { path: "/u/accountant-dashboard", component: AccountantDashboard },
   { path: "/u/whatsapp", component: WhatsAppManagement },
@@ -150,12 +162,17 @@ export const PrivateRoutes = [
   { path: "/u/tasks", component: TaskManagement },
   { path: "/u/task-manager", component: TaskManagement },
   { path: "/u/dispatch-orders", component: DispatchedListPage },
-  /** Plant orders dispatch queue (FarmerOrdersTable Ready tab + farm-ready queue toggle). */
-  { path: "/mobile/dispatch-orders", component: MobileDispatchOrdersPage },
+  { path: "/u/fleet", component: FleetManagementPage },
   { path: "/u/cashier", component: CashierPage },
   { path: "/u/call-assignment", component: CallAssignmentList },
   { path: "/u/upi-receipt", component: UpiReceiptPage },
   { path: "/u/voice-feedback", component: VoiceFeedbackList },
   { path: "/u/voice-feedback/:id", component: VoiceFeedbackDetail },
-  { path: "/u/rate-approvals", component: RateApprovalsPage }
+  { path: "/u/rate-approvals", component: RateApprovalsPage },
+  { path: "/u/commission", component: CommissionManagementPage },
+  { path: "/u/rewards-admin", component: RewardProgramsAdmin },
+  { path: "/u/my-rewards", component: MyRewardsPage },
+  { path: "/u/database-backup", component: DatabaseBackupPage },
+  { path: "/u/admin-stats", component: AdminStatsPage },
+  { path: "/u/ai-agent", component: NurseryAIAgentPage },
 ]

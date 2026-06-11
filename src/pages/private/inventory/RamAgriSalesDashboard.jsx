@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import RamAgriStockView from './components/RamAgriStockView';
 import {
   Package,
   DollarSign,
@@ -737,13 +738,13 @@ const RamAgriSalesDashboard = () => {
   };
 
   // Copy all stock data to clipboard
-  const copyAllStockData = (varieties) => {
+  const copyAllStockData = (rows) => {
     try {
-      const data = varieties.map(v => {
+      const data = rows.map((v) => {
         const unitLabel = v.primaryUnit?.abbreviation || v.primaryUnit?.name || 'N/A';
         return {
           crop: v.cropName,
-          variety: v.name,
+          variety: v.varietyName || v.name,
           stock: `${formatNumber(v.currentStock || 0)} ${unitLabel}`,
         };
       });
@@ -1067,214 +1068,19 @@ const RamAgriSalesDashboard = () => {
 
     if (!dashboardData) return null;
 
-    const { stock } = dashboardData;
-    const cropsByType = (stock.stockByCrop || []).reduce(
-      (acc, crop) => {
-        const type = crop.productType === 'chemical' ? 'chemical' : 'seed';
-        acc[type].push(crop);
-        return acc;
-      },
-      { seed: [], chemical: [] }
-    );
-
-    const calculateSummary = (crops = []) => crops.reduce(
-      (summary, crop) => ({
-        crops: summary.crops + 1,
-        varieties: summary.varieties + (crop.varietiesCount || 0),
-        stock: summary.stock + (crop.totalStock || 0),
-        value: summary.value + (crop.totalValue || 0),
-      }),
-      { crops: 0, varieties: 0, stock: 0, value: 0 }
-    );
-    const seedSummary = calculateSummary(cropsByType.seed);
-    const chemicalSummary = calculateSummary(cropsByType.chemical);
-
-    // Flatten all varieties for card view
-    const getAllVarieties = (crops) => {
-      const allVarieties = [];
-      crops.forEach((crop) => {
-        if (crop.varieties && crop.varieties.length > 0) {
-          crop.varieties.forEach((variety) => {
-            allVarieties.push({
-              ...variety,
-              cropId: crop.cropId,
-              cropName: crop.cropName,
-              crop: crop,
-            });
-          });
-        }
-      });
-      return allVarieties;
-    };
-
-    const activeVarieties = getAllVarieties(
-      stockTypeTab === 'chemical' ? cropsByType.chemical : cropsByType.seed
-    );
-    const activeSummary = stockTypeTab === 'chemical' ? chemicalSummary : seedSummary;
-    const activeLabel = stockTypeTab === 'chemical' ? 'Chemicals' : 'Crops (Seeds)';
-    const activeCrops = stockTypeTab === 'chemical' ? cropsByType.chemical : cropsByType.seed;
-
     return (
-      <div className="space-y-6">
-        {/* Stock Type Tabs + Summary Card + Actions */}
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-          <div className="inline-flex rounded-xl bg-white shadow-sm border border-gray-200 p-1">
-            <button
-              type="button"
-              onClick={() => setStockTypeTab('seed')}
-              className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
-                stockTypeTab === 'seed'
-                  ? 'bg-brand-600 text-white'
-                  : 'text-gray-600 hover:text-gray-800 hover:bg-gray-50'
-              }`}
-            >
-              Crops (Seeds)
-            </button>
-            <button
-              type="button"
-              onClick={() => setStockTypeTab('chemical')}
-              className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
-                stockTypeTab === 'chemical'
-                  ? 'bg-brand-600 text-white'
-                  : 'text-gray-600 hover:text-gray-800 hover:bg-gray-50'
-              }`}
-            >
-              Chemicals
-            </button>
-          </div>
-
-          <div className="flex items-center gap-3 flex-wrap">
-            <div className="bg-white rounded-xl shadow-lg p-4 border-l-4 border-brand-500 w-full lg:w-[280px]">
-              <h3 className="text-base font-semibold text-gray-800 mb-2">{activeLabel} Summary</h3>
-              <div className="grid grid-cols-2 gap-3 text-sm text-gray-600">
-                <div>
-                  <p>{stockTypeTab === 'chemical' ? 'Total Chemicals' : 'Total Crops'}</p>
-                  <p className="text-lg font-semibold text-brand-600">{activeSummary.crops}</p>
-                </div>
-                <div>
-                  <p>Varieties</p>
-                  <p className="text-lg font-semibold text-brand-600">{activeSummary.varieties}</p>
-                </div>
-                <div>
-                  <p>Stock</p>
-                  <p className="text-lg font-semibold text-brand-600">{formatNumber(activeSummary.stock)}</p>
-                </div>
-                <div>
-                  <p>Value</p>
-                  <p className="text-lg font-semibold text-brand-600">{formatCurrency(activeSummary.value)}</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => copyAllStockData(activeVarieties)}
-                disabled={activeVarieties.length === 0}
-                className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors whitespace-nowrap"
-              >
-                {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                <span>{copied ? 'Copied!' : 'Copy All'}</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => exportStockToCSV(activeCrops, stockTypeTab)}
-                disabled={exporting || activeVarieties.length === 0}
-                className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors whitespace-nowrap"
-              >
-                <Download className={`w-4 h-4 ${exporting ? 'animate-spin' : ''}`} />
-                <span>{exporting ? 'Exporting...' : 'Export CSV'}</span>
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Compact Card Grid View - Only Crop, Variety, Stock */}
-        {activeVarieties.length === 0 ? (
-          <div className="text-center py-10 text-gray-500 bg-white rounded-xl shadow-lg">
-            <Package className="w-10 h-10 mx-auto mb-3 text-gray-400" />
-            <p className="text-lg font-medium">No {activeLabel.toLowerCase()} found</p>
-            <p className="text-sm mt-2">Add {activeLabel.toLowerCase()} to start tracking stock</p>
-          </div>
-        ) : (
-          <div>
-            {/* Group by Crop */}
-            {activeCrops.map((crop) => {
-              if (!crop.varieties || crop.varieties.length === 0) return null;
-              
-              return (
-                <div key={crop.cropId} className="mb-6">
-                  {/* Crop Header with WhatsApp Button */}
-                  <div className="flex items-center justify-between mb-3 px-2">
-                    <h3 className="text-lg font-bold text-gray-800">{crop.cropName}</h3>
-                    <button
-                      onClick={() => shareCropToWhatsApp(crop)}
-                      className="flex items-center space-x-2 px-3 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
-                      title="Share crop stock on WhatsApp"
-                    >
-                      <MessageCircle className="w-4 h-4" />
-                      <span>WhatsApp</span>
-                    </button>
-                  </div>
-
-                  {/* Varieties Grid */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3">
-                    {crop.varieties.map((variety) => {
-                      const stockQty = variety.currentStock || 0;
-                      const isOut = stockQty === 0;
-                      const isLow = !isOut && stockQty < 100;
-                      const cardBorder = isOut 
-                        ? 'border-red-300 bg-red-50/30' 
-                        : isLow 
-                        ? 'border-yellow-300 bg-yellow-50/30' 
-                        : 'border-gray-200';
-
-                      return (
-                        <div
-                          key={`${crop.cropId}_${variety.varietyId}`}
-                          className={`bg-white rounded-lg shadow-sm p-3 border ${cardBorder} transform transition-all duration-200 hover:shadow-md`}
-                        >
-                          {/* Compact Info - Only Crop, Variety, Stock */}
-                          <div className="space-y-1.5">
-                            <p className="text-xs font-medium text-gray-500 truncate">{crop.cropName}</p>
-                            <p className="text-sm font-bold text-gray-900 truncate">{variety.name}</p>
-                            <div className="pt-1 border-t border-gray-100">
-                              <p className="text-xs text-gray-600">Stock</p>
-                              <p className={`text-base font-bold ${isOut ? 'text-red-600' : 'text-brand-600'}`}>
-                                {formatNumber(stockQty)} {variety.primaryUnit?.abbreviation || variety.primaryUnit?.name || 'N/A'}
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Low Stock Alert */}
-        {stock.lowStockVarieties && stock.lowStockVarieties.length > 0 && (
-          <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-6 transform transition-all duration-300">
-            <div className="flex items-center mb-4">
-              <AlertCircle className="w-5 h-5 text-yellow-600 mr-2" />
-              <h3 className="text-lg font-semibold text-yellow-800">Low Stock Alert</h3>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {stock.lowStockVarieties.slice(0, 9).map((variety) => (
-                <div key={variety.varietyId} className="bg-white rounded-lg p-4 border border-yellow-200">
-                  <p className="font-medium text-gray-800">{variety.name}</p>
-                  <p className="text-sm text-gray-600 mt-1">
-                    Stock: {formatNumber(variety.currentStock)} | Avg: {formatCurrency(variety.averagePrice)}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
+      <RamAgriStockView
+        stock={dashboardData.stock}
+        stockTypeTab={stockTypeTab}
+        setStockTypeTab={setStockTypeTab}
+        formatNumber={formatNumber}
+        formatCurrency={formatCurrency}
+        copied={copied}
+        exporting={exporting}
+        onCopyAll={copyAllStockData}
+        onExportCsv={exportStockToCSV}
+        onShareCrop={shareCropToWhatsApp}
+      />
     );
   };
 

@@ -4,8 +4,10 @@ import { OrgSwitcher } from "./OrgSwitcher"
 
 const TABS = [
   { id: "payments", label: "Payments", icon: "₹" },
+  { id: "advances", label: "Advances", icon: "⏳" },
   { id: "bank", label: "Bank Recon", icon: "🏦" },
-  { id: "ledger-parties", label: "All farmers", icon: "👥" }
+  { id: "ledger-parties", label: "All farmers", icon: "👥" },
+  { id: "central-ledger", label: "Central ledger", icon: "📒" }
 ]
 
 export function DashboardHeader({
@@ -14,13 +16,14 @@ export function DashboardHeader({
   activeTab,
   onTabChange,
   pendingCount,
+  pendingAdvanceCount = 0,
   searchValue,
   onSearchChange,
   userInitials
 }) {
   return (
-    <header className="bg-card border-b border-border sticky top-0 z-30 shadow-erp-sm">
-      <div className="px-5 py-2.5 flex items-center justify-between gap-4">
+    <header className="bg-card border-b border-border sticky top-0 z-30 shadow-erp-sm w-full min-w-0 max-w-full">
+      <div className="px-5 py-2.5 flex items-center justify-between gap-4 min-w-0">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center">
@@ -58,7 +61,7 @@ export function DashboardHeader({
         </div>
       </div>
 
-      <div className="px-5 flex items-end gap-0 border-t border-border/50">
+      <div className="px-5 flex items-end gap-0 border-t border-border/50 overflow-x-auto scrollbar-hide min-w-0 max-w-full">
         {TABS.map((tab) => (
           <button
             key={tab.id}
@@ -72,6 +75,9 @@ export function DashboardHeader({
             {tab.label}
             {tab.id === "payments" && pendingCount > 0 && (
               <span className="text-[10px] badge-pending px-1.5 py-0.5 rounded-full font-bold ml-0.5">{pendingCount}</span>
+            )}
+            {tab.id === "advances" && pendingAdvanceCount > 0 && (
+              <span className="text-[10px] badge-pending px-1.5 py-0.5 rounded-full font-bold ml-0.5">{pendingAdvanceCount}</span>
             )}
           </button>
         ))}

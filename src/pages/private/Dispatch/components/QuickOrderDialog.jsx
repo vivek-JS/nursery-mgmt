@@ -150,7 +150,15 @@ function pickupDefaultsFromDispatchSnapshot(snapshot) {
  *   dispatchLabel – string  (e.g. "Dispatch #42")
  *   dispatchSnapshot – optional full dispatch row (pre-fill cavity/shade from vehicle)
  */
-const QuickOrderDialog = ({ open, onClose, onSuccess, dispatchId, dispatchLabel, dispatchSnapshot }) => {
+const QuickOrderDialog = ({
+  open,
+  onClose,
+  onSuccess,
+  dispatchId,
+  dispatchLabel,
+  dispatchSnapshot,
+  autoSlotSelection = false,
+}) => {
   const userData = useSelector((s) => s?.userData?.userData)
   const appUser = useSelector((s) => s?.app?.user)
   const user = userData || appUser || {}
@@ -449,6 +457,10 @@ const QuickOrderDialog = ({ open, onClose, onSuccess, dispatchId, dispatchLabel,
 
   const isDateDisabled = useCallback(
     (date) => {
+      if (autoSlotSelection) {
+        if (slots.length === 0) return true
+        return !getSlotIdForDate(date)
+      }
       if (!form.selectedSlotId || slots.length === 0) return false
       const slot = slots.find((s) => s.value === form.selectedSlotId)
       if (!slot?.startDay || !slot?.endDay) return false
@@ -457,7 +469,7 @@ const QuickOrderDialog = ({ open, onClose, onSuccess, dispatchId, dispatchLabel,
       const end = moment(slot.endDay, "DD-MM-YYYY")
       return m.isBefore(start, "day") || m.isAfter(end, "day")
     },
-    [form.selectedSlotId, slots]
+    [autoSlotSelection, form.selectedSlotId, slots, getSlotIdForDate]
   )
 
   // Group slots by month — same as AddOrderForm
@@ -937,7 +949,7 @@ const QuickOrderDialog = ({ open, onClose, onSuccess, dispatchId, dispatchLabel,
             </Box>
 
             {/* ── Slot selection (same card style as AddOrderForm) ── */}
-            {form.subtype && (
+            {form.subtype && !autoSlotSelection && (
               <Box
                 sx={{
                   p: 1.5,
@@ -1044,6 +1056,12 @@ const QuickOrderDialog = ({ open, onClose, onSuccess, dispatchId, dispatchLabel,
                       helperText: errors.deliveryDate ||
                         (!form.subtype
                           ? "Select plant and subtype first"
+                          : autoSlotSelection
+                          ? slotsLoading
+                            ? "Loading available dates..."
+                            : slots.length === 0
+                            ? "No booking slots for this plant/subtype"
+                            : "Pick any date within an available slot"
                           : selectedSlot
                           ? `Only dates within ${selectedSlot.label} are enabled`
                           : "Select a slot above to pick delivery date"),

@@ -5,6 +5,8 @@ import { DragDropContext, Droppable, Draggable } from "react-beautiful-dnd";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { API, NetworkManager } from "network/core";
+import FleetAssignmentPanel from "components/fleet/FleetAssignmentPanel";
+import { emptyFleetAssignment } from "components/fleet/fleetPickersUtils";
 
 // Fix for default marker icons in Leaflet
 import icon from "leaflet/dist/images/marker-icon.png";
@@ -53,6 +55,7 @@ import {
   StepLabel,
   Fade,
   Zoom,
+  Snackbar,
 } from "@mui/material";
 import {
   Delete,
@@ -1215,7 +1218,7 @@ const calculateDistance = (lat1, lon1, lat2, lon2) => {
   return R * c; // Distance in km
 };
 
-const OrderMapView = ({ orders = [], onClose }) => {
+const OrderMapView = ({ orders = [], onClose, onAssignSuccess }) => {
   const [locationGroups, setLocationGroups] = useState([]);
   const [routes, setRoutes] = useState([]);
   const [currentRoute, setCurrentRoute] = useState([]);
@@ -1253,6 +1256,8 @@ const OrderMapView = ({ orders = [], onClose }) => {
   const [hoveredOrders, setHoveredOrders] = useState(null); // Orders being hovered
   const [drivers, setDrivers] = useState([]); // Available drivers
   const [loadingDrivers, setLoadingDrivers] = useState(false);
+  const [assignFleet, setAssignFleet] = useState(emptyFleetAssignment);
+  const [assignSnack, setAssignSnack] = useState(null);
   const [routeDirections, setRouteDirections] = useState({}); // Store Google Directions for routes
   const [currentRouteDirections, setCurrentRouteDirections] = useState(null); // Store Google Directions for current route
   const [showRoutePanel, setShowRoutePanel] = useState(true); // Show/hide route planning panel
@@ -2693,33 +2698,63 @@ const OrderMapView = ({ orders = [], onClose }) => {
   // Save suggested route with driver
   const handleSaveSuggestedRoute = (route) => {
     setRouteToSave(route);
+    const v = route.vehicle;
+    setAssignFleet({
+      ...emptyFleetAssignment(),
+      vehicleId: v?._id || v?.id || "",
+      routeNotes: `Route ${route.vehicleName || v?.name || ""} — ${(route.locations || []).length} stops`,
+    });
     setShowDriverDialog(true);
   };
 
   // Assign driver + vehicle to all orders in a suggested route (saves to backend)
-  const assignRouteToBackend = async (route, markReady = true) => {
+  const assignRouteToBackend = async (route, markReady = true, fleetOverride = null) => {
     const allOrders = (route.locations || []).flatMap(loc => loc.selectedOrders || loc.orders || []);
     const orderIds = allOrders.map(o => o._id || o.id).filter(Boolean);
     if (orderIds.length === 0) {
       alert("No orders in this route to assign.");
-      return;
+      return null;
+    }
+    const fa = fleetOverride || route.assignFleet || assignFleet;
+    const vehicle = route.vehicle;
+    if (!fa.vehicleId && !(vehicle?._id || vehicle?.id)) {
+      alert("Select owner, driver, and vehicle before assigning.");
+      return null;
     }
     try {
       setIsLoading(true);
       const instance = NetworkManager(API.DISPATCHED.ASSIGN_ROUTE);
-      await instance.request({
+      const routeIdStr = route.routeId || `route-${Date.now()}`;
+      const res = await instance.request({
         orderIds,
-        vehicleId: route.vehicle?._id || route.vehicle?.id || null,
-        vehicleName: route.vehicleName || "",
-        vehicleNumber: route.vehicleNumber || route.vehicle?.number || "",
+        vehicleId: fa.vehicleId || vehicle?._id || vehicle?.id || null,
+        driverId: fa.driverId || null,
+        vehicleName: route.vehicleName || vehicle?.name || "",
+        vehicleNumber: route.vehicleNumber || vehicle?.number || "",
         driverName: route.vehicle?.driverName || "",
         driverMobile: route.vehicle?.driverMobile || "",
-        routeNotes: `Route ${route.vehicleName || ""} — ${orderIds.length} orders`,
+        routeId: routeIdStr,
+        routeNotes:
+          fa.routeNotes?.trim() ||
+          `Route ${route.vehicleName || vehicle?.name || ""} — ${orderIds.length} orders`,
+        driverRemark: fa.driverRemark || "",
+        vehicleRemark: fa.vehicleRemark || "",
+        groupName: route.name || route.vehicleName || "",
         markReady,
       });
-      alert(`✅ ${orderIds.length} orders assigned to ${route.vehicleName || "vehicle"}.${markReady ? " Marked as Ready for Dispatch." : ""}`);
+      const payload = res?.data?.data;
+      if (payload?.readyDispatchGroupId) {
+        setAssignSnack({
+          groupCode: payload.groupCode,
+          groupId: payload.readyDispatchGroupId,
+          orderCount: orderIds.length,
+        });
+        onAssignSuccess?.(payload);
+      }
+      return payload;
     } catch (err) {
       alert("Error assigning route: " + (err?.message || "Unknown error"));
+      return null;
     } finally {
       setIsLoading(false);
     }
@@ -2753,111 +2788,42 @@ const OrderMapView = ({ orders = [], onClose }) => {
 
   // Save route and assign driver to orders with better error handling
   const confirmSaveSuggestedRoute = async () => {
-    if (!routeToSave || !selectedDriverId) {
-      alert("Please select a driver");
+    if (!routeToSave || !assignFleet.driverId || !assignFleet.vehicleId) {
+      alert("Please select owner, driver, and vehicle");
       return;
     }
-    
-    // Validate route has locations
+
     const routeLocations = routeToSave.locations || routeToSave;
     if (!routeLocations || routeLocations.length === 0) {
       alert("Route must have at least one location");
       return;
     }
-    
-    // Validate all locations have coordinates
-    const invalidLocations = routeLocations.filter(loc => !loc.coordinates || !loc.coordinates.lat || !loc.coordinates.lng);
+
+    const invalidLocations = routeLocations.filter(
+      (loc) => !loc.coordinates || !loc.coordinates.lat || !loc.coordinates.lng
+    );
     if (invalidLocations.length > 0) {
-      alert(`Warning: ${invalidLocations.length} location(s) have invalid coordinates. Please correct them first.`);
-      return;
-    }
-    
-    const selectedDriver = drivers.find(d => (d._id || d.id) === selectedDriverId);
-    if (!selectedDriver) {
-      alert("Invalid driver selected");
-      return;
-    }
-    
-    setAssigningDriver(true);
-    
-    try {
-      // Collect all order IDs from the route
-      const orderIds = [];
-      const routeLocations = routeToSave.locations || routeToSave;
-      
-      routeLocations.forEach((location, locIndex) => {
-        const orders = location.selectedOrders || location.orders || [];
-        orders.forEach((order, orderIndex) => {
-          const orderId = order._id || order.id;
-          if (orderId) {
-            orderIds.push({
-              orderId,
-              locationIndex: locIndex,
-              orderIndex: orderIndex
-            });
-          }
-        });
-      });
-      
-      // Generate route ID
-      const routeId = `route-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-      
-      // Update each order with driver assignment
-      const updatePromises = orderIds.map(({ orderId, locationIndex, orderIndex }) => {
-        const instance = NetworkManager(API.ORDER.UPDATE_ORDER);
-        return instance.request({
-          id: orderId,
-          assignedDriver: selectedDriverId,
-          routeId: routeId,
-          routeSequence: locationIndex + 1, // Sequence based on location in route
-          assignedAt: new Date().toISOString(),
-        });
-      });
-      
-      await Promise.all(updatePromises);
-      
-      // Calculate route totals
-      const totalPlants = routeToSave.totalPlants || routeLocations.reduce((sum, loc) => 
-        sum + (loc.selectedOrders || loc.orders || []).reduce((s, o) => 
-          s + (o.numberOfPlants || o.totalPlants || o.quantity || 0), 0), 0
+      alert(
+        `Warning: ${invalidLocations.length} location(s) have invalid coordinates. Please correct them first.`
       );
-      
-      const totalDistance = routeToSave.totalDistance || calculateRouteDistance(routeLocations);
-      
-      // Save route locally
-      setRoutes([...routes, {
-        id: routeId,
-        name: `Route ${routes.length + 1} - ${selectedDriver.name}`,
-        driver: selectedDriver.name,
-        driverId: selectedDriverId,
-        locations: routeLocations,
-        totalPlants,
-        totalDistance,
-        totalTollCost: routeToSave.totalTollCost || 0,
-        tollCurrency: routeToSave.tollCurrency || 'INR',
-        tollInfo: routeToSave.tollInfo || null,
-        directions: routeToSave.directions,
-        createdAt: new Date().toISOString(),
-      }]);
-      
-      setRouteToSave(null);
-      setSelectedDriverId("");
-      setShowDriverDialog(false);
-      setShowRouteSuggestions(false);
-      setSuggestedRoutes([]);
-      setVehicleCapacity(""); // Clear capacity for next round
-      setShowRouteWizard(false);
-      setRouteStep(1);
-      
-      // Show success message with route details
-      const tollInfo = routeToSave.totalTollCost > 0 
-        ? `\n🛣️ Toll Cost: ₹${routeToSave.totalTollCost.toLocaleString()}`
-        : '';
-      const routeDetails = `Route: ${routeLocations.length} stops, ${totalPlants.toLocaleString()} plants, ${totalDistance.toFixed(1)} km${tollInfo}`;
-      alert(`✅ Successfully assigned ${selectedDriver.name} to route!\n\n${routeDetails}\n\n${orderIds.length} orders assigned.`);
-    } catch (error) {
-      console.error("Error assigning driver:", error);
-      alert("Failed to assign driver. Please try again.");
+      return;
+    }
+
+    setAssigningDriver(true);
+
+    try {
+      const payload = await assignRouteToBackend(
+        { ...routeToSave, assignFleet },
+        true,
+        assignFleet
+      );
+      if (payload) {
+        setShowDriverDialog(false);
+        setRouteToSave(null);
+        setAssignFleet(emptyFleetAssignment());
+      }
+    } catch (err) {
+      alert("Error assigning route: " + (err?.message || "Unknown error"));
     } finally {
       setAssigningDriver(false);
     }
@@ -6914,13 +6880,13 @@ const OrderMapView = ({ orders = [], onClose }) => {
           setRouteToSave(null);
           setSelectedDriverId("");
         }
-      }} maxWidth="xs" fullWidth>
-        <DialogTitle>Assign Driver to Route</DialogTitle>
+      }} maxWidth="sm" fullWidth>
+        <DialogTitle>Assign transport to route</DialogTitle>
         <DialogContent>
           {routeToSave && (
             <Box sx={{ mb: 2 }}>
               <Typography variant="body2" sx={{ mb: 1, color: "text.secondary" }}>
-                Route Details:
+                Route details
               </Typography>
               <Typography variant="caption" sx={{ display: "block" }}>
                 • {(routeToSave.locations || routeToSave).length} stops
@@ -6935,31 +6901,18 @@ const OrderMapView = ({ orders = [], onClose }) => {
               </Typography>
             </Box>
           )}
-          <FormControl fullWidth sx={{ mt: 1 }}>
-            <InputLabel>Select Driver *</InputLabel>
-            <Select
-              value={selectedDriverId}
-              onChange={(e) => setSelectedDriverId(e.target.value)}
-              label="Select Driver *"
-              disabled={loadingDrivers || assigningDriver}
-            >
-              {loadingDrivers ? (
-                <MenuItem disabled>Loading drivers...</MenuItem>
-              ) : drivers.length === 0 ? (
-                <MenuItem disabled>No drivers available</MenuItem>
-              ) : (
-                drivers.map((driver) => (
-                  <MenuItem key={driver._id || driver.id} value={driver._id || driver.id}>
-                    {driver.name} {driver.phoneNumber ? `(${driver.phoneNumber})` : ''}
-                  </MenuItem>
-                ))
-              )}
-            </Select>
-          </FormControl>
+          <FleetAssignmentPanel
+            value={assignFleet}
+            onChange={setAssignFleet}
+            disabled={assigningDriver}
+            showRemarks
+            remarksExpandedDefault
+            autoSelectSingle
+          />
           {assigningDriver && (
             <Box sx={{ mt: 2, display: "flex", alignItems: "center", gap: 1 }}>
               <CircularProgress size={20} />
-              <Typography variant="caption">Assigning driver to orders...</Typography>
+              <Typography variant="caption">Creating dispatch group…</Typography>
             </Box>
           )}
         </DialogContent>
@@ -6969,7 +6922,7 @@ const OrderMapView = ({ orders = [], onClose }) => {
               if (!assigningDriver) {
                 setShowDriverDialog(false);
                 setRouteToSave(null);
-                setSelectedDriverId("");
+                setAssignFleet(emptyFleetAssignment());
               }
             }}
             disabled={assigningDriver}
@@ -6979,12 +6932,40 @@ const OrderMapView = ({ orders = [], onClose }) => {
           <Button 
             onClick={confirmSaveSuggestedRoute} 
             variant="contained" 
-            disabled={!selectedDriverId || assigningDriver}
+            disabled={!assignFleet.driverId || !assignFleet.vehicleId || assigningDriver}
           >
-            {assigningDriver ? "Assigning..." : "Assign & Save"}
+            {assigningDriver ? "Assigning…" : "Assign & mark ready"}
           </Button>
         </DialogActions>
       </Dialog>
+
+      <Snackbar
+        open={Boolean(assignSnack)}
+        autoHideDuration={12000}
+        onClose={() => setAssignSnack(null)}
+        message={
+          assignSnack
+            ? `Group ${assignSnack.groupCode} — ${assignSnack.orderCount} orders linked`
+            : ""
+        }
+        action={
+          assignSnack?.groupId ? (
+            <Button
+              color="inherit"
+              size="small"
+              onClick={() => {
+                onAssignSuccess?.({
+                  readyDispatchGroupId: assignSnack.groupId,
+                  groupCode: assignSnack.groupCode,
+                });
+                setAssignSnack(null);
+              }}
+            >
+              Open dispatch
+            </Button>
+          ) : null
+        }
+      />
 
       {/* Route Details Dialog */}
       <Dialog

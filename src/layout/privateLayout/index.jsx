@@ -91,11 +91,18 @@ export default function PrivateLayout(props) {
   // Check if user is PRIMARY employee
   const isPrimaryEmployee = userType && (userType.toUpperCase() === "PRIMARY")
   const isSecondaryEmployee = userType && (userType.toUpperCase() === "SECONDARY")
-  const isSuperAdmin = userRole === "SUPER_ADMIN" || userRole === "SUPERADMIN"
-  const isAdmin = userRole === "ADMIN"
+  const isSuperAdmin =
+    userData?.jobTitle === "SUPER_ADMIN" ||
+    userData?.jobTitle === "SUPERADMIN" ||
+    userData?.role === "SUPER_ADMIN" ||
+    userData?.role === "SUPERADMIN"
+  const isAdmin =
+    userData?.jobTitle === "ADMIN" ||
+    userData?.role === "ADMIN" ||
+    isSuperAdmin
   const jtUpper = String(userData?.jobTitle || "").toUpperCase().trim()
   const roleUpper = String(userRole || "").toUpperCase().trim()
-  // Ram Agri programme leads: restricted nav like sales manager (Dashboard, Nursery insights, Ram Agri inventory only)
+  // Ram Agri programme leads: restricted nav like sales manager (Dashboard, Ram Agri inventory only)
   const isRamAgriSalesManager =
     jtUpper === "RAM_AGRI_SALES_MANAGER" ||
     roleUpper === "RAM_AGRI_SALES_MANAGER" ||
@@ -168,8 +175,6 @@ export default function PrivateLayout(props) {
     const allowed =
       p === "/u/dashboard" ||
       p === "/u/inventory" ||
-      p === "/u/nursery-insights" ||
-      p.startsWith("/u/nursery-insights/") ||
       p.startsWith("/u/inventory/ram-agri-sales-dashboard") ||
       p.startsWith("/u/inventory/ram-agri-input-order") ||
       p.startsWith("/u/inventory/ram-agri-inputs-master")
@@ -230,8 +235,6 @@ export default function PrivateLayout(props) {
       p.startsWith("/u/sowing/") ||
       p === "/u/sowing-gap-analysis" ||
       p.startsWith("/u/sowing-gap-analysis/") ||
-      p === "/u/sowing-admin-cards" ||
-      p.startsWith("/u/sowing-admin-cards/") ||
       p === "/u/slots" ||
       p.startsWith("/u/slots/") ||
       p === "/u/cms" ||
@@ -243,9 +246,7 @@ export default function PrivateLayout(props) {
       p === "/u/dealers" ||
       p.startsWith("/u/dealers/") ||
       p === "/u/farmers" ||
-      p.startsWith("/u/farmers/") ||
-      p === "/u/nursery-insights" ||
-      p.startsWith("/u/nursery-insights/")
+      p.startsWith("/u/farmers/")
 
     if (!allowed) {
       console.log(`[PrivateLayout] OFFICEADMIN user accessing ${p}, redirecting to /u/dashboard`)
@@ -276,18 +277,12 @@ export default function PrivateLayout(props) {
 
   // Function to check if user has access to a menu item
   const hasMenuAccess = (menuItem) => {
-    // Debug logging
-    if (menuItem.title === "WhatsApp Management") {
-      console.log("🔍 WhatsApp Management Access Check:", {
-        title: menuItem.title,
-        allowedRoles: menuItem.allowedRoles,
-        userRole: userRole,
-        userType: userType
-      })
-    }
-    
-    // SUPER_ADMIN has access to everything
-    if (userRole === "SUPER_ADMIN" || userRole === "SUPERADMIN") {
+    const userRoles = [userData?.jobTitle, userData?.role].filter(Boolean)
+
+    // SUPER_ADMIN has access to everything (check both jobTitle and role)
+    if (
+      userRoles.some((r) => r === "SUPER_ADMIN" || r === "SUPERADMIN")
+    ) {
       return true
     }
     
@@ -308,7 +303,7 @@ export default function PrivateLayout(props) {
       return allowedTitles.includes(menuItem.title) || allowedRoutes.includes(menuItem.route)
     }
 
-    // OFFICEADMIN / OFFICE_ADMIN: sidebar order follows DashboardMenus — Orders, Plants, Sowing, Sowing gap, Slots, CMS, Employees, Inventory, Ram Agri Input, Dealers
+    // OFFICEADMIN / OFFICE_ADMIN: sidebar order follows DashboardMenus (alphabetical)
     const isOfficeAdmin = userData?.jobTitle === "OFFICEADMIN" || userRole === "OFFICEADMIN" || userData?.jobTitle === "OFFICE_ADMIN" || userRole === "OFFICE_ADMIN"
     if (isOfficeAdmin) {
       const allowedTitles = [
@@ -316,7 +311,6 @@ export default function PrivateLayout(props) {
         "Plants and Products",
         "Sowing Management",
         "Sowing Gap Analysis",
-        "Sowing Admin Cards",
         "Slots Managment",
         "CMS",
         "Farmers",
@@ -324,14 +318,13 @@ export default function PrivateLayout(props) {
         "Inventory",
         "Ram Agri Input",
         "Dealers",
-        "Nursery Insights"
+        "Reward Programs"
       ]
       const allowedRoutes = [
         "/u/dashboard",
         "/u/plants",
         "/u/sowing",
         "/u/sowing-gap-analysis",
-        "/u/sowing-admin-cards",
         "/u/slots",
         "/u/cms",
         "/u/farmers",
@@ -339,7 +332,7 @@ export default function PrivateLayout(props) {
         "/u/inventory",
         "/u/inventory/ram-agri-sales-dashboard",
         "/u/dealers",
-        "/u/nursery-insights"
+        "/u/rewards-admin"
       ]
       const hasAccess = allowedTitles.includes(menuItem.title) || allowedRoutes.includes(menuItem.route)
       return hasAccess
@@ -350,13 +343,9 @@ export default function PrivateLayout(props) {
       return true
     }
     
-    // Check if user's role is in the allowed roles
-    const hasAccess = menuItem.allowedRoles.includes(userRole)
-    
-    if (menuItem.title === "WhatsApp Management") {
-      console.log("🔍 WhatsApp Management Access Result:", hasAccess)
-    }
-    
+    // Check if user's role or jobTitle is in the allowed roles
+    const hasAccess = menuItem.allowedRoles.some((r) => userRoles.includes(r))
+
     return hasAccess
   }
 
@@ -426,7 +415,6 @@ export default function PrivateLayout(props) {
                 if (isRamAgriSalesManager && !isSuperAdmin && !isAdmin) {
                   return (
                     item.route === "/u/dashboard" ||
-                    item.route === "/u/nursery-insights" ||
                     item.route === "/u/inventory/ram-agri-sales-dashboard" ||
                     item.route === "/u/inventory"
                   )
@@ -469,7 +457,7 @@ export default function PrivateLayout(props) {
         </Box>
       </Drawer>
       )}
-      <Main open={false} sx={hideSidebar ? { marginLeft: 0, padding: 0 } : {}}>
+      <Main open={false} sx={hideSidebar ? { marginLeft: 0, padding: 0, minWidth: 0 } : { minWidth: 0 }}>
         <Outlet />
       </Main>
       

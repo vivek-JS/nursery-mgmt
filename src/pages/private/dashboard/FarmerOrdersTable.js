@@ -11,12 +11,25 @@ import {
   Search,
   ChevronDown,
   X,
-  CalendarRange
+  CalendarRange,
+  Filter,
+  ArrowUpDown,
+  FileImage,
 } from "lucide-react"
 import DatePicker from "react-datepicker"
 import "react-datepicker/dist/react-datepicker.css"
 import { API, NetworkManager } from "network/core"
 import { PageLoader, ExcelExport } from "components"
+import DeliveryDateBadge from "components/DeliveryDateBadge"
+import { formatDeliveryDateDisplay } from "utils/deliveryDateDisplay"
+import {
+  formatOrderDateDisplay,
+  formatWatiTemplateDate,
+  formatWatiDeliveryFinalSecondDate,
+  ORDER_DATE_DISPLAY_FORMAT,
+  WATI_TEMPLATE_DATE_FORMAT,
+} from "utils/istDateFormat"
+import SplitOrderDialog from "../Dispatch/components/SplitOrderDialog"
 import moment from "moment"
 import debounce from "lodash.debounce"
 import {
@@ -29,11 +42,16 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
+  Drawer,
   TextField,
   Button,
   FormControl,
   FormControlLabel,
   FormLabel,
+  InputLabel,
+  Select,
+  MenuItem,
+  Chip,
   Radio,
   RadioGroup,
   Switch,
@@ -44,13 +62,19 @@ import ExpandMoreIcon from "@mui/icons-material/ExpandMore"
 import DownloadPDFButton from "./OrdereRecipt"
 import DispatchForm from "./DispatchedForm"
 import DispatchList from "./DispatchedList"
+import FleetAssignmentPanel from "components/fleet/FleetAssignmentPanel"
+import { emptyFleetAssignment } from "components/fleet/fleetPickersUtils"
 import AddAgriSalesOrderForm from "../inventory/AddAgriSalesOrderForm"
+import OrderTimeline from "components/OrderTimeline"
 import { Toast } from "helpers/toasts/toastHelper"
+import CompactPaymentForm from "components/payments/CompactPaymentForm"
+import { defaultPaymentDraft } from "components/payments/paymentFormDefaults"
 import { FaUser, FaCreditCard, FaEdit, FaFileAlt, FaWhatsapp, FaCopy } from "react-icons/fa"
 import ConfirmDialog from "components/Modals/ConfirmDialog"
 import BulkPaymentEntryDialog from "components/Modals/BulkPaymentEntryDialog"
 import PaymentTransferDialog from "components/Modals/PaymentTransferDialog"
 import PaymentQRModal from "components/Modals/PaymentQRModal"
+import AttachmentViewerModal, { resolvePaymentMediaUrl } from "components/Modals/AttachmentViewerModal"
 import { transferableFarmerPlantPayments } from "features/accountant-dashboard/farmerPlantPaymentTransfer.utils"
 import axiosInstance from "services/axiosConfig"
 import { getStatementMatchPresentation } from "lib/bankMatchLabels"
@@ -59,6 +83,7 @@ import {
   useHasPaymentAccess,
   useIsOfficeAdmin,
   useIsSuperAdmin,
+  useCanChangeOrderStatus,
   useIsAccountant,
   useIsDealer,
   useDealerWallet,
@@ -68,32 +93,94 @@ import {
 } from "utils/roleUtils"
 import {
   isWhatsappMessagingDisabled,
-  setWhatsappMessagingDisabled
+  setWhatsappMessagingDisabled,
+  isWhatsappUnlimitedTestEnabled,
+  setWhatsappUnlimitedTestEnabled,
 } from "utils/whatsappMessagingPref"
 import { getCavityDisplayLabel, getCavityIdString } from "utils/cavityDisplay"
 import {
   extractUpiFromReceiptImageUrl,
   mergeUpiOcrIntoPaymentState,
+  ocrDataHasAmount,
   buildRemarkWithReceiptPayee
 } from "utils/upiReceiptOcr"
-import { watiPlantAndSubtypeParams, isMergedSubtypePlaceholder } from "utils/watiPlantDisplay"
+import { watiPlantAndSubtypeParams, isMergedSubtypePlaceholder, deliveryFinalSecondPlantSubtypeParams, isBananaPlantOrder } from "utils/watiPlantDisplay"
 import { TableVirtuoso, Virtuoso } from "react-virtuoso"
-import LocationSelector from "components/LocationSelector"
+import { useFillViewportHeight } from "hooks/useFillViewportHeight"
+import OrderEditPanel from "./OrderEditPanel"
+import {
+  buildOrderEditState,
+  hasOrderEditChanges,
+  parseDeltaInput,
+  applyOrderForToPatch,
+  getTrayOptionId,
+  getTrayOptionLabel,
+  resolveTrayLabelById,
+  emptyOrderForEditShape,
+  isPastCalendarDate,
+  orderEditDeliveryDateChanged,
+  stripUnchangedOrderEditFields,
+  startOfTodayMoment,
+  isSlotEndOnOrAfterToday
+} from "./orderEditUtils"
+import {
+  buildCopyOrderPrefillFromRow,
+  saveCopyOrderPrefill,
+  dispatchCopyOrderOpen,
+} from "utils/copyOrderPrefill"
 
-/** User-visible order dates in table/modals — e.g. 12-March-2025 (API payloads still use DD-MM-YYYY / YYYY-MM-DD). */
-const ORDER_DATE_DISPLAY = "DD-MMMM-YYYY"
-const ORDER_DATETIME_DISPLAY = "DD-MMMM-YYYY HH:mm"
+/** User-visible order dates in table/modals — e.g. 15-June 2025 (IST calendar day). */
+const ORDER_DATE_DISPLAY = ORDER_DATE_DISPLAY_FORMAT
+/** WATI order placed/accepted template dates — e.g. 15-June-2026 */
+const WATI_FARMER_MSG_DATE = WATI_TEMPLATE_DATE_FORMAT
+const ORDER_DATETIME_DISPLAY = "D-MMMM YYYY HH:mm"
 const DASHBOARD_ORDERS_PAGE_SIZE = 10
+
+/** Location dropdown may pass a string or { state, stateName } object — always render a string. */
+function locationFieldLabel(value) {
+  if (value == null || value === "") return ""
+  if (typeof value === "string" || typeof value === "number") return String(value).trim()
+  if (typeof value === "object" && !Array.isArray(value)) {
+    return String(value.stateName ?? value.state ?? value.label ?? value.name ?? "").trim()
+  }
+  return String(value).trim()
+}
+
+function normalizeOrderForLocationFields(orderFor) {
+  if (!orderFor || typeof orderFor !== "object" || Array.isArray(orderFor)) return orderFor
+  const o = { ...orderFor }
+  for (const [idKey, nameKey] of [
+    ["state", "stateName"],
+    ["district", "districtName"],
+    ["taluka", "talukaName"]
+  ]) {
+    if (o[idKey] != null && typeof o[idKey] === "object") {
+      const label = locationFieldLabel(o[idKey])
+      o[idKey] = label
+      if (!o[nameKey]) o[nameKey] = label
+    }
+    if (o[nameKey] != null && typeof o[nameKey] === "object") {
+      const label = locationFieldLabel(o[nameKey])
+      o[nameKey] = label
+      if (!o[idKey]) o[idKey] = label
+    }
+  }
+  if (o.village != null && typeof o.village === "object") {
+    o.village = locationFieldLabel(o.village)
+  }
+  return o
+}
 
 /** Comma-separated village → … for book-for beneficiary block on order. */
 function formatBookForLocation(orderFor) {
   if (!orderFor || typeof orderFor !== "object") return ""
+  const normalized = normalizeOrderForLocationFields(orderFor)
   const parts = [
-    orderFor.village,
-    orderFor.talukaName || orderFor.taluka,
-    orderFor.districtName || orderFor.district,
-    orderFor.stateName || orderFor.state
-  ].filter((p) => p != null && String(p).trim() !== "")
+    locationFieldLabel(normalized.village),
+    locationFieldLabel(normalized.talukaName || normalized.taluka),
+    locationFieldLabel(normalized.districtName || normalized.district),
+    locationFieldLabel(normalized.stateName || normalized.state)
+  ].filter((p) => p !== "")
   return parts.join(", ")
 }
 
@@ -114,80 +201,16 @@ function normalizeOrderFor(orderFor) {
   return null
 }
 
-function emptyOrderForEditShape() {
-  return {
-    name: "",
-    village: "",
-    mobileNumber: "",
-    taluka: "",
-    district: "",
-    state: "Maharashtra",
-    stateName: "Maharashtra",
-    districtName: "",
-    talukaName: "",
-    address: ""
-  }
-}
-
-function normalizeOrderForMobileForCompare(m) {
-  if (m == null || m === "") return ""
-  const d = String(m).replace(/\D/g, "")
-  return d.length >= 10 ? d.slice(-10) : d
-}
-
-/** True if book-for / beneficiary fields differ (for save confirmation). */
-function orderForEditMeaningfullyChanged(prevRaw, nextRaw) {
-  const a = prevRaw ? { ...emptyOrderForEditShape(), ...normalizeOrderFor(prevRaw) } : { ...emptyOrderForEditShape() }
-  const b = nextRaw ? { ...emptyOrderForEditShape(), ...nextRaw } : { ...emptyOrderForEditShape() }
-  const keys = [
-    "name",
-    "village",
-    "address",
-    "state",
-    "stateName",
-    "district",
-    "districtName",
-    "taluka",
-    "talukaName"
-  ]
-  for (const k of keys) {
-    if (String(a[k] ?? "").trim() !== String(b[k] ?? "").trim()) return true
-  }
-  if (normalizeOrderForMobileForCompare(a.mobileNumber) !== normalizeOrderForMobileForCompare(b.mobileNumber)) {
-    return true
-  }
-  return false
-}
-
-/** Drop empty strings; return undefined if nothing meaningful (so PATCH does not send junk). */
-function compactOrderForForPatch(raw) {
-  if (!raw || typeof raw !== "object") return undefined
-  const o = { ...raw }
-  Object.keys(o).forEach((k) => {
-    const v = o[k]
-    if (v === "" || v === null || v === undefined) delete o[k]
-  })
-  const name = String(o.name || "").trim()
-  const village = String(o.village || "").trim()
-  const mobDigits = String(o.mobileNumber ?? "").replace(/\D/g, "")
-  const hasAddress = String(o.address || "").trim()
-  const hasLoc =
-    String(o.state || "").trim() ||
-    String(o.district || "").trim() ||
-    String(o.taluka || "").trim() ||
-    village
-  if (!name && !hasLoc && mobDigits.length < 10 && !hasAddress) return undefined
-  if (mobDigits.length === 10) {
-    o.mobileNumber = parseInt(mobDigits.slice(-10), 10)
-  } else if (o.mobileNumber !== undefined) {
-    delete o.mobileNumber
-  }
-  return o
-}
-
 /**
  * Plants billed at `rate` after returns + damage (aligned with GET /order/payments and accountant dashboard).
  */
+/** Receipt / screenshot URLs on an order payment row (same shape as accountant payments table). */
+function orderPaymentReceiptUrls(payment) {
+  const receipts = Array.isArray(payment?.receiptPhoto) ? payment.receiptPhoto : []
+  const shots = Array.isArray(payment?.screenshots) ? payment.screenshots : []
+  return [...receipts, ...shots].filter(Boolean)
+}
+
 function computeBillablePlantsForAmount({
   numberOfPlants,
   additionalPlants,
@@ -243,13 +266,27 @@ const ORDER_STATUS_LABELS = {
   PARTIALLY_COMPLETED: "Partially completed",
 }
 
-/** WATI accept/dispatch preview text (dashboard); plant/subtype via watiPlantAndSubtypeParams. */
+/** WATI accept / dispatch / farm-ready preview text (dashboard). */
 function buildDashboardFarmerOrdersWatiPreviewText(watiDialogOrder, watiDialogMode) {
   if (!watiDialogOrder) return ""
   const rawFarmer = watiDialogOrder.details?.farmer
   const f = Array.isArray(rawFarmer) ? rawFarmer[0] : rawFarmer
-  const name = f?.name || watiDialogOrder.farmerName || "Farmer"
-  const village = f?.village || "N/A"
+  const orderFor = normalizeOrderFor(watiDialogOrder.details?.orderFor)
+  const name =
+    orderFor?.name || f?.name || watiDialogOrder.farmerName?.split?.(" · ")?.[0] || "Farmer"
+  const village = orderFor?.village || f?.village || "N/A"
+  const taluka =
+    orderFor?.talukaName ||
+    orderFor?.taluka ||
+    f?.talukaName ||
+    f?.taluka ||
+    "N/A"
+  const district =
+    orderFor?.districtName ||
+    orderFor?.district ||
+    f?.districtName ||
+    f?.district ||
+    "N/A"
   const mobile = f?.mobileNumber || watiDialogOrder.details?.contact || "N/A"
   const plantType =
     watiDialogOrder.plantType?.split?.(" -> ")?.[0] || watiDialogOrder.details?.plantName?.name || "Plants"
@@ -263,11 +300,35 @@ function buildDashboardFarmerOrdersWatiPreviewText(watiDialogOrder, watiDialogMo
       ? `🌱 रोप: *${plantParam}*`
       : `🌱 रोप प्रकार: *${plantParam}*
 🔖 उप-प्रकार: *${subtypeParam}*`
-  const orderCode = watiDialogOrder.details?.publicOrderCode || watiDialogOrder.order || "N/A"
-  const fmt = (d) => {
-    if (d == null || d === "") return "N/A"
-    const m = moment(d)
-    return m.isValid() ? m.format(ORDER_DATE_DISPLAY) : String(d)
+  const orderCode =
+    watiDialogOrder.order ??
+    watiDialogOrder.details?.orderId ??
+    watiDialogOrder.details?.publicOrderCode ??
+    "N/A"
+  const fmtWati = (d) => formatWatiTemplateDate(d, "N/A")
+  const fmt = (d) => formatOrderDateDisplay(d, "N/A")
+
+  if (watiDialogMode === "farmReady") {
+    const delivery =
+      watiDialogOrder.details?.deliveryDate ||
+      watiDialogOrder.deliveryDate ||
+      watiDialogOrder.Delivery ||
+      null
+    const { plant: frPlant, subtype: frSubtype } = deliveryFinalSecondPlantSubtypeParams(
+      isPapayaOrder ? "Papaya" : plantType,
+      subtype
+    )
+    const plantLine =
+      frSubtype && frSubtype !== "N/A" ? `${frPlant} - ${frSubtype}` : frPlant
+    return `नमस्कार ${name} 🌱
+तुमचं शेत ${plantLine} रोप लागवडीसाठी तयार आहे का?
+तुमचा ऑर्डर आयडी: ${orderCode}
+तुमची डिलिव्हरी तारीख ${formatWatiDeliveryFinalSecondDate(delivery)} ही आहे.
+शेत तयार असल्यास खालील "शेत तयार आहे." बटन दाबा.
+तारीख बदलायची असल्यास "दुसरी तारीख निवडा" बटन दाबा.
+काही अडचण किंवा अजून काही बदल असल्यास
+📞 7218186452 या नंबरवर संपर्क करा.
+धन्यवाद 🙏`
   }
 
   if (watiDialogMode === "dispatch") {
@@ -294,6 +355,8 @@ function buildDashboardFarmerOrdersWatiPreviewText(watiDialogOrder, watiDialogMo
 🆔 ऑर्डर आयडी: ${orderCode}
 👤 नाव: *${name}*
 🏡 गाव: *${village}*
+📍 तालुका: *${taluka}*
+🗺️ जिल्हा: *${district}*
 ${watiPlantBlock}
 🌿 पाठवलेली एकूण रोपे: *${totalDispatched}*
 ${driverContactBlock}`
@@ -307,22 +370,31 @@ ${driverContactBlock}`
     (watiDialogOrder.quantity || 0) + (watiDialogOrder.additionalPlants || 0)
   const total = (watiDialogOrder.rate || 0) * totalPlants
   const rem = total - paid
+  const booking =
+    watiDialogOrder.details?.orderBookingDate ||
+    watiDialogOrder.orderBookingDate ||
+    watiDialogOrder.details?.createdAt ||
+    null
   const delivery =
     watiDialogOrder.details?.deliveryDate ||
     watiDialogOrder.deliveryDate ||
     watiDialogOrder.Delivery ||
     "To be confirmed"
+  const bookingLine = `📅 बुकिंग तारीख:
+ *${fmtWati(booking)}*`
   const deliveryLine = isPapayaOrder
-    ? `🚚 डिलिव्हरी: *${fmt(delivery)}*`
+    ? `🚚 डिलिव्हरी: *${fmtWati(delivery)}*`
     : `🚚 डिलिव्हरी तारीख:
- *${fmt(delivery)}*`
+ *${fmtWati(delivery)}*`
   return `👋 नमस्कार *${name}*
-आपली ऑर्डर स्वीकारली आहे!:
+आपली ऑर्डर प्लेस झाली आहे!:
 
 📝 ऑर्डर तपशील:
 🆔 ऑर्डर आयडी: *${orderCode}*
 👤 नाव: *${name}*
 🏡 गाव: *${village}*
+📍 तालुका: *${taluka}*
+🗺️ जिल्हा: *${district}*
 📞 मोबाईल नंबर: *${mobile}*
 ${watiPlantBlock}
 🌿 बुक केलेली एकूण रोपे: *${totalPlants}*
@@ -333,12 +405,295 @@ ${watiPlantBlock}
 प्राप्त रक्कम: *₹${paid}*
 शिल्लक रक्कम: *₹${rem}*
 
+${bookingLine}
+
 ${deliveryLine}
 
 आपली ऑर्डर मध्ये काही बदल असल्यास आम्हाला कळवा.
 आभार! 🙏
 राम बायोटेक,
 7276386452`
+}
+
+function defaultFarmReadyCampaignName() {
+  return `Farm Ready ${moment().format("DD MMM YYYY HH:mm")}`
+}
+
+const FARM_READY_WHATSAPP_COOLDOWN_HOURS = 72
+
+function isWithinFarmReadyWhatsappCooldown(sentAt) {
+  if (!sentAt) return false
+  const sent = moment(sentAt)
+  if (!sent.isValid()) return false
+  return moment().diff(sent, "hours", true) < FARM_READY_WHATSAPP_COOLDOWN_HOURS
+}
+
+function formatFarmReadyWhatsappResendAvailableAt(sentAt) {
+  return moment(sentAt).add(FARM_READY_WHATSAPP_COOLDOWN_HOURS, "hours").format("DD/MM/YYYY HH:mm")
+}
+
+function formatWhatsappFarmerReplyAction(action) {
+  const map = {
+    button_farm_ready: "शेत तयार आहे",
+    button_reschedule: "दुसरी तारीख निवडा",
+    delivery_rescheduled: "Date rescheduled",
+    farm_ready_confirmed_reply: "Farm ready confirmed",
+  }
+  return map[action] || action || "—"
+}
+
+function WhatsappCampaignStatsBar({ stats, plannedCount = 0 }) {
+  if (!stats) return null
+  const chips = [
+    { key: "total", label: "Total", value: stats.total ?? 0, cls: "bg-gray-100 text-gray-800" },
+    { key: "sent", label: "Sent", value: stats.sent ?? 0, cls: "bg-blue-100 text-blue-800" },
+    { key: "delivered", label: "Delivered", value: stats.delivered ?? 0, cls: "bg-green-100 text-green-800" },
+    { key: "read", label: "Read", value: stats.read ?? 0, cls: "bg-emerald-100 text-emerald-900" },
+    { key: "replied", label: "Replied", value: stats.replied ?? 0, cls: "bg-amber-100 text-amber-900" },
+    { key: "failed", label: "Failed", value: stats.failed ?? 0, cls: "bg-red-100 text-red-800" },
+  ]
+  return (
+    <div className="flex flex-wrap gap-1.5 items-center">
+      {plannedCount > 0 ? (
+        <span className="text-[10px] text-gray-500 mr-1">Planned: {plannedCount}</span>
+      ) : null}
+      {chips.map((c) =>
+        c.value > 0 || c.key === "total" ? (
+          <span
+            key={c.key}
+            className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold ${c.cls}`}>
+            {c.label}: {c.value}
+          </span>
+        ) : null
+      )}
+    </div>
+  )
+}
+
+function formatFarmReadyDateCell(farmReadyDate) {
+  if (farmReadyDate == null || farmReadyDate === "" || farmReadyDate === "-") return "-"
+  const raw = Array.isArray(farmReadyDate) ? farmReadyDate[0] : farmReadyDate
+  if (!raw) return "-"
+  return formatOrderDateDisplay(raw, "-")
+}
+
+/** Human-readable reason when farm-ready send is blocked for one row; null = allowed. */
+function getFarmReadyWhatsappDisableReasonForRow(row, unlimitedResend = false) {
+  if (!row) {
+    return "Select an order first"
+  }
+  if (row?.isAgriSalesOrder || row?.details?.isRamAgriProduct) {
+    return "Farm-ready WhatsApp is not available for Ram Agri / Agri Sales orders"
+  }
+  if (row?.details?.dealerOrder) {
+    return "Farm-ready WhatsApp is not available for dealer orders"
+  }
+
+  const st = String(row?.orderStatus || "").trim()
+  if (st !== "ACCEPTED") {
+    const label = st.replace(/_/g, " ").toLowerCase() || "unknown"
+    return `Farm-ready WhatsApp is only for Accepted orders (current: ${label})`
+  }
+
+  if (!unlimitedResend && row?.details?.whatsappFarmReadySentAt) {
+    if (isWithinFarmReadyWhatsappCooldown(row.details.whatsappFarmReadySentAt)) {
+      return `Farm-ready WhatsApp sent recently — can send again after ${formatFarmReadyWhatsappResendAvailableAt(row.details.whatsappFarmReadySentAt)} (72-hour wait)`
+    }
+  }
+
+  const plantType =
+    row.plantType?.split?.(" -> ")?.[0] ||
+    row?.details?.plantName?.name ||
+    row?.crop ||
+    ""
+  const subtype =
+    row.plantType?.split?.(" -> ")?.[1] ||
+    row?.details?.plantSubtype?.name ||
+    ""
+  if (!isBananaPlantOrder(plantType, subtype)) {
+    return "Farm-ready WhatsApp is only available for Banana (केळी) orders"
+  }
+
+  return null
+}
+
+/** Amber farm-ready send icon — ACCEPTED Banana orders only (manual send). */
+function rowEligibleForFarmReadyWhatsapp(row, unlimitedResend = false) {
+  return getFarmReadyWhatsappDisableReasonForRow(row, unlimitedResend) == null
+}
+
+/** Rows from selection that can receive farm-ready WhatsApp. */
+function getEligibleFarmReadyWhatsappRows(selectedRowsList, unlimitedResend = false) {
+  return (selectedRowsList || []).filter(
+    (row) => getFarmReadyWhatsappDisableReasonForRow(row, unlimitedResend) == null
+  )
+}
+
+/** @param {Map} [selectedRowsMap] — uses all selected rows for bulk eligibility */
+function getFarmReadyWhatsappDisableReason(selectedRowsList, unlimitedResend = false, selectedRowsMap = null) {
+  const list =
+    selectedRowsList?.length > 0
+      ? selectedRowsList
+      : selectedRowsMap instanceof Map
+        ? Array.from(selectedRowsMap.values())
+        : []
+  if (list.length === 0) {
+    return "Select an order first"
+  }
+  const eligible = getEligibleFarmReadyWhatsappRows(list, unlimitedResend)
+  if (eligible.length === 0) {
+    return (
+      getFarmReadyWhatsappDisableReasonForRow(list[0], unlimitedResend) ||
+      "No selected orders are eligible for farm-ready WhatsApp"
+    )
+  }
+  return null
+}
+
+function farmReadyWhatsappBulkHint(selectedRowsList, unlimitedResend = false) {
+  const list = selectedRowsList || []
+  if (list.length <= 1) return null
+  const eligible = getEligibleFarmReadyWhatsappRows(list, unlimitedResend)
+  if (eligible.length === 0) return null
+  if (eligible.length === list.length) {
+    return `Will send farm-ready WhatsApp to ${eligible.length} selected orders`
+  }
+  return `Will send to ${eligible.length} of ${list.length} selected (${list.length - eligible.length} skipped — ineligible or already sent)`
+}
+
+function FarmerOrderWhatsappRowActions({
+  row,
+  whatsappMessagingEnabled,
+  whatsappUnlimitedResend,
+  onOpenWatiDialog,
+  onOpenFarmReadyWhatsapp,
+}) {
+  if (row?.isAgriSalesOrder || row?.details?.isRamAgriProduct || row?.details?.dealerOrder) {
+    return null
+  }
+
+  return (
+    <>
+      <span className="inline-flex items-center gap-0.5">
+        {whatsappMessagingEnabled &&
+          (whatsappUnlimitedResend || !row.details?.whatsappAcceptedSentAt) &&
+          row.orderStatus === "ACCEPTED" && (
+          <button
+            type="button"
+            title={
+              row.details?.whatsappAcceptedSentAt
+                ? "WhatsApp: resend accept (test)"
+                : "WhatsApp: order accepted (order_accpeted_revamped)"
+            }
+            onClick={(e) => {
+              e.stopPropagation()
+              onOpenWatiDialog("accept", row)
+            }}
+            className="p-0.5 rounded text-green-600 hover:bg-green-50"
+          >
+            <FaWhatsapp className="w-4 h-4" />
+          </button>
+        )}
+        {whatsappMessagingEnabled && rowEligibleForFarmReadyWhatsapp(row, whatsappUnlimitedResend) && (
+          <button
+            type="button"
+            title={
+              row.details?.whatsappFarmReadySentAt
+                ? isWithinFarmReadyWhatsappCooldown(row.details.whatsappFarmReadySentAt)
+                  ? `Farm-ready WhatsApp sent ${moment(row.details.whatsappFarmReadySentAt).format("DD/MM/YYYY HH:mm")} — resend after ${formatFarmReadyWhatsappResendAvailableAt(row.details.whatsappFarmReadySentAt)}`
+                  : "WhatsApp: resend farm ready (delivery_final_second)"
+                : "WhatsApp: farm ready (delivery_final_second)"
+            }
+            onClick={(e) => {
+              e.stopPropagation()
+              if (onOpenFarmReadyWhatsapp) {
+                onOpenFarmReadyWhatsapp(row)
+              } else {
+                onOpenWatiDialog("farmReady", row)
+              }
+            }}
+            className="p-0.5 rounded text-amber-600 hover:bg-amber-50"
+          >
+            <FaWhatsapp className="w-4 h-4" />
+          </button>
+        )}
+        {whatsappMessagingEnabled &&
+          (whatsappUnlimitedResend || !row.details?.whatsappDispatchSentAt) &&
+          (row.orderStatus === "DISPATCHED" || row.orderStatus === "DISPATCH_PROCESS") &&
+          ((row.details?.dispatchHistory || []).length > 0 || row.orderStatus === "DISPATCHED") && (
+          <button
+            type="button"
+            title={
+              row.details?.whatsappDispatchSentAt
+                ? "WhatsApp: resend dispatch (test)"
+                : "WhatsApp: dispatched"
+            }
+            onClick={(e) => {
+              e.stopPropagation()
+              onOpenWatiDialog("dispatch", row)
+            }}
+            className="p-0.5 rounded text-sky-600 hover:bg-sky-50"
+          >
+            <span className="text-sm leading-none" aria-hidden>🚚</span>
+            <FaWhatsapp className="w-3.5 h-3.5 inline ml-px" />
+          </button>
+        )}
+      </span>
+      <span className="inline-flex items-center gap-0.5 flex-wrap">
+        {row.details?.whatsappAcceptedSentAt && (
+          <span
+            className="text-[9px] px-1 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold"
+            title={`Accept WhatsApp sent ${moment(row.details.whatsappAcceptedSentAt).format("DD/MM/YYYY HH:mm")}${
+              row.details.whatsappAcceptedMessageKey
+                ? ` · ${row.details.whatsappAcceptedMessageKey}`
+                : ""
+            }`}>
+            WA✓
+          </span>
+        )}
+        {row.details?.whatsappFarmReadySentAt && (
+          <span
+            className="text-[9px] px-1 py-0.5 rounded bg-amber-100 text-amber-900 font-bold"
+            title={`Farm-ready WhatsApp sent ${moment(row.details.whatsappFarmReadySentAt).format("DD/MM/YYYY HH:mm")}${
+              row.details.whatsappFarmReadyMessageKey
+                ? ` · ${row.details.whatsappFarmReadyMessageKey}`
+                : ""
+            }`}>
+            FR✓
+          </span>
+        )}
+        {row.details?.farmReadyWhatsappConfirmedAt && (
+          <span
+            className="text-[9px] px-1 py-0.5 rounded bg-lime-100 text-lime-900 font-bold"
+            title={`Farmer confirmed farm ready via WhatsApp ${moment(row.details.farmReadyWhatsappConfirmedAt).format("DD/MM/YYYY HH:mm")}`}>
+            शेत✓
+          </span>
+        )}
+        {row.details?.revivedViaFarmerWhatsappAt && (
+          <span
+            className="text-[9px] px-1 py-0.5 rounded bg-violet-100 text-violet-900 font-bold"
+            title={`Farmer revived order via WhatsApp ${moment(row.details.revivedViaFarmerWhatsappAt).format("DD/MM/YYYY HH:mm")}${
+              row.details.revivedViaFarmerWhatsappFromStatus
+                ? ` (from ${row.details.revivedViaFarmerWhatsappFromStatus})`
+                : ""
+            }`}>
+            WA↺
+          </span>
+        )}
+        {row.details?.whatsappDispatchSentAt && (
+          <span
+            className="text-[9px] px-1 py-0.5 rounded bg-sky-100 text-sky-900 font-bold"
+            title={`Dispatch WhatsApp sent ${moment(row.details.whatsappDispatchSentAt).format("DD/MM/YYYY HH:mm")}${
+              row.details.whatsappDispatchMessageKey
+                ? ` · ${row.details.whatsappDispatchMessageKey}`
+                : ""
+            }`}>
+            🚚✓
+          </span>
+        )}
+      </span>
+    </>
+  )
 }
 
 /** English label for status in Marathi dialogs/toasts (uses ORDER_STATUS_LABELS; ASSIGNED → Accepted). */
@@ -363,23 +718,85 @@ const FARMER_ORDER_STATUS_EDIT_OPTIONS = [
   { value: "ACCEPTED", label: "Accepted" },
   { value: "DISPATCHED", label: "Dispatched" },
   { value: "CANCELLED", label: "Cancelled" },
+  { value: "TEMPORARY_CANCELLED", label: "Temp. cancelled" },
 ]
+
+/** Extra workflow statuses for office / super / admin (same API gate as basic options). */
+const FARMER_ORDER_STATUS_ADMIN_EXTRA_OPTIONS = [
+  { value: "FARM_READY", label: "Farm ready" },
+  { value: "READY_FOR_DISPATCH", label: "Ready for dispatch" },
+  { value: "DISPATCH_PROCESS", label: "Dispatch process" },
+  { value: "COMPLETED", label: "Completed" },
+  { value: "PARTIALLY_COMPLETED", label: "Partially completed" },
+]
+
+const FARMER_ORDER_STATUS_ADMIN_EDIT_OPTIONS = [
+  ...FARMER_ORDER_STATUS_EDIT_OPTIONS,
+  ...FARMER_ORDER_STATUS_ADMIN_EXTRA_OPTIONS.filter(
+    (o) => !FARMER_ORDER_STATUS_EDIT_OPTIONS.some((b) => b.value === o.value)
+  ),
+]
+
+const FARMER_ORDER_STATUS_SELECTABLE = new Set([
+  "PENDING",
+  "ACCEPTED",
+  "DISPATCHED",
+  "CANCELLED",
+  "TEMPORARY_CANCELLED",
+  "FARM_READY",
+  "READY_FOR_DISPATCH",
+  "DISPATCH_PROCESS",
+  "COMPLETED",
+  "PARTIALLY_COMPLETED",
+])
+
+const DASHBOARD_STATUS_FILTER_OPTIONS = [
+  { value: "PENDING", label: "Pending" },
+  { value: "ACCEPTED", label: "Accepted" },
+  { value: "ASSIGNED", label: "Assigned" },
+  { value: "FARM_READY", label: "Farm ready" },
+  { value: "READY_FOR_DISPATCH", label: "Ready for dispatch" },
+  { value: "DISPATCH_PROCESS", label: "Dispatch process" },
+  { value: "DISPATCHED", label: "Dispatched" },
+  { value: "COMPLETED", label: "Completed" },
+  { value: "PARTIALLY_COMPLETED", label: "Partially completed" },
+  { value: "CANCELLED", label: "Cancelled" },
+  { value: "TEMPORARY_CANCELLED", label: "Temp. cancelled" },
+  { value: "REJECTED", label: "Rejected" },
+]
+
+const SPLIT_ELIGIBLE_STATUSES = new Set(["ACCEPTED", "FARM_READY", "READY_FOR_DISPATCH"])
+
+function canShowSplitOrderAction(row) {
+  if (row?.isAgriSalesOrder || row?.details?.isRamAgriProduct) return false
+  if (!SPLIT_ELIGIBLE_STATUSES.has(String(row?.orderStatus || "").toUpperCase())) return false
+  return (row?.details?.remainingPlants ?? row?.["remaining Plants"] ?? 0) > 1
+}
+
+function buildSplitOrderDialogPayload(row) {
+  return {
+    _id: row.details?.orderid,
+    orderId: row.order,
+    farmer: row.details?.farmer,
+    farmerName: row.farmerName,
+    plantName: { name: row.plantType?.split(" -> ")?.[0] },
+    plantSubtype: { name: row.plantType?.split(" -> ")?.[1] },
+    numberOfPlants: row.quantity,
+    remainingPlants: row.details?.remainingPlants ?? row["remaining Plants"],
+  }
+}
 
 function farmerOrderStatusSelectValue(orderStatus) {
   const cur = String(orderStatus || "").toUpperCase()
   if (cur === "ASSIGNED") return "ACCEPTED"
-  if (["PENDING", "ACCEPTED", "DISPATCHED", "CANCELLED"].includes(cur)) return cur
+  if (FARMER_ORDER_STATUS_SELECTABLE.has(cur)) return cur
   return ""
 }
 
 function farmerOrderStatusSelectCurrentHint(orderStatus) {
   const cur = String(orderStatus || "").toUpperCase()
   if (!cur) return "—"
-  if (
-    cur === "ASSIGNED" ||
-    ["PENDING", "ACCEPTED", "DISPATCHED", "CANCELLED"].includes(cur)
-  )
-    return null
+  if (cur === "ASSIGNED" || FARMER_ORDER_STATUS_SELECTABLE.has(cur)) return null
   return (
     ORDER_STATUS_LABELS[cur] ||
     String(orderStatus || "")
@@ -390,7 +807,7 @@ function farmerOrderStatusSelectCurrentHint(orderStatus) {
 }
 
 /** Native select for row status — styled via CSS theme classes below. */
-function FarmerOrderStatusSelect({ row, onChange, disabled }) {
+function FarmerOrderStatusSelect({ row, onChange, disabled, statusOptions = FARMER_ORDER_STATUS_EDIT_OPTIONS }) {
   const v = farmerOrderStatusSelectValue(row?.orderStatus)
   const hint = farmerOrderStatusSelectCurrentHint(row?.orderStatus)
   const theme =
@@ -400,9 +817,11 @@ function FarmerOrderStatusSelect({ row, onChange, disabled }) {
         ? "farmer-order-status-select--accepted"
         : v === "DISPATCHED"
           ? "farmer-order-status-select--dispatched"
-          : v === "CANCELLED"
+          : v === "CANCELLED" || v === "TEMPORARY_CANCELLED"
             ? "farmer-order-status-select--cancelled"
-            : "farmer-order-status-select--neutral"
+            : v === "COMPLETED" || v === "PARTIALLY_COMPLETED"
+              ? "farmer-order-status-select--dispatched"
+              : "farmer-order-status-select--neutral"
 
   return (
     <select
@@ -423,7 +842,7 @@ function FarmerOrderStatusSelect({ row, onChange, disabled }) {
           Current: {hint}
         </option>
       )}
-      {FARMER_ORDER_STATUS_EDIT_OPTIONS.map((o) => (
+      {statusOptions.map((o) => (
         <option key={o.value} value={o.value}>
           {o.label}
         </option>
@@ -432,7 +851,7 @@ function FarmerOrderStatusSelect({ row, onChange, disabled }) {
   )
 }
 
-/** Matches `<th>` count in farmer orders table (incl. hidden Actions). */
+/** Matches `<th>` count in farmer orders table (incl. Actions). */
 const getFarmerOrdersTableColumnCount = ({
   showAgriSalesOrders,
   hidePaymentDetails,
@@ -451,7 +870,7 @@ const getFarmerOrdersTableColumnCount = ({
   n += 8 // SR, Order, Farmer, Plant, Delivery, Qty, Rate, Amount
   if (!(showAgriSalesOrders && hidePaymentDetails)) n += 1
   if (showAgriSalesOrders) n += 1
-  n += 2 // Status + Actions (hidden)
+  n += 2 // Status + Actions
   return n
 }
 
@@ -488,6 +907,12 @@ function buildRegularOrderListParams({
   limit = DASHBOARD_ORDERS_PAGE_SIZE,
   /** Ready-for-dispatch queue: narrow to rows with farm-ready signal + FIFO sort (see factory getOrders). */
   queueFarmReadyOnly = false,
+  /** When non-empty, overrides tab-implied status filter. */
+  selectedStatuses = [],
+  /** When true, uses GET /order/getOrders needsDispatch preset (overrides selectedStatuses). */
+  needsDispatchFilter = false,
+  /** Nursery site code filter (RB, GH, …). */
+  filterExpectedNursery = "",
   /** When true, GET /order/getOrders includes totalPlantsSum for all rows matching filters (not paginated). */
   plantTotals = false,
 }) {
@@ -535,20 +960,16 @@ function buildRegularOrderListParams({
     params.subtypeId = selectedSubtype
   }
 
-  if (
-    startDate &&
-    endDate &&
-    (viewMode === "booking" ||
-      viewMode === "pending" ||
-      viewMode === "accepted" ||
-      isCancelledTab) &&
-    !debouncedSearchTerm?.trim()
-  ) {
+  if (startDate && endDate && !debouncedSearchTerm?.trim()) {
     params.dateRangeField = orderDateRangeBy
   }
 
+  if (filterExpectedNursery) {
+    params.expectedNursery = String(filterExpectedNursery).trim().toUpperCase()
+  }
+
   if (isCancelledTab) {
-    params.status = "CANCELLED"
+    params.status = "CANCELLED,TEMPORARY_CANCELLED"
   } else if (viewMode === "pending") {
     params.status = "PENDING"
   } else if (viewMode === "accepted") {
@@ -579,6 +1000,10 @@ function buildRegularOrderListParams({
       params.farmReady = "true"
       params.sortKey = "farmReadyEnteredAt"
       params.sortOrder = "asc"
+    } else if (!debouncedSearchTerm?.trim()) {
+      params.sortKey = "readyForDispatchEnteredAt"
+      params.sortByReadyEntered = "true"
+      params.sortOrder = "asc"
     }
   }
 
@@ -591,7 +1016,71 @@ function buildRegularOrderListParams({
     params.plantTotals = "true"
   }
 
+  if (needsDispatchFilter) {
+    params.needsDispatch = "true"
+    delete params.status
+  } else if (Array.isArray(selectedStatuses) && selectedStatuses.length > 0) {
+    params.status = selectedStatuses.join(",")
+  }
+
   return params
+}
+
+/** Slot-scoped order list filters (used from SlotsView stat tiles). */
+function buildSlotOrderListParams({
+  slotId,
+  monthName,
+  startDay,
+  endDay,
+  slotOrderFilter = "all_active",
+  page = 1,
+  limit = DASHBOARD_ORDERS_PAGE_SIZE,
+  debouncedSearchTerm = "",
+  plantTotals = true,
+}) {
+  const params = {
+    slotId,
+    monthName,
+    startDay,
+    endDay,
+    page,
+    limit,
+  }
+
+  if (debouncedSearchTerm?.trim()) {
+    params.search = debouncedSearchTerm.trim()
+  }
+  if (plantTotals) {
+    params.plantTotals = "true"
+  }
+
+  switch (slotOrderFilter) {
+    case "dispatched_completed":
+      params.slotStatScope = "dispatched"
+      break
+    case "remaining_dispatch":
+      params.slotStatScope = "remaining"
+      break
+    case "remaining_native_dispatch":
+      params.slotStatScope = "remaining_native"
+      break
+    case "remaining_rolled_dispatch":
+      params.slotStatScope = "remaining_rolled"
+      break
+    case "all_active":
+    default:
+      params.slotStatScope = "booked"
+      break
+  }
+
+  return params
+}
+
+function resolveSlotOrderFilter(initialViewMode, slotOrderFilter) {
+  if (slotOrderFilter) return slotOrderFilter
+  if (initialViewMode === "completed") return "dispatched_completed"
+  if (initialViewMode === "ready_for_dispatch") return "remaining_dispatch"
+  return "all_active"
 }
 
 /** Shared filter query for GET /order/dashboard-tab-counts (tab scopes applied on server). */
@@ -607,6 +1096,9 @@ function buildFarmerOrdersDashboardFiltersQuery({
   selectedSubtype,
   user,
   queueFarmReadyOnly,
+  selectedStatuses,
+  needsDispatchFilter,
+  filterExpectedNursery,
 }) {
   const params = buildRegularOrderListParams({
     viewMode: "booking",
@@ -623,15 +1115,24 @@ function buildFarmerOrdersDashboardFiltersQuery({
     page: 1,
     limit: 1,
     queueFarmReadyOnly: false,
+    selectedStatuses,
+    needsDispatchFilter,
+    filterExpectedNursery,
   })
   delete params.page
   delete params.limit
   delete params.dispatched
   delete params.status
+  delete params.needsDispatch
   delete params.ready_for_dispatch
   delete params.farmReady
   delete params.sortKey
   delete params.sortOrder
+  if (needsDispatchFilter) {
+    params.needsDispatch = "true"
+  } else if (Array.isArray(selectedStatuses) && selectedStatuses.length > 0) {
+    params.status = selectedStatuses.join(",")
+  }
   if (queueFarmReadyOnly) {
     params.queueFarmReadyOnly = "true"
   }
@@ -824,23 +1325,23 @@ const customStyles = `
     box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.1);
   }
 
-  /* Status-specific colors */
+  /* Status-specific colors — pipeline at-a-glance */
   .status-accepted {
-    background: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%);
-    border-color: #22c55e;
-    color: #166534;
+    background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+    border-color: #3b82f6;
+    color: #1e40af;
   }
 
   .status-pending {
-    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
-    border-color: #f59e0b;
-    color: #92400e;
+    background: linear-gradient(135deg, #ffedd5 0%, #fed7aa 100%);
+    border-color: #f97316;
+    color: #9a3412;
   }
 
   .status-assigned {
-    background: linear-gradient(135deg, #f3e8ff 0%, #e9d5ff 100%);
-    border-color: #a855f7;
-    color: #6b21a8;
+    background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+    border-color: #2563eb;
+    color: #1e3a8a;
   }
 
   .status-rejected {
@@ -862,15 +1363,15 @@ const customStyles = `
   }
 
   .status-farm-ready {
-    background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
-    border-color: #10b981;
-    color: #065f46;
+    background: linear-gradient(135deg, #fef9c3 0%, #fde047 100%);
+    border-color: #eab308;
+    color: #854d0e;
   }
 
   .status-ready-for-dispatch {
-    background: linear-gradient(135deg, #ccfbf1 0%, #99f6e4 100%);
-    border-color: #0d9488;
-    color: #115e59;
+    background: linear-gradient(135deg, #dcfce7 0%, #86efac 100%);
+    border-color: #22c55e;
+    color: #166534;
   }
 
   .status-dispatch-process {
@@ -1149,6 +1650,34 @@ const customStyles = `
     box-shadow: 0 1px 3px rgba(13, 148, 136, 0.35);
   }
 
+  .searchable-dropdown.compact .searchable-dropdown-button {
+    min-height: 36px;
+    padding: 6px 10px;
+    font-size: 13px;
+    border-radius: 10px;
+  }
+
+  .searchable-dropdown.compact .searchable-dropdown-search {
+    padding: 6px 6px 4px;
+  }
+
+  .searchable-dropdown.compact .searchable-dropdown-search input {
+    padding: 7px 10px 7px 32px;
+    font-size: 13px;
+    border-radius: 8px;
+  }
+
+  .searchable-dropdown.compact .searchable-dropdown-option {
+    padding: 7px 10px;
+    font-size: 13px;
+    border-radius: 8px;
+  }
+
+  .searchable-dropdown.compact .searchable-dropdown-menu {
+    border-radius: 10px;
+    margin-top: 4px;
+  }
+
   /* Compact status dropdown - appears above to avoid scroll */
   .searchable-dropdown.status-dropdown {
     min-width: 120px;
@@ -1259,7 +1788,8 @@ const SearchableDropdown = ({
   maxHeight = "500px",
   isStatusDropdown = false,
   usePortal = false,
-  disabled = false
+  disabled = false,
+  compact = false,
 }) => {
   const [isOpen, setIsOpen] = useState(false)
   const [isClosing, setIsClosing] = useState(false)
@@ -1307,8 +1837,10 @@ const SearchableDropdown = ({
     }
   }, [isOpen, needsPortal])
 
-  // Close dropdown when clicking outside
+  // Close dropdown when clicking outside (only while open)
   useEffect(() => {
+    if (!isOpen) return undefined
+
     const handleClickOutside = (event) => {
       const menuEls = document.querySelectorAll(".searchable-dropdown-menu-portal")
       const clickedInsidePortal = Array.from(menuEls).some((el) => el.contains(event.target))
@@ -1323,15 +1855,21 @@ const SearchableDropdown = ({
 
     document.addEventListener("mousedown", handleClickOutside)
     return () => document.removeEventListener("mousedown", handleClickOutside)
-  }, [])
+  }, [isOpen])
 
-  const handleClose = () => {
+  const handleClose = (immediate = false) => {
+    if (immediate) {
+      setIsOpen(false)
+      setIsClosing(false)
+      setSearchTerm("")
+      return
+    }
     setIsClosing(true)
     setTimeout(() => {
       setIsOpen(false)
       setIsClosing(false)
       setSearchTerm("")
-    }, 200)
+    }, 120)
   }
 
   // Filter options based on search term
@@ -1343,15 +1881,21 @@ const SearchableDropdown = ({
   const selectedOption = options.find((option) => option.value === value)
   const displayValue = selectedOption ? selectedOption.label : placeholder
 
-  const handleOptionClick = (option) => {
+  const handleOptionSelect = (option) => {
     onChange(option.value)
-    handleClose()
+    handleClose(true)
   }
 
   const handleClear = (e) => {
+    e.preventDefault()
     e.stopPropagation()
     onChange("")
-    handleClose()
+    handleClose(true)
+  }
+
+  const toggleOpen = () => {
+    if (disabled) return
+    setIsOpen((prev) => !prev)
   }
 
   const menuContent = (
@@ -1403,10 +1947,15 @@ const SearchableDropdown = ({
           filteredOptions.map((option) => (
             <div
               key={option.value}
+              role="option"
+              aria-selected={option.value === value}
               className={`searchable-dropdown-option ${
                 option.value === value ? "selected" : ""
               }`}
-              onClick={() => handleOptionClick(option)}>
+              onMouseDown={(e) => {
+                e.preventDefault()
+                handleOptionSelect(option)
+              }}>
               <span className="truncate">{option.label}</span>
               {option.value === value && <CheckIcon size={16} />}
             </div>
@@ -1418,10 +1967,11 @@ const SearchableDropdown = ({
 
   return (
     <div
-      className={`searchable-dropdown ${isStatusDropdown ? "status-dropdown" : ""}`}
+      className={`searchable-dropdown ${compact ? "compact" : ""} ${isStatusDropdown ? "status-dropdown" : ""}`}
       ref={dropdownRef}>
       {label && (
-        <label className="block text-sm font-medium text-gray-700 mb-2">
+        <label
+          className={`block font-medium text-gray-700 ${compact ? "text-xs mb-1" : "text-sm mb-2"}`}>
           {label}
           {showCount && <span className="searchable-dropdown-count ml-2">{options.length}</span>}
         </label>
@@ -1436,40 +1986,30 @@ const SearchableDropdown = ({
             : ""
         } ${disabled ? "opacity-60 cursor-not-allowed" : ""}`}
         disabled={disabled}
-        onClick={(e) => {
+        onMouseDown={(e) => {
           if (disabled) return
           e.preventDefault()
           e.stopPropagation()
-          if (!isOpen) {
-            // Small delay when opening to prevent immediate closing
-            setTimeout(() => {
-              setIsOpen(true)
-            }, 50)
-          } else {
-            handleClose()
-          }
-        }}
-        onFocus={() => {
-          if (disabled) return
-          if (!isOpen) {
-            setTimeout(() => {
-              setIsOpen(true)
-            }, 50)
-          }
+          toggleOpen()
         }}>
         <span className="truncate">{displayValue}</span>
         <div className="flex items-center gap-2">
           {value && !isStatusDropdown && (
-            <button
-              type="button"
+            <span
+              role="button"
+              tabIndex={0}
               className="searchable-dropdown-clear"
-              onClick={handleClear}
-              title="Clear selection">
+              onMouseDown={handleClear}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") handleClear(e)
+              }}
+              title="Clear selection"
+              aria-label="Clear selection">
               <X size={12} />
-            </button>
+            </span>
           )}
           <ChevronDown
-            size={16}
+            size={compact ? 14 : 16}
             className={`transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`}
           />
         </div>
@@ -1485,19 +2025,20 @@ const SearchableDropdown = ({
   )
 }
 
-/** Compact trigger for react-datepicker range in filters block */
-const OrderDateRangeField = React.forwardRef(function OrderDateRangeField(
-  { startDate, endDate, onClick, onKeyDown, disabled, id, placeholder },
+/** Label for order filter date pickers — ignores react-datepicker `value` string on customInput. */
+function formatOrderPickerLabel(dateValue, placeholder) {
+  const hint = placeholder || "Pick date"
+  if (dateValue == null || dateValue === "") return hint
+  const formatted = formatOrderDateDisplay(dateValue, "")
+  return formatted && formatted !== "" ? formatted : hint
+}
+
+/** Single-date trigger for react-datepicker */
+const OrderSingleDateField = React.forwardRef(function OrderSingleDateField(
+  { dateValue, onClick, onKeyDown, disabled, id, label, placeholder },
   ref
 ) {
-  let primary = placeholder || "Choose date range"
-  if (startDate && endDate) {
-    const a = moment(startDate)
-    const b = moment(endDate)
-    primary = `${a.format(ORDER_DATE_DISPLAY)} — ${b.format(ORDER_DATE_DISPLAY)}`
-  } else if (startDate) {
-    primary = `${moment(startDate).format(ORDER_DATE_DISPLAY)} — pick end date`
-  }
+  const primary = formatOrderPickerLabel(dateValue, placeholder)
 
   return (
     <button
@@ -1507,16 +2048,21 @@ const OrderDateRangeField = React.forwardRef(function OrderDateRangeField(
       onClick={onClick}
       onKeyDown={onKeyDown}
       disabled={disabled}
-      aria-label={primary}
-      className="w-full flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-left shadow-sm transition hover:border-teal-400 hover:bg-teal-50/40 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50">
+      aria-label={`${label}: ${primary}`}
+      className="w-full min-w-[9.5rem] flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-left shadow-sm transition hover:border-teal-400 hover:bg-teal-50/40 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50">
       <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-teal-100 text-teal-800">
         <CalendarRange className="h-3.5 w-3.5" aria-hidden />
       </span>
       <span className="min-w-0 flex-1">
         <span className="block text-[9px] font-semibold uppercase tracking-wide text-gray-500">
-          Order date range
+          {label}
         </span>
-        <span className="block truncate text-[12px] font-semibold text-gray-900">{primary}</span>
+        <span
+          className={`block truncate text-left text-[12px] font-semibold ${
+            primary === (placeholder || "Pick date") ? "text-gray-500 font-medium" : "text-gray-900"
+          }`}>
+          {primary}
+        </span>
       </span>
     </button>
   )
@@ -1609,15 +2155,18 @@ const FarmerOrdersTable = ({
   endDay,
   initialViewMode,
   initialQueueFarmReadyOnly,
+  /** When slotId is set: all_active | dispatched_completed | remaining_dispatch */
+  slotOrderFilter: slotOrderFilterProp,
+  /** Expected plant total from slot card — shown in slot embed header for parity check */
+  expectedPlantsTotal = null,
+  /** Opens Add Order with copied plant/slot/qty (not farmer name or payment). Falls back to session event. */
+  onCopyOrder = null,
 }) => {
-  const today = new Date()
+  const slotOrderFilter = resolveSlotOrderFilter(initialViewMode, slotOrderFilterProp)
   const [searchTerm, setSearchTerm] = useState("")
   const [expandedRows, setExpandedRows] = useState(new Set())
   const [editingRows, setEditingRows] = useState(new Set())
-  const [selectedDateRange, setSelectedDateRange] = useState([
-    new Date(today.getTime() - 2 * 24 * 60 * 60 * 1000), // 2 days ago
-    today
-  ])
+  const [selectedDateRange, setSelectedDateRange] = useState([null, null])
   const [loading, setLoading] = useState(false)
   const [loadingMoreOrders, setLoadingMoreOrders] = useState(false)
   const [orders, setOrders] = useState([])
@@ -1690,12 +2239,27 @@ const FarmerOrdersTable = ({
   const [joyrideKey, setJoyrideKey] = useState(0)
   // Bulk payment dialog (shared); accept only on /payments page
   const [showBulkPaymentDialog, setShowBulkPaymentDialog] = useState(false)
-  const [filtersExpanded, setFiltersExpanded] = useState(true)
+  const [filtersSheetOpen, setFiltersSheetOpen] = useState(false)
+  /** Draft values edited in the filter drawer; applied to list only on "Apply filters". */
+  const [filterDraft, setFilterDraft] = useState({
+    searchTerm: "",
+    dateRange: [null, null],
+    orderDateRangeBy: "booking",
+    needsDispatchPreset: false,
+    selectedPlant: "",
+    selectedSubtype: "",
+    selectedSalesPerson: "",
+    selectedVillage: "",
+    selectedDistrict: "",
+    filterExpectedNursery: "",
+    selectedStatuses: [],
+  })
   const [upiOcrLoading, setUpiOcrLoading] = useState(false)
   /** Farmer order "Add payment" accordion: upload + OCR — do not use global `loading` (submit uses that). */
   const [paymentReceiptBusy, setPaymentReceiptBusy] = useState(false)
   const [paymentQRModalOpen, setPaymentQRModalOpen] = useState(false)
   const [paymentQRModalData, setPaymentQRModalData] = useState(null)
+  const [paymentAttachModal, setPaymentAttachModal] = useState(null)
   const [paymentTransferOpen, setPaymentTransferOpen] = useState(false)
   const [paymentTransferSourceId, setPaymentTransferSourceId] = useState(null)
   const [paymentTransferPaymentId, setPaymentTransferPaymentId] = useState(null)
@@ -1706,7 +2270,9 @@ const FarmerOrdersTable = ({
   const [dcInvoiceEditValue, setDcInvoiceEditValue] = useState("")
   const [dcInvoiceEditSaving, setDcInvoiceEditSaving] = useState(false)
   const ordersTableScrollRef = useRef(null)
+  const ordersTableViewportRef = useRef(null)
   const loadMoreOrdersRef = useRef(null)
+  const pendingOpenAddPaymentRef = useRef(false)
   const getOrdersAbortRef = useRef(null)
   const loadMoreOrdersAbortRef = useRef(null)
   const getOrdersRequestSeqRef = useRef(0)
@@ -1920,7 +2486,10 @@ const FarmerOrdersTable = ({
     if (!isRamAgriSalesManager) return
     setShowAgriSalesOrders(true)
   }, [isRamAgriSalesManager])
-  const canChangeOrderStatus = !isDealer && (isOfficeAdmin || isSuperAdmin)
+  const canChangeOrderStatus = useCanChangeOrderStatus()
+  const farmerOrderStatusEditOptions = canChangeOrderStatus
+    ? FARMER_ORDER_STATUS_ADMIN_EDIT_OPTIONS
+    : FARMER_ORDER_STATUS_EDIT_OPTIONS
 
   const canEditDcInvoiceLabelForRow = React.useCallback(
     (row) => {
@@ -2034,6 +2603,10 @@ const FarmerOrdersTable = ({
 
   // Filter states
   const [selectedSalesPerson, setSelectedSalesPerson] = useState("")
+  const [selectedStatuses, setSelectedStatuses] = useState([])
+  const [needsDispatchPreset, setNeedsDispatchPreset] = useState(false)
+  const [filterExpectedNursery, setFilterExpectedNursery] = useState("")
+  const [splitOrderDialog, setSplitOrderDialog] = useState({ open: false, order: null })
   const [selectedVillage, setSelectedVillage] = useState("")
   const [selectedDistrict, setSelectedDistrict] = useState("")
 const [selectedPlant, setSelectedPlant] = useState("")
@@ -2044,6 +2617,10 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
   /** Subtypes for the order-edit modal only (do not reuse dashboard filter `subtypes`). */
   const [orderEditSubtypes, setOrderEditSubtypes] = useState([])
   const [orderEditSubtypesLoading, setOrderEditSubtypesLoading] = useState(false)
+  const [orderEditTrays, setOrderEditTrays] = useState([])
+  const [orderEditTraysLoading, setOrderEditTraysLoading] = useState(false)
+  const [modalContextRefreshing, setModalContextRefreshing] = useState(false)
+  const [editBookForExpanded, setEditBookForExpanded] = useState(false)
 
   // Filter options
   const [salesPeople, setSalesPeople] = useState([])
@@ -2076,7 +2653,24 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
   // Default date-range field should be "booking" (Booking date).
   const [orderDateRangeBy, setOrderDateRangeBy] = useState("booking")
   const [viewType, setViewType] = useState("table") // "table" or "grid"
-  const [selectedRows, setSelectedRows] = useState(new Set())
+  const ordersListHeight = useFillViewportHeight(ordersTableViewportRef, {
+    minHeight: slotId ? 320 : 280,
+    bottomGap: slotId ? 8 : 12,
+    remeasureKey: `${slotId}|${viewMode}|${viewType}|${showAgriSalesOrders}`,
+  })
+  const [selectedRows, setSelectedRows] = useState(new Map())
+  const [whatsappCampaigns, setWhatsappCampaigns] = useState([])
+  const [whatsappUncategorizedStats, setWhatsappUncategorizedStats] = useState(null)
+  const [whatsappLogLoading, setWhatsappLogLoading] = useState(false)
+  const [whatsappCampaignPage, setWhatsappCampaignPage] = useState(1)
+  const [whatsappCampaignPagination, setWhatsappCampaignPagination] = useState({
+    total: 0,
+    totalPages: 0,
+    limit: 20,
+  })
+  const [expandedWhatsappBatchId, setExpandedWhatsappBatchId] = useState(null)
+  const [whatsappBatchRows, setWhatsappBatchRows] = useState({})
+  const [whatsappBatchLoading, setWhatsappBatchLoading] = useState(null)
   const [readyDispatchGroups, setReadyDispatchGroups] = useState([])
   const [clubDialogOpen, setClubDialogOpen] = useState(false)
   const [routeMapOpen, setRouteMapOpen] = useState(false)
@@ -2087,6 +2681,9 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
   const [clubLoading, setClubLoading] = useState(false)
   const [isDispatchFormOpen, setIsDispatchFormOpen] = useState(false)
   const [dispatchSourceGroupId, setDispatchSourceGroupId] = useState(null)
+  const [editTransportGroup, setEditTransportGroup] = useState(null)
+  const [editTransportFleet, setEditTransportFleet] = useState(emptyFleetAssignment)
+  const [editTransportSaving, setEditTransportSaving] = useState(false)
   const [isDispatchtab, setisDispatchtab] = useState(false)
   const [newRemark, setNewRemark] = useState("")
   const [showPaymentForm, setShowPaymentForm] = useState(false)
@@ -2151,6 +2748,17 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
   )
   const editBaseQuantity = Number(selectedOrderCounts?.base || 0)
   const editFinalQuantity = editBaseQuantity + (quantityDeltaParsed?.delta || 0)
+  const orderEditHasChanges = React.useMemo(
+    () =>
+      hasOrderEditChanges(selectedOrder, updatedObject, quantityDeltaInput, {
+        canEditPlantSubtype
+      }),
+    [selectedOrder, updatedObject, quantityDeltaInput, canEditPlantSubtype]
+  )
+  const isPlantOrderEdit =
+    selectedOrder &&
+    !selectedOrder?.isAgriSalesOrder &&
+    !selectedOrder?.details?.isRamAgriProduct
   const [activeTab, setActiveTab] = useState("overview")
   const [confirmDialog, setConfirmDialog] = useState({
     open: false,
@@ -2173,12 +2781,21 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
     dispatchDayKey: ""
   })
   const [watiDialogOpen, setWatiDialogOpen] = useState(false)
+  const [watiFromRowSelection, setWatiFromRowSelection] = useState(false)
   const [watiDialogOrder, setWatiDialogOrder] = useState(null)
   const [watiDialogMode, setWatiDialogMode] = useState("accept")
+  const [watiCampaignName, setWatiCampaignName] = useState("")
+  const [campaignNameDialogOpen, setCampaignNameDialogOpen] = useState(false)
+  const [pendingFarmReadyRows, setPendingFarmReadyRows] = useState([])
+  const [pendingFarmReadyBulkCount, setPendingFarmReadyBulkCount] = useState(0)
+  const [farmReadyCampaignSending, setFarmReadyCampaignSending] = useState(false)
   const [watiSending, setWatiSending] = useState(false)
   const [recentQtyEditsOpen, setRecentQtyEditsOpen] = useState(false)
   const [whatsappMessagingEnabled, setWhatsappMessagingEnabled] = useState(
     () => !isWhatsappMessagingDisabled()
+  )
+  const [whatsappUnlimitedResend, setWhatsappUnlimitedResend] = useState(() =>
+    isWhatsappUnlimitedTestEnabled()
   )
 
   const recentPlantQuantityEdits = React.useMemo(() => {
@@ -2224,6 +2841,27 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
     })
 
     setNewRemark("")
+  }
+
+  const handleCopyOrder = (row, event) => {
+    event?.stopPropagation?.()
+    if (row?.isAgriSalesOrder || row?.details?.isRamAgriProduct) {
+      Toast.error("Copy order is only available for plant bookings")
+      return
+    }
+    const prefill = buildCopyOrderPrefillFromRow(row)
+    if (!prefill) {
+      Toast.error("Could not copy this order — plant or subtype missing")
+      return
+    }
+    if (typeof onCopyOrder === "function") {
+      onCopyOrder(prefill)
+      Toast.success("Opening new order with copied details…")
+      return
+    }
+    saveCopyOrderPrefill(prefill)
+    dispatchCopyOrderOpen()
+    Toast.success("Opening new order with copied details…")
   }
 
   const handleCopyLinkedOrderCode = async (linkedOrderCode, event) => {
@@ -2433,6 +3071,9 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
             page: 1,
             limit: DASHBOARD_ORDERS_PAGE_SIZE,
             queueFarmReadyOnly: viewMode === "ready_for_dispatch" ? queueFarmReadyOnly : false,
+            selectedStatuses,
+            needsDispatchFilter: needsDispatchPreset,
+            filterExpectedNursery,
           })
 
           let ordersData = []
@@ -2481,6 +3122,13 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
                 whatsappAcceptedMessageKey,
                 whatsappDispatchSentAt,
                 whatsappDispatchMessageKey,
+                whatsappFarmReadySentAt,
+                whatsappFarmReadyMessageKey,
+                farmReadyWhatsappConfirmedAt,
+                revivedViaFarmerWhatsappAt,
+                revivedViaFarmerWhatsappFromStatus,
+                whatsappCancelActivityLog,
+                whatsappFarmReadyActivityLog,
                 plantType,
                 plantSubtype,
                 remainingPlants,
@@ -2492,10 +3140,22 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
                 farmReadyDate,
                 orderBookingDate,
                 deliveryDate,
+                oldDeliveryDate,
+                dispatchedFromAnotherSlot,
+                pastDueSlotRollover,
                 orderFor: orderForRaw,
                 expectedNursery
               } = data || {}
               const orderFor = normalizeOrderFor(orderForRaw)
+              const deliveryDisplay = formatDeliveryDateDisplay(
+                {
+                  deliveryDate,
+                  oldDeliveryDate,
+                  dispatchedFromAnotherSlot,
+                  pastDueSlotRollover,
+                },
+                ORDER_DATE_DISPLAY
+              )
               const basePlants = numberOfPlants || 0
               const extraPlants = additionalPlants || 0
               const totalPlantCount =
@@ -2530,8 +3190,12 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
                 billablePlants: billablePlantCount,
                 additionalPlants: extraPlants,
                 basePlants,
-                orderDate: moment(orderBookingDate || createdAt).format(ORDER_DATE_DISPLAY),
-                deliveryDate: deliveryDate ? moment(deliveryDate).format(ORDER_DATE_DISPLAY) : "-", // Specific delivery date
+                orderDate: formatOrderDateDisplay(orderBookingDate || createdAt),
+                deliveryDate: deliveryDisplay.current,
+                oldDeliveryDate: oldDeliveryDate || null,
+                dispatchedFromAnotherSlot: !!dispatchedFromAnotherSlot,
+                pastDueSlotRollover: !!pastDueSlotRollover,
+                deliveryDateDisplay: deliveryDisplay,
                 rate,
                 total: `₹ ${Number(totalOrderAmount).toFixed(2)}`,
                 "Paid Amt": `₹ ${Number(getTotalPaidAmount(payment)).toFixed(2)}`,
@@ -2540,10 +3204,7 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
                 "returned Plants": returnedPlants || 0,
                 orderStatus: orderStatus,
                 Delivery: `${start} - ${end} ${monthYear}`,
-                "Farm Ready":
-                  farmReadyDate && farmReadyDate.length > 0
-                    ? moment(farmReadyDate[0]).format(ORDER_DATE_DISPLAY)
-                    : "-",
+                "Farm Ready": formatFarmReadyDateCell(farmReadyDate),
               details: {
                 farmer,
                 contact: farmer?.mobileNumber,
@@ -2583,9 +3244,24 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
                 whatsappAcceptedMessageKey: whatsappAcceptedMessageKey || null,
                 whatsappDispatchSentAt: whatsappDispatchSentAt || null,
                 whatsappDispatchMessageKey: whatsappDispatchMessageKey || null,
+                whatsappFarmReadySentAt: whatsappFarmReadySentAt || null,
+                whatsappFarmReadyMessageKey: whatsappFarmReadyMessageKey || null,
+                farmReadyWhatsappConfirmedAt: farmReadyWhatsappConfirmedAt || null,
+                revivedViaFarmerWhatsappAt: revivedViaFarmerWhatsappAt || null,
+                revivedViaFarmerWhatsappFromStatus: revivedViaFarmerWhatsappFromStatus || null,
+                whatsappCancelActivityLog: Array.isArray(whatsappCancelActivityLog)
+                  ? whatsappCancelActivityLog
+                  : [],
+                whatsappFarmReadyActivityLog: Array.isArray(whatsappFarmReadyActivityLog)
+                  ? whatsappFarmReadyActivityLog
+                  : [],
                 dealerOrder: dealerOrder || false,
                 farmReadyDate: farmReadyDate,
                 deliveryDate: deliveryDate || null, // Include deliveryDate in details
+                oldDeliveryDate: oldDeliveryDate || null,
+                dispatchedFromAnotherSlot: !!dispatchedFromAnotherSlot,
+                pastDueSlotRollover: !!pastDueSlotRollover,
+                pastDueSlotRolloverAt: data?.pastDueSlotRolloverAt || null,
                 dispatchDayKey: data?.dispatchDayKey || null,
                 dispatchTargetDate: data?.dispatchTargetDate || null,
                 deliveryChallanInvoiceNumber: data?.deliveryChallanInvoiceNumber || null,
@@ -2652,6 +3328,183 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
 
       return updatedPayment
     })
+  }
+
+  /** Scan / rescan receipt — fills payee, date, UTR; amount only when OCR returns it. */
+  const applyPaymentReceiptOcr = React.useCallback(async (imageUrl, { overwrite = false } = {}) => {
+    if (!imageUrl || !/^https?:\/\//i.test(String(imageUrl))) return false
+    setUpiOcrLoading(true)
+    try {
+      const ocr = await extractUpiFromReceiptImageUrl(imageUrl)
+      if (ocr?.success && ocr?.data) {
+        const d = ocr.data
+        const hasAmount = ocrDataHasAmount(d)
+        setNewPayment((prev) =>
+          mergeUpiOcrIntoPaymentState(prev, d, { fillAmount: true, overwrite })
+        )
+        const verifyHint = d.needs_review ? " — please verify all fields" : ""
+        Toast.success(
+          overwrite
+            ? hasAmount
+              ? `Receipt rescanned — amount & details updated${verifyHint}`
+              : `Receipt rescanned — no amount on receipt; enter amount${verifyHint}`
+            : hasAmount
+              ? `Receipt scanned — amount & details filled${verifyHint}`
+              : `Receipt scanned — enter amount (not detected on receipt)${verifyHint}`
+        )
+        return true
+      }
+      Toast.error("Could not read receipt — enter payment details manually")
+      return false
+    } catch (err) {
+      console.warn("UPI OCR:", err)
+      Toast.error(err?.message || "Could not read receipt")
+      return false
+    } finally {
+      setUpiOcrLoading(false)
+    }
+  }, [])
+
+  const uploadPaymentReceiptFiles = async (files) => {
+    if (!files?.length) return []
+    for (const file of files) {
+      if (!file.type.startsWith("image/")) {
+        Toast.error("Please select image files only")
+        return []
+      }
+      if (file.size > 8 * 1024 * 1024) {
+        Toast.error("Max 8MB per image")
+        return []
+      }
+    }
+    setPaymentReceiptBusy(true)
+    try {
+      const uploadedUrls = (
+        await Promise.all(
+          files.map(async (file) => {
+            const formData = new FormData()
+            formData.append("media_key", file)
+            formData.append("media_type", "IMAGE")
+            formData.append("content_type", "multipart/form-data")
+            const instance = NetworkManager(API.MEDIA.UPLOAD)
+            const response = await instance.request(formData)
+            return response?.data?.data?.media_url || response?.data?.media_url
+          })
+        )
+      ).filter(Boolean)
+      if (!uploadedUrls.length) {
+        Toast.error("Upload did not return a URL")
+        return []
+      }
+      Toast.success("Receipt uploaded")
+      return uploadedUrls
+    } catch (err) {
+      console.error("Receipt upload:", err)
+      Toast.error("Failed to upload receipt")
+      return []
+    } finally {
+      setPaymentReceiptBusy(false)
+    }
+  }
+
+  const applyOcrToPaymentDraft = async (imageUrl, draft, { overwrite = false } = {}) => {
+    if (!imageUrl || !/^https?:\/\//i.test(String(imageUrl))) return null
+    setUpiOcrLoading(true)
+    try {
+      const ocr = await extractUpiFromReceiptImageUrl(imageUrl)
+      if (ocr?.success && ocr?.data) {
+        return mergeUpiOcrIntoPaymentState(draft || defaultPaymentDraft(), ocr.data, {
+          fillAmount: true,
+          overwrite,
+        })
+      }
+      Toast.error("Could not read receipt — enter payment details manually")
+      return null
+    } catch (err) {
+      console.warn("UPI OCR:", err)
+      Toast.error(err?.message || "Could not read receipt")
+      return null
+    } finally {
+      setUpiOcrLoading(false)
+    }
+  }
+
+  const refreshAfterPaymentSaved = async (orderId, payments) => {
+    setShowPaymentForm(false)
+    setExpandedAddPaymentAccordion(false)
+    resetPaymentForm(false)
+    if (payments.some((p) => p.isWalletPayment)) {
+      if (selectedOrder?.details?.salesPerson?.jobTitle === "DEALER") {
+        await refetchDealerWallet()
+      }
+    }
+    setPendingOrderUpdate(orderId)
+    if (selectedOrder) {
+      await refreshModalData()
+    } else {
+      await getOrders()
+    }
+  }
+
+  const handleAddPaymentsBatch = async (orderId, payments) => {
+    if (!payments?.length) {
+      Toast.error("Add at least one payment")
+      return
+    }
+
+    const isAgriSalesOrder =
+      selectedOrder?.isAgriSalesOrder ||
+      orders.find((o) => o.details?.orderid === orderId)?.isAgriSalesOrder
+
+    if (isAgriSalesOrder && payments.some((p) => p.isWalletPayment)) {
+      Toast.error("Wallet payment is not available for Agri Sales orders")
+      return
+    }
+
+    setLoading(true)
+    try {
+      if (isAgriSalesOrder) {
+        const instance = NetworkManager(API.INVENTORY.ADD_AGRI_SALES_ORDER_PAYMENT)
+        for (const payload of payments) {
+          const body = {
+            ...payload,
+            isWalletPayment: false,
+            paymentStatus: "PENDING",
+          }
+          const response = await instance.request(body, [`${orderId}/payment`])
+          if (!response?.data) {
+            Toast.error("Failed to add payment")
+            return
+          }
+        }
+        Toast.success(
+          payments.length === 1
+            ? "Payment added successfully"
+            : `${payments.length} payments added successfully`
+        )
+        await refreshAfterPaymentSaved(orderId, payments)
+        return
+      }
+
+      const instance = NetworkManager(API.ORDER.ADD_PAYMENTS_BATCH)
+      const response = await instance.request({ payments }, [orderId])
+      if (response?.data) {
+        Toast.success(
+          response?.data?.message ||
+            (payments.length === 1
+              ? "Payment added successfully"
+              : `${payments.length} payments added successfully`)
+        )
+        await refreshAfterPaymentSaved(orderId, payments)
+      } else {
+        Toast.error("Failed to add payments")
+      }
+    } catch (error) {
+      console.error("Error adding payments:", error)
+      Toast.error(error?.response?.data?.message || error?.message || "Failed to add payments")
+    } finally {
+      setLoading(false)
+    }
   }
 
   // Function to get dealer wallet balance for payment validation
@@ -2764,22 +3617,111 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
     resetPaymentForm(shouldUseWalletPayment)
   }
 
-  const refreshModalData = async () => {
-    const oid = selectedOrder?.details?.orderid
-    if (!oid) return
-    try {
-      const list = await getOrders()
-      if (!Array.isArray(list)) return
-      const updatedOrder = list.find(
-        (order) => String(order?.details?.orderid) === String(oid)
-      )
-      if (updatedOrder) {
-        setSelectedOrder(updatedOrder)
-      }
-    } catch (error) {
-      console.error("Error refreshing modal data:", error)
-    }
+  const openAddPaymentForm = () => {
+    if (!showPaymentForm) initializePaymentForm()
+    setShowPaymentForm(true)
+    setExpandedAddPaymentAccordion(true)
   }
+
+  const openOrderForAddPayment = React.useCallback((row, e) => {
+    e?.stopPropagation?.()
+    if (!row) return
+    setSelectedOrder(row)
+    setActiveTab("payments")
+    setIsOrderModalOpen(true)
+    pendingOpenAddPaymentRef.current = true
+  }, [])
+
+  useEffect(() => {
+    if (
+      !pendingOpenAddPaymentRef.current ||
+      !isOrderModalOpen ||
+      !selectedOrder ||
+      activeTab !== "payments"
+    ) {
+      return
+    }
+    pendingOpenAddPaymentRef.current = false
+    openAddPaymentForm()
+  }, [isOrderModalOpen, selectedOrder?.details?.orderid, activeTab])
+
+  const fetchPendingRateRequestForOrder = React.useCallback(async (orderRow) => {
+    const mongoId = orderRow?.details?._id || orderRow?.details?.mongoId
+    const hasPending = orderRow?.details?.pendingRateChangeRequestId
+    if (!mongoId || !hasPending) {
+      setPendingRateRequest(null)
+      return
+    }
+    setPendingRateRequestLoading(true)
+    try {
+      const instance = NetworkManager(API.RATE_CHANGE_REQUEST.GET_ALL)
+      const res = await instance.request(null, { orderId: mongoId, status: "PENDING" })
+      const list = res?.data?.data || []
+      setPendingRateRequest(list.length > 0 ? list[0] : null)
+    } catch {
+      setPendingRateRequest(null)
+    } finally {
+      setPendingRateRequestLoading(false)
+    }
+  }, [])
+
+  const refreshOrderModalContext = React.useCallback(
+    async ({ resetEditForm = false } = {}) => {
+      const oid = selectedOrder?.details?.orderid
+      if (!oid) return
+      setModalContextRefreshing(true)
+      try {
+        const list = await getOrders()
+        let freshOrder = selectedOrder
+        if (Array.isArray(list)) {
+          const updatedOrder = list.find(
+            (order) => String(order?.details?.orderid) === String(oid)
+          )
+          if (updatedOrder) {
+            freshOrder = updatedOrder
+            setSelectedOrder(updatedOrder)
+          }
+        }
+
+        const isPlantOrder =
+          freshOrder &&
+          !freshOrder.isAgriSalesOrder &&
+          !freshOrder?.details?.isRamAgriProduct
+        if (isPlantOrder && freshOrder.details?.plantID) {
+          const subtypeId = freshOrder.details?.plantSubtypeID
+          if (subtypeId) {
+            getSlots(freshOrder.details.plantID, subtypeId)
+          }
+          loadOrderEditSubtypes(freshOrder.details.plantID)
+          loadOrderEditTrays()
+        }
+
+        await fetchPendingRateRequestForOrder(freshOrder)
+
+        if (resetEditForm && activeTab === "edit" && freshOrder && canEditOrderCore) {
+          setUpdatedObject(
+            buildOrderEditState(freshOrder, { resolvePlantCounts, canEditPlantSubtype })
+          )
+          setQuantityDeltaInput("")
+        }
+      } catch (error) {
+        console.error("Error refreshing modal context:", error)
+      } finally {
+        setModalContextRefreshing(false)
+      }
+    },
+    [
+      selectedOrder?.details?.orderid,
+      selectedOrder,
+      activeTab,
+      canEditOrderCore,
+      canEditPlantSubtype,
+      resolvePlantCounts,
+      fetchPendingRateRequestForOrder
+    ]
+  )
+
+  const refreshModalData = refreshOrderModalContext
 
   // Add function to handle row selection
   const toggleRowSelection = (orderId, rowData) => {
@@ -2808,10 +3750,184 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
     if (!orders || orders.length === 0) return
 
     if (selectedRows.size === orders.length) {
-      setSelectedRows(new Set())
+      setSelectedRows(new Map())
     } else {
-      const allOrderIds = orders.map((order) => order.details.orderid)
-      setSelectedRows(new Set(allOrderIds))
+      const next = new Map()
+      orders.forEach((order) => {
+        next.set(order.details.orderid, {
+          ...order,
+          details: { ...order.details, orderid: order.details.orderid },
+        })
+      })
+      setSelectedRows(next)
+    }
+  }
+
+  const getSelectedOrderRowsList = React.useCallback(() => {
+    if (selectedRows instanceof Map) return Array.from(selectedRows.values())
+    return (orders || []).filter((o) => selectedRows.has(o.details.orderid))
+  }, [selectedRows, orders])
+
+  const fetchWhatsappOutboundForBatch = React.useCallback(async (batchId) => {
+    if (!batchId) return
+    setWhatsappBatchLoading(batchId)
+    try {
+      const instance = NetworkManager(API.ORDER.WHATSAPP_OUTBOUND_LOG)
+      const res = await instance.request(
+        {},
+        { batchId, limit: 200, templateType: "farm_ready", _: Date.now() }
+      )
+      const payload = res?.data?.data || res?.data
+      const rows = Array.isArray(payload?.data) ? payload.data : []
+      setWhatsappBatchRows((prev) => ({ ...prev, [batchId]: rows }))
+    } catch (err) {
+      console.error("WhatsApp batch log fetch failed:", err)
+      Toast.error("Failed to load campaign details")
+    } finally {
+      setWhatsappBatchLoading(null)
+    }
+  }, [])
+
+  const fetchWhatsappCampaigns = React.useCallback(async (page = 1, { expandBatchId = null } = {}) => {
+    setWhatsappLogLoading(true)
+    try {
+      const instance = NetworkManager(API.ORDER.WHATSAPP_CAMPAIGNS)
+      const res = await instance.request(
+        {},
+        { page, limit: 20, templateType: "farm_ready", _: Date.now() }
+      )
+      const payload = res?.data?.data || res?.data
+      setWhatsappCampaigns(Array.isArray(payload?.data) ? payload.data : [])
+      setWhatsappUncategorizedStats(payload?.uncategorizedStats || null)
+      setWhatsappCampaignPagination(payload?.pagination || { total: 0, totalPages: 0, limit: 20 })
+      setWhatsappCampaignPage(page)
+      const openId = expandBatchId || expandedWhatsappBatchId
+      if (openId) {
+        await fetchWhatsappOutboundForBatch(openId)
+      }
+    } catch (err) {
+      console.error("WhatsApp campaigns fetch failed:", err)
+      Toast.error("Failed to load WhatsApp campaigns")
+      setWhatsappCampaigns([])
+    } finally {
+      setWhatsappLogLoading(false)
+    }
+  }, [expandedWhatsappBatchId, fetchWhatsappOutboundForBatch])
+
+  const resetFarmReadyCampaignDialog = () => {
+    setCampaignNameDialogOpen(false)
+    setPendingFarmReadyRows([])
+    setPendingFarmReadyBulkCount(0)
+    setWatiCampaignName("")
+  }
+
+  const openFarmReadyWhatsappForRows = (rows) => {
+    const list = Array.isArray(rows) ? rows.filter(Boolean) : []
+    if (list.length === 0) {
+      Toast.error("Select an order first")
+      return
+    }
+    const eligible = getEligibleFarmReadyWhatsappRows(list, whatsappUnlimitedResend)
+    const disableReason =
+      list.length === 1
+        ? getFarmReadyWhatsappDisableReasonForRow(list[0], whatsappUnlimitedResend)
+        : getFarmReadyWhatsappDisableReason(list, whatsappUnlimitedResend, selectedRows)
+    if (eligible.length === 0) {
+      Toast.error(
+        disableReason || "No selected orders are eligible for farm-ready WhatsApp"
+      )
+      return
+    }
+    if (!whatsappMessagingEnabled) {
+      Toast.error("WhatsApp messaging is turned off")
+      return
+    }
+    setPendingFarmReadyRows(eligible)
+    setPendingFarmReadyBulkCount(eligible.length)
+    setWatiCampaignName(defaultFarmReadyCampaignName())
+    setCampaignNameDialogOpen(true)
+  }
+
+  const openFarmReadyWhatsappForSelection = () => {
+    openFarmReadyWhatsappForRows(getSelectedOrderRowsList())
+  }
+
+  const sendFarmReadyWhatsappCampaign = async () => {
+    const campaignName = String(watiCampaignName || "").trim()
+    if (!campaignName) {
+      Toast.error("Enter a campaign name")
+      return
+    }
+    const eligible =
+      pendingFarmReadyRows.length > 0
+        ? pendingFarmReadyRows
+        : getEligibleFarmReadyWhatsappRows(getSelectedOrderRowsList(), whatsappUnlimitedResend)
+    const orderIds = eligible
+      .map((row) => String(row?.details?.orderid || row?.details?._id))
+      .filter(Boolean)
+    if (orderIds.length === 0) {
+      Toast.error("No eligible orders to send")
+      return
+    }
+    setFarmReadyCampaignSending(true)
+    try {
+      const instance = NetworkManager(API.ORDER.WHATSAPP_SEND_SELECTED)
+      const res = await instance.request(
+        {
+          orderIds,
+          templateType: "farm_ready",
+          campaignName,
+        },
+        whatsappUnlimitedResend ? { forceResend: "1" } : {}
+      )
+      const body = res?.data
+      if (body?.status === "Success") {
+        const d = body?.data
+        const bulkResults = Array.isArray(d?.results) ? d.results : null
+        const summary = d?.summary || {}
+        Toast.success(
+          body?.message ||
+            `Campaign "${d?.campaignName || campaignName}": ${summary.sent ?? bulkResults?.filter((r) => r.success).length ?? 0} sent`
+        )
+        if (d?.batchId) {
+          const openCampaignBatchId = String(d.batchId)
+          setViewMode("whatsapp_log")
+          setExpandedWhatsappBatchId(openCampaignBatchId)
+          void fetchWhatsappCampaigns(1, { expandBatchId: openCampaignBatchId })
+        } else if (viewMode === "whatsapp_log") {
+          void fetchWhatsappCampaigns(whatsappCampaignPage)
+        }
+        setOrders((prev) =>
+          (prev || []).map((o) => {
+            const oidStr = String(o?.details?.orderid || o?.details?._id)
+            const hit = (bulkResults || []).find((r) => String(r.orderId) === oidStr && r.success)
+            if (!hit) return o
+            const ts =
+              hit.whatsappFarmReadySentAt ||
+              hit.stored?.whatsappFarmReadySentAt ||
+              new Date().toISOString()
+            const msgKey =
+              hit.whatsappFarmReadyMessageKey ||
+              hit.stored?.whatsappFarmReadyMessageKey ||
+              null
+            return {
+              ...o,
+              details: {
+                ...o.details,
+                whatsappFarmReadySentAt: ts,
+                ...(msgKey ? { whatsappFarmReadyMessageKey: String(msgKey) } : {}),
+              },
+            }
+          })
+        )
+        resetFarmReadyCampaignDialog()
+      } else {
+        Toast.error(body?.message || "Failed to send farm-ready WhatsApp")
+      }
+    } catch (err) {
+      Toast.error(err?.response?.data?.message || "Failed to send farm-ready WhatsApp")
+    } finally {
+      setFarmReadyCampaignSending(false)
     }
   }
 
@@ -2922,6 +4038,54 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
     }
   }
 
+  const openEditGroupTransport = (group) => {
+    const gid = group?._id || group?.id
+    if (!gid) return
+    const ownerId =
+      group?.ownerId?._id || group?.ownerId?.id || group?.ownerId || ""
+    const driverId =
+      group?.driverId?._id || group?.driverId?.id || group?.driverId || ""
+    const vehicleId =
+      group?.vehicleId?._id || group?.vehicleId?.id || group?.vehicleId || ""
+    setEditTransportGroup(group)
+    setEditTransportFleet({
+      ownerId: ownerId ? String(ownerId) : "",
+      driverId: driverId ? String(driverId) : "",
+      vehicleId: vehicleId ? String(vehicleId) : "",
+      routeNotes: group?.routeNotes || "",
+      driverRemark: group?.driverRemark || "",
+      vehicleRemark: group?.vehicleRemark || "",
+    })
+  }
+
+  const saveEditGroupTransport = async () => {
+    const gid = editTransportGroup?._id || editTransportGroup?.id
+    if (!gid) return
+    setEditTransportSaving(true)
+    try {
+      const inst = NetworkManager(API.READY_DISPATCH_GROUP.UPDATE)
+      await inst.request(
+        {
+          ownerId: editTransportFleet.ownerId || null,
+          driverId: editTransportFleet.driverId || null,
+          vehicleId: editTransportFleet.vehicleId || null,
+          routeNotes: editTransportFleet.routeNotes || "",
+          driverRemark: editTransportFleet.driverRemark || "",
+          vehicleRemark: editTransportFleet.vehicleRemark || "",
+        },
+        { pathParams: [String(gid)] }
+      )
+      Toast.success("Transport details updated")
+      setEditTransportGroup(null)
+      setEditTransportFleet(emptyFleetAssignment())
+      await getReadyDispatchGroups()
+    } catch (e) {
+      Toast.error(e?.response?.data?.message || e?.message || "Update failed")
+    } finally {
+      setEditTransportSaving(false)
+    }
+  }
+
   const handleConvertGroupToDispatch = async (group) => {
     try {
       const gid = group?._id || group?.id
@@ -2991,6 +4155,9 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
             selectedSubtype,
             user,
             queueFarmReadyOnly,
+            selectedStatuses,
+            needsDispatchFilter: needsDispatchPreset,
+            filterExpectedNursery,
           }),
           { signal }
         )
@@ -3028,6 +4195,9 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
     selectedSubtype,
     user,
     queueFarmReadyOnly,
+    selectedStatuses,
+    needsDispatchPreset,
+    filterExpectedNursery,
   ])
 
   const fetchOrdersForExport = React.useCallback(async () => {
@@ -3040,10 +4210,17 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
       const res = await NetworkManager(API.ORDER.GET_ORDERS_SLOTS).request(
         {},
         {
-          slotId,
-          monthName,
-          startDay,
-          endDay,
+          ...buildSlotOrderListParams({
+            slotId,
+            monthName,
+            startDay,
+            endDay,
+            slotOrderFilter,
+            page: 1,
+            limit: 200000,
+            debouncedSearchTerm,
+            plantTotals: false,
+          }),
           ...exportFlags,
         }
       )
@@ -3065,6 +4242,9 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
       page: 1,
       limit: 200000,
       queueFarmReadyOnly: viewMode === "ready_for_dispatch" ? queueFarmReadyOnly : false,
+      selectedStatuses,
+      needsDispatchFilter: needsDispatchPreset,
+      filterExpectedNursery,
     })
     const params = { ...base, ...exportFlags }
 
@@ -3105,7 +4285,11 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
     monthName,
     startDay,
     endDay,
+    slotOrderFilter,
     queueFarmReadyOnly,
+    selectedStatuses,
+    needsDispatchPreset,
+    filterExpectedNursery,
   ])
 
   const exportActiveFilterCount = React.useMemo(() => {
@@ -3116,6 +4300,9 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
     if (selectedSalesPerson) n += 1
     if (selectedVillage) n += 1
     if (selectedDistrict) n += 1
+    if (Array.isArray(selectedStatuses) && selectedStatuses.length) n += 1
+    if (needsDispatchPreset) n += 1
+    if (filterExpectedNursery) n += 1
     if (debouncedSearchTerm?.trim()) n += 1
     return n
   }, [
@@ -3126,11 +4313,28 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
     selectedSalesPerson,
     selectedVillage,
     selectedDistrict,
+    selectedStatuses,
+    needsDispatchPreset,
+    filterExpectedNursery,
     debouncedSearchTerm,
   ])
 
   // Load initial data
   useEffect(() => {
+    if (viewMode === "dispatch_process" && !showAgriSalesOrders) {
+      setOrders([])
+      setLoading(false)
+      setHasMoreOrders(false)
+      setOrdersListEnvelope({ total: null, totalPlantsSum: null })
+      if (showAgriSalesOrders) {
+        fetchAgriStatusCounts()
+      }
+      return
+    }
+    if (viewMode === "whatsapp_log") {
+      fetchWhatsappCampaigns(1)
+      return
+    }
     getOrders()
     if (showAgriSalesOrders) {
       fetchAgriStatusCounts()
@@ -3146,12 +4350,26 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
     selectedDistrict,
     selectedPlant,
     selectedSubtype,
+    selectedStatuses,
+    needsDispatchPreset,
+    filterExpectedNursery,
     showAgriSalesOrders, // Reload when switching between regular and Agri Sales orders
     selectedDispatchedBy, // Filter by who dispatched (Ram Agri Inputs)
     agriDispatchStatusFilter, // Reload when status filter tab changes (Ram Agri Inputs)
     orderDateRangeBy,
     queueFarmReadyOnly,
+    slotId,
+    monthName,
+    startDay,
+    endDay,
+    slotOrderFilter,
   ])
+
+  useEffect(() => {
+    if (viewMode !== "whatsapp_log") return undefined
+    const timer = setInterval(() => fetchWhatsappCampaigns(whatsappCampaignPage), 15000)
+    return () => clearInterval(timer)
+  }, [viewMode, whatsappCampaignPage, fetchWhatsappCampaigns])
 
   useEffect(() => {
     getReadyDispatchGroups()
@@ -3199,14 +4417,19 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
     loadFilterOptions()
   }, [])
 
-useEffect(() => {
-  if (!selectedPlant) {
-    setSubtypes([])
-    setSelectedSubtype("")
-    return
-  }
-  loadSubtypeOptions(selectedPlant)
-}, [selectedPlant])
+  const plantIdForSubtypeOptions = filtersSheetOpen ? filterDraft.selectedPlant : selectedPlant
+
+  useEffect(() => {
+    if (!plantIdForSubtypeOptions) {
+      setSubtypes([])
+      return
+    }
+    loadSubtypeOptions(plantIdForSubtypeOptions)
+  }, [plantIdForSubtypeOptions])
+
+  useEffect(() => {
+    if (!selectedPlant) setSelectedSubtype("")
+  }, [selectedPlant])
 
   // Listen for dispatch creation events to refresh the list
   useEffect(() => {
@@ -3316,7 +4539,7 @@ useEffect(() => {
             const deliveryRaw = data?.order?.deliveryDate
             const deliveryLabel =
               deliveryRaw != null && deliveryRaw !== ""
-                ? moment(deliveryRaw).format(ORDER_DATE_DISPLAY)
+                ? formatOrderDateDisplay(deliveryRaw)
                 : null
             const dispatchDateLabel =
               prefill?.dispatchDate != null && prefill.dispatchDate !== ""
@@ -3358,30 +4581,12 @@ useEffect(() => {
   useEffect(() => {
     if (activeTab !== "edit" || !selectedOrder || !canEditOrderCore) return
     if (!selectedOrder?.details?.orderid) return
-    const { base } = resolvePlantCounts(selectedOrder)
-    const rof = normalizeOrderFor(selectedOrder.details?.orderFor)
-    setUpdatedObject({
-      rate: selectedOrder.rate,
-      quantity: base,
-      bookingSlot: selectedOrder?.details?.bookingSlot?.slotId,
-      deliveryDate: selectedOrder?.details?.deliveryDate
-        ? new Date(selectedOrder.details.deliveryDate)
-        : null,
-      salesPerson: selectedOrder?.details?.salesPerson?._id
-        ? String(selectedOrder.details.salesPerson._id)
-        : "",
-      orderFor: rof ? { ...emptyOrderForEditShape(), ...rof } : { ...emptyOrderForEditShape() },
-      expectedNursery: selectedOrder?.details?.expectedNursery
-        ? String(selectedOrder.details.expectedNursery).trim().toUpperCase()
-        : "RB",
-      ...(canEditPlantSubtype &&
-      selectedOrder?.details?.plantSubtypeID &&
-      !selectedOrder?.isAgriSalesOrder &&
-      !selectedOrder?.details?.isRamAgriProduct
-        ? { plantSubtype: String(selectedOrder.details.plantSubtypeID) }
-        : {})
-    })
+    setUpdatedObject(
+      buildOrderEditState(selectedOrder, { resolvePlantCounts, canEditPlantSubtype })
+    )
     setQuantityDeltaInput("")
+    const rofName = normalizeOrderFor(selectedOrder.details?.orderFor)?.name
+    setEditBookForExpanded(Boolean(String(rofName || "").trim()))
     // Only re-run when the opened order id or edit eligibility changes — not on every
     // selectedOrder reference refresh (which was wiping in-progress book-for edits).
   }, [
@@ -3393,7 +4598,7 @@ useEffect(() => {
   ])
 
   useEffect(() => {
-    if (activeTab !== "edit" || !canEditOrderCore) return undefined
+    if ((activeTab !== "edit" || !canEditOrderCore) && !filtersSheetOpen) return undefined
     let cancelled = false
     ;(async () => {
       try {
@@ -3408,7 +4613,7 @@ useEffect(() => {
     return () => {
       cancelled = true
     }
-  }, [activeTab, canEditOrderCore])
+  }, [activeTab, canEditOrderCore, filtersSheetOpen])
 
   useEffect(() => {
     if (
@@ -3420,6 +4625,7 @@ useEffect(() => {
       return
     }
     loadOrderEditSubtypes(selectedOrder.details.plantID)
+    loadOrderEditTrays()
   }, [
     activeTab,
     selectedOrder?.details?.plantID,
@@ -3513,6 +4719,21 @@ const loadOrderEditSubtypes = async (plantId) => {
     setOrderEditSubtypes([])
   } finally {
     setOrderEditSubtypesLoading(false)
+  }
+}
+
+const loadOrderEditTrays = async () => {
+  setOrderEditTraysLoading(true)
+  try {
+    const instance = NetworkManager(API.TRAY.GET_TRAYS)
+    const response = await instance.request({}, {})
+    const raw = response?.data?.data?.data
+    setOrderEditTrays(Array.isArray(raw) ? raw : [])
+  } catch (error) {
+    console.error("Error loading trays for order edit:", error)
+    setOrderEditTrays([])
+  } finally {
+    setOrderEditTraysLoading(false)
   }
 }
 
@@ -4059,6 +5280,210 @@ const loadFilterOptions = async () => {
     setSearchTerm("")
     setDebouncedSearchTerm("")
   }
+
+  const emptyFilterDraft = React.useCallback(
+    () => ({
+      searchTerm: "",
+      dateRange: [null, null],
+      orderDateRangeBy: "booking",
+      needsDispatchPreset: false,
+      selectedPlant: "",
+      selectedSubtype: "",
+      selectedSalesPerson: "",
+      selectedVillage: "",
+      selectedDistrict: "",
+      filterExpectedNursery: "",
+      selectedStatuses: [],
+    }),
+    []
+  )
+
+  const buildAppliedFilterSnapshot = React.useCallback(
+    () => ({
+      searchTerm,
+      dateRange: [startDate, endDate],
+      orderDateRangeBy,
+      needsDispatchPreset,
+      selectedPlant,
+      selectedSubtype,
+      selectedSalesPerson,
+      selectedVillage,
+      selectedDistrict,
+      filterExpectedNursery,
+      selectedStatuses: Array.isArray(selectedStatuses) ? [...selectedStatuses] : [],
+    }),
+    [
+      searchTerm,
+      startDate,
+      endDate,
+      orderDateRangeBy,
+      needsDispatchPreset,
+      selectedPlant,
+      selectedSubtype,
+      selectedSalesPerson,
+      selectedVillage,
+      selectedDistrict,
+      filterExpectedNursery,
+      selectedStatuses,
+    ]
+  )
+
+  const patchFilterDraft = React.useCallback((patch) => {
+    setFilterDraft((prev) => ({ ...prev, ...patch }))
+  }, [])
+
+  const openFiltersSheet = React.useCallback(() => {
+    setFilterDraft(buildAppliedFilterSnapshot())
+    setFiltersSheetOpen(true)
+  }, [buildAppliedFilterSnapshot])
+
+  const applyFiltersFromDraft = React.useCallback(() => {
+    const d = filterDraft
+    debouncedSearch.cancel()
+    setSearchTerm(d.searchTerm)
+    setDebouncedSearchTerm(String(d.searchTerm || "").trim())
+    setSelectedDateRange(d.dateRange || [null, null])
+    setOrderDateRangeBy(d.orderDateRangeBy || "booking")
+    setNeedsDispatchPreset(Boolean(d.needsDispatchPreset))
+    setSelectedPlant(d.selectedPlant || "")
+    setSelectedSubtype(d.selectedSubtype || "")
+    setSelectedSalesPerson(d.selectedSalesPerson || "")
+    setSelectedVillage(d.selectedVillage || "")
+    setSelectedDistrict(d.selectedDistrict || "")
+    setFilterExpectedNursery(d.filterExpectedNursery || "")
+    setSelectedStatuses(Array.isArray(d.selectedStatuses) ? [...d.selectedStatuses] : [])
+    setFiltersSheetOpen(false)
+  }, [filterDraft, debouncedSearch])
+
+  const filtersDraftDirty = React.useMemo(() => {
+    if (!filtersSheetOpen) return false
+    const applied = buildAppliedFilterSnapshot()
+    const draft = filterDraft
+    if (String(applied.searchTerm || "") !== String(draft.searchTerm || "")) return true
+    if (applied.orderDateRangeBy !== draft.orderDateRangeBy) return true
+    if (Boolean(applied.needsDispatchPreset) !== Boolean(draft.needsDispatchPreset)) return true
+    if (applied.selectedPlant !== draft.selectedPlant) return true
+    if (applied.selectedSubtype !== draft.selectedSubtype) return true
+    if (applied.selectedSalesPerson !== draft.selectedSalesPerson) return true
+    if (applied.selectedVillage !== draft.selectedVillage) return true
+    if (applied.selectedDistrict !== draft.selectedDistrict) return true
+    if (applied.filterExpectedNursery !== draft.filterExpectedNursery) return true
+    const aStart = applied.dateRange?.[0] ? moment(applied.dateRange[0]).format("YYYY-MM-DD") : ""
+    const aEnd = applied.dateRange?.[1] ? moment(applied.dateRange[1]).format("YYYY-MM-DD") : ""
+    const dStart = draft.dateRange?.[0] ? moment(draft.dateRange[0]).format("YYYY-MM-DD") : ""
+    const dEnd = draft.dateRange?.[1] ? moment(draft.dateRange[1]).format("YYYY-MM-DD") : ""
+    if (aStart !== dStart || aEnd !== dEnd) return true
+    const aSt = [...(applied.selectedStatuses || [])].sort().join(",")
+    const dSt = [...(draft.selectedStatuses || [])].sort().join(",")
+    if (aSt !== dSt) return true
+    return false
+  }, [filtersSheetOpen, buildAppliedFilterSnapshot, filterDraft])
+
+  const clearAllOrderFilters = React.useCallback(() => {
+    const empty = emptyFilterDraft()
+    debouncedSearch.cancel()
+    setSearchTerm("")
+    setDebouncedSearchTerm("")
+    setSelectedSalesPerson("")
+    setSelectedVillage("")
+    setSelectedDistrict("")
+    setSelectedPlant("")
+    setSelectedSubtype("")
+    setSelectedStatuses([])
+    setNeedsDispatchPreset(false)
+    setFilterExpectedNursery("")
+    setSubtypes([])
+    setSelectedDateRange([null, null])
+    setOrderDateRangeBy("booking")
+    setFilterDraft(empty)
+  }, [debouncedSearch, emptyFilterDraft])
+
+  const clearFilterDraftOnly = React.useCallback(() => {
+    setFilterDraft(emptyFilterDraft())
+    setSubtypes([])
+  }, [emptyFilterDraft])
+
+  const [draftStartDate, draftEndDate] = filterDraft.dateRange || [null, null]
+
+  const applyDraftOrderDatePreset = React.useCallback((preset) => {
+    if (preset === "all") {
+      patchFilterDraft({ dateRange: [null, null] })
+      return
+    }
+    const end = moment().startOf("day").toDate()
+    if (preset === "today") {
+      patchFilterDraft({ dateRange: [end, end] })
+      return
+    }
+    const days = preset === "7" ? 7 : 30
+    const from = moment(end)
+      .subtract(days - 1, "days")
+      .startOf("day")
+      .toDate()
+    patchFilterDraft({ dateRange: [from, end] })
+  }, [patchFilterDraft])
+
+  const activeDraftOrderDatePreset = React.useMemo(() => {
+    if (!draftStartDate && !draftEndDate) return "all"
+    if (!draftStartDate || !draftEndDate) return null
+    const s = moment(draftStartDate).startOf("day")
+    const e = moment(draftEndDate).startOf("day")
+    const t = moment().startOf("day")
+    if (s.isSame(e, "day") && s.isSame(t, "day")) return "today"
+    if (e.isSame(t, "day")) {
+      const span = e.diff(s, "days") + 1
+      if (span === 7) return "7"
+      if (span === 30) return "30"
+    }
+    return null
+  }, [draftStartDate, draftEndDate])
+
+  const draftDatePresetChipClass = (preset) =>
+    `shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap ${
+      activeDraftOrderDatePreset === preset
+        ? "border-teal-500 bg-teal-600 text-white"
+        : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+    }`
+
+  const applyOrderDatePreset = React.useCallback((preset) => {
+    if (preset === "all") {
+      setSelectedDateRange([null, null])
+      return
+    }
+    const end = moment().startOf("day").toDate()
+    if (preset === "today") {
+      setSelectedDateRange([end, end])
+      return
+    }
+    const days = preset === "7" ? 7 : 30
+    const from = moment(end)
+      .subtract(days - 1, "days")
+      .startOf("day")
+      .toDate()
+    setSelectedDateRange([from, end])
+  }, [])
+
+  const activeOrderDatePreset = React.useMemo(() => {
+    if (!startDate && !endDate) return "all"
+    if (!startDate || !endDate) return null
+    const s = moment(startDate).startOf("day")
+    const e = moment(endDate).startOf("day")
+    const t = moment().startOf("day")
+    if (s.isSame(e, "day") && s.isSame(t, "day")) return "today"
+    if (e.isSame(t, "day")) {
+      const span = e.diff(s, "days") + 1
+      if (span === 7) return "7"
+      if (span === 30) return "30"
+    }
+    return null
+  }, [startDate, endDate])
+
+  const datePresetChipClass = (preset) =>
+    `shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap ${
+      activeOrderDatePreset === preset
+        ? "border-teal-500 bg-teal-600 text-white"
+        : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+    }`
   const getTotalPaidAmount = (payments) => {
     if (!payments || !Array.isArray(payments)) return 0
     return payments.reduce(
@@ -4212,7 +5637,8 @@ const mapSlotForUi = (slotData) => {
   const isDateDisabled = (date) => {
     if (!date || slots.length === 0) return true
 
-    const dateMoment = moment(date)
+    const dateMoment = moment(date).startOf("day")
+    if (dateMoment.isBefore(startOfTodayMoment(), "day")) return true
 
     for (const slot of slots) {
       if (!slot.startDay || !slot.endDay) continue
@@ -4461,6 +5887,13 @@ const mapSlotForUi = (slotData) => {
           whatsappAcceptedMessageKey,
           whatsappDispatchSentAt,
           whatsappDispatchMessageKey,
+          whatsappFarmReadySentAt,
+          whatsappFarmReadyMessageKey,
+          farmReadyWhatsappConfirmedAt,
+          revivedViaFarmerWhatsappAt,
+          revivedViaFarmerWhatsappFromStatus,
+          whatsappCancelActivityLog,
+          whatsappFarmReadyActivityLog,
           plantType,
           plantSubtype,
           remainingPlants,
@@ -4473,11 +5906,26 @@ const mapSlotForUi = (slotData) => {
           farmReadyDateChanges,
           orderBookingDate,
           deliveryDate,
+          oldDeliveryDate,
+          dispatchedFromAnotherSlot,
+          pastDueSlotRollover,
           orderFor: orderForRaw,
           expectedNursery,
           cavity,
+          isSplit,
+          splitOrderIds,
+          splitHistory,
         } = data || {}
         const orderFor = normalizeOrderFor(orderForRaw)
+        const deliveryDisplay = formatDeliveryDateDisplay(
+          {
+            deliveryDate,
+            oldDeliveryDate,
+            dispatchedFromAnotherSlot,
+            pastDueSlotRollover,
+          },
+          ORDER_DATE_DISPLAY
+        )
         const basePlants = numberOfPlants || 0
         const extraPlants = additionalPlants || 0
         const totalPlantCount =
@@ -4511,8 +5959,12 @@ const mapSlotForUi = (slotData) => {
           billablePlants: billablePlantCount,
           additionalPlants: extraPlants,
           basePlants,
-          orderDate: moment(orderBookingDate || createdAt).format(ORDER_DATE_DISPLAY),
-          deliveryDate: deliveryDate ? moment(deliveryDate).format(ORDER_DATE_DISPLAY) : "-",
+          orderDate: formatOrderDateDisplay(orderBookingDate || createdAt),
+          deliveryDate: deliveryDisplay.current,
+          oldDeliveryDate: oldDeliveryDate || null,
+          dispatchedFromAnotherSlot: !!dispatchedFromAnotherSlot,
+          pastDueSlotRollover: !!pastDueSlotRollover,
+          deliveryDateDisplay: deliveryDisplay,
           rate,
           total: `₹ ${Number(totalOrderAmount).toFixed(2)}`,
           "Paid Amt": `₹ ${Number(getTotalPaidAmount(payment)).toFixed(2)}`,
@@ -4522,7 +5974,7 @@ const mapSlotForUi = (slotData) => {
           orderStatus: orderStatus,
           officialDeliveryChallanNumber: data?.officialDeliveryChallanNumber || null,
           Delivery: `${start} - ${end} ${monthYear}`,
-          "Farm Ready": farmReadyDate ? moment(farmReadyDate).format(ORDER_DATE_DISPLAY) : "-",
+          "Farm Ready": formatFarmReadyDateCell(farmReadyDate),
           details: {
             farmer,
             contact: farmer?.mobileNumber,
@@ -4557,10 +6009,25 @@ const mapSlotForUi = (slotData) => {
             whatsappAcceptedMessageKey: whatsappAcceptedMessageKey || null,
             whatsappDispatchSentAt: whatsappDispatchSentAt || null,
             whatsappDispatchMessageKey: whatsappDispatchMessageKey || null,
+            whatsappFarmReadySentAt: whatsappFarmReadySentAt || null,
+            whatsappFarmReadyMessageKey: whatsappFarmReadyMessageKey || null,
+            farmReadyWhatsappConfirmedAt: farmReadyWhatsappConfirmedAt || null,
+            revivedViaFarmerWhatsappAt: revivedViaFarmerWhatsappAt || null,
+            revivedViaFarmerWhatsappFromStatus: revivedViaFarmerWhatsappFromStatus || null,
+            whatsappCancelActivityLog: Array.isArray(whatsappCancelActivityLog)
+              ? whatsappCancelActivityLog
+              : [],
+            whatsappFarmReadyActivityLog: Array.isArray(whatsappFarmReadyActivityLog)
+              ? whatsappFarmReadyActivityLog
+              : [],
             dealerOrder: !!dealerOrder,
             farmReadyDate: farmReadyDate,
             farmReadyDateChanges: farmReadyDateChanges || [],
             deliveryDate: deliveryDate || null,
+            oldDeliveryDate: oldDeliveryDate || null,
+            dispatchedFromAnotherSlot: !!dispatchedFromAnotherSlot,
+            pastDueSlotRollover: !!pastDueSlotRollover,
+            pastDueSlotRolloverAt: data?.pastDueSlotRolloverAt || null,
             dispatchDayKey: data?.dispatchDayKey || null,
             dispatchTargetDate: data?.dispatchTargetDate || null,
             cavity: cavity || null,
@@ -4568,6 +6035,9 @@ const mapSlotForUi = (slotData) => {
             cavityId: getCavityIdString(cavity) || null,
             deliveryChallanInvoiceNumber: data?.deliveryChallanInvoiceNumber || null,
             officialDeliveryChallanNumber: data?.officialDeliveryChallanNumber || null,
+            isSplit: Boolean(isSplit),
+            splitOrderIds: Array.isArray(splitOrderIds) ? splitOrderIds : [],
+            splitHistory: Array.isArray(splitHistory) ? splitHistory : [],
             slotHistory: Array.isArray(bookingSlot)
               ? bookingSlot.filter(Boolean)
               : bookingSlot
@@ -4712,8 +6182,8 @@ const mapSlotForUi = (slotData) => {
             totalPlants: displayQuantity, // Display quantity (final for completed orders)
             additionalPlants: 0,
             basePlants: quantity,
-            orderDate: moment(orderDate || createdAt).format(ORDER_DATE_DISPLAY),
-            deliveryDate: deliveryDate ? moment(deliveryDate).format(ORDER_DATE_DISPLAY) : "-",
+            orderDate: formatOrderDateDisplay(orderDate || createdAt),
+            deliveryDate: deliveryDate ? formatOrderDateDisplay(deliveryDate) : "-",
             rate: rate,
             total: `₹ ${Number(totalAmount || 0).toFixed(2)}`,
             "Paid Amt": `₹ ${Number(totalPaidAmount || 0).toFixed(2)}`,
@@ -4817,6 +6287,15 @@ const mapSlotForUi = (slotData) => {
       return null
     }
 
+    if (viewMode === "dispatch_process" && !showAgriSalesOrders) {
+      setOrders([])
+      setOrdersPage(1)
+      setHasMoreOrders(false)
+      setOrdersListEnvelope({ total: null, totalPlantsSum: null })
+      setLoading(false)
+      return null
+    }
+
     // Use appropriate endpoint based on slotId for regular orders
     const instance = slotId
       ? NetworkManager(API.ORDER.GET_ORDERS_SLOTS)
@@ -4838,6 +6317,9 @@ const mapSlotForUi = (slotData) => {
       limit: DASHBOARD_ORDERS_PAGE_SIZE,
       queueFarmReadyOnly: viewMode === "ready_for_dispatch" ? queueFarmReadyOnly : false,
       plantTotals: viewMode !== "dispatch_process",
+      selectedStatuses,
+      needsDispatchFilter: needsDispatchPreset,
+      filterExpectedNursery,
     })
 
     let ordersData = []
@@ -4845,21 +6327,27 @@ const mapSlotForUi = (slotData) => {
 
     try {
       if (slotId) {
-        const emps = await instance.request(
-          {},
-          {
-            slotId,
-            monthName,
-            startDay,
-            endDay,
-            limit: DASHBOARD_ORDERS_PAGE_SIZE,
-            page: 1,
-          },
-          { signal }
-        )
+        const slotParams = buildSlotOrderListParams({
+          slotId,
+          monthName,
+          startDay,
+          endDay,
+          slotOrderFilter,
+          page: 1,
+          limit: DASHBOARD_ORDERS_PAGE_SIZE,
+          debouncedSearchTerm,
+          plantTotals: true,
+        })
+        const emps = await instance.request({}, slotParams, { signal })
         ordersData = emps?.data?.data?.data || []
-        nextPageAvailable = false
-        setOrdersListEnvelope({ total: null, totalPlantsSum: null })
+        const currentPage = Number(emps?.data?.data?.currentPage || 1)
+        const totalPages = Number(emps?.data?.data?.totalPages || 1)
+        nextPageAvailable = currentPage < totalPages
+        const env = emps?.data?.data
+        const t = env && typeof env.total === "number" ? env.total : null
+        const tp =
+          env && typeof env.totalPlantsSum === "number" ? env.totalPlantsSum : null
+        setOrdersListEnvelope({ total: t, totalPlantsSum: tp })
       } else if (viewMode === "dispatch_process") {
         const paramsInProcess = { ...params }
         const paramsDispatchedTab = {
@@ -4917,8 +6405,8 @@ const mapSlotForUi = (slotData) => {
   }
 
   const loadMoreOrders = async () => {
-    if (loading || loadingMoreOrders || !hasMoreOrders || showAgriSalesOrders || slotId) return
-    if (viewMode === "dispatch_process") return
+    if (loading || loadingMoreOrders || !hasMoreOrders || showAgriSalesOrders) return
+    if (viewMode === "dispatch_process" && !slotId) return
 
     loadMoreOrdersAbortRef.current?.abort()
     const moreAbort = new AbortController()
@@ -4927,23 +6415,40 @@ const mapSlotForUi = (slotData) => {
 
     setLoadingMoreOrders(true)
     try {
-      const instance = NetworkManager(API.ORDER.GET_ORDERS)
-      const params = buildRegularOrderListParams({
-        viewMode,
-        startDate,
-        endDate,
-        debouncedSearchTerm,
-        orderDateRangeBy,
-        selectedSalesPerson,
-        selectedVillage,
-        selectedDistrict,
-        selectedPlant,
-        selectedSubtype,
-        user,
-        page: ordersPage + 1,
-        limit: DASHBOARD_ORDERS_PAGE_SIZE,
-        queueFarmReadyOnly: viewMode === "ready_for_dispatch" ? queueFarmReadyOnly : false,
-      })
+      const instance = slotId
+        ? NetworkManager(API.ORDER.GET_ORDERS_SLOTS)
+        : NetworkManager(API.ORDER.GET_ORDERS)
+      const params = slotId
+        ? buildSlotOrderListParams({
+            slotId,
+            monthName,
+            startDay,
+            endDay,
+            slotOrderFilter,
+            page: ordersPage + 1,
+            limit: DASHBOARD_ORDERS_PAGE_SIZE,
+            debouncedSearchTerm,
+            plantTotals: false,
+          })
+        : buildRegularOrderListParams({
+            viewMode,
+            startDate,
+            endDate,
+            debouncedSearchTerm,
+            orderDateRangeBy,
+            selectedSalesPerson,
+            selectedVillage,
+            selectedDistrict,
+            selectedPlant,
+            selectedSubtype,
+            user,
+            page: ordersPage + 1,
+            limit: DASHBOARD_ORDERS_PAGE_SIZE,
+            queueFarmReadyOnly: viewMode === "ready_for_dispatch" ? queueFarmReadyOnly : false,
+            selectedStatuses,
+            needsDispatchFilter: needsDispatchPreset,
+            filterExpectedNursery,
+          })
 
       const res = await instance.request({}, params, { signal })
       const nextOrders = mapRegularOrdersForUi(res?.data?.data?.data || [])
@@ -4972,11 +6477,26 @@ const mapSlotForUi = (slotData) => {
       // Handle Date objects for farmReadyDate and deliveryDate
       const dataToSend = { ...patchObj }
 
-      if (dataToSend.orderFor !== undefined && dataToSend.orderFor !== null) {
-        const compactOf = compactOrderForForPatch(dataToSend.orderFor)
-        if (compactOf) dataToSend.orderFor = compactOf
-        else delete dataToSend.orderFor
+      applyOrderForToPatch(dataToSend, row?.details?.orderFor)
+
+      const deliveryDateChanged = orderEditDeliveryDateChanged(row, dataToSend)
+      if (
+        deliveryDateChanged &&
+        dataToSend.deliveryDate &&
+        isPastCalendarDate(dataToSend.deliveryDate)
+      ) {
+        Toast.error("Delivery date cannot be in the past.")
+        setpatchLoading(false)
+        return
       }
+
+      stripUnchangedOrderEditFields(dataToSend, row, {
+        delta:
+          dataToSend.quantity !== undefined &&
+          Number(dataToSend.quantity) !== Number(row?.quantity ?? row?.details?.numberOfPlants ?? 0)
+            ? Number(dataToSend.quantity) - Number(row?.quantity ?? row?.details?.numberOfPlants ?? 0)
+            : 0
+      })
 
       // Convert deliveryDate to ISO format if it's a Date object
       if (dataToSend.deliveryDate && dataToSend.deliveryDate instanceof Date) {
@@ -5175,7 +6695,7 @@ const mapSlotForUi = (slotData) => {
             const totalAmount = Number(nextRate || 0) * billablePlants
             const remainingAmount = totalAmount - paidCollected
             const nextDeliveryDate = dataToSend?.deliveryDate
-              ? moment(dataToSend.deliveryDate).format(ORDER_DATE_DISPLAY)
+              ? formatOrderDateDisplay(dataToSend.deliveryDate)
               : o?.deliveryDate
 
             const spId = dataToSend?.salesPerson
@@ -5258,10 +6778,13 @@ const mapSlotForUi = (slotData) => {
                   : {}),
                 ...(dataToSend?.orderFor !== undefined
                   ? {
-                      orderFor:
-                        normalizeOrderFor(dataToSend.orderFor) ||
-                        dataToSend.orderFor ||
-                        null
+                      orderFor: (() => {
+                        const raw =
+                          normalizeOrderFor(dataToSend.orderFor) || dataToSend.orderFor || null
+                        return raw
+                          ? normalizeOrderForLocationFields(raw)
+                          : null
+                      })()
                     }
                   : {}),
                 ...(dataToSend?.expectedNursery !== undefined
@@ -5269,6 +6792,27 @@ const mapSlotForUi = (slotData) => {
                       expectedNursery:
                         String(dataToSend.expectedNursery || "").trim().toUpperCase() || null
                     }
+                  : {}),
+                ...(dataToSend?.cavity !== undefined
+                  ? (() => {
+                      const trayId = dataToSend.cavity
+                        ? String(dataToSend.cavity)
+                        : ""
+                      const tray = trayId
+                        ? (orderEditTrays || []).find(
+                            (t) => getTrayOptionId(t) === trayId
+                          )
+                        : null
+                      return {
+                        cavity: tray || trayId || null,
+                        cavityName: tray
+                          ? getTrayOptionLabel(tray)
+                          : trayId
+                          ? resolveTrayLabelById(trayId, orderEditTrays)
+                          : null,
+                        cavityId: trayId || null
+                      }
+                    })()
                   : {}),
               },
             }
@@ -5283,6 +6827,13 @@ const mapSlotForUi = (slotData) => {
           patchedOrderForModal
         ) {
           setSelectedOrder(patchedOrderForModal)
+        }
+
+        if (
+          selectedOrder &&
+          String(selectedOrder?.details?.orderid || "") === editedOrderId
+        ) {
+          void refreshOrderModalContext({ resetEditForm: false })
         }
 
         // Refresh slots to get updated capacity (only for regular orders, not agri sales orders)
@@ -5302,7 +6853,7 @@ const mapSlotForUi = (slotData) => {
           }
         }
 
-        // WATI: farmer orders only — accept / dispatch prompts (skip if already sent successfully)
+        // WATI: farmer orders — accept popup on ACCEPTED; dispatch on DISPATCHED (auto-send on COLLECTED is Banana-only on server)
         const isFarmerOrder = !isAgriSalesOrder && !row?.details?.dealerOrder
         const rowForWatiDialog =
           dataToSend?.orderStatus != null
@@ -5328,12 +6879,28 @@ const mapSlotForUi = (slotData) => {
           setWatiDialogOrder(rowForWatiDialog)
           setWatiDialogOpen(true)
         }
+        if (
+          whatsappMessagingEnabled &&
+          dataToSend?.orderStatus === "FARM_READY" &&
+          isFarmerOrder &&
+          rowEligibleForFarmReadyWhatsapp({
+            ...rowForWatiDialog,
+            orderStatus: "FARM_READY",
+            details: { ...rowForWatiDialog?.details, ...row?.details },
+          })
+        ) {
+          openFarmReadyWhatsappForRows([rowForWatiDialog])
+        }
 
         window.setTimeout(() => refreshComponent(), 500)
       }
     } catch (error) {
       console.error("Error updating order:", error)
-      Toast.error("Failed to update order")
+      const apiMsg =
+        error?.response?.data?.message ||
+        error?.message ||
+        "Failed to update order"
+      Toast.error(apiMsg)
     } finally {
       setpatchLoading(false)
     }
@@ -5343,11 +6910,7 @@ const mapSlotForUi = (slotData) => {
       id: row?.details?.orderid,
       ...updatedObject
     }
-    if (patch.orderFor) {
-      const compact = compactOrderForForPatch(patch.orderFor)
-      if (compact) patch.orderFor = compact
-      else delete patch.orderFor
-    }
+    applyOrderForToPatch(patch, row?.details?.orderFor)
     if (patch.expectedNursery != null && String(patch.expectedNursery).trim() !== "") {
       patch.expectedNursery = String(patch.expectedNursery).trim().toUpperCase()
     } else {
@@ -5421,26 +6984,6 @@ const mapSlotForUi = (slotData) => {
     setUpdatedObject((prev) => ({ ...prev, [key]: value }))
   }
 
-  function parseDeltaInput(raw) {
-    const txt = (raw ?? "").toString().trim()
-    if (!txt) return { valid: true, delta: 0, display: "0" }
-
-    if (!/^[+-]?\d+$/.test(txt)) {
-      return { valid: false, delta: 0, error: "Enter delta like +500 or -300" }
-    }
-
-    const delta = Number(txt.startsWith("+") || txt.startsWith("-") ? txt : `+${txt}`)
-    if (!Number.isFinite(delta)) {
-      return { valid: false, delta: 0, error: "Invalid delta value" }
-    }
-
-    return {
-      valid: true,
-      delta,
-      display: `${delta > 0 ? "+" : ""}${delta.toLocaleString("en-IN")}`
-    }
-  }
-
   const refreshComponent = () => {
     setRefresh(!refresh)
   }
@@ -5455,7 +6998,10 @@ const mapSlotForUi = (slotData) => {
 
   // Status change handler with confirmation
   const handleStatusChange = async (row, newStatus) => {
-    const requiresRemark = newStatus === "REJECTED" || newStatus === "CANCELLED"
+    const requiresRemark =
+      newStatus === "REJECTED" ||
+      newStatus === "CANCELLED" ||
+      newStatus === "TEMPORARY_CANCELLED"
     // Handle Agri Sales orders differently
     if (row.isAgriSalesOrder) {
       // Don't allow status change for COMPLETED orders
@@ -5548,13 +7094,25 @@ const mapSlotForUi = (slotData) => {
     if (requiresRemark) {
       setStatusRemarkDialog({
         open: true,
-        title: newStatus === "REJECTED" ? "ऑर्डर नाकारा" : "ऑर्डर रद्द करा",
+        title:
+          newStatus === "REJECTED"
+            ? "ऑर्डर नाकारा"
+            : newStatus === "TEMPORARY_CANCELLED"
+              ? "ऑर्डर तात्पुरते रद्द"
+              : "ऑर्डर रद्द करा",
         description:
           newStatus === "REJECTED"
             ? `ऑर्डर क्र. ${row.order} नाकारण्यापूर्वी कारण (टिप्पणी) लिहा.`
-            : `ऑर्डर क्र. ${row.order} रद्द करण्यापूर्वी कारण (टिप्पणी) लिहा.`,
+            : newStatus === "TEMPORARY_CANCELLED"
+              ? `ऑर्डर क्र. ${row.order} तात्पुरते रद्द करण्यापूर्वी कारण (टिप्पणी) लिहा.`
+              : `ऑर्डर क्र. ${row.order} रद्द करण्यापूर्वी कारण (टिप्पणी) लिहा.`,
         remark: "",
-        confirmLabel: newStatus === "REJECTED" ? "नाकारणे निश्चित" : "रद्द करून लागू करा",
+        confirmLabel:
+          newStatus === "REJECTED"
+            ? "नाकारणे निश्चित"
+            : newStatus === "TEMPORARY_CANCELLED"
+              ? "तात्पुरते रद्द करा"
+              : "रद्द करून लागू करा",
         onSubmit: async (remarkText) => {
           pacthOrders(
             {
@@ -5629,7 +7187,7 @@ const mapSlotForUi = (slotData) => {
   }
 
   return (
-    <div className="w-full p-4 bg-gray-50">
+    <div className={`w-full min-w-0 ${slotId ? "p-2 bg-white" : "p-4 bg-gray-50 overflow-x-hidden"}`}>
       {showPageLoader && <PageLoader />}
       {patchLoading && orders.length > 0 && (
         <div className="fixed top-0 left-0 right-0 z-[120] pointer-events-none">
@@ -5638,284 +7196,647 @@ const mapSlotForUi = (slotData) => {
       )}
 
       {/* Header Controls */}
-      <div className="mb-6 space-y-4">
+      <div className={slotId ? "mb-2 space-y-2" : "mb-6 space-y-4"}>
+        {slotId ? (
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-white p-2">
+            <div className="relative min-w-[min(100%,10rem)] flex-1">
+              <Search
+                className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400"
+                aria-hidden
+              />
+              <input
+                type="search"
+                value={searchTerm}
+                onChange={(e) => handleSearchChange(e.target.value)}
+                placeholder="Search orders, farmers…"
+                autoComplete="off"
+                className="w-full rounded-lg border border-gray-200 bg-gray-50 py-1.5 pl-8 pr-8 text-xs text-gray-900 placeholder:text-gray-400 focus:border-teal-500 focus:bg-white focus:outline-none focus:ring-1 focus:ring-teal-500/30"
+              />
+              {searchTerm ? (
+                <button
+                  type="button"
+                  aria-label="Clear search"
+                  onClick={clearSearch}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-0.5 text-gray-400 hover:bg-gray-200 hover:text-gray-600">
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              ) : null}
+            </div>
+            {ordersListEnvelope.total != null ? (
+              <span className="text-xs text-gray-500 whitespace-nowrap">
+                {orders.length.toLocaleString()} of {ordersListEnvelope.total.toLocaleString()} orders
+                {ordersListEnvelope.totalPlantsSum != null ? (
+                  <>
+                    {" · "}
+                    <span
+                      className={
+                        expectedPlantsTotal != null &&
+                        ordersListEnvelope.totalPlantsSum !== expectedPlantsTotal
+                          ? "font-semibold text-amber-700"
+                          : "font-semibold text-teal-700"
+                      }>
+                      {ordersListEnvelope.totalPlantsSum.toLocaleString()} plants in list
+                    </span>
+                    {expectedPlantsTotal != null ? (
+                      <span className="text-gray-400">
+                        {" "}
+                        / {expectedPlantsTotal.toLocaleString()} on card
+                      </span>
+                    ) : null}
+                  </>
+                ) : null}
+              </span>
+            ) : expectedPlantsTotal != null ? (
+              <span className="text-xs font-semibold text-teal-700 whitespace-nowrap">
+                {expectedPlantsTotal.toLocaleString()} plants on card
+              </span>
+            ) : null}
+            {hasMoreOrders ? (
+              <button
+                type="button"
+                onClick={() => loadMoreOrdersRef.current?.()}
+                disabled={loading || loadingMoreOrders}
+                className="rounded-lg border border-teal-200 bg-teal-50 px-2.5 py-1 text-xs font-semibold text-teal-700 hover:bg-teal-100 disabled:opacity-50">
+                {loadingMoreOrders ? "Loading…" : "Load more"}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
         {!slotId && (
           <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
-            <button
-              type="button"
-              onClick={() => setFiltersExpanded((prev) => !prev)}
-              className="w-full flex items-center justify-between px-3 py-2.5 text-left hover:bg-gray-50">
-              <span className="text-sm font-semibold text-gray-800">Filters</span>
-              <span className="text-xs text-gray-500">{filtersExpanded ? "Hide" : "Show"}</span>
-            </button>
+            <div className="p-3 space-y-2.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="relative min-w-[min(100%,12rem)] flex-1">
+                  <Search
+                    className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400"
+                    aria-hidden
+                  />
+                  <input
+                    id="farmer-orders-search"
+                    type="search"
+                    value={searchTerm}
+                    onChange={(e) => handleSearchChange(e.target.value)}
+                    placeholder={
+                      viewMode === "dispatch_process"
+                        ? "Farmer, mobile, order ID, transport #…"
+                        : "Search orders, farmers…"
+                    }
+                    autoComplete="off"
+                    className="w-full rounded-full border border-gray-200 bg-gray-50 py-2.5 pl-10 pr-10 text-sm text-gray-900 placeholder:text-gray-400 focus:border-teal-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/30"
+                  />
+                  {searchTerm ? (
+                    <button
+                      type="button"
+                      aria-label="Clear search"
+                      onClick={clearSearch}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-full p-0.5 text-gray-400 hover:bg-gray-200 hover:text-gray-600">
+                      <X className="h-4 w-4" />
+                    </button>
+                  ) : null}
+                </div>
+                <button
+                  type="button"
+                  onClick={openFiltersSheet}
+                  aria-label="Open advanced filters"
+                  className={`relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full border transition-colors ${
+                    exportActiveFilterCount > 0
+                      ? "border-brand-500 bg-brand-600 text-white"
+                      : "border-gray-200 bg-white text-gray-600 hover:border-teal-400 hover:bg-teal-50"
+                  }`}>
+                  <Filter className="h-4 w-4" aria-hidden />
+                  {exportActiveFilterCount > 0 ? (
+                    <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-bold text-white">
+                      {exportActiveFilterCount > 9 ? "9+" : exportActiveFilterCount}
+                    </span>
+                  ) : null}
+                </button>
+                <button
+                  type="button"
+                  onClick={refreshComponent}
+                  disabled={loading || loadingMoreOrders}
+                  aria-label="Refresh orders"
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-600 hover:border-teal-400 hover:bg-teal-50 disabled:opacity-50">
+                  <RefreshCw
+                    className={`h-4 w-4 ${loading || loadingMoreOrders ? "animate-spin" : ""}`}
+                    aria-hidden
+                  />
+                </button>
+              </div>
 
-            {filtersExpanded && (
-              <div className="border-t border-gray-200 p-3 space-y-3">
-                <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
-                  <div className="w-full sm:w-[330px] shrink-0">
+              <div className="flex w-full flex-wrap items-center justify-start gap-2 overflow-x-auto pb-0.5 scrollbar-hide">
+                <div className="flex shrink-0 flex-wrap items-center justify-start gap-1.5">
+                  <div className="w-[9.5rem] sm:w-[10.5rem]">
                     <DatePicker
-                      selectsRange
+                      selected={startDate}
+                      onChange={(date) => setSelectedDateRange([date, endDate])}
+                      selectsStart
                       startDate={startDate}
                       endDate={endDate}
-                      onChange={(update) => setSelectedDateRange(update)}
+                      maxDate={endDate || undefined}
+                      isClearable
                       dateFormat="dd-MMMM-yyyy"
-                      monthsShown={1}
                       showMonthDropdown
                       showYearDropdown
                       dropdownMode="select"
                       calendarClassName="custom-datepicker"
                       popperPlacement="bottom-start"
-                      shouldCloseOnSelect={false}
+                      placeholderText="Start"
                       customInput={
-                        <OrderDateRangeField
-                          startDate={startDate}
-                          endDate={endDate}
-                          placeholder="Select order date range"
+                        <OrderSingleDateField
+                          dateValue={startDate}
+                          label="Start"
+                          placeholder="Select start date"
                         />
                       }
                     />
                   </div>
-                  <div className="flex flex-wrap items-center gap-2 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const t = new Date()
-                        const from = new Date()
-                        from.setDate(from.getDate() - 6)
-                        setSelectedDateRange([from, t])
-                      }}
-                      className="px-2 py-1 text-[11px] rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50">
-                      7 days
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const t = new Date()
-                        const from = new Date()
-                        from.setDate(from.getDate() - 13)
-                        setSelectedDateRange([from, t])
-                      }}
-                      className="px-2 py-1 text-[11px] rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50">
-                      14 days
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const t = new Date()
-                        const from = new Date()
-                        from.setDate(from.getDate() - 29)
-                        setSelectedDateRange([from, t])
-                      }}
-                      className="px-2 py-1 text-[11px] rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50">
-                      30 days
-                    </button>
-                    {startDate && endDate && (
-                      <button
-                        type="button"
-                        onClick={() => setSelectedDateRange([null, null])}
-                        className="px-2 py-1 text-[11px] rounded-md border border-teal-300 bg-teal-50 text-teal-700 hover:bg-teal-100">
-                        Clear
-                      </button>
+                  <span className="shrink-0 text-xs font-medium text-gray-400" aria-hidden>
+                    –
+                  </span>
+                  <div className="w-[9.5rem] sm:w-[10.5rem]">
+                    <DatePicker
+                      selected={endDate}
+                      onChange={(date) => setSelectedDateRange([startDate, date])}
+                      selectsEnd
+                      startDate={startDate}
+                      endDate={endDate}
+                      minDate={startDate || undefined}
+                      isClearable
+                      dateFormat="dd-MMMM-yyyy"
+                      showMonthDropdown
+                      showYearDropdown
+                      dropdownMode="select"
+                      calendarClassName="custom-datepicker"
+                      popperPlacement="bottom-start"
+                      placeholderText="Select end date"
+                      customInput={
+                        <OrderSingleDateField
+                          dateValue={endDate}
+                          label="End"
+                          placeholder="Select end date"
+                        />
+                      }
+                    />
+                  </div>
+                </div>
+                <div className="flex shrink-0 flex-nowrap items-center justify-start gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => applyOrderDatePreset("all")}
+                    className={datePresetChipClass("all")}>
+                    All dates
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => applyOrderDatePreset("today")}
+                    className={datePresetChipClass("today")}>
+                    Today
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => applyOrderDatePreset("7")}
+                    className={datePresetChipClass("7")}>
+                    7 days
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => applyOrderDatePreset("30")}
+                    className={datePresetChipClass("30")}>
+                    30 days
+                  </button>
+                </div>
+                {!showAgriSalesOrders && startDate && endDate && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setOrderDateRangeBy((prev) => (prev === "booking" ? "delivery" : "booking"))
+                    }
+                    className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-gray-800 hover:border-teal-300 hover:bg-teal-50/50">
+                    <ArrowUpDown className="h-3.5 w-3.5 shrink-0 text-gray-500" aria-hidden />
+                    {orderDateRangeBy === "booking" ? "Booking date" : "Delivery date"}
+                  </button>
+                )}
+                {!showAgriSalesOrders && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNeedsDispatchPreset((on) => {
+                        const next = !on
+                        if (next) setSelectedStatuses([])
+                        return next
+                      })
+                    }}
+                    className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold whitespace-nowrap ${
+                      needsDispatchPreset
+                        ? "border-violet-500 bg-violet-600 text-white"
+                        : "border-gray-200 bg-white text-gray-700 hover:border-violet-300"
+                    }`}>
+                    Yet to dispatch
+                  </button>
+                )}
+                {!showAgriSalesOrders && (
+                  <Button
+                    type="button"
+                    variant="outlined"
+                    size="small"
+                    onClick={() => setRecentQtyEditsOpen(true)}
+                    sx={{
+                      textTransform: "none",
+                      fontWeight: 600,
+                      borderRadius: "999px",
+                      flexShrink: 0,
+                      fontSize: "0.75rem",
+                    }}>
+                    Qty edits
+                    {recentPlantQuantityEdits.length > 0
+                      ? ` (${recentPlantQuantityEdits.length})`
+                      : ""}
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            <Drawer
+              anchor="right"
+              open={filtersSheetOpen}
+              onClose={() => setFiltersSheetOpen(false)}
+              PaperProps={{ sx: { width: { xs: "100%", sm: 360 }, maxWidth: "100vw" } }}>
+              <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
+                <Box
+                  sx={{
+                    px: 2,
+                    py: 1.25,
+                    borderBottom: "1px solid",
+                    borderColor: "divider",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 1,
+                  }}>
+                  <div>
+                    <Typography variant="subtitle1" sx={{ fontWeight: 800, lineHeight: 1.2 }}>
+                      Filters
+                    </Typography>
+                    {filtersDraftDirty ? (
+                      <Typography variant="caption" sx={{ color: "warning.main", fontWeight: 600 }}>
+                        Unsaved changes
+                      </Typography>
+                    ) : (
+                      <Typography variant="caption" color="text.secondary">
+                        Apply to refresh the list
+                      </Typography>
                     )}
                   </div>
-                  {!showAgriSalesOrders &&
-                    (viewMode === "booking" ||
-                      viewMode === "pending" ||
-                      viewMode === "accepted" ||
-                      viewMode === "cancelled") && (
-                    <div className="w-full flex flex-wrap items-center gap-3 pt-1">
-                      <span className="text-[11px] font-semibold text-gray-600">Date range applies to:</span>
-                      <RadioGroup
-                        row
-                        className="gap-0"
-                        value={orderDateRangeBy}
-                        onChange={(e) => setOrderDateRangeBy(e.target.value)}
-                      >
-                        <FormControlLabel
-                          value="booking"
-                          control={<Radio size="small" />}
-                          label={<span className="text-xs text-gray-800">Booking date</span>}
-                        />
-                        <FormControlLabel
-                          value="delivery"
-                          control={<Radio size="small" />}
-                          label={<span className="text-xs text-gray-800">Delivery date</span>}
-                        />
-                      </RadioGroup>
+                  <Button
+                    size="small"
+                    onClick={() => setFiltersSheetOpen(false)}
+                    sx={{ textTransform: "none", minWidth: 0, fontSize: "0.8125rem" }}>
+                    Cancel
+                  </Button>
+                </Box>
+                <Box sx={{ flex: 1, overflow: "auto", px: 2, py: 1.5 }} className="space-y-2.5">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 mb-1">
+                    Farmer
+                  </p>
+                  <TextField
+                    size="small"
+                    fullWidth
+                    placeholder="Name, mobile, or order #"
+                    value={filterDraft.searchTerm}
+                    onChange={(e) => patchFilterDraft({ searchTerm: e.target.value })}
+                    sx={{ "& .MuiInputBase-root": { fontSize: "0.8125rem" } }}
+                  />
+                </div>
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 mb-1">
+                    Date range
+                  </p>
+                  <div className="flex flex-wrap items-center gap-1.5 mb-1.5">
+                    <div className="w-[calc(50%-0.25rem)] min-w-[7.5rem]">
+                      <DatePicker
+                        selected={draftStartDate}
+                        onChange={(date) =>
+                          patchFilterDraft({ dateRange: [date, draftEndDate] })
+                        }
+                        selectsStart
+                        startDate={draftStartDate}
+                        endDate={draftEndDate}
+                        maxDate={draftEndDate || undefined}
+                        isClearable
+                        dateFormat="dd-MMM-yyyy"
+                        showMonthDropdown
+                        showYearDropdown
+                        dropdownMode="select"
+                        calendarClassName="custom-datepicker"
+                        popperPlacement="bottom-start"
+                        customInput={
+                          <OrderSingleDateField
+                            dateValue={draftStartDate}
+                            label="Start"
+                            placeholder="Start"
+                          />
+                        }
+                      />
                     </div>
-                  )}
-                  {/* Search: backend `search` (order id, public code, mobile) — same row as date on wide layouts */}
-                  <div className="w-full min-w-[min(100%,12rem)] flex-1 sm:min-w-[220px] sm:max-w-md">
-                    <label
-                      htmlFor="farmer-orders-search"
-                      className="block text-[9px] font-semibold uppercase tracking-wide text-gray-500 mb-0.5">
-                      Search (order ID or mobile)
-                    </label>
-                    <div className="relative">
-                      <Search
-                        className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400"
-                        aria-hidden
+                    <div className="w-[calc(50%-0.25rem)] min-w-[7.5rem]">
+                      <DatePicker
+                        selected={draftEndDate}
+                        onChange={(date) =>
+                          patchFilterDraft({ dateRange: [draftStartDate, date] })
+                        }
+                        selectsEnd
+                        startDate={draftStartDate}
+                        endDate={draftEndDate}
+                        minDate={draftStartDate || undefined}
+                        isClearable
+                        dateFormat="dd-MMM-yyyy"
+                        showMonthDropdown
+                        showYearDropdown
+                        dropdownMode="select"
+                        calendarClassName="custom-datepicker"
+                        popperPlacement="bottom-start"
+                        customInput={
+                          <OrderSingleDateField
+                            dateValue={draftEndDate}
+                            label="End"
+                            placeholder="End"
+                          />
+                        }
                       />
-                      <input
-                        id="farmer-orders-search"
-                        type="search"
-                        value={searchTerm}
-                        onChange={(e) => handleSearchChange(e.target.value)}
-                        placeholder="Order ID, public code, or mobile number"
-                        autoComplete="off"
-                        className="w-full rounded-lg border border-gray-200 bg-white py-2 pl-9 pr-9 text-sm text-gray-900 shadow-sm placeholder:text-gray-400 focus:border-teal-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-1"
-                      />
-                      {searchTerm ? (
-                        <button
-                          type="button"
-                          aria-label="Clear search"
-                          onClick={clearSearch}
-                          className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600">
-                          <X className="h-4 w-4" />
-                        </button>
-                      ) : null}
                     </div>
                   </div>
-                  {!showAgriSalesOrders && (
-                    <div className="w-full flex flex-wrap items-center gap-2 pt-0.5">
-                      <Button
-                        type="button"
-                        variant="outlined"
-                        size="small"
-                        onClick={() => setRecentQtyEditsOpen(true)}
-                        sx={{ textTransform: "none", fontWeight: 600 }}>
-                        Recent quantity edits
-                        {recentPlantQuantityEdits.length > 0
-                          ? ` (${recentPlantQuantityEdits.length})`
-                          : ""}
-                      </Button>
-                      <Typography variant="caption" color="text.secondary" sx={{ maxWidth: 440 }}>
-                        Plant quantity changes from orders in the current list (newest first). Full history stays on each order.
-                      </Typography>
-                    </div>
-                  )}
+                  <div className="flex flex-wrap items-center gap-1 mb-1">
+                    <button type="button" onClick={() => applyDraftOrderDatePreset("all")} className={draftDatePresetChipClass("all")}>
+                      All
+                    </button>
+                    <button type="button" onClick={() => applyDraftOrderDatePreset("today")} className={draftDatePresetChipClass("today")}>
+                      Today
+                    </button>
+                    <button type="button" onClick={() => applyDraftOrderDatePreset("7")} className={draftDatePresetChipClass("7")}>
+                      7d
+                    </button>
+                    <button type="button" onClick={() => applyDraftOrderDatePreset("30")} className={draftDatePresetChipClass("30")}>
+                      30d
+                    </button>
+                    {!showAgriSalesOrders && draftStartDate && draftEndDate
+                      ? [
+                          { value: "booking", label: "Booking" },
+                          { value: "delivery", label: "Delivery" },
+                        ].map((opt) => (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            onClick={() => patchFilterDraft({ orderDateRangeBy: opt.value })}
+                            className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap ${
+                              filterDraft.orderDateRangeBy === opt.value
+                                ? "border-teal-500 bg-teal-600 text-white"
+                                : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                            }`}>
+                            {opt.label}
+                          </button>
+                        ))
+                      : null}
+                  </div>
                 </div>
 
-                {/* Filter Dropdowns */}
-                <div className="bg-white rounded-lg border p-2.5">
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-2.5">
-                    {/* Plant Filter - Hide for Agri Sales orders */}
-                    {!showAgriSalesOrders && (
-                      <>
+                {!showAgriSalesOrders && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = !filterDraft.needsDispatchPreset
+                      patchFilterDraft({
+                        needsDispatchPreset: next,
+                        selectedStatuses: next ? [] : filterDraft.selectedStatuses,
+                      })
+                    }}
+                    className={`w-full rounded-lg border px-2.5 py-1.5 text-left text-xs font-semibold ${
+                      filterDraft.needsDispatchPreset
+                        ? "border-violet-500 bg-violet-50 text-violet-900"
+                        : "border-gray-200 bg-white text-gray-800 hover:border-violet-200"
+                    }`}>
+                    Yet to dispatch
+                    <span className="block text-[10px] font-normal text-gray-500">
+                      Pending → Ready for dispatch
+                    </span>
+                  </button>
+                )}
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {!showAgriSalesOrders && (
+                    <>
+                      <div className="sm:col-span-2">
                         <SearchableDropdown
                           label="Plant"
-                          value={selectedPlant}
+                          compact
+                          value={filterDraft.selectedPlant}
                           onChange={(val) => {
-                            setSelectedPlant(val)
-                            if (val === "") {
-                              setSelectedSubtype("")
-                            }
+                            patchFilterDraft({
+                              selectedPlant: val,
+                              selectedSubtype:
+                                val && val === filterDraft.selectedPlant
+                                  ? filterDraft.selectedSubtype
+                                  : "",
+                            })
                           }}
                           options={[{ label: "All Plants", value: "" }, ...(plants || [])]}
-                          placeholder="Select Plant"
-                          showCount={true}
-                          maxHeight="500px"
+                          placeholder="All plants"
+                          maxHeight="280px"
                           usePortal={true}
                         />
-
-                        {/* Plant Subtype Filter */}
+                      </div>
+                      <div className="sm:col-span-2">
                         <SearchableDropdown
                           label="Subtype"
-                          value={selectedSubtype}
-                          onChange={setSelectedSubtype}
+                          compact
+                          value={filterDraft.selectedSubtype}
+                          onChange={(val) => patchFilterDraft({ selectedSubtype: val })}
                           options={
-                            !selectedPlant
+                            !filterDraft.selectedPlant
                               ? []
                               : [{ label: "All Subtypes", value: "" }, ...(subtypes || [])]
                           }
                           placeholder={
-                            !selectedPlant
-                              ? "Select a plant first"
+                            !filterDraft.selectedPlant
+                              ? "Pick plant first"
                               : subtypesLoading
-                              ? "Loading subtypes..."
-                              : "Select Subtype"
+                                ? "Loading…"
+                                : "All subtypes"
                           }
-                          showCount={Boolean(selectedPlant && !subtypesLoading)}
-                          maxHeight="500px"
-                          disabled={!selectedPlant || subtypesLoading}
+                          maxHeight="280px"
+                          disabled={!filterDraft.selectedPlant || subtypesLoading}
                           usePortal={true}
                         />
-                      </>
-                    )}
-
-                    {/* Sales Person/Dealer Filter */}
+                      </div>
+                    </>
+                  )}
+                  <div className="sm:col-span-2">
                     <SearchableDropdown
-                      label="Sales Person / Dealer"
-                      value={selectedSalesPerson}
-                      onChange={setSelectedSalesPerson}
-                      options={[{ label: "All Sales People & Dealers", value: "" }, ...(salesPeople || [])]}
-                      placeholder="Select Sales Person / Dealer"
-                      showCount={true}
-                      maxHeight="500px"
-                      usePortal={true}
-                    />
-
-                    {/* Village Filter */}
-                    <SearchableDropdown
-                      label="Village"
-                      value={selectedVillage}
-                      onChange={setSelectedVillage}
+                      label="Sales / Dealer"
+                      compact
+                      value={filterDraft.selectedSalesPerson}
+                      onChange={(val) => patchFilterDraft({ selectedSalesPerson: val })}
                       options={[
-                        { label: "All Villages", value: "" },
-                        ...(villages || []).map((village) => ({ label: village, value: village }))
+                        { label: "All sales & dealers", value: "" },
+                        ...(salesPeople || []),
                       ]}
-                      placeholder="Select Village"
-                      showCount={true}
-                      maxHeight="500px"
-                      usePortal={true}
-                    />
-
-                    {/* District Filter */}
-                    <SearchableDropdown
-                      label="District"
-                      value={selectedDistrict}
-                      onChange={setSelectedDistrict}
-                      options={[
-                        { label: "All Districts", value: "" },
-                        ...(districts || []).map((district) => ({ label: district, value: district }))
-                      ]}
-                      placeholder="Select District"
-                      showCount={true}
-                      maxHeight="500px"
+                      placeholder="All sales & dealers"
+                      maxHeight="280px"
                       usePortal={true}
                     />
                   </div>
-
-                  {/* Clear Filters and Export Buttons */}
-                  <div className="mt-2.5 flex justify-between items-center">
-                    <ExcelExport
-                      title="Export Orders"
-                      filterBadgeCount={exportActiveFilterCount}
-                      ordersListFetcher={fetchOrdersForExport}
-                      onExportComplete={() => {
-                        Toast.success("Orders exported successfully!")
-                      }}
-                    />
-                    <button
-                      onClick={() => {
-                        debouncedSearch.cancel()
-                        setSearchTerm("")
-                        setDebouncedSearchTerm("")
-                        setSelectedSalesPerson("")
-                        setSelectedVillage("")
-                        setSelectedDistrict("")
-                        setSelectedPlant("")
-                        setSelectedSubtype("")
-                        setSubtypes([])
-                        setSelectedDateRange([null, null])
-                      }}
-                      className="px-3 py-1.5 text-xs font-medium text-gray-700 enhanced-select hover:bg-gray-50 focus:outline-none">
-                      Clear Filters
-                    </button>
-                  </div>
+                  <SearchableDropdown
+                    label="Village"
+                    compact
+                    value={filterDraft.selectedVillage}
+                    onChange={(val) => patchFilterDraft({ selectedVillage: val })}
+                    options={[
+                      { label: "All villages", value: "" },
+                      ...(villages || []).map((village) => ({ label: village, value: village })),
+                    ]}
+                    placeholder="All villages"
+                    maxHeight="240px"
+                    usePortal={true}
+                  />
+                  <SearchableDropdown
+                    label="District"
+                    compact
+                    value={filterDraft.selectedDistrict}
+                    onChange={(val) => patchFilterDraft({ selectedDistrict: val })}
+                    options={[
+                      { label: "All districts", value: "" },
+                      ...(districts || []).map((district) => ({
+                        label: district,
+                        value: district,
+                      })),
+                    ]}
+                    placeholder="All districts"
+                    maxHeight="240px"
+                    usePortal={true}
+                  />
+                  {!showAgriSalesOrders && (
+                    <FormControl fullWidth size="small" className="sm:col-span-2">
+                      <InputLabel id="dashboard-nursery-filter-label" sx={{ fontSize: "0.8125rem" }}>
+                        Nursery
+                      </InputLabel>
+                      <Select
+                        labelId="dashboard-nursery-filter-label"
+                        value={filterDraft.filterExpectedNursery}
+                        onChange={(e) =>
+                          patchFilterDraft({
+                            filterExpectedNursery: String(e.target.value || ""),
+                          })
+                        }
+                        label="Nursery"
+                        sx={{ fontSize: "0.8125rem" }}>
+                        <MenuItem value="">
+                          <em>All nurseries</em>
+                        </MenuItem>
+                        {nurserySiteEditOptions.map((s) => {
+                          const code = String(s?.code || s?.siteCode || "").toUpperCase()
+                          const label = s?.name ? `${s.name} (${code})` : code
+                          return (
+                            <MenuItem key={code || label} value={code} sx={{ fontSize: "0.8125rem" }}>
+                              {label || code}
+                            </MenuItem>
+                          )
+                        })}
+                      </Select>
+                    </FormControl>
+                  )}
+                  {!showAgriSalesOrders && (
+                    <FormControl
+                      fullWidth
+                      size="small"
+                      className="sm:col-span-2"
+                      disabled={filterDraft.needsDispatchPreset}>
+                      <InputLabel id="dashboard-status-filter-label" sx={{ fontSize: "0.8125rem" }}>
+                        Status
+                      </InputLabel>
+                      <Select
+                        labelId="dashboard-status-filter-label"
+                        multiple
+                        value={filterDraft.selectedStatuses}
+                        onChange={(e) => {
+                          patchFilterDraft({
+                            needsDispatchPreset: false,
+                            selectedStatuses:
+                              typeof e.target.value === "string"
+                                ? e.target.value.split(",")
+                                : e.target.value,
+                          })
+                        }}
+                        label="Status"
+                        sx={{ fontSize: "0.8125rem" }}
+                        renderValue={(selected) =>
+                          (selected || []).length
+                            ? (selected || [])
+                                .map(
+                                  (v) =>
+                                    DASHBOARD_STATUS_FILTER_OPTIONS.find((o) => o.value === v)
+                                      ?.label || v
+                                )
+                                .join(", ")
+                            : "Tab default"
+                        }>
+                        {DASHBOARD_STATUS_FILTER_OPTIONS.map((option) => (
+                          <MenuItem key={option.value} value={option.value} sx={{ fontSize: "0.8125rem" }}>
+                            {option.label}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  )}
                 </div>
-              </div>
-            )}
+
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
+                  <ExcelExport
+                    title="Export"
+                    filterBadgeCount={exportActiveFilterCount}
+                    ordersListFetcher={fetchOrdersForExport}
+                    onExportComplete={() => {
+                      Toast.success("Orders exported successfully!")
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={clearFilterDraftOnly}
+                    className="px-2.5 py-1 text-[11px] font-medium text-gray-700 hover:bg-gray-50 rounded-md border border-gray-200">
+                    Reset form
+                  </button>
+                  <button
+                    type="button"
+                    onClick={clearAllOrderFilters}
+                    className="px-2.5 py-1 text-[11px] font-medium text-red-700 hover:bg-red-50 rounded-md border border-red-200">
+                    Clear & apply
+                  </button>
+                </div>
+                </Box>
+                <Box
+                  sx={{
+                    px: 2,
+                    py: 1.5,
+                    borderTop: "1px solid",
+                    borderColor: "divider",
+                    display: "flex",
+                    gap: 1,
+                  }}>
+                  <Button
+                    onClick={() => setFiltersSheetOpen(false)}
+                    variant="outlined"
+                    sx={{ textTransform: "none", fontWeight: 600, flex: 1 }}>
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={applyFiltersFromDraft}
+                    variant="contained"
+                    disabled={!filtersDraftDirty}
+                    sx={{ textTransform: "none", fontWeight: 700, flex: 2 }}>
+                    Apply filters
+                  </Button>
+                </Box>
+              </Box>
+            </Drawer>
           </div>
         )}
 
@@ -6168,16 +8089,64 @@ const mapSlotForUi = (slotData) => {
                   <div className="mt-1 text-[11px] text-gray-500">
                     Capacity: {group?.capacityMeta?.max || 0} {group?.capacityMeta?.unit || "plants"}
                   </div>
-                  <div className="mt-2">
+                  {(group.vehicleNumber || group.vehicleName || group.driverName) && (
+                    <div className="mt-1.5 text-[11px] text-slate-700 space-y-0.5">
+                      {group.vehicleNumber || group.vehicleName ? (
+                        <div>
+                          🚛 {[group.vehicleNumber, group.vehicleName].filter(Boolean).join(" · ")}
+                        </div>
+                      ) : null}
+                      {group.driverName ? (
+                        <div>
+                          👤 {group.driverName}
+                          {group.driverMobile ? ` (${group.driverMobile})` : ""}
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
+                  {(group.driverRemark || group.vehicleRemark || group.routeNotes) && (
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {group.routeNotes ? (
+                        <span
+                          className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-800 max-w-full truncate"
+                          title={group.routeNotes}>
+                          Route: {group.routeNotes}
+                        </span>
+                      ) : null}
+                      {group.driverRemark ? (
+                        <span
+                          className="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-900 max-w-full truncate"
+                          title={group.driverRemark}>
+                          Driver: {group.driverRemark}
+                        </span>
+                      ) : null}
+                      {group.vehicleRemark ? (
+                        <span
+                          className="text-[10px] px-1.5 py-0.5 rounded bg-violet-50 text-violet-900 max-w-full truncate"
+                          title={group.vehicleRemark}>
+                          Vehicle: {group.vehicleRemark}
+                        </span>
+                      ) : null}
+                    </div>
+                  )}
+                  <div className="mt-2 flex flex-wrap gap-1.5">
                     {isDispatchedGroup ? (
-                      <p className="text-[10px] text-green-700 font-medium">Dispatch created for this group.</p>
+                      <p className="text-[10px] text-green-700 font-medium w-full">Dispatch created for this group.</p>
                     ) : !isLocked ? (
-                      <button
-                        onClick={() => handleConvertGroupToDispatch(group)}
-                        className="px-2.5 py-1.5 text-[11px] font-semibold rounded bg-green-600 text-white hover:bg-green-700"
-                      >
-                        Open In Dispatch
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => handleConvertGroupToDispatch(group)}
+                          className="px-2.5 py-1.5 text-[11px] font-semibold rounded bg-green-600 text-white hover:bg-green-700">
+                          Continue dispatch
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openEditGroupTransport(group)}
+                          className="px-2.5 py-1.5 text-[11px] font-semibold rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-50">
+                          Edit transport
+                        </button>
+                      </>
                     ) : (
                       <p className="text-[10px] text-amber-700 font-medium">
                         Locked — finish or cancel from the dispatch form. Use the Delivery tab for in-process loads.
@@ -6192,9 +8161,9 @@ const mapSlotForUi = (slotData) => {
       )}
 
       {/* View Toggle and Tab Navigation */}
-      <div className="bg-white rounded-lg shadow-sm border">
+      <div className="bg-white rounded-lg shadow-sm border min-w-0 max-w-full">
         {/* Order view tabs — above toolbar so they stay visible on narrow / mobile layouts */}
-        {!showAgriSalesOrders && (
+        {!showAgriSalesOrders && !slotId && (
           <div className="border-b border-gray-200 bg-gray-50 w-full min-w-0 shrink-0">
             <div className="flex overflow-x-auto overflow-y-hidden scrollbar-hide [-webkit-overflow-scrolling:touch] touch-pan-x">
               <button
@@ -6293,6 +8262,15 @@ const mapSlotForUi = (slotData) => {
                   ({orderViewTabTotals.completed})
                 </span>
               </button>
+              <button
+                onClick={() => setViewMode("whatsapp_log")}
+                className={`px-4 md:px-6 py-3 text-xs md:text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
+                  viewMode === "whatsapp_log"
+                    ? "border-brand-500 text-brand-600 bg-white"
+                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                }`}>
+                <span className="hidden sm:inline">💬 </span>WhatsApp Log
+              </button>
             </div>
             {viewMode === "ready_for_dispatch" && !slotId && (
               <div className="flex flex-wrap items-center gap-2 px-3 py-2 border-t border-gray-200 bg-white">
@@ -6328,6 +8306,7 @@ const mapSlotForUi = (slotData) => {
         )}
 
         {/* Header with View Toggle */}
+        {!slotId && (
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between px-4 py-3 border-b border-gray-200 bg-gray-50">
           <div className="flex items-center gap-2 flex-wrap min-w-0 flex-1">
             <span className="text-sm font-medium text-gray-700">View:</span>
@@ -6572,6 +8551,26 @@ const mapSlotForUi = (slotData) => {
               control={
                 <Switch
                   size="small"
+                  checked={whatsappUnlimitedResend}
+                  onChange={(e) => {
+                    const on = e.target.checked
+                    setWhatsappUnlimitedResend(on)
+                    setWhatsappUnlimitedTestEnabled(on)
+                  }}
+                  color="warning"
+                />
+              }
+              label={
+                <span className="text-xs font-semibold text-amber-800 whitespace-nowrap">
+                  Unlimited resend (test)
+                </span>
+              }
+              sx={{ marginRight: 0, marginLeft: 0 }}
+            />
+            <FormControlLabel
+              control={
+                <Switch
+                  size="small"
                   checked={whatsappMessagingEnabled}
                   onChange={(e) => {
                     const on = e.target.checked
@@ -6593,9 +8592,15 @@ const mapSlotForUi = (slotData) => {
             </div>
           </div>
         </div>
+        )}
 
-        {!showAgriSalesOrders && (
-          <DispatchList setisDispatchtab={setisDispatchtab} viewMode={viewMode} refresh={refresh} />
+        {!showAgriSalesOrders && !slotId && (
+          <DispatchList
+            setisDispatchtab={setisDispatchtab}
+            viewMode={viewMode}
+            refresh={refresh}
+            dispatchSearch={viewMode === "dispatch_process" ? debouncedSearchTerm : ""}
+          />
         )}
 
         {/* Filter orders based on order status for Agri Sales (API already filters; client filter aligns edge cases) */}
@@ -6620,6 +8625,10 @@ const mapSlotForUi = (slotData) => {
               })
             : orders
 
+          if (viewMode === "dispatch_process" && !showAgriSalesOrders) {
+            return null
+          }
+
           return (
             <>
         {/* Pending Rate Approvals banner — visible to SUPER_ADMIN only */}
@@ -6643,9 +8652,314 @@ const mapSlotForUi = (slotData) => {
           </div>
         )}
 
+        {viewMode === "whatsapp_log" && !showAgriSalesOrders && (
+          <div className="mx-2 mb-4 bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 border-b bg-gray-50">
+              <div>
+                <h3 className="text-sm font-semibold text-gray-900">Farm-ready WhatsApp campaigns</h3>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Bulk sends grouped by campaign — live delivered / read / replied stats every 15s
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  fetchWhatsappCampaigns(whatsappCampaignPage, {
+                    expandBatchId: expandedWhatsappBatchId,
+                  })
+                }
+                disabled={whatsappLogLoading}
+                className="text-xs font-semibold px-3 py-1.5 rounded-md border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-50">
+                {whatsappLogLoading ? "Loading…" : "Refresh"}
+              </button>
+            </div>
+
+            <div className="divide-y divide-gray-100">
+              {whatsappLogLoading && whatsappCampaigns.length === 0 ? (
+                <div className="px-4 py-8 text-center text-gray-500 text-sm">Loading campaigns…</div>
+              ) : whatsappCampaigns.length === 0 &&
+                !(whatsappUncategorizedStats && whatsappUncategorizedStats.total > 0) ? (
+                <div className="px-4 py-8 text-center text-gray-500 text-sm">
+                  No campaigns yet. Select orders, name a campaign, and send farm-ready WhatsApp.
+                </div>
+              ) : (
+                whatsappCampaigns.map((campaign) => {
+                  const batchId = campaign.batchId
+                  const isOpen = expandedWhatsappBatchId === batchId
+                  const detailRows = whatsappBatchRows[batchId] || []
+                  const senderName = campaign.sentBy?.name || "—"
+                  return (
+                    <div key={batchId} className="bg-white">
+                      <button
+                        type="button"
+                        className="w-full text-left px-4 py-3 hover:bg-gray-50 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"
+                        onClick={() => {
+                          const next = isOpen ? null : batchId
+                          setExpandedWhatsappBatchId(next)
+                          if (next) fetchWhatsappOutboundForBatch(next)
+                        }}>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-gray-400 text-xs">{isOpen ? "▼" : "▶"}</span>
+                            <span className="text-sm font-semibold text-gray-900 truncate">
+                              {campaign.campaignName || "Unnamed campaign"}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-gray-500 mt-0.5 ml-5">
+                            {moment(campaign.createdAt).format("DD/MM/YYYY HH:mm")} · by {senderName}
+                          </p>
+                        </div>
+                        <WhatsappCampaignStatsBar
+                          stats={campaign.stats}
+                          plannedCount={campaign.plannedCount}
+                        />
+                      </button>
+                      {isOpen ? (
+                        <div className="border-t border-gray-100 bg-gray-50/50 overflow-x-auto">
+                          {whatsappBatchLoading === batchId && detailRows.length === 0 ? (
+                            <div className="px-4 py-6 text-center text-gray-500 text-xs">Loading orders…</div>
+                          ) : detailRows.length === 0 ? (
+                            <div className="px-4 py-6 text-center text-gray-500 text-xs">
+                              No outbound rows for this campaign yet
+                            </div>
+                          ) : (
+                            <table className="min-w-full divide-y divide-gray-200 text-xs">
+                              <thead className="bg-gray-50">
+                                <tr>
+                                  {[
+                                    "Order",
+                                    "Farmer",
+                                    "Mobile",
+                                    "Sent",
+                                    "Delivered",
+                                    "Read",
+                                    "Status",
+                                    "Farmer reply",
+                                    "Action",
+                                  ].map((h) => (
+                                    <th
+                                      key={h}
+                                      className="px-3 py-2 text-left font-semibold text-gray-600 uppercase tracking-wide">
+                                      {h}
+                                    </th>
+                                  ))}
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-gray-100 bg-white">
+                                {detailRows.map((row) => {
+                                  const orderCode =
+                                    row.publicOrderCode ||
+                                    row.orderId?.publicOrderCode ||
+                                    row.orderId?.orderId ||
+                                    "—"
+                                  const statusColors = {
+                                    pending: "bg-gray-100 text-gray-700",
+                                    sent: "bg-blue-100 text-blue-800",
+                                    delivered: "bg-green-100 text-green-800",
+                                    read: "bg-emerald-100 text-emerald-900",
+                                    failed: "bg-red-100 text-red-800",
+                                  }
+                                  return (
+                                    <tr
+                                      key={row._id}
+                                      className="hover:bg-gray-50 cursor-pointer"
+                                      onClick={() => {
+                                        const oid = row.orderId?._id || row.orderId
+                                        if (!oid) return
+                                        const match = (orders || []).find(
+                                          (o) =>
+                                            String(o.details?.orderid) === String(oid) ||
+                                            String(o.details?._id) === String(oid)
+                                        )
+                                        if (match) {
+                                          setSelectedOrder(match)
+                                          setIsOrderModalOpen(true)
+                                          setActiveTab("activity")
+                                        } else {
+                                          Toast.info(
+                                            `Order ${orderCode} — open from orders tab for full details`
+                                          )
+                                        }
+                                      }}>
+                                      <td className="px-3 py-2 font-medium text-gray-900">{orderCode}</td>
+                                      <td className="px-3 py-2 text-gray-700">{row.farmerName || "—"}</td>
+                                      <td className="px-3 py-2 text-gray-700">{row.farmerMobile10 || "—"}</td>
+                                      <td className="px-3 py-2 text-gray-600">
+                                        {row.sentAt ? moment(row.sentAt).format("DD/MM/YY HH:mm") : "—"}
+                                      </td>
+                                      <td className="px-3 py-2 text-gray-600">
+                                        {row.deliveredAt
+                                          ? moment(row.deliveredAt).format("DD/MM/YY HH:mm")
+                                          : "—"}
+                                      </td>
+                                      <td className="px-3 py-2 text-gray-600">
+                                        {row.readAt ? moment(row.readAt).format("DD/MM/YY HH:mm") : "—"}
+                                      </td>
+                                      <td className="px-3 py-2">
+                                        <span
+                                          className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                                            statusColors[row.status] || statusColors.pending
+                                          }`}>
+                                          {row.status || "pending"}
+                                        </span>
+                                      </td>
+                                      <td
+                                        className="px-3 py-2 text-gray-700 max-w-[12rem] truncate"
+                                        title={row.farmerReplyText || ""}>
+                                        {row.farmerReplyText || "—"}
+                                      </td>
+                                      <td className="px-3 py-2 text-gray-500">
+                                        {formatWhatsappFarmerReplyAction(row.farmerReplyAction)}
+                                      </td>
+                                    </tr>
+                                  )
+                                })}
+                              </tbody>
+                            </table>
+                          )}
+                        </div>
+                      ) : null}
+                    </div>
+                  )
+                })
+              )}
+
+              {whatsappUncategorizedStats && whatsappUncategorizedStats.total > 0 ? (
+                <div className="bg-white">
+                  <button
+                    type="button"
+                    className="w-full text-left px-4 py-3 hover:bg-gray-50 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"
+                    onClick={() => {
+                      const next = expandedWhatsappBatchId === "none" ? null : "none"
+                      setExpandedWhatsappBatchId(next)
+                      if (next) fetchWhatsappOutboundForBatch("none")
+                    }}>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-400 text-xs">
+                          {expandedWhatsappBatchId === "none" ? "▼" : "▶"}
+                        </span>
+                        <span className="text-sm font-semibold text-gray-700">Single sends (no campaign)</span>
+                      </div>
+                      <p className="text-[11px] text-gray-500 mt-0.5 ml-5">
+                        Individual farm-ready messages sent before campaigns
+                      </p>
+                    </div>
+                    <WhatsappCampaignStatsBar stats={whatsappUncategorizedStats} />
+                  </button>
+                  {expandedWhatsappBatchId === "none" ? (
+                    <div className="border-t border-gray-100 bg-gray-50/50 overflow-x-auto">
+                      {(whatsappBatchRows.none || []).length === 0 ? (
+                        <div className="px-4 py-6 text-center text-gray-500 text-xs">Loading…</div>
+                      ) : (
+                        <table className="min-w-full divide-y divide-gray-200 text-xs">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              {[
+                                "Order",
+                                "Farmer",
+                                "Mobile",
+                                "Sent",
+                                "Delivered",
+                                "Read",
+                                "Status",
+                                "Farmer reply",
+                              ].map((h) => (
+                                <th
+                                  key={h}
+                                  className="px-3 py-2 text-left font-semibold text-gray-600 uppercase tracking-wide">
+                                  {h}
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-100 bg-white">
+                            {(whatsappBatchRows.none || []).map((row) => {
+                              const orderCode =
+                                row.publicOrderCode ||
+                                row.orderId?.publicOrderCode ||
+                                row.orderId?.orderId ||
+                                "—"
+                              const statusColors = {
+                                pending: "bg-gray-100 text-gray-700",
+                                sent: "bg-blue-100 text-blue-800",
+                                delivered: "bg-green-100 text-green-800",
+                                read: "bg-emerald-100 text-emerald-900",
+                                failed: "bg-red-100 text-red-800",
+                              }
+                              return (
+                                <tr key={row._id} className="hover:bg-gray-50">
+                                  <td className="px-3 py-2 font-medium text-gray-900">{orderCode}</td>
+                                  <td className="px-3 py-2 text-gray-700">{row.farmerName || "—"}</td>
+                                  <td className="px-3 py-2 text-gray-700">{row.farmerMobile10 || "—"}</td>
+                                  <td className="px-3 py-2 text-gray-600">
+                                    {row.sentAt ? moment(row.sentAt).format("DD/MM/YY HH:mm") : "—"}
+                                  </td>
+                                  <td className="px-3 py-2 text-gray-600">
+                                    {row.deliveredAt
+                                      ? moment(row.deliveredAt).format("DD/MM/YY HH:mm")
+                                      : "—"}
+                                  </td>
+                                  <td className="px-3 py-2 text-gray-600">
+                                    {row.readAt ? moment(row.readAt).format("DD/MM/YY HH:mm") : "—"}
+                                  </td>
+                                  <td className="px-3 py-2">
+                                    <span
+                                      className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                                        statusColors[row.status] || statusColors.pending
+                                      }`}>
+                                      {row.status || "pending"}
+                                    </span>
+                                  </td>
+                                  <td
+                                    className="px-3 py-2 text-gray-700 max-w-[12rem] truncate"
+                                    title={row.farmerReplyText || ""}>
+                                    {row.farmerReplyText || "—"}
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+
+            {whatsappCampaignPagination.totalPages > 1 ? (
+              <div className="flex items-center justify-between px-4 py-3 border-t bg-gray-50 text-xs">
+                <span className="text-gray-600">
+                  Page {whatsappCampaignPage} of {whatsappCampaignPagination.totalPages} (
+                  {whatsappCampaignPagination.total} campaigns)
+                </span>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    disabled={whatsappCampaignPage <= 1 || whatsappLogLoading}
+                    onClick={() => fetchWhatsappCampaigns(whatsappCampaignPage - 1)}
+                    className="px-2 py-1 rounded border border-gray-300 disabled:opacity-40">
+                    Prev
+                  </button>
+                  <button
+                    type="button"
+                    disabled={
+                      whatsappCampaignPage >= whatsappCampaignPagination.totalPages || whatsappLogLoading
+                    }
+                    onClick={() => fetchWhatsappCampaigns(whatsappCampaignPage + 1)}
+                    className="px-2 py-1 rounded border border-gray-300 disabled:opacity-40">
+                    Next
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        )}
+
         {/* Table View */}
-        {viewType === "table" && (
-          <div className="overflow-x-auto">
+        {viewType === "table" && viewMode !== "whatsapp_log" && (
+          <div ref={ordersTableViewportRef} className="overflow-x-auto max-w-full">
             {filteredOrders && filteredOrders.length > 0 ? (
               (() => {
                 const farmerOrdersTableColCount = getFarmerOrdersTableColumnCount({
@@ -6663,14 +8977,14 @@ const mapSlotForUi = (slotData) => {
                   <TableVirtuoso
                     className="w-full"
                     data={farmerTableBodyItems}
-                    style={{ height: "calc(100vh - 400px)", width: "100%" }}
+                    style={{ height: ordersListHeight, width: "100%" }}
                     defaultItemHeight={56}
                     increaseViewportBy={{ top: 120, bottom: 400 }}
                     scrollerRef={(el) => {
                       ordersTableScrollRef.current = el
                     }}
                     endReached={() => {
-                      if (showAgriSalesOrders || slotId || viewMode === "dispatch_process") return
+                      if (showAgriSalesOrders || viewMode === "dispatch_process") return
                       if (!hasMoreOrders || loading || loadingMoreOrders) return
                       loadMoreOrdersRef.current?.()
                     }}
@@ -6807,7 +9121,7 @@ const mapSlotForUi = (slotData) => {
                     <th className="px-2 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider min-w-[110px] bg-gray-50">
                       Status
                     </th>
-                    <th className="hidden px-2 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider min-w-[80px] bg-gray-50">
+                    <th className="px-2 py-2 text-left text-xs font-bold text-gray-700 uppercase tracking-wider min-w-[96px] bg-gray-50">
                       Actions
                     </th>
                   </tr>
@@ -7037,72 +9351,20 @@ const mapSlotForUi = (slotData) => {
                           {!(row.isAgriSalesOrder || row.details?.isRamAgriProduct) && (
                             <DownloadPDFButton order={row} />
                           )}
-                          {!(row.isAgriSalesOrder || row.details?.isRamAgriProduct) && !row.details?.dealerOrder && (
-                            <span className="inline-flex items-center gap-0.5">
-                              {whatsappMessagingEnabled &&
-                                !row.details?.whatsappAcceptedSentAt &&
-                                ["ACCEPTED","FARM_READY","READY_FOR_DISPATCH","DISPATCH_PROCESS","DISPATCHED","COMPLETED","PARTIALLY_COMPLETED"].includes(row.orderStatus) && (
-                                <button
-                                  type="button"
-                                  title="WhatsApp: order accepted"
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    setWatiDialogMode("accept")
-                                    setWatiDialogOrder(row)
-                                    setWatiDialogOpen(true)
-                                  }}
-                                  className="p-0.5 rounded text-green-600 hover:bg-green-50"
-                                >
-                                  <FaWhatsapp className="w-4 h-4" />
-                                </button>
-                              )}
-                              {whatsappMessagingEnabled &&
-                                !row.details?.whatsappDispatchSentAt &&
-                                (row.orderStatus === "DISPATCHED" || row.orderStatus === "DISPATCH_PROCESS") &&
-                                ((row.details?.dispatchHistory || []).length > 0 || row.orderStatus === "DISPATCHED") && (
-                                <button
-                                  type="button"
-                                  title="WhatsApp: dispatched"
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    setWatiDialogMode("dispatch")
-                                    setWatiDialogOrder(row)
-                                    setWatiDialogOpen(true)
-                                  }}
-                                  className="p-0.5 rounded text-sky-600 hover:bg-sky-50"
-                                >
-                                  <span className="text-sm leading-none" aria-hidden>🚚</span>
-                                  <FaWhatsapp className="w-3.5 h-3.5 inline ml-px" />
-                                </button>
-                              )}
-                            </span>
-                          )}
-                          {!(row.isAgriSalesOrder || row.details?.isRamAgriProduct) && !row.details?.dealerOrder && (
-                            <span className="inline-flex items-center gap-0.5 flex-wrap">
-                              {row.details?.whatsappAcceptedSentAt && (
-                                <span
-                                  className="text-[9px] px-1 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold"
-                                  title={`Accept WhatsApp sent ${moment(row.details.whatsappAcceptedSentAt).format("DD/MM/YYYY HH:mm")}${
-                                    row.details.whatsappAcceptedMessageKey
-                                      ? ` · ${row.details.whatsappAcceptedMessageKey}`
-                                      : ""
-                                  }`}>
-                                  WA✓
-                                </span>
-                              )}
-                              {row.details?.whatsappDispatchSentAt && (
-                                <span
-                                  className="text-[9px] px-1 py-0.5 rounded bg-sky-100 text-sky-900 font-bold"
-                                  title={`Dispatch WhatsApp sent ${moment(row.details.whatsappDispatchSentAt).format("DD/MM/YYYY HH:mm")}${
-                                    row.details.whatsappDispatchMessageKey
-                                      ? ` · ${row.details.whatsappDispatchMessageKey}`
-                                      : ""
-                                  }`}>
-                                  🚚✓
-                                </span>
-                              )}
-                            </span>
-                          )}
+                          <FarmerOrderWhatsappRowActions
+                            row={row}
+                            whatsappMessagingEnabled={whatsappMessagingEnabled}
+                            whatsappUnlimitedResend={whatsappUnlimitedResend}
+                            onOpenFarmReadyWhatsapp={(orderRow) =>
+                              openFarmReadyWhatsappForRows([orderRow])
+                            }
+                            onOpenWatiDialog={(mode, orderRow) => {
+                              setWatiFromRowSelection(false)
+                              setWatiDialogMode(mode)
+                              setWatiDialogOrder(orderRow)
+                              setWatiDialogOpen(true)
+                            }}
+                          />
                         </div>
                         {(row.isAgriSalesOrder || row.details?.isRamAgriProduct) &&
                           getLinkedNurseryOrderIdString(row) && (
@@ -7178,14 +9440,7 @@ const mapSlotForUi = (slotData) => {
                         )}
                       </td>
                       <td className="px-2 py-2 whitespace-nowrap">
-                        {row.deliveryDate && row.deliveryDate !== "-" ? (
-                          <div className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-1.5 py-0.5">
-                            <span className="text-[10px] font-semibold text-amber-800">📅</span>
-                            <span className="text-[10px] font-bold text-amber-900">{row.deliveryDate}</span>
-                          </div>
-                        ) : (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">-</span>
-                        )}
+                        <DeliveryDateBadge order={row} format={ORDER_DATE_DISPLAY} />
                       </td>
                       <td className="px-2 py-2">
                         {/* Show final quantity for completed Agri Sales orders */}
@@ -7236,7 +9491,7 @@ const mapSlotForUi = (slotData) => {
                         <div className="text-[10px] text-amber-600 mt-0.5 font-medium">{row["remaining Amt"]}</div>
                       </td>
                       {!(showAgriSalesOrders && hidePaymentDetails) && (
-                        <td className="px-2 py-2">
+                        <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
                           <div className="flex flex-col gap-0.5">
                             <div className="text-xs font-semibold text-green-600">{row["Paid Amt"]}</div>
                             <div className="text-[10px] text-amber-600 font-medium">{row["remaining Amt"]}</div>
@@ -7244,6 +9499,16 @@ const mapSlotForUi = (slotData) => {
                               <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full inline-block w-fit font-medium">
                                 Pending
                               </span>
+                            )}
+                            {canAddPayment && (
+                              <button
+                                type="button"
+                                title="Add payment (opens Payments tab)"
+                                onClick={(e) => openOrderForAddPayment(row, e)}
+                                className="mt-0.5 inline-flex items-center gap-0.5 rounded-md border border-green-200 bg-green-50 px-1.5 py-0.5 text-[10px] font-semibold text-green-800 hover:bg-green-100">
+                                <FaCreditCard className="h-2.5 w-2.5 shrink-0" aria-hidden />
+                                + Pay
+                              </button>
                             )}
                           </div>
                         </td>
@@ -7326,6 +9591,7 @@ const mapSlotForUi = (slotData) => {
                           <FarmerOrderStatusSelect
                             key={`order-status-${row.details?.orderid}-${row.orderStatus}`}
                             row={row}
+                            statusOptions={farmerOrderStatusEditOptions}
                             onChange={(newStatus) => handleStatusChange(row, newStatus)}
                             disabled={patchLoading}
                           />
@@ -7351,47 +9617,33 @@ const mapSlotForUi = (slotData) => {
                           </div>
                         )}
                       </td>
-                      <td className="hidden px-2 py-2 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                        {viewMode !== "dispatch_process" &&
-                          row?.orderStatus !== "COMPLETED" &&
-                          row?.orderStatus !== "DISPATCH_PROCESS" &&
-                          row?.orderStatus !== "DISPATCHED" &&
-                          row?.orderStatus !== "READY_FOR_DISPATCH" && (
-                            <div className="flex items-center space-x-2">
-                              {editingRows.has(dataIndex) ? (
-                                <>
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      saveEditedRow(dataIndex, row)
-                                    }}
-                                    className="text-green-500 hover:text-green-700 p-1 rounded hover:bg-green-50"
-                                    title="Save">
-                                    <CheckIcon size={18} />
-                                  </button>
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      cancelEditing(dataIndex)
-                                    }}
-                                    className="text-red-500 hover:text-red-700 p-1 rounded hover:bg-red-50"
-                                    title="Cancel">
-                                    <XIcon size={18} />
-                                  </button>
-                                </>
-                              ) : (
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    toggleEditing(dataIndex, row)
-                                  }}
-                                  className="text-gray-500 hover:text-gray-700 p-1 rounded hover:bg-gray-100"
-                                  title="Edit">
-                                  <Edit2Icon size={18} />
-                                </button>
-                              )}
-                            </div>
-                          )}
+                      <td className="px-2 py-2 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex flex-col gap-0.5 items-start">
+                        {canAddPayment && !(showAgriSalesOrders && hidePaymentDetails) && (
+                          <button
+                            type="button"
+                            title="Add payment"
+                            onClick={(e) => openOrderForAddPayment(row, e)}
+                            className="inline-flex items-center gap-0.5 rounded-md border border-green-200 bg-green-50 px-1.5 py-0.5 text-[10px] font-semibold text-green-800 hover:bg-green-100">
+                            <FaCreditCard className="h-2.5 w-2.5 shrink-0" aria-hidden />
+                            Pay
+                          </button>
+                        )}
+                        {viewMode !== "dispatch_process" && canShowSplitOrderAction(row) && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setSplitOrderDialog({
+                                open: true,
+                                order: buildSplitOrderDialogPayload(row),
+                              })
+                            }}
+                            className="text-teal-600 hover:text-teal-800 p-1 rounded hover:bg-teal-50 text-[11px] font-semibold"
+                            title="Split order">
+                            ✂ Split
+                          </button>
+                        )}
+                        </div>
                         {(row.orderStatus === "DISPATCHED" || row.orderStatus === "DISPATCH_PROCESS") && 
                          row.details?.dispatchHistory && 
                          row.details.dispatchHistory.length > 0 && (() => {
@@ -7496,16 +9748,16 @@ const mapSlotForUi = (slotData) => {
                   : "grid-cols-4"
 
           return (
-          <div className="p-4">
+          <div ref={ordersTableViewportRef} className="p-4 max-w-full">
             {gridOrdersList.length > 0 ? (
               <Virtuoso
                 className="w-full"
                 data={gridRowChunks}
-                style={{ height: "calc(100vh - 400px)", width: "100%" }}
+                style={{ height: ordersListHeight, width: "100%" }}
                 defaultItemHeight={400}
                 increaseViewportBy={{ top: 80, bottom: 400 }}
                 endReached={() => {
-                  if (showAgriSalesOrders || slotId || viewMode === "dispatch_process") return
+                  if (showAgriSalesOrders || viewMode === "dispatch_process") return
                   if (!hasMoreOrders || loading || loadingMoreOrders) return
                   loadMoreOrdersRef.current?.()
                 }}
@@ -7637,6 +9889,20 @@ const mapSlotForUi = (slotData) => {
                                 {!(row.isAgriSalesOrder || row.details?.isRamAgriProduct) && (
                                   <DownloadPDFButton order={row} />
                                 )}
+                                <FarmerOrderWhatsappRowActions
+                                  row={row}
+                                  whatsappMessagingEnabled={whatsappMessagingEnabled}
+                                  whatsappUnlimitedResend={whatsappUnlimitedResend}
+                                  onOpenFarmReadyWhatsapp={(orderRow) =>
+                                    openFarmReadyWhatsappForRows([orderRow])
+                                  }
+                                  onOpenWatiDialog={(mode, orderRow) => {
+                                    setWatiFromRowSelection(false)
+                                    setWatiDialogMode(mode)
+                                    setWatiDialogOrder(orderRow)
+                                    setWatiDialogOpen(true)
+                                  }}
+                                />
                               </div>
                             </div>
                       
@@ -7689,6 +9955,7 @@ const mapSlotForUi = (slotData) => {
                                   <FarmerOrderStatusSelect
                                     key={`grid-status-${row.details?.orderid}-${row.orderStatus}`}
                                     row={row}
+                                    statusOptions={farmerOrderStatusEditOptions}
                                     onChange={(newStatus) => handleStatusChange(row, newStatus)}
                                     disabled={patchLoading}
                                   />
@@ -7783,6 +10050,16 @@ const mapSlotForUi = (slotData) => {
                                 <span className="text-xs text-gray-500">Remaining</span>
                                 <span className="text-xs text-amber-600">{row["remaining Amt"]}</span>
                               </div>
+                              {canAddPayment && !(showAgriSalesOrders && hidePaymentDetails) && (
+                                <button
+                                  type="button"
+                                  title="Add payment"
+                                  onClick={(e) => openOrderForAddPayment(row, e)}
+                                  className="mt-1 w-full inline-flex items-center justify-center gap-1 rounded-md border border-green-200 bg-green-50 px-2 py-1 text-[11px] font-semibold text-green-800 hover:bg-green-100">
+                                  <FaCreditCard className="h-3 w-3 shrink-0" aria-hidden />
+                                  Add payment
+                                </button>
+                              )}
                             </div>
                       
                             {/* Delivery Info */}
@@ -7793,13 +10070,11 @@ const mapSlotForUi = (slotData) => {
                               </div>
                               {row.deliveryDate && row.deliveryDate !== "-" && (
                                 <div className="bg-brand-50 rounded-md p-1.5 border border-brand-200">
-                                  <div className="flex items-center justify-between">
+                                  <div className="flex items-center justify-between gap-2">
                                     <span className="text-xs text-brand-700 font-medium flex items-center">
                                       📅 Delivery Date
                                     </span>
-                                    <span className="text-xs font-semibold text-brand-800">
-                                      {row.deliveryDate}
-                                    </span>
+                                    <DeliveryDateBadge order={row} format={ORDER_DATE_DISPLAY} />
                                   </div>
                                 </div>
                               )}
@@ -7902,46 +10177,19 @@ const mapSlotForUi = (slotData) => {
                             })()}
                       
                             {/* Action Buttons */}
-                            {viewMode !== "dispatch_process" &&
-                              row?.orderStatus !== "COMPLETED" &&
-                              row?.orderStatus !== "DISPATCH_PROCESS" &&
-                              row?.orderStatus !== "DISPATCHED" &&
-                              row?.orderStatus !== "READY_FOR_DISPATCH" && (
-                                <div className="flex items-center justify-between pt-2 border-t border-gray-100">
-                                  {isDispatchManager && (
-                                    <span className="text-xs text-brand-600 font-medium">🚚 DM Access</span>
-                                  )}
-                                  <div className="flex items-center space-x-2 ml-auto">
-                                    {editingRows.has(globalIndex) ? (
-                                      <>
-                                        <button
-                                          onClick={(e) => {
-                                            e.stopPropagation()
-                                            saveEditedRow(globalIndex, row)
-                                          }}
-                                          className="text-green-500 hover:text-green-700">
-                                          <CheckIcon size={16} />
-                                        </button>
-                                        <button
-                                          onClick={(e) => {
-                                            e.stopPropagation()
-                                            cancelEditing(globalIndex)
-                                          }}
-                                          className="text-red-500 hover:text-red-700">
-                                          <XIcon size={16} />
-                                        </button>
-                                      </>
-                                    ) : (
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation()
-                                          toggleEditing(globalIndex, row)
-                                        }}
-                                        className="text-gray-500 hover:text-gray-700">
-                                        <Edit2Icon size={16} />
-                                      </button>
-                                    )}
-                                  </div>
+                            {viewMode !== "dispatch_process" && canShowSplitOrderAction(row) && (
+                                <div className="flex items-center justify-end pt-2 border-t border-gray-100">
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      setSplitOrderDialog({
+                                        open: true,
+                                        order: buildSplitOrderDialogPayload(row),
+                                      })
+                                    }}
+                                    className="text-teal-600 hover:text-teal-800 text-[11px] font-semibold">
+                                    ✂ Split
+                                  </button>
                                 </div>
                               )}
                           </div>
@@ -7971,7 +10219,10 @@ const mapSlotForUi = (slotData) => {
       </div>
 
       {/* Fixed bottom bar for batch actions */}
-      {viewMode !== "booking" && viewMode !== "cancelled" && selectedRows.size > 0 && (
+      {viewMode !== "booking" &&
+        viewMode !== "cancelled" &&
+        viewMode !== "whatsapp_log" &&
+        selectedRows.size > 0 && (
         <div className="fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-sm py-4 border-t shadow-lg z-50">
           <div className="flex justify-between items-center max-w-7xl mx-auto px-4">
             <div className="flex items-center space-x-2">
@@ -7979,14 +10230,55 @@ const mapSlotForUi = (slotData) => {
                 {selectedRows.size} {selectedRows.size === 1 ? "order" : "orders"} selected
               </span>
             </div>
-            <button
-              onClick={() => {
-                setDispatchSourceGroupId(null)
-                setIsDispatchFormOpen(true)
-              }}
-              className="bg-brand-600 text-white px-4 py-2 rounded-md shadow hover:bg-brand-700 transition-colors flex items-center space-x-2">
-              <span>Proceed to Dispatch</span>
-            </button>
+            <div className="flex items-center gap-2">
+              {whatsappMessagingEnabled && (() => {
+                const sel = getSelectedOrderRowsList()
+                const farmReadyDisableReason = getFarmReadyWhatsappDisableReason(
+                  sel,
+                  whatsappUnlimitedResend,
+                  selectedRows
+                )
+                const multiHint = farmReadyWhatsappBulkHint(sel, whatsappUnlimitedResend)
+                return (
+                  <div className="flex flex-col items-end gap-0.5">
+                    <button
+                      type="button"
+                      onClick={openFarmReadyWhatsappForSelection}
+                      disabled={!!farmReadyDisableReason}
+                      title={
+                        farmReadyDisableReason ||
+                        multiHint ||
+                        "Send farm-ready WhatsApp (delivery_final_second)"
+                      }
+                      className="bg-amber-600 text-white px-4 py-2 rounded-md shadow hover:bg-amber-700 transition-colors flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                      <FaWhatsapp />
+                      <span>Send farm-ready WhatsApp</span>
+                    </button>
+                    {farmReadyDisableReason ? (
+                      <span
+                        className="text-[10px] text-amber-900/80 max-w-xs text-right leading-tight"
+                        title={farmReadyDisableReason}>
+                        {farmReadyDisableReason}
+                      </span>
+                    ) : multiHint ? (
+                      <span
+                        className="text-[10px] text-amber-900/80 max-w-xs text-right leading-tight"
+                        title={multiHint}>
+                        {multiHint}
+                      </span>
+                    ) : null}
+                  </div>
+                )
+              })()}
+              <button
+                onClick={() => {
+                  setDispatchSourceGroupId(null)
+                  setIsDispatchFormOpen(true)
+                }}
+                className="bg-brand-600 text-white px-4 py-2 rounded-md shadow hover:bg-brand-700 transition-colors flex items-center space-x-2">
+                <span>Proceed to Dispatch</span>
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -7997,7 +10289,7 @@ const mapSlotForUi = (slotData) => {
           open={isDispatchFormOpen}
           onClose={() => {
             setIsDispatchFormOpen(false)
-            setSelectedRows(new Set())
+            setSelectedRows(new Map())
             setDispatchSourceGroupId(null)
           }}
           selectedOrders={selectedRows}
@@ -8045,10 +10337,30 @@ const mapSlotForUi = (slotData) => {
                   )}
                 </div>
                 <div className="flex items-center space-x-2">
+                  {!(selectedOrder.isAgriSalesOrder || selectedOrder.details?.isRamAgriProduct) && (
+                    <button
+                      type="button"
+                      title="Copy order — same plant, slot, qty, location; new farmer name and payment"
+                      onClick={(e) => {
+                        handleCopyOrder(selectedOrder, e)
+                        setIsOrderModalOpen(false)
+                        setSelectedOrder(null)
+                      }}
+                      className="text-white hover:text-brand-100 transition-colors px-2 py-1 rounded hover:bg-white hover:bg-opacity-10 text-xs font-semibold inline-flex items-center gap-1">
+                      <FaCopy size={14} />
+                      Copy order
+                    </button>
+                  )}
                   <button
-                    onClick={refreshModalData}
-                    className="text-white hover:text-brand-100 transition-colors p-1 rounded hover:bg-white hover:bg-opacity-10">
-                    <RefreshCw size={18} />
+                    type="button"
+                    title="Refresh order data"
+                    disabled={modalContextRefreshing}
+                    onClick={() => void refreshOrderModalContext({ resetEditForm: true })}
+                    className="text-white hover:text-brand-100 transition-colors p-1 rounded hover:bg-white hover:bg-opacity-10 disabled:opacity-50">
+                    <RefreshCw
+                      size={18}
+                      className={modalContextRefreshing ? "animate-spin" : ""}
+                    />
                   </button>
                   <button
                     onClick={() => {
@@ -8152,6 +10464,16 @@ const mapSlotForUi = (slotData) => {
                         Overview
                       </button>
                       <button
+                        onClick={() => setActiveTab("activity")}
+                        className={`inline-flex items-center py-3 px-1 border-b-2 font-medium text-sm transition-colors ${
+                          activeTab === "activity"
+                            ? "border-brand-500 text-brand-600"
+                            : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                        }`}>
+                        <span className="mr-1">📋</span>
+                        Activity
+                      </button>
+                      <button
                         onClick={() => setActiveTab("payments")}
                         className={`inline-flex items-center py-3 px-1 border-b-2 font-medium text-sm transition-colors ${
                           activeTab === "payments"
@@ -8165,37 +10487,16 @@ const mapSlotForUi = (slotData) => {
                       <button
                         onClick={() => {
                           setActiveTab("edit")
-                          // Always initialize updatedObject with current values when edit tab is opened
                           if (selectedOrder) {
-                            const rofTab = normalizeOrderFor(selectedOrder.details?.orderFor)
-                            setUpdatedObject({
-                              rate: selectedOrder.rate,
-                              quantity: selectedOrderCounts.base,
-                              bookingSlot: selectedOrder?.details?.bookingSlot?.slotId,
-                              deliveryDate: selectedOrder?.details?.deliveryDate
-                                ? new Date(selectedOrder.details.deliveryDate)
-                                : null,
-                              salesPerson: selectedOrder?.details?.salesPerson?._id
-                                ? String(selectedOrder.details.salesPerson._id)
-                                : "",
-                              orderFor: rofTab
-                                ? { ...emptyOrderForEditShape(), ...rofTab }
-                                : { ...emptyOrderForEditShape() },
-                              expectedNursery: selectedOrder?.details?.expectedNursery
-                                ? String(selectedOrder.details.expectedNursery).trim().toUpperCase()
-                                : "RB",
-                              ...(canEditPlantSubtype &&
-                              selectedOrder?.details?.plantSubtypeID &&
-                              !selectedOrder?.isAgriSalesOrder &&
-                              !selectedOrder?.details?.isRamAgriProduct
-                                ? {
-                                    plantSubtype: String(
-                                      selectedOrder.details.plantSubtypeID
-                                    ),
-                                  }
-                                : {})
-                            })
+                            setUpdatedObject(
+                              buildOrderEditState(selectedOrder, {
+                                resolvePlantCounts,
+                                canEditPlantSubtype
+                              })
+                            )
                             setQuantityDeltaInput("")
+                            const rofTab = normalizeOrderFor(selectedOrder.details?.orderFor)
+                            setEditBookForExpanded(Boolean(String(rofTab?.name || "").trim()))
                           }
                         }}
                         className={`inline-flex items-center py-3 px-1 border-b-2 font-medium text-sm transition-colors ${
@@ -8350,6 +10651,118 @@ const mapSlotForUi = (slotData) => {
                             </button>
                           </div>
                         </div>
+                      </div>
+                    )}
+
+                    {activeTab === "activity" &&
+                      (selectedOrder?.details?._id || selectedOrder?.details?.orderid) && (
+                      <div className="space-y-4">
+                        <h3 className="text-lg font-medium text-gray-900 flex items-center">
+                          <span className="mr-2">📋</span>
+                          Order activity timeline
+                        </h3>
+                        <p className="text-sm text-gray-500">
+                          Unified audit trail: status, rate, payments, dispatch, and more.
+                        </p>
+                        {Array.isArray(selectedOrder?.details?.whatsappCancelActivityLog) &&
+                          selectedOrder.details.whatsappCancelActivityLog.length > 0 && (
+                          <div className="rounded-lg border border-violet-200 bg-violet-50/40 p-4">
+                            <h4 className="text-sm font-semibold text-violet-900 mb-3 flex items-center gap-2">
+                              <span>💬</span>
+                              WhatsApp cancel / revive chat
+                            </h4>
+                            <div className="space-y-2 max-h-72 overflow-y-auto">
+                              {[...selectedOrder.details.whatsappCancelActivityLog]
+                                .reverse()
+                                .map((entry, idx) => {
+                                  const isFarmer = entry.direction === "inbound";
+                                  const ts = entry.createdAt || entry.updatedAt;
+                                  return (
+                                    <div
+                                      key={entry._id || `cancel-${entry.direction}-${idx}`}
+                                      className={`rounded-lg px-3 py-2 text-sm ${
+                                        isFarmer
+                                          ? "bg-white border border-violet-100 ml-0 mr-8"
+                                          : "bg-violet-100 border border-violet-200 ml-8 mr-0"
+                                      }`}>
+                                      <div className="flex items-center justify-between gap-2 mb-1">
+                                        <span
+                                          className={`text-xs font-semibold ${
+                                            isFarmer ? "text-gray-700" : "text-violet-800"
+                                          }`}>
+                                          {isFarmer ? "Farmer" : "Bot"}
+                                          {entry.action ? ` · ${entry.action}` : ""}
+                                        </span>
+                                        {ts ? (
+                                          <span className="text-[10px] text-gray-500 shrink-0">
+                                            {moment(ts).format("DD/MM/YYYY HH:mm")}
+                                          </span>
+                                        ) : null}
+                                      </div>
+                                      <pre className="whitespace-pre-wrap font-sans text-gray-800 text-xs leading-relaxed">
+                                        {entry.text || "—"}
+                                      </pre>
+                                    </div>
+                                  );
+                                })}
+                            </div>
+                          </div>
+                        )}
+                        {Array.isArray(selectedOrder?.details?.whatsappFarmReadyActivityLog) &&
+                          selectedOrder.details.whatsappFarmReadyActivityLog.length > 0 && (
+                          <div className="rounded-lg border border-green-200 bg-green-50/40 p-4">
+                            <h4 className="text-sm font-semibold text-green-900 mb-3 flex items-center gap-2">
+                              <span>💬</span>
+                              WhatsApp farm-ready chat
+                            </h4>
+                            <div className="space-y-2 max-h-72 overflow-y-auto">
+                              {[...selectedOrder.details.whatsappFarmReadyActivityLog]
+                                .reverse()
+                                .map((entry, idx) => {
+                                  const isFarmer = entry.direction === "inbound";
+                                  const ts = entry.createdAt || entry.updatedAt;
+                                  return (
+                                    <div
+                                      key={entry._id || `${entry.direction}-${idx}`}
+                                      className={`rounded-lg px-3 py-2 text-sm ${
+                                        isFarmer
+                                          ? "bg-white border border-green-100 ml-0 mr-8"
+                                          : "bg-green-100 border border-green-200 ml-8 mr-0"
+                                      }`}>
+                                      <div className="flex items-center justify-between gap-2 mb-1">
+                                        <span
+                                          className={`text-xs font-semibold ${
+                                            isFarmer ? "text-gray-700" : "text-green-800"
+                                          }`}>
+                                          {isFarmer ? "Farmer" : "Bot"}
+                                          {entry.action ? ` · ${entry.action}` : ""}
+                                        </span>
+                                        {ts ? (
+                                          <span className="text-[10px] text-gray-500 shrink-0">
+                                            {moment(ts).format("DD/MM/YYYY HH:mm")}
+                                          </span>
+                                        ) : null}
+                                      </div>
+                                      <pre className="whitespace-pre-wrap font-sans text-gray-800 text-xs leading-relaxed">
+                                        {entry.text || "—"}
+                                      </pre>
+                                    </div>
+                                  );
+                                })}
+                            </div>
+                          </div>
+                        )}
+                        <OrderTimeline
+                          orderId={
+                            selectedOrder.details._id || selectedOrder.details.orderid
+                          }
+                          orderDomain={
+                            selectedOrder?.isAgriSalesOrder ||
+                            selectedOrder?.details?.isRamAgriProduct
+                              ? "AGRI"
+                              : "PLANT"
+                          }
+                        />
                       </div>
                     )}
 
@@ -8537,7 +10950,7 @@ const mapSlotForUi = (slotData) => {
                                       <div className="flex flex-wrap items-center gap-3">
                                         <span className="inline-flex items-center gap-1.5">
                                           <span className="text-gray-500 text-xs">📅</span>
-                                          <span>{selectedOrder?.orderDate || (selectedOrder?.details?.orderBookingDate ? moment(selectedOrder.details.orderBookingDate).format(ORDER_DATE_DISPLAY) : (selectedOrder?.details?.createdAt ? moment(selectedOrder.details.createdAt).format(ORDER_DATE_DISPLAY) : "-"))}</span>
+                                          <span>{selectedOrder?.orderDate || (selectedOrder?.details?.orderBookingDate ? formatOrderDateDisplay(selectedOrder.details.orderBookingDate) : (selectedOrder?.details?.createdAt ? formatOrderDateDisplay(selectedOrder.details.createdAt) : "-"))}</span>
                                         </span>
                                         <span className="text-gray-300">|</span>
                                         <span className="inline-flex items-center gap-1.5">
@@ -8584,16 +10997,22 @@ const mapSlotForUi = (slotData) => {
                                       {selectedOrder?.details?.farmer?.district || "-"}
                                     </td>
                                   </tr>
-                                  {selectedOrder?.details?.farmer?.state && (
+                                  {locationFieldLabel(
+                                    selectedOrder?.details?.farmer?.stateName ||
+                                      selectedOrder?.details?.farmer?.state
+                                  ) ? (
                                     <tr className="hover:bg-gray-50 transition-colors">
                                       <td className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider bg-gray-50">
                                         State
                                       </td>
                                       <td className="px-4 py-3 text-sm font-medium text-gray-900">
-                                        {selectedOrder?.details?.farmer?.state}
+                                        {locationFieldLabel(
+                                          selectedOrder?.details?.farmer?.stateName ||
+                                            selectedOrder?.details?.farmer?.state
+                                        )}
                                       </td>
                                     </tr>
-                                  )}
+                                  ) : null}
                                 </tbody>
                               </table>
                             </div>
@@ -8623,6 +11042,15 @@ const mapSlotForUi = (slotData) => {
                                 {selectedOrder.plantType}
                               </span>
                             </div>
+                            {!selectedOrder?.isAgriSalesOrder &&
+                              !selectedOrder?.details?.isRamAgriProduct && (
+                              <div className="flex flex-col space-y-1">
+                                <span className="text-xs text-gray-500 font-medium">Tray / cavity</span>
+                                <span className="font-medium text-sm text-gray-900">
+                                  {getCavityDisplayLabel(selectedOrder.details?.cavity) || "Not set"}
+                                </span>
+                              </div>
+                            )}
                             <div className="flex flex-col space-y-1">
                               <span className="text-xs text-gray-500 font-medium">Total Quantity</span>
                               <span className="font-medium text-sm text-gray-900">
@@ -8667,15 +11095,12 @@ const mapSlotForUi = (slotData) => {
                                   <button
                                     onClick={() => {
                                       setActiveTab("edit")
-                                      const { base } = resolvePlantCounts(selectedOrder)
-                                      setUpdatedObject({
-                                        rate: selectedOrder.rate,
-                                        quantity: base,
-                                        bookingSlot: selectedOrder?.details?.bookingSlot?.slotId,
-                                        deliveryDate: selectedOrder?.details?.deliveryDate 
-                                          ? new Date(selectedOrder.details.deliveryDate) 
-                                          : null
-                                      })
+                                      setUpdatedObject(
+                                        buildOrderEditState(selectedOrder, {
+                                          resolvePlantCounts,
+                                          canEditPlantSubtype
+                                        })
+                                      )
                                       setQuantityDeltaInput("")
                                     }}
                                     className="text-xs text-brand-600 hover:text-brand-800 underline">
@@ -8683,9 +11108,10 @@ const mapSlotForUi = (slotData) => {
                                   </button>
                                   )}
                                 </div>
-                                <span className="font-bold text-sm text-brand-900">
-                                  {selectedOrder.deliveryDate}
-                                </span>
+                                <DeliveryDateBadge
+                                  order={selectedOrder}
+                                  format={ORDER_DATE_DISPLAY}
+                                />
                               </div>
                             )}
                             <div className="flex flex-col space-y-1">
@@ -8798,7 +11224,7 @@ const mapSlotForUi = (slotData) => {
                                         <div className="flex items-center justify-between">
                                           <span className="font-medium text-amber-900">
                                             {change.newDate
-                                              ? moment(change.newDate).format(ORDER_DATE_DISPLAY)
+                                              ? formatOrderDateDisplay(change.newDate)
                                               : "Not set"}
                                           </span>
                                           {index === 0 && (
@@ -8810,7 +11236,7 @@ const mapSlotForUi = (slotData) => {
                                         {change.previousDate && (
                                           <div className="text-xs text-amber-700 mt-1">
                                             Changed from:{" "}
-                                            {moment(change.previousDate).format(ORDER_DATE_DISPLAY)}
+                                            {formatOrderDateDisplay(change.previousDate)}
                                           </div>
                                         )}
                                         {change.reason && (
@@ -8903,7 +11329,7 @@ const mapSlotForUi = (slotData) => {
                                             Delivery Changed
                                           </span>
                                           <span className="text-xs text-gray-500">
-                                            {moment(change.changedAt).format(ORDER_DATE_DISPLAY)}
+                                            {formatOrderDateDisplay(change.changedAt)}
                                           </span>
                                         </div>
                                         <div className="grid grid-cols-1 md:grid-cols-3 gap-2 items-center">
@@ -9038,7 +11464,7 @@ const mapSlotForUi = (slotData) => {
                                         </span>
                                         <span className="text-xs text-gray-500">
                                           {returnItem.date
-                                            ? moment(returnItem.date).format(ORDER_DATE_DISPLAY)
+                                            ? formatOrderDateDisplay(returnItem.date)
                                             : "N/A"}
                                         </span>
                                       </div>
@@ -9066,6 +11492,34 @@ const mapSlotForUi = (slotData) => {
                               </div>
                             </div>
                           )}
+
+                        {(selectedOrder?.details?._id || selectedOrder?.details?.orderid) && (
+                          <div className="pt-2 border-t border-gray-100">
+                            <h3 className="text-sm font-medium text-gray-900 mb-2 flex items-center">
+                              <span className="mr-1">📋</span>
+                              Recent activity
+                              <button
+                                type="button"
+                                onClick={() => setActiveTab("activity")}
+                                className="ml-2 text-xs text-brand-600 hover:text-brand-800 font-normal"
+                              >
+                                View full timeline →
+                              </button>
+                            </h3>
+                            <OrderTimeline
+                              orderId={
+                                selectedOrder.details._id || selectedOrder.details.orderid
+                              }
+                              orderDomain={
+                                selectedOrder?.isAgriSalesOrder ||
+                                selectedOrder?.details?.isRamAgriProduct
+                                  ? "AGRI"
+                                  : "PLANT"
+                              }
+                              limit={8}
+                            />
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -9117,7 +11571,7 @@ const mapSlotForUi = (slotData) => {
                                   )}
                                   <button
                                     type="button"
-                                    onClick={(e) => { e.stopPropagation(); if (!expandedAddPaymentAccordion) { if (!showPaymentForm) initializePaymentForm(); setShowPaymentForm(true); setExpandedAddPaymentAccordion(true); } }}
+                                    onClick={(e) => { e.stopPropagation(); openAddPaymentForm() }}
                                     className="bg-green-500 text-white px-3 py-1 rounded-lg hover:bg-green-600 text-sm"
                                   >
                                     + Add Payment
@@ -9143,599 +11597,32 @@ const mapSlotForUi = (slotData) => {
                               </Typography>
                             </div>
                           )}
-                        <div className="bg-gray-50 rounded-lg p-4 border">
-                            <h4 className="font-medium text-gray-900 mb-3 text-sm">
-                              Add New Payment
-                            </h4>
-
-                            {/* Payment receipt FIRST — then payee & grid (OCR fills fields below) */}
-                            <div className="mb-4 pb-4 border-b border-gray-200">
-                              <label className="text-sm text-gray-700 font-semibold">
-                                Payment Receipt Photo
-                              </label>
-                              <p className="text-xs text-gray-500 mt-1 mb-2">
-                                {newPayment.modeOfPayment &&
-                                !["Cash", "NEFT/RTGS", "Wallet"].includes(newPayment.modeOfPayment) &&
-                                !newPayment.isWalletPayment
-                                  ? `Required for ${newPayment.modeOfPayment}. `
-                                  : "Optional for Cash & NEFT/RTGS. "}
-                                Upload first — we scan the receipt to fill payee, amount, date, and UTR when possible.
-                              </p>
-                              {(paymentReceiptBusy || upiOcrLoading) && (
-                                <LinearProgress sx={{ maxWidth: 280, width: "100%", height: 3, borderRadius: 1, mb: 1 }} />
-                              )}
-                              <div className="mt-2 inline-block max-w-xs w-full">
-                                <input
-                                  type="file"
-                                  accept="image/*"
-                                  multiple
-                                  disabled={paymentReceiptBusy || upiOcrLoading}
-                                  onChange={async (e) => {
-                                    const files = Array.from(e.target.files)
-                                    if (files.length === 0) return
-                                    try {
-                                      setPaymentReceiptBusy(true)
-                                      const uploadedUrls = (
-                                        await Promise.all(
-                                          files.map(async (file, idx) => {
-                                            const formData = new FormData()
-                                            formData.append("media_key", file)
-                                            formData.append("media_type", "IMAGE")
-                                            formData.append("content_type", "multipart/form-data")
-                                            const instance = NetworkManager(API.MEDIA.UPLOAD, false, {
-                                              abortScope: `pay-receipt-${idx}`,
-                                            })
-                                            const response = await instance.request(formData)
-                                            return (
-                                              response?.data?.data?.media_url ||
-                                              response?.data?.media_url
-                                            )
-                                          })
-                                        )
-                                      ).filter(Boolean)
-                                      setNewPayment((prev) => ({
-                                        ...prev,
-                                        receiptPhoto: [...(prev.receiptPhoto || []), ...uploadedUrls],
-                                      }))
-                                      Toast.success("Images uploaded successfully")
-                                      const first = uploadedUrls[0]
-                                      if (first && /^https?:\/\//i.test(String(first))) {
-                                        setUpiOcrLoading(true)
-                                        try {
-                                          const ocr = await extractUpiFromReceiptImageUrl(first)
-                                          if (ocr?.success && ocr?.data) {
-                                            const d = ocr.data
-                                            setNewPayment((prev) => mergeUpiOcrIntoPaymentState(prev, d))
-                                            Toast.success(
-                                              d.needs_review
-                                                ? "Receipt scanned — verify payee, amount, UTR"
-                                                : "Receipt details filled from screenshot"
-                                            )
-                                          }
-                                        } catch (err) {
-                                          console.warn("UPI OCR:", err)
-                                          Toast.error(err?.message || "Could not read receipt")
-                                        } finally {
-                                          setUpiOcrLoading(false)
-                                        }
-                                      }
-                                    } catch (error) {
-                                      console.error("Error uploading images:", error)
-                                      Toast.error("Failed to upload images")
-                                    } finally {
-                                      setPaymentReceiptBusy(false)
-                                      e.target.value = ""
-                                    }
-                                  }}
-                                  className="w-full max-w-xs px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 disabled:opacity-50"
-                                />
-                                {newPayment.modeOfPayment &&
-                                  newPayment.modeOfPayment !== "Cash" &&
-                                  newPayment.modeOfPayment !== "NEFT/RTGS" &&
-                                  !newPayment.isWalletPayment && (
-                                  <p className="text-xs text-red-600 mt-1">
-                                    {newPayment.modeOfPayment === "UPI" || newPayment.modeOfPayment === "Cheque"
-                                      ? "Receipt photo is mandatory for UPI and Cheque."
-                                      : `Payment image is mandatory for ${newPayment.modeOfPayment} payments`}
-                                  </p>
-                                )}
-                                {newPayment.receiptPhoto && newPayment.receiptPhoto.length > 0 && (
-                                  <div className="mt-2 flex flex-wrap gap-2">
-                                    {newPayment.receiptPhoto.map((photo, index) => (
-                                      <div key={index} className="relative">
-                                        <img
-                                          src={photo}
-                                          alt={`Receipt ${index + 1}`}
-                                          className="w-16 h-16 object-cover rounded border"
-                                        />
-                                        <button
-                                          onClick={() => {
-                                            const updatedPhotos = newPayment.receiptPhoto.filter((_, i) => i !== index)
-                                            handlePaymentInputChange("receiptPhoto", updatedPhotos)
-                                          }}
-                                          className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-xs">
-                                          ×
-                                        </button>
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-
-                            <div className="mb-3 w-full max-w-full">
-                              <label className="text-sm text-gray-500 font-medium">
-                                Payee name (from receipt)
-                              </label>
-                              <input
-                                type="text"
-                                value={newPayment.receiptPayeeName || ""}
-                                onChange={(e) =>
-                                  handlePaymentInputChange("receiptPayeeName", e.target.value)
-                                }
-                                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 mt-1"
-                                placeholder="Filled when you upload a UPI receipt"
-                              />
-                            </div>
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-                              <div>
-                                <label className="text-sm text-gray-500 font-medium">
-                                  Amount (₹)
-                                </label>
-                                <input
-                                  type="number"
-                                  value={newPayment.paidAmount}
-                                  onChange={(e) =>
-                                    handlePaymentInputChange("paidAmount", e.target.value)
-                                  }
-                                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 mt-1"
-                                  placeholder="Enter amount"
-                                />
-                              </div>
-                              <div>
-                                <label className="text-sm text-gray-500 font-medium">
-                                  Payment Date
-                                </label>
-                                <input
-                                  type="date"
-                                  value={newPayment.paymentDate}
-                                  onChange={(e) =>
-                                    handlePaymentInputChange("paymentDate", e.target.value)
-                                  }
-                                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 mt-1"
-                                />
-                              </div>
-                              <div>
-                                <label className="text-sm text-gray-500 font-medium">
-                                  Payment Mode
-                                </label>
-                                <select
-                                  value={newPayment.modeOfPayment}
-                                  onChange={(e) =>
-                                    handlePaymentInputChange("modeOfPayment", e.target.value)
-                                  }
-                                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 mt-1">
-                                  <option value="">Select Mode</option>
-                                  <option value="Cash">Cash</option>
-                                  <option value="UPI">UPI</option>
-                                  <option value="Cheque">Cheque</option>
-                                  <option value="NEFT/RTGS">NEFT/RTGS</option>
-                                  <option value="1341">1341</option>
-                                  <option value="434">434</option>
-                                </select>
-                              </div>
-                              <div>
-                                <label className="text-sm text-gray-500 font-medium">
-                                  Payment Status
-                                </label>
-                                <div
-                                  className={`w-full px-3 py-2 border rounded-lg mt-1 text-sm ${
-                                    getPaymentStatusDisplay().bgColor
-                                  } ${getPaymentStatusDisplay().color} ${
-                                    getPaymentStatusDisplay().borderColor
-                                  }`}>
-                                  {getPaymentStatusDisplay().status} (
-                                  {getPaymentStatusDisplay().message})
-                                </div>
-                              </div>
-                              <div>
-                                <label className="text-sm text-gray-500 font-medium">
-                                  Bank Name
-                                </label>
-                                <input
-                                  type="text"
-                                  value={newPayment.bankName}
-                                  onChange={(e) =>
-                                    handlePaymentInputChange("bankName", e.target.value)
-                                  }
-                                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 mt-1"
-                                  placeholder={
-                                    newPayment.modeOfPayment === "Cheque" ||
-                                    newPayment.modeOfPayment === "NEFT/RTGS"
-                                      ? "Enter bank name"
-                                      : "N/A"
-                                  }
-                                  disabled={
-                                    newPayment.modeOfPayment !== "Cheque" &&
-                                    newPayment.modeOfPayment !== "NEFT/RTGS"
-                                  }
-                                />
-                              </div>
-                            </div>
-
-                            {newPayment.modeOfPayment === "Cheque" && !newPayment.isWalletPayment && (
-                              <div className="mt-4 w-full max-w-full">
-                                <label className="text-sm text-gray-500 font-medium">Cheque number</label>
-                                <input
-                                  type="text"
-                                  value={newPayment.chequeNumber}
-                                  onChange={(e) =>
-                                    handlePaymentInputChange("chequeNumber", e.target.value)
-                                  }
-                                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 mt-1"
-                                  placeholder="Cheque number (for bank reconciliation)"
-                                />
-                              </div>
-                            )}
-                            {(newPayment.modeOfPayment === "UPI" ||
-                              newPayment.modeOfPayment === "NEFT/RTGS") &&
-                              !newPayment.isWalletPayment && (
-                                <div className="mt-4 w-full max-w-full">
-                                  <label className="text-sm text-gray-500 font-medium">UTR</label>
-                                  <input
-                                    type="text"
-                                    value={newPayment.utrNumber}
-                                    onChange={(e) =>
-                                      handlePaymentInputChange("utrNumber", e.target.value)
-                                    }
-                                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 mt-1"
-                                    placeholder="UPI / NEFT / RTGS UTR (for bank match)"
-                                  />
-                                </div>
-                              )}
-                            <div className="mt-4 w-full max-w-full">
-                              <label className="text-sm text-gray-500 font-medium">
-                                Transaction ID / bank reference (optional)
-                              </label>
-                              <input
-                                type="text"
-                                value={newPayment.transactionId}
-                                onChange={(e) =>
-                                  handlePaymentInputChange("transactionId", e.target.value)
-                                }
-                                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 mt-1"
-                                placeholder="Additional bank transaction id if different from UTR"
-                                disabled={
-                                  !newPayment.modeOfPayment ||
-                                  newPayment.isWalletPayment ||
-                                  newPayment.modeOfPayment === "Cash"
-                                }
-                              />
-                            </div>
-                            <div className="mt-4">
-                              <label className="text-sm text-gray-500 font-medium">Remark</label>
-                              <input
-                                type="text"
-                                value={newPayment.remark}
-                                onChange={(e) => handlePaymentInputChange("remark", e.target.value)}
-                                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 mt-1"
-                                placeholder="Optional remark"
-                              />
-                            </div>
-
-                            {/* Wallet Payment Status Indicator */}
-                            {newPayment.isWalletPayment && (
-                              <div className="mt-4 bg-green-50 p-4 rounded-lg border border-green-200">
-                                <div className="flex items-center">
-                                  <div className="text-green-600 mr-2">✓</div>
-                                  <div className="text-sm text-green-800">
-                                    <div className="font-medium">Wallet Payment Ready</div>
-                                    <div className="text-xs text-green-600 mt-1">
-                                      Payment will be processed from wallet with status:{" "}
-                                      {newPayment.paymentStatus || "PENDING"}
-                                      {newPayment.paymentStatus === "PENDING" &&
-                                        " (No wallet impact until collected)"}
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Dealer Wallet Payment Processing Info */}
-                            {selectedOrder?.details?.salesPerson?.jobTitle === "DEALER" &&
-                              newPayment.isWalletPayment &&
-                              dealerWalletData && (
-                                <div className="mt-4 bg-green-50 p-4 rounded-lg border border-green-200">
-                                  <div className="flex items-center">
-                                    <div className="text-green-600 mr-2">✓</div>
-                                    <div className="text-sm text-green-800">
-                                      <div className="font-medium">Dealer Wallet Payment Ready</div>
-                                      <div className="text-xs text-green-600 mt-1">
-                                        Payment will be processed from dealer wallet:{" "}
-                                        {selectedOrder?.details?.salesPerson?.name}
-                                      </div>
-                                    </div>
-                                  </div>
-                                </div>
-                              )}
-
-                            {/* Wallet Payment Option - Show for Accountant, Super Admin, Office Admin, or when dealer is present */}
-                            {(user?.role === "SUPER_ADMIN" ||
-                              user?.role === "ACCOUNTANT" ||
-                              user?.role === "OFFICE_ADMIN" ||
-                              selectedOrder?.details?.salesPerson?.jobTitle === "DEALER") && (
-                              <div className="mt-4">
-                                {/* Dealer Wallet Information */}
-                                {selectedOrder?.details?.salesPerson?.jobTitle === "DEALER" &&
-                                  dealerWalletData && (
-                                    <div className="mb-4 bg-brand-50 p-4 rounded-lg border border-brand-200">
-                                      <div className="flex items-center justify-between mb-2">
-                                        <h5 className="text-sm font-medium text-brand-900">
-                                          Dealer Wallet: {selectedOrder?.details?.salesPerson?.name}
-                                        </h5>
-                                        {dealerWalletLoading && (
-                                          <div className="text-xs text-brand-600">Loading...</div>
-                                        )}
-                                      </div>
-                                      <div className="grid grid-cols-2 gap-4 text-sm">
-                                        <div>
-                                          <div className="text-brand-600 font-medium">
-                                            Available Balance
-                                          </div>
-                                          <div className="text-lg font-bold text-brand-900">
-                                            ₹
-                                            {(
-                                              dealerWalletData?.financial?.availableAmount ?? 0
-                                            )?.toLocaleString()}
-                                          </div>
-                                        </div>
-                                        <div>
-                                          <div className="text-brand-600 font-medium">
-                                            Total Orders
-                                          </div>
-                                          <div className="text-lg font-bold text-brand-900">
-                                            ₹
-                                            {(
-                                              dealerWalletData?.financial?.totalOrderAmount ?? 0
-                                            )?.toLocaleString()}
-                                          </div>
-                                        </div>
-                                      </div>
-                                    </div>
-                                  )}
-
-                                <div className="flex items-center justify-between bg-gray-50 p-4 rounded-xl">
-                                  <div className="flex items-center">
-                                    <input
-                                      type="checkbox"
-                                      id="walletPayment"
-                                      checked={newPayment.isWalletPayment}
-                                      onChange={(e) =>
-                                        handlePaymentInputChange(
-                                          "isWalletPayment",
-                                          e.target.checked
-                                        )
-                                      }
-                                      className="mr-3 w-4 h-4 text-green-600 bg-gray-100 border-gray-300 rounded focus:ring-green-500"
-                                    />
-                                    <label
-                                      htmlFor="walletPayment"
-                                      className="text-gray-700 font-medium">
-                                      Pay from Wallet
-                                    </label>
-                                  </div>
-                                  <div>
-                                    <div className="text-xs text-gray-500">
-                                      {selectedOrder?.details?.salesPerson?.jobTitle === "DEALER"
-                                        ? "Dealer Wallet Balance"
-                                        : "Wallet Balance"}
-                                    </div>
-                                    <div
-                                      className={`text-base font-bold ${
-                                        newPayment.isWalletPayment &&
-                                        Number(newPayment.paidAmount) >
-                                          (selectedOrder?.details?.salesPerson?.jobTitle ===
-                                          "DEALER"
-                                            ? dealerWalletData?.financial?.availableAmount ?? 0
-                                            : walletData?.financial?.availableAmount ?? 0)
-                                          ? "text-red-600"
-                                          : "text-gray-800"
-                                      }`}>
-                                      ₹
-                                      {(selectedOrder?.details?.salesPerson?.jobTitle === "DEALER"
-                                        ? dealerWalletData?.financial?.availableAmount ?? 0
-                                        : walletData?.financial?.availableAmount ?? 0
-                                      )?.toLocaleString()}
-                                    </div>
-                                  </div>
-                                </div>
-
-                                {/* Warning messages for wallet payment */}
-                                {newPayment.isWalletPayment && (
-                                  <div className="mt-2">
-                                    {Number(newPayment.paidAmount) >
-                                      (selectedOrder?.details?.salesPerson?.jobTitle === "DEALER"
-                                        ? dealerWalletData?.financial?.availableAmount ?? 0
-                                        : walletData?.financial?.availableAmount ?? 0) && (
-                                      <div className="bg-red-50 p-3 rounded-lg">
-                                        <div className="text-sm text-red-600 font-medium">
-                                          Insufficient wallet balance! Available: ₹
-                                          {(selectedOrder?.details?.salesPerson?.jobTitle ===
-                                          "DEALER"
-                                            ? dealerWalletData?.financial?.availableAmount ?? 0
-                                            : walletData?.financial?.availableAmount ?? 0
-                                          )?.toLocaleString()}
-                                        </div>
-                                      </div>
-                                    )}
-
-                                    {!newPayment.paidAmount && (
-                                      <div className="bg-amber-50 p-3 rounded-lg">
-                                        <div className="text-sm text-amber-600 font-medium">
-                                          Please enter payment amount
-                                        </div>
-                                      </div>
-                                    )}
-
-                                    {Number(newPayment.paidAmount) <=
-                                      (walletData?.financial?.availableAmount ?? 0) &&
-                                      newPayment.paidAmount && (
-                                        <div className="bg-green-50 p-3 rounded-lg">
-                                          <div className="text-sm text-green-600 font-medium">
-                                            Sufficient balance available
-                                          </div>
-                                        </div>
-                                      )}
-                                  </div>
-                                )}
-                              </div>
-                            )}
-
-                            {/* Dealer Wallet Payment Option for Accountants and Office Admins (when sales person is dealer) */}
-                            {(user?.role === "SUPER_ADMIN" ||
-                              user?.role === "ACCOUNTANT" ||
-                              user?.role === "OFFICE_ADMIN") &&
-                              !isDealer &&
-                              selectedOrder?.details?.salesPerson?.jobTitle === "DEALER" && (
-                                <div className="mt-4">
-                                  <div className="bg-brand-50 p-4 rounded-xl border border-brand-200">
-                                    <div className="flex items-center justify-between mb-3">
-                                      <div className="flex items-center">
-                                        <div className="w-8 h-8 bg-brand-100 rounded-full flex items-center justify-center mr-3">
-                                          <FaCreditCard className="text-brand-600 text-sm" />
-                                        </div>
-                                        <div>
-                                          <div className="text-sm font-medium text-brand-900">
-                                            Dealer Wallet Payment
-                                          </div>
-                                          <div className="text-xs text-brand-600">
-                                            Sales Person:{" "}
-                                            {selectedOrder?.details?.salesPerson?.name}
-                                          </div>
-                                        </div>
-                                      </div>
-                                      <div className="text-right">
-                                        <div className="text-xs text-brand-600">
-                                          Available Balance
-                                        </div>
-                                        <div className="text-lg font-bold text-brand-900">
-                                          ₹
-                                          {(
-                                            dealerWalletData?.financial?.availableAmount ?? 0
-                                          )?.toLocaleString()}
-                                        </div>
-                                      </div>
-                                    </div>
-
-                                    <div className="flex items-center">
-                                      <input
-                                        type="checkbox"
-                                        id="dealerWalletPayment"
-                                        checked={newPayment.isWalletPayment}
-                                        onChange={(e) =>
-                                          handlePaymentInputChange(
-                                            "isWalletPayment",
-                                            e.target.checked
-                                          )
-                                        }
-                                        className="mr-3 w-4 h-4 text-brand-600 bg-brand-100 border-brand-300 rounded focus:ring-brand-500"
-                                      />
-                                      <label
-                                        htmlFor="dealerWalletPayment"
-                                        className="text-brand-800 font-medium">
-                                        Pay from Dealer&apos;s Wallet
-                                      </label>
-                                    </div>
-
-                                    {/* Warning messages for dealer wallet payment */}
-                                    {newPayment.isWalletPayment && (
-                                      <div className="mt-3 space-y-2">
-                                        {Number(newPayment.paidAmount) >
-                                          (dealerWalletData?.financial?.availableAmount ?? 0) && (
-                                          <div className="bg-red-50 p-3 rounded-lg border border-red-200">
-                                            <div className="text-sm text-red-600 font-medium">
-                                              ⚠️ Insufficient dealer wallet balance! Available: ₹
-                                              {(
-                                                dealerWalletData?.financial?.availableAmount ?? 0
-                                              )?.toLocaleString()}
-                                            </div>
-                                          </div>
-                                        )}
-
-                                        {!newPayment.paidAmount && (
-                                          <div className="bg-amber-50 p-3 rounded-lg border border-amber-200">
-                                            <div className="text-sm text-amber-600 font-medium">
-                                              ℹ️ Please enter payment amount
-                                            </div>
-                                          </div>
-                                        )}
-
-                                        {Number(newPayment.paidAmount) <=
-                                          (dealerWalletData?.financial?.availableAmount ?? 0) &&
-                                          newPayment.paidAmount && (
-                                            <div className="bg-green-50 p-3 rounded-lg border border-green-200">
-                                              <div className="text-sm text-green-600 font-medium">
-                                                ✅ Sufficient dealer balance available
-                                              </div>
-                                            </div>
-                                          )}
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
-                              )}
-                            <div className="flex items-center justify-end space-x-2 mt-4">
-                              <button
-                                onClick={() => { setShowPaymentForm(false); setExpandedAddPaymentAccordion(false); }}
-                                className="px-4 py-2 text-gray-600 border rounded-lg hover:bg-gray-50">
-                                Cancel
-                              </button>
-                              {canAddPayment && (
-                                <button
-                                  onClick={() =>
-                                    handleAddPaymentWithConfirm(selectedOrder.details.orderid)
-                                  }
-                                  disabled={
-                                    paymentReceiptBusy ||
-                                    upiOcrLoading ||
-                                    !newPayment.paidAmount ||
-                                    (!newPayment.isWalletPayment && !newPayment.modeOfPayment) ||
-                                    (isDealer &&
-                                      newPayment.isWalletPayment &&
-                                      (Number(newPayment.paidAmount) >
-                                        (walletData?.financial?.availableAmount ?? 0) ||
-                                        !newPayment.paidAmount)) ||
-                                    (!isDealer &&
-                                      selectedOrder?.details?.salesPerson?.jobTitle === "DEALER" &&
-                                      newPayment.isWalletPayment &&
-                                      (Number(newPayment.paidAmount) >
-                                        (dealerWalletData?.financial?.availableAmount ?? 0) ||
-                                        !newPayment.paidAmount))
-                                  }
-                                  className={`px-4 py-2 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed ${
-                                    (isDealer &&
-                                      newPayment.isWalletPayment &&
-                                      (Number(newPayment.paidAmount) >
-                                        (walletData?.financial?.availableAmount ?? 0) ||
-                                        !newPayment.paidAmount)) ||
-                                    (!isDealer &&
-                                      selectedOrder?.details?.salesPerson?.jobTitle === "DEALER" &&
-                                      newPayment.isWalletPayment &&
-                                      (Number(newPayment.paidAmount) >
-                                        (dealerWalletData?.financial?.availableAmount ?? 0) ||
-                                        !newPayment.paidAmount))
-                                      ? "bg-gray-300 text-gray-500"
-                                      : "bg-green-500 text-white hover:bg-green-600"
-                                  }`}>
-                                  Add Payment
-                                  {isOfficeAdmin && (
-                                    <span className="ml-1 text-xs">(PENDING only)</span>
-                                  )}
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                          </div>
+                        <CompactPaymentForm
+                          order={selectedOrder?.details || selectedOrder}
+                          user={user}
+                          balanceDue={paymentSummary?.balance || 0}
+                          walletData={walletData}
+                          dealerWalletData={dealerWalletData}
+                          isDealer={isDealer}
+                          loading={loading || paymentReceiptBusy || upiOcrLoading}
+                          onUploadReceiptFile={uploadPaymentReceiptFiles}
+                          onApplyOcr={applyOcrToPaymentDraft}
+                          onSubmit={(payments) =>
+                            handleAddPaymentsBatch(selectedOrder.details.orderid, payments)
+                          }
+                        />
+                        <div className="flex items-center justify-end space-x-2 mt-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowPaymentForm(false)
+                              setExpandedAddPaymentAccordion(false)
+                            }}
+                            className="px-3 py-1.5 text-xs text-gray-600 border rounded-lg hover:bg-gray-50">
+                            Cancel
+                          </button>
+                        </div>
+                        </div>
                           </AccordionDetails>
                         </Accordion>
 
@@ -9748,7 +11635,7 @@ const mapSlotForUi = (slotData) => {
                               {canAddPayment && (
                                 <button
                                   type="button"
-                                  onClick={(e) => { e.stopPropagation(); if (!showPaymentForm) initializePaymentForm(); setShowPaymentForm(true); setExpandedAddPaymentAccordion(true); }}
+                                  onClick={(e) => { e.stopPropagation(); openAddPaymentForm() }}
                                   className="text-green-600 hover:text-green-700 text-sm font-medium"
                                 >
                                   + Add Payment
@@ -9774,6 +11661,9 @@ const mapSlotForUi = (slotData) => {
                                     (String(payment.modeOfPayment || "").toUpperCase().includes("UPI") ||
                                       String(payment.modeOfPayment || "").toUpperCase().includes("QR"))
                                   const payId = payment?._id != null ? String(payment._id) : String(pIndex)
+                                  const receiptUrls = orderPaymentReceiptUrls(payment)
+                                    .map(resolvePaymentMediaUrl)
+                                    .filter(Boolean)
                                   return (
                                     <div key={pIndex} className="p-3 hover:bg-gray-50 flex flex-col gap-1.5">
                                       <div className="flex items-center justify-between flex-wrap gap-2">
@@ -9784,7 +11674,7 @@ const mapSlotForUi = (slotData) => {
                                             {payment.paymentStatus}
                                           </span>
                                           {payment.isWalletPayment && <span className="px-2 py-0.5 text-xs rounded-full bg-brand-100 text-brand-700">Wallet</span>}
-                                          <span className="text-xs text-gray-500">{moment(payment.paymentDate).format(ORDER_DATE_DISPLAY)}</span>
+                                          <span className="text-xs text-gray-500">{formatOrderDateDisplay(payment.paymentDate)}</span>
                                         </div>
                                         <div className="flex items-center gap-2 flex-wrap">
                                           {showVerifyIcici && (
@@ -9800,7 +11690,7 @@ const mapSlotForUi = (slotData) => {
                                           {canAddPayment && (
                                             <button
                                               type="button"
-                                              onClick={() => { if (!showPaymentForm) initializePaymentForm(); setShowPaymentForm(true); setExpandedAddPaymentAccordion(true); }}
+                                              onClick={() => openAddPaymentForm()}
                                               className="text-xs text-green-600 hover:text-green-700 font-medium"
                                             >
                                               + Add payment
@@ -9835,6 +11725,21 @@ const mapSlotForUi = (slotData) => {
                                           Ref: {refLine}
                                         </div>
                                       ) : null}
+                                      {receiptUrls.length > 0 ? (
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            setPaymentAttachModal({
+                                              title: `Payment ₹${payment.paidAmount} · ${payment.modeOfPayment || "—"}`,
+                                              urls: receiptUrls,
+                                            })
+                                          }
+                                          className="inline-flex items-center gap-1 text-xs font-semibold text-teal-700 hover:text-teal-900 hover:underline w-fit"
+                                        >
+                                          <FileImage className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                                          View screenshot{receiptUrls.length > 1 ? ` (${receiptUrls.length})` : ""}
+                                        </button>
+                                      ) : null}
                                       {payment.remark && <div className="w-full text-xs text-gray-600">Remark: {payment.remark}</div>}
                                     </div>
                                   )
@@ -9846,7 +11751,7 @@ const mapSlotForUi = (slotData) => {
                                 {canAddPayment && (
                                   <button
                                     type="button"
-                                    onClick={() => { if (!showPaymentForm) initializePaymentForm(); setShowPaymentForm(true); setExpandedAddPaymentAccordion(true); }}
+                                    onClick={() => openAddPaymentForm()}
                                     className="mt-2 text-green-600 hover:text-green-700 text-sm font-medium"
                                   >
                                     + Add Payment
@@ -9860,729 +11765,62 @@ const mapSlotForUi = (slotData) => {
                     )}
 
                     {activeTab === "edit" && canEditOrderCore && (
-                      <div className="space-y-6">
-                        <div className="flex items-center justify-between">
-                          <h3 className="text-lg font-medium text-gray-900">Edit Order Details</h3>
-                        </div>
-                        <div className="bg-gray-50 rounded-lg p-6">
-                          {/* Current Order Information */}
-                          {selectedOrder?.details?.bookingSlot && (
-                            <div className="mb-4 p-3 bg-brand-50 rounded-lg border border-brand-200">
-                              <h4 className="text-sm font-medium text-brand-900 mb-2">
-                                Current Order Information
-                              </h4>
-                              <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-sm">
-                                <div>
-                                  <span className="text-brand-700">Current Delivery Period:</span>{" "}
-                                  {selectedOrder.details.bookingSlot.startDay} -{" "}
-                                  {selectedOrder.details.bookingSlot.endDay}
-                                </div>
-                                <div>
-                                  <span className="text-brand-700">Current Delivery Date:</span>{" "}
-                                  {selectedOrder.deliveryDate || "Not set"}
-                                </div>
-                                <div>
-                                  <span className="text-brand-700">Current Quantity:</span>{" "}
-                                  {selectedOrderCounts.base?.toLocaleString()}
-                                  {selectedOrderCounts.additional > 0 && (
-                                    <span className="ml-2 text-sm text-brand-600">
-                                      (+{selectedOrderCounts.additional?.toLocaleString()} extra, total{" "}
-                                      {selectedOrderCounts.total?.toLocaleString()})
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          )}
-
-                          {!selectedOrder?.isAgriSalesOrder &&
-                            !selectedOrder?.details?.isRamAgriProduct && (
-                            <div className="mb-4 rounded-lg border border-gray-200 bg-white p-4 space-y-3">
-                              <h4 className="text-sm font-medium text-gray-900">Book for &amp; nursery</h4>
-                              <p className="text-xs text-gray-500">
-                                Who the delivery is for (if not the booking farmer) and which nursery site is
-                                expected. Editable until the order is completed or cancelled.
-                              </p>
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                <div>
-                                  <label className="text-xs text-gray-600">Book-for name</label>
-                                  <input
-                                    type="text"
-                                    className="mt-1 w-full rounded border px-2 py-2 text-sm"
-                                    value={updatedObject?.orderFor?.name ?? ""}
-                                    onChange={(e) =>
-                                      setUpdatedObject((prev) => ({
-                                        ...prev,
-                                        orderFor: {
-                                          ...emptyOrderForEditShape(),
-                                          ...(prev?.orderFor || {}),
-                                          name: e.target.value
-                                        }
-                                      }))
-                                    }
-                                  />
-                                </div>
-                                <div>
-                                  <label className="text-xs text-gray-600">Book-for mobile</label>
-                                  <input
-                                    type="text"
-                                    inputMode="numeric"
-                                    className="mt-1 w-full rounded border px-2 py-2 text-sm"
-                                    value={updatedObject?.orderFor?.mobileNumber ?? ""}
-                                    onChange={(e) => {
-                                      const digits = e.target.value.replace(/[^0-9]/g, "").slice(0, 10)
-                                      setUpdatedObject((prev) => ({
-                                        ...prev,
-                                        orderFor: {
-                                          ...emptyOrderForEditShape(),
-                                          ...(prev?.orderFor || {}),
-                                          mobileNumber: digits
-                                        }
-                                      }))
-                                    }}
-                                  />
-                                </div>
-                                <div className="md:col-span-2">
-                                  <label className="text-xs text-gray-600">Address (optional)</label>
-                                  <textarea
-                                    rows={2}
-                                    className="mt-1 w-full rounded border px-2 py-2 text-sm"
-                                    placeholder="Extra address / landmark"
-                                    value={updatedObject?.orderFor?.address ?? ""}
-                                    onChange={(e) =>
-                                      setUpdatedObject((prev) => ({
-                                        ...prev,
-                                        orderFor: {
-                                          ...emptyOrderForEditShape(),
-                                          ...(prev?.orderFor || {}),
-                                          address: e.target.value
-                                        }
-                                      }))
-                                    }
-                                  />
-                                </div>
-                                <div className="md:col-span-2">
-                                  <Box sx={{ mt: 0.5 }}>
-                                    <Typography
-                                      variant="caption"
-                                      color="text.secondary"
-                                      sx={{ display: "block", mb: 0.5 }}>
-                                      Location for beneficiary (state → village)
-                                    </Typography>
-                                    <LocationSelector
-                                      selectedState={updatedObject?.orderFor?.state ?? ""}
-                                      selectedDistrict={updatedObject?.orderFor?.district ?? ""}
-                                      selectedTaluka={updatedObject?.orderFor?.taluka ?? ""}
-                                      selectedVillage={updatedObject?.orderFor?.village ?? ""}
-                                      onStateChange={(value) =>
-                                        setUpdatedObject((prev) => ({
-                                          ...prev,
-                                          orderFor: {
-                                            ...emptyOrderForEditShape(),
-                                            ...(prev?.orderFor || {}),
-                                            state: value,
-                                            stateName: value,
-                                            district: "",
-                                            districtName: "",
-                                            taluka: "",
-                                            talukaName: "",
-                                            village: ""
-                                          }
-                                        }))
-                                      }
-                                      onDistrictChange={(value) =>
-                                        setUpdatedObject((prev) => ({
-                                          ...prev,
-                                          orderFor: {
-                                            ...emptyOrderForEditShape(),
-                                            ...(prev?.orderFor || {}),
-                                            district: value,
-                                            districtName: value,
-                                            taluka: "",
-                                            talukaName: "",
-                                            village: ""
-                                          }
-                                        }))
-                                      }
-                                      onTalukaChange={(value) =>
-                                        setUpdatedObject((prev) => ({
-                                          ...prev,
-                                          orderFor: {
-                                            ...emptyOrderForEditShape(),
-                                            ...(prev?.orderFor || {}),
-                                            taluka: value,
-                                            talukaName: value,
-                                            village: ""
-                                          }
-                                        }))
-                                      }
-                                      onVillageChange={(value) =>
-                                        setUpdatedObject((prev) => ({
-                                          ...prev,
-                                          orderFor: {
-                                            ...emptyOrderForEditShape(),
-                                            ...(prev?.orderFor || {}),
-                                            village: value
-                                          }
-                                        }))
-                                      }
-                                      required={false}
-                                      showLabels={false}
-                                      compact={true}
-                                      autoFill={true}
-                                      className="mt-1"
-                                      disabled={false}
-                                    />
-                                  </Box>
-                                </div>
-                                <div>
-                                  <label className="text-xs text-gray-600">Expected nursery</label>
-                                  <select
-                                    className="mt-1 w-full rounded border px-2 py-2 text-sm bg-white"
-                                    value={updatedObject?.expectedNursery ?? "RB"}
-                                    onFocus={() => {
-                                      void (async () => {
-                                        try {
-                                          const inst = NetworkManager(API.NURSERY_SITE.LIST)
-                                          const res = await inst.request({}, { activeOnly: "true" })
-                                          const raw = res?.data?.data
-                                          setNurserySiteEditOptions(Array.isArray(raw) ? raw : [])
-                                        } catch {
-                                          setNurserySiteEditOptions([])
-                                        }
-                                      })()
-                                    }}
-                                    onChange={(e) =>
-                                      setUpdatedObject((prev) => ({
-                                        ...prev,
-                                        expectedNursery: String(e.target.value || "").toUpperCase()
-                                      }))
-                                    }>
-                                    {nurserySiteEditOptions.length === 0 ? (
-                                      <option value="RB">RB</option>
-                                    ) : (
-                                      nurserySiteEditOptions.map((s) => (
-                                        <option key={s._id} value={String(s.code || "").toUpperCase()}>
-                                          {s.name} ({String(s.code || "").toUpperCase()})
-                                        </option>
-                                      ))
-                                    )}
-                                  </select>
-                                </div>
-                              </div>
-                            </div>
-                          )}
-
-                          {canEditPlantSubtype &&
-                            !selectedOrder?.isAgriSalesOrder &&
-                            !selectedOrder?.details?.isRamAgriProduct &&
-                            selectedOrder?.details?.plantID && (
-                              <div className="mb-4 max-w-md">
-                                <label className="text-sm text-gray-500 font-medium">
-                                  Plant subtype
-                                </label>
-                                {orderEditSubtypesLoading ? (
-                                  <div className="mt-1 text-sm text-gray-500">
-                                    Loading subtypes...
-                                  </div>
-                                ) : (
-                                  <select
-                                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 mt-1 bg-white"
-                                    value={
-                                      updatedObject?.plantSubtype != null
-                                        ? String(updatedObject.plantSubtype)
-                                        : String(
-                                            selectedOrder?.details?.plantSubtypeID ||
-                                              ""
-                                          )
-                                    }
-                                    onChange={(e) =>
-                                      handleOrderEditPlantSubtypeChange(e.target.value)
-                                    }>
-                                    {(orderEditSubtypes || []).map((st) => (
-                                      <option key={st.value} value={st.value}>
-                                        {st.label}
-                                      </option>
-                                    ))}
-                                  </select>
-                                )}
-                                <p className="text-xs text-amber-700 mt-1">
-                                  Changing subtype clears the delivery slot — pick a new
-                                  delivery date below for the new subtype.
-                                </p>
-                              </div>
-                            )}
-
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                            <div>
-                              <label className="text-sm text-gray-500 font-medium mb-1 block">Rate (₹)</label>
-
-                              {/* Pending rate change — show as a visual card instead of an editable field */}
-                              {pendingRateRequest && pendingRateRequest.status === "PENDING" ? (
-                                <div className="rounded-xl border-2 border-amber-400 bg-amber-50 overflow-hidden">
-                                  {/* Header badge */}
-                                  <div className="flex items-center gap-1.5 bg-amber-400 px-3 py-1.5">
-                                    <span className="text-sm">⏳</span>
-                                    <span className="text-xs font-bold text-amber-950 tracking-wide uppercase">
-                                      Approval Pending
-                                    </span>
-                                  </div>
-                                  {/* Rate values */}
-                                  <div className="px-3 py-3">
-                                    {/* Current (locked) rate */}
-                                    <div className="flex items-center justify-between mb-2">
-                                      <span className="text-xs text-gray-500 font-medium">Current Rate</span>
-                                      <span className="text-base font-semibold text-gray-500 line-through">
-                                        ₹{pendingRateRequest.previousRate}
-                                      </span>
-                                    </div>
-                                    {/* Requested new rate — prominent */}
-                                    <div className="flex items-center justify-between bg-white rounded-lg border border-amber-300 px-3 py-2">
-                                      <span className="text-xs font-semibold text-amber-800">New Rate (Requested)</span>
-                                      <span className="text-xl font-bold text-amber-700">
-                                        ₹{pendingRateRequest.requestedRate}
-                                      </span>
-                                    </div>
-                                    {/* Meta */}
-                                    {pendingRateRequest.requestedBy?.name && (
-                                      <p className="text-xs text-gray-500 mt-2">
-                                        By <strong>{pendingRateRequest.requestedBy.name}</strong>
-                                        {pendingRateRequest.tokenExpiresAt && (
-                                          <span className="ml-1 text-amber-600">
-                                            · expires {moment(pendingRateRequest.tokenExpiresAt).fromNow()}
-                                          </span>
-                                        )}
-                                      </p>
-                                    )}
-                                  </div>
-                                </div>
-                              ) : (
-                                <>
-                                  <input
-                                    type="number"
-                                    value={
-                                      updatedObject?.rate !== undefined
-                                        ? updatedObject.rate
-                                        : selectedOrder?.rate
-                                    }
-                                    onChange={(e) => handleInputChange(0, "rate", e.target.value)}
-                                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500"
-                                  />
-                                  {updatedObject?.rate !== undefined &&
-                                    Number(updatedObject.rate) !== Number(selectedOrder?.rate) &&
-                                    !isSuperAdmin && (
-                                      <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
-                                        <p className="text-xs font-semibold text-amber-800 flex items-center gap-1">
-                                          <span>⚠️</span> Requires Super Admin Approval
-                                        </p>
-                                        <div className="mt-1.5 flex items-center gap-2">
-                                          <span className="text-sm text-gray-400 line-through">₹{selectedOrder?.rate}</span>
-                                          <span className="text-gray-400">→</span>
-                                          <span className="text-base font-bold text-amber-700">₹{updatedObject.rate}</span>
-                                        </div>
-                                        <p className="text-xs text-amber-600 mt-1">
-                                          A WhatsApp approval link will be sent to the Super Admin.
-                                        </p>
-                                      </div>
-                                    )}
-                                </>
-                              )}
-                            </div>
-                            <div>
-                              <label className="text-sm text-gray-500 font-medium">Quantity Delta</label>
-                              {!canEditOrderPlantQuantity(selectedOrder?.orderStatus) ? (
-                                <div className="mt-1 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                                  Plant quantity is locked after <strong>Ready for dispatch</strong> or for completed/cancelled orders.
-                                </div>
-                              ) : (
-                                <>
-                                  <input
-                                    type="text"
-                                    value={quantityDeltaInput}
-                                    onChange={(e) => setQuantityDeltaInput(e.target.value)}
-                                    placeholder="+500 or -300"
-                                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 mt-1"
-                                  />
-                                  <div className="mt-2 rounded-lg border border-gray-200 bg-gray-50 p-2">
-                                    <div className="grid grid-cols-3 gap-2 text-[11px]">
-                                      <div>
-                                        <div className="text-gray-500">Base</div>
-                                        <div className="font-semibold text-gray-900">
-                                          {editBaseQuantity.toLocaleString("en-IN")}
-                                        </div>
-                                      </div>
-                                      <div>
-                                        <div className="text-gray-500">Delta</div>
-                                        <div className={`font-semibold ${quantityDeltaParsed.valid ? "text-brand-700" : "text-red-600"}`}>
-                                          {quantityDeltaParsed.valid
-                                            ? quantityDeltaParsed.display
-                                            : "Invalid"}
-                                        </div>
-                                      </div>
-                                      <div>
-                                        <div className="text-gray-500">Final</div>
-                                        <div className="font-semibold text-gray-900">
-                                          {Number.isFinite(editFinalQuantity)
-                                            ? editFinalQuantity.toLocaleString("en-IN")
-                                            : "-"}
-                                        </div>
-                                      </div>
-                                    </div>
-                                  </div>
-                                  {quantityDeltaInput && !quantityDeltaParsed.valid && (
-                                    <div className="text-xs text-red-600 mt-1">
-                                      {quantityDeltaParsed.error}
-                                    </div>
-                                  )}
-                                  {quantityDeltaParsed.valid && quantityDeltaParsed.delta > 0 && (
-                                    <div className="text-xs text-amber-600 mt-1">
-                                      ⚠️ Increasing quantity may affect slot capacity
-                                    </div>
-                                  )}
-                                  {quantityDeltaParsed.valid && quantityDeltaParsed.delta < 0 && (
-                                    <div className="text-xs text-green-600 mt-1">
-                                      ✅ Reducing quantity will free up slot capacity
-                                    </div>
-                                  )}
-                                </>
-                              )}
-                            </div>
-                            <div>
-                              <label className="text-sm text-gray-500 font-medium">
-                                Delivery Date *
-                              </label>
-                              {slotsLoading ? (
-                                <div className="w-full px-3 py-2 border rounded-lg mt-1 bg-gray-50 text-gray-500 text-sm">
-                                  Loading available slots...
-                                </div>
-                              ) : (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    if (slots.length > 0) {
-                                      setShowDeliveryDateModal(true)
-                                    } else {
-                                      Toast.info('No available slots found. Please select a different plant/subtype.')
-                                    }
-                                  }}
-                                  className="w-full px-3 py-2 border rounded-lg mt-1 text-left hover:border-brand-500 focus:ring-2 focus:ring-brand-500 transition-colors bg-white"
-                                  disabled={slots.length === 0}>
-                                  <span className={updatedObject?.deliveryDate ? "text-gray-900" : "text-gray-400"}>
-                                    {updatedObject?.deliveryDate 
-                                      ? moment(updatedObject.deliveryDate).format(ORDER_DATE_DISPLAY)
-                                      : "Click to select delivery date"}
-                                  </span>
-                                </button>
-                              )}
-                              {slots.length === 0 && !slotsLoading && (
-                                <div className="text-xs text-red-500 mt-1">
-                                  No available slots found for this plant/subtype combination
-                                </div>
-                              )}
-                              {!slotsLoading && slots.length > 0 && (
-                                <div className="text-xs text-gray-500 mt-1">
-                                  Click to select a delivery date from available slots
-                                </div>
-                              )}
-
-                              {/* Show selected date slot information */}
-                              {updatedObject?.deliveryDate &&
-                                (() => {
-                                  const slotDetails = getSlotDetailsForDate(updatedObject.deliveryDate)
-                                  if (slotDetails) {
-                                    const requestedQuantity = quantityDeltaParsed.valid
-                                      ? Number(editFinalQuantity || 0)
-                                      : Number(selectedOrder?.quantity || 0)
-                                    const currentQuantity = Number(selectedOrder?.quantity || 0)
-                                    const quantityChange = requestedQuantity - currentQuantity
-                                    const adjustedAvailable =
-                                      slotDetails.available + currentQuantity
-
-                                    return (
-                                      <div className="mt-2 p-3 bg-brand-50 rounded-lg border border-brand-200">
-                                        <div className="text-xs text-gray-700 space-y-2">
-                                          <div className="font-medium text-brand-900">
-                                            📅 Delivery Period: {slotDetails.startDay} - {slotDetails.endDay}
-                                          </div>
-                                          <div className="grid grid-cols-2 gap-2">
-                                            <div>
-                                              <span className="text-gray-600">Available Capacity:</span>
-                                              <div className="font-semibold text-green-700">
-                                                {adjustedAvailable}
-                                              </div>
-                                            </div>
-                                            <div>
-                                              <span className="text-gray-600">Requested Quantity:</span>
-                                              <div className="font-semibold text-gray-900">
-                                                {requestedQuantity}
-                                              </div>
-                                            </div>
-                                          </div>
-                                          {quantityChange !== 0 && (
-                                            <div className={quantityChange > 0 ? "text-amber-700" : "text-green-700"}>
-                                              {quantityChange > 0 ? "⚠️" : "✅"} Quantity change: {quantityChange > 0 ? "+" : ""}{quantityChange}
-                                            </div>
-                                          )}
-                                          {requestedQuantity > adjustedAvailable && (
-                                            <div className="text-red-700 font-medium bg-red-50 p-2 rounded">
-                                              ❌ Insufficient capacity! Only {adjustedAvailable} available.
-                                            </div>
-                                          )}
-                                          {requestedQuantity <= adjustedAvailable && requestedQuantity > 0 && (
-                                            <div className="text-green-700 font-medium">
-                                              ✅ Sufficient capacity available
-                                            </div>
-                                          )}
-                                        </div>
-                                      </div>
-                                    )
-                                  } else {
-                                    return (
-                                      <div className="mt-2 p-2 bg-red-50 rounded border border-red-200">
-                                        <div className="text-xs text-red-600">
-                                          ⚠️ Selected date does not fall within any available slot
-                                        </div>
-                                      </div>
-                                    )
-                                  }
-                                })()}
-                            </div>
-                          </div>
-
-                          {canReassignSalesPerson && (
-                            <div className="mt-4 max-w-md">
-                              <label className="text-sm text-gray-500 font-medium">
-                                Sales person / dealer (booked by)
-                              </label>
-                              <select
-                                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-brand-500 mt-1 bg-white"
-                                value={updatedObject?.salesPerson ?? ""}
-                                onChange={(e) =>
-                                  handleInputChange(0, "salesPerson", e.target.value)
-                                }>
-                                {(salesPeople || []).map((s) => (
-                                  <option key={s.value} value={s.value}>
-                                    {s.label}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                          )}
-
-                          <div className="flex items-center justify-end space-x-2 mt-6">
-                            <button
-                              onClick={() => {
-                                setUpdatedObject(null)
-                                setQuantityDeltaInput("")
-                                setSelectedRow(null)
-                              }}
-                              className="px-4 py-2 text-gray-600 border rounded-lg hover:bg-gray-50">
-                              Cancel
-                            </button>
-                            <button
-                              onClick={() => {
-                                const parsedDelta = parseDeltaInput(quantityDeltaInput)
-                                if (!parsedDelta.valid) {
-                                  Toast.error(parsedDelta.error || "Invalid quantity delta")
-                                  return
-                                }
-                                if (
-                                  !canEditOrderPlantQuantity(selectedOrder?.orderStatus) &&
-                                  Number(parsedDelta.delta || 0) !== 0
-                                ) {
-                                  Toast.error(
-                                    "Plant quantity cannot be changed after Ready for dispatch or for completed/cancelled orders."
-                                  )
-                                  return
-                                }
-
-                                const finalQuantity = Number(editBaseQuantity) + Number(parsedDelta.delta || 0)
-                                const isDealerBulkEdit = Boolean(selectedOrder?.details?.dealerOrder)
-                                if (!Number.isFinite(finalQuantity) || finalQuantity < 0) {
-                                  Toast.error("Invalid quantity")
-                                  return
-                                }
-                                if (finalQuantity <= 0 && !isDealerBulkEdit) {
-                                  Toast.error("Final quantity must be greater than 0")
-                                  return
-                                }
-
-                                const currentRate = Number(selectedOrder?.rate || 0)
-                                const nextRate = Number(
-                                  updatedObject?.rate !== undefined
-                                    ? updatedObject.rate
-                                    : selectedOrder?.rate
-                                )
-                                if (!Number.isFinite(nextRate) || nextRate < 0) {
-                                  Toast.error("Rate cannot be negative")
-                                  return
-                                }
-                                if (!isDealerBulkEdit && nextRate <= 0) {
-                                  Toast.error("Rate must be greater than 0")
-                                  return
-                                }
-
-                                const payloadForSave = {
-                                  id: selectedOrder?.details?.orderid,
-                                  ...updatedObject,
-                                  rate: nextRate,
-                                  quantity: finalQuantity
-                                }
-                                if (!canReassignSalesPerson) {
-                                  delete payloadForSave.salesPerson
-                                }
-
-                                const origSub = String(
-                                  selectedOrder?.details?.plantSubtypeID || ""
-                                )
-                                const nextSub =
-                                  updatedObject?.plantSubtype != null
-                                    ? String(updatedObject.plantSubtype)
-                                    : origSub
-                                if (
-                                  canEditPlantSubtype &&
-                                  origSub &&
-                                  nextSub &&
-                                  origSub !== nextSub &&
-                                  (!updatedObject?.bookingSlot ||
-                                    !updatedObject?.deliveryDate)
-                                ) {
-                                  Toast.error(
-                                    "Select a delivery date and slot for the new plant subtype before saving."
-                                  )
-                                  return
-                                }
-
-                                // Show confirmation dialog with changes summary
-                                const changes = []
-                                if (nextRate !== currentRate) {
-                                  changes.push(
-                                    `Rate: ₹${currentRate} → ₹${nextRate}`
-                                  )
-                                }
-
-                                if (finalQuantity !== editBaseQuantity) {
-                                  const deltaSign = parsedDelta.delta > 0 ? "+" : ""
-                                  changes.push(
-                                    `Quantity: ${editBaseQuantity.toLocaleString("en-IN")} ${deltaSign}${parsedDelta.delta.toLocaleString("en-IN")} = ${finalQuantity.toLocaleString("en-IN")}`
-                                  )
-                                }
-
-                                const oldTotal = Number(currentRate || 0) * Number(editBaseQuantity || 0)
-                                const newTotal = Number(nextRate || 0) * Number(finalQuantity || 0)
-                                const totalDelta = newTotal - oldTotal
-                                if (finalQuantity !== editBaseQuantity || nextRate !== currentRate) {
-                                  changes.push(
-                                    `Total: ₹${oldTotal.toLocaleString("en-IN")} → ₹${newTotal.toLocaleString("en-IN")} (Delta: ${totalDelta > 0 ? "+" : ""}₹${totalDelta.toLocaleString("en-IN")})`
-                                  )
-                                }
-
-                                // Check if delivery date has changed
-                                if (updatedObject.deliveryDate) {
-                                  const currentDate = selectedOrder?.details?.deliveryDate 
-                                    ? moment(selectedOrder.details.deliveryDate).format(ORDER_DATE_DISPLAY)
-                                    : "Not set"
-                                  const newDate = moment(updatedObject.deliveryDate).format(ORDER_DATE_DISPLAY)
-                                  
-                                  if (currentDate !== newDate) {
-                                    const slotDetails = getSlotDetailsForDate(updatedObject.deliveryDate)
-                                    const deliveryPeriod = slotDetails 
-                                      ? `${slotDetails.startDay} - ${slotDetails.endDay}`
-                                      : "Unknown"
-                                    changes.push(
-                                      `Delivery Date: ${currentDate} → ${newDate} (Period: ${deliveryPeriod})`
-                                    )
-                                  }
-                                }
-
-                                const curSpId = selectedOrder?.details?.salesPerson?._id
-                                const nextSpId = updatedObject?.salesPerson
-                                if (
-                                  canReassignSalesPerson &&
-                                  nextSpId &&
-                                  String(nextSpId) !== String(curSpId || "")
-                                ) {
-                                  const curName =
-                                    selectedOrder?.details?.salesPerson?.name || "—"
-                                  const nextOpt = (salesPeople || []).find(
-                                    (s) => String(s.value) === String(nextSpId)
-                                  )
-                                  const nextName = nextOpt?.label || "—"
-                                  changes.push(`Sales person: ${curName} → ${nextName}`)
-                                }
-
-                                if (
-                                  canEditPlantSubtype &&
-                                  origSub &&
-                                  nextSub &&
-                                  origSub !== nextSub
-                                ) {
-                                  const prevName =
-                                    orderEditSubtypes.find(
-                                      (s) => String(s.value) === origSub
-                                    )?.label ||
-                                    (selectedOrder?.plantType || "")
-                                      .split(" -> ")[1]
-                                      ?.trim() ||
-                                    "—"
-                                  const nextName =
-                                    orderEditSubtypes.find(
-                                      (s) => String(s.value) === nextSub
-                                    )?.label || "—"
-                                  changes.push(
-                                    `Plant subtype: ${prevName} → ${nextName}`
-                                  )
-                                }
-
-                                const origExpectedNursery = selectedOrder?.details?.expectedNursery
-                                  ? String(selectedOrder.details.expectedNursery).trim().toUpperCase()
-                                  : "RB"
-                                const nextExpectedNursery =
-                                  updatedObject?.expectedNursery != null &&
-                                  String(updatedObject.expectedNursery).trim() !== ""
-                                    ? String(updatedObject.expectedNursery).trim().toUpperCase()
-                                    : "RB"
-                                if (origExpectedNursery !== nextExpectedNursery) {
-                                  changes.push(
-                                    `Expected nursery: ${origExpectedNursery} → ${nextExpectedNursery}`
-                                  )
-                                }
-
-                                if (
-                                  orderForEditMeaningfullyChanged(
-                                    selectedOrder?.details?.orderFor,
-                                    updatedObject?.orderFor
-                                  )
-                                ) {
-                                  changes.push(
-                                    "Book-for / beneficiary (name, mobile, address, location)"
-                                  )
-                                }
-
-                                if (changes.length === 0) {
-                                  Toast.info("No changes to save")
-                                  return
-                                }
-
-                                setConfirmDialog({
-                                  open: true,
-                                  title: "Confirm Order Changes",
-                                  description: `Are you sure you want to update this order?\n\nChanges:\n${changes.join(
-                                    "\n"
-                                  )}`,
-                                  onConfirm: () => {
-                                    setConfirmDialog((d) => ({ ...d, open: false }))
-                                    pacthOrders(payloadForSave, selectedOrder)
-                                  }
-                                })
-                              }}
-                              disabled={!updatedObject || Object.keys(updatedObject).length === 0}
-                              className="px-4 py-2 text-white bg-brand-500 rounded-lg hover:bg-brand-600 disabled:opacity-50 disabled:cursor-not-allowed">
-                              Save Changes
-                            </button>
-                          </div>
-                        </div>
-                      </div>
+                      <OrderEditPanel
+                        selectedOrder={selectedOrder}
+                        selectedOrderCounts={selectedOrderCounts}
+                        updatedObject={updatedObject}
+                        setUpdatedObject={setUpdatedObject}
+                        quantityDeltaInput={quantityDeltaInput}
+                        setQuantityDeltaInput={setQuantityDeltaInput}
+                        editBaseQuantity={editBaseQuantity}
+                        editFinalQuantity={editFinalQuantity}
+                        quantityDeltaParsed={quantityDeltaParsed}
+                        orderEditHasChanges={orderEditHasChanges}
+                        isPlantOrderEdit={isPlantOrderEdit}
+                        canEditPlantSubtype={canEditPlantSubtype}
+                        canReassignSalesPerson={canReassignSalesPerson}
+                        canEditOrderPlantQuantity={canEditOrderPlantQuantity}
+                        isSuperAdmin={isSuperAdmin}
+                        pendingRateRequest={pendingRateRequest}
+                        orderEditSubtypes={orderEditSubtypes}
+                        orderEditSubtypesLoading={orderEditSubtypesLoading}
+                        orderEditTrays={orderEditTrays}
+                        orderEditTraysLoading={orderEditTraysLoading}
+                        nurserySiteEditOptions={nurserySiteEditOptions}
+                        salesPeople={salesPeople}
+                        slots={slots}
+                        slotsLoading={slotsLoading}
+                        getSlotDetailsForDate={getSlotDetailsForDate}
+                        handleOrderEditPlantSubtypeChange={handleOrderEditPlantSubtypeChange}
+                        handleInputChange={handleInputChange}
+                        modalContextRefreshing={modalContextRefreshing}
+                        patchLoading={patchLoading}
+                        onRefresh={() => void refreshOrderModalContext({ resetEditForm: true })}
+                        onDiscard={() => {
+                          if (selectedOrder) {
+                            setUpdatedObject(
+                              buildOrderEditState(selectedOrder, {
+                                resolvePlantCounts,
+                                canEditPlantSubtype
+                              })
+                            )
+                          }
+                          setQuantityDeltaInput("")
+                        }}
+                        onSaveValidated={(payloadForSave, changeLines) => {
+                          setConfirmDialog({
+                            open: true,
+                            title: "Confirm Order Changes",
+                            description: `Are you sure you want to update this order?\n\nChanges:\n${changeLines.join("\n")}`,
+                            onConfirm: () => {
+                              setConfirmDialog((d) => ({ ...d, open: false }))
+                              pacthOrders(payloadForSave, selectedOrder)
+                            }
+                          })
+                        }}
+                        editBookForExpanded={editBookForExpanded}
+                        setEditBookForExpanded={setEditBookForExpanded}
+                      />
                     )}
 
                     {activeTab === "remarks" && (
@@ -10780,6 +12018,18 @@ const mapSlotForUi = (slotData) => {
                           Order Edit History
                         </h3>
 
+                        <p className="text-sm text-gray-500">
+                          Field-level edits below. For the full unified timeline (payments, dispatch, status), open the{" "}
+                          <button
+                            type="button"
+                            onClick={() => setActiveTab("activity")}
+                            className="text-brand-600 hover:text-brand-800 font-medium"
+                          >
+                            Activity
+                          </button>{" "}
+                          tab.
+                        </p>
+
                         {selectedOrder?.details?.orderEditHistory &&
                         selectedOrder?.details?.orderEditHistory.length > 0 ? (
                           <>
@@ -10790,7 +12040,7 @@ const mapSlotForUi = (slotData) => {
                                 {selectedOrder.details.orderEditHistory.length}
                               </div>
                               <div className="text-xs text-purple-600 mt-1">
-                                Changes to rate, quantity, delivery date, and sales person
+                                Changes to status, rate, quantity, delivery date, and sales person
                               </div>
                             </div>
 
@@ -10854,10 +12104,27 @@ const mapSlotForUi = (slotData) => {
                                   (edit, editIndex) => {
                                     // Format the field name for display
                                     const fieldDisplayName = {
+                                      orderStatus: "Order status",
                                       rate: "Rate per Plant",
                                       numberOfPlants: "Quantity",
                                       deliveryDate: "Delivery Date",
+                                      bookingSlot: "Booking slot",
+                                      plantSubtype: "Plant subtype",
                                       salesPerson: "Sales person",
+                                      orderPaymentStatus: "Payment status",
+                                      notes: "Notes",
+                                      farmReadyDate: "Farm ready date",
+                                      dispatchDayKey: "Dispatch day",
+                                      dispatchTargetDate: "Dispatch target",
+                                      cavity: "Tray / cavity",
+                                      expectedNursery: "Expected nursery",
+                                      batchNumber: "Batch number",
+                                      freightCharges: "Freight charges",
+                                      deliveryChallanInvoiceNumber: "DC invoice label",
+                                      remainingPlants: "Remaining plants",
+                                      returnedPlants: "Returned plants",
+                                      damagedPlants: "Damaged plants",
+                                      additionalPlants: "Additional plants",
                                     }[edit.field] || edit.field;
 
                                     // Format values based on field type
@@ -10872,9 +12139,43 @@ const mapSlotForUi = (slotData) => {
                                       newValueDisplay = `${edit.newValue} plants`;
                                     } else if (edit.field === "deliveryDate") {
                                       previousValueDisplay = edit.previousValue 
-                                        ? moment(edit.previousValue).format(ORDER_DATE_DISPLAY)
+                                        ? formatOrderDateDisplay(edit.previousValue)
                                         : "Not set";
-                                      newValueDisplay = moment(edit.newValue).format(ORDER_DATE_DISPLAY);
+                                      newValueDisplay = formatOrderDateDisplay(edit.newValue);
+                                    } else if (edit.field === "orderStatus") {
+                                      previousValueDisplay = orderStatusEnglishLabel(edit.previousValue);
+                                      newValueDisplay = orderStatusEnglishLabel(edit.newValue);
+                                    } else if (edit.field === "cavity") {
+                                      const fmtCavity = (v) => {
+                                        if (v == null || v === "") return "Not set"
+                                        const label = getCavityDisplayLabel(v)
+                                        if (label) return label
+                                        const id = getCavityIdString(v)
+                                        return id || String(v)
+                                      }
+                                      previousValueDisplay = fmtCavity(edit.previousValue)
+                                      newValueDisplay = fmtCavity(edit.newValue)
+                                    } else if (edit.field === "orderFor") {
+                                      const fmtOf = (v) => {
+                                        const of = normalizeOrderFor(v)
+                                        if (!of) return "Not set"
+                                        const loc = formatBookForLocation(of)
+                                        const name = String(of.name || "").trim()
+                                        if (name && loc) return `${name} (${loc})`
+                                        return name || loc || "Not set"
+                                      }
+                                      previousValueDisplay = fmtOf(edit.previousValue)
+                                      newValueDisplay = fmtOf(edit.newValue)
+                                    } else if (
+                                      typeof edit.previousValue === "object" &&
+                                      edit.previousValue !== null
+                                    ) {
+                                      previousValueDisplay = JSON.stringify(edit.previousValue)
+                                    } else if (
+                                      typeof edit.newValue === "object" &&
+                                      edit.newValue !== null
+                                    ) {
+                                      newValueDisplay = JSON.stringify(edit.newValue)
                                     }
 
                                     const isRateEntry = edit.field === "rate"
@@ -10913,6 +12214,19 @@ const mapSlotForUi = (slotData) => {
                                               <div className="text-sm text-gray-800">
                                                 {edit.notes ||
                                                   "Sales person updated (see order details for current assignee)."}
+                                              </div>
+                                            ) : edit.field === "orderStatus" ? (
+                                              <div className="text-sm text-gray-800">
+                                                <span className="text-red-700 line-through">
+                                                  {previousValueDisplay}
+                                                </span>
+                                                <span className="mx-2 text-gray-500">→</span>
+                                                <span className="text-green-700 font-medium">
+                                                  {newValueDisplay}
+                                                </span>
+                                                {edit.notes ? (
+                                                  <div className="text-xs text-gray-600 mt-2">{edit.notes}</div>
+                                                ) : null}
                                               </div>
                                             ) : (
                                               <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-center">
@@ -11297,15 +12611,86 @@ const mapSlotForUi = (slotData) => {
         </DialogActions>
       </Dialog>
 
-      {/* WATI WhatsApp — accept (order_accpeted_revamped) or dispatch (delivery_final_revamp) */}
-      {watiDialogOpen && watiDialogOrder && ReactDOM.createPortal(
+      {/* Campaign name — required before every farm-ready WhatsApp send (portaled above drawers/modals) */}
+      {campaignNameDialogOpen &&
+        ReactDOM.createPortal(
+          <div
+            className="fixed inset-0 bg-black/50 flex items-center justify-center p-4"
+            style={{ zIndex: 100000 }}
+            onClick={() => {
+              if (!farmReadyCampaignSending) resetFarmReadyCampaignDialog()
+            }}>
+            <div
+              className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-labelledby="farm-ready-campaign-title">
+              <div className="bg-gradient-to-r from-amber-600 to-orange-600 text-white px-5 py-4">
+                <h2 id="farm-ready-campaign-title" className="text-lg font-bold">
+                  Name this WhatsApp campaign
+                </h2>
+                <p className="text-white/90 text-sm mt-1">
+                  {pendingFarmReadyBulkCount} farm-ready message
+                  {pendingFarmReadyBulkCount === 1 ? "" : "s"} — tracked in WhatsApp Log
+                </p>
+              </div>
+              <div className="p-5">
+                <label className="block text-sm font-medium text-gray-700 mb-1.5" htmlFor="farm-ready-campaign-name">
+                  Campaign name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  id="farm-ready-campaign-name"
+                  autoFocus
+                  type="text"
+                  maxLength={120}
+                  disabled={farmReadyCampaignSending}
+                  value={watiCampaignName}
+                  onChange={(e) => setWatiCampaignName(e.target.value)}
+                  placeholder={defaultFarmReadyCampaignName()}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault()
+                      void sendFarmReadyWhatsappCampaign()
+                    }
+                  }}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:bg-gray-100"
+                />
+                <p className="text-xs text-gray-500 mt-2">
+                  Sent, delivered, read, and farmer replies are grouped under this name.
+                </p>
+              </div>
+              <div className="px-5 pb-5 flex gap-3 justify-end">
+                <button
+                  type="button"
+                  disabled={farmReadyCampaignSending}
+                  onClick={resetFarmReadyCampaignDialog}
+                  className="px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 font-medium disabled:opacity-50">
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={farmReadyCampaignSending}
+                  onClick={() => void sendFarmReadyWhatsappCampaign()}
+                  className="px-4 py-2 rounded-lg bg-amber-600 text-white hover:bg-amber-700 font-semibold disabled:opacity-50">
+                  {farmReadyCampaignSending ? "Sending…" : "Send"}
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
+
+      {/* WATI WhatsApp — accept | dispatch (farm-ready uses campaign popup above) */}
+      {watiDialogOpen && watiDialogOrder && watiDialogMode !== "farmReady" && ReactDOM.createPortal(
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4" style={{ zIndex: 99999 }}>
           <div className="bg-white rounded-2xl w-full max-w-lg max-h-[90vh] overflow-hidden shadow-2xl">
             <div
               className={
                 watiDialogMode === "dispatch"
                   ? "bg-gradient-to-r from-sky-600 to-blue-600 text-white p-4"
-                  : "bg-gradient-to-r from-green-600 to-green-500 text-white p-4"
+                  : watiDialogMode === "farmReady"
+                    ? "bg-gradient-to-r from-amber-600 to-orange-600 text-white p-4"
+                    : "bg-gradient-to-r from-green-600 to-green-500 text-white p-4"
               }>
               <div className="flex items-center gap-2">
                 <FaWhatsapp className="text-2xl" />
@@ -11313,11 +12698,32 @@ const mapSlotForUi = (slotData) => {
               </div>
               <p className="text-white/90 text-sm mt-1">
                 {watiDialogMode === "dispatch"
-                  ? `Order #${watiDialogOrder.order} — डिस्पॅच / रवानगी`
-                  : `Order #${watiDialogOrder.order} — स्वीकृत`}
+                  ? `Order #${watiDialogOrder.order} — डिस्पॅच / रवानगी (delivery_final_revamp)`
+                  : watiDialogMode === "farmReady"
+                    ? (() => {
+                        const bulkHint = watiFromRowSelection
+                          ? farmReadyWhatsappBulkHint(
+                              getSelectedOrderRowsList(),
+                              whatsappUnlimitedResend
+                            )
+                          : null
+                        return bulkHint
+                          ? `${bulkHint} — preview for order #${watiDialogOrder.order}`
+                          : `Order #${watiDialogOrder.order} — शेत तयार (delivery_final_second)`
+                      })()
+                    : `Order #${watiDialogOrder.order} — स्वीकृत (order_accpeted_revamped)`}
               </p>
             </div>
             <div className="p-4 overflow-y-auto max-h-[50vh]">
+              {watiDialogMode === "farmReady" && watiFromRowSelection && pendingFarmReadyBulkCount > 1 ? (
+                <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+                  <p className="text-xs font-semibold text-amber-900">Campaign</p>
+                  <p className="text-sm text-amber-950 mt-0.5">{watiCampaignName || defaultFarmReadyCampaignName()}</p>
+                  <p className="text-[11px] text-amber-800 mt-1">
+                    {pendingFarmReadyBulkCount} orders · tracked in WhatsApp Log tab
+                  </p>
+                </div>
+              ) : null}
               <p className="text-xs text-gray-500 mb-2">Message Preview:</p>
               <pre className="bg-gray-50 p-4 rounded-lg text-sm whitespace-pre-wrap font-sans border border-gray-200">
                 {buildDashboardFarmerOrdersWatiPreviewText(watiDialogOrder, watiDialogMode)}
@@ -11365,6 +12771,8 @@ const mapSlotForUi = (slotData) => {
                 onClick={() => {
                   setWatiDialogOpen(false)
                   setWatiDialogOrder(null)
+                  setWatiFromRowSelection(false)
+                  setWatiCampaignName("")
                   setWatiDialogMode("accept")
                 }}
                 className="px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 font-medium">
@@ -11378,18 +12786,92 @@ const mapSlotForUi = (slotData) => {
                     return
                   }
                   setWatiSending(true)
+                  const sendingMode = watiDialogMode
+                  let openCampaignBatchId = null
                   try {
                     const oid = watiDialogOrder?.details?.orderid || watiDialogOrder?.details?._id
-                    const api =
-                      watiDialogMode === "dispatch"
-                        ? API.ORDER.SEND_DISPATCH_WHATSAPP
-                        : API.ORDER.SEND_ACCEPTED_WHATSAPP
-                    const instance = NetworkManager(api)
-                    const res = await instance.request({}, [oid])
+                    const useBulkSend = watiDialogMode === "farmReady" && watiFromRowSelection
+                    let res
+                    if (useBulkSend) {
+                      const eligible = getEligibleFarmReadyWhatsappRows(
+                        getSelectedOrderRowsList(),
+                        whatsappUnlimitedResend
+                      )
+                      const orderIds = eligible
+                        .map((row) => String(row?.details?.orderid || row?.details?._id))
+                        .filter(Boolean)
+                      const campaignName =
+                        String(watiCampaignName || "").trim() || defaultFarmReadyCampaignName()
+                      if (orderIds.length > 1 && !String(watiCampaignName || "").trim()) {
+                        Toast.error("Enter a campaign name for bulk WhatsApp send")
+                        setPendingFarmReadyBulkCount(orderIds.length)
+                        setCampaignNameDialogOpen(true)
+                        setWatiSending(false)
+                        return
+                      }
+                      const instance = NetworkManager(API.ORDER.WHATSAPP_SEND_SELECTED)
+                      res = await instance.request(
+                        {
+                          orderIds,
+                          templateType: "farm_ready",
+                          campaignName,
+                        },
+                        whatsappUnlimitedResend ? { forceResend: "1" } : {}
+                      )
+                    } else {
+                      const api =
+                        watiDialogMode === "dispatch"
+                          ? API.ORDER.SEND_DISPATCH_WHATSAPP
+                          : watiDialogMode === "farmReady"
+                            ? API.ORDER.SEND_FARM_READY_WHATSAPP
+                            : API.ORDER.SEND_ACCEPTED_WHATSAPP
+                      const instance = NetworkManager(api)
+                      res = await instance.request(
+                        {},
+                        whatsappUnlimitedResend
+                          ? { pathParams: [oid], forceResend: "1" }
+                          : [oid]
+                      )
+                    }
                     const body = res?.data
                     if (body?.status === "Success") {
                       const d = body?.data
-                      if (d?.alreadySent) {
+                      const bulkResults = Array.isArray(d?.results) ? d.results : null
+                      if (useBulkSend && d?.batchId) {
+                        const summary = d?.summary || {}
+                        Toast.success(
+                          body?.message ||
+                            `Campaign "${d.campaignName || watiCampaignName}": ${summary.sent ?? bulkResults?.filter((r) => r.success).length ?? 0} sent`
+                        )
+                        openCampaignBatchId = String(d.batchId)
+                        setViewMode("whatsapp_log")
+                        setExpandedWhatsappBatchId(openCampaignBatchId)
+                        setOrders((prev) =>
+                          (prev || []).map((o) => {
+                            const oidStr = String(o?.details?.orderid || o?.details?._id)
+                            const hit = (bulkResults || []).find(
+                              (r) => String(r.orderId) === oidStr && r.success
+                            )
+                            if (!hit) return o
+                            const ts =
+                              hit.whatsappFarmReadySentAt ||
+                              hit.stored?.whatsappFarmReadySentAt ||
+                              new Date().toISOString()
+                            const msgKey =
+                              hit.whatsappFarmReadyMessageKey ||
+                              hit.stored?.whatsappFarmReadyMessageKey ||
+                              null
+                            return {
+                              ...o,
+                              details: {
+                                ...o.details,
+                                whatsappFarmReadySentAt: ts,
+                                ...(msgKey ? { whatsappFarmReadyMessageKey: String(msgKey) } : {}),
+                              },
+                            }
+                          })
+                        )
+                      } else if (d?.alreadySent && !whatsappUnlimitedResend) {
                         Toast.success("संदेश आधीच पाठवला आहे")
                         setOrders((prev) =>
                           (prev || []).map((o) =>
@@ -11408,22 +12890,42 @@ const mapSlotForUi = (slotData) => {
                                       whatsappDispatchMessageKey:
                                         d.whatsappDispatchMessageKey ?? o.details.whatsappDispatchMessageKey,
                                     }),
+                                    ...(d.whatsappFarmReadySentAt != null && {
+                                      whatsappFarmReadySentAt: d.whatsappFarmReadySentAt,
+                                      whatsappFarmReadyMessageKey:
+                                        d.whatsappFarmReadyMessageKey ?? o.details.whatsappFarmReadyMessageKey,
+                                    }),
                                   },
                                 }
                               : o
                           )
                         )
                       } else {
-                        Toast.success("WhatsApp message sent successfully")
+                        const successMsg =
+                          watiDialogMode === "dispatch"
+                            ? "डिस्पॅच WhatsApp संदेश पाठवला"
+                            : watiDialogMode === "farmReady"
+                              ? "शेत तयार (delivery_final_second) WhatsApp संदेश पाठवला"
+                              : "स्वीकृत WhatsApp संदेश पाठवला"
+                        Toast.success(successMsg)
                         const stored = d?.stored
                         const ts =
                           watiDialogMode === "dispatch"
                             ? stored?.whatsappDispatchSentAt || new Date().toISOString()
-                            : stored?.whatsappAcceptedSentAt || new Date().toISOString()
+                            : watiDialogMode === "farmReady"
+                              ? stored?.whatsappFarmReadySentAt ||
+                                d?.whatsappFarmReadySentAt ||
+                                new Date().toISOString()
+                              : stored?.whatsappAcceptedSentAt || new Date().toISOString()
                         const msgKey =
                           watiDialogMode === "dispatch"
                             ? stored?.whatsappDispatchMessageKey ?? d?.local_message_id ?? null
-                            : stored?.whatsappAcceptedMessageKey ?? d?.local_message_id ?? null
+                            : watiDialogMode === "farmReady"
+                              ? stored?.whatsappFarmReadyMessageKey ??
+                                d?.whatsappFarmReadyMessageKey ??
+                                d?.local_message_id ??
+                                null
+                              : stored?.whatsappAcceptedMessageKey ?? d?.local_message_id ?? null
                         setOrders((prev) =>
                           (prev || []).map((o) =>
                             String(o?.details?.orderid) === String(oid)
@@ -11436,10 +12938,15 @@ const mapSlotForUi = (slotData) => {
                                           whatsappDispatchSentAt: ts,
                                           ...(msgKey ? { whatsappDispatchMessageKey: String(msgKey) } : {}),
                                         }
-                                      : {
-                                          whatsappAcceptedSentAt: ts,
-                                          ...(msgKey ? { whatsappAcceptedMessageKey: String(msgKey) } : {}),
-                                        }),
+                                      : watiDialogMode === "farmReady"
+                                        ? {
+                                            whatsappFarmReadySentAt: ts,
+                                            ...(msgKey ? { whatsappFarmReadyMessageKey: String(msgKey) } : {}),
+                                          }
+                                        : {
+                                            whatsappAcceptedSentAt: ts,
+                                            ...(msgKey ? { whatsappAcceptedMessageKey: String(msgKey) } : {}),
+                                          }),
                                   },
                                 }
                               : o
@@ -11455,11 +12962,24 @@ const mapSlotForUi = (slotData) => {
                     setWatiSending(false)
                     setWatiDialogOpen(false)
                     setWatiDialogOrder(null)
+                    setWatiFromRowSelection(false)
+                    setWatiCampaignName("")
                     setWatiDialogMode("accept")
+                    if (openCampaignBatchId) {
+                      void fetchWhatsappCampaigns(1, { expandBatchId: openCampaignBatchId })
+                    } else if (sendingMode === "farmReady" && viewMode === "whatsapp_log") {
+                      void fetchWhatsappCampaigns(whatsappCampaignPage)
+                    }
                   }
                 }}
                 disabled={watiSending}
-                className="px-4 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700 font-medium disabled:opacity-50">
+                className={
+                  watiDialogMode === "farmReady"
+                    ? "px-4 py-2 rounded-lg bg-amber-600 text-white hover:bg-amber-700 font-medium disabled:opacity-50"
+                    : watiDialogMode === "dispatch"
+                      ? "px-4 py-2 rounded-lg bg-sky-600 text-white hover:bg-sky-700 font-medium disabled:opacity-50"
+                      : "px-4 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700 font-medium disabled:opacity-50"
+                }>
                 {watiSending ? "पाठवत आहे..." : "होय पाठवा"}
               </button>
             </div>
@@ -11495,14 +13015,14 @@ const mapSlotForUi = (slotData) => {
                 </div>
               ) : (
                 <div className="space-y-6">
-                  {slots.map((slot) => {
+                  {slots.filter(isSlotEndOnOrAfterToday).map((slot) => {
                     if (!slot.startDay || !slot.endDay) return null
 
                     const slotStart = moment(slot.startDay, "DD-MM-YYYY")
                     const slotEnd = moment(slot.endDay, "DD-MM-YYYY")
                     const dates = []
                     let currentDate = slotStart.clone()
-                    const today = moment().startOf('day')
+                    const today = startOfTodayMoment()
 
                     // Generate all dates in the slot
                     while (currentDate.isSameOrBefore(slotEnd, 'day')) {
@@ -12303,6 +13823,13 @@ const mapSlotForUi = (slotData) => {
         </div>
       )}
 
+      <AttachmentViewerModal
+        open={Boolean(paymentAttachModal?.urls?.length)}
+        onClose={() => setPaymentAttachModal(null)}
+        title={paymentAttachModal?.title}
+        urls={paymentAttachModal?.urls}
+      />
+
       <PaymentQRModal
         open={paymentQRModalOpen}
         onClose={() => { setPaymentQRModalOpen(false); setPaymentQRModalData(null) }}
@@ -12317,6 +13844,34 @@ const mapSlotForUi = (slotData) => {
         onVerified={refreshModalData}
       />
 
+      <Dialog
+        open={Boolean(editTransportGroup)}
+        onClose={() => !editTransportSaving && setEditTransportGroup(null)}
+        maxWidth="sm"
+        fullWidth>
+        <DialogTitle>
+          Edit transport — {editTransportGroup?.groupCode || "Group"}
+        </DialogTitle>
+        <DialogContent>
+          <FleetAssignmentPanel
+            value={editTransportFleet}
+            onChange={setEditTransportFleet}
+            disabled={editTransportSaving}
+            showRemarks
+            remarksExpandedDefault
+            autoSelectSingle={false}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEditTransportGroup(null)} disabled={editTransportSaving}>
+            Cancel
+          </Button>
+          <Button variant="contained" onClick={saveEditGroupTransport} disabled={editTransportSaving}>
+            {editTransportSaving ? "Saving…" : "Save"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       {/* Route Planner — fullscreen map for Ready tab orders */}
       <Dialog fullScreen open={routeMapOpen} onClose={() => setRouteMapOpen(false)}>
         <Suspense fallback={
@@ -12324,7 +13879,31 @@ const mapSlotForUi = (slotData) => {
             <CircularProgress />
           </Box>
         }>
-          <OrderMapView orders={orders} onClose={() => setRouteMapOpen(false)} />
+          <OrderMapView
+            orders={orders}
+            onClose={() => setRouteMapOpen(false)}
+            onAssignSuccess={async (payload) => {
+              const gid = payload?.readyDispatchGroupId
+              if (!gid) return
+              setRouteMapOpen(false)
+              try {
+                const inst = NetworkManager(API.READY_DISPATCH_GROUP.GET_BY_ID)
+                const res = await inst.request({}, { pathParams: [String(gid)] })
+                const group = res?.data?.data
+                await getReadyDispatchGroups()
+                if (group) {
+                  await handleConvertGroupToDispatch(group)
+                } else {
+                  setDispatchSourceGroupId(String(gid))
+                  setIsDispatchFormOpen(true)
+                }
+              } catch (e) {
+                console.error(e)
+                Toast.error("Assigned — open the group from Ready for Dispatch tab")
+                void getReadyDispatchGroups()
+              }
+            }}
+          />
         </Suspense>
       </Dialog>
 
@@ -12379,6 +13958,18 @@ const mapSlotForUi = (slotData) => {
           last: "संपवा",
           next: "पुढे →",
           skip: "वगळा",
+        }}
+      />
+
+      <SplitOrderDialog
+        open={splitOrderDialog.open}
+        order={splitOrderDialog.order}
+        onClose={() => setSplitOrderDialog({ open: false, order: null })}
+        onSplitSuccess={() => {
+          setSplitOrderDialog({ open: false, order: null })
+          Toast.success("Order split successfully")
+          refreshComponent()
+          getOrders()
         }}
       />
     </div>

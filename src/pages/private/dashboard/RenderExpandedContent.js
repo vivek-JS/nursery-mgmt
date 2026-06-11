@@ -273,6 +273,16 @@ const RenderExpandedContent = ({
                     PENDING
                   </span>
                 )}
+                {payment.paymentTiming === "advance" && (
+                  <span className="px-3 py-1 text-xs font-medium text-amber-950 bg-amber-200 rounded-full">
+                    Advance
+                  </span>
+                )}
+                {payment.paymentTiming === "balance" && (
+                  <span className="px-3 py-1 text-xs font-medium text-slate-800 bg-slate-200 rounded-full">
+                    Balance
+                  </span>
+                )}
                 {payment.isWalletPayment && (
                   <span className="px-3 py-1 text-xs font-medium text-white bg-blue-500 rounded-full">
                     WALLET

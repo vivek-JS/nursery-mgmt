@@ -4,6 +4,13 @@
 import moment from "moment"
 import { API, NetworkManager } from "network/core"
 import { normalizeAgriPayment, normalizeFarmerPayment, mapFarmerPlantLedgerApiToPanel } from "./normalize"
+import {
+  buildFarmerPlantOrderPaymentTransferPayload,
+  buildFarmerOrderTransferRequestPayload,
+  normalizeMongoObjectId,
+  isOrderEligibleForPlantTransfer,
+  ORDER_TRANSFER_SEARCH_STATUS_QUERY
+} from "./farmerPlantPaymentTransfer.utils"
 
 /** Mongo id string for ?farmer= — never pass a plain object (would become "[object Object]"). */
 export function normalizeFarmerIdForLedger(farmerId) {
@@ -25,7 +32,11 @@ export async function fetchFarmerOrderPayments({
   endDate,
   /** When true, omit paymentStatus filter to load all statuses */
   allStatuses,
-  paymentStatus
+  paymentStatus,
+  /** advance | balance — comma-separated if multiple */
+  paymentTiming,
+  /** Shorthand: PENDING + advance */
+  pendingAdvanceOnly
 }) {
   const params = {
     search: debouncedSearchTerm,
@@ -34,6 +45,12 @@ export async function fetchFarmerOrderPayments({
   }
   if (!allStatuses && paymentStatus) {
     params.paymentStatus = paymentStatus
+  }
+  if (paymentTiming) {
+    params.paymentTiming = paymentTiming
+  }
+  if (pendingAdvanceOnly) {
+    params.pendingAdvanceOnly = "true"
   }
   if (startDate && endDate && !isNaN(startDate.getTime()) && !isNaN(endDate.getTime())) {
     params.startDate = moment(startDate).format("DD-MM-YYYY")
@@ -141,9 +158,24 @@ export async function fetchFarmerPlantLedger({
  * GET farmer plant order details (payments + ledger) by Mongo order _id.
  * @param {string} orderMongoId
  */
+/**
+ * GET peer order context for a transferred payment row.
+ * @param {string} orderMongoId
+ * @param {string} paymentMongoId
+ */
+export async function fetchOrderPaymentTransferContext(orderMongoId, paymentMongoId) {
+  const orderId = normalizeMongoObjectId(orderMongoId, "Order id")
+  const paymentId = normalizeMongoObjectId(paymentMongoId, "Payment id")
+  const instance = NetworkManager(API.ORDER.GET_ORDER_PAYMENT_TRANSFER_CONTEXT)
+  const res = await instance.request({}, { orderId, paymentId })
+  if (!res?.success) {
+    throw new Error(res?.error || res?.message || "Failed to load transfer context")
+  }
+  return res.data?.data ?? res.data
+}
+
 export async function fetchFarmerPlantOrderDetails(orderMongoId) {
-  const id = orderMongoId != null ? String(orderMongoId).trim() : ""
-  if (!id) throw new Error("Order id is required")
+  const id = normalizeMongoObjectId(orderMongoId, "Order id")
   const instance = NetworkManager(API.ORDER.GET_FARMER_PLANT_ORDER_DETAILS)
   const res = await instance.request({}, { pathParams: [id] })
   if (!res?.success) {
@@ -156,13 +188,37 @@ export async function fetchFarmerPlantOrderDetails(orderMongoId) {
  * Move one COLLECTED payment from source order to target order (farmer plant; target may be another farmer).
  * @param {{ sourceOrderId: string, targetOrderId: string, paymentId: string, message?: string }} params
  */
-export async function transferFarmerPlantOrderPayment({ sourceOrderId, targetOrderId, paymentId, message }) {
-  const payload = {
-    sourceOrderId: sourceOrderId ? String(sourceOrderId).trim() : undefined,
-    targetOrderId: targetOrderId ? String(targetOrderId).trim() : undefined,
-    paymentId: paymentId ? String(paymentId).trim() : undefined,
-    message: message != null && String(message).trim() ? String(message).trim() : undefined
+/**
+ * POST transfer request — creates PENDING payment on target; approve/reject from payments UI.
+ * @param {{ fromOrderId: string, toOrderId: string, requestedAmount: number, note?: string }} params
+ */
+export async function createFarmerOrderTransferRequest({
+  fromOrderId,
+  toOrderId,
+  requestedAmount,
+  note
+}) {
+  const payload = buildFarmerOrderTransferRequestPayload({
+    fromOrderId,
+    toOrderId,
+    requestedAmount,
+    note
+  })
+  const instance = NetworkManager(API.ORDER.CREATE_FARMER_ORDER_TRANSFER_REQUEST)
+  const res = await instance.request(payload)
+  if (!res?.success) {
+    throw new Error(res?.error || res?.message || "Transfer request failed")
   }
+  return res.data?.data ?? res.data
+}
+
+export async function transferFarmerPlantOrderPayment({ sourceOrderId, targetOrderId, paymentId, message }) {
+  const payload = buildFarmerPlantOrderPaymentTransferPayload({
+    sourceOrderId,
+    targetOrderId,
+    paymentId,
+    message
+  })
   const instance = NetworkManager(API.ORDER.TRANSFER_FARMER_PLANT_ORDER_PAYMENT)
   const res = await instance.request(payload)
   if (!res?.success) {
@@ -200,7 +256,8 @@ export async function searchFarmerPlantOrdersForTransfer({ q, limit = 20 }) {
   const params = {
     q: q != null ? String(q).trim() : "",
     page: 1,
-    limit: Math.min(Math.max(Number(limit) || 20, 1), 50)
+    limit: Math.min(Math.max(Number(limit) || 20, 1), 50),
+    status: ORDER_TRANSFER_SEARCH_STATUS_QUERY
   }
   const instance = NetworkManager(API.ORDER.GET_ORDERS)
   const res = await instance.request({}, params)
@@ -208,7 +265,14 @@ export async function searchFarmerPlantOrdersForTransfer({ q, limit = 20 }) {
   const rows = Array.isArray(envelope?.data) ? envelope.data : Array.isArray(envelope) ? envelope : []
 
   return rows
-    .filter((o) => !o?.dealerOrder && o?._id && o?.orderId != null && o?.farmer?.mobileNumber)
+    .filter(
+      (o) =>
+        !o?.dealerOrder &&
+        o?._id &&
+        o?.orderId != null &&
+        o?.farmer?.mobileNumber &&
+        isOrderEligibleForPlantTransfer(o)
+    )
     .map((o) => ({
       _id: o._id,
       orderId: o.orderId,

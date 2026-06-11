@@ -81,6 +81,30 @@ export const useIsOfficeAdmin = () => {
 }
 
 /**
+ * Office / super / admin roles may change farmer order status from the dashboard (not dealers).
+ */
+export const useCanChangeOrderStatus = () => {
+  const userData = useUserData()
+  const jobTitle = String(userData?.jobTitle || "")
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, "_")
+  const userRole = String(userData?.role || "")
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, "_")
+  if (jobTitle === "DEALER" || userRole === "DEALER") return false
+  const allowed = new Set([
+    "OFFICE_ADMIN",
+    "OFFICEADMIN",
+    "SUPER_ADMIN",
+    "SUPERADMIN",
+    "ADMIN",
+  ])
+  return allowed.has(jobTitle) || allowed.has(userRole)
+}
+
+/**
  * Check if user is super admin
  * Checks jobTitle first, then role
  */

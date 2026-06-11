@@ -36,6 +36,7 @@ import {
   Phone as PhoneIcon,
   LocationOn as LocationIcon,
   Visibility as VisibilityIcon,
+  ReceiptLong as LedgerIcon,
   LocalShipping as ShippingIcon,
   Inventory as InventoryIcon,
   CalendarToday as CalendarIcon,
@@ -44,14 +45,16 @@ import {
   PieChart as PieChartIcon,
   InsertChart as ChartIcon,
   ArrowDropDown as ArrowDropDownIcon,
-  ArrowDropUp as ArrowDropUpIcon
+  ArrowDropUp as ArrowDropUpIcon,
+  LockReset as LockResetIcon
 } from "@mui/icons-material"
 import { Park as EcoIcon } from "@mui/icons-material"
 
 import { format } from "date-fns"
 import { useNavigate } from "react-router-dom"
 import { API, NetworkManager } from "network/core"
-import { useHasPaymentAccess } from "utils/roleUtils"
+import { useHasPaymentAccess, useIsSuperAdmin, useIsOfficeAdmin } from "utils/roleUtils"
+import { resetUserPasswordToDefault } from "utils/resetUserPasswordToDefault"
 import DealerWalletCreditDialog from "components/Modals/DealerWalletCreditDialog"
 
 // Custom styled progress bar for wallet utilization
@@ -472,6 +475,9 @@ const DealerWalletStatsDashboard = ({ stats }) => {
 
 const Dealers = () => {
   const hasPaymentAccess = useHasPaymentAccess()
+  const isSuperAdmin = useIsSuperAdmin()
+  const isOfficeAdmin = useIsOfficeAdmin()
+  const canResetDealerPassword = isSuperAdmin || isOfficeAdmin
   const [dealers, setDealers] = useState([])
   const [stats, setStats] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -613,6 +619,18 @@ const Dealers = () => {
   // Navigate to dealer details
   const handleViewDetails = (dealerId) => {
     navigate(`/u/dealers/${dealerId}`)
+  }
+
+  const handleOpenLedger = (dealerId) => {
+    navigate(`/u/dealers/${dealerId}?tab=ledger`)
+  }
+
+  const handleResetDealerPassword = async (dealer) => {
+    const ok = await resetUserPasswordToDefault({
+      id: dealer?._id,
+      name: dealer?.name || "this dealer"
+    })
+    if (ok) getDealers()
   }
 
   // Get sort indicator
@@ -869,6 +887,19 @@ const Dealers = () => {
                           onClick={() => handleViewDetails(dealer._id)}>
                           View
                         </Button>
+                        <Button
+                          variant="outlined"
+                          size="small"
+                          color="secondary"
+                          startIcon={<LedgerIcon />}
+                          onClick={() => handleOpenLedger(dealer._id)}
+                          sx={{
+                            textTransform: "none",
+                            fontWeight: 600,
+                            borderColor: "secondary.main",
+                          }}>
+                          Ledger
+                        </Button>
                         {hasPaymentAccess && (
                           <Button
                             variant="contained"
@@ -877,6 +908,18 @@ const Dealers = () => {
                             startIcon={<WalletIcon />}
                             onClick={() => setCreditWalletDealer(dealer)}>
                             Credit wallet
+                          </Button>
+                        )}
+                        {canResetDealerPassword && (
+                          <Button
+                            variant="outlined"
+                            color="warning"
+                            size="small"
+                            startIcon={<LockResetIcon />}
+                            onClick={() => handleResetDealerPassword(dealer)}
+                            title="Reset to default password (1234); dealer must set a new password on login"
+                            sx={{ textTransform: "none", fontWeight: 600 }}>
+                            Reset to default
                           </Button>
                         )}
                       </Box>

@@ -20,7 +20,8 @@ import {
   Sprout,
   Send,
   Package,
-  ArrowRightLeft
+  ArrowRightLeft,
+  Layers
 } from "lucide-react"
 import {
   Switch,
@@ -55,9 +56,37 @@ import { PageLoader } from "components"
 import { Toast } from "helpers/toasts/toastHelper"
 import FarmerOrdersTable from "../dashboard/FarmerOrdersTable"
 import SlotTrailModal from "components/Modals/SlotTrailModal"
+import StockChangeHistoryModal from "./StockChangeHistoryModal"
 import TransferPlantsModal from "./TransferPlantsModal"
+import SlotOrdersDrawer from "./SlotOrdersDrawer"
+import SlotBufferPanel from "./SlotBufferPanel"
+import PastDueSlotBreakdown from "./PastDueSlotBreakdown"
+import PastDueRollModal from "./PastDueRollModal"
+import { canRunPastDueRollover } from "./pastDueRolloverUi"
+import { getBufferStatusMeta } from "./bufferUi"
 import moment from "moment"
 import { useSelector } from "react-redux"
+import {
+  getAvailablePlants,
+  parseSlotNumber,
+  getBookedPlants,
+  getTotalCapacity,
+  getSellableCapacity,
+  getUtilizationPct,
+  getSowingGap,
+  isSlotOverbooked,
+  getReleasableBuffer,
+  getDisplayBufferAmount,
+  getEffectiveBufferPct,
+  getAvailableMinusRolledIn,
+  getRolledInPlantsOnCurrentSlot,
+  getRolledInOrdersOnCurrentSlot,
+  getNativeBookedPlantsOnSlot,
+  getRemainingToDispatch,
+  slotHasMixedRolledAndNativeOrders,
+  slotHasPendingPastDueOnSubtype,
+  slotShowDualAvailableCards,
+} from "./slotMetrics"
 
 const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
   const userData = useSelector((state) => state?.userData?.userData)
@@ -68,6 +97,7 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
   const [loading, setLoading] = useState(false)
   const [detailModalOpen, setDetailModalOpen] = useState(false)
   const [selectedSlot, setSelectedSlot] = useState(null)
+  const [pastDueExpandKey, setPastDueExpandKey] = useState(null)
 
   // States for salesmen restrictions
   const [salesmenModalOpen, setSalesmenModalOpen] = useState(false)
@@ -83,9 +113,8 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
   // Edit modal states
   const [showEditModal, setShowEditModal] = useState(false)
   const [editingSlotData, setEditingSlotData] = useState(null)
-  const [editAmount, setEditAmount] = useState("0")
+  const [editAmount, setEditAmount] = useState("")
   const [operationType, setOperationType] = useState("add")
-  const [editBuffer, setEditBuffer] = useState("0")
 
   // Buffer modal states
   const [showBufferModal, setShowBufferModal] = useState(false)
@@ -109,6 +138,24 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
   const [transferModalOpen, setTransferModalOpen] = useState(false)
   const [transferSlotData, setTransferSlotData] = useState(null)
 
+  const [stockHistorySlot, setStockHistorySlot] = useState(null)
+
+  const [slotOrdersDrawer, setSlotOrdersDrawer] = useState(null)
+  const [pastDueRollModal, setPastDueRollModal] = useState(null)
+
+  const canRollPastDue = canRunPastDueRollover(userData, appUser)
+
+  const openPendingRollModal = (slot) => {
+    if (!slot?.pastDueDetail) return
+    const startLbl = moment(slot.startDay, "DD-MM-YYYY").format("MMM D")
+    const endLbl = moment(slot.endDay, "DD-MM-YYYY").format("MMM D")
+    const yrLbl = moment(slot.startDay, "DD-MM-YYYY").format("YYYY")
+    setPastDueRollModal({
+      slot,
+      slotLabel: `${startLbl} – ${endLbl}, ${yrLbl}`,
+    })
+  }
+
   const monthOrder = [
     "January",
     "February",
@@ -125,8 +172,9 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
   ]
 
   useEffect(() => {
+    setSelectedMonth(0)
     fetchPlantsSlots()
-  }, [])
+  }, [plantId, plantSubId, year])
 
   const fetchPlantsSlots = async () => {
     setLoading(true)
@@ -225,15 +273,14 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
     }, {})
   }
 
-  const startEditing = (e, currentValue, slotId, currentBuffer = 0) => {
+  const startEditing = (e, slot) => {
     e.stopPropagation()
+    const available = getAvailablePlants(slot)
     setEditingSlotData({
-      currentValue: currentValue?.toString() || "0",
-      slotId,
-      currentBuffer
+      currentAvailable: available,
+      slotId: slot._id
     })
-    setEditAmount("0")
-    setEditBuffer("") // Start with empty buffer field
+    setEditAmount("")
     setOperationType("add")
     setShowEditModal(true)
   }
@@ -250,8 +297,7 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
     if (e) e.stopPropagation()
     setShowEditModal(false)
     setEditingSlotData(null)
-    setEditAmount("0")
-    setEditBuffer("")
+    setEditAmount("")
   }
 
   const handleKeyPress = (e) => {
@@ -265,11 +311,11 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
   const updateSlotBuffer = async (slotId, buffer) => {
     try {
       const instance = NetworkManager(API.slots.UPDATE_SLOT_BUFFER)
-      const response = await instance.request({ buffer: parseFloat(buffer) }, [slotId, "buffer"])
+      const response = await instance.request({ buffer: parseFloat(buffer) }, [slotId])
 
       if (response?.data?.success) {
         Toast.success("Buffer updated successfully")
-        fetchPlantsSlots() // Refresh the data
+        fetchPlantsSlots()
       } else {
         Toast.error(response?.data?.message || "Failed to update buffer")
       }
@@ -282,55 +328,36 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
   const handleSaveEdit = async () => {
     if (!editingSlotData) return
 
-    const currentVal = parseInt(editingSlotData.currentValue) || 0
-    const amountToChange = parseInt(editAmount) || 0
-    const bufferValue = parseFloat(editBuffer) || 0
+    const currentVal = parseSlotNumber(editingSlotData.currentAvailable, 0)
+    const amountToChange = parseInt(editAmount, 10) || 0
 
-    // Validate buffer
-    if (bufferValue < 0 || bufferValue > 100) {
-      Toast.error("Buffer must be between 0 and 100")
+    if (amountToChange <= 0) {
+      Toast.error("Enter a valid amount")
       return
     }
 
+    const newAvailable =
+      operationType === "add" ? currentVal + amountToChange : currentVal - amountToChange
+
+    const payload = { availablePlants: newAvailable }
+
     try {
-      // Update plants if amount is provided
-      if (amountToChange > 0) {
-        if (operationType === "add") {
-          // Use the new addPlantsToCapacity endpoint
-          const instance = NetworkManager(API.slots.ADD_PLANTS_TO_CAPACITY)
-          const response = await instance.request({ plantsToAdd: amountToChange }, [
-            editingSlotData.slotId,
-            "add-capacity"
-          ])
+      const instance = NetworkManager(API.slots.UPDATE_SLOT)
+      const response = await instance.request(payload, [editingSlotData.slotId])
 
-          if (response?.data?.success) {
-            Toast.success(`Added ${amountToChange} plants to available plants`)
-          } else {
-            Toast.error(response?.data?.message || "Failed to add plants")
-            return
-          }
-        } else {
-          // For subtraction, use the general update endpoint
-          const newValue = Math.max(0, currentVal - amountToChange)
-          setEditValue(newValue.toString())
-          setTimeout(() => {
-            updateSlots(null, editingSlotData.slotId, undefined, newValue.toString())
-          }, 0)
-        }
+      if (response?.code === 200 || response?.data?.success) {
+        Toast.success(
+          `Available: ${currentVal.toLocaleString()} → ${newAvailable.toLocaleString()}`
+        )
+      } else {
+        Toast.error(response?.data?.message || "Failed to update available plants")
+        return
       }
 
-      // Update buffer only if user explicitly changed it
-      const currentBuffer = parseFloat(editingSlotData.currentBuffer || 0)
-      const newBufferValue = parseFloat(editBuffer) || 0
-
-      // Only update buffer if the value is different AND user entered a value
-      if (editBuffer !== "" && newBufferValue !== currentBuffer) {
-        await updateSlotBuffer(editingSlotData.slotId, newBufferValue)
-      }
-
-      // Refresh data
       fetchPlantsSlots()
       setShowEditModal(false)
+      setEditingSlotData(null)
+      setEditAmount("")
     } catch (error) {
       console.error("Error updating slot:", error)
       Toast.error("Failed to update slot. Please try again.")
@@ -342,19 +369,25 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
     let totalBookedPlants = 0
     let totalAvailablePlants = 0
     let totalPrimarySowed = 0
+    let totalDispatchedPlants = 0
+    let totalRemainingToDispatch = 0
 
     slots.forEach((slot) => {
-      totalPlants += slot.totalPlants ?? 0
-      totalBookedPlants += slot.totalBookedPlants ?? 0
-      totalAvailablePlants += slot.availablePlants ?? Math.max(0, (slot.totalPlants ?? 0) - (slot.totalBookedPlants ?? 0))
+      totalPlants += getTotalCapacity(slot)
+      totalBookedPlants += getBookedPlants(slot)
+      totalAvailablePlants += getAvailablePlants(slot)
       totalPrimarySowed += slot.primarySowed ?? 0
+      totalDispatchedPlants += slot.totalDispatchedPlants ?? 0
+      totalRemainingToDispatch += slot.remainingToDispatch ?? 0
     })
 
     return {
       totalPlants,
       totalBookedPlants,
       totalAvailablePlants,
-      totalPrimarySowed
+      totalPrimarySowed,
+      totalDispatchedPlants,
+      totalRemainingToDispatch
     }
   }
 
@@ -375,8 +408,44 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
   }
 
   const openSlotDetails = (slot, monthName) => {
+    setPastDueExpandKey(null)
     setSelectedSlot({ ...slot, monthName })
     setDetailModalOpen(true)
+  }
+
+  const openPastDueOnSlot = (e, slot, monthName, statKey, pendingSlotId = null) => {
+    if (e) {
+      e.stopPropagation()
+      e.preventDefault()
+    }
+    const drawerStatKey =
+      statKey === "rolled-current" || statKey === "rolled-other"
+        ? "pastDueRolled"
+        : statKey?.startsWith("pending")
+          ? "pastDuePending"
+          : statKey
+    setSlotOrdersDrawer({
+      slot,
+      monthName,
+      statKey: drawerStatKey,
+      pendingSlotId: pendingSlotId || (statKey?.startsWith("pending-") ? statKey.replace(/^pending-/, "") : null)
+    })
+  }
+
+  const openSlotOrders = (e, slot, monthName, statKey) => {
+    if (e) {
+      e.stopPropagation()
+      e.preventDefault()
+    }
+    setDetailModalOpen(false)
+    setSlotOrdersDrawer({ slot, monthName, statKey })
+  }
+
+  const closeSlotOrdersDrawer = () => setSlotOrdersDrawer(null)
+
+  const openStockHistory = (e, slot) => {
+    if (e) e.stopPropagation()
+    setStockHistorySlot(slot)
   }
 
   const openBufferModal = (e, slot, currentBuffer = 0) => {
@@ -392,9 +461,15 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
     setBufferValue("0")
   }
 
-  const openReleaseBufferModal = (slot) => {
+  const openReleaseBufferModal = (e, slot) => {
+    if (e) {
+      e.stopPropagation()
+      e.preventDefault()
+    }
+    setDetailModalOpen(false)
+    const releasable = getReleasableBuffer(slot)
     setReleaseBufferSlotData(slot)
-    setReleaseAmount("0")
+    setReleaseAmount(releasable > 0 ? String(releasable) : "")
     setShowReleaseBufferModal(true)
   }
 
@@ -476,15 +551,23 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
   const handleReleaseBuffer = async () => {
     if (!releaseBufferSlotData) return
 
-    const amount = parseInt(releaseAmount) || 0
+    const amount = Math.floor(Number(releaseAmount)) || 0
+    const maxReleasable = getReleasableBuffer(releaseBufferSlotData)
 
     if (amount <= 0) {
       Toast.error("Please enter a valid amount to release")
       return
     }
 
-    if (amount > (releaseBufferSlotData.bufferAmount || 0)) {
-      Toast.error("Cannot release more plants than available in buffer")
+    if (maxReleasable <= 0) {
+      Toast.error(
+        "No releasable buffer in database. Save buffer % on this slot (shield icon) or run buffer migration."
+      )
+      return
+    }
+
+    if (amount > maxReleasable) {
+      Toast.error(`Cannot release more than ${maxReleasable.toLocaleString()} plants in buffer`)
       return
     }
 
@@ -521,7 +604,7 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
 
     try {
       const instance = NetworkManager(API.slots.UPDATE_SLOT_BUFFER)
-      const response = await instance.request({ buffer }, [bufferSlotData._id, "buffer"])
+      const response = await instance.request({ buffer }, [bufferSlotData._id])
 
       if (response?.data?.success) {
         Toast.success("Buffer updated successfully")
@@ -540,160 +623,101 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
 
   if (loading) return <PageLoader />
 
-  // Enhanced Edit Modal Component
-  const EditModal = () => {
-    if (!showEditModal) return null
+  // Compact Edit Available Plants dialog
+  const EditModal = () => (
+    <Dialog
+      open={showEditModal}
+      onClose={cancelEdit}
+      maxWidth="xs"
+      fullWidth
+      PaperProps={{ sx: { borderRadius: "12px" } }}>
+      <DialogTitle sx={{ pb: 1, fontWeight: 700, fontSize: "1.1rem" }}>
+        Edit Available Plants
+      </DialogTitle>
+      <DialogContent>
+        <div className="mb-4 rounded-lg bg-slate-50 px-3 py-2 text-center">
+          <p className="text-xs text-slate-500">Current available</p>
+          <p className="text-2xl font-bold tabular-nums text-slate-900">
+            {parseSlotNumber(editingSlotData?.currentAvailable, 0).toLocaleString()}
+          </p>
+        </div>
 
-    return (
-      <Modal
-        open={showEditModal}
-        onClose={cancelEdit}
-        closeAfterTransition
-        BackdropComponent={Backdrop}
-        BackdropProps={{
-          timeout: 500
-        }}>
-        <Fade in={showEditModal}>
-          <Box
-            sx={{
-              position: "absolute",
-              top: "50%",
-              left: "50%",
-              transform: "translate(-50%, -50%)",
-              width: 400,
-              bgcolor: "background.paper",
-              borderRadius: "16px",
-              boxShadow: 24,
-              p: 4
-            }}>
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-2xl font-bold text-gray-900">Edit Available Plants</h3>
-              <div className="p-2 bg-blue-50 rounded-full">
-                <Edit2 className="w-6 h-6 text-blue-600" />
-              </div>
-            </div>
+        <div className="mb-3 flex gap-2">
+          <button
+            type="button"
+            className={`flex-1 rounded-lg py-2 text-sm font-semibold ${
+              operationType === "add"
+                ? "bg-emerald-600 text-white"
+                : "bg-slate-100 text-slate-700"
+            }`}
+            onClick={() => setOperationType("add")}>
+            <Plus className="mr-1 inline h-3.5 w-3.5" />
+            Add
+          </button>
+          <button
+            type="button"
+            className={`flex-1 rounded-lg py-2 text-sm font-semibold ${
+              operationType === "subtract"
+                ? "bg-red-600 text-white"
+                : "bg-slate-100 text-slate-700"
+            }`}
+            onClick={() => setOperationType("subtract")}>
+            <Minus className="mr-1 inline h-3.5 w-3.5" />
+            Remove
+          </button>
+        </div>
 
-            <div className="mb-6">
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                Current Available Plants
-              </label>
-              <div className="text-3xl font-bold text-gray-900 px-4 py-3 bg-gray-50 rounded-xl border-2 border-gray-200">
-                {editingSlotData?.currentValue || 0}
-              </div>
-              <p className="text-xs text-gray-500 mt-1">
-                Plants added will go directly to available plants. Buffer amount stays the same,
-                percentage will be recalculated.
-              </p>
-            </div>
+        <Input
+          value={editAmount}
+          onChange={handleEditChange}
+          onKeyDown={handleKeyPress}
+          fullWidth
+          size="small"
+          autoFocus
+          placeholder={operationType === "add" ? "Plants to add" : "Plants to remove"}
+          sx={{ "& .MuiOutlinedInput-root": { borderRadius: "8px" } }}
+        />
 
-            <div className="mb-6">
-              <label className="block text-sm font-semibold text-gray-700 mb-3">
-                Operation Type
-              </label>
-              <div className="mb-2 p-2 bg-blue-50 rounded-lg border border-blue-200">
-                <p className="text-xs text-blue-700">
-                  <strong>Note:</strong> Plants added will go directly to available plants. Buffer
-                  amount stays the same, percentage will be recalculated.
-                </p>
-              </div>
-              <div className="flex space-x-2">
-                <button
-                  className={`flex-1 py-3 px-4 rounded-xl font-medium transition-all duration-300 ${
-                    operationType === "add"
-                      ? "bg-green-500 text-white shadow-lg transform scale-105"
-                      : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                  }`}
-                  onClick={() => setOperationType("add")}>
-                  <Plus className="w-4 h-4 inline mr-2" />
-                  Add to Available
-                </button>
-                <button
-                  className={`flex-1 py-3 px-4 rounded-xl font-medium transition-all duration-300 ${
-                    operationType === "subtract"
-                      ? "bg-red-500 text-white shadow-lg transform scale-105"
-                      : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                  }`}
-                  onClick={() => setOperationType("subtract")}>
-                  <Minus className="w-4 h-4 inline mr-2" />
-                  Remove Plants
-                </button>
-              </div>
-            </div>
-
-            <div className="mb-6">
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                {operationType === "add" ? "Plants to Add" : "Plants to Remove"}
-              </label>
-              <Input
-                value={editAmount}
-                onChange={handleEditChange}
-                onKeyDown={handleKeyPress}
-                fullWidth
-                size="large"
-                autoFocus
-                sx={{
-                  "& .MuiOutlinedInput-root": {
-                    borderRadius: "0.75rem",
-                    fontSize: "1.125rem",
-                    fontWeight: "600"
-                  }
-                }}
-              />
-            </div>
-
-            <div className="mb-8">
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                Buffer Percentage (Optional)
-              </label>
-              <div className="mb-2 p-2 bg-blue-50 rounded-lg border border-blue-200">
-                <p className="text-xs text-blue-700">
-                  <strong>Current Buffer:</strong> {editingSlotData?.currentBuffer || 0}%
-                </p>
-                <p className="text-xs text-blue-600 mt-1">
-                  Buffer amount stays the same, percentage will be recalculated
-                </p>
-              </div>
-              <Input
-                value={editBuffer}
-                onChange={(e) => setEditBuffer(e.target.value)}
-                fullWidth
-                size="large"
-                type="number"
-                min="0"
-                max="100"
-                step="0.1"
-                placeholder="Enter new buffer percentage (optional)"
-                sx={{
-                  "& .MuiOutlinedInput-root": {
-                    borderRadius: "0.75rem",
-                    fontSize: "1.125rem",
-                    fontWeight: "600"
-                  }
-                }}
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                <strong>Note:</strong> Only set this if you want to change the buffer percentage.
-                Leave empty to keep buffer amount unchanged (percentage will be recalculated).
-              </p>
-            </div>
-
-            <div className="flex justify-end space-x-3">
+        {operationType === "add" && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {[100, 500, 1000].map((n) => (
               <button
-                onClick={cancelEdit}
-                className="px-6 py-3 text-sm font-medium text-gray-700 bg-gray-100 rounded-xl hover:bg-gray-200 transition-colors duration-200">
-                Cancel
+                key={n}
+                type="button"
+                className="rounded-md bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-100"
+                onClick={() => setEditAmount(String(n))}>
+                +{n.toLocaleString()}
               </button>
-              <button
-                onClick={handleSaveEdit}
-                className="px-6 py-3 text-sm font-medium text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition-colors duration-200 shadow-lg">
-                Apply Changes
-              </button>
-            </div>
-          </Box>
-        </Fade>
-      </Modal>
-    )
-  }
+            ))}
+          </div>
+        )}
+
+        {editAmount && (
+          <p className="mt-2 text-sm font-medium text-slate-700">
+            New available:{" "}
+            {(operationType === "add"
+              ? parseSlotNumber(editingSlotData?.currentAvailable, 0) +
+                (parseInt(editAmount, 10) || 0)
+              : parseSlotNumber(editingSlotData?.currentAvailable, 0) -
+                (parseInt(editAmount, 10) || 0)
+            ).toLocaleString()}
+          </p>
+        )}
+
+        <p className="mt-2 text-xs text-slate-500">
+          Saves absolute available (PUT). Example: −8,000 + 8,000 → 0. Cap = available + booked.
+        </p>
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 2 }}>
+        <Button onClick={cancelEdit} color="inherit">
+          Cancel
+        </Button>
+        <Button onClick={handleSaveEdit} variant="contained" disableElevation>
+          Apply
+        </Button>
+      </DialogActions>
+    </Dialog>
+  )
 
   // Slot Detail Modal
   const SlotDetailModal = () => {
@@ -703,22 +727,15 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
     const end = moment(selectedSlot.endDay, "DD-MM-YYYY").format("MMM D")
     const year = moment(selectedSlot.startDay, "DD-MM-YYYY").format("YYYY")
 
-    // Use buffer-adjusted values if available, otherwise fall back to original calculation
-    const effectiveTotalCapacity =
-      selectedSlot.bufferAdjustedCapacity ||
-      selectedSlot.totalPlants + selectedSlot.totalBookedPlants
-    const effectiveAvailablePlants =
-      selectedSlot.availablePlants !== undefined
-        ? selectedSlot.availablePlants
-        : selectedSlot.totalPlants
-    const effectiveTotalPlants =
-      selectedSlot.totalPlants !== undefined ? selectedSlot.totalPlants : selectedSlot.totalPlants
-
-    const slotBookedPercentage = calculatePercentage(
-      selectedSlot.totalBookedPlants,
+    const effectiveTotalCapacity = getSellableCapacity(selectedSlot)
+    const effectiveAvailablePlants = getAvailablePlants(selectedSlot)
+    const selectedAvailMinusRolled = getAvailableMinusRolledIn(selectedSlot)
+    const selectedShowDualAvail = slotShowDualAvailableCards(selectedSlot)
+    const slotBookedPercentage = getUtilizationPct(
+      getBookedPlants(selectedSlot),
       effectiveTotalCapacity
     )
-    const slotIsOverbooked = effectiveAvailablePlants < 0 || slotBookedPercentage > 100
+    const slotIsOverbooked = isSlotOverbooked(selectedSlot)
 
     return (
       <Modal
@@ -788,12 +805,7 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                     <IconButton
                       onClick={(e) => {
                         e.stopPropagation()
-                        startEditing(
-                          e,
-                          effectiveAvailablePlants,
-                          selectedSlot._id,
-                          selectedSlot.effectiveBuffer || selectedSlot.buffer || 0
-                        )
+                        startEditing(e, selectedSlot)
                         setDetailModalOpen(false)
                       }}
                       sx={{ color: "#3b82f6" }}>
@@ -804,13 +816,26 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                     <IconButton
                       onClick={(e) => {
                         e.stopPropagation()
-                        openBufferModal(e, selectedSlot, selectedSlot.buffer || 0)
+                        openBufferModal(e, selectedSlot, getEffectiveBufferPct(selectedSlot))
                         setDetailModalOpen(false)
                       }}
                       sx={{ color: "#8b5cf6" }}>
                       <Shield className="w-5 h-5" />
                     </IconButton>
                   </Tooltip>
+                  {(getBufferStatusMeta(selectedSlot).releasable > 0) && (
+                    <Tooltip title="Release buffer plants to available">
+                      <IconButton
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          openReleaseBufferModal(e, selectedSlot)
+                          setDetailModalOpen(false)
+                        }}
+                        sx={{ color: "#7c3aed" }}>
+                        <TrendingUp className="w-5 h-5" />
+                      </IconButton>
+                    </Tooltip>
+                  )}
                   <Tooltip title="Transfer Plants">
                     <IconButton
                       onClick={(e) => {
@@ -831,24 +856,35 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
 
             {/* Modal Content */}
             <div className="flex-1 overflow-auto p-6">
-              {/* Stats Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-                <Card>
+              {/* Core slot stats */}
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
+                Slot stats
+              </p>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-2">
+                <Card
+                  className="cursor-pointer hover:shadow-md transition-shadow"
+                  onClick={() =>
+                    setSlotOrdersDrawer({
+                      slot: selectedSlot,
+                      monthName: selectedSlot.monthName,
+                      statKey: "available"
+                    })
+                  }>
                   <CardContent className="p-4">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-sm text-gray-600">Available Plants</p>
+                        <p className="text-sm text-gray-600">Available</p>
                         <p
-                          className={`text-2xl font-bold ${
+                          className={`text-2xl font-bold tabular-nums ${
                             effectiveAvailablePlants < 0 ? "text-red-600" : "text-green-600"
                           }`}>
                           {effectiveAvailablePlants.toLocaleString()}
                         </p>
-                        {selectedSlot.bufferAmount > 0 && (
-                          <p className="text-xs text-gray-500">
-                            -{selectedSlot.bufferAmount?.toLocaleString() || 0} buffer applied
+                        {selectedShowDualAvail ? (
+                          <p className="text-xs text-amber-800">
+                            Excl. rolled: {selectedAvailMinusRolled.toLocaleString()}
                           </p>
-                        )}
+                        ) : null}
                       </div>
                       <Target
                         className={`w-8 h-8 ${
@@ -859,13 +895,22 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                   </CardContent>
                 </Card>
 
-                <Card>
+                <Card
+                  className="cursor-pointer hover:shadow-md transition-shadow"
+                  onClick={() =>
+                    setSlotOrdersDrawer({
+                      slot: selectedSlot,
+                      monthName: selectedSlot.monthName,
+                      statKey: "booked"
+                    })
+                  }>
                   <CardContent className="p-4">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-sm text-gray-600">Booked Plants</p>
-                        <p className="text-2xl font-bold text-blue-600">
-                          {selectedSlot.totalBookedPlants}
+                        <p className="text-sm text-gray-600">Booked</p>
+                        <p className="text-xs text-gray-500">Delivery in this window · excludes rolled-in</p>
+                        <p className="text-2xl font-bold text-blue-600 tabular-nums">
+                          {getBookedPlants(selectedSlot).toLocaleString()}
                         </p>
                       </div>
                       <Users className="w-8 h-8 text-blue-500" />
@@ -873,22 +918,177 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                   </CardContent>
                 </Card>
 
+                <Card
+                  className="cursor-pointer hover:shadow-md transition-shadow border-amber-200"
+                  onClick={() =>
+                    setSlotOrdersDrawer({
+                      slot: selectedSlot,
+                      monthName: selectedSlot.monthName,
+                      statKey: "remaining"
+                    })
+                  }>
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-gray-600">Remaining</p>
+                        <p className="text-xs text-gray-500 mb-0.5">Not dispatched yet</p>
+                        <p
+                          className={`text-2xl font-bold tabular-nums ${
+                            getRemainingToDispatch(selectedSlot) > 0
+                              ? "text-amber-700"
+                              : "text-gray-900"
+                          }`}>
+                          {getRemainingToDispatch(selectedSlot).toLocaleString()}
+                        </p>
+                      </div>
+                      <Clock
+                        className={`w-8 h-8 ${
+                          getRemainingToDispatch(selectedSlot) > 0
+                            ? "text-amber-500"
+                            : "text-gray-400"
+                        }`}
+                      />
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card
+                  className="cursor-pointer hover:shadow-md transition-shadow"
+                  onClick={() =>
+                    setSlotOrdersDrawer({
+                      slot: selectedSlot,
+                      monthName: selectedSlot.monthName,
+                      statKey: "dispatched"
+                    })
+                  }>
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-gray-600">Dispatched</p>
+                        <p className="text-2xl font-bold text-slate-700 tabular-nums">
+                          {(selectedSlot.totalDispatchedPlants ?? 0).toLocaleString()}
+                        </p>
+                      </div>
+                      <CheckCircle2 className="w-8 h-8 text-slate-500" />
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {((selectedSlot.pastDueRolledInPlants ?? 0) > 0 ||
+                (selectedSlot.pastDuePendingOnSlot ?? 0) > 0) && (
+                <>
+                  <div className="border-t border-gray-200 my-5" role="separator" />
+                  <p className="text-xs font-semibold text-amber-800 uppercase tracking-wide mb-3">
+                    Past due
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-2">
+                    {(selectedSlot.pastDueRolledInPlants ?? 0) > 0 && (
+                      <Card
+                        className="cursor-pointer hover:shadow-md transition-shadow border-amber-200"
+                        onClick={() =>
+                          setSlotOrdersDrawer({
+                            slot: selectedSlot,
+                            monthName: selectedSlot.monthName,
+                            statKey: "pastDueRolled"
+                          })
+                        }
+                      >
+                        <CardContent className="p-4">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-sm text-gray-600">Rolled in (past due)</p>
+                              <p className="text-2xl font-bold text-amber-700 tabular-nums">
+                                {(selectedSlot.pastDueRolledInPlants ?? 0).toLocaleString()}
+                              </p>
+                              <p className="text-sm text-amber-800 tabular-nums">
+                                {(selectedSlot.pastDueRolledInOrders ?? 0).toLocaleString()} orders · excluded
+                                from Booked / Remaining above
+                              </p>
+                              <p className="text-xs text-gray-500">Click for order list</p>
+                            </div>
+                            <Clock className="w-8 h-8 text-amber-500" />
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )}
+                    {(selectedSlot.pastDuePendingOnSlot ?? 0) > 0 && (
+                      <Card
+                        className="cursor-pointer hover:shadow-md transition-shadow border-orange-200"
+                        onClick={() => openPendingRollModal(selectedSlot)}>
+                        <CardContent className="p-4">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-sm text-gray-600">Pending roll</p>
+                              <p className="text-2xl font-bold text-orange-700 tabular-nums">
+                                {(selectedSlot.pastDuePendingOrders ?? 0).toLocaleString()}
+                              </p>
+                              <p className="text-sm text-orange-800 tabular-nums">
+                                {(selectedSlot.pastDuePendingOnSlot ?? 0).toLocaleString()}{" "}
+                                <span className="text-orange-600">plants</span>
+                              </p>
+                              <p className="text-xs text-gray-500">
+                                Click to review & roll all
+                              </p>
+                            </div>
+                            <AlertTriangle className="w-8 h-8 text-orange-500" />
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )}
+                  </div>
+                </>
+              )}
+
+              {((selectedSlot.dispatchedFromOtherSlots ?? 0) > 0 ||
+                (selectedSlot.releasedForEarlyDispatch ?? 0) > 0) && (
+                <>
+                  <div className="border-t border-gray-200 my-5" role="separator" />
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
+                    Cross-slot
+                  </p>
+                  <div className="flex flex-wrap gap-3 text-sm mb-2">
+                    {(selectedSlot.dispatchedFromOtherSlots ?? 0) > 0 && (
+                      <span className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sky-800">
+                        Early dispatch (other slot):{" "}
+                        <strong>
+                          {(selectedSlot.dispatchedFromOtherSlots ?? 0).toLocaleString()}
+                        </strong>
+                      </span>
+                    )}
+                    {(selectedSlot.releasedForEarlyDispatch ?? 0) > 0 && (
+                      <span className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-violet-800">
+                        Released for dispatch elsewhere:{" "}
+                        <strong>
+                          {(selectedSlot.releasedForEarlyDispatch ?? 0).toLocaleString()}
+                        </strong>
+                      </span>
+                    )}
+                  </div>
+                </>
+              )}
+
+              <div className="border-t border-gray-200 my-5" role="separator" />
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
+                Other metrics
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
                 <Card>
                   <CardContent className="p-4">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-sm text-gray-600">Gap (Need to Sow)</p>
+                        <p className="text-sm text-gray-600">Sowing Gap</p>
                         <p className={`text-2xl font-bold ${
-                          (selectedSlot.totalBookedPlants - effectiveAvailablePlants) > 0 
+                          getSowingGap(selectedSlot) > 0 
                             ? "text-orange-600" 
                             : "text-gray-900"
                         }`}>
-                          {(selectedSlot.totalBookedPlants - effectiveAvailablePlants) > 0 ? '+' : ''}
-                          {(selectedSlot.totalBookedPlants - effectiveAvailablePlants).toLocaleString()}
+                          {getSowingGap(selectedSlot) > 0 ? "+" : ""}
+                          {getSowingGap(selectedSlot).toLocaleString()}
                         </p>
                       </div>
                       <TrendingUp className={`w-8 h-8 ${
-                        (selectedSlot.totalBookedPlants - effectiveAvailablePlants) > 0
+                        getSowingGap(selectedSlot) > 0
                           ? "text-orange-500"
                           : "text-gray-400"
                       }`} />
@@ -921,26 +1121,65 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                   <CardContent className="p-4">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-sm text-gray-600">Effective Buffer</p>
-                        <p className="text-2xl font-bold text-purple-600">
-                          {selectedSlot.effectiveBuffer || selectedSlot.buffer || 0}%
+                        <p className="text-sm text-gray-600">Actual Plants</p>
+                        <p className="text-2xl font-bold text-teal-600">
+                          {(selectedSlot.actualPlants ?? 0).toLocaleString()}
                         </p>
-                        {selectedSlot.effectiveBuffer &&
-                          selectedSlot.effectiveBuffer !== (selectedSlot.buffer || 0) && (
-                            <p className="text-xs text-purple-600">
-                              Inherited from{" "}
-                              {selectedSlot.effectiveBuffer === selectedSlot.buffer
-                                ? "slot"
-                                : selectedSlot.effectiveBuffer === selectedSlot.subtypeBuffer
-                                ? "subtype"
-                                : "plant"}
-                            </p>
-                          )}
                       </div>
-                      <Shield className="w-8 h-8 text-purple-500" />
+                      <Package className="w-8 h-8 text-teal-500" />
                     </div>
                   </CardContent>
                 </Card>
+
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-gray-600">Closing Stock</p>
+                        <p className="text-2xl font-bold text-amber-600">
+                          {(selectedSlot.closingStock ?? 0).toLocaleString()}
+                        </p>
+                      </div>
+                      <Activity className="w-8 h-8 text-amber-500" />
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {selectedSlot.isCurrentDateSlot && selectedSlot.pastDueDetail ? (
+                <PastDueSlotBreakdown
+                  detail={selectedSlot.pastDueDetail}
+                  slotLabel={`${start} – ${end}, ${year}`}
+                  expandKey={pastDueExpandKey}
+                  onExpandKey={setPastDueExpandKey}
+                  canRoll={canRollPastDue}
+                  onOpenPendingRoll={() => openPendingRollModal(selectedSlot)}
+                />
+              ) : null}
+
+              <div className="mb-6">
+                <SlotBufferPanel
+                  slot={selectedSlot}
+                  compact={false}
+                  onEditBuffer={(s, e) => {
+                    openBufferModal(e, s, getEffectiveBufferPct(s))
+                    setDetailModalOpen(false)
+                  }}
+                  onReleaseBuffer={(s) => {
+                    openReleaseBufferModal(null, s)
+                    setDetailModalOpen(false)
+                  }}
+                />
+              </div>
+
+              <div className="mb-6 flex justify-end">
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={(e) => openStockHistory(e, selectedSlot)}
+                  startIcon={<History className="w-4 h-4" />}>
+                  View stock change log
+                </Button>
               </div>
 
               {/* Farmer Orders Table */}
@@ -957,6 +1196,7 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                     monthName={selectedSlot.monthName}
                     startDay={selectedSlot.startDay}
                     endDay={selectedSlot.endDay}
+                    slotOrderFilter="all_active"
                   />
                 </div>
               </div>
@@ -1207,53 +1447,66 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
               p: 4
             }}>
             <div className="flex items-center justify-between mb-6">
-              <h3 className="text-2xl font-bold text-gray-900">Update Buffer</h3>
+              <h3 className="text-2xl font-bold text-gray-900">Buffer reserve</h3>
               <div className="p-2 bg-purple-50 rounded-full">
                 <Shield className="w-6 h-6 text-purple-600" />
               </div>
             </div>
 
-            {bufferSlotData && (
+            {bufferSlotData && (() => {
+              const bufferMeta = getBufferStatusMeta(bufferSlotData)
+              const previewPct = parseFloat(bufferValue) || 0
+              const previewReserve =
+                previewPct > 0
+                  ? Math.round((getTotalCapacity(bufferSlotData) * previewPct) / 100)
+                  : 0
+              return (
               <div className="mb-6">
-                <div className="bg-gray-50 rounded-lg p-4 mb-4">
-                  <h4 className="font-semibold text-gray-900 mb-2">Slot Information</h4>
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <span className="text-gray-600">Date Range:</span>
-                      <p className="font-medium">
-                        {moment(bufferSlotData.startDay, "DD-MM-YYYY").format("MMM D")} -{" "}
-                        {moment(bufferSlotData.endDay, "DD-MM-YYYY").format("MMM D")}
+                <div
+                  className={`rounded-xl border bg-gradient-to-br p-4 mb-4 ${bufferMeta.styles.shell}`}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span
+                      className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${bufferMeta.styles.badge}`}>
+                      {bufferMeta.styles.badgeLabel}
+                    </span>
+                    <span className="text-xs text-gray-600">
+                      {moment(bufferSlotData.startDay, "DD-MM-YYYY").format("MMM D")} –{" "}
+                      {moment(bufferSlotData.endDay, "DD-MM-YYYY").format("MMM D")}
+                    </span>
+                  </div>
+                  <p className={`text-lg font-bold ${bufferMeta.styles.number}`}>{bufferMeta.headline}</p>
+                  <p className="text-xs text-gray-600 mt-1">{bufferMeta.subline}</p>
+                  <div className="grid grid-cols-3 gap-2 mt-3 text-center">
+                    <div className="rounded-lg bg-white/70 px-2 py-1.5">
+                      <p className="text-[10px] text-gray-500">Capacity</p>
+                      <p className="text-sm font-bold">{bufferMeta.total.toLocaleString()}</p>
+                    </div>
+                    <div className="rounded-lg bg-white/70 px-2 py-1.5">
+                      <p className="text-[10px] text-gray-500">Available</p>
+                      <p className="text-sm font-bold text-green-700">
+                        {bufferMeta.available.toLocaleString()}
                       </p>
                     </div>
-                    <div>
-                      <span className="text-gray-600">Available Plants:</span>
-                      <p className="font-medium">{bufferSlotData.totalPlants?.toLocaleString()}</p>
-                    </div>
-                    <div>
-                      <span className="text-gray-600">Current Buffer:</span>
-                      <p className="font-medium text-purple-600">{bufferSlotData.buffer || 0}%</p>
-                    </div>
-                    <div>
-                      <span className="text-gray-600">Status:</span>
-                      <p className="font-medium">{bufferSlotData.status ? "Active" : "Inactive"}</p>
+                    <div className="rounded-lg bg-white/70 px-2 py-1.5">
+                      <p className="text-[10px] text-gray-500">Booked</p>
+                      <p className="text-sm font-bold text-blue-700">{bufferMeta.booked.toLocaleString()}</p>
                     </div>
                   </div>
                 </div>
 
-                <div className="mb-6">
+                <div className="mb-4">
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Buffer Percentage
+                    Buffer percentage for this slot
                   </label>
                   <Input
                     value={bufferValue}
                     onChange={(e) => setBufferValue(e.target.value)}
                     fullWidth
-                    size="large"
                     type="number"
                     min="0"
                     max="100"
                     step="0.1"
-                    placeholder="Enter buffer percentage (0-100)"
+                    placeholder="e.g. 15"
                     autoFocus
                     sx={{
                       "& .MuiOutlinedInput-root": {
@@ -1263,27 +1516,18 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                       }
                     }}
                   />
+                  {previewPct > 0 && (
+                    <p className="text-xs text-purple-700 mt-2 font-medium">
+                      Preview: {previewReserve.toLocaleString()} plants held back ({previewPct}% of capacity)
+                    </p>
+                  )}
                   <p className="text-xs text-gray-500 mt-1">
-                    Additional buffer percentage for this slot (0-100%)
+                    Applies reserve to this slot only. You can release it to available anytime.
                   </p>
                 </div>
-
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-                  <div className="flex items-start space-x-3">
-                    <div className="p-1 bg-blue-100 rounded">
-                      <Target className="w-4 h-4 text-blue-600" />
-                    </div>
-                    <div>
-                      <h5 className="font-medium text-blue-900 mb-1">What is Buffer?</h5>
-                      <p className="text-sm text-blue-700">
-                        Buffer is an additional percentage of plants kept as reserve for this slot.
-                        This helps manage unexpected demand or production variations.
-                      </p>
-                    </div>
-                  </div>
-                </div>
               </div>
-            )}
+              )
+            })()}
 
             <div className="flex justify-end space-x-3">
               <button
@@ -1294,7 +1538,7 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
               <button
                 onClick={handleBufferSave}
                 className="px-6 py-3 text-sm font-medium text-white bg-purple-600 rounded-xl hover:bg-purple-700 transition-colors duration-200 shadow-lg">
-                Update Buffer
+                Save buffer %
               </button>
             </div>
           </Box>
@@ -1324,54 +1568,79 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
               p: 4
             }}>
             <div className="flex items-center justify-between mb-6">
-              <h3 className="text-2xl font-bold text-gray-900">Release Buffer Plants</h3>
+              <h3 className="text-2xl font-bold text-gray-900">Release to available</h3>
               <div className="p-2 bg-purple-50 rounded-full">
                 <Shield className="w-6 h-6 text-purple-600" />
               </div>
             </div>
 
-            {releaseBufferSlotData && (
+            {releaseBufferSlotData && (() => {
+              const releaseMeta = getBufferStatusMeta(releaseBufferSlotData)
+              return (
               <div className="mb-6">
+                <div
+                  className={`rounded-xl border bg-gradient-to-br p-4 mb-4 ${releaseMeta.styles.shell}`}>
+                  <span
+                    className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold mb-2 ${releaseMeta.styles.badge}`}>
+                    {releaseMeta.styles.badgeLabel}
+                  </span>
+                  <p className={`text-lg font-bold ${releaseMeta.styles.number}`}>
+                    {releaseMeta.headline}
+                  </p>
+                  <p className="text-xs text-gray-600 mt-1">{releaseMeta.subline}</p>
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                    <div className="rounded-lg bg-white/70 px-3 py-2">
+                      <p className="text-[10px] text-gray-500">Can release now</p>
+                      <p className="font-bold text-violet-700">
+                        {releaseMeta.releasable.toLocaleString()}
+                      </p>
+                    </div>
+                    <div className="rounded-lg bg-white/70 px-3 py-2">
+                      <p className="text-[10px] text-gray-500">Available after</p>
+                      <p className="font-bold text-green-700">
+                        {(getAvailablePlants(releaseBufferSlotData) +
+                          releaseMeta.releasable).toLocaleString()}{" "}
+                        <span className="text-[10px] font-normal text-gray-500">max</span>
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Slot Information
+                  How many plants to move to available?
                 </label>
-                <div className="p-3 bg-gray-50 rounded-lg">
-                  <p className="text-sm text-gray-600">
-                    <span className="font-medium">Available Buffer:</span>{" "}
-                    {releaseBufferSlotData.bufferAmount?.toLocaleString() || 0} plants
+                <Input
+                  value={releaseAmount}
+                  onChange={(e) => setReleaseAmount(e.target.value)}
+                  fullWidth
+                  size="large"
+                  autoFocus
+                  type="number"
+                  placeholder="Enter number of plants"
+                  sx={{
+                    "& .MuiOutlinedInput-root": {
+                      borderRadius: "0.75rem",
+                      fontSize: "1.125rem",
+                      fontWeight: "600"
+                    }
+                  }}
+                />
+                <div className="mt-2 flex items-center justify-between">
+                  <p className="text-xs text-gray-500">
+                    Maximum: {releaseMeta.releasable.toLocaleString()} plants
                   </p>
-                  <p className="text-sm text-gray-600">
-                    <span className="font-medium">Current Available:</span>{" "}
-                    {releaseBufferSlotData.availablePlants?.toLocaleString() || 0} plants
-                  </p>
+                  {releaseMeta.releasable > 0 && (
+                    <button
+                      type="button"
+                      className="text-xs font-semibold text-purple-600 hover:text-purple-800"
+                      onClick={() => setReleaseAmount(String(releaseMeta.releasable))}>
+                      Release all
+                    </button>
+                  )}
                 </div>
               </div>
-            )}
-
-            <div className="mb-6">
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                Plants to Release from Buffer
-              </label>
-              <Input
-                value={releaseAmount}
-                onChange={(e) => setReleaseAmount(e.target.value)}
-                fullWidth
-                size="large"
-                autoFocus
-                type="number"
-                placeholder="Enter number of plants"
-                sx={{
-                  "& .MuiOutlinedInput-root": {
-                    borderRadius: "0.75rem",
-                    fontSize: "1.125rem",
-                    fontWeight: "600"
-                  }
-                }}
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                Maximum: {releaseBufferSlotData?.bufferAmount?.toLocaleString() || 0} plants
-              </p>
-            </div>
+              )
+            })()}
 
             <div className="flex space-x-3">
               <Button
@@ -1406,7 +1675,7 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                     backgroundColor: "#d1d5db"
                   }
                 }}>
-                Release Plants
+                Move to available
               </Button>
             </div>
           </Box>
@@ -1764,17 +2033,24 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
 
                 {(() => {
                   const summary = calculateSummary(slotsByMonth[availableMonths[selectedMonth]])
-                  const { totalPlants, totalBookedPlants, totalAvailablePlants, totalPrimarySowed } = summary
+                  const {
+                    totalPlants,
+                    totalBookedPlants,
+                    totalAvailablePlants,
+                    totalPrimarySowed,
+                    totalDispatchedPlants,
+                    totalRemainingToDispatch
+                  } = summary
                   const totalCapacity = totalPlants
                   const bookedPercentage = totalCapacity > 0 ? calculatePercentage(totalBookedPlants, totalCapacity) : 0
-                  const isOverbooked = totalCapacity < 0 || bookedPercentage > 100
+                  const isOverbooked = totalAvailablePlants < 0 || totalBookedPlants > totalCapacity
                   const statusColor = getStatusColor(bookedPercentage, totalAvailablePlants)
 
                   const gap = totalBookedPlants - totalPrimarySowed
                   const gapColor = gap > 0 ? "bg-orange-50 text-orange-600" : "bg-gray-50 text-gray-600"
                   
                   return (
-                    <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-4">
                       <div
                         className={`p-4 rounded-lg ${isOverbooked ? "bg-red-50" : "bg-green-50"}`}>
                         <p className="text-sm text-gray-600">Available Plants</p>
@@ -1791,8 +2067,26 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                           {totalBookedPlants.toLocaleString()}
                         </p>
                       </div>
+                      <div className="p-4 rounded-lg bg-slate-50">
+                        <p className="text-sm text-gray-600">Dispatched & completed</p>
+                        <p className="text-2xl font-bold text-slate-700">
+                          {totalDispatchedPlants.toLocaleString()}
+                        </p>
+                      </div>
+                      <div
+                        className={`p-4 rounded-lg ${
+                          totalRemainingToDispatch > 0 ? "bg-amber-50" : "bg-gray-50"
+                        }`}>
+                        <p className="text-sm text-gray-600">Remaining to dispatch</p>
+                        <p
+                          className={`text-2xl font-bold ${
+                            totalRemainingToDispatch > 0 ? "text-amber-700" : "text-gray-900"
+                          }`}>
+                          {totalRemainingToDispatch.toLocaleString()}
+                        </p>
+                      </div>
                       <div className={`p-4 rounded-lg ${gapColor}`}>
-                        <p className="text-sm text-gray-600">Gap (Need to Sow)</p>
+                        <p className="text-sm text-gray-600">Sowing Gap</p>
                         <p className={`text-2xl font-bold ${gap > 0 ? 'text-orange-600' : 'text-gray-900'}`}>
                           {gap > 0 ? '+' : ''}{gap.toLocaleString()}
                         </p>
@@ -1818,170 +2112,168 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
               </div>
 
               {/* Slots Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {slotsByMonth[availableMonths[selectedMonth]].map((slot, index) => {
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3">
+                {slotsByMonth[availableMonths[selectedMonth]].map((slot) => {
                   const {
                     startDay,
                     endDay,
-                    totalPlants,
                     status,
-                    totalBookedPlants,
                     _id,
-                    isManual,
-                    buffer = 0
+                    isManual
                   } = slot || {}
 
                   const start = moment(startDay, "DD-MM-YYYY").format("MMM D")
                   const end = moment(endDay, "DD-MM-YYYY").format("MMM D")
                   const year = moment(startDay, "DD-MM-YYYY").format("YYYY")
 
-                  // Use buffer-adjusted values if available, otherwise use slot.totalPlants as capacity
-                  const effectiveTotalCapacity =
-                    slot.bufferAdjustedCapacity ?? slot.totalPlants ?? 0
-                  const effectiveAvailablePlants =
-                    slot.availablePlants !== undefined ? slot.availablePlants : Math.max(0, (slot.totalPlants ?? 0) - (slot.totalBookedPlants ?? 0))
-                  const effectiveTotalPlants = slot.totalPlants ?? 0
+                  const effectiveTotalCapacity = getSellableCapacity(slot)
+                  const effectiveAvailablePlants = getAvailablePlants(slot)
+                  const showDualAvailable = slotShowDualAvailableCards(slot)
+                  const availExcludingRolled = getAvailableMinusRolledIn(slot)
+                  const remainingToDispatch = getRemainingToDispatch(slot)
+                  const mixedRolledAndNative = slotHasMixedRolledAndNativeOrders(slot)
+                  const hasPendingPastDue = slotHasPendingPastDueOnSubtype(slot)
+                  const bookedPlants = getBookedPlants(slot)
+                  const nativeBookedPlants = getNativeBookedPlantsOnSlot(slot)
+                  const sowingGap = getSowingGap(slot)
+                  const totalCapacity = getTotalCapacity(slot)
 
-                  const slotBookedPercentage = (effectiveTotalCapacity > 0)
-                    ? calculatePercentage(slot.totalBookedPlants ?? 0, effectiveTotalCapacity)
-                    : 0
+                  const slotBookedPercentage = getUtilizationPct(bookedPlants, effectiveTotalCapacity)
                   const slotStatusColor = getStatusColor(
                     slotBookedPercentage,
                     effectiveAvailablePlants
                   )
-                  const slotIsOverbooked =
-                    effectiveAvailablePlants < 0 || slotBookedPercentage > 100
+                  const slotIsOverbooked = isSlotOverbooked(slot)
+
+                  const statPillClass =
+                    "rounded-lg border px-2 py-1.5 text-left transition-all hover:shadow-md hover:-translate-y-0.5 cursor-pointer"
 
                   return (
                     <Card
                       key={_id}
-                      className={`transition-all duration-300 hover:shadow-xl cursor-pointer rounded-2xl border-2 ${
-                        slotIsOverbooked 
-                          ? "border-red-300 ring-2 ring-red-200 shadow-lg shadow-red-100" 
+                      className={`transition-all duration-200 hover:shadow-lg rounded-xl border ${
+                        slotIsOverbooked
+                          ? "border-red-300 ring-1 ring-red-200"
                           : slotBookedPercentage > 70
                           ? "border-orange-200 hover:border-orange-300"
                           : "border-gray-200 hover:border-blue-300"
-                      } ${status ? "" : "opacity-60"}`}
-                      onClick={() => openSlotDetails(slot, availableMonths[selectedMonth])}>
-                      <CardContent className={`p-5 ${
-                        slotIsOverbooked 
-                          ? "bg-gradient-to-br from-red-50 to-red-100" 
-                          : slotBookedPercentage > 70
-                          ? "bg-gradient-to-br from-orange-50 to-orange-100"
-                          : "bg-gradient-to-br from-white to-gray-50"
-                      }`}>
-                        {/* Card Header */}
-                        <div className="flex items-center justify-between mb-4">
-                          <div className="flex items-center gap-2">
-                            <div className={`p-2 rounded-xl ${
-                              slotIsOverbooked 
-                                ? "bg-red-500" 
-                                : slotBookedPercentage > 70
-                                ? "bg-orange-500"
-                                : "bg-blue-500"
-                            }`}>
-                              <Calendar className="w-4 h-4 text-white" />
+                      } ${status ? "" : "opacity-60"}`}>
+                      <CardContent
+                        className={`p-3 ${
+                          slotIsOverbooked
+                            ? "bg-gradient-to-br from-red-50/80 to-white"
+                            : slotBookedPercentage > 70
+                            ? "bg-gradient-to-br from-orange-50/60 to-white"
+                            : "bg-white"
+                        }`}>
+                        <div className="flex flex-wrap items-start justify-between gap-x-2 gap-y-1 mb-2">
+                          <div
+                            role="button"
+                            tabIndex={0}
+                            className="flex items-start gap-2 min-w-[11rem] flex-1 cursor-pointer rounded-lg -m-1 p-1 hover:bg-black/[0.03]"
+                            onClick={() =>
+                              openSlotDetails(slot, availableMonths[selectedMonth])
+                            }
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault()
+                                openSlotDetails(slot, availableMonths[selectedMonth])
+                              }
+                            }}>
+                            <div
+                              className={`shrink-0 p-1.5 rounded-lg mt-0.5 ${
+                                slotIsOverbooked
+                                  ? "bg-red-500"
+                                  : slotBookedPercentage > 70
+                                  ? "bg-orange-500"
+                                  : "bg-blue-500"
+                              }`}>
+                              <Calendar className="w-3.5 h-3.5 text-white" />
                             </div>
-                            <div>
-                              <h4 className="font-bold text-gray-900 text-sm">
-                                {start} - {end}
+                            <div className="min-w-0 flex-1">
+                              <h4 className="font-semibold text-gray-900 text-sm leading-snug whitespace-normal">
+                                {start} – {end}, {year}
                               </h4>
-                              <p className="text-xs text-gray-500">{year}</p>
+                              {slot.isCurrentDateSlot && (mixedRolledAndNative || hasPendingPastDue) && (
+                                <div className="flex flex-wrap gap-1 mt-1">
+                                  {mixedRolledAndNative && (
+                                    <Tooltip
+                                      title={`${getRolledInOrdersOnCurrentSlot(slot)} rolled-in + native bookings on this window (${nativeBookedPlants.toLocaleString()} plants native)`}
+                                      arrow>
+                                      <span className="inline-flex items-center gap-0.5 rounded border border-amber-300 bg-amber-100 px-1 py-0.5 text-[9px] font-bold text-amber-900">
+                                        <Layers className="w-3 h-3" />
+                                        Rolled + current
+                                      </span>
+                                    </Tooltip>
+                                  )}
+                                  {hasPendingPastDue && (
+                                    <Tooltip
+                                      title="Some orders still on expired slots — not rolled yet"
+                                      arrow>
+                                      <span className="inline-flex items-center gap-0.5 rounded border border-orange-300 bg-orange-100 px-1 py-0.5 text-[9px] font-bold text-orange-900">
+                                        <AlertTriangle className="w-3 h-3" />
+                                        Pending roll
+                                      </span>
+                                    </Tooltip>
+                                  )}
+                                </div>
+                              )}
                             </div>
                             {isManual && (
-                              <Tooltip title="Manual Slot" arrow placement="top">
-                                <div className="px-2 py-0.5 bg-amber-100 rounded-full">
-                                  <Zap className="w-3 h-3 text-amber-600" />
-                                </div>
+                              <Tooltip title="Manual slot" arrow>
+                                <Zap className="w-3 h-3 text-amber-500 shrink-0 mt-1" />
                               </Tooltip>
                             )}
                             {slotIsOverbooked && (
-                              <Tooltip title="Capacity Exceeded!" arrow placement="top">
-                                <div className="px-2 py-0.5 bg-red-500 rounded-full animate-pulse">
-                                  <AlertTriangle className="w-3 h-3 text-white" />
-                                </div>
+                              <Tooltip title="Overbooked" arrow>
+                                <AlertTriangle className="w-3.5 h-3.5 text-red-500 shrink-0 animate-pulse mt-1" />
                               </Tooltip>
                             )}
                           </div>
-                          <div className="flex items-center gap-1">
-                            <Tooltip title="View History" arrow>
+                          <div className="flex items-center gap-0.5 shrink-0 ml-auto">
+                            <Tooltip title="History" arrow>
                               <IconButton
                                 size="small"
                                 onClick={(e) => {
                                   e.stopPropagation()
-                                  console.log("History button clicked for slot:", slot)
-                                  console.log("Slot ID:", slot._id)
                                   setSelectedSlotForTrail(slot)
                                   setShowSlotTrailModal(true)
                                 }}
-                                sx={{
-                                  bgcolor: 'rgba(59, 130, 246, 0.1)',
-                                  '&:hover': { bgcolor: 'rgba(59, 130, 246, 0.2)' },
-                                  width: 28,
-                                  height: 28
-                                }}>
-                                <History className="w-3.5 h-3.5 text-blue-600" />
+                                sx={{ width: 24, height: 24 }}>
+                                <History className="w-3 h-3 text-blue-600" />
                               </IconButton>
                             </Tooltip>
-                            <Tooltip title="Edit Available Plants" arrow>
+                            <Tooltip title="Edit available" arrow>
                               <IconButton
                                 size="small"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  startEditing(e, totalPlants, _id, buffer)
-                                }}
-                                sx={{
-                                  bgcolor: (slot.availablePlants || totalPlants) < 0
-                                    ? 'rgba(220, 38, 38, 0.1)'
-                                    : 'rgba(5, 150, 105, 0.1)',
-                                  '&:hover': {
-                                    bgcolor: (slot.availablePlants || totalPlants) < 0
-                                      ? 'rgba(220, 38, 38, 0.2)'
-                                      : 'rgba(5, 150, 105, 0.2)'
-                                  },
-                                  width: 28,
-                                  height: 28
-                                }}>
-                                <Edit2 className={`w-3.5 h-3.5 ${
-                                  (slot.availablePlants || totalPlants) < 0
-                                    ? "text-red-600"
-                                    : "text-green-600"
-                                }`} />
+                                onClick={(e) => startEditing(e, slot)}
+                                sx={{ width: 24, height: 24 }}>
+                                <Edit2
+                                  className={`w-3 h-3 ${
+                                    effectiveAvailablePlants < 0 ? "text-red-600" : "text-green-600"
+                                  }`}
+                                />
                               </IconButton>
                             </Tooltip>
-                            <Tooltip title="Manage Buffer" arrow>
+                            <Tooltip title="Buffer" arrow>
                               <IconButton
                                 size="small"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  openBufferModal(e, slot, buffer)
-                                }}
-                                sx={{
-                                  bgcolor: 'rgba(139, 92, 246, 0.1)',
-                                  '&:hover': { bgcolor: 'rgba(139, 92, 246, 0.2)' },
-                                  width: 28,
-                                  height: 28
-                                }}>
-                                <Shield className="w-3.5 h-3.5 text-purple-600" />
+                                onClick={(e) =>
+                                  openBufferModal(e, slot, getEffectiveBufferPct(slot))
+                                }
+                                sx={{ width: 24, height: 24 }}>
+                                <Shield className="w-3 h-3 text-purple-600" />
                               </IconButton>
                             </Tooltip>
-                            <Tooltip title="Add Sowing Record" arrow>
+                            <Tooltip title="Sowing" arrow>
                               <IconButton
                                 size="small"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  openSowingModal(e, slot)
-                                }}
-                                sx={{
-                                  bgcolor: 'rgba(16, 185, 129, 0.1)',
-                                  '&:hover': { bgcolor: 'rgba(16, 185, 129, 0.2)' },
-                                  width: 28,
-                                  height: 28
-                                }}>
-                                <Sprout className="w-3.5 h-3.5 text-green-600" />
+                                onClick={(e) => openSowingModal(e, slot)}
+                                sx={{ width: 24, height: 24 }}>
+                                <Sprout className="w-3 h-3 text-emerald-600" />
                               </IconButton>
                             </Tooltip>
-                            <Tooltip title="Transfer Plants" arrow>
+                            <Tooltip title="Transfer" arrow>
                               <IconButton
                                 size="small"
                                 onClick={(e) => {
@@ -1989,176 +2281,231 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                                   setTransferSlotData(slot)
                                   setTransferModalOpen(true)
                                 }}
-                                sx={{
-                                  bgcolor: 'rgba(22, 163, 74, 0.1)',
-                                  '&:hover': { bgcolor: 'rgba(22, 163, 74, 0.2)' },
-                                  width: 28,
-                                  height: 28
-                                }}>
-                                <ArrowRightLeft className="w-3.5 h-3.5 text-green-600" />
+                                sx={{ width: 24, height: 24 }}>
+                                <ArrowRightLeft className="w-3 h-3 text-green-600" />
                               </IconButton>
                             </Tooltip>
                           </div>
                         </div>
 
-                        {/* Enhanced Progress Bar */}
-                        <div className="mb-4">
-                          <div className="flex justify-between items-center mb-2">
-                            <span className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Utilization</span>
-                            <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${slotStatusColor.text} ${
-                              slotIsOverbooked ? "bg-red-100" : slotBookedPercentage > 70 ? "bg-orange-100" : "bg-blue-100"
-                            }`}>
-                              {slotBookedPercentage}%
+                        <div
+                          className="mb-2.5"
+                          onClick={(e) => e.stopPropagation()}
+                          onMouseDown={(e) => e.stopPropagation()}>
+                          <div className="flex justify-between items-center mb-1">
+                            <span className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">
+                              Util {slotBookedPercentage}%
+                            </span>
+                            <span className="text-[10px] text-gray-500">
+                              Cap {totalCapacity.toLocaleString()}
                             </span>
                           </div>
-                          <div className="relative w-full bg-gray-200 rounded-full h-3 overflow-hidden shadow-inner">
+                          <div className="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
                             <div
-                              className={`h-3 ${
-                                slotStatusColor.bg
-                              } transition-all duration-500 rounded-full ${
-                                slotIsOverbooked ? "animate-pulse shadow-lg" : ""
+                              className={`h-1.5 rounded-full transition-all ${slotStatusColor.bg} ${
+                                slotIsOverbooked ? "animate-pulse" : ""
                               }`}
-                              style={{ 
-                                width: `${Math.min(slotBookedPercentage, 100)}%`,
-                                background: slotIsOverbooked 
-                                  ? 'linear-gradient(90deg, #dc2626, #991b1b)' 
-                                  : slotBookedPercentage > 70
-                                  ? 'linear-gradient(90deg, #f59e0b, #d97706)'
-                                  : 'linear-gradient(90deg, #3b82f6, #2563eb)'
-                              }}
+                              style={{ width: `${Math.min(slotBookedPercentage, 100)}%` }}
                             />
                           </div>
                         </div>
 
-                        {/* Enhanced Stats Grid */}
-                        <div className="grid grid-cols-3 gap-2 mb-4">
-                          <div className={`p-2 rounded-xl border-2 ${
-                            slot.availablePlants < 0 
-                              ? "bg-red-50 border-red-200" 
-                              : "bg-green-50 border-green-200"
-                          }`}>
-                            <div className="flex items-center justify-between mb-1">
-                              <p className="text-xs font-medium text-gray-600">Available</p>
-                              <CheckCircle2 className={`w-3.5 h-3.5 ${
-                                slot.availablePlants < 0 ? "text-red-500" : "text-green-500"
-                              }`} />
-                            </div>
-                            <p className={`text-base font-bold ${
-                              slot.availablePlants < 0 ? "text-red-700" : "text-green-700"
-                            }`}>
-                              {slot.availablePlants?.toLocaleString() || totalPlants.toLocaleString()}
+                        <div
+                          className="grid grid-cols-2 gap-1.5 mb-2"
+                          onClick={(e) => e.stopPropagation()}
+                          onMouseDown={(e) => e.stopPropagation()}>
+                          <Tooltip
+                            title={
+                              showDualAvailable
+                                ? `Excl. rolled-in: ${availExcludingRolled.toLocaleString()}`
+                                : "Plants still available to book on this slot"
+                            }
+                            arrow>
+                            <button
+                              type="button"
+                              className={`${statPillClass} ${
+                                effectiveAvailablePlants < 0
+                                  ? "bg-red-50 border-red-200 hover:bg-red-100"
+                                  : "bg-emerald-50 border-emerald-200 hover:bg-emerald-100"
+                              }`}
+                              onClick={(e) =>
+                                openSlotOrders(e, slot, availableMonths[selectedMonth], "available")
+                              }>
+                              <p className="text-[10px] text-gray-500">Available</p>
+                              <p
+                                className={`text-sm font-bold leading-tight tabular-nums ${
+                                  effectiveAvailablePlants < 0 ? "text-red-700" : "text-emerald-700"
+                                }`}>
+                                {effectiveAvailablePlants.toLocaleString()}
+                              </p>
+                            </button>
+                          </Tooltip>
+                          <button
+                            type="button"
+                            className={`${statPillClass} bg-blue-50 border-blue-200 hover:bg-blue-100`}
+                            onClick={(e) =>
+                              openSlotOrders(e, slot, availableMonths[selectedMonth], "booked")
+                            }>
+                            <p className="text-[10px] text-gray-500">Booked</p>
+                            <p className="text-[9px] text-gray-400 leading-tight">Delivery in window · excl. rolled</p>
+                            <p className="text-sm font-bold text-blue-700 leading-tight tabular-nums">
+                              {bookedPlants.toLocaleString()}
                             </p>
-                          </div>
-                          <div className="p-2 rounded-xl bg-blue-50 border-2 border-blue-200">
-                            <div className="flex items-center justify-between mb-1">
-                              <p className="text-xs font-medium text-gray-600">Booked</p>
-                              <Clock className="w-3.5 h-3.5 text-blue-500" />
-                            </div>
-                            <p className="text-base font-bold text-blue-700">{totalBookedPlants.toLocaleString()}</p>
-                          </div>
-                          <div className={`p-2 rounded-xl border-2 ${
-                            (totalBookedPlants - (slot.availablePlants || totalPlants)) > 0
-                              ? "bg-orange-50 border-orange-200"
-                              : "bg-gray-50 border-gray-200"
-                          }`}>
-                            <div className="flex items-center justify-between mb-1">
-                              <p className="text-xs font-medium text-gray-600">Gap</p>
-                              <TrendingUp className={`w-3.5 h-3.5 ${
-                                (totalBookedPlants - (slot.availablePlants || totalPlants)) > 0 ? "text-orange-500" : "text-gray-400"
-                              }`} />
-                            </div>
-                            <p className={`text-base font-bold ${
-                              (totalBookedPlants - (slot.availablePlants || totalPlants)) > 0 ? "text-orange-700" : "text-gray-700"
-                            }`}>
-                              {(totalBookedPlants - (slot.availablePlants || totalPlants)) > 0 ? '+' : ''}
-                              {(totalBookedPlants - (slot.availablePlants || totalPlants)).toLocaleString()}
+                          </button>
+                          <button
+                            type="button"
+                            className={`${statPillClass} ${
+                              remainingToDispatch > 0
+                                ? "bg-amber-50 border-amber-200 hover:bg-amber-100"
+                                : "bg-gray-50 border-gray-200 hover:bg-gray-100"
+                            }`}
+                            onClick={(e) =>
+                              openSlotOrders(e, slot, availableMonths[selectedMonth], "remaining")
+                            }>
+                            <p className="text-[10px] text-gray-500">Remaining</p>
+                            <p className="text-[9px] text-gray-500 leading-tight">Delivery window · not out yet</p>
+                            <p
+                              className={`text-sm font-bold leading-tight tabular-nums ${
+                                remainingToDispatch > 0 ? "text-amber-700" : "text-gray-700"
+                              }`}>
+                              {remainingToDispatch.toLocaleString()}
                             </p>
-                          </div>
+                          </button>
+                          <button
+                            type="button"
+                            className={`${statPillClass} bg-slate-50 border-slate-200 hover:bg-slate-100`}
+                            onClick={(e) =>
+                              openSlotOrders(e, slot, availableMonths[selectedMonth], "dispatched")
+                            }>
+                            <p className="text-[10px] text-gray-500">Dispatched</p>
+                            <p className="text-sm font-bold text-slate-700 leading-tight tabular-nums">
+                              {(slot.totalDispatchedPlants ?? 0).toLocaleString()}
+                            </p>
+                          </button>
                         </div>
 
-                        {/* Compact Buffer Info Card */}
-                        <div className="p-3 bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl border-2 border-purple-200 mb-4">
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <div className="flex items-center gap-1 mb-1">
-                                <p className="text-xs font-medium text-purple-700 uppercase tracking-wide">Buffer Reserved</p>
-                                <span className="text-xs font-bold text-purple-600">({slot.effectiveBuffer || buffer || 0}%)</span>
-                                <Tooltip title="Update Buffer %" arrow>
-                                  <IconButton
-                                    size="small"
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      openBufferModal(e, slot, slot.effectiveBuffer || buffer)
-                                    }}
-                                    sx={{
-                                      padding: "2px",
-                                      width: 18,
-                                      height: 18
-                                    }}>
-                                    <Edit2 className="w-3 h-3 text-purple-700" />
-                                  </IconButton>
-                                </Tooltip>
-                              </div>
-                              <p className="text-xl font-bold text-purple-900">
-                                {slot.bufferAmount?.toLocaleString() || 0}
-                              </p>
-                            </div>
-                            <Shield className="w-8 h-8 text-purple-400" />
-                          </div>
-                          {slot.bufferAmount > 0 && (
-                            <div className="mt-2 pt-2 border-t border-purple-200">
-                              <Tooltip title="Release buffer plants to available capacity" arrow>
-                                <Button
-                                  size="small"
-                                  variant="text"
+                        {((slot.pastDueRolledInPlants ?? 0) > 0 ||
+                          (slot.pastDuePendingOnSlot ?? 0) > 0) && (
+                          <div
+                            className="border-t border-gray-200 pt-2 mt-1 mb-2"
+                            onClick={(e) => e.stopPropagation()}
+                            onMouseDown={(e) => e.stopPropagation()}>
+                            <p className="text-[10px] font-semibold text-amber-800 uppercase tracking-wide mb-1.5">
+                              Past due
+                            </p>
+                            <div className="grid grid-cols-2 gap-1.5">
+                              {(slot.pastDueRolledInPlants ?? 0) > 0 && (
+                                <button
+                                  type="button"
+                                  className={`${statPillClass} bg-amber-50 border-amber-200 hover:bg-amber-100 text-left`}
+                                  onClick={(e) =>
+                                    openPastDueOnSlot(
+                                      e,
+                                      slot,
+                                      availableMonths[selectedMonth],
+                                      "pastDueRolled"
+                                    )
+                                  }>
+                                  <p className="text-[10px] text-gray-500">Rolled in (past due)</p>
+                                  <p className="text-sm font-bold text-amber-800 leading-tight tabular-nums">
+                                    {(slot.pastDueRolledInPlants ?? 0).toLocaleString()}
+                                  </p>
+                                  <p className="text-[10px] text-amber-700">
+                                    {(slot.pastDueRolledInOrders ?? 0).toLocaleString()} order
+                                    {(slot.pastDueRolledInOrders ?? 0) === 1 ? "" : "s"} · not in Booked/Remaining
+                                  </p>
+                                  {(slot.pastDueRolledInPlantsSubtype ?? 0) >
+                                    (slot.pastDueRolledInPlants ?? 0) && (
+                                    <p className="text-[9px] text-amber-600 mt-0.5">
+                                      +{" "}
+                                      {(
+                                        (slot.pastDueRolledInPlantsSubtype ?? 0) -
+                                        (slot.pastDueRolledInPlants ?? 0)
+                                      ).toLocaleString()}{" "}
+                                      plants on other expired slots
+                                    </p>
+                                  )}
+                                </button>
+                              )}
+                              {(slot.pastDuePendingOnSlot ?? 0) > 0 && (
+                                <button
+                                  type="button"
+                                  className={`${statPillClass} bg-orange-50 border-orange-200 hover:bg-orange-100 text-left`}
                                   onClick={(e) => {
                                     e.stopPropagation()
-                                    openReleaseBufferModal(slot)
-                                  }}
-                                  sx={{
-                                    fontSize: "0.7rem",
-                                    padding: "2px 8px",
-                                    color: "#8b5cf6",
-                                    fontWeight: 600,
-                                    textTransform: "none",
-                                    "&:hover": {
-                                      bgcolor: "rgba(139, 92, 246, 0.1)"
-                                    }
-                                  }}
-                                  startIcon={<TrendingUp className="w-3 h-3" />}>
-                                  Release
-                                </Button>
-                              </Tooltip>
+                                    e.preventDefault()
+                                    openPendingRollModal(slot)
+                                  }}>
+                                  <p className="text-[10px] text-gray-500">Pending roll</p>
+                                  <p className="text-sm font-bold text-orange-800 leading-tight">
+                                    {(slot.pastDuePendingOrders ?? 0).toLocaleString()}
+                                  </p>
+                                  <p className="text-[10px] text-orange-700">
+                                    {(slot.pastDuePendingOnSlot ?? 0).toLocaleString()} plants
+                                  </p>
+                                </button>
+                              )}
                             </div>
-                          )}
-                        </div>
-
-                        {/* Total Capacity Display */}
-                        <div className="p-3 bg-gradient-to-br from-indigo-50 to-indigo-100 rounded-xl border-2 border-indigo-200 mb-4">
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <p className="text-xs font-medium text-indigo-700 uppercase tracking-wide mb-1">Total Capacity</p>
-                              <p className="text-xl font-bold text-indigo-900">
-                                {(slot.originalTotalPlants ?? totalPlants)?.toLocaleString()}
-                              </p>
-                            </div>
-                            <Target className="w-8 h-8 text-indigo-400" />
                           </div>
-                          {slot.bufferAmount > 0 && (
-                            <div className="mt-2 pt-2 border-t border-indigo-200">
-                              <div className="flex justify-between text-xs">
-                                <span className="text-indigo-600">After Buffer</span>
-                                <span className="font-bold text-indigo-800">
-                                  {(slot.originalTotalPlants ?? totalPlants) - slot.bufferAmount} available
-                                </span>
-                              </div>
-                            </div>
+                        )}
+
+                        {((slot.dispatchedFromOtherSlots ?? 0) > 0 ||
+                          (slot.releasedForEarlyDispatch ?? 0) > 0) && (
+                          <div
+                            className="flex flex-wrap gap-2 mb-2 text-[10px]"
+                            onClick={(e) => e.stopPropagation()}
+                            onMouseDown={(e) => e.stopPropagation()}>
+                            {(slot.dispatchedFromOtherSlots ?? 0) > 0 && (
+                              <span className="rounded border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-sky-800">
+                                Early dispatch (other slot):{" "}
+                                <strong>
+                                  {(slot.dispatchedFromOtherSlots ?? 0).toLocaleString()}
+                                </strong>
+                              </span>
+                            )}
+                            {(slot.releasedForEarlyDispatch ?? 0) > 0 && (
+                              <span className="rounded border border-violet-200 bg-violet-50 px-1.5 py-0.5 text-violet-800">
+                                Released (cross-slot):{" "}
+                                <strong>
+                                  {(slot.releasedForEarlyDispatch ?? 0).toLocaleString()}
+                                </strong>
+                              </span>
+                            )}
+                          </div>
+                        )}
+
+                        <SlotBufferPanel
+                          slot={slot}
+                          onEditBuffer={(s, e) =>
+                            openBufferModal(e, s, getEffectiveBufferPct(s))
+                          }
+                          onReleaseBuffer={(s, e) => openReleaseBufferModal(e, s)}
+                          onStopPropagation={(e) => e.stopPropagation()}
+                        />
+
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-gray-500 mb-2">
+                          {sowingGap !== 0 && (
+                            <span>
+                              Gap{" "}
+                              <strong className={sowingGap > 0 ? "text-orange-600" : "text-gray-700"}>
+                                {sowingGap > 0 ? "+" : ""}
+                                {sowingGap.toLocaleString()}
+                              </strong>
+                            </span>
                           )}
+                          <span>
+                            Actual{" "}
+                            <strong className="text-teal-700">
+                              {(slot.actualPlants ?? 0).toLocaleString()}
+                            </strong>
+                          </span>
                         </div>
 
-                        {/* Controls */}
-                        <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-200">
-                          <div className="flex items-center space-x-2">
+                        <div
+                          className="flex items-center justify-between pt-2 border-t border-gray-100"
+                          onClick={(e) => e.stopPropagation()}
+                          onMouseDown={(e) => e.stopPropagation()}>
+                          <div className="flex items-center gap-1">
                             <Switch
                               size="small"
                               checked={status}
@@ -2168,14 +2515,20 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                               }}
                               color="success"
                             />
-                            <span className="text-xs text-gray-600">
-                              {status ? "Active" : "Inactive"}
+                            <span className="text-[10px] text-gray-500">
+                              {status ? "Active" : "Off"}
                             </span>
                           </div>
-
-                          <div className="flex items-center space-x-1">
-                            {/* Allow Only Toggle Button */}
-                            <Tooltip title="Allow Only Specific Salespeople">
+                          <div className="flex items-center gap-1">
+                            <Tooltip title="Stock log" arrow>
+                              <IconButton
+                                size="small"
+                                onClick={(e) => openStockHistory(e, slot)}
+                                sx={{ width: 22, height: 22 }}>
+                                <Package className="w-3 h-3 text-teal-600" />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Allow only salespeople" arrow>
                               <Button
                                 size="small"
                                 variant={slot.restrictToSalesmen ? "contained" : "outlined"}
@@ -2185,46 +2538,25 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                                 }}
                                 sx={{
                                   minWidth: "auto",
-                                  padding: "4px 8px",
-                                  fontSize: "0.7rem",
-                                  borderRadius: "6px",
-                                  textTransform: "none",
-                                  backgroundColor: slot.restrictToSalesmen
-                                    ? "#3b82f6"
-                                    : "transparent",
-                                  color: slot.restrictToSalesmen ? "white" : "#3b82f6",
-                                  borderColor: "#3b82f6",
-                                  "&:hover": {
-                                    backgroundColor: slot.restrictToSalesmen ? "#2563eb" : "#eff6ff"
-                                  }
-                                }}
-                                startIcon={<Shield className="w-3 h-3" />}>
-                                Allow Only
-                                {slot.restrictToSalesmen && slot.allowedSalesmen && (
-                                  <Chip
-                                    label={slot.allowedSalesmen.length}
-                                    size="small"
-                                    sx={{
-                                      marginLeft: "4px",
-                                      height: "16px",
-                                      fontSize: "0.6rem",
-                                      backgroundColor: "rgba(255,255,255,0.2)",
-                                      color: "white"
-                                    }}
-                                  />
-                                )}
+                                  px: 1,
+                                  py: 0.25,
+                                  fontSize: "0.65rem",
+                                  lineHeight: 1.2,
+                                  textTransform: "none"
+                                }}>
+                                Allow
+                                {slot.restrictToSalesmen && slot.allowedSalesmen?.length
+                                  ? ` (${slot.allowedSalesmen.length})`
+                                  : ""}
                               </Button>
                             </Tooltip>
-
-                            {isManual && totalBookedPlants === 0 && (
-                              <Tooltip title="Delete Manual Slot">
-                                <IconButton
-                                  size="small"
-                                  onClick={(e) => openDeleteConfirmation(e, _id)}
-                                  sx={{ color: "#dc2626" }}>
-                                  <Trash2 className="w-4 h-4" />
-                                </IconButton>
-                              </Tooltip>
+                            {isManual && bookedPlants === 0 && (
+                              <IconButton
+                                size="small"
+                                onClick={(e) => openDeleteConfirmation(e, _id)}
+                                sx={{ width: 22, height: 22, color: "#dc2626" }}>
+                                <Trash2 className="w-3 h-3" />
+                              </IconButton>
                             )}
                           </div>
                         </div>
@@ -2251,6 +2583,12 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
         />
       )}
 
+      <StockChangeHistoryModal
+        open={Boolean(stockHistorySlot)}
+        onClose={() => setStockHistorySlot(null)}
+        slot={stockHistorySlot}
+      />
+
       {/* Transfer Plants Modal */}
       <TransferPlantsModal
         open={transferModalOpen}
@@ -2263,6 +2601,36 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
         subtypeId={plantSubId}
         year={year}
         onSuccess={fetchPlantsSlots}
+      />
+
+      <SlotOrdersDrawer
+        open={Boolean(slotOrdersDrawer)}
+        onClose={closeSlotOrdersDrawer}
+        slot={slotOrdersDrawer?.slot}
+        monthName={slotOrdersDrawer?.monthName}
+        statKey={slotOrdersDrawer?.statKey}
+        pendingSlotId={slotOrdersDrawer?.pendingSlotId}
+        plantId={plantId}
+        subtypeId={plantSubId}
+        canRollPastDue={canRollPastDue}
+        onOpenPendingRoll={openPendingRollModal}
+        onPastDueRolled={fetchPlantsSlots}
+      />
+
+      <PastDueRollModal
+        open={Boolean(pastDueRollModal)}
+        onClose={() => setPastDueRollModal(null)}
+        detail={pastDueRollModal?.slot?.pastDueDetail}
+        slotLabel={pastDueRollModal?.slotLabel || ""}
+        plantId={plantId}
+        subtypeId={plantSubId}
+        canRoll={canRollPastDue}
+        onRolled={() => {
+          fetchPlantsSlots()
+          if (selectedSlot?._id === pastDueRollModal?.slot?._id) {
+            setPastDueExpandKey(null)
+          }
+        }}
       />
     </div>
   )

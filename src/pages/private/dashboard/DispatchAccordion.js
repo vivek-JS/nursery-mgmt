@@ -26,9 +26,11 @@ const DispatchAccordion = ({
   onDeliveryChallan, 
   onCompleteInvoice,
   onCompleteOrder, 
-  onDeleteDispatch 
+  onDeleteDispatch,
+  expandOnMount = false,
+  highlightOrderId = null,
 }) => {
-  const [isExpanded, setIsExpanded] = useState(false)
+  const [isExpanded, setIsExpanded] = useState(expandOnMount)
   const [relatedOrders, setRelatedOrders] = useState([])
   const [dcInvoiceByOrder, setDcInvoiceByOrder] = useState({})
   const [dcInvoiceSavingByOrder, setDcInvoiceSavingByOrder] = useState({})
@@ -119,6 +121,10 @@ const DispatchAccordion = ({
       return nextByOrder
     })
   }, [relatedOrders, invoicePrefix, invoiceNext])
+
+  useEffect(() => {
+    if (expandOnMount) setIsExpanded(true)
+  }, [expandOnMount, dispatch?._id])
 
   useEffect(() => {
     if (isExpanded && dispatch?.orderIds?.length > 0) {
@@ -343,8 +349,6 @@ const DispatchAccordion = ({
         )
       )
       Toast.success(`DC updated for order #${order.orderId || "—"}`)
-      void fetchRelatedOrders()
-      onRefresh?.()
     } catch (error) {
       Toast.error(error?.response?.data?.message || error?.message || "Failed to update DC")
     } finally {
@@ -459,7 +463,10 @@ const DispatchAccordion = ({
 
   return (
     <>
-    <div className={`border rounded-lg mb-4 shadow-sm ${isDelivered ? 'border-green-300 bg-green-50/30' : 'border-gray-200 bg-white'}`}>
+    <div
+      id={`dispatch-accordion-${dispatch._id}`}
+      className={`border rounded-lg mb-4 shadow-sm scroll-mt-24 ${isDelivered ? 'border-green-300 bg-green-50/30' : 'border-gray-200 bg-white'}`}
+    >
       {/* Header */}
       <div
         className={`flex items-center justify-between p-4 cursor-pointer transition-colors ${isDelivered ? 'hover:bg-green-50' : 'hover:bg-gray-50'}`}
@@ -483,9 +490,15 @@ const DispatchAccordion = ({
               )}
             </div>
             <p className="text-sm text-gray-500">
-              {dispatch.driverName} • {dispatch.orderIds?.length || 0} orders •{" "}
-              {getTotalPlants().toLocaleString()} plants dispatched
+              {dispatch.vehicleNumber || dispatch.vehicleName || "—"}
+              {dispatch.driverName ? ` · ${dispatch.driverName}` : ""} •{" "}
+              {dispatch.orderIds?.length || 0} orders • {getTotalPlants().toLocaleString()} plants
             </p>
+            {(dispatch.driverRemark || dispatch.vehicleRemark || dispatch.routeNotes) && (
+              <p className="text-xs text-slate-500 mt-0.5 truncate" title={[dispatch.routeNotes, dispatch.driverRemark, dispatch.vehicleRemark].filter(Boolean).join(" | ")}>
+                {[dispatch.routeNotes && `Route: ${dispatch.routeNotes}`, dispatch.driverRemark && `Driver: ${dispatch.driverRemark}`, dispatch.vehicleRemark && `Vehicle: ${dispatch.vehicleRemark}`].filter(Boolean).join(" · ")}
+              </p>
+            )}
           </div>
         </div>
 
@@ -691,11 +704,18 @@ const DispatchAccordion = ({
                       const totalOrderAmount = grossBookedPlants * (order.rate || 0)
                       const remainingAmount = totalOrderAmount - totalPaid
                       
+                      const isHighlighted =
+                        highlightOrderId && String(order._id) === String(highlightOrderId)
+                      
                       return (
                         <div
                           key={order._id}
                           className={`bg-white rounded-lg border p-2.5 hover:shadow-sm transition-shadow min-w-0 flex flex-col ${
-                            isPartialDispatch ? 'border-orange-300' : 'border-gray-200'
+                            isHighlighted
+                              ? "border-teal-400 ring-2 ring-teal-300 shadow-md"
+                              : isPartialDispatch
+                              ? "border-orange-300"
+                              : "border-gray-200"
                           }`}>
                           <div className="flex items-start justify-between gap-2 mb-2">
                             <div className="flex items-center gap-1.5 flex-wrap min-w-0">
@@ -1018,7 +1038,6 @@ const DispatchAccordion = ({
       }}
       onSuccess={() => {
         onRefresh?.()
-        onCompleteOrder?.(dispatch)
       }}
     />
     </>

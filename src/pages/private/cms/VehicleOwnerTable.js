@@ -473,13 +473,35 @@ const VehicleOwnerTable = () => {
 
       <Dialog open={ownerFormOpen} onClose={closeOwnerModal} maxWidth="md" fullWidth scroll="paper">
         <DialogTitle className="flex justify-between items-start gap-2 border-b border-slate-100 pb-3">
-          <div>
+          <div className="flex-1 min-w-0">
             <div className="text-lg font-semibold text-slate-800">
               {editingOwner ? "Edit owner" : "Add owner"}
             </div>
             <p className="text-sm font-normal text-slate-500 mt-1">
               Save owner details first, then add drivers and vehicles below. Use &quot;Same as owner&quot; when the owner also drives.
             </p>
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+              <span
+                className={`px-2.5 py-1 rounded-full font-medium ${
+                  ownerIdForChildren ? "bg-blue-100 text-blue-800" : "bg-slate-100 text-slate-600"
+                }`}>
+                1 Owner {ownerForm.name?.trim() ? "✓" : ""}
+              </span>
+              <span className="text-slate-300">→</span>
+              <span
+                className={`px-2.5 py-1 rounded-full font-medium ${
+                  ownerIdForChildren ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-400"
+                }`}>
+                2 Drivers ({drivers.length})
+              </span>
+              <span className="text-slate-300">→</span>
+              <span
+                className={`px-2.5 py-1 rounded-full font-medium ${
+                  ownerIdForChildren ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-400"
+                }`}>
+                3 Vehicles ({vehicles.length})
+              </span>
+            </div>
           </div>
           <button
             type="button"

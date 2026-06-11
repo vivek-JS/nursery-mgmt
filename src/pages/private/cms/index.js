@@ -1,6 +1,8 @@
 import React, { useState } from "react"
+import { Link } from "react-router-dom"
 import { Tabs, Tab, Box } from "@mui/material"
 import VehicleOwnerTable from "./VehicleOwnerTable"
+import TripsListPanel from "./TripsListPanel"
 import ShadeTable from "./ShadeTable"
 import TrayTable from "./Traytable"
 import BatchTable from "./BatchTable"
@@ -35,8 +37,19 @@ const DispatchManagement = () => {
         </Tabs>
       </Box>
 
-      <div className="mt-6">
-        {activeTab === 0 && <VehicleOwnerTable />}
+      <div className="mt-6 space-y-6">
+        {activeTab === 0 && (
+          <>
+            <p className="text-sm text-slate-600 mb-4">
+              Full fleet module with dispatches, trips (km/rent), and order links:{" "}
+              <Link to="/u/fleet" className="text-indigo-600 font-medium hover:underline">
+                Open Fleet →
+              </Link>
+            </p>
+            <VehicleOwnerTable />
+            <TripsListPanel />
+          </>
+        )}
         {activeTab === 1 && <ShadeTable />}
         {activeTab === 2 && <TrayTable />}
         {activeTab === 3 && <BatchTable />}

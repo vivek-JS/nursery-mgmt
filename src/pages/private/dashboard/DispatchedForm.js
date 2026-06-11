@@ -15,6 +15,12 @@ import { ArrowLeft, X } from "lucide-react"
 
 import { NetworkManager, API } from "network/core"
 import { Toast } from "helpers/toasts/toastHelper"
+import FleetAssignmentPanel from "components/fleet/FleetAssignmentPanel"
+import {
+  emptyFleetAssignment,
+  formatFleetDriverLabel,
+  loadFleetForOwner,
+} from "components/fleet/fleetPickersUtils"
 import {
   getCavityIdString,
   getCavityLabelForDispatchOrder,
@@ -27,6 +33,25 @@ const resolveMongoId = (v) => {
   if (v == null || v === "") return ""
   if (typeof v === "object") return String(v._id ?? v.id ?? "")
   return String(v)
+}
+
+/** View/edit plants from API lack `orders`; attach from selected dispatch orders when possible. */
+const attachOrdersToPlantsForView = (plants, ordersArray) => {
+  if (!Array.isArray(plants) || !ordersArray?.length) return plants
+  return plants.map((plant) => {
+    if (Array.isArray(plant.orders) && plant.orders.length > 0) return plant
+    const pid = resolveMongoId(plant.plantId) || resolveMongoId(plant.id)
+    const sid = resolveMongoId(plant.subTypeId)
+    const matched = ordersArray.filter((order) => {
+      const d = order.details || order
+      const op = resolveMongoId(d?.plantID)
+      const os = resolveMongoId(d?.plantSubtypeID)
+      if (pid && sid) return op === pid && os === sid
+      if (pid) return op === pid
+      return String(order.plantType || "").trim() === String(plant.name || "").trim()
+    })
+    return matched.length > 0 ? { ...plant, orders: matched } : plant
+  })
 }
 
 const formatPlantationDateShort = (raw) => {
@@ -102,8 +127,12 @@ const mapOrderToDispatchRow = (order) => {
     "remaining Amt": quantity * rate,
     orderStatus: order?.orderStatus || "",
     Delivery: order?.deliveryDate ? formatOrderDateForCard(order.deliveryDate) : "-",
+    oldDeliveryDate: order?.oldDeliveryDate || null,
+    dispatchedFromAnotherSlot: !!order?.dispatchedFromAnotherSlot,
     details: {
       orderid: order?._id || order?.id,
+      oldDeliveryDate: order?.oldDeliveryDate || null,
+      dispatchedFromAnotherSlot: !!order?.dispatchedFromAnotherSlot,
       remainingPlants: Number(order?.remainingPlants ?? quantity),
       plantID: order?.plantType?._id || order?.plantType?.id,
       plantSubtypeID: order?.plantSubtype?._id || order?.plantSubtype?.id,
@@ -255,13 +284,6 @@ const buildCavityGroupsFromPlantForView = (plant) => {
   return Object.values(groups)
 }
 
-const formatFleetDriverLabel = (d) => {
-  if (!d) return ""
-  const m =
-    d.mobile != null && String(d.mobile).trim() !== "" ? String(d.mobile).trim() : "—"
-  return `${d.name || ""} (${m})`
-}
-
 const DispatchForm = ({
   open,
   onClose,
@@ -282,12 +304,9 @@ const DispatchForm = ({
   const [expandedPlants, setExpandedPlants] = useState({})
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
-  const [owners, setOwners] = useState([])
-  const [selectedOwnerId, setSelectedOwnerId] = useState("")
+  const [fleetAssignment, setFleetAssignment] = useState(emptyFleetAssignment)
   const [fleetDrivers, setFleetDrivers] = useState([])
   const [fleetVehicles, setFleetVehicles] = useState([])
-  const [fleetDriverId, setFleetDriverId] = useState("")
-  const [fleetVehicleId, setFleetVehicleId] = useState("")
   const [shades, setShades] = useState([])
   const [cavities, setCavities] = useState([])
   /** `"${plantIndex}-${groupIndex}-${detailIndex}"` while fetching FIFO batch for shade */
@@ -344,14 +363,27 @@ const DispatchForm = ({
         quantity: pickupSum > 0 ? pickupSum : plant.quantity
       }
     })
+    const plantsWithOrders = attachOrdersToPlantsForView(
+      transformedPlants,
+      getSelectedOrdersArray()
+    )
 
     const nextForm = {
       name: dispatchDoc.name || "",
       driverName: dispatchDoc.driverName || "",
       vehicleName: dispatchDoc.vehicleName || "",
-      plants: transformedPlants
+      plants: plantsWithOrders
     }
     setFormData(nextForm)
+
+    setFleetAssignment({
+      ownerId: getId(dispatchDoc.ownerId) || "",
+      driverId: getId(dispatchDoc.driverId) || "",
+      vehicleId: getId(dispatchDoc.vehicleId) || "",
+      routeNotes: dispatchDoc.routeNotes || "",
+      driverRemark: dispatchDoc.driverRemark || "",
+      vehicleRemark: dispatchDoc.vehicleRemark || "",
+    })
 
     const qtyMap = new Map()
     const details = Array.isArray(dispatchDoc.orderDispatchDetails)
@@ -385,7 +417,7 @@ const DispatchForm = ({
       expectedNursery: exNorm
     }
 
-    const initialExpandedState = transformedPlants?.reduce((acc, plant) => {
+    const initialExpandedState = plantsWithOrders?.reduce((acc, plant) => {
       acc[plant.id] = true
       return acc
     }, {})
@@ -576,66 +608,6 @@ const DispatchForm = ({
     }
   }, [open, mode, selectedOrders, isEditing, editOrdersMap])
 
-  const loadFleetForOwner = async (ownerMongoId) => {
-    if (!ownerMongoId) {
-      setFleetDrivers([])
-      setFleetVehicles([])
-      return
-    }
-    try {
-      const dInst = NetworkManager(API.VEHICLE_DRIVER.GET_BY_OWNER)
-      const vInst = NetworkManager(API.VEHICLE.GET_ACTIVE_VEHICLES)
-      const [dRes, vRes] = await Promise.all([
-        dInst.request({}, [ownerMongoId]),
-        vInst.request({}, { ownerId: ownerMongoId })
-      ])
-      const drList = Array.isArray(dRes?.data?.data) ? dRes.data.data : []
-      const vList = Array.isArray(vRes?.data?.data) ? vRes.data.data : []
-      setFleetDrivers(drList)
-      setFleetVehicles(vList)
-      let nextDriverId = ""
-      let nextVehicleId = ""
-      let nextDriverName = ""
-      let nextVehicleName = ""
-      if (drList.length === 1) {
-        nextDriverId = getId(drList[0])
-        nextDriverName = formatFleetDriverLabel(drList[0])
-      }
-      if (vList.length === 1) {
-        nextVehicleId = getId(vList[0])
-        nextVehicleName = vList[0].name || ""
-      }
-      setFleetDriverId(nextDriverId)
-      setFleetVehicleId(nextVehicleId)
-      setFormData((prev) => ({
-        ...prev,
-        driverName: nextDriverName,
-        vehicleName: nextVehicleName
-      }))
-    } catch (error) {
-      console.error("Error loading fleet drivers/vehicles:", error)
-      setFleetDrivers([])
-      setFleetVehicles([])
-    }
-  }
-
-  const getFleetOwners = async (allowAutoSingleOwner = true) => {
-    try {
-      const instance = NetworkManager(API.VEHICLE_OWNER.GET_ACTIVE)
-      const response = await instance.request({}, {})
-      const list = Array.isArray(response?.data?.data) ? response.data.data : []
-      setOwners(list)
-      if (allowAutoSingleOwner && list.length === 1) {
-        const oid = getId(list[0])
-        setSelectedOwnerId(oid)
-        await loadFleetForOwner(oid)
-      }
-    } catch (error) {
-      console.error("Error fetching vehicle owners:", error)
-      setOwners([])
-    }
-  }
-
   const getShades = async () => {
     try {
       const instance = NetworkManager(API.SHADE.GET_SHADES)
@@ -664,7 +636,7 @@ const DispatchForm = ({
   const validateForm = () => {
     setError("")
 
-    if (mode !== "view" && !selectedOwnerId) {
+    if (mode !== "view" && !fleetAssignment.ownerId) {
       throw new Error("Please select an owner")
     }
 
@@ -783,8 +755,8 @@ const DispatchForm = ({
     const selectedOrdersArray = getSelectedOrdersArray()
     const orderIds = selectedOrdersArray.map((order) => getOrderId(order))
     
-    let selectedDriver = fleetDriverId
-      ? fleetDrivers.find((d) => getId(d) === fleetDriverId)
+    let selectedDriver = fleetAssignment.driverId
+      ? fleetDrivers.find((d) => getId(d) === fleetAssignment.driverId)
       : null
     if (!selectedDriver && formData.driverName) {
       const driverDisplayName = formData.driverName.includes("(")
@@ -802,8 +774,8 @@ const DispatchForm = ({
       selectedDriver?.phoneNumber?.toString?.() ||
       ""
 
-    const selectedVehicle = fleetVehicleId
-      ? fleetVehicles.find((v) => getId(v) === fleetVehicleId)
+    const selectedVehicle = fleetAssignment.vehicleId
+      ? fleetVehicles.find((v) => getId(v) === fleetAssignment.vehicleId)
       : fleetVehicles.find((v) => (v.name || "") === (formData.vehicleName || ""))
 
     const vehicleNameOut = selectedVehicle?.name || formData.vehicleName
@@ -863,13 +835,13 @@ const DispatchForm = ({
     })
     
     const plantsDetails = formData.plants?.map((plant) => {
-      const firstOrder = plant.orders[0]?.details
+      const firstOrder = plant.orders?.[0]?.details
 
       // Transform cavity groups into the expected API format
       const pickupDetailsList = []
       const cratesList = []
 
-      plant.cavityGroups.forEach((cavityGroup) => {
+      ;(plant.cavityGroups || []).forEach((cavityGroup) => {
         if (!cavityGroup.cavity) return
 
         // Process pickup details for this cavity
@@ -927,8 +899,15 @@ const DispatchForm = ({
       return {
         name: plant.name,
         id: plant.id,
-        plantId: firstOrder?.plantID || "",
-        subTypeId: firstOrder?.plantSubtypeID || "",
+        plantId:
+          resolveMongoId(firstOrder?.plantID) ||
+          resolveMongoId(plant.plantId) ||
+          resolveMongoId(plant.id) ||
+          "",
+        subTypeId:
+          resolveMongoId(firstOrder?.plantSubtypeID) ||
+          resolveMongoId(plant.subTypeId) ||
+          "",
         quantity: plant.quantity,
         totalPlants: pickupDetailsList.reduce((sum, detail) => sum + Number(detail.quantity), 0),
         pickupDetails: pickupDetailsList,
@@ -937,11 +916,25 @@ const DispatchForm = ({
     })
 
     const exp = String(expectedNursery || "").trim().toUpperCase()
+    const vehicleNumberOut =
+      selectedVehicle?.number != null
+        ? String(selectedVehicle.number).trim()
+        : selectedVehicle?.vehicleNumber != null
+          ? String(selectedVehicle.vehicleNumber).trim()
+          : ""
+
     return {
       name: formData.name?.trim() || "",
       driverName: formattedDriverName,
       driverMobile,
       vehicleName: vehicleNameOut,
+      vehicleNumber: vehicleNumberOut,
+      vehicleId: fleetAssignment.vehicleId || null,
+      driverId: fleetAssignment.driverId || null,
+      ownerId: fleetAssignment.ownerId || null,
+      routeNotes: fleetAssignment.routeNotes || "",
+      driverRemark: fleetAssignment.driverRemark || "",
+      vehicleRemark: fleetAssignment.vehicleRemark || "",
       orderIds: orderIds,
       orderDispatchDetails: orderDispatchDetails,
       plantsDetails: plantsDetails,
@@ -1461,12 +1454,6 @@ const DispatchForm = ({
   }, [open])
 
   useEffect(() => {
-    if (open) {
-      getFleetOwners(mode !== "view")
-    }
-  }, [open, mode])
-
-  useEffect(() => {
     if (!open) {
       setIsEditing(false)
       setEditOrdersMap(null)
@@ -1476,13 +1463,84 @@ const DispatchForm = ({
       setAddOrderSearch("")
       setAddOrderShadeId("")
       setError("")
-      setSelectedOwnerId("")
-      setFleetDriverId("")
-      setFleetVehicleId("")
+      setFleetAssignment(emptyFleetAssignment())
       setFleetDrivers([])
       setFleetVehicles([])
     }
   }, [open])
+
+  useEffect(() => {
+    if (!open || !readyDispatchGroupId) return undefined
+    let cancelled = false
+    ;(async () => {
+      try {
+        const inst = NetworkManager(API.READY_DISPATCH_GROUP.GET_BY_ID)
+        const res = await inst.request({}, { pathParams: [String(readyDispatchGroupId)] })
+        const g = res?.data?.data
+        if (cancelled || !g) return
+        const ownerId = getId(g.ownerId)
+        const driverId = getId(g.driverId)
+        const vehicleId = getId(g.vehicleId)
+        setFleetAssignment({
+          ownerId,
+          driverId,
+          vehicleId,
+          routeNotes: g.routeNotes || "",
+          driverRemark: g.driverRemark || "",
+          vehicleRemark: g.vehicleRemark || "",
+        })
+        const runName = (g.notes || "").trim() || g.groupCode || ""
+        if (runName) {
+          setFormData((prev) => ({ ...prev, name: runName }))
+        }
+        if (g.driverName || g.vehicleName) {
+          setFormData((prev) => ({
+            ...prev,
+            driverName: g.driverName || prev.driverName,
+            vehicleName: g.vehicleName || prev.vehicleName,
+          }))
+        }
+      } catch (e) {
+        console.error("Failed to load ready dispatch group", e)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [open, readyDispatchGroupId])
+
+  useEffect(() => {
+    if (!fleetAssignment.ownerId) {
+      setFleetDrivers([])
+      setFleetVehicles([])
+      return undefined
+    }
+    let cancelled = false
+    ;(async () => {
+      const { drivers, vehicles } = await loadFleetForOwner(fleetAssignment.ownerId)
+      if (cancelled) return
+      setFleetDrivers(drivers)
+      setFleetVehicles(vehicles)
+      const d = fleetAssignment.driverId
+        ? drivers.find((x) => getId(x) === fleetAssignment.driverId)
+        : null
+      const v = fleetAssignment.vehicleId
+        ? vehicles.find((x) => getId(x) === fleetAssignment.vehicleId)
+        : null
+      setFormData((prev) => ({
+        ...prev,
+        driverName: d ? formatFleetDriverLabel(d) : prev.driverName,
+        vehicleName: v?.name || prev.vehicleName,
+      }))
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [
+    fleetAssignment.ownerId,
+    fleetAssignment.driverId,
+    fleetAssignment.vehicleId,
+  ])
 
   // Keep ref in sync with state
   useEffect(() => {
@@ -1569,40 +1627,9 @@ const DispatchForm = ({
     setIsEditing(false)
     setEditOrdersMap(null)
     setError("")
-    setSelectedOwnerId("")
-    setFleetDriverId("")
-    setFleetVehicleId("")
+    setFleetAssignment(emptyFleetAssignment())
     setFleetDrivers([])
     setFleetVehicles([])
-  }
-
-  const handleOwnerChange = (e) => {
-    const oid = e.target.value
-    setSelectedOwnerId(oid)
-    setFleetDriverId("")
-    setFleetVehicleId("")
-    setFormData((prev) => ({ ...prev, driverName: "", vehicleName: "" }))
-    void loadFleetForOwner(oid)
-  }
-
-  const handleFleetDriverChange = (e) => {
-    const id = e.target.value
-    setFleetDriverId(id)
-    const d = fleetDrivers.find((x) => getId(x) === id)
-    setFormData((prev) => ({
-      ...prev,
-      driverName: d ? formatFleetDriverLabel(d) : ""
-    }))
-  }
-
-  const handleFleetVehicleChange = (e) => {
-    const id = e.target.value
-    setFleetVehicleId(id)
-    const v = fleetVehicles.find((x) => getId(x) === id)
-    setFormData((prev) => ({
-      ...prev,
-      vehicleName: v?.name || ""
-    }))
   }
 
   const handleUpdate = async () => {
@@ -1774,6 +1801,12 @@ const DispatchForm = ({
                       <div>
                         <span className="text-gray-500">Delivery: </span>
                         <span className="text-gray-700">{order.Delivery}</span>
+                        {order.dispatchedFromAnotherSlot && order.oldDeliveryDate && (
+                          <div className="text-[10px] text-gray-500 mt-0.5">
+                            Was: {formatOrderDateForCard(order.oldDeliveryDate)}
+                            <span className="ml-1 text-sky-700">(from another slot)</span>
+                          </div>
+                        )}
                       </div>
                       <div className="col-span-2">
                         <span className="text-gray-500">Booking: </span>
@@ -1840,80 +1873,51 @@ const DispatchForm = ({
         )}
 
         <div className="space-y-6">
-          {/* Dispatch meta + transport selection */}
-          <div className={`grid ${isMobile ? "grid-cols-1 gap-2" : "grid-cols-2 lg:grid-cols-4 gap-4"}`}>
+          <div className="space-y-3">
             <input
               type="text"
-              className={`${isMobile ? "p-3 text-base" : "p-2"} border rounded-lg`}
+              className={`${isMobile ? "p-3 text-base" : "p-2"} border rounded-lg w-full`}
               value={formData.name}
               onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
               disabled={isViewMode && !isEditing}
-              placeholder="Dispatch Name (e.g., Nashik Morning Run)"
+              placeholder="Dispatch name (e.g., Nashik Morning Run)"
             />
             {isViewMode && !isEditing ? (
-              <>
-                <input
-                  type="text"
-                  readOnly
-                  className={`${isMobile ? "p-3 text-base" : "p-2"} border rounded-lg bg-gray-100 text-gray-600`}
-                  value="—"
-                  title="Owner"
-                  aria-label="Owner"
-                />
-                <input
-                  type="text"
-                  readOnly
-                  className={`${isMobile ? "p-3 text-base" : "p-2"} border rounded-lg bg-gray-100`}
-                  value={formData.driverName}
-                  placeholder="Driver"
-                />
-                <input
-                  type="text"
-                  readOnly
-                  className={`${isMobile ? "p-3 text-base" : "p-2"} border rounded-lg bg-gray-100`}
-                  value={formData.vehicleName}
-                  placeholder="Vehicle"
-                />
-              </>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm space-y-1">
+                <div>
+                  <span className="text-slate-500">Driver:</span> {formData.driverName || "—"}
+                </div>
+                <div>
+                  <span className="text-slate-500">Vehicle:</span> {formData.vehicleName || "—"}
+                </div>
+                {fleetAssignment.routeNotes ? (
+                  <div>
+                    <span className="text-slate-500">Route notes:</span> {fleetAssignment.routeNotes}
+                  </div>
+                ) : null}
+                {fleetAssignment.driverRemark ? (
+                  <div>
+                    <span className="text-slate-500">Driver remark:</span> {fleetAssignment.driverRemark}
+                  </div>
+                ) : null}
+                {fleetAssignment.vehicleRemark ? (
+                  <div>
+                    <span className="text-slate-500">Vehicle remark:</span> {fleetAssignment.vehicleRemark}
+                  </div>
+                ) : null}
+              </div>
             ) : (
-              <>
-                <select
-                  className={`${isMobile ? "p-3 text-base" : "p-2"} border rounded-lg`}
-                  value={selectedOwnerId}
-                  onChange={handleOwnerChange}
-                  disabled={isViewMode && !isEditing}>
-                  <option value="">Select Owner</option>
-                  {owners?.map((owner) => (
-                    <option key={getId(owner)} value={getId(owner)}>
-                      {owner.name}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  className={`${isMobile ? "p-3 text-base" : "p-2"} border rounded-lg`}
-                  value={fleetDriverId}
-                  onChange={handleFleetDriverChange}
-                  disabled={(isViewMode && !isEditing) || !selectedOwnerId}>
-                  <option value="">Select Driver</option>
-                  {fleetDrivers?.map((driver) => (
-                    <option key={getId(driver)} value={getId(driver)}>
-                      {formatFleetDriverLabel(driver)}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  className={`${isMobile ? "p-3 text-base" : "p-2"} border rounded-lg`}
-                  value={fleetVehicleId}
-                  onChange={handleFleetVehicleChange}
-                  disabled={(isViewMode && !isEditing) || !selectedOwnerId}>
-                  <option value="">Select Vehicle</option>
-                  {fleetVehicles?.map((vehicle) => (
-                    <option key={getId(vehicle)} value={getId(vehicle)}>
-                      {vehicle.name}
-                    </option>
-                  ))}
-                </select>
-              </>
+              <FleetAssignmentPanel
+                value={fleetAssignment}
+                onChange={setFleetAssignment}
+                disabled={isViewMode && !isEditing}
+                autoSelectSingle={mode !== "view"}
+                remarksExpandedDefault={Boolean(
+                  fleetAssignment.driverRemark ||
+                    fleetAssignment.vehicleRemark ||
+                    fleetAssignment.routeNotes
+                )}
+              />
             )}
           </div>
 
@@ -1925,7 +1929,7 @@ const DispatchForm = ({
               disabled={isViewMode && !isEditing}
               onChange={(e) => setExpectedNursery(String(e.target.value || "").toUpperCase())}>
               {nurserySites.length === 0 ? (
-                <option value="RB">RB</option>
+                <option value="RB">RB (RAMBIOTECH)</option>
               ) : (
                 nurserySites.map((s) => (
                   <option key={s._id} value={String(s.code || "").toUpperCase()}>

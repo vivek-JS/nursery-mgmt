@@ -95,12 +95,16 @@ import {
   loadFleetForOwner,
   formatFleetDriverLabel,
   getFleetDriverId,
-} from "./fleetPickersUtils.js";
+  emptyFleetAssignment,
+} from "components/fleet/fleetPickersUtils";
+import FleetAssignmentPanel from "components/fleet/FleetAssignmentPanel";
 
 const tabSx = { minHeight: 56, "& .MuiBottomNavigationAction-label": { fontSize: "0.65rem" } };
 
 /** Accent stripes for compact dispatch-ready batch cards */
 const BATCH_CARD_ACCENTS = ["#7c3aed", "#059669", "#ea580c", "#0284c7", "#db2777", "#65a30d"];
+/** Plant-ready / milestone window — must match `upcomingDays` on secondary-mobile-dashboard. */
+const SECONDARY_PLANT_READY_WINDOW_DAYS = 7;
 
 /** Two equal full-width buttons (Marathi confirm / dialogs) */
 const dialogActions5050Sx = {
@@ -460,7 +464,7 @@ const SecondaryMobileOps = () => {
   const loadDashboard = useCallback(async () => {
     try {
       const inst = NetworkManager(API.PLANT_OUTWARD.SECONDARY_MOBILE_DASHBOARD);
-      const res = await inst.request({}, { upcomingDays: 31 });
+      const res = await inst.request({}, { upcomingDays: SECONDARY_PLANT_READY_WINDOW_DAYS });
       const body = res.data;
       const dash = body?.data && typeof body.data === "object" ? body.data : {};
       setDashboard(dash);
@@ -1644,6 +1648,9 @@ const SecondaryMobileOps = () => {
             driver?.mobile?.toString?.() || driver?.phoneNumber?.toString?.() || "",
           vehicleName: vehicle?.name || "",
           vehicleNumber: String(vehicle?.number ?? vehicle?.vehicleNumber ?? "").trim(),
+          vehicleId: fleetVehicleId || null,
+          driverId: fleetDriverId || null,
+          ownerId: fleetSelectedOwnerId || null,
         },
         { pathParams: [String(vehicleDriverEditId)] }
       );
@@ -2134,7 +2141,7 @@ const SecondaryMobileOps = () => {
 
             <Divider sx={{ my: 2 }} />
             <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1 }}>
-              Next {dashboard?.windowDays ?? 7} days — plant-ready window
+              Next {Number(dashboard?.windowDays) || SECONDARY_PLANT_READY_WINDOW_DAYS} days — plant-ready window
             </Typography>
             {upcomingSecondaryMilestones.length === 0 && (
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
@@ -4076,70 +4083,36 @@ const SecondaryMobileOps = () => {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={vehicleDriverEditOpen} onClose={() => setVehicleDriverEditOpen(false)} fullWidth maxWidth="xs">
+      <Dialog open={vehicleDriverEditOpen} onClose={() => setVehicleDriverEditOpen(false)} fullWidth maxWidth="sm">
         <form onSubmit={saveVehicleDriverEdit}>
           <DialogTitle>Driver / vehicle</DialogTitle>
-          <DialogContent sx={{ display: "flex", flexDirection: "column", gap: 2, pt: 1 }}>
+          <DialogContent sx={{ pt: 1 }}>
             {fleetListsLoading ? (
               <Box sx={{ display: "flex", justifyContent: "center", py: 2 }}>
                 <CircularProgress size={28} />
               </Box>
             ) : (
-              <>
-                <TextField
-                  select
-                  label="Transport owner"
-                  value={fleetSelectedOwnerId}
-                  onChange={(e) => void onFleetOwnerChange(e.target.value)}
-                  fullWidth
-                  required
-                >
-                  <MenuItem value="">
-                    <em>Select owner</em>
-                  </MenuItem>
-                  {fleetOwners.map((o) => (
-                    <MenuItem key={getFleetDriverId(o)} value={getFleetDriverId(o)}>
-                      {o.name || getFleetDriverId(o)}
-                    </MenuItem>
-                  ))}
-                </TextField>
-                <TextField
-                  select
-                  label="Driver"
-                  value={fleetDriverId}
-                  onChange={(e) => setFleetDriverId(e.target.value)}
-                  fullWidth
-                  required
-                  disabled={!fleetSelectedOwnerId}
-                >
-                  <MenuItem value="">
-                    <em>Select driver</em>
-                  </MenuItem>
-                  {fleetDrivers.map((d) => (
-                    <MenuItem key={getFleetDriverId(d)} value={getFleetDriverId(d)}>
-                      {formatFleetDriverLabel(d)}
-                    </MenuItem>
-                  ))}
-                </TextField>
-                <TextField
-                  select
-                  label="Vehicle"
-                  value={fleetVehicleId}
-                  onChange={(e) => setFleetVehicleId(e.target.value)}
-                  fullWidth
-                  required
-                  disabled={!fleetSelectedOwnerId}
-                >
-                  <MenuItem value="">
-                    <em>Select vehicle</em>
-                  </MenuItem>
-                  {fleetVehicles.map((v) => (
-                    <MenuItem key={getFleetDriverId(v)} value={getFleetDriverId(v)}>
-                      {[v.number, v.name].filter(Boolean).join(" — ") || getFleetDriverId(v)}
-                    </MenuItem>
-                  ))}
-                </TextField>
-              </>
+              <FleetAssignmentPanel
+                value={{
+                  ownerId: fleetSelectedOwnerId,
+                  driverId: fleetDriverId,
+                  vehicleId: fleetVehicleId,
+                  routeNotes: "",
+                  driverRemark: "",
+                  vehicleRemark: "",
+                }}
+                onChange={(next) => {
+                  if (next.ownerId !== fleetSelectedOwnerId) {
+                    void onFleetOwnerChange(next.ownerId);
+                  } else {
+                    setFleetDriverId(next.driverId);
+                    setFleetVehicleId(next.vehicleId);
+                  }
+                }}
+                disabled={vehicleDriverSaving}
+                showRemarks={false}
+                autoSelectSingle={false}
+              />
             )}
           </DialogContent>
           <DialogActions sx={{ px: 2, py: 2 }}>

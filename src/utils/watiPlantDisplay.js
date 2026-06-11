@@ -42,3 +42,38 @@ export function watiPlantAndSubtypeParams(plantNameRaw, subtypeRaw) {
 export function isMergedSubtypePlaceholder(subtypeParam) {
   return subtypeParam === WATI_MERGED_SUBTYPE_PLACEHOLDER
 }
+
+/** Accept WATI popup / send applies only to Banana (केळी) orders. */
+export function isBananaPlantOrder(plantNameRaw, subtypeRaw = "") {
+  return /banana|keli|केळ/i.test(`${plantNameRaw ?? ""} ${subtypeRaw ?? ""}`)
+}
+
+const WHATSAPP_PLANT_MARATHI_SHORT = {
+  banana: "केळी",
+  keli: "केळी",
+  papaya: "Papaya",
+  watermelon: "Tarbuj",
+  tarbuj: "Tarbuj",
+}
+
+/** CMS plant name → farmer WhatsApp label (e.g. Banana → केळी). */
+export function formatWhatsappPlantMarathiShort(plantNameRaw) {
+  const plant = String(plantNameRaw ?? "").trim() || "Plants"
+  const plantLower = plant.toLowerCase()
+  for (const [key, label] of Object.entries(WHATSAPP_PLANT_MARATHI_SHORT)) {
+    if (plantLower.includes(key)) {
+      return label
+    }
+  }
+  return plant
+}
+
+/** {{2}} + {{3}} for delivery_final_second preview. */
+export function deliveryFinalSecondPlantSubtypeParams(plantNameRaw, subtypeRaw) {
+  const plant = formatWhatsappPlantMarathiShort(plantNameRaw)
+  const sub = String(subtypeRaw ?? "").trim()
+  if (!sub || sub === "N/A" || sub === "Unknown" || sub === WATI_MERGED_SUBTYPE_PLACEHOLDER) {
+    return { plant, subtype: "" }
+  }
+  return { plant, subtype: sub }
+}

@@ -101,6 +101,8 @@ const AddManualSlotModal = ({ isOpen, onClose, plants, selectedYear, onSuccess }
   const [startDate, setStartDate] = useState(new Date())
   const [endDate, setEndDate] = useState(new Date())
   const [totalPlants, setTotalPlants] = useState(0)
+  const [actualPlants, setActualPlants] = useState(0)
+  const [closingStock, setClosingStock] = useState(0)
   const [subtypes, setSubtypes] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
@@ -174,7 +176,9 @@ const AddManualSlotModal = ({ isOpen, onClose, plants, selectedYear, onSuccess }
         subtypeId: selectedSubtype,
         startDay: formattedStartDate,
         endDay: formattedEndDate,
-        totalPlants: parseInt(totalPlants)
+        totalPlants: parseInt(totalPlants, 10),
+        actualPlants: Math.max(0, parseInt(actualPlants, 10) || 0),
+        closingStock: Math.max(0, parseInt(closingStock, 10) || 0)
       }
 
       const response = await instance.request(payload)
@@ -187,6 +191,8 @@ const AddManualSlotModal = ({ isOpen, onClose, plants, selectedYear, onSuccess }
         setStartDate(new Date())
         setEndDate(new Date())
         setTotalPlants(0)
+        setActualPlants(0)
+        setClosingStock(0)
 
         // Call success callback after a brief delay
         setTimeout(() => {
@@ -300,7 +306,7 @@ const AddManualSlotModal = ({ isOpen, onClose, plants, selectedYear, onSuccess }
             />
 
             {/* Total Plants */}
-            <div className="mb-6">
+            <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 mb-1">Total Plants</label>
               <input
                 type="number"
@@ -310,6 +316,29 @@ const AddManualSlotModal = ({ isOpen, onClose, plants, selectedYear, onSuccess }
                 className="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200"
                 required
               />
+            </div>
+
+            <div className="mb-4 grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Actual Plants</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={actualPlants}
+                  onChange={(e) => setActualPlants(e.target.value)}
+                  className="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-teal-500 transition-all duration-200"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Closing Stock</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={closingStock}
+                  onChange={(e) => setClosingStock(e.target.value)}
+                  className="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500 transition-all duration-200"
+                />
+              </div>
             </div>
 
             {/* Submit Button */}

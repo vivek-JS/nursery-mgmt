@@ -31,6 +31,14 @@ export async function extractUpiFromReceiptImageUrl(imageUrl) {
   return json
 }
 
+/** True when OCR returned a positive amount we can apply to paidAmount. */
+export function ocrDataHasAmount(d) {
+  if (!d || d.amount == null) return false
+  const raw = String(d.amount).replace(/[^\d.]/g, "")
+  const n = Number(raw)
+  return raw !== "" && Number.isFinite(n) && n > 0
+}
+
 /** True when OCR payload has any field we can use (receipt scan succeeded with content). */
 export function ocrDataHasUsableSignal(d) {
   if (!d || typeof d !== "object") return false
@@ -51,9 +59,13 @@ export function ocrDataHasUsableSignal(d) {
  * Supports `paidAmount` or `totalAmount` (bulk).
  * @param {object} prev
  * @param {object} d — ocr.data
+ * @param {{ fillAmount?: boolean, overwrite?: boolean }} [options]
+ *   - fillAmount: when true, set amount from receipt if OCR returned one (use only after successful scan)
+ *   - overwrite: when true (rescan), replace payee/date/UTR even if already filled
  */
-export function mergeUpiOcrIntoPaymentState(prev, d) {
+export function mergeUpiOcrIntoPaymentState(prev, d, options = {}) {
   if (!d || typeof d !== "object") return prev
+  const { fillAmount = false, overwrite = false } = options
   const ocrSignal = ocrDataHasUsableSignal(d)
   const utr = d.utr_number != null && String(d.utr_number).trim() ? String(d.utr_number).trim() : ""
   const tid = d.transaction_id != null && String(d.transaction_id).trim() ? String(d.transaction_id).trim() : ""
@@ -64,13 +76,13 @@ export function mergeUpiOcrIntoPaymentState(prev, d) {
     if (m.isValid()) {
       const empty =
         prev.paymentDate == null || String(prev.paymentDate).trim() === ""
-      if (empty) paymentDate = m.format("YYYY-MM-DD")
+      if (empty || overwrite) paymentDate = m.format("YYYY-MM-DD")
     }
   }
 
   const nameEmpty = !(prev.receiptPayeeName != null && String(prev.receiptPayeeName).trim())
   const receiptPayeeName =
-    nameEmpty && d.name != null && String(d.name).trim()
+    (overwrite || nameEmpty) && d.name != null && String(d.name).trim()
       ? String(d.name).trim()
       : prev.receiptPayeeName
 
@@ -82,12 +94,12 @@ export function mergeUpiOcrIntoPaymentState(prev, d) {
     paymentDate,
     ocrAppliedFromReceipt: ocrSignal || Boolean(prev.ocrAppliedFromReceipt),
   }
-  if (amountKey) {
+  if (amountKey && fillAmount) {
     const raw = d.amount != null ? String(d.amount).replace(/[^\d.]/g, "") : ""
-    next[amountKey] =
-      prev[amountKey] === "" || prev[amountKey] == null
-        ? raw || prev[amountKey]
-        : prev[amountKey]
+    if (raw) {
+      const amountEmpty = prev[amountKey] === "" || prev[amountKey] == null
+      if (overwrite || amountEmpty) next[amountKey] = raw
+    }
   }
   const prevTxnEmpty = !(prev.transactionId && String(prev.transactionId).trim())
   const hasUtrField = Object.prototype.hasOwnProperty.call(prev, "utrNumber")
@@ -95,14 +107,16 @@ export function mergeUpiOcrIntoPaymentState(prev, d) {
     !hasUtrField || !(prev.utrNumber != null && String(prev.utrNumber).trim())
 
   if (hasUtrField) {
-    next.transactionId = prevTxnEmpty && tid ? tid : prev.transactionId
-    next.utrNumber = prevUtrEmpty && utr ? utr : prev.utrNumber
+    next.transactionId =
+      (overwrite || prevTxnEmpty) && tid ? tid : prev.transactionId
+    next.utrNumber = (overwrite || prevUtrEmpty) && utr ? utr : prev.utrNumber
   } else {
-    next.transactionId = prevTxnEmpty
-      ? tid && utr && tid !== utr
-        ? `${tid} · UTR ${utr}`
-        : tid || utr || ""
-      : prev.transactionId
+    next.transactionId =
+      overwrite || prevTxnEmpty
+        ? tid && utr && tid !== utr
+          ? `${tid} · UTR ${utr}`
+          : tid || utr || ""
+        : prev.transactionId
   }
   const modeEmpty = !(prev.modeOfPayment != null && String(prev.modeOfPayment).trim())
   next.modeOfPayment =

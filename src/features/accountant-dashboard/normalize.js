@@ -42,7 +42,18 @@ export function normalizeFarmerPayment(raw) {
       transferredFromPaymentId: payment.transferredFromPaymentId
         ? String(payment.transferredFromPaymentId)
         : undefined,
+      transferRequestId: payment.transferRequestId ? String(payment.transferRequestId) : undefined,
+      orderPaymentTransferId: payment.orderPaymentTransferId
+        ? String(payment.orderPaymentTransferId)
+        : undefined,
+      paymentTiming: payment.paymentTiming === "balance" ? "balance" : payment.paymentTiming === "advance" ? "advance" : undefined,
     },
+    paymentTiming:
+      payment.paymentTiming === "balance"
+        ? "balance"
+        : payment.paymentTiming === "advance"
+          ? "advance"
+          : undefined,
     screenshots: Array.isArray(raw.screenshots) ? raw.screenshots : [],
     orderStatus: raw.orderStatus || "PENDING",
     orderBookingDate: raw.orderBookingDate ? String(raw.orderBookingDate) : "",
@@ -430,4 +441,112 @@ export function mapFarmerPlantLedgerApiToPanel(apiData) {
     },
     entries
   }
+}
+
+const CENTRAL_TRANSFER_EVENTS = new Set([
+  "FARMER_ADVANCE_TRANSFER",
+  "FARMER_PAYMENT_TRANSFER"
+])
+
+function centralLinePresentation(line) {
+  const eventType = line.metadata?.eventType || line.eventType
+  const isTransfer = CENTRAL_TRANSFER_EVENTS.has(eventType)
+  let category = String(line.accountCode || "AR")
+  let description =
+    line.metadata?.description ||
+    line.metadata?.eventType ||
+    line.sourceLineRef ||
+    "Central ledger line"
+
+  if (eventType === "FARMER_ADVANCE_TRANSFER") {
+    category = "Advance transfer"
+    if (line.metadata?.direction === "OUT") {
+      description = description.includes("transfer") ? description : "Advance transfer out"
+    } else if (line.metadata?.direction === "IN") {
+      description = description.includes("transfer") ? description : "Advance transfer in"
+    }
+  } else if (eventType === "FARMER_PAYMENT_TRANSFER") {
+    category = "Payment transfer"
+    if (line.metadata?.direction === "REVERSAL") {
+      description = description.includes("transfer") ? description : "Payment transfer out"
+    } else if (line.metadata?.direction === "CREDIT") {
+      description = description.includes("transfer") ? description : "Payment transfer in"
+    }
+  }
+
+  return { eventType, isTransfer, category, description }
+}
+
+/**
+ * Map GET /finance/reports/party-statement → LedgerPanel shape (central AR).
+ */
+export function mapCentralPartyStatementToPanel(apiData, customerFallback = {}) {
+  if (!apiData) return null
+  const rawLines = Array.isArray(apiData.entries) ? apiData.entries : []
+  let totalDebit = 0
+  let totalCredit = 0
+  const entriesChrono = rawLines.map((l) => {
+    const debit = Number(l.debit) || 0
+    const credit = Number(l.credit) || 0
+    totalDebit += debit
+    totalCredit += credit
+    const isDebit = debit > 0
+    const amount = isDebit ? debit : credit
+    const balanceAfter = Number(l.runningBalance) || 0
+    const balanceBefore = roundMoneyCentral(balanceAfter - debit + credit)
+    const pres = centralLinePresentation(l)
+    return {
+      date: l.entryDate ? String(l.entryDate) : "",
+      type: isDebit ? "DEBIT" : "CREDIT",
+      category: pres.category,
+      reference: String(l.sourceLineRef || pres.eventType || "—"),
+      description: String(pres.description),
+      amount,
+      balance: balanceAfter,
+      balanceBefore,
+      balanceAfter,
+      isTransfer: pres.isTransfer,
+      eventType: pres.eventType,
+      raw: l
+    }
+  })
+
+  const entries = [...entriesChrono].reverse()
+  const transferCount = entries.filter((e) => e.isTransfer).length
+  const outstanding =
+    entriesChrono.length > 0
+      ? Number(entriesChrono[entriesChrono.length - 1].balanceAfter) || 0
+      : Number(apiData.closingBalance) || 0
+
+  const mobile = String(apiData.partyId || customerFallback.mobile || "")
+  return {
+    meta: {
+      variant: "central",
+      partyType: apiData.partyType,
+      accountCode: apiData.accountCode,
+      includeTransfers: Boolean(apiData.includeTransfers),
+      transferCount
+    },
+    customer: {
+      name: String(customerFallback.name || mobile || "Party"),
+      mobile,
+      village: String(customerFallback.village || ""),
+      taluka: String(customerFallback.taluka || ""),
+      district: String(customerFallback.district || "")
+    },
+    summary: {
+      totalOrders: 0,
+      openingBalance: Number(apiData.openingBalance) || 0,
+      totalDebit: roundMoneyCentral(totalDebit),
+      totalCredit: roundMoneyCentral(totalCredit),
+      outstanding: roundMoneyCentral(outstanding),
+      totalBilled: roundMoneyCentral(totalDebit),
+      totalCollected: roundMoneyCentral(totalCredit)
+    },
+    entries
+  }
+}
+
+function roundMoneyCentral(n) {
+  return Math.round((Number(n) || 0) * 100) / 100
 }

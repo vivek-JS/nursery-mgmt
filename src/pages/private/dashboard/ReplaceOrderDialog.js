@@ -112,9 +112,9 @@ const ReplaceOrderDialog = ({
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
       <div className="max-h-[85vh] w-full max-w-lg overflow-hidden rounded-lg bg-white shadow-xl flex flex-col">
         <div className="border-b border-gray-200 px-4 py-3">
-          <h3 className="text-lg font-semibold text-gray-900">Add order to dispatch</h3>
+          <h3 className="text-lg font-semibold text-gray-900">Link existing order</h3>
           <p className="mt-1 text-xs text-gray-500">
-            Search by farmer name, mobile, or order # — only {READY_STATUSES.join(" / ")} orders.
+            Search by farmer name, mobile, or order # — link a {READY_STATUSES.join(" / ")} order already in the system.
           </p>
         </div>
         <div className="p-4 space-y-3 shrink-0">

@@ -1,11 +1,15 @@
 import React, { useState, useEffect, useRef, useCallback } from "react"
-import { ChevronDown, ChevronRight, Plus, Check, ImageIcon, X, Loader2, Trash2 } from "lucide-react"
+import { ChevronDown, ChevronRight, Plus, Check, ImageIcon, X, Loader2, Trash2, Pencil, Zap } from "lucide-react"
 import { API, NetworkManager } from "network/core"
 import { Toast } from "helpers/toasts/toastHelper"
-import { useHasPaymentAccess } from "utils/roleUtils"
+import { useHasPaymentAccess, useUserData } from "utils/roleUtils"
+import CompactPaymentForm from "components/payments/CompactPaymentForm"
+import { defaultPaymentDraft, draftToApiPayload, paymentTxnOrUtrTrimmed } from "components/payments/paymentFormDefaults"
 import PaymentTransferDialog from "components/Modals/PaymentTransferDialog"
 import { transferableFarmerPlantPayments } from "features/accountant-dashboard/farmerPlantPaymentTransfer.utils"
 import ReplaceOrderDialog from "./ReplaceOrderDialog"
+import QuickOrderDialog from "../Dispatch/components/QuickOrderDialog"
+import EditOrderModal from "../Dispatch/components/EditOrderModal"
 import {
   extractUpiFromReceiptImageUrl,
   mergeUpiOcrIntoPaymentState,
@@ -55,6 +59,25 @@ const rowKey = (order) => String(order._id ?? order.id ?? order.details?.orderid
 
 const apiOrderId = (order) => order._id ?? order.id
 
+const orderForEditModal = (order) => {
+  const oid = apiOrderId(order)
+  return {
+    _id: oid,
+    id: oid,
+    rate: order.rate ?? order.details?.rate,
+    numberOfPlants: order.details?.numberOfPlants ?? order.numberOfPlants,
+    quantity: order.details?.numberOfPlants ?? order.numberOfPlants,
+    deliveryDate: order.details?.deliveryDate ?? order.deliveryDate,
+    farmReadyDate: order.details?.farmReadyDate ?? order.farmReadyDate,
+    bookingSlot: order.details?.bookingSlot ?? order.bookingSlot,
+    orderStatus: order.details?.orderStatus ?? order.orderStatus,
+    plantType: order.plantType ?? order.details?.plantType ?? order.details?.plant,
+    plantSubtype: order.plantSubtype ?? order.details?.plantSubtype,
+    plantId: order.plantType?.id ?? order.plantType?._id ?? order.details?.plantID,
+    subtypeId: order.plantSubtype?.id ?? order.plantSubtype?._id ?? order.details?.plantSubtypeID,
+  }
+}
+
 const isPlantFarmerOrderForPaymentTransfer = (order) =>
   order &&
   !(order.details?.dealerOrder || order.dealerOrder) &&
@@ -85,24 +108,6 @@ const sumCollectedPayments = (payments) =>
       0
     )
   )
-
-const defaultPaymentDraft = () => ({
-  paidAmount: "",
-  modeOfPayment: "",
-  bankName: "",
-  isWalletPayment: false,
-  remark: "",
-  utrNumber: "",
-  transactionId: "",
-  receiptPayeeName: "",
-  receiptPhoto: [],
-  paymentDate: new Date().toISOString().slice(0, 10),
-  expanded: false
-})
-
-/** UTR or bank ref: OCR may set `utrNumber`; manual entry uses `transactionId`. */
-const paymentTxnOrUtrTrimmed = (draft) =>
-  String(draft?.utrNumber || "").trim() || String(draft?.transactionId || "").trim()
 
 /** Pure: avoids useCallback in the component and keeps render/submit logic identical. */
 function computePlantQuantities(order, additionalPlantInputs) {
@@ -135,6 +140,19 @@ function defaultNurserySiteCode(sites) {
     : String(sites[0]?.code || "RB").toUpperCase()
 }
 
+/** Undispatched qty at nursery; 0 is valid — never use `||` (would treat 0 as missing). */
+function getUndispatchedAtNursery(order) {
+  const rawRem = order?.details?.remainingPlants ?? order?.remainingPlants
+  if (rawRem != null && !Number.isNaN(Number(rawRem))) {
+    return Math.max(0, Number(rawRem))
+  }
+  const status = String(order?.details?.orderStatus ?? order?.orderStatus ?? "").toUpperCase()
+  if (status === "DISPATCHED" || status === "COMPLETED") return 0
+  const base = Number(order?.details?.numberOfPlants ?? order?.numberOfPlants ?? 0) || 0
+  const add = Number(order?.details?.additionalPlants ?? order?.additionalPlants ?? 0) || 0
+  return Math.max(0, base + add)
+}
+
 /** Normalize GET /dispatched/:id — axios + generateResponse shapes. */
 function parseDispatchFromGetByIdResponse(res) {
   const top = res?.data
@@ -149,6 +167,7 @@ function parseDispatchFromGetByIdResponse(res) {
 
 const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
   const hasPaymentAccess = useHasPaymentAccess()
+  const user = useUserData()
   const [localDispatch, setLocalDispatch] = useState(() => dispatchData ?? null)
   /** One-time seed per dialog open — avoids parent re-renders & Strict Mode remounts overwriting GET results. */
   const dialogSessionStartedRef = useRef(false)
@@ -164,7 +183,10 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
   const [expandedRows, setExpandedRows] = useState(new Set())
   const [returnReasons, setReturnReasons] = useState({})
   const [batchNumbers, setBatchNumbers] = useState({})
+  const [freightChargesByOrder, setFreightChargesByOrder] = useState({})
+  const [editOrderTarget, setEditOrderTarget] = useState(null)
   const [showAddOrderDialog, setShowAddOrderDialog] = useState(false)
+  const [showQuickOrderDialog, setShowQuickOrderDialog] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
 
   const refreshDispatchPayload = useCallback(async (explicitDispatchId) => {
@@ -224,8 +246,9 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
   const [orderActions, setOrderActions] = useState({})
   const [additionalPlantInputs, setAdditionalPlantInputs] = useState({})
   const [paymentDraftByOrder, setPaymentDraftByOrder] = useState({})
-  const [paymentUploadBusy, setPaymentUploadBusy] = useState({})
-  const [paymentOcrBusy, setPaymentOcrBusy] = useState({})
+  const [paymentFormExpandedByOrder, setPaymentFormExpandedByOrder] = useState({})
+  const [paymentReceiptBusy, setPaymentReceiptBusy] = useState(false)
+  const [paymentOcrBusy, setPaymentOcrBusy] = useState(false)
 
   useEffect(() => {
     if (!localDispatch?.orderIds) return
@@ -233,6 +256,7 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
     const initialAdditional = {}
     const initialPay = {}
     const initialBatch = {}
+    const initialFreight = {}
     const initialExpectedNursery = {}
     localDispatch.orderIds.forEach((order) => {
       const k = rowKey(order)
@@ -241,9 +265,11 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
       const existingAdditional =
         Number(order.details?.additionalPlants ?? order.additionalPlants ?? 0) || 0
       initialAdditional[k] = existingAdditional
-      initialPay[k] = defaultPaymentDraft()
+      initialPay[k] = [defaultPaymentDraft()]
       const bn = order.details?.batchNumber ?? order.batchNumber
       initialBatch[k] = bn != null && bn !== "" ? String(bn) : ""
+      const fc = order.details?.freightCharges ?? order.freightCharges
+      initialFreight[k] = fc != null && fc !== "" ? String(fc) : "0"
       const savedN =
         order.details?.expectedNursery != null || order.expectedNursery != null
           ? String(order.details?.expectedNursery ?? order.expectedNursery).trim().toUpperCase()
@@ -254,13 +280,15 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
     setAdditionalPlantInputs(initialAdditional)
     setPaymentDraftByOrder(initialPay)
     setBatchNumbers(initialBatch)
+    setFreightChargesByOrder(initialFreight)
     setExpectedNurseryByOrder(initialExpectedNursery)
     setReturnedPlants({})
     setDamagedPlants({})
     setReturnReasons({})
     setExpandedRows(new Set())
-    setPaymentUploadBusy({})
-    setPaymentOcrBusy({})
+    setPaymentFormExpandedByOrder({})
+    setPaymentReceiptBusy(false)
+    setPaymentOcrBusy(false)
     setTripData({ kmRun: "", rent: "", otherCharges: "", remark: "", expanded: false })
   }, [localDispatch])
 
@@ -274,6 +302,10 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
 
   const handleBatchNumberChange = (k, value) => {
     setBatchNumbers((prev) => ({ ...prev, [k]: value }))
+  }
+
+  const handleFreightChargesChange = (k, value) => {
+    setFreightChargesByOrder((prev) => ({ ...prev, [k]: value }))
   }
 
   const handleExpectedNurseryChange = (k, value) => {
@@ -300,11 +332,89 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
     setAdditionalPlantInputs((prev) => ({ ...prev, [k]: sanitizedValue }))
   }
 
-  const updatePaymentDraft = (k, patch) => {
-    setPaymentDraftByOrder((prev) => ({
-      ...prev,
-      [k]: { ...(prev[k] || defaultPaymentDraft()), ...patch }
-    }))
+  const setPaymentDraftsForOrder = (k, draftsOrUpdater) => {
+    setPaymentDraftByOrder((prev) => {
+      const current = (() => {
+        const raw = prev[k]
+        if (Array.isArray(raw)) return raw.length ? raw : [defaultPaymentDraft()]
+        if (raw && typeof raw === "object" && !Array.isArray(raw)) return [raw]
+        return [defaultPaymentDraft()]
+      })()
+      const next =
+        typeof draftsOrUpdater === "function" ? draftsOrUpdater(current) : draftsOrUpdater
+      return { ...prev, [k]: next }
+    })
+  }
+
+  const getPaymentDraftsForOrder = (k) => {
+    const raw = paymentDraftByOrder[k]
+    if (Array.isArray(raw)) return raw.length ? raw : [defaultPaymentDraft()]
+    if (raw && typeof raw === "object") return [raw]
+    return [defaultPaymentDraft()]
+  }
+
+  const uploadPaymentReceiptFiles = async (files) => {
+    if (!files?.length) return []
+    for (const file of files) {
+      if (!file.type.startsWith("image/")) {
+        Toast.error("Please select image files only")
+        return []
+      }
+      if (file.size > 8 * 1024 * 1024) {
+        Toast.error("Max 8MB per image")
+        return []
+      }
+    }
+    setPaymentReceiptBusy(true)
+    try {
+      const uploadedUrls = (
+        await Promise.all(
+          files.map(async (file) => {
+            const formData = new FormData()
+            formData.append("media_key", file)
+            formData.append("media_type", "IMAGE")
+            formData.append("content_type", "multipart/form-data")
+            const instance = NetworkManager(API.MEDIA.UPLOAD)
+            const response = await instance.request(formData)
+            return response?.data?.data?.media_url || response?.data?.media_url
+          })
+        )
+      ).filter(Boolean)
+      if (!uploadedUrls.length) {
+        Toast.error("Upload did not return a URL")
+        return []
+      }
+      Toast.success("Receipt uploaded")
+      return uploadedUrls
+    } catch (error) {
+      console.error("Receipt upload:", error)
+      Toast.error("Failed to upload receipt")
+      return []
+    } finally {
+      setPaymentReceiptBusy(false)
+    }
+  }
+
+  const applyOcrToPaymentDraft = async (imageUrl, draft, { overwrite = false } = {}) => {
+    if (!imageUrl || !/^https?:\/\//i.test(String(imageUrl))) return null
+    setPaymentOcrBusy(true)
+    try {
+      const ocr = await extractUpiFromReceiptImageUrl(imageUrl)
+      if (ocr?.success && ocr?.data) {
+        return mergeUpiOcrIntoPaymentState(draft || defaultPaymentDraft(), ocr.data, {
+          fillAmount: true,
+          overwrite,
+        })
+      }
+      Toast.error("Could not read receipt — enter payment details manually")
+      return null
+    } catch (err) {
+      console.warn("UPI OCR:", err)
+      Toast.error(err?.message || "Could not read receipt")
+      return null
+    } finally {
+      setPaymentOcrBusy(false)
+    }
   }
 
   const toggleRow = (k) => {
@@ -318,6 +428,13 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
 
   const handleOpenAddOrderDialog = () => setShowAddOrderDialog(true)
   const handleCloseAddOrderDialog = () => setShowAddOrderDialog(false)
+
+  const refreshAfterDispatchOrderChange = async () => {
+    const rid = String(localDispatch?._id || dispatchData?._id || "")
+    const ok = await refreshDispatchPayload(rid)
+    if (!ok) Toast.error("Updated, but could not refresh the list — close and reopen.")
+    onSuccess?.()
+  }
 
   const handleDetachOrder = async (orderMongoId) => {
     const oid = String(orderMongoId || "").trim()
@@ -340,92 +457,6 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
     }
   }
 
-  const removePaymentImage = (k, index) => {
-    setPaymentDraftByOrder((prev) => {
-      const cur = prev[k] || defaultPaymentDraft()
-      const receiptPhoto = (cur.receiptPhoto || []).filter((_, i) => i !== index)
-      return { ...prev, [k]: { ...cur, receiptPhoto } }
-    })
-  }
-
-  const handlePaymentImageUpload = async (k, event) => {
-    const files = Array.from(event.target.files || [])
-    event.target.value = ""
-    if (files.length === 0) return
-
-    for (const file of files) {
-      if (!file.type.startsWith("image/")) {
-        Toast.error("Please select image files only")
-        return
-      }
-      if (file.size > 8 * 1024 * 1024) {
-        Toast.error("Max 8MB per image")
-        return
-      }
-    }
-
-    let mergedAfterUpload
-    try {
-      setPaymentUploadBusy((b) => ({ ...b, [k]: true }))
-      const uploadedUrls = (
-        await Promise.all(
-          files.map(async (file) => {
-            const formData = new FormData()
-            formData.append("media_key", file)
-            formData.append("media_type", "IMAGE")
-            formData.append("content_type", "multipart/form-data")
-            const instance = NetworkManager(API.MEDIA.UPLOAD)
-            const response = await instance.request(formData)
-            return response?.data?.data?.media_url || response?.data?.media_url
-          })
-        )
-      ).filter(Boolean)
-
-      if (uploadedUrls.length === 0) {
-        Toast.error("Upload did not return a URL")
-        return
-      }
-
-      setPaymentDraftByOrder((prev) => {
-        const cur = { ...(prev[k] || defaultPaymentDraft()) }
-        mergedAfterUpload = {
-          ...cur,
-          receiptPhoto: [...(cur.receiptPhoto || []), ...uploadedUrls]
-        }
-        return { ...prev, [k]: mergedAfterUpload }
-      })
-
-      Toast.success("Receipt uploaded")
-
-      const firstNew = uploadedUrls[0]
-      if (firstNew) {
-        setPaymentOcrBusy((b) => ({ ...b, [k]: true }))
-        try {
-          const ocr = await extractUpiFromReceiptImageUrl(firstNew)
-          if (ocr?.success && ocr?.data) {
-            const afterOcr = mergeUpiOcrIntoPaymentState(mergedAfterUpload, ocr.data)
-            setPaymentDraftByOrder((prev) => ({ ...prev, [k]: afterOcr }))
-            Toast.success(
-              ocr.data.needs_review
-                ? "Receipt scanned — verify payee, amount, UTR"
-                : "Receipt details filled from screenshot"
-            )
-          }
-        } catch (err) {
-          console.warn("UPI OCR:", err)
-          Toast.error(err?.message || "Could not read receipt")
-        } finally {
-          setPaymentOcrBusy((b) => ({ ...b, [k]: false }))
-        }
-      }
-    } catch (error) {
-      console.error("Receipt upload:", error)
-      Toast.error("Failed to upload receipt")
-    } finally {
-      setPaymentUploadBusy((b) => ({ ...b, [k]: false }))
-    }
-  }
-
   const processReturnedPlants = (
     dispatchData,
     returnedPlants,
@@ -434,6 +465,7 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
     orderActions,
     paymentDraftByOrder,
     batchNumbersByOrderKey = {},
+    freightChargesByOrderKey = {},
     expectedNurseryByOrderKey = {},
     nurserySitesList = []
   ) => {
@@ -459,8 +491,7 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
         computePlantQuantities(order, additionalPlantInputs)
       const actions = orderActions[k] || { completeOrder: true }
 
-      const undispatchedAtNursery =
-        Number(order.details?.remainingPlants ?? order.remainingPlants ?? 0) || 0
+      const undispatchedAtNursery = getUndispatchedAtNursery(order)
 
       const existingReturned = getExistingReturnedPlants(order)
       const existingDamaged = getExistingDamagedPlants(order)
@@ -483,61 +514,65 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
         finalCompleteAction = false
       }
 
-      const draft = paymentDraftByOrder[k] || defaultPaymentDraft()
-      const rawPaid = String(draft.paidAmount || "").trim()
-      const amt = Number(rawPaid)
+      const draftRows = (() => {
+        const raw = paymentDraftByOrder[k]
+        if (Array.isArray(raw)) return raw
+        if (raw && typeof raw === "object") return [raw]
+        return [defaultPaymentDraft()]
+      })()
       const newPayments = []
-      if (
-        !draft.isWalletPayment &&
-        draft.modeOfPayment &&
-        (!rawPaid || Number.isNaN(amt) || amt <= 0)
-      ) {
-        throw new Error(`Please enter amount for the selected payment mode (order #${displayOrderNumber(order)})`)
+      const orderLabel = displayOrderNumber(order)
+      const filledRows = draftRows.filter((d) => {
+        const amt = Number(d.paidAmount)
+        return d.paidAmount && !Number.isNaN(amt) && amt > 0
+      })
+      const partialRows = draftRows.filter((d) => {
+        const amt = Number(d.paidAmount)
+        const hasAmt = d.paidAmount && !Number.isNaN(amt) && amt > 0
+        const hasMode = d.isWalletPayment || d.modeOfPayment
+        return !hasAmt && hasMode
+      })
+      if (partialRows.length) {
+        throw new Error(`Complete payment rows for order #${orderLabel} (amount missing)`)
       }
-      if (draft.isWalletPayment && (!rawPaid || Number.isNaN(amt) || amt <= 0)) {
-        throw new Error(`Please enter wallet payment amount (order #${displayOrderNumber(order)})`)
-      }
-      if (!Number.isNaN(amt) && amt !== 0) {
+      filledRows.forEach((draft, di) => {
+        const row = di + 1
+        const amt = Number(draft.paidAmount)
         if (!draft.isWalletPayment && !draft.modeOfPayment) {
-          throw new Error(
-            `Please select payment mode for the payment amount entered (order #${displayOrderNumber(order)})`
-          )
+          throw new Error(`Row ${row}: select payment mode (order #${orderLabel})`)
         }
         const mode = draft.isWalletPayment ? "Wallet" : draft.modeOfPayment
         const needsReceiptScreenshot =
           !draft.isWalletPayment &&
           mode &&
           mode !== "Cash" &&
-          mode !== "NEFT/RTGS"
+          mode !== "NEFT/RTGS" &&
+          mode !== "UPI"
         if (needsReceiptScreenshot && !(draft.receiptPhoto && draft.receiptPhoto.length > 0)) {
           throw new Error(
-            mode === "UPI" || mode === "Cheque"
-              ? `Receipt photo is mandatory for UPI and Cheque (order #${displayOrderNumber(order)})`
-              : `Payment image is mandatory for ${mode} payments (order #${displayOrderNumber(order)})`
+            mode === "Cheque"
+              ? `Row ${row}: receipt required for Cheque (order #${orderLabel})`
+              : `Row ${row}: receipt required for ${mode} (order #${orderLabel})`
           )
         }
-        if (mode === "UPI" && !paymentTxnOrUtrTrimmed(draft)) {
-          throw new Error(
-            `UTR or transaction reference is required for UPI (order #${displayOrderNumber(order)})`
-          )
+        if (mode === "UPI" && !draft.isWalletPayment && !paymentTxnOrUtrTrimmed(draft)) {
+          throw new Error(`Row ${row}: UTR required for UPI (order #${orderLabel})`)
         }
-        /* Status is always PENDING here; mark Collected from accountant dashboard. */
-        const status = "PENDING"
-        const receiptUrls = Array.isArray(draft.receiptPhoto) ? draft.receiptPhoto : []
-        const txnUtr = paymentTxnOrUtrTrimmed(draft)
+        const payload = draftToApiPayload(draft)
         newPayments.push({
           paidAmount: amt,
-          paymentStatus: status,
-          paymentDate: draft.paymentDate ? new Date(draft.paymentDate) : new Date(),
-          bankName: (draft.bankName || "").trim(),
-          receiptPhoto: receiptUrls,
-          modeOfPayment: mode,
-          isWalletPayment: Boolean(draft.isWalletPayment),
+          paymentStatus: "PENDING",
+          paymentDate: payload.paymentDate ? new Date(payload.paymentDate) : new Date(),
+          bankName: payload.bankName || "",
+          receiptPhoto: payload.receiptPhoto || [],
+          modeOfPayment: payload.modeOfPayment,
+          isWalletPayment: payload.isWalletPayment,
           remark: buildRemarkWithReceiptPayee(draft.remark, draft.receiptPayeeName) || "",
-          utrNumber: draft.utrNumber?.trim() || draft.transactionId?.trim() || undefined,
-          transactionId: draft.transactionId?.trim() || draft.utrNumber?.trim() || txnUtr || undefined
+          utrNumber: payload.utrNumber,
+          transactionId: payload.transactionId || payload.utrNumber,
+          chequeNumber: payload.chequeNumber,
         })
-      }
+      })
 
       const nurseryCode =
         String(expectedNurseryByOrderKey[k] ?? "").trim().toUpperCase() ||
@@ -554,6 +589,7 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
             : "",
         expectedNursery: nurseryCode,
         additionalPlants: additionalPlantCount,
+        freightCharges: Math.max(0, Number(freightChargesByOrderKey[k]) || 0),
         basePlants,
         totalPlants,
         actions: {
@@ -582,6 +618,7 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
           orderActions,
           paymentDraftByOrder,
           batchNumbers,
+          freightChargesByOrder,
           expectedNurseryByOrder,
           nurserySites
         )
@@ -648,13 +685,24 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
                   Returns / damaged adjust plants and credits (same rate). Wallet rules unchanged on server.
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={handleOpenAddOrderDialog}
-                className="inline-flex shrink-0 items-center justify-center self-start rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 sm:text-sm">
-                <Plus className="mr-1.5 h-3.5 w-3.5 sm:h-4 sm:w-4" />
-                Add order
-              </button>
+              <div className="flex shrink-0 flex-wrap items-center gap-2 self-start">
+                <button
+                  type="button"
+                  onClick={() => setShowQuickOrderDialog(true)}
+                  disabled={isLoading}
+                  className="inline-flex items-center justify-center rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-50 sm:text-sm">
+                  <Zap className="mr-1.5 h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                  Quick order
+                </button>
+                <button
+                  type="button"
+                  onClick={handleOpenAddOrderDialog}
+                  disabled={isLoading}
+                  className="inline-flex items-center justify-center rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-800 hover:bg-blue-100 disabled:opacity-50 sm:text-sm">
+                  <Plus className="mr-1.5 h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                  Link order
+                </button>
+              </div>
             </div>
           </div>
 
@@ -682,8 +730,7 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
                 )
                 const maxReturnThisBatch = Math.max(0, maxTrackableThisBatch - damagedQuantity)
                 const maxDamagedThisBatch = Math.max(0, maxTrackableThisBatch - returnedQuantity)
-                const undispatchedAtNursery =
-                  Number(order.details?.remainingPlants ?? order.remainingPlants ?? 0) || 0
+                const undispatchedAtNursery = getUndispatchedAtNursery(order)
                 const isCompleteChecked = orderActions[k]?.completeOrder !== false
                 const cumulativeReturnedAfter = existingReturned + returnedQuantity
                 const cumulativeDamagedAfter = existingDamaged + damagedQuantity
@@ -697,7 +744,8 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
 
                 const payments = getOrderPayments(order)
                 const collected = sumCollectedPayments(payments)
-                const grossOrderValue = round2(rate * totalPlants)
+                const freightAmount = Math.max(0, Number(freightChargesByOrder[k]) || 0)
+                const grossOrderValue = round2(rate * totalPlants + freightAmount)
                 const returnCreditDelta = round2(returnedQuantity * rate)
                 const damagedCreditDelta = round2(damagedQuantity * rate)
                 const dispatchCreditsThisSubmit = round2(returnCreditDelta + damagedCreditDelta)
@@ -705,7 +753,9 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
                   grossOrderValue - collected - dispatchCreditsThisSubmit
                 )
 
-                const payDraft = paymentDraftByOrder[k] || defaultPaymentDraft()
+                const payDrafts = getPaymentDraftsForOrder(k)
+                const payDraftTotal = payDrafts.reduce((s, d) => s + (Number(d.paidAmount) || 0), 0)
+                const payFormExpanded = Boolean(paymentFormExpandedByOrder[k])
 
                 const orderNoLabel = displayOrderNumber(order)
                 const farmerLabel = displayFarmerName(order)
@@ -768,6 +818,15 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
                         </div>
                       </div>
                       <div className="flex shrink-0 flex-col gap-1 self-start">
+                        <button
+                          type="button"
+                          title="Quick edit rate, quantity, delivery"
+                          disabled={isLoading}
+                          onClick={() => setEditOrderTarget(order)}
+                          className="inline-flex h-fit items-center gap-0.5 rounded border border-indigo-200 bg-indigo-50 px-2 py-1 text-[11px] font-medium text-indigo-800 hover:bg-indigo-100 disabled:opacity-50">
+                          <Pencil className="h-3.5 w-3.5" />
+                          Edit
+                        </button>
                         <button
                           type="button"
                           title="Remove from this vehicle"
@@ -899,6 +958,20 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
                             />
                           </div>
                           <div className="min-w-0">
+                            <label className="text-[11px] font-medium text-gray-600">Freight (₹)</label>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              className="mt-0.5 w-full rounded border border-gray-200 px-2 py-1 text-xs"
+                              placeholder="0"
+                              value={freightChargesByOrder[k] != null ? freightChargesByOrder[k] : "0"}
+                              onChange={(e) => handleFreightChargesChange(k, e.target.value)}
+                            />
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-1 gap-2">
+                          <div className="min-w-0">
                             <label className="text-[11px] font-medium text-gray-600">Note</label>
                             <input
                               type="text"
@@ -941,6 +1014,7 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
                               ₹{grossOrderValue.toLocaleString()}
                               <span className="block font-normal text-[10px] text-blue-800/80">
                                 {totalPlants} pl × ₹{rate}
+                                {freightAmount > 0 ? ` + freight ₹${freightAmount.toLocaleString()}` : ""}
                               </span>
                             </dd>
                           </div>
@@ -995,259 +1069,34 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
                     <div className="mt-3 border-t border-gray-100 pt-2">
                       <button
                         type="button"
-                        onClick={() => updatePaymentDraft(k, { expanded: !payDraft.expanded })}
+                        onClick={() =>
+                          setPaymentFormExpandedByOrder((prev) => ({ ...prev, [k]: !payFormExpanded }))
+                        }
                         className="text-xs font-semibold text-indigo-700 hover:text-indigo-900">
-                        {payDraft.expanded ? "Hide payment form" : "Add Payment"}
+                        {payFormExpanded ? "Hide payment form" : "Add Payment"}
                       </button>
-                      {payDraft.paidAmount ? (
+                      {payDraftTotal > 0 ? (
                         <span className="ml-2 inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-900">
-                          ₹{parseFloat(payDraft.paidAmount).toLocaleString()} added
+                          ₹{payDraftTotal.toLocaleString()} in {payDrafts.filter((d) => Number(d.paidAmount) > 0).length} payment
+                          {payDrafts.filter((d) => Number(d.paidAmount) > 0).length !== 1 ? "s" : ""}
                         </span>
                       ) : null}
-                      {payDraft.expanded && (
-                        <div className="mt-3 space-y-3 rounded-md border border-gray-200 bg-[#fafafa] p-3">
-                          <div className="rounded-md border border-amber-200 bg-amber-50/90 p-2.5">
-                            <label className="flex cursor-pointer items-start gap-2">
-                              <input
-                                type="checkbox"
-                                className="mt-0.5 h-4 w-4 rounded border-gray-300 text-amber-600 focus:ring-amber-500"
-                                checked={payDraft.isWalletPayment}
-                                onChange={(e) =>
-                                  updatePaymentDraft(k, {
-                                    isWalletPayment: e.target.checked,
-                                    modeOfPayment: e.target.checked ? "" : payDraft.modeOfPayment || ""
-                                  })
-                                }
-                              />
-                              <span>
-                                <span className="text-sm font-semibold text-gray-900">Pay from Wallet</span>
-                                <span className="mt-0.5 block text-xs text-gray-600">
-                                  When enabled, payment mode below is not used.
-                                </span>
-                              </span>
-                            </label>
-                            {payDraft.isWalletPayment && (
-                              <p className="mt-2 text-xs font-medium text-green-700">
-                                ✓ Payment will be deducted from wallet balance
-                              </p>
-                            )}
-                          </div>
-
-                          <div className="border-b border-gray-200 pb-3">
-                            <h5 className="text-sm font-semibold text-slate-800">Payment Receipt Photo</h5>
-                            <p className="mt-1 text-xs leading-snug text-gray-600">
-                              {payDraft.modeOfPayment === "UPI" && !payDraft.isWalletPayment
-                                ? "UPI: receipt screenshot and UTR are both required. "
-                                : payDraft.modeOfPayment &&
-                                    !["Cash", "NEFT/RTGS", "Wallet"].includes(payDraft.modeOfPayment) &&
-                                    !payDraft.isWalletPayment
-                                  ? `Receipt required for ${payDraft.modeOfPayment}. `
-                                  : "Optional for Cash & NEFT/RTGS. "}
-                              Upload first — we scan the receipt to fill payee, amount, date, and UTR when
-                              possible.
-                            </p>
-                            {(paymentUploadBusy[k] || paymentOcrBusy[k]) && (
-                              <div className="mb-2 mt-2 h-1 w-full max-w-[280px] overflow-hidden rounded bg-gray-200">
-                                <div className="h-full w-1/3 animate-pulse rounded bg-indigo-400" />
-                              </div>
-                            )}
-                            <div className="mt-2 flex flex-wrap items-center gap-2">
-                              <label
-                                className={`inline-flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-800 shadow-sm ${
-                                  paymentUploadBusy[k] || paymentOcrBusy[k]
-                                    ? "pointer-events-none cursor-not-allowed opacity-60"
-                                    : "cursor-pointer hover:bg-gray-50"
-                                }`}>
-                                {paymentUploadBusy[k] || paymentOcrBusy[k] ? (
-                                  <Loader2 className="h-3.5 w-3.5 animate-spin text-gray-600" />
-                                ) : (
-                                  <ImageIcon className="h-3.5 w-3.5 text-gray-600" />
-                                )}
-                                {paymentOcrBusy[k]
-                                  ? "Reading receipt…"
-                                  : paymentUploadBusy[k]
-                                    ? "Uploading…"
-                                    : "Upload receipt"}
-                                <input
-                                  type="file"
-                                  accept="image/*"
-                                  multiple
-                                  disabled={Boolean(paymentUploadBusy[k] || paymentOcrBusy[k])}
-                                  className="sr-only"
-                                  onChange={(e) => handlePaymentImageUpload(k, e)}
-                                />
-                              </label>
-                              {(paymentUploadBusy[k] || paymentOcrBusy[k]) && (
-                                <span className="text-xs text-gray-500">Wait for scan to finish</span>
-                              )}
-                            </div>
-                            <div className="mt-1.5 space-y-0.5 min-h-[1.25rem]">
-                              {payDraft.modeOfPayment &&
-                                payDraft.modeOfPayment !== "Cash" &&
-                                payDraft.modeOfPayment !== "NEFT/RTGS" &&
-                                !payDraft.isWalletPayment && (
-                                  <p className="text-xs text-red-600">
-                                    {payDraft.modeOfPayment === "UPI" || payDraft.modeOfPayment === "Cheque"
-                                      ? "Receipt photo is mandatory for UPI and Cheque."
-                                      : `Payment image is mandatory for ${payDraft.modeOfPayment} payments`}
-                                  </p>
-                                )}
-                              {payDraft.modeOfPayment === "UPI" &&
-                                !payDraft.isWalletPayment &&
-                                !paymentTxnOrUtrTrimmed(payDraft) && (
-                                  <p className="text-xs text-red-600">
-                                    UTR / transaction reference is mandatory for UPI (enter below or from
-                                    receipt scan).
-                                  </p>
-                                )}
-                            </div>
-                            {(payDraft.receiptPhoto || []).length > 0 && (
-                              <div className="mt-3 flex flex-wrap gap-2">
-                                {(payDraft.receiptPhoto || []).map((url, idx) => (
-                                  <span
-                                    key={`${url}-${idx}`}
-                                    className="relative inline-block overflow-hidden rounded-lg border-2 border-gray-200">
-                                    <img
-                                      src={url}
-                                      alt={`Receipt ${idx + 1}`}
-                                      className="block h-[120px] w-[120px] object-cover"
-                                    />
-                                    <button
-                                      type="button"
-                                      onClick={() => removePaymentImage(k, idx)}
-                                      className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-red-500/90 text-white hover:bg-red-600"
-                                      aria-label="Remove receipt">
-                                      <X className="h-3.5 w-3.5" />
-                                    </button>
-                                  </span>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-
-                          <div>
-                            <label className="text-xs font-medium text-gray-700">
-                              Payee name (from receipt)
-                            </label>
-                            <input
-                              type="text"
-                              className="mt-1 h-9 w-full rounded-md border border-gray-200 px-2 text-sm"
-                              placeholder="Filled when you upload a UPI receipt"
-                              value={payDraft.receiptPayeeName}
-                              onChange={(e) => updatePaymentDraft(k, { receiptPayeeName: e.target.value })}
-                            />
-                          </div>
-
-                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                            <div>
-                              <label className="text-xs font-medium text-gray-700">Amount (₹)</label>
-                              <input
-                                type="number"
-                                inputMode="decimal"
-                                className="mt-1 h-9 w-full rounded-md border border-gray-200 px-2 text-sm"
-                                placeholder="Enter amount"
-                                value={payDraft.paidAmount}
-                                onChange={(e) => updatePaymentDraft(k, { paidAmount: e.target.value })}
-                              />
-                            </div>
-                            <div>
-                              <label className="text-xs font-medium text-gray-700">Payment Date</label>
-                              <input
-                                type="date"
-                                className="mt-1 h-9 w-full rounded-md border border-gray-200 px-2 text-sm"
-                                value={payDraft.paymentDate}
-                                onChange={(e) => updatePaymentDraft(k, { paymentDate: e.target.value })}
-                              />
-                            </div>
-                          </div>
-
-                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                            <div>
-                              <label className="text-xs font-medium text-gray-700">Payment Mode</label>
-                              <select
-                                className="mt-1 h-9 w-full rounded-md border border-gray-200 px-2 text-sm disabled:bg-gray-100"
-                                value={payDraft.modeOfPayment}
-                                disabled={payDraft.isWalletPayment}
-                                onChange={(e) => updatePaymentDraft(k, { modeOfPayment: e.target.value })}>
-                                <option value="">Select mode</option>
-                                <option value="Cash">Cash</option>
-                                <option value="UPI">UPI</option>
-                                <option value="Cheque">Cheque</option>
-                                <option value="NEFT/RTGS">NEFT/RTGS</option>
-                                <option value="1341">1341</option>
-                                <option value="434">434</option>
-                              </select>
-                              {payDraft.isWalletPayment && (
-                                <p className="mt-1 text-xs text-gray-500">
-                                  Payment mode not required for wallet payments
-                                </p>
-                              )}
-                            </div>
-                            <div>
-                              <label className="text-xs font-medium text-gray-700">Bank Name</label>
-                              <input
-                                type="text"
-                                className="mt-1 h-9 w-full rounded-md border border-gray-200 px-2 text-sm disabled:bg-gray-100"
-                                placeholder={
-                                  payDraft.modeOfPayment === "Cheque" ||
-                                  payDraft.modeOfPayment === "NEFT/RTGS"
-                                    ? "Enter bank name"
-                                    : "N/A"
-                                }
-                                value={payDraft.bankName || ""}
-                                disabled={
-                                  payDraft.isWalletPayment ||
-                                  (payDraft.modeOfPayment !== "Cheque" &&
-                                    payDraft.modeOfPayment !== "NEFT/RTGS")
-                                }
-                                onChange={(e) => updatePaymentDraft(k, { bankName: e.target.value })}
-                              />
-                            </div>
-                          </div>
-
-                          <div>
-                            <label className="text-xs font-medium text-gray-700">
-                              {payDraft.modeOfPayment === "UPI" && !payDraft.isWalletPayment
-                                ? "UTR / transaction ref (required for UPI)"
-                                : "Transaction / UTR (optional)"}
-                            </label>
-                            <input
-                              type="text"
-                              className={`mt-1 h-9 w-full rounded-md border px-2 text-sm ${
-                                payDraft.modeOfPayment === "UPI" &&
-                                !payDraft.isWalletPayment &&
-                                !paymentTxnOrUtrTrimmed(payDraft)
-                                  ? "border-red-300 bg-red-50/40 focus:border-red-400 focus:ring-red-200"
-                                  : "border-gray-200"
-                              }`}
-                              placeholder={
-                                payDraft.modeOfPayment === "UPI" && !payDraft.isWalletPayment
-                                  ? "Enter UTR from receipt (required)"
-                                  : "UPI ref / bank txn id — optional"
-                              }
-                              value={payDraft.transactionId || payDraft.utrNumber || ""}
-                              onChange={(e) => {
-                                const v = e.target.value
-                                updatePaymentDraft(k, { transactionId: v, utrNumber: "" })
-                              }}
-                            />
-                          </div>
-
-                          <div>
-                            <label className="text-xs font-medium text-gray-700">Remark</label>
-                            <textarea
-                              className="mt-1 min-h-[4rem] w-full rounded-md border border-gray-200 px-2 py-1.5 text-sm"
-                              placeholder="Optional remark"
-                              rows={2}
-                              value={payDraft.remark}
-                              onChange={(e) => updatePaymentDraft(k, { remark: e.target.value })}
-                            />
-                          </div>
-
-                          <p className="text-xs leading-snug text-gray-600">
-                            New payments are saved as <span className="font-medium">Pending</span>. Mark{" "}
-                            <span className="font-medium">Collected</span> from the accountant dashboard when
-                            verified.
+                      {payFormExpanded && (
+                        <div className="mt-3 rounded-md border border-gray-200 bg-[#fafafa] p-3">
+                          <CompactPaymentForm
+                            order={order.details ? { ...order.details, ...order } : order}
+                            user={user}
+                            balanceDue={Math.max(0, estimatedAfterSubmit)}
+                            loading={isLoading || paymentReceiptBusy || paymentOcrBusy}
+                            hideSubmit
+                            drafts={payDrafts}
+                            onDraftsChange={(drafts) => setPaymentDraftsForOrder(k, drafts)}
+                            onUploadReceiptFile={uploadPaymentReceiptFiles}
+                            onApplyOcr={applyOcrToPaymentDraft}
+                          />
+                          <p className="mt-2 text-xs leading-snug text-gray-600">
+                            Saved with delivery submit · all new payments stay{" "}
+                            <span className="font-medium">Pending</span>
                           </p>
                         </div>
                       )}
@@ -1346,7 +1195,7 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
                 ) : (
                   <ChevronRight className="h-3.5 w-3.5 shrink-0" />
                 )}
-                Vehicle trip details
+                Trip settlement (km / rent)
                 <span className="ml-1 font-normal text-violet-600">(optional — km, rent, charges)</span>
                 {(tripData.kmRun !== "" || tripData.rent !== "" || tripData.otherCharges !== "") && (
                   <span className="ml-auto inline-flex items-center rounded-full bg-violet-200 px-2 py-0.5 text-[10px] font-medium text-violet-900">
@@ -1465,14 +1314,24 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
           defaultCavityId={defaultCavityId}
           defaultShadeId={defaultShadeId}
           defaultDispatchQuantity={defaultLinkQty}
-          onLinked={async () => {
-            const rid = String(localDispatch?._id || dispatchData?._id || "")
-            const ok = await refreshDispatchPayload(rid)
-            if (!ok) Toast.error("Linked, but could not refresh the list — close and reopen.")
-            onSuccess?.()
+          onLinked={() => {
+            void refreshAfterDispatchOrderChange()
           }}
         />
       )}
+
+      <QuickOrderDialog
+        open={showQuickOrderDialog}
+        onClose={() => setShowQuickOrderDialog(false)}
+        dispatchId={String(localDispatch?._id || dispatchData?._id || "")}
+        dispatchLabel={`Dispatch #${localDispatch?.transportId ?? dispatchData?.transportId ?? "—"}`}
+        dispatchSnapshot={localDispatch || dispatchData}
+        autoSlotSelection
+        onSuccess={() => {
+          setShowQuickOrderDialog(false)
+          void refreshAfterDispatchOrderChange()
+        }}
+      />
 
       <PaymentTransferDialog
         open={paymentTransferOpen}
@@ -1485,6 +1344,18 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
         initialPaymentId={paymentTransferPaymentId || undefined}
         onSuccess={() => {
           if (typeof onSuccess === "function") onSuccess()
+        }}
+      />
+
+      <EditOrderModal
+        open={Boolean(editOrderTarget)}
+        order={editOrderTarget ? orderForEditModal(editOrderTarget) : null}
+        onClose={() => setEditOrderTarget(null)}
+        onSuccess={async () => {
+          setEditOrderTarget(null)
+          const rid = localDispatch?._id || dispatchData?._id
+          if (rid) await refreshDispatchPayload(String(rid))
+          Toast.success("Order updated")
         }}
       />
     </>

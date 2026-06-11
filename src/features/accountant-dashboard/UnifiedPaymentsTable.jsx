@@ -4,8 +4,13 @@ import { StatusBadge } from "./StatusBadge"
 import { StatusChangePopover } from "./StatusChangePopover"
 import { cn } from "lib/cn"
 import { getStatementMatchPresentation } from "lib/bankMatchLabels"
-import { normalizeFarmerIdForLedger, fetchFarmerPlantOrderDetails } from "./paymentsApi"
+import {
+  normalizeFarmerIdForLedger,
+  fetchFarmerPlantOrderDetails,
+  fetchOrderPaymentTransferContext
+} from "./paymentsApi"
 import AttachmentViewerModal, { resolvePaymentMediaUrl } from "components/Modals/AttachmentViewerModal"
+import OrderTimeline from "components/OrderTimeline"
 
 const fmt = (n) => `₹${n.toLocaleString("en-IN")}`
 const fmtDate = (d) => new Date(d).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })
@@ -35,6 +40,34 @@ function orderAttachmentUrls(p) {
 /** Row-level hint for order payment transfer (cross-order); listing + expand details. */
 function farmerOrderPaymentTransferHint(p) {
   const pay = p?.payment || {}
+  if (pay.transferRequestId && pay.paymentStatus === "PENDING") {
+    return {
+      role: "transfer-pending",
+      label: "Transfer pending",
+      mr: "मंजूर: Completed · नाकार: Rejected",
+      short: "Awaiting approval"
+    }
+  }
+  if (
+    pay.transferRequestId &&
+    pay.paymentStatus === "REJECTED" &&
+    /Transfer request undone/i.test(String(pay.remark || ""))
+  ) {
+    return {
+      role: "transfer-undone",
+      label: "Transfer undone",
+      mr: "हा transfer रद्द झाला — पुन्हा Completed करू नका; नवीन transfer request तयार करा",
+      short: "Create new transfer request — do not collect again"
+    }
+  }
+  if (pay.transferRequestId && pay.paymentStatus === "COLLECTED" && pay.transferredFromOrderId) {
+    return {
+      role: "transfer-approved",
+      label: "Transfer approved",
+      mr: "मंजूर transfer — Rejected केल्यास स्रोत ऑर्डरवर रक्कम परत",
+      short: "Reject to undo and restore source"
+    }
+  }
   if (pay.transferredFromOrderId) {
     return {
       role: "in",
@@ -54,6 +87,21 @@ function farmerOrderPaymentTransferHint(p) {
   return null
 }
 
+function PaymentTimingBadge({ timing }) {
+  if (timing !== "advance" && timing !== "balance") return null
+  const isAdvance = timing === "advance"
+  return (
+    <span
+      className={cn(
+        "text-[10px] font-bold px-1.5 py-0.5 rounded-sm uppercase tracking-wide",
+        isAdvance ? "bg-amber-100 text-amber-900" : "bg-slate-100 text-slate-700"
+      )}
+    >
+      {isAdvance ? "Advance" : "Balance"}
+    </span>
+  )
+}
+
 export function UnifiedPaymentsTable({
   orderPayments,
   bulkPayments,
@@ -63,30 +111,59 @@ export function UnifiedPaymentsTable({
   acceptingBulkId,
   canEditStatus,
   statusFilter,
-  onStatusFilterChange
+  onStatusFilterChange,
+  advancesMode = false,
+  advanceViewFilter = "pending_advance",
+  onAdvanceViewFilterChange
 }) {
   const [expandedId, setExpandedId] = useState(null)
   const [typeFilter, setTypeFilter] = useState("ALL")
   const [attachModal, setAttachModal] = useState(null)
   const [orderDetailsCache, setOrderDetailsCache] = useState({})
   const [orderDetailsLoading, setOrderDetailsLoading] = useState({})
+  const [transferContextCache, setTransferContextCache] = useState({})
+  const [transferContextLoading, setTransferContextLoading] = useState({})
 
-  const handleOrderExpand = useCallback(async (id, p) => {
-    const next = expandedId === id ? null : id
-    setExpandedId(next)
-    if (!next || p.dealerOrder || orderDetailsCache[id]) return
-    const mongoId = p.__raw?._id
-    if (!mongoId) return
-    setOrderDetailsLoading((prev) => ({ ...prev, [id]: true }))
-    try {
-      const details = await fetchFarmerPlantOrderDetails(mongoId)
-      setOrderDetailsCache((prev) => ({ ...prev, [id]: details }))
-    } catch {
-      setOrderDetailsCache((prev) => ({ ...prev, [id]: null }))
-    } finally {
-      setOrderDetailsLoading((prev) => ({ ...prev, [id]: false }))
-    }
-  }, [expandedId, orderDetailsCache])
+  const handleOrderExpand = useCallback(
+    async (id, p) => {
+      const next = expandedId === id ? null : id
+      setExpandedId(next)
+      if (!next || p.dealerOrder) return
+      const mongoId = p.__raw?._id
+      if (!mongoId) return
+
+      const transferHint = farmerOrderPaymentTransferHint(p)
+      const loadDetails = !orderDetailsCache[id]
+      const loadTransfer = transferHint && transferContextCache[id] === undefined
+
+      if (!loadDetails && !loadTransfer) return
+
+      if (loadDetails) {
+        setOrderDetailsLoading((prev) => ({ ...prev, [id]: true }))
+        try {
+          const details = await fetchFarmerPlantOrderDetails(mongoId)
+          setOrderDetailsCache((prev) => ({ ...prev, [id]: details }))
+        } catch {
+          setOrderDetailsCache((prev) => ({ ...prev, [id]: null }))
+        } finally {
+          setOrderDetailsLoading((prev) => ({ ...prev, [id]: false }))
+        }
+      }
+
+      if (loadTransfer && p.payment?._id) {
+        setTransferContextLoading((prev) => ({ ...prev, [id]: true }))
+        try {
+          const ctx = await fetchOrderPaymentTransferContext(mongoId, p.payment._id)
+          setTransferContextCache((prev) => ({ ...prev, [id]: ctx }))
+        } catch {
+          setTransferContextCache((prev) => ({ ...prev, [id]: null }))
+        } finally {
+          setTransferContextLoading((prev) => ({ ...prev, [id]: false }))
+        }
+      }
+    },
+    [expandedId, orderDetailsCache, transferContextCache]
+  )
 
   const rows = [...orderPayments.map((d) => ({ kind: "order", data: d })), ...bulkPayments.map((d) => ({ kind: "bulk", data: d }))]
 
@@ -109,6 +186,7 @@ export function UnifiedPaymentsTable({
   })
 
   const filtered = sorted.filter((r) => {
+    if (advancesMode) return r.kind === "order"
     const statusMatch =
       activeStatusFilter === "ALL"
         ? true
@@ -120,16 +198,49 @@ export function UnifiedPaymentsTable({
   })
 
   const getRowId = (r) => (r.kind === "order" ? r.data.id : r.data._id)
+  const tableColSpan = advancesMode ? 14 : 15
 
   return (
-    <div className="erp-card animate-fade-up stagger-2">
+    <div className="erp-card animate-fade-up stagger-2 min-w-0 max-w-full">
       <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-3 flex-wrap">
         <div>
-          <h2 className="text-sm font-semibold text-foreground">All Payments</h2>
-          <p className="text-xs text-muted-foreground mt-0.5">{filtered.length} entries · order-wise &amp; bulk combined</p>
+          <h2 className="text-sm font-semibold text-foreground">{advancesMode ? "Advances" : "All Payments"}</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {advancesMode
+              ? `${filtered.length} advance payment lines`
+              : `${filtered.length} entries · order-wise & bulk combined`}
+          </p>
         </div>
 
         <div className="flex items-center gap-3 flex-wrap">
+          {advancesMode ? (
+            <div className="flex gap-1 flex-wrap">
+              {[
+                { id: "pending_advance", label: "All Pending Advance" },
+                { id: "all_advance", label: "All Advance" },
+                { id: "PENDING", label: "Pending" },
+                { id: "COLLECTED", label: "Collected" },
+                { id: "REJECTED", label: "Rejected" },
+                { id: "ALL", label: "All statuses" }
+              ].map(({ id, label }) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => onAdvanceViewFilterChange?.(id)}
+                  className={cn(
+                    "text-[11px] font-semibold px-2.5 py-1 rounded-sm",
+                    advanceViewFilter === id
+                      ? id === "pending_advance"
+                        ? "badge-pending"
+                        : "bg-primary text-primary-foreground"
+                      : "bg-muted text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          ) : (
           <div className="flex gap-1 bg-muted rounded-sm p-0.5">
             {["ALL", "ORDER", "BULK"].map((t) => (
               <button
@@ -145,7 +256,9 @@ export function UnifiedPaymentsTable({
               </button>
             ))}
           </div>
+          )}
 
+          {!advancesMode && (
           <div className="flex gap-1 flex-wrap">
             {["ALL", "PENDING", "COLLECTED", "REJECTED"].map((s) => (
               <button
@@ -169,14 +282,16 @@ export function UnifiedPaymentsTable({
               </button>
             ))}
           </div>
+          )}
         </div>
       </div>
 
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto max-w-full">
         <table className="data-table">
           <thead>
             <tr>
               <th>Type</th>
+              {!advancesMode && <th>Timing</th>}
               <th>Ref #</th>
               <th>Customer / Party</th>
               <th>Detail</th>
@@ -207,7 +322,13 @@ export function UnifiedPaymentsTable({
                         <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-sm bg-primary-light text-primary uppercase tracking-wide">
                           <Layers className="w-3 h-3" /> Order
                         </span>
+                        {advancesMode && <PaymentTimingBadge timing={p.paymentTiming || p.payment?.paymentTiming} />}
                       </td>
+                      {!advancesMode && (
+                        <td>
+                          <PaymentTimingBadge timing={p.paymentTiming || p.payment?.paymentTiming} />
+                        </td>
+                      )}
                       <td>
                         <div className="flex items-center gap-1.5">
                           <button
@@ -245,15 +366,17 @@ export function UnifiedPaymentsTable({
                             <div className="mt-1.5">
                               <span
                                 className={cn(
-                                  "inline-flex flex-col gap-0.5 rounded border px-1.5 py-1 text-[10px] font-bold leading-tight",
+                                  "inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-bold leading-tight",
                                   th.role === "in"
                                     ? "border-emerald-600 bg-emerald-50 text-emerald-950"
                                     : "border-amber-700 bg-amber-50 text-amber-950"
                                 )}
-                                title={`${th.mr} · ${th.short}`}
+                                title={th.mr}
                               >
                                 <span>{th.label}</span>
-                                <span className="font-semibold opacity-90">{th.mr}</span>
+                                {th.short ? (
+                                  <span className="font-medium opacity-80">· {th.short}</span>
+                                ) : null}
                               </span>
                             </div>
                           )
@@ -363,7 +486,7 @@ export function UnifiedPaymentsTable({
 
                     {isExpanded && (
                       <tr>
-                        <td colSpan={14} className="p-0 border-0">
+                        <td colSpan={tableColSpan} className="p-0 border-0">
                           <div className="bg-muted/40 border-b border-border">
                             {/* Static summary grid */}
                             <div className="px-5 py-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 border-b border-border/60">
@@ -380,21 +503,25 @@ export function UnifiedPaymentsTable({
                                   <DetailCell
                                     label="Order transfer"
                                     value={
-                                      <div className="space-y-1">
+                                      <div className="space-y-0.5">
                                         <div className="font-semibold">{th.label}</div>
-                                        <div className="text-xs text-muted-foreground">{th.mr}</div>
-                                        <div className="text-xs">{th.short}</div>
-                                        {p.payment?.transferredFromOrderId ? (
-                                          <div className="text-[11px] font-mono text-muted-foreground">
-                                            from order _id: {p.payment.transferredFromOrderId}
-                                          </div>
-                                        ) : null}
+                                        <div className="text-xs text-muted-foreground">{th.short || th.mr}</div>
                                       </div>
                                     }
                                   />
                                 )
                               })()}
                             </div>
+
+                            {farmerOrderPaymentTransferHint(p) ? (
+                              <div className="px-5 py-3 border-b border-border/60">
+                                <TransferContextPanel
+                                  loading={Boolean(transferContextLoading[id])}
+                                  context={transferContextCache[id]}
+                                  rowOrderId={p.orderId}
+                                />
+                              </div>
+                            ) : null}
 
                             {/* API-fetched details */}
                             {orderDetailsLoading[id] ? (
@@ -562,7 +689,7 @@ export function UnifiedPaymentsTable({
 
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={14} className="text-center text-muted-foreground py-10 text-sm">
+                <td colSpan={tableColSpan} className="text-center text-muted-foreground py-10 text-sm">
                   No entries found
                 </td>
               </tr>
@@ -603,6 +730,97 @@ function DetailCell({ label, value, sub }) {
       <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">{label}</div>
       <div className="text-sm font-medium">{value}</div>
       {sub && <div className="text-xs text-muted-foreground">{sub}</div>}
+    </div>
+  )
+}
+
+function TransferOrderCard({ title, order, highlight }) {
+  if (!order?.orderMongoId) {
+    return (
+      <div className="rounded-md border border-dashed border-border p-3 text-xs text-muted-foreground">
+        {title}: not found
+      </div>
+    )
+  }
+  const f = order.farmer || {}
+  const pay = order.payment || {}
+  return (
+    <div
+      className={cn(
+        "rounded-md border p-3 text-xs space-y-1.5",
+        highlight ? "border-primary/40 bg-primary/5" : "border-border bg-card"
+      )}
+    >
+      <div className="font-semibold text-[11px] uppercase tracking-wider text-muted-foreground">{title}</div>
+      <div className="font-bold text-sm">Order #{order.orderNumber ?? "—"}</div>
+      <div>{f.name || "—"}</div>
+      <div className="text-muted-foreground">{f.mobileNumber || "—"}</div>
+      <div className="text-muted-foreground">
+        {[f.village, f.district].filter(Boolean).join(", ") || "—"}
+      </div>
+      <div className="pt-1 border-t border-border/50">
+        <span className="text-muted-foreground">Payment: </span>
+        <span className="font-semibold tabular">{fmt(Number(pay.paidAmount) || 0)}</span>
+        <span className="mx-1">·</span>
+        <StatusBadge status={pay.paymentStatus || "PENDING"} />
+      </div>
+      {pay.remark ? (
+        <div className="text-[11px] text-muted-foreground line-clamp-2">{pay.remark}</div>
+      ) : null}
+    </div>
+  )
+}
+
+function TransferContextPanel({ loading, context, rowOrderId }) {
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+        Loading transfer details…
+      </div>
+    )
+  }
+  if (!context) {
+    return <div className="text-xs text-muted-foreground">Could not load transfer details.</div>
+  }
+
+  const current = context.currentOrder
+  const peer = context.peerOrder
+  const currentIsRow =
+    current?.orderNumber != null && Number(current.orderNumber) === Number(rowOrderId)
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+          Order payment transfer
+        </span>
+        {context.amount > 0 ? (
+          <span className="text-sm font-bold tabular">{fmt(context.amount)}</span>
+        ) : null}
+        {context.transferId ? (
+          <span className="text-[10px] font-mono text-muted-foreground truncate max-w-[200px]">
+            id {String(context.transferId).slice(-8)}
+          </span>
+        ) : null}
+      </div>
+      {context.rejectUndoHint ? (
+        <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
+          {context.rejectUndoHint}
+        </p>
+      ) : null}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <TransferOrderCard
+          title={context.direction === "in" ? "This order (target)" : "This order (source)"}
+          order={current}
+          highlight={currentIsRow}
+        />
+        <TransferOrderCard
+          title={context.direction === "in" ? "Source order" : "Target order"}
+          order={peer}
+          highlight={!currentIsRow}
+        />
+      </div>
     </div>
   )
 }
@@ -681,6 +899,15 @@ function OrderDetailsPanel({ details }) {
           </span>
         </span>
       </div>
+
+      {order._id && (
+        <div className="px-5 py-3 border-b border-border/60">
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+            Order activity timeline
+          </div>
+          <OrderTimeline orderId={String(order._id)} orderDomain="PLANT" limit={15} />
+        </div>
+      )}
 
       {/* All payments */}
       {payments.length > 0 && (
