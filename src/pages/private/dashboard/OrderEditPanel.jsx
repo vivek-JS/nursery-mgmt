@@ -30,14 +30,12 @@ import {
   UserPlus,
   Calendar
 } from "lucide-react"
-import moment from "moment"
 import { formatOrderDateDisplay, sameIstCalendarDay } from "utils/istCalendar"
 import { slotDayEndMoment, slotDayStartMoment } from "utils/istSlotDate"
 import LocationSelector from "components/LocationSelector"
 import { Toast } from "helpers/toasts/toastHelper"
 import { getCavityDisplayLabel } from "utils/cavityDisplay"
 import {
-  ORDER_DATE_DISPLAY,
   emptyOrderForEditShape,
   normalizeOrderFor,
   getTrayOptionId,
