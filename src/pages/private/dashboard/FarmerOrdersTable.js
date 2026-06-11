@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useLayoutEffect, lazy, Suspense } from "react"
+import React, { useState, useEffect, useRef, useLayoutEffect, useMemo, lazy, Suspense } from "react"
 import { Joyride, STATUS } from "react-joyride"
 
 const OrderMapView = lazy(() => import("../Dispatch/components/OrderMapView"))
@@ -2270,7 +2270,9 @@ const FarmerOrdersTable = ({
   const [dcInvoiceEditSaving, setDcInvoiceEditSaving] = useState(false)
   const ordersTableScrollRef = useRef(null)
   const ordersTableViewportRef = useRef(null)
-  const [ordersScrollEl, setOrdersScrollEl] = useState(null)
+  const ordersScrollCleanupRef = useRef(null)
+  const statusPickerRef = useRef(null)
+  const scrollLoadDepsRef = useRef({})
   const [statusPicker, setStatusPicker] = useState(null)
   const loadMoreOrdersRef = useRef(null)
   const loadMoreAtEndGuardRef = useRef(false)
@@ -2655,9 +2657,14 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
   // Default date-range field should be "booking" (Booking date).
   const [orderDateRangeBy, setOrderDateRangeBy] = useState("booking")
   const [viewType, setViewType] = useState("table") // "table" or "grid"
+  const ordersListMaxHeight = useMemo(
+    () => (slotId ? 680 : Math.floor((typeof window !== "undefined" ? window.innerHeight : 800) * 0.58)),
+    [slotId]
+  )
   const ordersListHeight = useFillViewportHeight(ordersTableViewportRef, {
-    minHeight: slotId ? 320 : 280,
-    bottomGap: slotId ? 8 : 12,
+    minHeight: slotId ? 320 : 360,
+    bottomGap: slotId ? 8 : 20,
+    maxHeight: ordersListMaxHeight,
     remeasureKey: `${slotId}|${viewMode}|${viewType}|${showAgriSalesOrders}`,
   })
   const [selectedRows, setSelectedRows] = useState(new Map())
@@ -6472,11 +6479,59 @@ const mapSlotForUi = (slotData) => {
 
   loadMoreOrdersRef.current = loadMoreOrders
 
+  const closeStatusPicker = React.useCallback(() => setStatusPicker(null), [])
+
+  statusPickerRef.current = statusPicker
+  scrollLoadDepsRef.current = {
+    hasMoreOrders,
+    loading,
+    loadingMoreOrders,
+    showAgriSalesOrders,
+    viewMode,
+  }
+
   const bindOrdersScroller = React.useCallback((el) => {
+    ordersScrollCleanupRef.current?.()
+    ordersScrollCleanupRef.current = null
     ordersTableScrollRef.current = el
-    if (el) el.classList.add("farmer-orders-virtuoso-scroller")
-    setOrdersScrollEl(el)
-  }, [])
+    if (!el) return
+    el.classList.add("farmer-orders-virtuoso-scroller")
+
+    let scrollRaf = 0
+    const onScroll = () => {
+      cancelAnimationFrame(scrollRaf)
+      scrollRaf = requestAnimationFrame(() => {
+        const d = scrollLoadDepsRef.current
+        if (d.showAgriSalesOrders || d.viewMode === "dispatch_process") return
+        if (!d.hasMoreOrders || d.loading || d.loadingMoreOrders || loadMoreAtEndGuardRef.current) return
+        const { scrollTop, clientHeight, scrollHeight } = el
+        if (scrollHeight <= clientHeight + 8) return
+        if (scrollTop + clientHeight < scrollHeight - 120) return
+        loadMoreAtEndGuardRef.current = true
+        Promise.resolve(loadMoreOrdersRef.current?.()).finally(() => {
+          loadMoreAtEndGuardRef.current = false
+        })
+      })
+    }
+    const onScrollClosePicker = () => {
+      if (statusPickerRef.current) closeStatusPicker()
+    }
+
+    el.addEventListener("scroll", onScroll, { passive: true })
+    el.addEventListener("scroll", onScrollClosePicker, { passive: true })
+    ordersScrollCleanupRef.current = () => {
+      cancelAnimationFrame(scrollRaf)
+      el.removeEventListener("scroll", onScroll)
+      el.removeEventListener("scroll", onScrollClosePicker)
+    }
+  }, [closeStatusPicker])
+
+  useEffect(
+    () => () => {
+      ordersScrollCleanupRef.current?.()
+    },
+    []
+  )
 
   const openStatusPicker = React.useCallback((row, anchorEl) => {
     if (patchLoading || !anchorEl || !row?.details?.orderid) return
@@ -6498,45 +6553,6 @@ const mapSlotForUi = (slotData) => {
       }
     })
   }, [patchLoading])
-
-  const closeStatusPicker = React.useCallback(() => setStatusPicker(null), [])
-
-  /** Load next page only when user scrolls the orders table scroller near the bottom. */
-  useEffect(() => {
-    const el = ordersScrollEl
-    if (!el) return undefined
-
-    const onScroll = () => {
-      if (showAgriSalesOrders || viewMode === "dispatch_process") return
-      if (!hasMoreOrders || loading || loadingMoreOrders || loadMoreAtEndGuardRef.current) return
-      const { scrollTop, clientHeight, scrollHeight } = el
-      if (scrollHeight <= clientHeight + 8) return
-      if (scrollTop + clientHeight < scrollHeight - 100) return
-      loadMoreAtEndGuardRef.current = true
-      Promise.resolve(loadMoreOrdersRef.current?.()).finally(() => {
-        loadMoreAtEndGuardRef.current = false
-      })
-    }
-
-    el.addEventListener("scroll", onScroll, { passive: true })
-    return () => el.removeEventListener("scroll", onScroll)
-  }, [
-    ordersScrollEl,
-    showAgriSalesOrders,
-    viewMode,
-    hasMoreOrders,
-    loading,
-    loadingMoreOrders,
-  ])
-
-  /** Close lifted status menu when the orders table scrolls (Virtuoso recycles rows). */
-  useEffect(() => {
-    const el = ordersScrollEl
-    if (!el || !statusPicker) return undefined
-    const onScroll = () => closeStatusPicker()
-    el.addEventListener("scroll", onScroll, { passive: true })
-    return () => el.removeEventListener("scroll", onScroll)
-  }, [ordersScrollEl, statusPicker, closeStatusPicker])
 
   const pacthOrders = async (patchObj, row) => {
     setpatchLoading(true)
@@ -9052,7 +9068,7 @@ const mapSlotForUi = (slotData) => {
                     data={farmerTableBodyItems}
                     style={{ height: ordersListHeight, width: "100%" }}
                     defaultItemHeight={56}
-                    increaseViewportBy={{ top: 120, bottom: 400 }}
+                    increaseViewportBy={{ top: 80, bottom: 120 }}
                     scrollerRef={bindOrdersScroller}
                     components={{
                       Table: (p) => <table {...p} className={`w-full text-sm ${p.className || ""}`} />,
@@ -9834,7 +9850,7 @@ const mapSlotForUi = (slotData) => {
                 data={gridRowChunks}
                 style={{ height: ordersListHeight, width: "100%" }}
                 defaultItemHeight={400}
-                increaseViewportBy={{ top: 80, bottom: 400 }}
+                increaseViewportBy={{ top: 60, bottom: 100 }}
                 scrollerRef={bindOrdersScroller}
                 components={
                   !showAgriSalesOrders
