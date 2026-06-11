@@ -4,7 +4,6 @@ import { Joyride, STATUS } from "react-joyride"
 const OrderMapView = lazy(() => import("../Dispatch/components/OrderMapView"))
 import ReactDOM from "react-dom"
 import {
-  Edit2Icon,
   CheckIcon,
   XIcon,
   RefreshCw,
@@ -51,7 +50,6 @@ import {
   InputLabel,
   Select,
   MenuItem,
-  Chip,
   Radio,
   RadioGroup,
   Switch,

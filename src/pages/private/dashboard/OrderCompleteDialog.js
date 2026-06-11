@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react"
-import { ChevronDown, ChevronRight, Plus, Check, ImageIcon, X, Loader2, Trash2, Pencil, Zap } from "lucide-react"
+import { ChevronDown, ChevronRight, Plus, Check, Trash2, Pencil, Zap } from "lucide-react"
 import { API, NetworkManager } from "network/core"
 import { Toast } from "helpers/toasts/toastHelper"
 import { useHasPaymentAccess, useUserData } from "utils/roleUtils"

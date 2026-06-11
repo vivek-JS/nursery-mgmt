@@ -17,7 +17,6 @@ import GrassIcon from "@mui/icons-material/Grass"
 import {
   BREAKDOWN_METRIC_COLS,
   TABLE_DELIVERY_COL_KEYS,
-  fmt,
   getMetricForColumn,
   plantAccentFor,
   asDisplayLabel,

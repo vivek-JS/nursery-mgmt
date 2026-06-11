@@ -15,10 +15,6 @@ import {
   Eye,
   EyeOff,
   X,
-  Download,
-  MessageCircle,
-  Copy,
-  Check,
   Shield,
   Save,
 } from 'lucide-react';

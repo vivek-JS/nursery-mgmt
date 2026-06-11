@@ -15,12 +15,6 @@ import { useNavigate } from "react-router-dom"
 import { NetworkManager, API } from "../../network/core"
 import {
   History,
-  TrendingUp,
-  TrendingDown,
-  Shield,
-  RotateCcw,
-  Package,
-  ArrowRightLeft,
   ExternalLink,
   ChevronRight
 } from "lucide-react"

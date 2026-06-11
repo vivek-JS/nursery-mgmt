@@ -95,7 +95,6 @@ import {
   loadFleetForOwner,
   formatFleetDriverLabel,
   getFleetDriverId,
-  emptyFleetAssignment,
 } from "components/fleet/fleetPickersUtils";
 import FleetAssignmentPanel from "components/fleet/FleetAssignmentPanel";
 

@@ -4,7 +4,6 @@ import {
   Loader2,
   Sprout,
   Calendar,
-  Package,
   Warehouse,
   ChevronRight,
   Leaf
