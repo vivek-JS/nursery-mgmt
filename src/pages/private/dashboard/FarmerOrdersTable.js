@@ -29,6 +29,7 @@ import {
   WATI_TEMPLATE_DATE_FORMAT,
 } from "utils/istDateFormat"
 import SplitOrderDialog from "../Dispatch/components/SplitOrderDialog"
+import { OrderStatusPickerPortal, OrderStatusTrigger } from "./OrderStatusPicker"
 import moment from "moment"
 import debounce from "lodash.debounce"
 import {
@@ -801,51 +802,6 @@ function farmerOrderStatusSelectCurrentHint(orderStatus) {
       .replace(/_/g, " ")
       .trim() ||
     "—"
-  )
-}
-
-/** Native select for row status — styled via CSS theme classes below. */
-function FarmerOrderStatusSelect({ row, onChange, disabled, statusOptions = FARMER_ORDER_STATUS_EDIT_OPTIONS }) {
-  const v = farmerOrderStatusSelectValue(row?.orderStatus)
-  const hint = farmerOrderStatusSelectCurrentHint(row?.orderStatus)
-  const theme =
-    v === "PENDING"
-      ? "farmer-order-status-select--pending"
-      : v === "ACCEPTED"
-        ? "farmer-order-status-select--accepted"
-        : v === "DISPATCHED"
-          ? "farmer-order-status-select--dispatched"
-          : v === "CANCELLED" || v === "TEMPORARY_CANCELLED"
-            ? "farmer-order-status-select--cancelled"
-            : v === "COMPLETED" || v === "PARTIALLY_COMPLETED"
-              ? "farmer-order-status-select--dispatched"
-              : "farmer-order-status-select--neutral"
-
-  return (
-    <select
-      className={`farmer-order-status-select ${theme}`}
-      value={v}
-      disabled={disabled}
-      title="Change status"
-      aria-label="Order status"
-      onClick={(e) => e.stopPropagation()}
-      onMouseDown={(e) => e.stopPropagation()}
-      onChange={(e) => {
-        e.stopPropagation()
-        const next = e.target.value
-        if (next) onChange(next)
-      }}>
-      {hint != null && (
-        <option value="" disabled>
-          Current: {hint}
-        </option>
-      )}
-      {statusOptions.map((o) => (
-        <option key={o.value} value={o.value}>
-          {o.label}
-        </option>
-      ))}
-    </select>
   )
 }
 
@@ -1703,6 +1659,42 @@ const customStyles = `
     opacity: 0;
   }
 
+  .searchable-dropdown-menu.status-dropdown-menu {
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .searchable-dropdown.status-dropdown .searchable-dropdown-options {
+    overflow: visible;
+    max-height: none;
+    padding: 4px;
+  }
+
+  .searchable-dropdown.status-dropdown .searchable-dropdown-options::-webkit-scrollbar {
+    display: none;
+    width: 0;
+  }
+
+  .farmer-order-status-picker {
+    position: relative;
+    z-index: 1;
+    min-width: 120px;
+    max-width: 100%;
+  }
+
+  .farmer-orders-virtuoso-scroller {
+    overflow-y: auto !important;
+    overflow-x: auto !important;
+    overscroll-behavior: contain;
+  }
+
+  .searchable-dropdown.status-dropdown .searchable-dropdown-option {
+    padding: 8px 12px;
+    font-size: 12px;
+    margin: 1px 0;
+  }
+
   .farmer-order-status-select {
     box-sizing: border-box;
     line-height: 1.35;
@@ -1790,153 +1782,154 @@ const SearchableDropdown = ({
   compact = false,
 }) => {
   const [isOpen, setIsOpen] = useState(false)
-  const [isClosing, setIsClosing] = useState(false)
   const [searchTerm, setSearchTerm] = useState("")
-  const dropdownRef = useRef(null)
   const buttonRef = useRef(null)
-  const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0, minWidth: 0 })
+  const [menuPosition, setMenuPosition] = useState({
+    top: 0, left: 0, minWidth: 0, openAbove: true, maxHeight: 280,
+  })
 
   const needsPortal = isStatusDropdown || usePortal
+  const GAP = 6
+  const PAD = 8
+  const MIN_W = 180
 
-  // Update menu position for portal dropdowns
-  const updateMenuPosition = () => {
-    if (buttonRef.current && needsPortal) {
-      const rect = buttonRef.current.getBoundingClientRect()
-      if (isStatusDropdown) {
-        setMenuPosition({
-          top: rect.top,
-          left: rect.left,
-          minWidth: rect.width
-        })
-      } else {
-        setMenuPosition({
-          top: rect.bottom + 4,
-          left: rect.left,
-          minWidth: rect.width
-        })
-      }
+  const computePosition = () => {
+    if (!buttonRef.current) return
+    const rect = buttonRef.current.getBoundingClientRect()
+    const vw = window.innerWidth
+    const vh = window.innerHeight
+    const maxH = Math.min(parseInt(String(maxHeight || "500"), 10) || 500, 500)
+
+    if (isStatusDropdown) {
+      const above = rect.top - PAD
+      const below = vh - rect.bottom - PAD
+      const openAbove = above >= below && above >= 100
+      const available = Math.max(80, openAbove ? above : below) - GAP
+      const menuMaxHeight = Math.min(maxH, available)
+      const menuWidth = Math.max(rect.width, MIN_W)
+      const left = Math.max(PAD, Math.min(rect.left, vw - menuWidth - PAD))
+      setMenuPosition({
+        top: openAbove ? rect.top - GAP : rect.bottom + GAP,
+        left,
+        minWidth: menuWidth,
+        openAbove,
+        maxHeight: menuMaxHeight,
+      })
+    } else {
+      setMenuPosition({
+        top: rect.bottom + 4,
+        left: rect.left,
+        minWidth: rect.width,
+        openAbove: false,
+        maxHeight: maxH,
+      })
     }
   }
 
   useLayoutEffect(() => {
-    if (isOpen && needsPortal) {
-      updateMenuPosition()
-    }
-  }, [isOpen, needsPortal])
+    if (isOpen && needsPortal) computePosition()
+  }, [isOpen])
 
   useEffect(() => {
     if (!isOpen || !needsPortal) return
-    const handleScrollOrResize = () => updateMenuPosition()
-    window.addEventListener("scroll", handleScrollOrResize, true)
-    window.addEventListener("resize", handleScrollOrResize)
-    return () => {
-      window.removeEventListener("scroll", handleScrollOrResize, true)
-      window.removeEventListener("resize", handleScrollOrResize)
-    }
+    const onResize = () => computePosition()
+    window.addEventListener("resize", onResize)
+    return () => window.removeEventListener("resize", onResize)
   }, [isOpen, needsPortal])
 
-  // Close dropdown when clicking outside (only while open)
-  useEffect(() => {
-    if (!isOpen) return undefined
-
-    const handleClickOutside = (event) => {
-      const menuEls = document.querySelectorAll(".searchable-dropdown-menu-portal")
-      const clickedInsidePortal = Array.from(menuEls).some((el) => el.contains(event.target))
-      if (
-        dropdownRef.current &&
-        !dropdownRef.current.contains(event.target) &&
-        !clickedInsidePortal
-      ) {
-        handleClose()
-      }
-    }
-
-    document.addEventListener("mousedown", handleClickOutside)
-    return () => document.removeEventListener("mousedown", handleClickOutside)
-  }, [isOpen])
-
-  const handleClose = (immediate = false) => {
-    if (immediate) {
-      setIsOpen(false)
-      setIsClosing(false)
-      setSearchTerm("")
-      return
-    }
-    setIsClosing(true)
-    setTimeout(() => {
-      setIsOpen(false)
-      setIsClosing(false)
-      setSearchTerm("")
-    }, 120)
+  const closeMenu = () => {
+    setIsOpen(false)
+    setSearchTerm("")
   }
 
-  // Filter options based on search term
   const filteredOptions = options.filter((option) =>
     option.label.toLowerCase().includes(searchTerm.toLowerCase())
   )
-
-  // Get selected option label
   const selectedOption = options.find((option) => option.value === value)
   const displayValue = selectedOption ? selectedOption.label : placeholder
 
   const handleOptionSelect = (option) => {
     onChange(option.value)
-    handleClose(true)
+    closeMenu()
   }
 
   const handleClear = (e) => {
     e.preventDefault()
     e.stopPropagation()
     onChange("")
-    handleClose(true)
+    closeMenu()
   }
 
-  const toggleOpen = () => {
+  const openMenu = (e) => {
     if (disabled) return
-    setIsOpen((prev) => !prev)
+    e.preventDefault()
+    computePosition()
+    setIsOpen(true)
   }
+
+  const optionsMaxHeight = isStatusDropdown ? undefined : maxHeight
+
+  // Backdrop: transparent full-screen div that closes the menu on click
+  const backdrop = isOpen && needsPortal
+    ? ReactDOM.createPortal(
+        <div
+          style={{ position: "fixed", inset: 0, zIndex: 99998 }}
+          onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); closeMenu() }}
+        />,
+        document.body
+      )
+    : null
 
   const menuContent = (
     <div
-      className={`searchable-dropdown-menu ${isClosing ? "closing" : ""} ${needsPortal ? "searchable-dropdown-menu-portal" : ""}`}
+      className={`searchable-dropdown-menu ${needsPortal ? "searchable-dropdown-menu-portal" : ""} ${isStatusDropdown ? "status-dropdown-menu" : ""}`}
       style={
         needsPortal && isOpen
           ? isStatusDropdown
             ? {
                 position: "fixed",
-                top: menuPosition.top - 4,
+                top: menuPosition.top,
                 left: menuPosition.left,
                 minWidth: menuPosition.minWidth,
-                transform: isClosing ? "translateY(-100%) translateY(10px)" : "translateY(-100%)",
-                zIndex: 99999
+                maxHeight: menuPosition.maxHeight,
+                overflowX: "hidden",
+                overflowY: "auto",
+                transform: menuPosition.openAbove ? "translateY(-100%)" : "translateY(0)",
+                zIndex: 99999,
               }
             : {
                 position: "fixed",
                 top: menuPosition.top,
                 left: menuPosition.left,
                 minWidth: menuPosition.minWidth,
-                zIndex: 99999
+                zIndex: 99999,
               }
-          : undefined}>
-      <div className="searchable-dropdown-search">
-        <div className="relative">
-          <Search
-            size={16}
-            className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"
-          />
-          <input
-            type="text"
-            placeholder="Search..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10 pr-4"
-            autoFocus
-            onFocus={(e) => e.target.select()}
-          />
+          : undefined}
+      onWheel={(e) => e.stopPropagation()}
+      onTouchMove={(e) => e.stopPropagation()}>
+      {!isStatusDropdown && (
+        <div className="searchable-dropdown-search">
+          <div className="relative">
+            <Search
+              size={16}
+              className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"
+            />
+            <input
+              type="text"
+              placeholder="Search..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-10 pr-4"
+              autoFocus
+              onFocus={(e) => e.target.select()}
+            />
+          </div>
         </div>
-      </div>
+      )}
 
-      <div className="searchable-dropdown-options" style={{ maxHeight }}>
+      <div
+        className="searchable-dropdown-options"
+        style={optionsMaxHeight ? { maxHeight: optionsMaxHeight } : undefined}>
         {filteredOptions.length === 0 ? (
           <div className="searchable-dropdown-empty">
             {searchTerm ? "No results found" : "No options available"}
@@ -1965,8 +1958,7 @@ const SearchableDropdown = ({
 
   return (
     <div
-      className={`searchable-dropdown ${compact ? "compact" : ""} ${isStatusDropdown ? "status-dropdown" : ""}`}
-      ref={dropdownRef}>
+      className={`searchable-dropdown ${compact ? "compact" : ""} ${isStatusDropdown ? "status-dropdown" : ""}`}>
       {label && (
         <label
           className={`block font-medium text-gray-700 ${compact ? "text-xs mb-1" : "text-sm mb-2"}`}>
@@ -1984,12 +1976,8 @@ const SearchableDropdown = ({
             : ""
         } ${disabled ? "opacity-60 cursor-not-allowed" : ""}`}
         disabled={disabled}
-        onMouseDown={(e) => {
-          if (disabled) return
-          e.preventDefault()
-          e.stopPropagation()
-          toggleOpen()
-        }}>
+        onMouseDown={openMenu}
+        onClick={(e) => e.stopPropagation()}>
         <span className="truncate">{displayValue}</span>
         <div className="flex items-center gap-2">
           {value && !isStatusDropdown && (
@@ -2013,6 +2001,7 @@ const SearchableDropdown = ({
         </div>
       </button>
 
+      {backdrop}
       {isOpen &&
         (needsPortal ? (
           ReactDOM.createPortal(menuContent, document.body)
@@ -2021,6 +2010,18 @@ const SearchableDropdown = ({
         ))}
     </div>
   )
+}
+
+/** Display label + badge for row status trigger. */
+function getOrderStatusTriggerMeta(row, statusOptions) {
+  const v = farmerOrderStatusSelectValue(row?.orderStatus)
+  const hint = farmerOrderStatusSelectCurrentHint(row?.orderStatus)
+  const selectedOpt = statusOptions.find((o) => o.value === v)
+  return {
+    value: v,
+    displayLabel: selectedOpt?.label || (hint ? `Current: ${hint}` : "Change status"),
+    badgeClass: `status-${toStatusBadgeCssClass(v || row?.orderStatus)}`,
+  }
 }
 
 /** Label for order filter date pickers — ignores react-datepicker `value` string on customInput. */
@@ -2269,7 +2270,10 @@ const FarmerOrdersTable = ({
   const [dcInvoiceEditSaving, setDcInvoiceEditSaving] = useState(false)
   const ordersTableScrollRef = useRef(null)
   const ordersTableViewportRef = useRef(null)
+  const [ordersScrollEl, setOrdersScrollEl] = useState(null)
+  const [statusPicker, setStatusPicker] = useState(null)
   const loadMoreOrdersRef = useRef(null)
+  const loadMoreAtEndGuardRef = useRef(false)
   const pendingOpenAddPaymentRef = useRef(false)
   const getOrdersAbortRef = useRef(null)
   const loadMoreOrdersAbortRef = useRef(null)
@@ -3201,6 +3205,8 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
                 "remaining Plants": remainingPlantCount,
                 "returned Plants": returnedPlants || 0,
                 orderStatus: orderStatus,
+                deliveryChallanInvoiceNumber: data?.deliveryChallanInvoiceNumber || null,
+                officialDeliveryChallanNumber: data?.officialDeliveryChallanNumber || null,
                 Delivery: `${start} - ${end} ${monthYear}`,
                 "Farm Ready": formatFarmReadyDateCell(farmReadyDate),
               details: {
@@ -5970,6 +5976,7 @@ const mapSlotForUi = (slotData) => {
           "remaining Plants": remainingPlantCount,
           "returned Plants": returnedPlants || 0,
           orderStatus: orderStatus,
+          deliveryChallanInvoiceNumber: data?.deliveryChallanInvoiceNumber || null,
           officialDeliveryChallanNumber: data?.officialDeliveryChallanNumber || null,
           Delivery: `${start} - ${end} ${monthYear}`,
           "Farm Ready": formatFarmReadyDateCell(farmReadyDate),
@@ -6464,6 +6471,72 @@ const mapSlotForUi = (slotData) => {
   }
 
   loadMoreOrdersRef.current = loadMoreOrders
+
+  const bindOrdersScroller = React.useCallback((el) => {
+    ordersTableScrollRef.current = el
+    if (el) el.classList.add("farmer-orders-virtuoso-scroller")
+    setOrdersScrollEl(el)
+  }, [])
+
+  const openStatusPicker = React.useCallback((row, anchorEl) => {
+    if (patchLoading || !anchorEl || !row?.details?.orderid) return
+    const rect = anchorEl.getBoundingClientRect()
+    const orderId = String(row.details.orderid)
+    setStatusPicker((prev) => {
+      if (prev?.orderId === orderId) return null
+      return {
+        orderId,
+        row,
+        anchorRect: {
+          top: rect.top,
+          left: rect.left,
+          bottom: rect.bottom,
+          right: rect.right,
+          width: rect.width,
+          height: rect.height,
+        },
+      }
+    })
+  }, [patchLoading])
+
+  const closeStatusPicker = React.useCallback(() => setStatusPicker(null), [])
+
+  /** Load next page only when user scrolls the orders table scroller near the bottom. */
+  useEffect(() => {
+    const el = ordersScrollEl
+    if (!el) return undefined
+
+    const onScroll = () => {
+      if (showAgriSalesOrders || viewMode === "dispatch_process") return
+      if (!hasMoreOrders || loading || loadingMoreOrders || loadMoreAtEndGuardRef.current) return
+      const { scrollTop, clientHeight, scrollHeight } = el
+      if (scrollHeight <= clientHeight + 8) return
+      if (scrollTop + clientHeight < scrollHeight - 100) return
+      loadMoreAtEndGuardRef.current = true
+      Promise.resolve(loadMoreOrdersRef.current?.()).finally(() => {
+        loadMoreAtEndGuardRef.current = false
+      })
+    }
+
+    el.addEventListener("scroll", onScroll, { passive: true })
+    return () => el.removeEventListener("scroll", onScroll)
+  }, [
+    ordersScrollEl,
+    showAgriSalesOrders,
+    viewMode,
+    hasMoreOrders,
+    loading,
+    loadingMoreOrders,
+  ])
+
+  /** Close lifted status menu when the orders table scrolls (Virtuoso recycles rows). */
+  useEffect(() => {
+    const el = ordersScrollEl
+    if (!el || !statusPicker) return undefined
+    const onScroll = () => closeStatusPicker()
+    el.addEventListener("scroll", onScroll, { passive: true })
+    return () => el.removeEventListener("scroll", onScroll)
+  }, [ordersScrollEl, statusPicker, closeStatusPicker])
 
   const pacthOrders = async (patchObj, row) => {
     setpatchLoading(true)
@@ -8957,7 +9030,9 @@ const mapSlotForUi = (slotData) => {
 
         {/* Table View */}
         {viewType === "table" && viewMode !== "whatsapp_log" && (
-          <div ref={ordersTableViewportRef} className="overflow-x-auto max-w-full">
+          <div
+            ref={ordersTableViewportRef}
+            className="overflow-x-auto overflow-y-hidden max-w-full">
             {filteredOrders && filteredOrders.length > 0 ? (
               (() => {
                 const farmerOrdersTableColCount = getFarmerOrdersTableColumnCount({
@@ -8978,14 +9053,7 @@ const mapSlotForUi = (slotData) => {
                     style={{ height: ordersListHeight, width: "100%" }}
                     defaultItemHeight={56}
                     increaseViewportBy={{ top: 120, bottom: 400 }}
-                    scrollerRef={(el) => {
-                      ordersTableScrollRef.current = el
-                    }}
-                    endReached={() => {
-                      if (showAgriSalesOrders || viewMode === "dispatch_process") return
-                      if (!hasMoreOrders || loading || loadingMoreOrders) return
-                      loadMoreOrdersRef.current?.()
-                    }}
+                    scrollerRef={bindOrdersScroller}
                     components={{
                       Table: (p) => <table {...p} className={`w-full text-sm ${p.className || ""}`} />,
                       TableHead: (p) => (
@@ -9022,7 +9090,8 @@ const mapSlotForUi = (slotData) => {
                             } ${row?.details?.dealerOrder ? "bg-sky-50" : ""} ${
                               selectedRows.has(row.details.orderid) && !showAgriSalesOrders ? "bg-brand-100 border-l-brand-500" : ""
                             } ${agri}`}
-                            onClick={() => {
+                            onClick={(e) => {
+                              if (e.target.closest?.(".farmer-order-status-picker")) return
                               setSelectedOrder(row)
                               setIsOrderModalOpen(true)
                             }}
@@ -9541,7 +9610,10 @@ const mapSlotForUi = (slotData) => {
                           )}
                         </td>
                       )}
-                      <td className="px-2 py-2" onClick={(e) => e.stopPropagation()}>
+                      <td
+                        className="px-2 py-2"
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onClick={(e) => e.stopPropagation()}>
                         {/* Ram Agri: status badge; Assign/Dispatch/Cancel via selection bar; PENDING: Accept/Reject */}
                         {showAgriSalesOrders ? (
                             <div className="flex flex-col gap-1">
@@ -9586,13 +9658,20 @@ const mapSlotForUi = (slotData) => {
                               )}
                             </div>
                         ) : (row.orderStatus !== "COMPLETED" && canChangeOrderStatus) ? (
-                          <FarmerOrderStatusSelect
-                            key={`order-status-${row.details?.orderid}-${row.orderStatus}`}
-                            row={row}
-                            statusOptions={farmerOrderStatusEditOptions}
-                            onChange={(newStatus) => handleStatusChange(row, newStatus)}
-                            disabled={patchLoading}
-                          />
+                          (() => {
+                            const meta = getOrderStatusTriggerMeta(row, farmerOrderStatusEditOptions)
+                            return (
+                              <OrderStatusTrigger
+                                row={row}
+                                value={meta.value}
+                                displayLabel={meta.displayLabel}
+                                badgeClass={meta.badgeClass}
+                                disabled={patchLoading}
+                                isOpen={statusPicker?.orderId === String(row.details?.orderid)}
+                                onOpen={openStatusPicker}
+                              />
+                            )
+                          })()
                         ) : (
                           <div className="flex flex-col gap-0.5">
                             <span
@@ -9746,7 +9825,9 @@ const mapSlotForUi = (slotData) => {
                   : "grid-cols-4"
 
           return (
-          <div ref={ordersTableViewportRef} className="p-4 max-w-full">
+          <div
+            ref={ordersTableViewportRef}
+            className="p-4 max-w-full">
             {gridOrdersList.length > 0 ? (
               <Virtuoso
                 className="w-full"
@@ -9754,11 +9835,7 @@ const mapSlotForUi = (slotData) => {
                 style={{ height: ordersListHeight, width: "100%" }}
                 defaultItemHeight={400}
                 increaseViewportBy={{ top: 80, bottom: 400 }}
-                endReached={() => {
-                  if (showAgriSalesOrders || viewMode === "dispatch_process") return
-                  if (!hasMoreOrders || loading || loadingMoreOrders) return
-                  loadMoreOrdersRef.current?.()
-                }}
+                scrollerRef={bindOrdersScroller}
                 components={
                   !showAgriSalesOrders
                     ? {
@@ -9793,7 +9870,8 @@ const mapSlotForUi = (slotData) => {
                               ? "payment-blink"
                               : ""
                           } ${row?.details?.dealerOrder ? "border-sky-200 bg-sky-50" : ""}`}
-                          onClick={() => {
+                          onClick={(e) => {
+                            if (e.target.closest?.(".farmer-order-status-picker")) return
                             setSelectedOrder(row)
                             setIsOrderModalOpen(true)
                           }}
@@ -9949,15 +10027,20 @@ const mapSlotForUi = (slotData) => {
                                   )}
                                 </div>
                               ) : (row.orderStatus !== "COMPLETED" && canChangeOrderStatus) ? (
-                                <div className="relative" onClick={(e) => e.stopPropagation()}>
-                                  <FarmerOrderStatusSelect
-                                    key={`grid-status-${row.details?.orderid}-${row.orderStatus}`}
-                                    row={row}
-                                    statusOptions={farmerOrderStatusEditOptions}
-                                    onChange={(newStatus) => handleStatusChange(row, newStatus)}
-                                    disabled={patchLoading}
-                                  />
-                                </div>
+                                (() => {
+                                  const meta = getOrderStatusTriggerMeta(row, farmerOrderStatusEditOptions)
+                                  return (
+                                    <OrderStatusTrigger
+                                      row={row}
+                                      value={meta.value}
+                                      displayLabel={meta.displayLabel}
+                                      badgeClass={meta.badgeClass}
+                                      disabled={patchLoading}
+                                      isOpen={statusPicker?.orderId === String(row.details?.orderid)}
+                                      onOpen={openStatusPicker}
+                                    />
+                                  )
+                                })()
                               ) : (
                                 <div className="flex flex-col gap-1">
                                   <span
@@ -13959,15 +14042,26 @@ const mapSlotForUi = (slotData) => {
         }}
       />
 
+      <OrderStatusPickerPortal
+        picker={statusPicker}
+        statusOptions={farmerOrderStatusEditOptions}
+        selectedValue={
+          statusPicker?.row ? farmerOrderStatusSelectValue(statusPicker.row.orderStatus) : ""
+        }
+        onSelect={(next) => {
+          if (statusPicker?.row && next) handleStatusChange(statusPicker.row, next)
+          closeStatusPicker()
+        }}
+        onClose={closeStatusPicker}
+      />
+
       <SplitOrderDialog
         open={splitOrderDialog.open}
         order={splitOrderDialog.order}
         onClose={() => setSplitOrderDialog({ open: false, order: null })}
         onSplitSuccess={() => {
           setSplitOrderDialog({ open: false, order: null })
-          Toast.success("Order split successfully")
           refreshComponent()
-          getOrders()
         }}
       />
     </div>

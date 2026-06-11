@@ -1188,7 +1188,7 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                     Farmer Orders
                   </h4>
                 </div>
-                <div className="overflow-auto">
+                <div className="overflow-visible">
                   <FarmerOrdersTable
                     slotId={selectedSlot._id}
                     monthName={selectedSlot.monthName}
