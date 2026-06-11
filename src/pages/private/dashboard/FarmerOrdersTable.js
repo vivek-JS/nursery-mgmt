@@ -25,9 +25,15 @@ import {
   formatOrderDateDisplay,
   formatWatiTemplateDate,
   formatWatiDeliveryFinalSecondDate,
+  sameIstCalendarDay,
   ORDER_DATE_DISPLAY_FORMAT,
   WATI_TEMPLATE_DATE_FORMAT,
 } from "utils/istDateFormat"
+import {
+  deliveryDateToIstMoment,
+  slotDayEndMoment,
+  slotDayStartMoment,
+} from "utils/istSlotDate"
 import SplitOrderDialog from "../Dispatch/components/SplitOrderDialog"
 import { OrderStatusPickerPortal, OrderStatusTrigger } from "./OrderStatusPicker"
 import moment from "moment"
@@ -5624,15 +5630,16 @@ const mapSlotForUi = (slotData) => {
   const getSlotIdForDate = (selectedDate) => {
     if (!selectedDate || slots.length === 0) return null
 
-    const selectedMoment = moment(selectedDate)
+    const selectedMoment = deliveryDateToIstMoment(selectedDate)
+    if (!selectedMoment) return null
 
     for (const slot of slots) {
       if (!slot.startDay || !slot.endDay) continue
 
-      const slotStart = moment(slot.startDay, "DD-MM-YYYY")
-      const slotEnd = moment(slot.endDay, "DD-MM-YYYY")
+      const slotStart = slotDayStartMoment(slot.startDay)
+      const slotEnd = slotDayEndMoment(slot.endDay)
+      if (!slotStart || !slotEnd) continue
 
-      // Check if the selected date falls within this slot's range
       if (
         selectedMoment.isSameOrAfter(slotStart, "day") &&
         selectedMoment.isSameOrBefore(slotEnd, "day")
@@ -5648,16 +5655,16 @@ const mapSlotForUi = (slotData) => {
   const isDateDisabled = (date) => {
     if (!date || slots.length === 0) return true
 
-    const dateMoment = moment(date).startOf("day")
-    if (dateMoment.isBefore(startOfTodayMoment(), "day")) return true
+    const dateMoment = deliveryDateToIstMoment(date)
+    if (!dateMoment || dateMoment.isBefore(startOfTodayMoment(), "day")) return true
 
     for (const slot of slots) {
       if (!slot.startDay || !slot.endDay) continue
 
-      const slotStart = moment(slot.startDay, "DD-MM-YYYY")
-      const slotEnd = moment(slot.endDay, "DD-MM-YYYY")
+      const slotStart = slotDayStartMoment(slot.startDay)
+      const slotEnd = slotDayEndMoment(slot.endDay)
+      if (!slotStart || !slotEnd) continue
 
-      // If date is within any slot range, it's not disabled
       if (dateMoment.isSameOrAfter(slotStart, "day") && dateMoment.isSameOrBefore(slotEnd, "day")) {
         return false
       }
@@ -13115,18 +13122,18 @@ const mapSlotForUi = (slotData) => {
                   {slots.filter(isSlotEndOnOrAfterToday).map((slot) => {
                     if (!slot.startDay || !slot.endDay) return null
 
-                    const slotStart = moment(slot.startDay, "DD-MM-YYYY")
-                    const slotEnd = moment(slot.endDay, "DD-MM-YYYY")
+                    const slotStart = slotDayStartMoment(slot.startDay)
+                    const slotEnd = slotDayEndMoment(slot.endDay)
+                    if (!slotStart || !slotEnd) return null
                     const dates = []
                     let currentDate = slotStart.clone()
                     const today = startOfTodayMoment()
 
-                    // Generate all dates in the slot
-                    while (currentDate.isSameOrBefore(slotEnd, 'day')) {
-                      if (currentDate.isSameOrAfter(today, 'day')) {
+                    while (currentDate.isSameOrBefore(slotEnd, "day")) {
+                      if (currentDate.isSameOrAfter(today, "day")) {
                         dates.push(currentDate.clone())
                       }
-                      currentDate.add(1, 'day')
+                      currentDate.add(1, "day")
                     }
 
                     if (dates.length === 0) return null
@@ -13149,9 +13156,10 @@ const mapSlotForUi = (slotData) => {
                         {/* Dates Grid */}
                         <div className="grid grid-cols-5 md:grid-cols-7 lg:grid-cols-9 gap-3">
                           {dates.map((date) => {
-                            const isSelected = updatedObject?.deliveryDate && 
-                              moment(updatedObject.deliveryDate).format('YYYY-MM-DD') === date.format('YYYY-MM-DD')
-                            const isToday = date.isSame(today, 'day')
+                            const isSelected =
+                              updatedObject?.deliveryDate &&
+                              sameIstCalendarDay(updatedObject.deliveryDate, date)
+                            const isToday = date.isSame(today, "day")
 
                             return (
                               <button

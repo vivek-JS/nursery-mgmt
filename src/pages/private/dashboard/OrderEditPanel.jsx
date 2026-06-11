@@ -31,6 +31,8 @@ import {
   Calendar
 } from "lucide-react"
 import moment from "moment"
+import { formatOrderDateDisplay, sameIstCalendarDay } from "utils/istCalendar"
+import { slotDayEndMoment, slotDayStartMoment } from "utils/istSlotDate"
 import LocationSelector from "components/LocationSelector"
 import { Toast } from "helpers/toasts/toastHelper"
 import { getCavityDisplayLabel } from "utils/cavityDisplay"
@@ -78,8 +80,9 @@ function FieldCard({ title, subtitle, children }) {
 
 function SlotDatePicker({ slot, selectedDate, onSelectDate }) {
   if (!slot?.startDay || !slot?.endDay) return null
-  const slotStart = moment(slot.startDay, "DD-MM-YYYY")
-  const slotEnd = moment(slot.endDay, "DD-MM-YYYY")
+  const slotStart = slotDayStartMoment(slot.startDay)
+  const slotEnd = slotDayEndMoment(slot.endDay)
+  if (!slotStart || !slotEnd) return null
   const today = startOfTodayMoment()
   const dates = []
   let cur = slotStart.clone()
@@ -95,8 +98,7 @@ function SlotDatePicker({ slot, selectedDate, onSelectDate }) {
       onClick={(e) => e.stopPropagation()}>
       {dates.map((d) => {
         const key = d.format("YYYY-MM-DD")
-        const isSelected =
-          selectedDate && moment(selectedDate).format("YYYY-MM-DD") === key
+        const isSelected = selectedDate && sameIstCalendarDay(selectedDate, key)
         return (
           <Chip
             key={key}
@@ -683,7 +685,7 @@ const OrderEditPanel = ({
                   <Stack direction="row" alignItems="center" spacing={1}>
                     <Calendar size={18} />
                     <Typography variant="body1" fontWeight={600}>
-                      {moment(updatedObject.deliveryDate).format(ORDER_DATE_DISPLAY)}
+                      {formatOrderDateDisplay(updatedObject.deliveryDate)}
                     </Typography>
                   </Stack>
                   {slotCapacityBlock && (

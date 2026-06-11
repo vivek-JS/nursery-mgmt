@@ -1,35 +1,44 @@
 import moment from "moment"
 import { getCavityIdString } from "utils/cavityDisplay"
+import {
+  formatIstYmd,
+  formatOrderDateDisplay,
+  istTodayMoment,
+  momentInIst,
+  ORDER_DATE_DISPLAY_FORMAT,
+} from "utils/istCalendar"
+import { slotDayEndMoment, slotDayStartMoment } from "utils/istSlotDate"
 
-export const ORDER_DATE_DISPLAY = "DD-MMMM-YYYY"
+export const ORDER_DATE_DISPLAY = ORDER_DATE_DISPLAY_FORMAT
 
 export function startOfTodayMoment() {
-  return moment().startOf("day")
+  return istTodayMoment()
 }
 
-/** True when the calendar day is strictly before today (local). */
+/** True when the calendar day is strictly before today (IST). */
 export function isPastCalendarDate(date) {
-  if (date == null || date === "") return false
-  const m = moment(date)
-  if (!m.isValid()) return false
-  return m.startOf("day").isBefore(startOfTodayMoment())
+  const m = momentInIst(date)
+  if (!m) return false
+  return m.startOf("day").isBefore(istTodayMoment())
 }
 
-/** Earliest selectable day within a slot period: max(slot start, today). */
+/** Earliest selectable day within a slot period: max(slot start, today) — IST. */
 export function initialDeliveryDateFromSlotStart(startDay) {
-  if (!startDay || !moment(startDay, "DD-MM-YYYY", true).isValid()) return null
-  const slotStart = moment(startDay, "DD-MM-YYYY").startOf("day")
-  return moment.max(slotStart, startOfTodayMoment()).toDate()
+  const slotStart = slotDayStartMoment(startDay)
+  if (!slotStart) return null
+  return moment.max(slotStart, istTodayMoment()).toDate()
 }
 
-/** Slot still has at least one future/today delivery day. */
+/** Slot still has at least one future/today delivery day (IST). */
 export function isSlotEndOnOrAfterToday(slot) {
-  if (!slot?.endDay || !moment(slot.endDay, "DD-MM-YYYY", true).isValid()) return false
-  return moment(slot.endDay, "DD-MM-YYYY").startOf("day").isSameOrAfter(startOfTodayMoment())
+  const end = slotDayEndMoment(slot?.endDay)
+  if (!end) return false
+  return end.isSameOrAfter(istTodayMoment(), "day")
 }
 
 export function emptyOrderForEditShape() {
   return {
+    farmerId: "",
     name: "",
     village: "",
     mobileNumber: "",
@@ -122,6 +131,225 @@ export function applyOrderForToPatch(patch, prevOrderForRaw) {
   } else {
     delete patch.orderFor
   }
+}
+
+export function classifyOrderForChange(prevRaw, nextRaw) {
+  const prev = prevRaw ? { ...emptyOrderForEditShape(), ...normalizeOrderFor(prevRaw) } : { ...emptyOrderForEditShape() }
+  const next = nextRaw ? { ...emptyOrderForEditShape(), ...nextRaw } : { ...emptyOrderForEditShape() }
+  const nameChanged = String(prev.name ?? "").trim() !== String(next.name ?? "").trim()
+  const mobileChanged =
+    normalizeOrderForMobileForCompare(prev.mobileNumber) !==
+    normalizeOrderForMobileForCompare(next.mobileNumber)
+  const locKeys = ["village", "address", "state", "stateName", "district", "districtName", "taluka", "talukaName"]
+  const locationChanged = locKeys.some(
+    (k) => String(prev[k] ?? "").trim() !== String(next[k] ?? "").trim()
+  )
+  return { nameChanged, mobileChanged, locationChanged }
+}
+
+function hasFullOrderForLocation(orderFor) {
+  if (!orderFor || typeof orderFor !== "object") return false
+  const name = String(orderFor.name || "").trim()
+  const village = String(orderFor.village || "").trim()
+  const taluka = String(orderFor.taluka || orderFor.talukaName || "").trim()
+  const district = String(orderFor.district || orderFor.districtName || "").trim()
+  const state = String(orderFor.state || orderFor.stateName || "").trim()
+  return Boolean(name && village && taluka && district && state)
+}
+
+/** Booking farmer display name (split book-for preview + order list). */
+export function resolveBookedByName(bookingFarmer, fallbackName) {
+  if (bookingFarmer && typeof bookingFarmer === "object" && !Array.isArray(bookingFarmer)) {
+    const n = String(bookingFarmer.name || "").trim()
+    if (n) return n
+  }
+  if (Array.isArray(bookingFarmer) && bookingFarmer[0] && typeof bookingFarmer[0] === "object") {
+    const n = String(bookingFarmer[0].name || "").trim()
+    if (n) return n
+  }
+  const fb = String(fallbackName || "").trim()
+  if (fb && fb !== "—") return fb
+  return "Unknown"
+}
+
+export function formatBookForLocationLine(draft) {
+  return [draft?.village, draft?.talukaName || draft?.taluka, draft?.districtName || draft?.district]
+    .map((s) => String(s || "").trim())
+    .filter(Boolean)
+    .join(", ")
+}
+
+export function mapFarmerToOrderFor(farmer) {
+  if (!farmer || typeof farmer !== "object") return { ...emptyOrderForEditShape() }
+  const state = farmer.stateName || farmer.state || ""
+  const district = farmer.districtName || farmer.district || ""
+  const taluka = farmer.talukaName || farmer.taluka || ""
+  const mobDigits = String(farmer.mobileNumber ?? "").replace(/\D/g, "")
+  return {
+    ...emptyOrderForEditShape(),
+    farmerId: farmer._id ? String(farmer._id) : "",
+    name: farmer.name || "",
+    village: farmer.village || "",
+    taluka,
+    talukaName: taluka,
+    district,
+    districtName: district,
+    state,
+    stateName: state,
+    ...(mobDigits.length === 10 ? { mobileNumber: mobDigits.slice(-10) } : {})
+  }
+}
+
+export function validateOrderForBeneficiaryEdit(prevRaw, nextRaw, options = {}) {
+  const prev = prevRaw ? { ...emptyOrderForEditShape(), ...normalizeOrderFor(prevRaw) } : { ...emptyOrderForEditShape() }
+  const next = nextRaw ? { ...emptyOrderForEditShape(), ...nextRaw } : { ...emptyOrderForEditShape() }
+  const { mode = "new" } = options
+  const change = classifyOrderForChange(prev, next)
+
+  if (!change.nameChanged && !change.mobileChanged && !change.locationChanged) {
+    return { ok: false, noChanges: true, message: "No beneficiary changes to save" }
+  }
+
+  if (mode === "existing" || hasFullOrderForLocation(next)) {
+    if (!hasFullOrderForLocation(next)) {
+      return {
+        ok: false,
+        message:
+          "Farmer record is incomplete. Use New farmer mode to enter name, village, taluka, district, and state."
+      }
+    }
+    return { ok: true, editType: "existing_farmer" }
+  }
+
+  const nextMobile = normalizeOrderForMobileForCompare(next.mobileNumber)
+  const prevMobile = normalizeOrderForMobileForCompare(prev.mobileNumber)
+  const mobileEnteredOrChanged = nextMobile.length === 10 && nextMobile !== prevMobile
+
+  if (mobileEnteredOrChanged) {
+    if (!hasFullOrderForLocation(next)) {
+      return {
+        ok: false,
+        message:
+          "When mobile number is set, beneficiary name, village, taluka, district, and state are required."
+      }
+    }
+    return { ok: true, editType: "new_farmer_full" }
+  }
+
+  if (!String(next.name || "").trim()) {
+    return { ok: false, message: "Beneficiary name is required." }
+  }
+
+  return { ok: true, editType: "name_only" }
+}
+
+export function buildOrderForPatchForSplitBeneficiary(prevRaw, draft, options = {}) {
+  const prev = normalizeOrderFor(prevRaw)
+  const next = { ...emptyOrderForEditShape(), ...draft }
+  const { mode = "new" } = options
+  const validation = validateOrderForBeneficiaryEdit(prev, next, { mode })
+  if (!validation.ok) return { ok: false, ...validation }
+
+  let orderFor
+  if (mode === "existing" || validation.editType === "existing_farmer" || validation.editType === "new_farmer_full") {
+    orderFor = compactOrderForForPatch(next)
+  } else {
+    orderFor = { name: String(next.name || "").trim() }
+  }
+
+  if (!orderFor) {
+    return { ok: false, message: "Invalid beneficiary details" }
+  }
+
+  return { ok: true, orderFor, editType: validation.editType }
+}
+
+export function newFarmerRequiresLocation(draft, prevRaw) {
+  const prev = prevRaw ? { ...emptyOrderForEditShape(), ...normalizeOrderFor(prevRaw) } : { ...emptyOrderForEditShape() }
+  const next = { ...emptyOrderForEditShape(), ...draft }
+  const nextMobile = normalizeOrderForMobileForCompare(next.mobileNumber)
+  const prevMobile = normalizeOrderForMobileForCompare(prev.mobileNumber)
+  return nextMobile.length === 10 && nextMobile !== prevMobile
+}
+
+/** Book-for draft: copy booking farmer location; user enters beneficiary name only. */
+export function bookForDraftFromBookingFarmer(bookingFarmer) {
+  const base =
+    bookingFarmer && typeof bookingFarmer === "object"
+      ? mapFarmerToOrderFor(bookingFarmer)
+      : { ...emptyOrderForEditShape() }
+  return { ...base, name: "", farmerId: "", mobileNumber: "" }
+}
+
+/** Split assign: existing | new (full location + mobile) | bookfor (AddOrderForm-style). */
+export function validateSplitAssignMode(assignMode, draft) {
+  const next = { ...emptyOrderForEditShape(), ...draft }
+
+  if (assignMode === "bookfor") {
+    if (!String(next.name || "").trim()) {
+      return { ok: false, message: "Please enter name for the person the order is for." }
+    }
+    const mob = normalizeOrderForMobileForCompare(next.mobileNumber)
+    if (mob.length > 0 && mob.length !== 10) {
+      return { ok: false, message: "If entered, book-for mobile must be exactly 10 digits." }
+    }
+    const orderFor = compactOrderForForPatch(next)
+    if (!orderFor) return { ok: false, message: "Invalid book-for details." }
+    return { ok: true, orderFor, editType: "bookfor" }
+  }
+
+  if (assignMode === "new") {
+    if (!hasFullOrderForLocation(next)) {
+      return {
+        ok: false,
+        message: "New farmer requires name, village, taluka, district, and state.",
+      }
+    }
+    const mob = normalizeOrderForMobileForCompare(next.mobileNumber)
+    if (mob.length !== 10) {
+      return { ok: false, message: "New farmer requires a 10-digit mobile number." }
+    }
+    const orderFor = compactOrderForForPatch(next)
+    if (!orderFor) return { ok: false, message: "Invalid new farmer details." }
+    return { ok: true, orderFor, editType: "new_farmer_full" }
+  }
+
+  if (assignMode === "existing") {
+    if (!String(next.farmerId || "").trim()) {
+      return { ok: false, message: "Search and select an existing farmer." }
+    }
+    return { ok: true, farmerId: String(next.farmerId).trim(), editType: "existing_farmer" }
+  }
+
+  return { ok: false, message: "Invalid assign mode." }
+}
+
+/** Build POST /order/:id/split body including optional beneficiary assign. */
+export function buildSplitOrderRequestPayload({
+  splitQuantity,
+  notes,
+  assignEnabled,
+  assignMode,
+  assignDraft,
+}) {
+  const payload = {
+    splitQuantity,
+    ...(String(notes || "").trim() ? { notes: String(notes).trim() } : {}),
+  }
+
+  if (!assignEnabled) {
+    return { ok: true, payload }
+  }
+
+  const assignCheck = validateSplitAssignMode(assignMode, assignDraft)
+  if (!assignCheck.ok) {
+    return { ok: false, message: assignCheck.message || "Complete farmer details" }
+  }
+
+  payload.assignMode = assignMode
+  if (assignCheck.farmerId) payload.farmerId = assignCheck.farmerId
+  if (assignCheck.orderFor) payload.orderFor = assignCheck.orderFor
+  return { ok: true, payload }
 }
 
 export function parseDeltaInput(raw) {
@@ -311,12 +539,8 @@ export function computeOrderEditChangeItems({
     })
   }
 
-  const curDate = selectedOrder?.details?.deliveryDate
-    ? moment(selectedOrder.details.deliveryDate).format(ORDER_DATE_DISPLAY)
-    : "Not set"
-  const nextDate = updatedObject?.deliveryDate
-    ? moment(updatedObject.deliveryDate).format(ORDER_DATE_DISPLAY)
-    : curDate
+  const curDate = formatOrderDateDisplay(selectedOrder?.details?.deliveryDate, "Not set")
+  const nextDate = formatOrderDateDisplay(updatedObject?.deliveryDate, curDate)
   if (updatedObject?.deliveryDate && curDate !== nextDate) {
     const slotDetails = getSlotDetailsForDate?.(updatedObject.deliveryDate)
     const period = slotDetails ? `${slotDetails.startDay} – ${slotDetails.endDay}` : ""
@@ -380,9 +604,7 @@ export function computeOrderEditChangeItems({
 }
 
 export function formatOrderEditDeliveryDateKey(date) {
-  if (date == null || date === "") return ""
-  const m = moment(date)
-  return m.isValid() ? m.format("YYYY-MM-DD") : ""
+  return formatIstYmd(date)
 }
 
 /** True when the user changed delivery date vs what is saved on the order. */
@@ -460,6 +682,20 @@ export function validateOrderEditSave({
   }
   if (!isDealerBulkEdit && nextRate <= 0) {
     return { ok: false, message: "Rate must be greater than 0" }
+  }
+
+  if (
+    selectedOrder?.details?.isSplit &&
+    orderForEditMeaningfullyChanged(selectedOrder?.details?.orderFor, updatedObject?.orderFor)
+  ) {
+    const beneficiaryCheck = validateOrderForBeneficiaryEdit(
+      selectedOrder?.details?.orderFor,
+      updatedObject?.orderFor,
+      { mode: "new" }
+    )
+    if (!beneficiaryCheck.ok && !beneficiaryCheck.noChanges) {
+      return { ok: false, message: beneficiaryCheck.message || "Invalid beneficiary details" }
+    }
   }
 
   const payloadForSave = {

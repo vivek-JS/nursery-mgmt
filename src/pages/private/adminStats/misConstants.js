@@ -1,4 +1,21 @@
+import {
+  formatMisDailyDate,
+  toApiIstDateRange,
+  parseIstYmdRange,
+  istTodayYmd,
+  istYesterdayYmd,
+} from "./misIstDate"
+
 export const fmt = (n) => (n == null ? "—" : Number(n).toLocaleString())
+
+/** IST helpers for admin MIS — mirrors backend istOrderDateStats. */
+export {
+  formatMisDailyDate,
+  toApiIstDateRange,
+  parseIstYmdRange,
+  istTodayYmd,
+  istYesterdayYmd,
+}
 
 /**
  * Range delivery plants + backlog before range start (e.g. 500 + 700).
@@ -63,6 +80,7 @@ export const DELIVERY_BUCKETS = [
   "dispatchProcess",
   "partiallyCompleted",
   "dispatched",
+  "vehicleDispatched",
   "completed",
 ]
 
