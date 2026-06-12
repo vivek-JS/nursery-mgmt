@@ -702,6 +702,16 @@ export const API = {
       HTTP_METHODS.POST,
       OFFLINE.PROFILE
     ),
+    GET_ROLL_EXPIRED_AVAILABLE_SOURCES: new APIRouter(
+      "/slots/roll-expired-available/sources",
+      HTTP_METHODS.GET,
+      OFFLINE.PROFILE
+    ),
+    POST_ROLL_EXPIRED_AVAILABLE: new APIRouter(
+      "/slots/roll-expired-available",
+      HTTP_METHODS.POST,
+      OFFLINE.PROFILE
+    ),
     BULK_UPDATE_STOCK_ENTRY: new APIRouter(
       "/slots/stock-entry/bulk",
       HTTP_METHODS.PUT,

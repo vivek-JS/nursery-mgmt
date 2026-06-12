@@ -212,6 +212,53 @@ export const slotShowDualRemainingPipeline = (slot) =>
 export const getActualRemainingToDispatch = (slot) =>
   getRemainingNative(slot) + getRemainingRolledIn(slot)
 
+/** Alias — plants still to dispatch (native + rolled queue). */
+export const getActualRemainingPlants = (slot) => getActualRemainingToDispatch(slot)
+
+/** Physical sellable headroom after dispatch queue. */
+export const getActualAvailablePlants = (slot) => {
+  if (slot?.actualAvailable != null && Number.isFinite(Number(slot.actualAvailable))) {
+    return Math.max(0, Number(slot.actualAvailable))
+  }
+  return Math.max(
+    0,
+    (Number(slot?.actualPlants) || 0) - (Number(slot?.remainingToDispatch) || 0)
+  )
+}
+
+/** Shortfall: dispatch queue exceeds physical stock (positive = need more actual). */
+export const getActualGapPlants = (slot) => {
+  if (slot?.actualGapPlants != null && Number.isFinite(Number(slot.actualGapPlants))) {
+    const gap = Number(slot.actualGapPlants)
+    const surplus = Number(slot.actualSurplusPlants) || 0
+    return surplus > 0 ? -surplus : gap
+  }
+  return getActualRemainingPlants(slot) - (Number(slot?.actualPlants) || 0)
+}
+
+export const getActualGapPlantsPositive = (slot) => Math.max(0, getActualGapPlants(slot))
+
+/** Gap % relative to actualPlants (not booked). */
+export const getActualGapPct = (slot) => {
+  if (slot?.actualGapPct != null && Number.isFinite(Number(slot.actualGapPct))) {
+    return Number(slot.actualGapPct)
+  }
+  const actual = Number(slot?.actualPlants) || 0
+  const gap = getActualGapPlantsPositive(slot)
+  if (actual <= 0) return gap > 0 ? 100 : 0
+  return Math.round((gap / actual) * 100)
+}
+
+export const getActualSurplusPlants = (slot) => {
+  if (slot?.actualSurplusPlants != null && Number.isFinite(Number(slot.actualSurplusPlants))) {
+    return Math.max(0, Number(slot.actualSurplusPlants))
+  }
+  return Math.max(0, -getActualGapPlants(slot))
+}
+
+export const getRolledInAvailablePlants = (slot) =>
+  Number(slot?.rolledInAvailablePlants) || 0
+
 /** Plant total shown on slot card for each stat tile (matches backend slotDispatchStats). */
 export const getSlotStatPlantsTotal = (slot, statKey) => {
   if (!slot) return 0
