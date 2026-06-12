@@ -14,7 +14,6 @@ import {
 } from "lucide-react"
 import { Switch, Tooltip, IconButton, Button, Card, CardContent } from "@mui/material"
 import SlotBufferPanel from "./SlotBufferPanel"
-import SlotPhysicalSummary from "./SlotPhysicalSummary"
 import SlotCardMetrics from "./SlotCardMetrics"
 import ActiveSlotHighlight from "./ActiveSlotHighlight"
 import {
@@ -25,7 +24,6 @@ import {
   getSowingGap,
   isSlotOverbooked,
   getEffectiveBufferPct,
-  getActualGapPct,
   slotHasMixedRolledAndNativeOrders,
   slotHasPendingPastDueOnSubtype,
 } from "./slotMetrics"
@@ -66,8 +64,6 @@ const SlotCard = ({
   const slotIsOverbooked = isSlotOverbooked(slot)
   const mixedRolledAndNative = slotHasMixedRolledAndNativeOrders(slot)
   const hasPendingPastDue = slotHasPendingPastDueOnSubtype(slot)
-  const emphasizePhysical = slot?.isCurrentDateSlot && getActualGapPct(slot) > 0
-
   return (
     <Card
       className={`transition-all duration-200 hover:shadow-lg rounded-xl border ${
@@ -181,7 +177,6 @@ const SlotCard = ({
           </div>
         </div>
 
-        <SlotPhysicalSummary slot={slot} emphasize={emphasizePhysical} />
         <SlotCardMetrics
           slot={slot}
           monthName={monthName}

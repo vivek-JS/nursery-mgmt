@@ -28,7 +28,6 @@ import {
 import FarmerOrdersTable from "../dashboard/FarmerOrdersTable"
 import SlotBufferPanel from "./SlotBufferPanel"
 import PastDueSlotBreakdown from "./PastDueSlotBreakdown"
-import SlotPhysicalSummary from "./SlotPhysicalSummary"
 import SlotCardMetrics from "./SlotCardMetrics"
 import { getBufferStatusMeta } from "./bufferUi"
 import {
@@ -139,9 +138,7 @@ const SlotDetailModal = ({
           </div>
 
           <div className="flex-1 overflow-auto p-6">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Physical vs queue</p>
-            <SlotPhysicalSummary slot={slot} variant="detail" emphasize={slot.isCurrentDateSlot} />
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3 mt-4">Slot stats</p>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Slot stats</p>
             <SlotCardMetrics
               slot={slot}
               monthName={slot.monthName}

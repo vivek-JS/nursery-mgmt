@@ -82,7 +82,7 @@ const SlotCardMetrics = ({
         </Tooltip>
       )}
 
-      <Tooltip title="Physical plants in shed for this slot window" arrow>
+      <Tooltip title="Physical plants on slot — click for day-wise sowing & expected ready dates" arrow>
         <button
           type="button"
           className={`${statPillClass} bg-gradient-to-br from-teal-50 to-emerald-50 border-teal-300 hover:from-teal-100 hover:to-emerald-100 ring-1 ring-teal-100`}

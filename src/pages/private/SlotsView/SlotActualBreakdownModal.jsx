@@ -11,6 +11,7 @@ import {
 import { API, NetworkManager } from "network/core"
 import { Toast } from "helpers/toasts/toastHelper"
 import moment from "moment"
+import { buildDayWiseRows } from "./slotActualDayWise"
 
 const fmt = (iso) => {
   if (!iso) return "—"
@@ -54,6 +55,7 @@ const SlotActualBreakdownModal = ({ open, onClose, slotRow }) => {
 
   const summary = data?.summary || {}
   const batches = data?.batches || []
+  const dayWiseRows = buildDayWiseRows(batches)
   const slot = data?.slot || {}
   const actualAvailable =
     slotRow?.actualAvailable ??
@@ -72,7 +74,7 @@ const SlotActualBreakdownModal = ({ open, onClose, slotRow }) => {
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="text-xs font-semibold uppercase tracking-wider text-emerald-100">
-                Actual available · batch detail
+                Actual plants · day-wise sowing
               </p>
               <h2 className="mt-1 text-xl font-bold">
                 {slot.startDay} – {slot.endDay}
@@ -127,12 +129,80 @@ const SlotActualBreakdownModal = ({ open, onClose, slotRow }) => {
             <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 py-12 text-center">
               <Warehouse className="mx-auto h-10 w-10 text-slate-300" />
               <p className="mt-3 text-sm font-medium text-slate-600">
-                No secondary shed stock linked to this slot yet.
+                No shed sowing lines linked to this slot yet.
               </p>
               <p className="mt-1 text-xs text-slate-500">
-                Stock appears after lagwad with a matching ready date, or Mark ready on inward.
+                Slot actual: {(slotRow?.actualPlants ?? 0).toLocaleString()} plants on record.
               </p>
             </div>
+          )}
+
+          {!loading && dayWiseRows.length > 0 && (
+            <div className="mb-5">
+              <h3 className="mb-2 flex items-center gap-2 text-sm font-bold text-slate-800">
+                <Calendar className="h-4 w-4 text-teal-600" />
+                Day-wise sowing & expected ready
+              </h3>
+              <div className="overflow-hidden rounded-xl border border-slate-200">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-100 text-[10px] uppercase tracking-wide text-slate-600">
+                    <tr>
+                      <th className="px-3 py-2 font-semibold">Planted</th>
+                      <th className="px-3 py-2 font-semibold">Expected ready</th>
+                      <th className="px-3 py-2 font-semibold text-right">On slot</th>
+                      <th className="px-3 py-2 font-semibold text-right">In shed</th>
+                      <th className="px-3 py-2 font-semibold">Status</th>
+                      <th className="px-3 py-2 font-semibold hidden sm:table-cell">Batches</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {dayWiseRows.map((row) => {
+                      const rowKey = `${row.plantedIso}|${row.expectedIso}`
+                      const allReady = row.waitingCount === 0 && row.readyCount > 0
+                      const mixed = row.readyCount > 0 && row.waitingCount > 0
+                      return (
+                        <tr key={rowKey} className="bg-white hover:bg-teal-50/40">
+                          <td className="px-3 py-2.5 font-medium text-slate-800 whitespace-nowrap">
+                            <span className="inline-flex items-center gap-1">
+                              <Sprout className="h-3 w-3 text-amber-600" />
+                              {fmt(row.plantedIso)}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2.5 text-slate-700 whitespace-nowrap">
+                            {fmt(row.expectedIso)}
+                          </td>
+                          <td className="px-3 py-2.5 text-right font-bold tabular-nums text-teal-700">
+                            {row.plants.toLocaleString()}
+                          </td>
+                          <td className="px-3 py-2.5 text-right tabular-nums text-slate-600">
+                            {row.avail.toLocaleString()}
+                          </td>
+                          <td className="px-3 py-2.5">
+                            <span
+                              className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                                allReady
+                                  ? "bg-emerald-100 text-emerald-800"
+                                  : mixed
+                                    ? "bg-sky-100 text-sky-800"
+                                    : "bg-amber-100 text-amber-800"
+                              }`}>
+                              {allReady ? "Ready" : mixed ? "Partial" : "Waiting"}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2.5 text-slate-500 hidden sm:table-cell">
+                            {row.batchNumbers.length ? row.batchNumbers.join(", ") : "—"}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {!loading && batches.length > 0 && (
+            <h3 className="mb-2 text-sm font-bold text-slate-800">Batch detail</h3>
           )}
 
           {!loading &&
@@ -208,6 +278,9 @@ const SlotActualBreakdownModal = ({ open, onClose, slotRow }) => {
                             <div className="flex flex-wrap items-center gap-2">
                               <span className="tabular-nums text-slate-600">
                                 Planted {fmt(ln.secondaryInwardDate)}
+                              </span>
+                              <span className="tabular-nums text-slate-500">
+                                Expected {fmt(ln.expectedReadyDate)}
                               </span>
                               <span
                                 className={`rounded-full px-2 py-0.5 font-semibold ${
