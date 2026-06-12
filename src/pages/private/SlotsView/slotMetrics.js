@@ -169,6 +169,12 @@ export const getRealAvailablePlants = (slot) => getAvailablePlants(slot)
 export const getAvailableMinusRolledIn = (slot) =>
   getAvailablePlants(slot) - getRolledInPlantsOnCurrentSlot(slot)
 
+/** Card / pill primary available — real headroom when rolled-in sits on this slot. */
+export const getDisplayAvailablePlants = (slot) => {
+  if (slotShowDualAvailableCards(slot)) return getAvailableMinusRolledIn(slot)
+  return getAvailablePlants(slot)
+}
+
 /** @deprecated use getAvailableMinusRolledIn */
 export const getAvailableExcludingRolledIn = getAvailableMinusRolledIn
 
@@ -200,9 +206,11 @@ export const getRemainingNative = (slot) => Number(slot?.remainingNative) || 0
 export const getRemainingMinusRolledIn = getRemainingNative
 
 export const slotShowDualRemainingPipeline = (slot) =>
-  Boolean(slot?.isCurrentDateSlot) &&
-  getRemainingToDispatch(slot) > 0 &&
-  getRolledInOrdersOnCurrentSlot(slot) > 0
+  Boolean(slot?.isCurrentDateSlot) && getRemainingRolledIn(slot) > 0
+
+/** Full pre-dispatch queue on slot = native delivery window + rolled-in. */
+export const getActualRemainingToDispatch = (slot) =>
+  getRemainingNative(slot) + getRemainingRolledIn(slot)
 
 /** Plant total shown on slot card for each stat tile (matches backend slotDispatchStats). */
 export const getSlotStatPlantsTotal = (slot, statKey) => {
@@ -220,6 +228,10 @@ export const getSlotStatPlantsTotal = (slot, statKey) => {
       return getRemainingNative(slot)
     case "remainingRolled":
       return getRemainingRolledIn(slot)
+    case "crossSlotEarlyIn":
+      return Number(slot?.crossSlotDetail?.earlyDispatchIn?.plants) || 0
+    case "crossSlotReleased":
+      return Number(slot?.crossSlotDetail?.releasedOut?.plants) || 0
     default:
       return 0
   }

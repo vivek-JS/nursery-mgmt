@@ -14,13 +14,13 @@ import FarmerOrdersTable from "../dashboard/FarmerOrdersTable"
 import moment from "moment"
 import {
   getAvailablePlants,
+  getDisplayAvailablePlants,
   getBookedPlants,
   getSellableCapacity,
   getTotalCapacity,
   getDisplayBufferAmount,
   getEffectiveBufferPct,
   getSlotStatPlantsTotal,
-  getRealAvailablePlants,
   getAvailableMinusRolledIn,
   getRolledInPlantsOnCurrentSlot,
   slotShowDualAvailableCards,
@@ -90,6 +90,20 @@ export const SLOT_STAT_ORDER_VIEWS = {
     title: "Pending orders",
     subtitle: "Still on expired slots — awaiting rollover",
     accent: "#ea580c"
+  },
+  crossSlotEarlyIn: {
+    kind: "crossSlot",
+    crossKey: "earlyDispatchIn",
+    title: "Early dispatch (other slot)",
+    subtitle: "Originally booked elsewhere — now on this slot for cross-slot dispatch",
+    accent: "#0284c7"
+  },
+  crossSlotReleased: {
+    kind: "crossSlot",
+    crossKey: "releasedOut",
+    title: "Released (cross-slot)",
+    subtitle: "Originally booked on this slot — moved to another slot for dispatch",
+    accent: "#7c3aed"
   }
 }
 
@@ -160,7 +174,36 @@ function resolvePastDueSections(slot, statKey, pendingSlotId) {
 const toneStyles = {
   amber: { border: "border-amber-200", bg: "bg-amber-50", chip: "bg-amber-100 text-amber-900" },
   violet: { border: "border-violet-200", bg: "bg-violet-50", chip: "bg-violet-100 text-violet-900" },
-  orange: { border: "border-orange-200", bg: "bg-orange-50", chip: "bg-orange-100 text-orange-900" }
+  orange: { border: "border-orange-200", bg: "bg-orange-50", chip: "bg-orange-100 text-orange-900" },
+  sky: { border: "border-sky-200", bg: "bg-sky-50", chip: "bg-sky-100 text-sky-900" }
+}
+
+function resolveCrossSlotSections(slot, statKey) {
+  const d = slot?.crossSlotDetail
+  if (!d) return []
+  const bucket =
+    statKey === "crossSlotEarlyIn"
+      ? d.earlyDispatchIn
+      : statKey === "crossSlotReleased"
+        ? d.releasedOut
+        : null
+  if (!bucket?.orders?.length) return []
+  const tone = statKey === "crossSlotEarlyIn" ? "sky" : "violet"
+  return [
+    {
+      id: statKey,
+      label: statKey === "crossSlotEarlyIn" ? "Arrived from other slots" : "Released to other slots",
+      subtitle:
+        statKey === "crossSlotEarlyIn"
+          ? "Cross-slot early dispatch — not past-due rollover"
+          : "Left this slot window for dispatch elsewhere",
+      orders: bucket.orders,
+      orderCount: bucket.orderCount,
+      plants: bucket.plants,
+      tone,
+      showSlotHint: true
+    }
+  ]
 }
 
 function PastDueOrdersPanel({ sections }) {
@@ -220,6 +263,12 @@ function PastDueOrdersPanel({ sections }) {
                         #{row.orderId ?? "—"}
                       </p>
                       <p className="text-xs text-gray-600">{row.orderStatus ?? "—"}</p>
+                      {sec.showSlotHint && row.fromSlotLabel ? (
+                        <p className="text-[10px] text-sky-700">From {row.fromSlotLabel}</p>
+                      ) : null}
+                      {sec.showSlotHint && row.toSlotLabel ? (
+                        <p className="text-[10px] text-violet-700">To {row.toSlotLabel}</p>
+                      ) : null}
                     </div>
                     <p className="text-sm font-semibold text-gray-800 tabular-nums shrink-0">
                       {(row.plants ?? 0).toLocaleString()}
@@ -245,8 +294,8 @@ function PastDueOrdersPanel({ sections }) {
 }
 
 const SlotAvailableSummary = ({ slot }) => {
-  const available = getAvailablePlants(slot)
-  const realAvailable = getRealAvailablePlants(slot)
+  const storedAvailable = getAvailablePlants(slot)
+  const available = getDisplayAvailablePlants(slot)
   const availMinusRolled = getAvailableMinusRolledIn(slot)
   const rolledHere = getRolledInPlantsOnCurrentSlot(slot)
   const showDual = slotShowDualAvailableCards(slot)
@@ -261,14 +310,14 @@ const SlotAvailableSummary = ({ slot }) => {
       ? [
           {
             label: "Real available",
-            value: realAvailable,
-            color: realAvailable < 0 ? "text-red-700" : "text-emerald-700"
+            value: availMinusRolled,
+            color: availMinusRolled < 0 ? "text-red-700" : "text-emerald-700"
           },
           {
-            label: "Avail − rolled",
-            value: availMinusRolled,
-            color: availMinusRolled < 0 ? "text-red-700" : "text-amber-800",
-            hint: `−${rolledHere.toLocaleString()} rolled on slot`
+            label: "Stored (incl. rolled)",
+            value: storedAvailable,
+            color: storedAvailable < 0 ? "text-red-700" : "text-gray-800",
+            hint: `${rolledHere.toLocaleString()} plants rolled-in on slot`
           }
         ]
       : [
@@ -344,8 +393,24 @@ const SlotOrdersDrawer = ({
     [slot, statKey, pendingSlotId, view.kind]
   )
 
+  const crossSlotSections = useMemo(
+    () => (slot && view.kind === "crossSlot" ? resolveCrossSlotSections(slot, statKey) : []),
+    [slot, statKey, view.kind]
+  )
+
   const headerCounts = useMemo(() => {
-    if (!slot || view.kind !== "pastDue") return null
+    if (!slot || view.kind === "capacity" || view.kind === "orders") return null
+    if (view.kind === "crossSlot") {
+      const bucket =
+        statKey === "crossSlotEarlyIn"
+          ? slot.crossSlotDetail?.earlyDispatchIn
+          : slot.crossSlotDetail?.releasedOut
+      return {
+        orders: bucket?.orderCount ?? 0,
+        plants: bucket?.plants ?? 0,
+      }
+    }
+    if (view.kind !== "pastDue") return null
     if (statKey === "pastDueRolled") {
       const rolled = slot.pastDueDetail?.rolledInOnCurrentSlot
       return {
@@ -437,7 +502,7 @@ const SlotOrdersDrawer = ({
         </Box>
 
         <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, mt: 1.5 }}>
-          {headerCounts ? (
+          {headerCounts && (view.kind === "pastDue" || view.kind === "crossSlot") ? (
             <>
               <Chip
                 size="small"
@@ -497,6 +562,8 @@ const SlotOrdersDrawer = ({
           <SlotAvailableSummary slot={slot} />
         ) : view.kind === "pastDue" ? (
           <PastDueOrdersPanel sections={pastDueSections} />
+        ) : view.kind === "crossSlot" ? (
+          <PastDueOrdersPanel sections={crossSlotSections} />
         ) : (
           <Box
             sx={{

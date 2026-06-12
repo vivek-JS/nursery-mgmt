@@ -78,12 +78,18 @@ import {
   getReleasableBuffer,
   getEffectiveBufferPct,
   getAvailableMinusRolledIn,
+  getDisplayAvailablePlants,
+  getRolledInPlantsOnCurrentSlot,
   getRolledInOrdersOnCurrentSlot,
   getNativeBookedPlantsOnSlot,
   getRemainingToDispatch,
+  getRemainingNative,
+  getRemainingRolledIn,
+  getActualRemainingToDispatch,
   slotHasMixedRolledAndNativeOrders,
   slotHasPendingPastDueOnSubtype,
   slotShowDualAvailableCards,
+  slotShowDualRemainingPipeline,
 } from "./slotMetrics"
 
 const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
@@ -726,9 +732,14 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
     const year = moment(selectedSlot.startDay, "DD-MM-YYYY").format("YYYY")
 
     const effectiveTotalCapacity = getSellableCapacity(selectedSlot)
-    const effectiveAvailablePlants = getAvailablePlants(selectedSlot)
+    const storedAvailablePlants = getAvailablePlants(selectedSlot)
+    const effectiveAvailablePlants = getDisplayAvailablePlants(selectedSlot)
     const selectedAvailMinusRolled = getAvailableMinusRolledIn(selectedSlot)
     const selectedShowDualAvail = slotShowDualAvailableCards(selectedSlot)
+    const remainingNative = getRemainingNative(selectedSlot)
+    const remainingRolled = getRemainingRolledIn(selectedSlot)
+    const actualRemaining = getActualRemainingToDispatch(selectedSlot)
+    const showDualRemaining = slotShowDualRemainingPipeline(selectedSlot)
     const slotBookedPercentage = getUtilizationPct(
       getBookedPlants(selectedSlot),
       effectiveTotalCapacity
@@ -872,6 +883,11 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="text-sm text-gray-600">Available</p>
+                        <p className="text-xs text-gray-500">
+                          {selectedShowDualAvail
+                            ? "Real (stored − rolled-in)"
+                            : "Plants still bookable"}
+                        </p>
                         <p
                           className={`text-2xl font-bold tabular-nums ${
                             effectiveAvailablePlants < 0 ? "text-red-600" : "text-green-600"
@@ -880,7 +896,7 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                         </p>
                         {selectedShowDualAvail ? (
                           <p className="text-xs text-amber-800">
-                            Excl. rolled: {selectedAvailMinusRolled.toLocaleString()}
+                            Stored incl. rolled: {storedAvailablePlants.toLocaleString()}
                           </p>
                         ) : null}
                       </div>
@@ -929,15 +945,24 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="text-sm text-gray-600">Remaining</p>
-                        <p className="text-xs text-gray-500 mb-0.5">Not dispatched yet</p>
+                        <p className="text-xs text-gray-500 mb-0.5">
+                          Delivery window · not dispatched
+                        </p>
                         <p
                           className={`text-2xl font-bold tabular-nums ${
-                            getRemainingToDispatch(selectedSlot) > 0
-                              ? "text-amber-700"
-                              : "text-gray-900"
+                            remainingNative > 0 ? "text-amber-700" : "text-gray-900"
                           }`}>
-                          {getRemainingToDispatch(selectedSlot).toLocaleString()}
+                          {remainingNative.toLocaleString()}
                         </p>
+                        {showDualRemaining ? (
+                          <p className="text-xs text-amber-800">
+                            Actual (+rolled): {actualRemaining.toLocaleString()}
+                            <span className="text-gray-500">
+                              {" "}
+                              (+{remainingRolled.toLocaleString()} rolled)
+                            </span>
+                          </p>
+                        ) : null}
                       </div>
                       <Clock
                         className={`w-8 h-8 ${
@@ -1047,20 +1072,44 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                   </p>
                   <div className="flex flex-wrap gap-3 text-sm mb-2">
                     {(selectedSlot.dispatchedFromOtherSlots ?? 0) > 0 && (
-                      <span className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sky-800">
+                      <button
+                        type="button"
+                        className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sky-800 hover:bg-sky-100 transition-colors text-left"
+                        onClick={() =>
+                          setSlotOrdersDrawer({
+                            slot: selectedSlot,
+                            monthName: selectedSlot.monthName,
+                            statKey: "crossSlotEarlyIn",
+                          })
+                        }>
                         Early dispatch (other slot):{" "}
                         <strong>
                           {(selectedSlot.dispatchedFromOtherSlots ?? 0).toLocaleString()}
                         </strong>
-                      </span>
+                        <span className="block text-[10px] text-sky-700 mt-0.5">
+                          Click for order list
+                        </span>
+                      </button>
                     )}
                     {(selectedSlot.releasedForEarlyDispatch ?? 0) > 0 && (
-                      <span className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-violet-800">
-                        Released for dispatch elsewhere:{" "}
+                      <button
+                        type="button"
+                        className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-violet-800 hover:bg-violet-100 transition-colors text-left"
+                        onClick={() =>
+                          setSlotOrdersDrawer({
+                            slot: selectedSlot,
+                            monthName: selectedSlot.monthName,
+                            statKey: "crossSlotReleased",
+                          })
+                        }>
+                        Released (cross-slot):{" "}
                         <strong>
                           {(selectedSlot.releasedForEarlyDispatch ?? 0).toLocaleString()}
                         </strong>
-                      </span>
+                        <span className="block text-[10px] text-violet-700 mt-0.5">
+                          Click for order list
+                        </span>
+                      </button>
                     )}
                   </div>
                 </>
@@ -2125,10 +2174,14 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                   const year = moment(startDay, "DD-MM-YYYY").format("YYYY")
 
                   const effectiveTotalCapacity = getSellableCapacity(slot)
-                  const effectiveAvailablePlants = getAvailablePlants(slot)
+                  const storedAvailablePlants = getAvailablePlants(slot)
+                  const effectiveAvailablePlants = getDisplayAvailablePlants(slot)
                   const showDualAvailable = slotShowDualAvailableCards(slot)
                   const availExcludingRolled = getAvailableMinusRolledIn(slot)
-                  const remainingToDispatch = getRemainingToDispatch(slot)
+                  const remainingNative = getRemainingNative(slot)
+                  const remainingRolled = getRemainingRolledIn(slot)
+                  const actualRemaining = getActualRemainingToDispatch(slot)
+                  const showDualRemaining = slotShowDualRemainingPipeline(slot)
                   const mixedRolledAndNative = slotHasMixedRolledAndNativeOrders(slot)
                   const hasPendingPastDue = slotHasPendingPastDueOnSubtype(slot)
                   const bookedPlants = getBookedPlants(slot)
@@ -2315,7 +2368,7 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                           <Tooltip
                             title={
                               showDualAvailable
-                                ? `Excl. rolled-in: ${availExcludingRolled.toLocaleString()}`
+                                ? `Real available (stored ${storedAvailablePlants.toLocaleString()} − rolled ${getRolledInPlantsOnCurrentSlot(slot).toLocaleString()})`
                                 : "Plants still available to book on this slot"
                             }
                             arrow>
@@ -2329,7 +2382,9 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                               onClick={(e) =>
                                 openSlotOrders(e, slot, availableMonths[selectedMonth], "available")
                               }>
-                              <p className="text-[10px] text-gray-500">Available</p>
+                              <p className="text-[10px] text-gray-500">
+                                {showDualAvailable ? "Avail (real)" : "Available"}
+                              </p>
                               <p
                                 className={`text-sm font-bold leading-tight tabular-nums ${
                                   effectiveAvailablePlants < 0 ? "text-red-700" : "text-emerald-700"
@@ -2353,7 +2408,7 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                           <button
                             type="button"
                             className={`${statPillClass} ${
-                              remainingToDispatch > 0
+                              remainingNative > 0
                                 ? "bg-amber-50 border-amber-200 hover:bg-amber-100"
                                 : "bg-gray-50 border-gray-200 hover:bg-gray-100"
                             }`}
@@ -2361,12 +2416,17 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                               openSlotOrders(e, slot, availableMonths[selectedMonth], "remaining")
                             }>
                             <p className="text-[10px] text-gray-500">Remaining</p>
-                            <p className="text-[9px] text-gray-500 leading-tight">Delivery window · not out yet</p>
+                            <p className="text-[9px] text-gray-500 leading-tight">
+                              Delivery window
+                              {showDualRemaining
+                                ? ` · actual ${actualRemaining.toLocaleString()}`
+                                : ""}
+                            </p>
                             <p
                               className={`text-sm font-bold leading-tight tabular-nums ${
-                                remainingToDispatch > 0 ? "text-amber-700" : "text-gray-700"
+                                remainingNative > 0 ? "text-amber-700" : "text-gray-700"
                               }`}>
-                              {remainingToDispatch.toLocaleString()}
+                              {remainingNative.toLocaleString()}
                             </p>
                           </button>
                           <button
@@ -2454,20 +2514,40 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                             onClick={(e) => e.stopPropagation()}
                             onMouseDown={(e) => e.stopPropagation()}>
                             {(slot.dispatchedFromOtherSlots ?? 0) > 0 && (
-                              <span className="rounded border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-sky-800">
+                              <button
+                                type="button"
+                                className="rounded border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-sky-800 hover:bg-sky-100"
+                                onClick={(e) =>
+                                  openSlotOrders(
+                                    e,
+                                    slot,
+                                    availableMonths[selectedMonth],
+                                    "crossSlotEarlyIn"
+                                  )
+                                }>
                                 Early dispatch (other slot):{" "}
                                 <strong>
                                   {(slot.dispatchedFromOtherSlots ?? 0).toLocaleString()}
                                 </strong>
-                              </span>
+                              </button>
                             )}
                             {(slot.releasedForEarlyDispatch ?? 0) > 0 && (
-                              <span className="rounded border border-violet-200 bg-violet-50 px-1.5 py-0.5 text-violet-800">
+                              <button
+                                type="button"
+                                className="rounded border border-violet-200 bg-violet-50 px-1.5 py-0.5 text-violet-800 hover:bg-violet-100"
+                                onClick={(e) =>
+                                  openSlotOrders(
+                                    e,
+                                    slot,
+                                    availableMonths[selectedMonth],
+                                    "crossSlotReleased"
+                                  )
+                                }>
                                 Released (cross-slot):{" "}
                                 <strong>
                                   {(slot.releasedForEarlyDispatch ?? 0).toLocaleString()}
                                 </strong>
-                              </span>
+                              </button>
                             )}
                           </div>
                         )}
