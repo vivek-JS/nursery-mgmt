@@ -29,6 +29,10 @@ import {
 export const SLOT_ORDER_FILTERS = {
   ALL_ACTIVE: "all_active",
   DISPATCHED_COMPLETED: "dispatched_completed",
+  DISPATCHED_NATIVE: "dispatched_native",
+  DISPATCHED_ROLLED: "dispatched_rolled",
+  DISPATCHED_OTHER: "dispatched_other",
+  DISPATCHED_ALL: "dispatched_all",
   REMAINING_DISPATCH: "remaining_dispatch",
   REMAINING_NATIVE_DISPATCH: "remaining_native_dispatch",
   REMAINING_ROLLED_DISPATCH: "remaining_rolled_dispatch"
@@ -52,16 +56,45 @@ export const SLOT_STAT_ORDER_VIEWS = {
     kind: "orders",
     filter: SLOT_ORDER_FILTERS.DISPATCHED_COMPLETED,
     title: "Dispatched",
-    subtitle: "Orders with status Dispatched or Completed",
+    subtitle: "Native delivery-window orders — Dispatched or Completed (excl. rolled-in)",
     accent: "#475569"
+  },
+  dispatchedNative: {
+    kind: "orders",
+    filter: SLOT_ORDER_FILTERS.DISPATCHED_NATIVE,
+    title: "Native dispatched",
+    subtitle:
+      "Delivery in this slot window, originally booked here — Dispatched or Completed",
+    accent: "#475569"
+  },
+  dispatchedRolled: {
+    kind: "orders",
+    filter: SLOT_ORDER_FILTERS.DISPATCHED_ROLLED,
+    title: "Rolled dispatched",
+    subtitle: "Past-due rolled-in orders on this slot — Dispatched or Completed",
+    accent: "#6366f1"
+  },
+  dispatchedOther: {
+    kind: "orders",
+    filter: SLOT_ORDER_FILTERS.DISPATCHED_OTHER,
+    title: "Other dispatched",
+    subtitle: "Rolled-in + cross-slot early dispatch — Dispatched or Completed",
+    accent: "#6366f1"
+  },
+  dispatchedAll: {
+    kind: "orders",
+    filter: SLOT_ORDER_FILTERS.DISPATCHED_ALL,
+    title: "All dispatched",
+    subtitle: "Every Dispatched or Completed order tied to this slot window",
+    accent: "#334155"
   },
   remaining: {
     kind: "orders",
     filter: SLOT_ORDER_FILTERS.REMAINING_DISPATCH,
-    title: "Remaining",
+    title: "Actual remaining",
     subtitle:
-      "Delivery in this slot window, not dispatched yet — excludes past-due rolled-in",
-    accent: "#d97706"
+      "Full pre-dispatch queue on this slot — native delivery window + rolled-in",
+    accent: "#e11d48"
   },
   remainingNative: {
     kind: "orders",

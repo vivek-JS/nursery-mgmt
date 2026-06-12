@@ -206,7 +206,42 @@ export const getRemainingNative = (slot) => Number(slot?.remainingNative) || 0
 export const getRemainingMinusRolledIn = getRemainingNative
 
 export const slotShowDualRemainingPipeline = (slot) =>
-  Boolean(slot?.isCurrentDateSlot) && getRemainingRolledIn(slot) > 0
+  getRemainingRolledIn(slot) > 0 ||
+  (Boolean(slot?.isCurrentDateSlot) && getRolledInPlantsOnCurrentSlot(slot) > 0)
+
+/** Native delivery-window dispatched (excl. rolled-in) — matches booked / remaining native. */
+export const getDispatchedNativePlants = (slot) =>
+  Number(slot?.dispatchedNativePlants ?? slot?.totalDispatchedPlants) || 0
+
+export const getDispatchedRolledInPlants = (slot) =>
+  Number(slot?.dispatchedRolledInPlants) || 0
+
+export const getDispatchedCrossSlotInPlants = (slot) =>
+  Number(slot?.dispatchedCrossSlotInPlants) || 0
+
+/** Rolled + cross-slot early-in dispatched (not in native cohort). */
+export const getDispatchedOtherPlants = (slot) => {
+  if (slot?.dispatchedOtherPlants != null) {
+    return Number(slot.dispatchedOtherPlants) || 0
+  }
+  return getDispatchedRolledInPlants(slot) + getDispatchedCrossSlotInPlants(slot)
+}
+
+export const getTotalAllDispatchedPlants = (slot) => {
+  if (slot?.totalAllDispatchedPlants != null) {
+    return Number(slot.totalAllDispatchedPlants) || 0
+  }
+  return getDispatchedNativePlants(slot) + getDispatchedOtherPlants(slot)
+}
+
+export const slotShowDualDispatchedCards = (slot) => getDispatchedOtherPlants(slot) > 0
+
+/** booked excl rolled ≈ remainingNative + native dispatched (delivery-window cohort). */
+export const slotNativeBookedIdentityHolds = (slot) => {
+  const booked = getBookedPlants(slot)
+  const rhs = getRemainingNative(slot) + getDispatchedNativePlants(slot)
+  return booked === rhs
+}
 
 /** Full pre-dispatch queue on slot = native delivery window + rolled-in. */
 export const getActualRemainingToDispatch = (slot) =>
@@ -268,6 +303,9 @@ export const rollupMonthSlotMetrics = (slots) => {
   let totalRealAvailablePlants = 0
   let totalPrimarySowed = 0
   let totalDispatchedPlants = 0
+  let totalDispatchedNative = 0
+  let totalDispatchedOther = 0
+  let totalAllDispatchedPlants = 0
   let totalRemainingToDispatch = 0
   let totalRemainingNative = 0
   let totalRemainingRolled = 0
@@ -286,7 +324,10 @@ export const rollupMonthSlotMetrics = (slots) => {
     if (dual) hasDualAvailable = true
     totalRealAvailablePlants += dual ? getAvailableMinusRolledIn(slot) : storedAvail
     totalPrimarySowed += Number(slot?.primarySowed) || 0
-    totalDispatchedPlants += Number(slot?.totalDispatchedPlants) || 0
+    totalDispatchedPlants += getDispatchedNativePlants(slot)
+    totalDispatchedNative += getDispatchedNativePlants(slot)
+    totalDispatchedOther += getDispatchedOtherPlants(slot)
+    totalAllDispatchedPlants += getTotalAllDispatchedPlants(slot)
     totalRemainingToDispatch += Number(slot?.remainingToDispatch) || 0
     totalRemainingNative += getRemainingNative(slot)
     totalRemainingRolled += getRemainingRolledIn(slot)
@@ -315,6 +356,9 @@ export const rollupMonthSlotMetrics = (slots) => {
     hasDualAvailable,
     totalPrimarySowed,
     totalDispatchedPlants,
+    totalDispatchedNative,
+    totalDispatchedOther,
+    totalAllDispatchedPlants,
     totalRemainingToDispatch,
     totalRemainingNative,
     totalRemainingRolled,
@@ -338,7 +382,14 @@ export const getSlotStatPlantsTotal = (slot, statKey) => {
     case "booked":
       return getBookedPlants(slot)
     case "dispatched":
-      return Number(slot.totalDispatchedPlants) || 0
+    case "dispatchedNative":
+      return getDispatchedNativePlants(slot)
+    case "dispatchedRolled":
+      return getDispatchedRolledInPlants(slot)
+    case "dispatchedOther":
+      return getDispatchedOtherPlants(slot)
+    case "dispatchedAll":
+      return getTotalAllDispatchedPlants(slot)
     case "remaining":
       return getRemainingToDispatch(slot)
     case "remainingNative":

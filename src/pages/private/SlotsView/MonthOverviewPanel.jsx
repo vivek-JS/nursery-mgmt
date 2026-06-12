@@ -12,6 +12,8 @@ const MonthOverviewPanel = ({ summary, bookedPercentage, isOverbooked, statusCol
     hasDualAvailable,
     totalBookedPlants,
     totalDispatchedPlants,
+    totalDispatchedOther,
+    totalAllDispatchedPlants,
     totalRemainingToDispatch,
     totalRemainingNative,
     totalRemainingRolled,
@@ -105,24 +107,43 @@ const MonthOverviewPanel = ({ summary, bookedPercentage, isOverbooked, statusCol
             <p className="text-xs text-gray-600">Booked</p>
             <p className="text-xl font-bold tabular-nums text-blue-600">{fmt(totalBookedPlants)}</p>
           </div>
+          <div className={`${tileClass} ${totalRemainingToDispatch > 0 ? "bg-rose-50" : "bg-gray-50"}`}>
+            <p className="text-xs text-gray-600">Actual rem.</p>
+            <p className="text-[10px] text-gray-500">full queue</p>
+            <p className={`text-xl font-bold tabular-nums ${totalRemainingToDispatch > 0 ? "text-rose-700" : "text-gray-900"}`}>
+              {fmt(totalRemainingToDispatch)}
+            </p>
+            {totalRemainingRolled > 0 && (
+              <p className="text-[10px] text-orange-700">
+                {fmt(totalRemainingNative)} native + {fmt(totalRemainingRolled)} rolled
+              </p>
+            )}
+          </div>
           <div className={`${tileClass} ${totalRemainingNative > 0 ? "bg-amber-50" : "bg-gray-50"}`}>
-            <p className="text-xs text-gray-600">Remaining</p>
+            <p className="text-xs text-gray-600">Native rem.</p>
             <p className="text-[10px] text-gray-500">delivery window</p>
             <p className={`text-xl font-bold tabular-nums ${totalRemainingNative > 0 ? "text-amber-700" : "text-gray-900"}`}>
               {fmt(totalRemainingNative)}
             </p>
-            {totalRemainingRolled > 0 && (
-              <p className="text-[10px] text-amber-700">+{fmt(totalRemainingRolled)} rolled</p>
-            )}
           </div>
           <div className={`${tileClass} bg-slate-50`}>
-            <p className="text-xs text-gray-600">Dispatched</p>
+            <p className="text-xs text-gray-600">Disp. native</p>
+            <p className="text-[10px] text-gray-500">delivery window</p>
             <p className="text-xl font-bold tabular-nums text-slate-700">{fmt(totalDispatchedPlants)}</p>
           </div>
-          <div className={`${tileClass} ${totalRemainingToDispatch > 0 ? "bg-amber-50/60" : "bg-gray-50"}`}>
-            <p className="text-xs text-gray-600">Queue total</p>
-            <p className="text-[10px] text-gray-500">actual rem.</p>
-            <p className="text-xl font-bold tabular-nums text-amber-800">{fmt(totalRemainingToDispatch)}</p>
+          <div className={`${tileClass} ${(totalDispatchedOther ?? 0) > 0 ? "bg-indigo-50" : "bg-gray-50"}`}>
+            <p className="text-xs text-gray-600">Disp. other</p>
+            <p className="text-[10px] text-gray-500">incl. rolled</p>
+            <p className={`text-xl font-bold tabular-nums ${(totalDispatchedOther ?? 0) > 0 ? "text-indigo-800" : "text-gray-600"}`}>
+              {fmt(totalDispatchedOther ?? 0)}
+            </p>
+          </div>
+          <div className={`${tileClass} bg-slate-100`}>
+            <p className="text-xs text-gray-600">Disp. all</p>
+            <p className="text-[10px] text-gray-500">total</p>
+            <p className="text-xl font-bold tabular-nums text-slate-900">
+              {fmt(totalAllDispatchedPlants ?? totalDispatchedPlants)}
+            </p>
           </div>
           <div className={`${tileClass} ${sowingGap > 0 ? "bg-orange-50 text-orange-600" : "bg-gray-50 text-gray-600"}`}>
             <p className="text-xs text-gray-600">Sowing gap</p>

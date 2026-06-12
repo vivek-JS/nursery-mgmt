@@ -29,6 +29,8 @@ import FarmerOrdersTable from "../dashboard/FarmerOrdersTable"
 import SlotBufferPanel from "./SlotBufferPanel"
 import PastDueSlotBreakdown from "./PastDueSlotBreakdown"
 import SlotCardMetrics from "./SlotCardMetrics"
+import SlotQueuePanel from "./SlotQueuePanel"
+import SlotDispatchedPanel from "./SlotDispatchedPanel"
 import { getBufferStatusMeta } from "./bufferUi"
 import {
   getSellableCapacity,
@@ -148,6 +150,24 @@ const SlotDetailModal = ({
                 onOpenOrdersDrawer({ slot: s, monthName: month, statKey: key })
               }}
               onOpenActual={onOpenActual}
+            />
+            <SlotQueuePanel
+              slot={slot}
+              monthName={slot.monthName}
+              variant="detail"
+              onOpenOrders={(e, s, month, key) => {
+                e?.stopPropagation?.()
+                onOpenOrdersDrawer({ slot: s, monthName: month, statKey: key })
+              }}
+            />
+            <SlotDispatchedPanel
+              slot={slot}
+              monthName={slot.monthName}
+              variant="detail"
+              onOpenOrders={(e, s, month, key) => {
+                e?.stopPropagation?.()
+                onOpenOrdersDrawer({ slot: s, monthName: month, statKey: key })
+              }}
             />
             {slot.isCurrentDateSlot && canRollPastDue && (
               <Button variant="outlined" color="secondary" size="small" className="mb-4" onClick={() => onOpenRollExpired(slot)} sx={{ textTransform: "none" }}>

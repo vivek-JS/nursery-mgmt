@@ -15,6 +15,8 @@ import {
 import { Switch, Tooltip, IconButton, Button, Card, CardContent } from "@mui/material"
 import SlotBufferPanel from "./SlotBufferPanel"
 import SlotCardMetrics from "./SlotCardMetrics"
+import SlotQueuePanel from "./SlotQueuePanel"
+import SlotDispatchedPanel from "./SlotDispatchedPanel"
 import ActiveSlotHighlight from "./ActiveSlotHighlight"
 import {
   getSellableCapacity,
@@ -182,6 +184,14 @@ const SlotCard = ({
           monthName={monthName}
           onOpenOrders={onOpenOrders}
           onOpenActual={onOpenActual}
+        />
+
+        <SlotQueuePanel slot={slot} monthName={monthName} onOpenOrders={onOpenOrders} />
+
+        <SlotDispatchedPanel
+          slot={slot}
+          monthName={monthName}
+          onOpenOrders={onOpenOrders}
         />
 
         {((slot.pastDueRolledInPlants ?? 0) > 0 || (slot.pastDuePendingOnSlot ?? 0) > 0) && (

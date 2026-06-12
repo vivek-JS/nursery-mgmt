@@ -1016,7 +1016,17 @@ function buildSlotOrderListParams({
 
   switch (slotOrderFilter) {
     case "dispatched_completed":
-      params.slotStatScope = "dispatched"
+    case "dispatched_native":
+      params.slotStatScope = "dispatched_native"
+      break
+    case "dispatched_rolled":
+      params.slotStatScope = "dispatched_rolled"
+      break
+    case "dispatched_other":
+      params.slotStatScope = "dispatched_other"
+      break
+    case "dispatched_all":
+      params.slotStatScope = "dispatched_all"
       break
     case "remaining_dispatch":
       params.slotStatScope = "remaining"

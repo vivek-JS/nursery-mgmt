@@ -5,8 +5,8 @@ import {
   getAvailablePlants,
   getAvailableMinusRolledIn,
   getBookedPlants,
-  getRemainingNative,
   getActualAvailablePlants,
+  getActualRemainingPlants,
   getRolledInPlantsOnCurrentSlot,
   slotShowDualAvailableCards,
 } from "./slotMetrics"
@@ -25,9 +25,9 @@ const SlotCardMetrics = ({
   const showDual = slotShowDualAvailableCards(slot)
   const realAvail = getAvailableMinusRolledIn(slot)
   const booked = getBookedPlants(slot)
-  const remainingNative = getRemainingNative(slot)
   const actualPlants = Number(slot?.actualPlants) || 0
   const actualAvail = getActualAvailablePlants(slot)
+  const actualRem = getActualRemainingPlants(slot)
   const labelSize = variant === "detail" ? "text-sm" : "text-[10px]"
   const valueSize = variant === "detail" ? "text-2xl" : "text-sm"
 
@@ -82,7 +82,9 @@ const SlotCardMetrics = ({
         </Tooltip>
       )}
 
-      <Tooltip title="Physical plants on slot — click for day-wise sowing & expected ready dates" arrow>
+      <Tooltip
+        title={`Physical stock on slot — rem. queue ${actualRem.toLocaleString()}, sellable ${actualAvail.toLocaleString()}. Click for sowing breakdown.`}
+        arrow>
         <button
           type="button"
           className={`${statPillClass} bg-gradient-to-br from-teal-50 to-emerald-50 border-teal-300 hover:from-teal-100 hover:to-emerald-100 ring-1 ring-teal-100`}
@@ -97,7 +99,9 @@ const SlotCardMetrics = ({
           <p className={`${valueSize} font-bold text-teal-800 leading-tight tabular-nums`}>
             {actualPlants.toLocaleString()}
           </p>
-          <p className={`${labelSize} text-teal-600`}>avail {actualAvail.toLocaleString()}</p>
+          <p className={`${labelSize} text-teal-600 leading-tight`}>
+            rem {actualRem.toLocaleString()} · avail {actualAvail.toLocaleString()}
+          </p>
         </button>
       </Tooltip>
 
@@ -112,33 +116,6 @@ const SlotCardMetrics = ({
         </p>
       </button>
 
-      <button
-        type="button"
-        className={`${statPillClass} ${
-          remainingNative > 0
-            ? "bg-amber-50 border-amber-200 hover:bg-amber-100"
-            : "bg-gray-50 border-gray-200 hover:bg-gray-100"
-        }`}
-        onClick={(e) => open(e, "remaining")}>
-        <p className={`${labelSize} text-gray-500`}>Remaining</p>
-        <p className={`${labelSize} text-gray-400 leading-tight`}>delivery window</p>
-        <p
-          className={`${valueSize} font-bold leading-tight tabular-nums ${
-            remainingNative > 0 ? "text-amber-700" : "text-gray-700"
-          }`}>
-          {remainingNative.toLocaleString()}
-        </p>
-      </button>
-
-      <button
-        type="button"
-        className={`${statPillClass} bg-slate-50 border-slate-200 hover:bg-slate-100`}
-        onClick={(e) => open(e, "dispatched")}>
-        <p className={`${labelSize} text-gray-500`}>Dispatched</p>
-        <p className={`${valueSize} font-bold text-slate-700 leading-tight tabular-nums`}>
-          {(slot.totalDispatchedPlants ?? 0).toLocaleString()}
-        </p>
-      </button>
     </div>
   )
 }
