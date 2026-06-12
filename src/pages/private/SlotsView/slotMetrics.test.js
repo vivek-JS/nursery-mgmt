@@ -4,6 +4,7 @@ import {
   getActualGapPct,
   getActualSurplusPlants,
   getActualAvailablePlants,
+  rollupMonthSlotMetrics,
 } from "./slotMetrics";
 import moment from "moment";
 import { getDefaultMonthTabIndex } from "./slotMonthUtils";
@@ -35,6 +36,36 @@ describe("slot physical metrics helpers", () => {
 
   it("getActualAvailablePlants subtracts remainingToDispatch", () => {
     expect(getActualAvailablePlants(slot())).toBe(200);
+  });
+});
+
+describe("rollupMonthSlotMetrics", () => {
+  it("sums physical and booking totals across slots", () => {
+    const rollup = rollupMonthSlotMetrics([
+      {
+        actualPlants: 500,
+        remainingNative: 300,
+        remainingRolledIn: 100,
+        remainingToDispatch: 400,
+        totalBookedPlants: 200,
+        availablePlants: 100,
+        totalPlants: 300,
+      },
+      {
+        actualPlants: 200,
+        remainingNative: 50,
+        remainingRolledIn: 0,
+        remainingToDispatch: 50,
+        totalBookedPlants: 80,
+        availablePlants: 40,
+        totalPlants: 120,
+      },
+    ]);
+    expect(rollup.totalActualPlants).toBe(700);
+    expect(rollup.totalActualRemaining).toBe(450);
+    expect(rollup.actualGapPlants).toBe(0);
+    expect(rollup.actualSurplusPlants).toBe(250);
+    expect(rollup.totalBookedPlants).toBe(280);
   });
 });
 

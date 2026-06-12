@@ -48,6 +48,7 @@ import RollExpiredAvailableModal from "./RollExpiredAvailableModal"
 import SlotActualBreakdownModal from "./SlotActualBreakdownModal"
 import SlotCard from "./SlotCard"
 import SlotDetailModal from "./SlotDetailModal"
+import MonthOverviewPanel from "./MonthOverviewPanel"
 import { MONTH_ORDER, getDefaultMonthTabIndex } from "./slotMonthUtils"
 import { canRunPastDueRollover } from "./pastDueRolloverUi"
 import { getBufferStatusMeta } from "./bufferUi"
@@ -59,6 +60,7 @@ import {
   getBookedPlants,
   getTotalCapacity,
   getReleasableBuffer,
+  rollupMonthSlotMetrics,
 } from "./slotMetrics"
 
 const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
@@ -1526,81 +1528,25 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                 </div>
 
                 {(() => {
-                  const summary = calculateSummary(slotsByMonth[availableMonths[selectedMonth]])
-                  const {
-                    totalPlants,
-                    totalBookedPlants,
-                    totalAvailablePlants,
-                    totalPrimarySowed,
-                    totalDispatchedPlants,
-                    totalRemainingToDispatch
-                  } = summary
-                  const totalCapacity = totalPlants
-                  const bookedPercentage = totalCapacity > 0 ? calculatePercentage(totalBookedPlants, totalCapacity) : 0
-                  const isOverbooked = totalAvailablePlants < 0 || totalBookedPlants > totalCapacity
-                  const statusColor = getStatusColor(bookedPercentage, totalAvailablePlants)
+                  const monthSlots = slotsByMonth[availableMonths[selectedMonth]]
+                  const summary = rollupMonthSlotMetrics(monthSlots)
+                  const totalCapacity = summary.totalPlants
+                  const bookedPercentage =
+                    totalCapacity > 0
+                      ? calculatePercentage(summary.totalBookedPlants, totalCapacity)
+                      : 0
+                  const isOverbooked =
+                    summary.totalAvailablePlants < 0 ||
+                    summary.totalBookedPlants > totalCapacity
+                  const statusColor = getStatusColor(bookedPercentage, summary.totalAvailablePlants)
 
-                  const gap = totalBookedPlants - totalPrimarySowed
-                  const gapColor = gap > 0 ? "bg-orange-50 text-orange-600" : "bg-gray-50 text-gray-600"
-                  
                   return (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-4">
-                      <div
-                        className={`p-4 rounded-lg ${isOverbooked ? "bg-red-50" : "bg-green-50"}`}>
-                        <p className="text-sm text-gray-600">Available Plants</p>
-                        <p
-                          className={`text-2xl font-bold ${
-                            isOverbooked ? "text-red-600" : "text-green-600"
-                          }`}>
-                          {totalAvailablePlants.toLocaleString()}
-                        </p>
-                      </div>
-                      <div className="p-4 rounded-lg bg-blue-50">
-                        <p className="text-sm text-gray-600">Booked Plants</p>
-                        <p className="text-2xl font-bold text-blue-600">
-                          {totalBookedPlants.toLocaleString()}
-                        </p>
-                      </div>
-                      <div className="p-4 rounded-lg bg-slate-50">
-                        <p className="text-sm text-gray-600">Dispatched & completed</p>
-                        <p className="text-2xl font-bold text-slate-700">
-                          {totalDispatchedPlants.toLocaleString()}
-                        </p>
-                      </div>
-                      <div
-                        className={`p-4 rounded-lg ${
-                          totalRemainingToDispatch > 0 ? "bg-amber-50" : "bg-gray-50"
-                        }`}>
-                        <p className="text-sm text-gray-600">Remaining to dispatch</p>
-                        <p
-                          className={`text-2xl font-bold ${
-                            totalRemainingToDispatch > 0 ? "text-amber-700" : "text-gray-900"
-                          }`}>
-                          {totalRemainingToDispatch.toLocaleString()}
-                        </p>
-                      </div>
-                      <div className={`p-4 rounded-lg ${gapColor}`}>
-                        <p className="text-sm text-gray-600">Sowing Gap</p>
-                        <p className={`text-2xl font-bold ${gap > 0 ? 'text-orange-600' : 'text-gray-900'}`}>
-                          {gap > 0 ? '+' : ''}{gap.toLocaleString()}
-                        </p>
-                      </div>
-                      <div className="p-4 rounded-lg bg-gray-50">
-                        <p className="text-sm text-gray-600">Total Capacity</p>
-                        <p className="text-2xl font-bold text-gray-900">
-                          {totalCapacity.toLocaleString()}
-                        </p>
-                      </div>
-                      <div
-                        className={`p-4 rounded-lg ${statusColor.bg
-                          .replace("bg-", "bg-")
-                          .replace("-500", "-50")}`}>
-                        <p className="text-sm text-gray-600">Booking Rate</p>
-                        <p className={`text-2xl font-bold ${statusColor.text}`}>
-                          {bookedPercentage}%{isOverbooked && " (OVER)"}
-                        </p>
-                      </div>
-                    </div>
+                    <MonthOverviewPanel
+                      summary={summary}
+                      bookedPercentage={bookedPercentage}
+                      isOverbooked={isOverbooked}
+                      statusColor={statusColor}
+                    />
                   )
                 })()}
               </div>

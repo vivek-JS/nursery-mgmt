@@ -259,6 +259,76 @@ export const getActualSurplusPlants = (slot) => {
 export const getRolledInAvailablePlants = (slot) =>
   Number(slot?.rolledInAvailablePlants) || 0
 
+/** Month-level rollup across all slots in a tab. */
+export const rollupMonthSlotMetrics = (slots) => {
+  const list = Array.isArray(slots) ? slots : []
+  let totalPlants = 0
+  let totalBookedPlants = 0
+  let totalAvailablePlants = 0
+  let totalRealAvailablePlants = 0
+  let totalPrimarySowed = 0
+  let totalDispatchedPlants = 0
+  let totalRemainingToDispatch = 0
+  let totalRemainingNative = 0
+  let totalRemainingRolled = 0
+  let totalActualPlants = 0
+  let totalActualRemaining = 0
+  let totalActualAvailable = 0
+  let totalRolledInAvailable = 0
+  let hasDualAvailable = false
+
+  for (const slot of list) {
+    totalPlants += getTotalCapacity(slot)
+    totalBookedPlants += getBookedPlants(slot)
+    const storedAvail = getAvailablePlants(slot)
+    totalAvailablePlants += storedAvail
+    const dual = slotShowDualAvailableCards(slot)
+    if (dual) hasDualAvailable = true
+    totalRealAvailablePlants += dual ? getAvailableMinusRolledIn(slot) : storedAvail
+    totalPrimarySowed += Number(slot?.primarySowed) || 0
+    totalDispatchedPlants += Number(slot?.totalDispatchedPlants) || 0
+    totalRemainingToDispatch += Number(slot?.remainingToDispatch) || 0
+    totalRemainingNative += getRemainingNative(slot)
+    totalRemainingRolled += getRemainingRolledIn(slot)
+    totalActualPlants += Number(slot?.actualPlants) || 0
+    totalActualRemaining += getActualRemainingPlants(slot)
+    totalActualAvailable += getActualAvailablePlants(slot)
+    totalRolledInAvailable += getRolledInAvailablePlants(slot)
+  }
+
+  const gapRaw = totalActualRemaining - totalActualPlants
+  const actualGapPlants = Math.max(0, gapRaw)
+  const actualSurplusPlants = Math.max(0, -gapRaw)
+  const actualGapPct =
+    totalActualPlants <= 0
+      ? actualGapPlants > 0
+        ? 100
+        : 0
+      : Math.round((actualGapPlants / totalActualPlants) * 100)
+  const sowingGap = totalBookedPlants - totalPrimarySowed
+
+  return {
+    totalPlants,
+    totalBookedPlants,
+    totalAvailablePlants,
+    totalRealAvailablePlants,
+    hasDualAvailable,
+    totalPrimarySowed,
+    totalDispatchedPlants,
+    totalRemainingToDispatch,
+    totalRemainingNative,
+    totalRemainingRolled,
+    totalActualPlants,
+    totalActualRemaining,
+    totalActualAvailable,
+    actualGapPlants,
+    actualGapPct,
+    actualSurplusPlants,
+    totalRolledInAvailable,
+    sowingGap,
+  }
+}
+
 /** Plant total shown on slot card for each stat tile (matches backend slotDispatchStats). */
 export const getSlotStatPlantsTotal = (slot, statKey) => {
   if (!slot) return 0
