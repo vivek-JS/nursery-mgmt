@@ -6,32 +6,42 @@ const dayKey = (iso) => {
   return m.isValid() ? m.format("YYYY-MM-DD") : ""
 }
 
-/** Roll up shed lines into day-wise planted → expected-ready rows. */
+/** Roll up shed lines into day-wise lagwad → expected-ready rows. */
 export function buildDayWiseRows(batches = []) {
   const map = new Map()
 
   for (const batch of batches) {
     for (const ln of batch.lines || []) {
-      const planted = dayKey(ln.secondaryInwardDate)
+      const planted = dayKey(ln.secondaryInwardDate || ln.lagwadDate)
       const expected = dayKey(ln.expectedReadyDate)
       const key = `${planted}|${expected}`
-      const plants = Number(ln.slotStockSyncedPlants) || Number(ln.availableQuantity) || 0
-      if (!plants) continue
+      const onSlot = Number(ln.onSlotPlants ?? ln.slotStockSyncedPlants) || 0
+      const pending = Number(ln.pendingSlotSync) || 0
+      const avail = Number(ln.availableQuantity) || 0
+      if (!onSlot && !pending && !avail) continue
 
       const existing = map.get(key) || {
-        plantedIso: ln.secondaryInwardDate || null,
+        plantedIso: ln.secondaryInwardDate || ln.lagwadDate || null,
         expectedIso: ln.expectedReadyDate || null,
-        plants: 0,
+        onSlot: 0,
+        pending: 0,
         avail: 0,
+        lineCount: 0,
         batches: new Set(),
-        readyCount: 0,
-        waitingCount: 0,
+        syncedLines: 0,
+        pendingLines: 0,
       }
-      existing.plants += plants
-      existing.avail += Number(ln.availableQuantity) || 0
+      existing.onSlot += onSlot
+      existing.pending += pending
+      existing.avail += avail
+      existing.lineCount += 1
       if (batch.batchNumber != null) existing.batches.add(batch.batchNumber)
-      if (ln.dispatchEligible) existing.readyCount += 1
-      else existing.waitingCount += 1
+      if (ln.slotSyncStatus === "synced" || ln.slotSyncStatus === "partial") {
+        existing.syncedLines += 1
+      }
+      if (ln.slotSyncStatus === "pending" || ln.slotSyncStatus === "partial") {
+        existing.pendingLines += 1
+      }
       map.set(key, existing)
     }
   }
@@ -40,11 +50,13 @@ export function buildDayWiseRows(batches = []) {
     .map((row) => ({
       plantedIso: row.plantedIso,
       expectedIso: row.expectedIso,
-      plants: row.plants,
+      onSlot: row.onSlot,
+      pending: row.pending,
       avail: row.avail,
-      batchNumbers: [...row.batches].sort((a, b) => a - b),
-      readyCount: row.readyCount,
-      waitingCount: row.waitingCount,
+      lineCount: row.lineCount,
+      batchNumbers: [...row.batches].sort((a, b) => String(a).localeCompare(String(b))),
+      syncedLines: row.syncedLines,
+      pendingLines: row.pendingLines,
     }))
     .sort((a, b) => {
       const pa = dayKey(a.plantedIso) || "9999"
@@ -52,4 +64,30 @@ export function buildDayWiseRows(batches = []) {
       if (pa !== pb) return pa.localeCompare(pb)
       return (dayKey(a.expectedIso) || "9999").localeCompare(dayKey(b.expectedIso) || "9999")
     })
+}
+
+export function slotSyncStatusLabel(status) {
+  switch (status) {
+    case "synced":
+      return "On slot"
+    case "partial":
+      return "Partial sync"
+    case "pending":
+      return "Pending sync"
+    default:
+      return "—"
+  }
+}
+
+export function slotSyncStatusClass(status) {
+  switch (status) {
+    case "synced":
+      return "bg-emerald-100 text-emerald-800"
+    case "partial":
+      return "bg-sky-100 text-sky-800"
+    case "pending":
+      return "bg-amber-100 text-amber-800"
+    default:
+      return "bg-slate-100 text-slate-600"
+  }
 }
