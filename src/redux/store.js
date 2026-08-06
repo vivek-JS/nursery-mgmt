@@ -10,7 +10,9 @@ import userSlice from "./slices/userSlice"
 const persistConfig = {
   key: "root",
   storage,
-  stateReconciler: autoMergeLevel2
+  stateReconciler: autoMergeLevel2,
+  // Loader is transient UI — never persist (stuck visible:true caused permanent yellow overlay).
+  blacklist: ["loader"],
 }
 
 const allReducer = combineReducers({

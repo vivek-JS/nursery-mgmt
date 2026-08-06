@@ -11,8 +11,10 @@ import { ToastContainer } from "react-toastify"
 import "react-toastify/dist/ReactToastify.css"
 import { SessionObserver } from "auth/Observer"
 import { persistor, store } from "redux/store"
+import loaderSlice from "redux/slices/loaderSlice"
 import { PersistGate } from "redux-persist/integration/react"
 import { LanguageProvider } from "contexts/LanguageContext"
+import { WorkspaceProvider } from "workspace/WorkspaceContext"
 
 // Test environment variables
 console.log("=== App.js Environment Test ===")
@@ -41,15 +43,22 @@ function App() {
   return (
     <CookiesProvider>
       <Provider store={store}>
-        <PersistGate loading={null} persistor={persistor}>
+        <PersistGate
+          loading={null}
+          persistor={persistor}
+          onBeforeLift={() => {
+            store.dispatch(loaderSlice.actions.hide())
+          }}>
           <LanguageProvider>
-            <ThemeProvider theme={currentTheme}>
-              <AppLoader />
+            <WorkspaceProvider>
+              <ThemeProvider theme={currentTheme}>
+                <AppLoader />
 
-              <AppRouter />
-              <ToastContainer />
-              <SessionObserver />
-            </ThemeProvider>
+                <AppRouter />
+                <ToastContainer />
+                <SessionObserver />
+              </ThemeProvider>
+            </WorkspaceProvider>
           </LanguageProvider>
         </PersistGate>
       </Provider>

@@ -88,8 +88,11 @@ export const usePrivateLayoutController = (props) => {
 
   const handleLogout = async () => {
     Loader.show()
-    await model.logout()
-    Loader.hide()
+    try {
+      await model.logout()
+    } finally {
+      Loader.hide()
+    }
   }
 
   const activeMenu = (item) => currentRoute.includes(item.route)
