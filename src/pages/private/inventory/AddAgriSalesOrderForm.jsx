@@ -46,6 +46,14 @@ import moment from "moment";
 import { makeStyles } from "tss-react/mui";
 import LocationSelector from "components/LocationSelector";
 import { useUserData } from "utils/roleUtils";
+import { buildAgriEditFormStateFromOrderRow } from "../dashboard/agriSalesOrderEditPrefill";
+import AgriDeliveryTimingField from "./components/AgriDeliveryTimingField";
+import {
+  AGRI_DELIVERY_TIMING,
+  formatAgriDeliveryTimingLabel,
+  inferAgriDeliveryTiming,
+  resolveAgriDeliveryDate,
+} from "utils/agriDeliveryTiming";
 
 function isUserRamAgriSalesRep(user) {
   if (!user) return false;
@@ -125,6 +133,8 @@ const AddAgriSalesOrderForm = ({
   onSuccess,
   isStandalone = false,
   linkedNurseryOrder = null,
+  /** Dashboard row — opens form in edit mode (Ram Agri Input order). */
+  editOrder = null,
 }) => {
   const { classes } = useStyles();
   const user = useUserData();
@@ -136,7 +146,9 @@ const AddAgriSalesOrderForm = ({
   const [customerData, setCustomerData] = useState({});
   const [productType, setProductType] = useState("seed");
   const linkedNurseryOrderId = linkedNurseryOrder?.details?.orderid || linkedNurseryOrder?._id || null;
-  const isLinkedFlow = Boolean(linkedNurseryOrderId);
+  const isLinkedFlow = Boolean(linkedNurseryOrderId) && !editOrder;
+  const editOrderId = editOrder?.details?.orderid || editOrder?.details?._id || null;
+  const isEditMode = Boolean(editOrderId);
 
   const productTypeLabel = productType === "chemical" ? "Chemical" : "Seed";
   const productTypeLabelPlural = productType === "chemical" ? "Chemicals" : "Seeds";
@@ -148,6 +160,7 @@ const AddAgriSalesOrderForm = ({
   });
   const [productLines, setProductLines] = useState([emptyProductLine()]);
   const [confirmSubmitOpen, setConfirmSubmitOpen] = useState(false);
+  const [deliveryTiming, setDeliveryTiming] = useState(AGRI_DELIVERY_TIMING.TODAY);
 
   const [formData, setFormData] = useState({
     customerName: "",
@@ -157,7 +170,7 @@ const AddAgriSalesOrderForm = ({
     customerDistrict: "",
     customerState: "Maharashtra",
     orderDate: new Date(),
-    deliveryDate: null,
+    deliveryDate: resolveAgriDeliveryDate(AGRI_DELIVERY_TIMING.TODAY, null, new Date()),
     notes: "",
   });
 
@@ -264,21 +277,51 @@ const AddAgriSalesOrderForm = ({
   }, [open, isLinkedFlow, isRamAgriRepUser, user?._id, user?.id, agriSalesPersonId]);
 
   useEffect(() => {
+    if (!open || !isEditMode || !editOrder) return;
+    const prefilled = buildAgriEditFormStateFromOrderRow(editOrder);
+    setFormData(prefilled.formData);
+    setDeliveryTiming(
+      inferAgriDeliveryTiming(prefilled.formData.deliveryDate, prefilled.formData.orderDate)
+    );
+    setProductLines(prefilled.productLines);
+    setProductType(prefilled.productType || "seed");
+    if (prefilled.agriSalesPersonId) {
+      setAgriSalesPersonId(String(prefilled.agriSalesPersonId));
+    }
+    setPaymentData({
+      paidAmount: "",
+      paymentDate: moment().format("YYYY-MM-DD"),
+      modeOfPayment: "",
+      bankName: "",
+      transactionId: "",
+      remark: "",
+      receiptPhoto: [],
+      isWalletPayment: false,
+    });
+  }, [open, isEditMode, editOrder?.details?.orderid]);
+
+  useEffect(() => {
     if (!open || !isLinkedFlow) return;
     const farmer = linkedNurseryOrder?.details?.farmer || {};
     const mobile = farmer.mobileNumber || linkedNurseryOrder?.details?.contact || "";
     const orderDeliveryDate =
       linkedNurseryOrder?.details?.deliveryDate || linkedNurseryOrder?.deliveryDate;
 
-    setFormData((prev) => ({
-      ...prev,
-      customerName: farmer.name || linkedNurseryOrder?.farmerName || prev.customerName,
-      customerMobile: mobile ? String(mobile) : prev.customerMobile,
-      customerVillage: farmer.village || prev.customerVillage,
-      customerTaluka: farmer.taluka || prev.customerTaluka,
-      customerDistrict: farmer.district || prev.customerDistrict,
-      deliveryDate: orderDeliveryDate ? new Date(orderDeliveryDate) : prev.deliveryDate,
-    }));
+    setFormData((prev) => {
+      const nextDeliveryDate = orderDeliveryDate ? new Date(orderDeliveryDate) : prev.deliveryDate;
+      if (orderDeliveryDate) {
+        setDeliveryTiming(inferAgriDeliveryTiming(nextDeliveryDate, prev.orderDate));
+      }
+      return {
+        ...prev,
+        customerName: farmer.name || linkedNurseryOrder?.farmerName || prev.customerName,
+        customerMobile: mobile ? String(mobile) : prev.customerMobile,
+        customerVillage: farmer.village || prev.customerVillage,
+        customerTaluka: farmer.taluka || prev.customerTaluka,
+        customerDistrict: farmer.district || prev.customerDistrict,
+        deliveryDate: nextDeliveryDate,
+      };
+    });
   }, [open, isLinkedFlow, linkedNurseryOrder]);
 
   const getCurrentRate = (variety) => {
@@ -470,10 +513,26 @@ const AddAgriSalesOrderForm = ({
       // When taluka changes, reset village
       else if (field === "customerTaluka" && value !== prev.customerTaluka) {
         newData.customerVillage = "";
+      } else if (field === "orderDate" && value) {
+        if (deliveryTiming !== AGRI_DELIVERY_TIMING.CUSTOM) {
+          newData.deliveryDate = resolveAgriDeliveryDate(deliveryTiming, null, value);
+        }
       }
-      
+
       return newData;
     });
+  };
+
+  const handleDeliveryTimingChange = (timing) => {
+    setDeliveryTiming(timing);
+    setFormData((prev) => ({
+      ...prev,
+      deliveryDate: resolveAgriDeliveryDate(timing, prev.deliveryDate, prev.orderDate),
+    }));
+  };
+
+  const handleDeliveryDateChange = (date) => {
+    setFormData((prev) => ({ ...prev, deliveryDate: date }));
   };
 
   const handleProductTypeChange = (event) => {
@@ -845,13 +904,22 @@ const AddAgriSalesOrderForm = ({
       Toast.error("Unable to resolve your user id; please re-login");
       return false;
     }
-    if (!isRamAgriRepUser && !agriSalesPersonId) {
+    if (!isRamAgriRepUser && !agriSalesPersonId && !isEditMode) {
       Toast.error("Please select sales person");
       return false;
     }
 
-    // Validate payment if provided
-    if (paymentData.paidAmount && parseFloat(paymentData.paidAmount) > 0) {
+    if (!formData.deliveryDate) {
+      Toast.error("Please select when to deliver the order (ऑर्डर कधी आणायचे)");
+      return false;
+    }
+    if (deliveryTiming === AGRI_DELIVERY_TIMING.CUSTOM && !formData.deliveryDate) {
+      Toast.error("Please pick a delivery date (तारीख निवडा)");
+      return false;
+    }
+
+    // Validate payment if provided (create flow only)
+    if (!isEditMode && paymentData.paidAmount && parseFloat(paymentData.paidAmount) > 0) {
       if (!paymentData.isWalletPayment && !paymentData.modeOfPayment) {
         Toast.error("Please select payment mode");
         return false;
@@ -868,7 +936,7 @@ const AddAgriSalesOrderForm = ({
       }
     }
 
-    if (!isLinkedFlow && ramAgriLimitSummary) {
+    if (!isEditMode && !isLinkedFlow && ramAgriLimitSummary) {
       const rows = isLinkedFlow ? productLines.slice(0, 1) : productLines;
       const orderTot = rows.reduce(
         (acc, row) =>
@@ -953,8 +1021,8 @@ const AddAgriSalesOrderForm = ({
         payload.salesPerson = agriSalesPersonId;
       }
 
-      // Add payment if provided
-      if (paymentData.paidAmount && parseFloat(paymentData.paidAmount) > 0) {
+      // Add payment if provided (create only)
+      if (!isEditMode && paymentData.paidAmount && parseFloat(paymentData.paidAmount) > 0) {
         // Filter out null/undefined/empty values from receiptPhoto array
         const validReceiptPhotos = (paymentData.receiptPhoto || []).filter(
           (photo) => photo && photo.trim && photo.trim() !== "" && photo !== null && photo !== undefined
@@ -976,7 +1044,10 @@ const AddAgriSalesOrderForm = ({
       }
 
       let response;
-      if (isLinkedFlow) {
+      if (isEditMode) {
+        const instance = NetworkManager(API.INVENTORY.UPDATE_AGRI_SALES_ORDER);
+        response = await instance.request(payload, [editOrderId]);
+      } else if (isLinkedFlow) {
         const row = productLines[0];
         const slot0 = row.varietySlots?.[0];
         const linkedInstance = NetworkManager(API.INVENTORY.CREATE_LINKED_AGRI_ORDER);
@@ -996,7 +1067,9 @@ const AddAgriSalesOrderForm = ({
 
       if (response?.data) {
         Toast.success(
-          isLinkedFlow
+          isEditMode
+            ? "Ram Agri Input order updated successfully"
+            : isLinkedFlow
             ? "Linked Agri Inputs added successfully"
             : "Agri Sales Order created successfully"
         );
@@ -1033,11 +1106,14 @@ const AddAgriSalesOrderForm = ({
           linkedNurseryOrderId: linkedNurseryOrderId || null,
         };
         handleClose();
-        onSuccess?.(createdAgriOrderPayload);
+        onSuccess?.(isEditMode ? { ...createdAgriOrderPayload, _id: editOrderId } : createdAgriOrderPayload);
       }
     } catch (error) {
-      console.error("Error creating order:", error);
-      const errorMessage = error.response?.data?.message || error.message || "Failed to create order";
+      console.error("Error saving order:", error);
+      const errorMessage =
+        error.response?.data?.message ||
+        error.message ||
+        (isEditMode ? "Failed to update order" : "Failed to create order");
       Toast.error(errorMessage);
     } finally {
       setLoading(false);
@@ -1051,6 +1127,7 @@ const AddAgriSalesOrderForm = ({
 
   const handleClose = () => {
     setConfirmSubmitOpen(false);
+    setDeliveryTiming(AGRI_DELIVERY_TIMING.TODAY);
     setFormData({
       customerName: "",
       customerMobile: "",
@@ -1059,7 +1136,7 @@ const AddAgriSalesOrderForm = ({
       customerDistrict: "",
       customerState: "Maharashtra",
       orderDate: new Date(),
-      deliveryDate: null,
+      deliveryDate: resolveAgriDeliveryDate(AGRI_DELIVERY_TIMING.TODAY, null, new Date()),
       notes: "",
     });
     setProductLines([emptyProductLine()]);
@@ -1096,6 +1173,7 @@ const AddAgriSalesOrderForm = ({
 
   const ramAgriNewOrderUnpaidExposure = totalAmount;
   const ramAgriCreditBlocksSubmit =
+    !isEditMode &&
     !isLinkedFlow &&
     ramAgriLimitSummary &&
     totalAmount > 0 &&
@@ -1610,16 +1688,14 @@ const AddAgriSalesOrderForm = ({
               </LocalizationProvider>
             </Grid>
 
-            <Grid item xs={12} sm={6}>
-              <LocalizationProvider dateAdapter={AdapterDateFns}>
-                <DatePicker
-                  label="Delivery Date (Optional)"
-                  value={formData.deliveryDate}
-                  onChange={(date) => handleInputChange("deliveryDate", date)}
-                  minDate={formData.orderDate}
-                  renderInput={(params) => <TextField {...params} fullWidth size="small" margin="dense" />}
-                />
-              </LocalizationProvider>
+            <Grid item xs={12}>
+              <AgriDeliveryTimingField
+                deliveryTiming={deliveryTiming}
+                onDeliveryTimingChange={handleDeliveryTimingChange}
+                deliveryDate={formData.deliveryDate}
+                onDeliveryDateChange={handleDeliveryDateChange}
+                orderDate={formData.orderDate}
+              />
             </Grid>
 
             <Grid item xs={12}>
@@ -1640,7 +1716,9 @@ const AddAgriSalesOrderForm = ({
 
           <Divider sx={{ my: 1 }} />
 
-          {/* Payment Information */}
+          {/* Payment Information — create only; use order modal Payments tab when editing */}
+          {!isEditMode && (
+          <>
           <Typography className={classes.sectionTitle}>Payment Information (Optional)</Typography>
 
           <Grid container spacing={1}>
@@ -1932,6 +2010,8 @@ const AddAgriSalesOrderForm = ({
               </Grid>
             )}
           </Grid>
+          </>
+          )}
         </Box>
   );
 
@@ -2059,6 +2139,15 @@ const AddAgriSalesOrderForm = ({
             </Paper>
           ))}
 
+          <Paper variant="outlined" sx={{ p: { xs: 1.25, sm: 2 }, borderRadius: 2, bgcolor: "#f5f5f5" }}>
+            <Typography variant="caption" color="text.secondary" fontWeight={600}>
+              Delivery · ऑर्डर कधी आणायचे
+            </Typography>
+            <Typography variant="body2" fontWeight={700} sx={{ mt: 0.5 }}>
+              {formatAgriDeliveryTimingLabel(deliveryTiming, formData.deliveryDate)}
+            </Typography>
+          </Paper>
+
           <Paper
             sx={{
               p: { xs: 1.25, sm: 2 },
@@ -2181,7 +2270,9 @@ const AddAgriSalesOrderForm = ({
           <Box display="flex" alignItems="center" justifyContent="space-between">
             <Box display="flex" alignItems="center" gap={1}>
               <AddIcon />
-              <Typography variant="h6">Ram Agri Input - New Order</Typography>
+              <Typography variant="h6">
+                {isEditMode ? "Ram Agri Input - Edit Order" : "Ram Agri Input - New Order"}
+              </Typography>
             </Box>
             <IconButton className={classes.closeButton} onClick={handleClose} size="small">
               <CloseIcon />
@@ -2194,7 +2285,13 @@ const AddAgriSalesOrderForm = ({
             Cancel
           </Button>
           <Button onClick={handleRequestSubmit} variant="contained" color="primary" size="small" disabled={loading || ramAgriCreditBlocksSubmit} startIcon={loading ? <CircularProgress size={16} /> : <AddIcon />}>
-            {loading ? "Creating..." : "Review & create · तपासून तयार करा"}
+            {loading
+              ? isEditMode
+                ? "Saving..."
+                : "Creating..."
+              : isEditMode
+              ? "Review & save · तपासून सेव्ह करा"
+              : "Review & create · तपासून तयार करा"}
           </Button>
         </DialogActions>
       </Dialog>
