@@ -68,6 +68,16 @@ export const API = {
   MOTIVATIONAL_QUOTE: {
     GET_TODAY: new APIRouter("/motivational-quote/today", HTTP_METHODS.GET)
   },
+  DAILY_NOTE: {
+    GET_TODAY: new APIRouter("/daily-notes/today", HTTP_METHODS.GET),
+    UPSERT_TODAY: new APIRouter("/daily-notes/today", HTTP_METHODS.PUT),
+    UPSERT: new APIRouter("/daily-notes", HTTP_METHODS.POST),
+    LIST: new APIRouter("/daily-notes", HTTP_METHODS.GET),
+    BY_DATE: new APIRouter("/daily-notes/by-date/:date", HTTP_METHODS.GET),
+    UPDATE: new APIRouter("/daily-notes/:id", HTTP_METHODS.PUT),
+    DELETE: new APIRouter("/daily-notes/:id", HTTP_METHODS.DEL),
+  },
+
   HOSPITAL: {
     LOGIN_HOSPITAL: new APIWithOfflineRouter("user/login", HTTP_METHODS.POST, OFFLINE.LOGIN),
     CREATE_HOSPITAL: new APIRouter(
@@ -227,6 +237,9 @@ export const API = {
 
     // Ram Agri Inputs Product Master
     GET_ALL_RAM_AGRI_INPUTS: new APIRouter("/inventory/ram-agri-inputs", HTTP_METHODS.GET),
+    GET_RAM_AGRI_BATCHES: new APIRouter("/inventory/ram-agri-inputs/batches", HTTP_METHODS.GET),
+    GET_RAM_AGRI_VARIETY_BATCHES: new APIRouter("/inventory/ram-agri-inputs/:cropId/varieties/:varietyId/batches", HTTP_METHODS.GET),
+    GET_RAM_AGRI_BATCH_SUMMARY: new APIRouter("/inventory/ram-agri-inputs/batches/summary", HTTP_METHODS.GET),
     GET_RAM_AGRI_INPUT_BY_ID: new APIRouter("/inventory/ram-agri-inputs/:id", HTTP_METHODS.GET),
     CREATE_RAM_AGRI_INPUT: new APIRouter("/inventory/ram-agri-inputs", HTTP_METHODS.POST),
     UPDATE_RAM_AGRI_INPUT: new APIRouter("/inventory/ram-agri-inputs/:id", HTTP_METHODS.PATCH),
@@ -320,6 +333,8 @@ export const API = {
 
     // Ram Agri Sales Dashboard
     GET_RAM_AGRI_SALES_DASHBOARD: new APIRouter("/inventory/ram-agri-sales-dashboard", HTTP_METHODS.GET),
+    GET_RAM_AGRI_DAILY_CLOSING_STOCK: new APIRouter("/inventory/ram-agri-daily-closing-stock", HTTP_METHODS.GET),
+    UPSERT_RAM_AGRI_DAILY_CLOSING_STOCK: new APIRouter("/inventory/ram-agri-daily-closing-stock", HTTP_METHODS.POST),
     GET_RAM_AGRI_SALES_RANKBOARD: new APIRouter("/inventory/ram-agri-sales-rankboard", HTTP_METHODS.GET),
     GET_RAM_AGRI_SALES_TARGETS: new APIRouter("/inventory/ram-agri-sales-targets", HTTP_METHODS.GET),
     SAVE_RAM_AGRI_SALES_TARGET: new APIRouter("/inventory/ram-agri-sales-targets", HTTP_METHODS.POST),
@@ -482,6 +497,30 @@ export const API = {
       OFFLINE.PROFILE
     )
   },
+  FACE_ATTENDANCE: {
+    GET_DEPARTMENTS: new APIRouter("/face-attendance/admin/departments", HTTP_METHODS.GET),
+  },
+  ATTENDANCE: {
+    GET_DAILY: new APIRouter("/admin/attendance", HTTP_METHODS.GET),
+    GET_DETAIL: new APIRouter("/admin/attendance/:id", HTTP_METHODS.GET),
+    PATCH: new APIRouter("/admin/attendance/:id", HTTP_METHODS.PATCH),
+    GET_ATTEMPTS: new APIRouter("/admin/attendance/attempts", HTTP_METHODS.GET),
+    GET_FACE_STATUS: new APIRouter("/admin/attendance/face-registration-status", HTTP_METHODS.GET),
+    GET_BRANCH_SUMMARY: new APIRouter("/admin/attendance/summary/branch", HTTP_METHODS.GET),
+    GET_LATE_EARLY: new APIRouter("/admin/attendance/reports/late-early", HTTP_METHODS.GET),
+    GET_BRANCH_LOCATIONS: new APIRouter("/admin/attendance/branch-locations", HTTP_METHODS.GET),
+    SAVE_BRANCH_LOCATION: new APIRouter("/admin/attendance/branch-locations", HTTP_METHODS.POST),
+    DELETE_BRANCH_LOCATION: new APIRouter("/admin/attendance/branch-locations/:id", HTTP_METHODS.DEL),
+    RESET_FACE: new APIRouter("/admin/attendance/employees/:employeeId/face-profile", HTTP_METHODS.DEL),
+    RESET_DEVICE: new APIRouter("/admin/attendance/employees/:employeeId/device", HTTP_METHODS.DEL),
+    KIOSK_IDENTIFY: new APIRouter("/admin/attendance/kiosk/identify", HTTP_METHODS.POST),
+    KIOSK_VERIFY_MARK: new APIRouter("/admin/attendance/kiosk/verify-and-mark", HTTP_METHODS.POST),
+    KIOSK_REGISTER_FACE: new APIRouter("/admin/attendance/kiosk/register-face", HTTP_METHODS.POST),
+    GET_TODAY_DASHBOARD: new APIRouter("/admin/attendance/today-dashboard", HTTP_METHODS.GET),
+    GET_OFFICE_GROUPS: new APIRouter("/admin/attendance/office-groups", HTTP_METHODS.GET),
+    CREATE_OFFICE_GROUP: new APIRouter("/admin/attendance/office-groups", HTTP_METHODS.POST),
+    PATCH_OFFICE_GROUP: new APIRouter("/admin/attendance/office-groups/:id", HTTP_METHODS.PATCH),
+  },
   ORDER: {
     GET_ORDERS: Object.assign(
       new APIRouter("/order/getOrders", HTTP_METHODS.GET, OFFLINE.PROFILE),
@@ -497,6 +536,17 @@ export const API = {
     ADMIN_MIS_DEALER: new APIRouter("/order/admin-mis-dealer", HTTP_METHODS.GET, OFFLINE.PROFILE),
     ADMIN_MIS_DUE: new APIRouter("/order/admin-mis-due", HTTP_METHODS.GET, OFFLINE.PROFILE),
     ADMIN_MIS_ORDERS: new APIRouter("/order/admin-mis-orders", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    ADMIN_MIS_SALES_SHEET: new APIRouter("/order/admin-mis-sales-sheet", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    DELIVERY_REPORT_SUMMARY: new APIRouter(
+      "/order/delivery-report/summary",
+      HTTP_METHODS.GET,
+      OFFLINE.PROFILE
+    ),
+    DELIVERY_REPORT_ORDERS: new APIRouter(
+      "/order/delivery-report/orders",
+      HTTP_METHODS.GET,
+      OFFLINE.PROFILE
+    ),
     GET_ORDERS_SLOTS: Object.assign(
       new APIRouter("/order/getOrders", HTTP_METHODS.GET, OFFLINE.PROFILE),
       { __abortScope: "order-get-orders-slots" }
@@ -528,6 +578,11 @@ export const API = {
     GET_TALUKAS: new APIRouter("/order/talukas", HTTP_METHODS.GET, OFFLINE.PROFILE),
     CREATE_DEALER_ORDER: new APIRouter("/order/dealer-order", HTTP_METHODS.POST, OFFLINE.PROFILE),
     UPDATE_ORDER: new APIRouter("/order/updateOrder", HTTP_METHODS.PATCH, OFFLINE.PROFILE),
+    GENERATE_DELIVERY_CHALLAN_PDF: new APIRouter(
+      "/order/:orderId/generate-delivery-challan-pdf",
+      HTTP_METHODS.POST,
+      OFFLINE.PROFILE
+    ),
     UPDATE_PAYMENT_STATUS: new APIRouter(
       "/order/updatePaymentStatus",
       HTTP_METHODS.PATCH,
@@ -676,6 +731,7 @@ export const API = {
     UPDATE_PLANT: new APIRouter("/plantcms/plants", HTTP_METHODS.PUT, OFFLINE.PROFILE),
     DELETE_PLANT: new APIRouter("/plantcms/plants", HTTP_METHODS.DEL, OFFLINE.PROFILE),
     UPDATE_SUBTYPE: new APIRouter("/plantcms/plants/:plantId/subtypes/:subtypeId", HTTP_METHODS.PUT, OFFLINE.PROFILE),
+    ADD_SUBTYPE: new APIRouter("/plantcms/plants/:plantId/subtypes", HTTP_METHODS.POST, OFFLINE.PROFILE),
   },
   excel: {
     VALIDATE_EXCEL: new APIRouter("/excel/validate-excel", HTTP_METHODS.POST, OFFLINE.PROFILE),
@@ -823,13 +879,16 @@ export const API = {
     UPDATE_DISPATCH: new APIRouter("dispatched/:id", HTTP_METHODS.PATCH),
     ADD_ORDER_TO_DISPATCH: new APIRouter("dispatched/:id/add-order", HTTP_METHODS.PATCH),
     DETACH_ORDER: new APIRouter("dispatched/:id/detach-order", HTTP_METHODS.PATCH),
+    REASSIGN_REFUSED: new APIRouter("dispatched/:id/reassign-refused", HTTP_METHODS.PATCH),
     ASSIGN_ROUTE: new APIRouter("dispatched/assign-route", HTTP_METHODS.PATCH),
     BULK_MARK_READY: new APIRouter("dispatched/bulk-mark-ready", HTTP_METHODS.PATCH),
   },
-  /** Delivery challan invoice prefix + next sequence (GET public to auth users; PUT admin/accountant). */
+  /** Delivery challan invoice sequences: per-plant (primary) + global fallback. */
   INVOICE_SEQUENCE: {
     GET: new APIRouter("invoice-sequence", HTTP_METHODS.GET),
     PUT: new APIRouter("invoice-sequence", HTTP_METHODS.PUT),
+    GET_PLANTS: new APIRouter("invoice-sequence/plants", HTTP_METHODS.GET),
+    PUT_PLANT: new APIRouter("invoice-sequence/plants", HTTP_METHODS.PUT),
   },
   READY_DISPATCH_GROUP: {
     SUGGEST: new APIRouter("ready-dispatch-groups/suggest", HTTP_METHODS.POST),
@@ -934,6 +993,51 @@ export const API = {
     ),
     SECONDARY_VEHICLE_DISPATCH_ALLOCATION: new APIRouter(
       "laboutward/secondary/vehicle-dispatch/:dispatchId/allocation-suggestions",
+      HTTP_METHODS.GET
+    ),
+    SECONDARY_VEHICLE_SOW_READY_ENTRIES: new APIRouter(
+      "laboutward/secondary/vehicle-dispatch/:dispatchId/sow-ready-entries",
+      HTTP_METHODS.GET
+    ),
+    SECONDARY_SOW_READY_ENTRIES: new APIRouter(
+      "laboutward/secondary/sow-ready-entries",
+      HTTP_METHODS.GET
+    ),
+    PRIMARY_INWARD_FIFO_PREVIEW: new APIRouter(
+      "laboutward/primary-inward-fifo-preview",
+      HTTP_METHODS.POST
+    ),
+    PRIMARY_INWARD_BULK: new APIRouter("laboutward/primary-inward-bulk", HTTP_METHODS.POST),
+    PRIMARY_INWARD_TO_OUTWARD_BATCH: new APIRouter(
+      "laboutward/primary/:batchId/primary-inward-to-primary-outward-batch",
+      HTTP_METHODS.POST
+    ),
+    PRIMARY_INWARD_READINESS_BYPASS: new APIRouter(
+      "laboutward/primary/:batchId/primary-inward/:primaryInwardId/readiness-bypass",
+      HTTP_METHODS.PATCH
+    ),
+    SECONDARY_BATCH_LAGWAD: new APIRouter(
+      "laboutward/secondary/:batchId/batch-lagwad",
+      HTTP_METHODS.POST
+    ),
+    SECONDARY_VEHICLE_LOAD_PREVIEW: new APIRouter(
+      "laboutward/secondary/vehicle-dispatch/:dispatchId/load-preview",
+      HTTP_METHODS.POST
+    ),
+    SECONDARY_VEHICLE_LOAD: new APIRouter(
+      "laboutward/secondary/vehicle-dispatch/:dispatchId/load",
+      HTTP_METHODS.POST
+    ),
+    SECONDARY_VEHICLE_UNLOAD: new APIRouter(
+      "laboutward/secondary/vehicle-dispatch/:dispatchId/unload",
+      HTTP_METHODS.POST
+    ),
+    SECONDARY_VEHICLE_LOADED_LINES: new APIRouter(
+      "laboutward/secondary/vehicle-dispatch/:dispatchId/loaded-lines",
+      HTTP_METHODS.GET
+    ),
+    SECONDARY_POLYHOUSE_STOCK: new APIRouter(
+      "laboutward/secondary/polyhouse-stock",
       HTTP_METHODS.GET
     ),
     /** FIFO batch / secondary inward line for a shed — farmer dispatch form auto-fill */
@@ -1062,6 +1166,25 @@ export const API = {
     GET_PLANTS_GAP_SUMMARY: new APIRouter("/sowing/plants-gap-summary", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_SLOT_ORDERS_SUMMARY: new APIRouter("/sowing/slot-orders/:slotId", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_TODAY_SOWING_CARDS: new APIRouter("/sowing/today-sowing-cards", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_TODAY_SOWING_CARDS_LITE: new APIRouter("/sowing/today-sowing-cards-lite", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_ORDER_WISE_SOWING: new APIRouter("/sowing/order-wise", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_SOWING_COMPLETIONS: new APIRouter("/sowing/completions", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_DELIVERY_VS_READY: new APIRouter("/sowing/analytics/delivery-vs-ready", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_ADMIN_DIRECT_SOW_ORDERS: new APIRouter("/sowing/admin-direct-sow/orders", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    SUBMIT_ADMIN_DIRECT_SOW: new APIRouter("/sowing/admin-direct-sow", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    GET_ORDER_SLOT_EXCESS: new APIRouter("/sowing/order/:orderId/slot-excess", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    COMPLETE_ORDER_FROM_EXCESS: new APIRouter("/sowing/order/:orderId/complete-from-excess", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    GET_SLOT_COVERABLE_ORDERS: new APIRouter("/sowing/slot/:slotId/coverable-orders", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    ALLOCATE_SLOT_TO_ORDERS: new APIRouter("/sowing/slot/:slotId/allocate-to-orders", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    COMPLETE_SOWING_REQUEST: new APIRouter("/sowing/request/:requestId/complete-sow", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    EDIT_SOW_ENTRY: new APIRouter("/sowing/request/:requestId/sow-entry", HTTP_METHODS.PATCH, OFFLINE.PROFILE),
+    GET_ISSUED_SOWING_QUEUE: new APIRouter("/sowing/request/issued-queue", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    CREATE_RAISING_INTAKE: new APIRouter("/sowing/raising/intake", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    UPDATE_RAISING_INTAKE: new APIRouter("/sowing/raising/intake/:id", HTTP_METHODS.PATCH, OFFLINE.PROFILE),
+    GET_RAISING_AVAILABLE: new APIRouter("/sowing/raising/available", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_RAISING_PENDING_ORDERS: new APIRouter("/sowing/raising/pending-orders", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_RAISING_BY_ORDER: new APIRouter("/sowing/raising/by-order/:orderId", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_RAISING_INTAKE: new APIRouter("/sowing/raising/:id", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_EASY_30_DAYS: new APIRouter("/sowing/easy-30-days", HTTP_METHODS.GET, OFFLINE.PROFILE),
     BULK_UPDATE_FUTURE_READY_DAYS: new APIRouter("/sowing/easy-30-days/ready-days", HTTP_METHODS.POST, OFFLINE.PROFILE),
     GET_SOWING_INSIGHTS_RECORDS: new APIRouter("/sowing/insights/records", HTTP_METHODS.GET, OFFLINE.PROFILE),
@@ -1108,6 +1231,13 @@ export const API = {
   WHATSAPP_BROADCAST: {
     GET_ALL: new APIRouter("whatsapp-broadcast", HTTP_METHODS.GET),
     GET_BY_ID: new APIRouter("whatsapp-broadcast/:id", HTTP_METHODS.GET)
+  },
+  WHATSAPP_ALERT: {
+    SEND_ADMIN_DAILY_MIS: new APIRouter(
+      "/whatsapp-alert/engine/admin-daily-mis",
+      HTTP_METHODS.POST,
+      OFFLINE.PROFILE
+    ),
   },
   // WATI proxy (backend-only; token in env). Use these for all WATI operations.
   WATI: {

@@ -31,10 +31,12 @@ const SellOrderDetails = React.lazy(() => import("pages/private/inventory/SellOr
 const TransactionList = React.lazy(() => import("pages/private/inventory/TransactionList"))
 const InventoryLedger = React.lazy(() => import("pages/private/inventory/InventoryLedger"))
 const SowingRequestsList = React.lazy(() => import("pages/private/inventory/SowingRequestsList"))
+const RaisingSeedCollectPage = React.lazy(() => import("pages/private/inventory/RaisingSeedCollectPage"))
 const ReturnRequestList = React.lazy(() => import("pages/private/inventory/ReturnRequestList"))
 const RamAgriInputsProductMaster = React.lazy(() => import("pages/private/inventory/RamAgriInputsProductMaster"))
-const RamAgriInputOrderForm = React.lazy(() => import("pages/private/inventory/RamAgriInputOrderForm"))
+const AgriInputSalesOrderPage = React.lazy(() => import("pages/private/inventory/AgriInputSalesOrderPage"))
 const RamAgriSalesDashboard = React.lazy(() => import("pages/private/inventory/RamAgriSalesDashboard"))
+const RamAgriInputHub = React.lazy(() => import("pages/private/ram-agri-input/RamAgriInputHub"))
 const OldSalesAnalytics = React.lazy(() => import("pages/private/inventory/OldSalesAnalytics"))
 
 const Transactions = React.lazy(() => import("pages/private/transaction"))
@@ -61,6 +63,7 @@ const WhatsAppManagement = React.lazy(() => import("pages/private/whatsapp/Whats
 const SowingManagement = React.lazy(() => import("pages/private/Sowing/SowingManagement"))
 const PlantAvailability = React.lazy(() => import("pages/private/Sowing/PlantAvailability"))
 const SowingGapAnalysis = React.lazy(() => import("pages/private/Sowing/SowingGapAnalysis"))
+const AdminDirectSowPortal = React.lazy(() => import("pages/private/Sowing/AdminDirectSowPortal"))
 const SowingAdminCardsPortal = React.lazy(() => import("pages/private/Sowing/SowingAdminCardsPortal"))
 const PrimarySowingEntry = React.lazy(() => import("pages/private/Sowing/PrimarySowingEntry"))
 const PrimaryMobileOps = React.lazy(() => import("pages/private/primary/PrimaryMobileOps"))
@@ -69,7 +72,16 @@ const PublicFarmerLinks = React.lazy(() => import("pages/private/publicLinks/Pub
 const FlowCharts = React.lazy(() => import("pages/private/FlowCharts"))
 const OrderBucketing = React.lazy(() => import("pages/private/OrderBucketing"))
 const TaskManagement = React.lazy(() => import("pages/private/tasks"))
+const DispatchedVehiclesPage = React.lazy(() =>
+  import("pages/private/DispatchedVehicles/DispatchedVehiclesPage")
+)
 const DispatchedListPage = React.lazy(() => import("pages/private/Dispatch/DispatchedListPage"))
+const PlantPipelineAdminPage = React.lazy(() =>
+  import("pages/private/plantPipeline/PlantPipelineAdminPage")
+)
+const SecondaryDispatchMonitorPage = React.lazy(() =>
+  import("pages/private/secondaryDispatchMonitor/SecondaryDispatchMonitorPage")
+)
 const CallAssignmentList = React.lazy(() => import("pages/private/callAssignment/CallAssignmentList"))
 const CashierPage = React.lazy(() => import("pages/private/cashier"))
 const UpiReceiptPage = React.lazy(() => import("pages/private/upi-receipt"))
@@ -83,14 +95,17 @@ const RewardProgramsAdmin = React.lazy(() => import("pages/private/rewards/Rewar
 const MyRewardsPage = React.lazy(() => import("pages/private/rewards/MyRewardsPage"))
 const DatabaseBackupPage = React.lazy(() => import("pages/private/backup/DatabaseBackupPage"))
 const AdminStatsPage = React.lazy(() => import("pages/private/adminStats/AdminStatsPage"))
+const DeliveryReportPage = React.lazy(() => import("pages/private/deliveryReport/DeliveryReportPage"))
 const NurseryAIAgentPage = React.lazy(() => import("pages/private/aiAgent/NurseryAIAgentPage"))
 const FleetManagementPage = React.lazy(() => import("pages/private/fleet/FleetManagementPage"))
+const AttendanceManagementPage = React.lazy(() => import("pages/private/attendance"))
 
 export const PrivateRoutes = [
   { path: "/u/dashboard", component: Dashboard },
   { path: "/u/weekly", component: Weekly },
   { path: "/u/transactions", component: Transactions },
   { path: "/u/employeese", component: Patients },
+  { path: "/u/attendance", component: AttendanceManagementPage },
 
   { path: "/u/sub-admins", component: SubAdmins },
   
@@ -103,6 +118,7 @@ export const PrivateRoutes = [
   { path: "/u/inventory/grn", component: GRNList },
   { path: "/u/inventory/grn/new", component: GRNForm },
   { path: "/u/inventory/grn/:id", component: GRNDetails },
+  { path: "/u/inventory/raising-seeds", component: RaisingSeedCollectPage },
   { path: "/u/inventory/purchase-orders", component: PurchaseOrderList },
   { path: "/u/inventory/purchase-orders/new", component: PurchaseOrderForm },
   { path: "/u/inventory/purchase-orders/:id/edit", component: PurchaseOrderForm },
@@ -125,8 +141,9 @@ export const PrivateRoutes = [
   { path: "/u/inventory/sowing-requests", component: SowingRequestsList },
   { path: "/u/inventory/return-requests", component: ReturnRequestList },
   { path: "/u/inventory/ram-agri-inputs-master", component: RamAgriInputsProductMaster },
-  { path: "/u/inventory/ram-agri-input-order/new", component: RamAgriInputOrderForm },
+  { path: "/u/inventory/ram-agri-input-order/new", component: AgriInputSalesOrderPage },
   { path: "/u/inventory/ram-agri-sales-dashboard", component: RamAgriSalesDashboard },
+  { path: "/u/ram-agri-input", component: RamAgriInputHub },
   { path: "/u/inventory/old-sales-analytics", component: OldSalesAnalytics },
 
   { path: "/u/settings", component: Settings },
@@ -151,6 +168,7 @@ export const PrivateRoutes = [
   { path: "/u/sowing", component: SowingManagement },
   { path: "/u/plant-availability", component: PlantAvailability },
   { path: "/u/sowing-gap-analysis", component: SowingGapAnalysis },
+  { path: "/u/admin-direct-sow", component: AdminDirectSowPortal },
   { path: "/u/sowing-admin-cards", component: SowingAdminCardsPortal },
   { path: "/u/primary-sowing-entry", component: PrimarySowingEntry },
   { path: "/u/primary-mobile", component: PrimaryMobileOps },
@@ -161,7 +179,10 @@ export const PrivateRoutes = [
   { path: "/u/order-bucketing", component: OrderBucketing },
   { path: "/u/tasks", component: TaskManagement },
   { path: "/u/task-manager", component: TaskManagement },
+  { path: "/u/dispatched-vehicles", component: DispatchedVehiclesPage },
   { path: "/u/dispatch-orders", component: DispatchedListPage },
+  { path: "/u/plant-pipeline", component: PlantPipelineAdminPage },
+  { path: "/u/secondary-dispatch-monitor", component: SecondaryDispatchMonitorPage },
   { path: "/u/fleet", component: FleetManagementPage },
   { path: "/u/cashier", component: CashierPage },
   { path: "/u/call-assignment", component: CallAssignmentList },
@@ -174,5 +195,6 @@ export const PrivateRoutes = [
   { path: "/u/my-rewards", component: MyRewardsPage },
   { path: "/u/database-backup", component: DatabaseBackupPage },
   { path: "/u/admin-stats", component: AdminStatsPage },
+  { path: "/u/delivery-report", component: DeliveryReportPage },
   { path: "/u/ai-agent", component: NurseryAIAgentPage },
 ]
