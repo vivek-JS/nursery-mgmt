@@ -15,6 +15,7 @@ import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFns";
 import {
   AGRI_DELIVERY_TIMING,
   formatAgriDeliveryTimingLabel,
+  minAgriSendDate,
 } from "utils/agriDeliveryTiming";
 
 export default function AgriDeliveryTimingField({
@@ -30,10 +31,10 @@ export default function AgriDeliveryTimingField({
       <FormControl component="fieldset" fullWidth disabled={disabled}>
         <FormLabel component="legend">
           <Typography variant="body2" fontWeight={600}>
-            ऑर्डर कधी आणायचे?
+            ऑर्डर कधी पाठवायची?
           </Typography>
           <Typography variant="caption" color="text.secondary" display="block">
-            When to deliver order
+            When to send order
           </Typography>
         </FormLabel>
         <RadioGroup
@@ -63,10 +64,10 @@ export default function AgriDeliveryTimingField({
       {deliveryTiming === AGRI_DELIVERY_TIMING.CUSTOM ? (
         <LocalizationProvider dateAdapter={AdapterDateFns}>
           <DatePicker
-            label="Delivery date · डिलिव्हरी तारीख"
+            label="Send date · पाठवण्याची तारीख"
             value={deliveryDate}
             onChange={onDeliveryDateChange}
-            minDate={orderDate}
+            minDate={minAgriSendDate(orderDate)}
             renderInput={(params) => (
               <TextField {...params} fullWidth size="small" margin="dense" sx={{ mt: 1 }} />
             )}
@@ -74,7 +75,7 @@ export default function AgriDeliveryTimingField({
         </LocalizationProvider>
       ) : deliveryDate ? (
         <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: "block" }}>
-          Selected · निवड: {formatAgriDeliveryTimingLabel(deliveryTiming, deliveryDate)}
+          Selected · निवडलेली तारीख: {formatAgriDeliveryTimingLabel(deliveryTiming, deliveryDate)}
         </Typography>
       ) : null}
     </Box>

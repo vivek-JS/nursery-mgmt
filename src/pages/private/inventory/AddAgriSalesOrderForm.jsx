@@ -514,7 +514,13 @@ const AddAgriSalesOrderForm = ({
       else if (field === "customerTaluka" && value !== prev.customerTaluka) {
         newData.customerVillage = "";
       } else if (field === "orderDate" && value) {
-        if (deliveryTiming !== AGRI_DELIVERY_TIMING.CUSTOM) {
+        if (deliveryTiming === AGRI_DELIVERY_TIMING.CUSTOM) {
+          newData.deliveryDate = resolveAgriDeliveryDate(
+            AGRI_DELIVERY_TIMING.CUSTOM,
+            prev.deliveryDate,
+            value
+          );
+        } else {
           newData.deliveryDate = resolveAgriDeliveryDate(deliveryTiming, null, value);
         }
       }
@@ -527,12 +533,20 @@ const AddAgriSalesOrderForm = ({
     setDeliveryTiming(timing);
     setFormData((prev) => ({
       ...prev,
-      deliveryDate: resolveAgriDeliveryDate(timing, prev.deliveryDate, prev.orderDate),
+      deliveryDate: resolveAgriDeliveryDate(
+        timing,
+        timing === AGRI_DELIVERY_TIMING.CUSTOM ? null : prev.deliveryDate,
+        prev.orderDate
+      ),
     }));
   };
 
   const handleDeliveryDateChange = (date) => {
-    setFormData((prev) => ({ ...prev, deliveryDate: date }));
+    setDeliveryTiming(AGRI_DELIVERY_TIMING.CUSTOM);
+    setFormData((prev) => ({
+      ...prev,
+      deliveryDate: resolveAgriDeliveryDate(AGRI_DELIVERY_TIMING.CUSTOM, date, prev.orderDate),
+    }));
   };
 
   const handleProductTypeChange = (event) => {
@@ -910,7 +924,7 @@ const AddAgriSalesOrderForm = ({
     }
 
     if (!formData.deliveryDate) {
-      Toast.error("Please select when to deliver the order (ऑर्डर कधी आणायचे)");
+      Toast.error("Please select when to send the order (ऑर्डर कधी पाठवायची)");
       return false;
     }
     if (deliveryTiming === AGRI_DELIVERY_TIMING.CUSTOM && !formData.deliveryDate) {
@@ -2141,7 +2155,7 @@ const AddAgriSalesOrderForm = ({
 
           <Paper variant="outlined" sx={{ p: { xs: 1.25, sm: 2 }, borderRadius: 2, bgcolor: "#f5f5f5" }}>
             <Typography variant="caption" color="text.secondary" fontWeight={600}>
-              Delivery · ऑर्डर कधी आणायचे
+              Send · ऑर्डर कधी पाठवायची
             </Typography>
             <Typography variant="body2" fontWeight={700} sx={{ mt: 0.5 }}>
               {formatAgriDeliveryTimingLabel(deliveryTiming, formData.deliveryDate)}
