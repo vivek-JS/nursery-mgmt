@@ -20,8 +20,7 @@ export default function SplitOrderAttributionSection({ order, value, onChange })
   useEffect(() => {
     if (!order) return
     onChange?.(resolveSplitAttributionFromOrder(order))
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- init once per order
-  }, [order?._id, order?.details?.orderid, order?.orderId])
+  }, [order?._id, order?.details?.orderid, order?.orderId, onChange])
 
   useEffect(() => {
     const mode = value?.childAttribution?.attributionMode || value?.attributionMode
