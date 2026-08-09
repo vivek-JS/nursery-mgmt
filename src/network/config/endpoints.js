@@ -227,6 +227,25 @@ export const API = {
     UPDATE_PRODUCT: new APIRouter("/inventory/products", HTTP_METHODS.PUT),
     DELETE_PRODUCT: new APIRouter("/inventory/products", HTTP_METHODS.DEL),
     GET_LOW_STOCK_PRODUCTS: new APIRouter("/inventory/products/low-stock", HTTP_METHODS.GET),
+    GET_BIOTECH_SEED_MASTER: new APIRouter("/inventory/biotech-seed-master", HTTP_METHODS.GET),
+    GET_SEED_DUAL_LINKS: new APIRouter("/inventory/seed-dual-links", HTTP_METHODS.GET),
+    ASSIGN_SUBTYPE_SEED: new APIRouter("/inventory/seed-dual-links/assign", HTTP_METHODS.POST),
+    GET_ALL_BIOTECH_SEED_PRODUCTS: new APIRouter("/inventory/biotech-seed-products", HTTP_METHODS.GET),
+    CREATE_BIOTECH_SEED_PLANT: new APIRouter("/inventory/biotech-seed-products", HTTP_METHODS.POST),
+    UPDATE_BIOTECH_SEED_PLANT: new APIRouter("/inventory/biotech-seed-products/:id", HTTP_METHODS.PATCH),
+    DELETE_BIOTECH_SEED_PLANT: new APIRouter("/inventory/biotech-seed-products/:id", HTTP_METHODS.DEL),
+    ADD_BIOTECH_VARIETY: new APIRouter("/inventory/biotech-seed-products/:id/varieties", HTTP_METHODS.POST),
+    UPDATE_BIOTECH_VARIETY: new APIRouter(
+      "/inventory/biotech-seed-products/:id/varieties/:varietyId",
+      HTTP_METHODS.PATCH
+    ),
+    DELETE_BIOTECH_VARIETY: new APIRouter(
+      "/inventory/biotech-seed-products/:id/varieties/:varietyId",
+      HTTP_METHODS.DEL
+    ),
+    GET_PRODUCT_AGRI_LINK: new APIRouter("/inventory/products/:id/agri-link", HTTP_METHODS.GET),
+    PATCH_PRODUCT_AGRI_LINK: new APIRouter("/inventory/products/:id/agri-link", HTTP_METHODS.PATCH),
+    GET_PRODUCT_STOCK_LEDGER: new APIRouter("/inventory/products/:id/stock-ledger", HTTP_METHODS.GET),
 
     // Categories
     GET_ALL_CATEGORIES: new APIRouter("/inventory/categories", HTTP_METHODS.GET),
@@ -246,6 +265,18 @@ export const API = {
     DELETE_RAM_AGRI_INPUT: new APIRouter("/inventory/ram-agri-inputs/:id", HTTP_METHODS.DEL),
     ADD_VARIETY: new APIRouter("/inventory/ram-agri-inputs/:id/varieties", HTTP_METHODS.POST),
     UPDATE_VARIETY: new APIRouter("/inventory/ram-agri-inputs/:id/varieties/:varietyId", HTTP_METHODS.PATCH),
+    GET_VARIETY_INVENTORY_LINK: new APIRouter(
+      "/inventory/ram-agri-inputs/:id/varieties/:varietyId/inventory-link",
+      HTTP_METHODS.GET
+    ),
+    UPSERT_VARIETY_INVENTORY_LINK: new APIRouter(
+      "/inventory/ram-agri-inputs/:id/varieties/:varietyId/inventory-link",
+      HTTP_METHODS.PATCH
+    ),
+    CLEAR_ALL_VARIETY_INVENTORY_LINKS: new APIRouter(
+      "/inventory/ram-agri-inputs/inventory-links/clear-all",
+      HTTP_METHODS.POST
+    ),
     DELETE_VARIETY: new APIRouter("/inventory/ram-agri-inputs/:id/varieties/:varietyId", HTTP_METHODS.DEL),
     ADD_RATE: new APIRouter("/inventory/ram-agri-inputs/:id/varieties/:varietyId/rates", HTTP_METHODS.POST),
     UPDATE_RATE: new APIRouter("/inventory/ram-agri-inputs/:id/varieties/:varietyId/rates/:rateId", HTTP_METHODS.PATCH),
@@ -412,6 +443,24 @@ export const API = {
     COMPLETE_AGRI_SALES_ORDERS: new APIRouter("/inventory/agri-sales-orders/complete", HTTP_METHODS.PATCH),
     // Sales Return (for sales person dispatched orders - NO stock impact)
     PROCESS_SALES_RETURN: new APIRouter("/inventory/agri-sales-orders/:id/sales-return", HTTP_METHODS.PATCH),
+    GET_AGRI_SALES_ORDER_BATCH_SUMMARY: new APIRouter(
+      "/inventory/agri-sales-orders/:id/batch-summary",
+      HTTP_METHODS.GET
+    ),
+    REQUEST_AGRI_SALES_RETURN: new APIRouter("/inventory/agri-sales-orders/returns/request", HTTP_METHODS.POST),
+    LIST_AGRI_SALES_RETURN_REQUESTS: new APIRouter("/inventory/agri-sales-orders/returns", HTTP_METHODS.GET),
+    APPROVE_AGRI_SALES_RETURN_REQUEST: new APIRouter(
+      "/inventory/agri-sales-orders/returns/:id/approve",
+      HTTP_METHODS.PATCH
+    ),
+    REJECT_AGRI_SALES_RETURN_REQUEST: new APIRouter(
+      "/inventory/agri-sales-orders/returns/:id/reject",
+      HTTP_METHODS.PATCH
+    ),
+    GET_AGRI_SALES_RETURN_REQUESTS_BY_ORDER: new APIRouter(
+      "/inventory/agri-sales-orders/returns/by-order/:orderId",
+      HTTP_METHODS.GET
+    ),
 
     // Batches
     GET_ALL_BATCHES: new APIRouter("/inventory/batches", HTTP_METHODS.GET),
@@ -880,6 +929,8 @@ export const API = {
     ADD_ORDER_TO_DISPATCH: new APIRouter("dispatched/:id/add-order", HTTP_METHODS.PATCH),
     DETACH_ORDER: new APIRouter("dispatched/:id/detach-order", HTTP_METHODS.PATCH),
     REASSIGN_REFUSED: new APIRouter("dispatched/:id/reassign-refused", HTTP_METHODS.PATCH),
+    GET_GIFT_PRODUCTS_IN_STOCK: new APIRouter("dispatched/gift-products-in-stock", HTTP_METHODS.GET),
+    SYNC_ORDER_GIFTS: new APIRouter("dispatched/sync-order-gifts", HTTP_METHODS.POST),
     ASSIGN_ROUTE: new APIRouter("dispatched/assign-route", HTTP_METHODS.PATCH),
     BULK_MARK_READY: new APIRouter("dispatched/bulk-mark-ready", HTTP_METHODS.PATCH),
   },
@@ -1176,6 +1227,8 @@ export const API = {
     COMPLETE_ORDER_FROM_EXCESS: new APIRouter("/sowing/order/:orderId/complete-from-excess", HTTP_METHODS.POST, OFFLINE.PROFILE),
     GET_SLOT_COVERABLE_ORDERS: new APIRouter("/sowing/slot/:slotId/coverable-orders", HTTP_METHODS.GET, OFFLINE.PROFILE),
     ALLOCATE_SLOT_TO_ORDERS: new APIRouter("/sowing/slot/:slotId/allocate-to-orders", HTTP_METHODS.POST, OFFLINE.PROFILE),
+    GET_SLOT_TRANSFER_TARGETS: new APIRouter("/sowing/slot/:slotId/transfer-targets", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    TRANSFER_SLOT_TO_SLOT: new APIRouter("/sowing/slot/:fromSlotId/transfer-to-slot", HTTP_METHODS.POST, OFFLINE.PROFILE),
     COMPLETE_SOWING_REQUEST: new APIRouter("/sowing/request/:requestId/complete-sow", HTTP_METHODS.POST, OFFLINE.PROFILE),
     EDIT_SOW_ENTRY: new APIRouter("/sowing/request/:requestId/sow-entry", HTTP_METHODS.PATCH, OFFLINE.PROFILE),
     GET_ISSUED_SOWING_QUEUE: new APIRouter("/sowing/request/issued-queue", HTTP_METHODS.GET, OFFLINE.PROFILE),

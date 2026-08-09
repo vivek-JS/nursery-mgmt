@@ -90,12 +90,25 @@ const PublicAddFarmer = () => {
       )
     : []
 
+  const villageBelongsToTaluka = (village, talukaCode) => {
+    if (!talukaCode) return true
+    if (village.talukaCode) return village.talukaCode === talukaCode
+    // Legacy links often omit talukaCode; derive from MH_NAN_SHA_* style codes
+    const code = village.villageCode || ""
+    const parts = code.split("_")
+    if (parts.length >= 3) {
+      return parts.slice(0, 3).join("_") === talukaCode
+    }
+    return false
+  }
+
   const availableVillages = config?.locationRules
     ? Array.from(
         new Map(
           config.locationRules
             .filter((r) => r.stateCode === form.stateCode)
             .flatMap((r) => r.villages || [])
+            .filter((v) => villageBelongsToTaluka(v, form.talukaCode))
             .map((v) => [v.villageName.toLowerCase(), v])
         ).values()
       )

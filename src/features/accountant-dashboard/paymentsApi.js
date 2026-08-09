@@ -61,7 +61,8 @@ export async function fetchFarmerOrderPayments({
   const list = Array.isArray(response?.data?.data) ? response.data.data : []
   return {
     rows: list.map((r) => normalizeFarmerPayment(r)),
-    pagination: response?.data?.pagination || null
+    pagination: response?.data?.pagination || null,
+    summary: response?.data?.summary || null
   }
 }
 
@@ -72,12 +73,14 @@ export async function fetchAgriOrderPayments({
   startDate,
   endDate,
   /** Pass empty string for all payment statuses (backend treats falsy as no filter) */
-  paymentStatusFilter
+  paymentStatusFilter,
+  isOld = "false",
 }) {
   const params = {
     search: debouncedSearchTerm || "",
     page,
-    limit: rowsPerPage
+    limit: rowsPerPage,
+    isOld,
   }
   if (paymentStatusFilter !== undefined) {
     params.paymentStatus = paymentStatusFilter
@@ -119,7 +122,11 @@ export async function fetchBulkPaymentsList({ bulkPage, rowsPerPage, bulkStatusF
       total,
       page,
       limit,
-      totalPages
+      totalPages,
+      totalAmountSum: Number(data?.totalAmountSum) || 0,
+      pendingCount: Number(data?.pendingCount) || 0,
+      collectedCount: Number(data?.collectedCount) || 0,
+      rejectedCount: Number(data?.rejectedCount) || 0
     }
   }
 }

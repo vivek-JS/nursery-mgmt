@@ -1,8 +1,10 @@
 {
   "compilerOptions": {
-    "jsx": "react",
-    "baseUrl": "src"
+    "baseUrl": "src",
+    "paths": {
+      "@shared/dispatch-documents/*": ["shared/dispatch-documents/*"],
+      "@shared/dispatch-documents": ["shared/dispatch-documents/index.js"]
+    }
   },
-  "exclude": ["node_modules", "public/build"],
   "include": ["src"]
 }

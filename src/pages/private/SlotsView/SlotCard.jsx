@@ -259,7 +259,9 @@ const SlotCard = ({
               fullWidth
               onClick={() => onRollExpiredAvailable(slot)}
               sx={{ textTransform: "none", fontSize: "0.7rem", py: 0.5 }}>
-              Roll expired available
+              {slot.status === false
+                ? "Roll expired available (slot Off)"
+                : "Roll expired available"}
             </Button>
           </div>
         )}

@@ -4,12 +4,19 @@ import { Truck, Search, User, Package } from "lucide-react"
 import DispatchForm from "./DispatchedForm"
 import CollectSlipPDF from "./CollectSlipPDF"
 import DeliveryChallanPDF from "./DeliveryChallan"
-import CompleteInvoicePDF from "./CompleteInvoicePDF.js"
+import RamBiotechInvoicePDF from "./RamBiotechInvoicePDF.js"
+import { useInvoiceAadharPrompt } from "../DispatchedVehicles/useInvoiceAadharPrompt"
 import OrderCompleteDialog from "./OrderCompleteDialog"
 import DispatchAccordion from "./DispatchAccordion"
+import DispatchDateFilter from "../DispatchedVehicles/DispatchDateFilter"
+import {
+  groupDispatchesByDate,
+  resolveDatePresetRange,
+} from "../DispatchedVehicles/dispatchVehiclesUtils"
 import { Toast } from "helpers/toasts/toastHelper"
 import moment from "moment"
 const DISPATCH_PAGE_SIZE = 20
+const DEFAULT_DATE_PRESET = "last7"
 
 /** Parse GET /dispatched/:id body (handles generateResponse nesting). */
 function parseDispatchFromGetByIdResponse(res) {
@@ -89,14 +96,36 @@ function normalizeDispatchListOrder(entry, dispatch) {
   const farmer = det.farmer || {}
   const qty = Number(entry.quantity ?? entry.numberOfPlants ?? 0)
   const rate = Number(entry.rate ?? 0)
+  const plantLines = Array.isArray(entry.plantLineItems)
+    ? entry.plantLineItems
+    : Array.isArray(det.plantLineItems)
+      ? det.plantLineItems
+      : []
+  const firstLine = plantLines[0]
+  const plantName =
+    firstLine?.plantNameSnapshot ||
+    entry.plantDetails?.name ||
+    entry.plantType?.name ||
+    "—"
+  const plantSubtype =
+    firstLine?.plantSubtypeSnapshot ||
+    entry.plantDetails?.subtype ||
+    entry.plantSubtype?.name ||
+    ""
+  const plantLabel =
+    plantLines.length > 1
+      ? `${[plantName, plantSubtype].filter(Boolean).join(" · ")} +${plantLines.length - 1} more`
+      : [plantName, plantSubtype].filter(Boolean).join(" · ") || "—"
   return {
     orderMongoId: String(entry._id ?? det.orderid ?? ""),
     orderId: entry.order ?? entry.orderId ?? "—",
     farmerName: entry.farmerName || farmer.name || "—",
     farmerMobile: entry.contact || farmer.mobileNumber || "",
     village: farmer.village || "",
-    plantName: entry.plantDetails?.name || entry.plantType?.name || "—",
-    plantSubtype: entry.plantDetails?.subtype || entry.plantSubtype?.name || "",
+    plantName,
+    plantSubtype,
+    plantLabel,
+    plantLineItems: plantLines,
     quantity: qty,
     rate,
     amount: qty * rate,
@@ -122,10 +151,14 @@ function collectDispatchSearchHits(dispatches = []) {
 }
 
 const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false, dispatchSearch = "" }) => {
+  const initialRange = resolveDatePresetRange(DEFAULT_DATE_PRESET)
   const [dispatches, setDispatches] = useState([])
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
   const [dispatchHasMore, setDispatchHasMore] = useState(true)
+  const [datePreset, setDatePreset] = useState(DEFAULT_DATE_PRESET)
+  const [startDate, setStartDate] = useState(initialRange.startDate)
+  const [endDate, setEndDate] = useState(initialRange.endDate)
   const pageRef = useRef(1)
   const hasMoreRef = useRef(true)
   const [selectedDispatch, setSelectedDispatch] = useState(null)
@@ -133,8 +166,10 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false,
   const [isDispatchFormOpen, setIsDispatchFormOpen] = useState(false)
   const [isCollectSlipOpen, setIsCollectSlipOpen] = useState(false)
   const [isDCOpen, setIsDCOpen] = useState(false)
-  const [isCompleteInvoiceOpen, setIsCompleteInvoiceOpen] = useState(false)
+  const [isRamInvoiceOpen, setIsRamInvoiceOpen] = useState(false)
+  const [invoiceAadharByOrderId, setInvoiceAadharByOrderId] = useState({})
   const [isOrderCompleteOpen, setIsOrderCompleteOpen] = useState(false)
+  const { prompt: promptInvoiceAadhar, dialog: invoiceAadharDialog } = useInvoiceAadharPrompt()
 
   const enrichDispatchLoadStatus = useCallback(async (dispatchRows = []) => {
     if (!Array.isArray(dispatchRows) || dispatchRows.length === 0) return []
@@ -199,6 +234,10 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false,
     const query = { paged: "1", page, limit: DISPATCH_PAGE_SIZE }
     const q = String(dispatchSearch || "").trim()
     if (q) query.search = q
+    else if (startDate && endDate) {
+      query.startDate = startDate
+      query.endDate = endDate
+    }
     const response = await instance.request({}, query)
     const rows = Array.isArray(response.data?.data) ? response.data.data : []
     const pag = response.data?.pagination
@@ -214,7 +253,20 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false,
       more = rows.length >= DISPATCH_PAGE_SIZE
     }
     return { rows, curPage, more }
-  }, [dispatchSearch])
+  }, [dispatchSearch, endDate, startDate])
+
+  const handleDatePreset = useCallback((presetId) => {
+    const range = resolveDatePresetRange(presetId)
+    setDatePreset(presetId)
+    setStartDate(range.startDate)
+    setEndDate(range.endDate)
+  }, [])
+
+  const handleDateRangeChange = useCallback((from, to, preset = "custom") => {
+    setDatePreset(preset)
+    setStartDate(from)
+    setEndDate(to)
+  }, [])
 
   const refreshList = useCallback(async () => {
     setLoading(true)
@@ -268,13 +320,15 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false,
     void refreshList()
     setIsCollectSlipOpen(false)
     setIsDCOpen(false)
-    setIsCompleteInvoiceOpen(false)
+    setIsRamInvoiceOpen(false)
     setIsDispatchFormOpen(false)
     setIsOrderCompleteOpen(false)
-  }, [viewMode, dispatchSearch, refreshList])
+  }, [viewMode, dispatchSearch, startDate, endDate, refreshList])
 
   const searchTrim = String(dispatchSearch || "").trim()
   const searchActive = searchTrim.length >= 2
+
+  const dateGroups = useMemo(() => groupDispatchesByDate(dispatches), [dispatches])
 
   const searchHits = useMemo(() => {
     if (!searchActive) return []
@@ -559,7 +613,7 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false,
       isDCOpen ||
       isDispatchFormOpen ||
       isOrderCompleteOpen ||
-      isCompleteInvoiceOpen
+      isRamInvoiceOpen
     ) {
       return
     }
@@ -625,22 +679,29 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false,
         void openDc()
         break
       }
-      case "completeInvoice": {
-        const openCompleteInvoice = async () => {
+      case "completeInvoice":
+      case "ramInvoice": {
+        const openRam = async () => {
           try {
             const inst = NetworkManager(API.DISPATCHED.GET_BY_ID)
             const res = await inst.request({}, [String(dispatch._id)])
             const d = parseDispatchFromGetByIdResponse(res)
             const merged = mergeDispatchWithFreshDetail(dispatch, d || {})
+            const { confirmed, aadharByOrderId } = await promptInvoiceAadhar(merged)
+            if (!confirmed) return
+            setInvoiceAadharByOrderId(aadharByOrderId || {})
             setSelectedDispatch(merged)
-            setIsCompleteInvoiceOpen(true)
+            setIsRamInvoiceOpen(true)
           } catch (err) {
-            console.error("getDispatch for complete invoice:", err)
+            console.error("getDispatch for ram invoice:", err)
+            const { confirmed, aadharByOrderId } = await promptInvoiceAadhar(dispatch)
+            if (!confirmed) return
+            setInvoiceAadharByOrderId(aadharByOrderId || {})
             setSelectedDispatch(dispatch)
-            setIsCompleteInvoiceOpen(true)
+            setIsRamInvoiceOpen(true)
           }
         }
-        void openCompleteInvoice()
+        void openRam()
         break
       }
       default:
@@ -656,7 +717,7 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false,
   const handleDelete = async (dispatch) => {
     if (
       !window.confirm(
-        "Remove this transport and restore orders to ready for dispatch? This cannot be undone."
+        "Remove this transport and restore orders to farm ready queue? This cannot be undone."
       )
     ) {
       return
@@ -694,7 +755,7 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false,
       isDispatchFormOpen ||
       isCollectSlipOpen ||
       isDCOpen ||
-      isCompleteInvoiceOpen ||
+      isRamInvoiceOpen ||
       isOrderCompleteOpen
     ) {
       return
@@ -730,6 +791,14 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false,
               </button>
             </div>
           )}
+
+          <DispatchDateFilter
+            startDate={startDate}
+            endDate={endDate}
+            activePreset={datePreset}
+            onPreset={handleDatePreset}
+            onRangeChange={handleDateRangeChange}
+          />
 
           {searchActive && !loading ? (
             searchHits.length > 0 ? (
@@ -772,9 +841,9 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false,
                       ) : null}
                       <div className="flex items-center gap-1.5 text-[11px] text-gray-700">
                         <Package className="h-3.5 w-3.5 shrink-0 text-gray-500" aria-hidden />
-                        <span className="line-clamp-1">
-                          {hit.plantName}
-                          {hit.plantSubtype ? ` · ${hit.plantSubtype}` : ""}
+                        <span className="line-clamp-1" title={hit.plantLabel || hit.plantName}>
+                          {hit.plantLabel ||
+                            [hit.plantName, hit.plantSubtype].filter(Boolean).join(" · ")}
                         </span>
                       </div>
                       <p className="mt-1.5 text-xs font-semibold text-blue-700">
@@ -808,37 +877,64 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false,
               <p className="text-gray-500">
                 {searchActive
                   ? `No loading dispatches match "${searchTrim}".`
-                  : "No dispatches are currently in process."}
+                  : startDate && endDate
+                    ? `No dispatches between ${startDate} and ${endDate}.`
+                    : "No dispatches are currently in process."}
               </p>
             </div>
           ) : (
-            <div className="space-y-4">
-              {dispatches.map((dispatch) => (
-                <DispatchAccordion
-                  key={dispatch._id}
-                  dispatch={dispatch}
-                  expandOnMount={searchActive && searchDispatchIds.has(String(dispatch._id))}
-                  highlightOrderId={
-                    searchActive
-                      ? focusedOrderId &&
-                        searchHits.some(
-                          (h) =>
-                            h.dispatchId === String(dispatch._id) && h.orderMongoId === focusedOrderId
-                        )
-                        ? focusedOrderId
-                        : searchHits.find((h) => h.dispatchId === String(dispatch._id))?.orderMongoId ||
-                          null
-                      : null
-                  }
-                  onRefresh={refreshList}
-                  onDispatchPdfFields={patchDispatchPdfFields}
-                  onViewDispatch={(dispatch) => handleDialogOpen("view", dispatch, { stopPropagation: () => {} })}
-                  onCollectSlip={(dispatch) => handleDialogOpen("collectSlip", dispatch, { stopPropagation: () => {} })}
-                  onDeliveryChallan={(dispatch) => handleDialogOpen("dc", dispatch, { stopPropagation: () => {} })}
-                  onCompleteInvoice={(dispatch) => handleDialogOpen("completeInvoice", dispatch, { stopPropagation: () => {} })}
-                  onCompleteOrder={(dispatch) => handleOrderComplete(dispatch, { stopPropagation: () => {} })}
-                  onDeleteDispatch={(dispatch) => handleDelete(dispatch)}
-                />
+            <div className="space-y-6">
+              {dateGroups.map((group) => (
+                <section key={group.dateKey} className="space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+                    <h3 className="text-sm font-bold text-gray-800">{group.label}</h3>
+                    <span className="text-xs font-semibold text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full">
+                      {group.rows.length} dispatch{group.rows.length === 1 ? "" : "es"}
+                    </span>
+                  </div>
+                  <div className="space-y-4">
+                    {group.rows.map((dispatch) => (
+                      <DispatchAccordion
+                        key={dispatch._id}
+                        dispatch={dispatch}
+                        expandOnMount={searchActive && searchDispatchIds.has(String(dispatch._id))}
+                        highlightOrderId={
+                          searchActive
+                            ? focusedOrderId &&
+                              searchHits.some(
+                                (h) =>
+                                  h.dispatchId === String(dispatch._id) &&
+                                  h.orderMongoId === focusedOrderId
+                              )
+                              ? focusedOrderId
+                              : searchHits.find((h) => h.dispatchId === String(dispatch._id))
+                                  ?.orderMongoId || null
+                            : null
+                        }
+                        onRefresh={refreshList}
+                        onDispatchPdfFields={patchDispatchPdfFields}
+                        onViewDispatch={(dispatch) =>
+                          handleDialogOpen("view", dispatch, { stopPropagation: () => {} })
+                        }
+                        onCollectSlip={(dispatch) =>
+                          handleDialogOpen("collectSlip", dispatch, { stopPropagation: () => {} })
+                        }
+                        onDeliveryChallan={(dispatch) =>
+                          handleDialogOpen("dc", dispatch, { stopPropagation: () => {} })
+                        }
+                        onCompleteInvoice={(dispatch, aadharByOrderId = {}) => {
+                          setInvoiceAadharByOrderId(aadharByOrderId)
+                          setSelectedDispatch(dispatch)
+                          setIsRamInvoiceOpen(true)
+                        }}
+                        onCompleteOrder={(dispatch) =>
+                          handleOrderComplete(dispatch, { stopPropagation: () => {} })
+                        }
+                        onDeleteDispatch={(dispatch) => handleDelete(dispatch)}
+                      />
+                    ))}
+                  </div>
+                </section>
               ))}
               {dispatchHasMore ? (
                 <div className="flex justify-center pt-2">
@@ -890,16 +986,19 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false,
             />
           )}
 
-          {isCompleteInvoiceOpen && selectedDispatch && (
-            <CompleteInvoicePDF
-              open={isCompleteInvoiceOpen}
+          {isRamInvoiceOpen && selectedDispatch && (
+            <RamBiotechInvoicePDF
+              open={isRamInvoiceOpen}
               onClose={() => {
-                setIsCompleteInvoiceOpen(false)
+                setIsRamInvoiceOpen(false)
                 setSelectedDispatch(null)
               }}
               dispatchData={selectedDispatch}
+              aadharByOrderId={invoiceAadharByOrderId}
             />
           )}
+
+          {invoiceAadharDialog}
 
           {isOrderCompleteOpen && selectedDispatch && (
             <OrderCompleteDialog

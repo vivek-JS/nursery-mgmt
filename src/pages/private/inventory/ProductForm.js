@@ -33,7 +33,7 @@ const ProductForm = () => {
     gst: 0,
     plantId: '',
     subtypeId: '',
-    isRamAgriSales: false,
+    tentativePlantsPerPacket: '',
   });
 
   const [errors, setErrors] = useState({});
@@ -67,6 +67,18 @@ const ProductForm = () => {
       setFormData(prev => ({ ...prev, plantId: '', subtypeId: '' }));
     }
   }, [formData.category]);
+
+  // Sync selectedPlant after edit load — plants arrive async after formData.plantId is set
+  useEffect(() => {
+    if (!isPlantCategory(formData.category) || !formData.plantId) {
+      if (!formData.plantId) setSelectedPlant(null);
+      return;
+    }
+    if (!plants.length) return;
+    const plantId = String(formData.plantId);
+    const plant = plants.find((p) => String(p._id) === plantId) || null;
+    setSelectedPlant(plant);
+  }, [formData.plantId, formData.category, plants]);
 
   const fetchUnits = async () => {
     try {
@@ -146,26 +158,8 @@ const ProductForm = () => {
             gst: product.gst || 0,
             plantId: product.plantId?._id || product.plantId || '',
             subtypeId: product.subtypeId || '',
-            isRamAgriSales: product.isRamAgriSales || false,
+            tentativePlantsPerPacket: product.tentativePlantsPerPacket ?? '',
           });
-          
-          // If category is seeds, plants, or ready plants and plantId exists, set selected plant
-          if (isPlantCategory(product.category) && product.plantId) {
-            const plantId = product.plantId._id || product.plantId;
-            if (plants.length > 0) {
-              const plant = plants.find(p => p._id === plantId);
-              if (plant) {
-                setSelectedPlant(plant);
-              }
-            } else {
-              // Fetch plants first, then set selected plant
-              await fetchPlants();
-              const plant = plants.find(p => p._id === plantId);
-              if (plant) {
-                setSelectedPlant(plant);
-              }
-            }
-          }
         }
       }
     } catch (error) {
@@ -184,6 +178,14 @@ const ProductForm = () => {
     const unitsRequiringSecondary = ['bag', 'box', 'seeds'];
     return unitsRequiringSecondary.includes(unitName);
   };
+
+  const isSeedsCategory = (category) => {
+    if (!category) return false;
+    return category.toLowerCase().trim().replace(/_/g, ' ') === 'seeds';
+  };
+
+  const showTentativePlants =
+    isSeedsCategory(formData.category) && Boolean(selectedPlant?.sowingAllowed);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -240,7 +242,8 @@ const ProductForm = () => {
     setFormData({ 
       ...formData, 
       plantId: plantId || '', 
-      subtypeId: '' // Clear subtype when plant changes
+      subtypeId: '',
+      tentativePlantsPerPacket: plant?.sowingAllowed ? formData.tentativePlantsPerPacket : '',
     });
   };
 
@@ -308,6 +311,14 @@ const ProductForm = () => {
       if (!formData.subtypeId) newErrors.subtypeId = `Subtype is required for ${formData.category} products`;
     }
 
+    if (showTentativePlants) {
+      const tpp = Number(formData.tentativePlantsPerPacket);
+      if (!formData.tentativePlantsPerPacket || !Number.isFinite(tpp) || tpp <= 0) {
+        newErrors.tentativePlantsPerPacket =
+          'Tentative plants per packet is required and must be greater than 0';
+      }
+    }
+
     if (formData.primaryUnit) {
       const selectedUnit = units.find(u => u._id === formData.primaryUnit);
       if (selectedUnit && requiresSecondaryUnit(selectedUnit)) {
@@ -342,6 +353,12 @@ const ProductForm = () => {
         conversionFactor: Number(formData.conversionFactor),
         secondaryUnit: formData.secondaryUnit || null,
       };
+
+      if (showTentativePlants) {
+        payload.tentativePlantsPerPacket = Number(formData.tentativePlantsPerPacket);
+      } else {
+        payload.tentativePlantsPerPacket = null;
+      }
       
       // Include plantId and subtypeId if category is "seeds", "plants", or "ready plants"
       // Always include them (even if null) so backend can handle them properly
@@ -590,6 +607,35 @@ const ProductForm = () => {
                     <p className="text-gray-500 text-xs mt-1">Please select a plant first</p>
                   )}
                 </div>
+
+                {showTentativePlants && (
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                      Tentative plants per packet{' '}
+                      <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="number"
+                      name="tentativePlantsPerPacket"
+                      value={formData.tentativePlantsPerPacket}
+                      onChange={handleChange}
+                      step="1"
+                      min="1"
+                      className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors ${
+                        errors.tentativePlantsPerPacket ? 'border-red-500' : 'border-gray-300'
+                      }`}
+                      placeholder="e.g., 1200"
+                    />
+                    {errors.tentativePlantsPerPacket && (
+                      <p className="text-red-500 text-xs mt-1">{errors.tentativePlantsPerPacket}</p>
+                    )}
+                    <p className="text-xs text-gray-500 mt-1">
+                      Expected seedlings from 1{' '}
+                      {selectedPrimaryUnit?.name || selectedPrimaryUnit?.abbreviation || 'primary unit'}.
+                      Used for sowing packet calculations — not the bag/box conversion factor.
+                    </p>
+                  </div>
+                )}
               </>
             )}
           </div>
@@ -794,24 +840,6 @@ const ProductForm = () => {
                 placeholder="Optional"
               />
             </div>
-          </div>
-
-          <div className="mt-6 pt-6 border-t border-gray-200">
-            <label className="flex items-center space-x-3 cursor-pointer">
-              <input
-                type="checkbox"
-                name="isRamAgriSales"
-                checked={formData.isRamAgriSales}
-                onChange={(e) => setFormData({ ...formData, isRamAgriSales: e.target.checked })}
-                className="w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500 focus:ring-2"
-              />
-              <span className="text-sm font-semibold text-gray-700">
-                Available for Ram Agri Sales
-              </span>
-            </label>
-            <p className="text-xs text-gray-500 mt-2 ml-8">
-              Check this if the product should be available for Ram Agri Sales orders
-            </p>
           </div>
         </div>
 

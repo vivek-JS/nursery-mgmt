@@ -60,12 +60,14 @@ export function ocrDataHasUsableSignal(d) {
  * @param {object} prev
  * @param {object} d — ocr.data
  * @param {{ fillAmount?: boolean, overwrite?: boolean }} [options]
- *   - fillAmount: when true, set amount from receipt if OCR returned one (use only after successful scan)
+ *   - fillAmount: set amount from receipt if OCR returned one; defaults to true since amount
+ *     already gets the same "only fill if empty, or overwrite" guard as every other field below.
+ *     Pass `false` explicitly only for flows that intentionally never want receipt amounts applied.
  *   - overwrite: when true (rescan), replace payee/date/UTR even if already filled
  */
 export function mergeUpiOcrIntoPaymentState(prev, d, options = {}) {
   if (!d || typeof d !== "object") return prev
-  const { fillAmount = false, overwrite = false } = options
+  const { fillAmount = true, overwrite = false } = options
   const ocrSignal = ocrDataHasUsableSignal(d)
   const utr = d.utr_number != null && String(d.utr_number).trim() ? String(d.utr_number).trim() : ""
   const tid = d.transaction_id != null && String(d.transaction_id).trim() ? String(d.transaction_id).trim() : ""

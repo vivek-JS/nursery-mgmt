@@ -410,6 +410,8 @@ const SlotOrdersDrawer = ({
   monthName,
   statKey,
   pendingSlotId,
+  plantId,
+  subtypeId,
   canRollPastDue = false,
   onOpenPendingRoll,
 }) => {
@@ -605,11 +607,13 @@ const SlotOrdersDrawer = ({
             }}>
             <div className="farmer-orders-slot-embed rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
               <FarmerOrdersTable
-                key={`${slot._id}-${view.filter}`}
+                key={`${slot._id}-${view.filter}-${plantId || ""}-${subtypeId || ""}`}
                 slotId={slot._id}
                 monthName={monthName}
                 startDay={slot.startDay}
                 endDay={slot.endDay}
+                plantId={plantId}
+                subtypeId={subtypeId}
                 slotOrderFilter={view.filter}
                 expectedPlantsTotal={cardPlantsTotal}
               />

@@ -54,13 +54,16 @@ import {
   inferAgriDeliveryTiming,
   resolveAgriDeliveryDate,
 } from "utils/agriDeliveryTiming";
-
-function isUserRamAgriSalesRep(user) {
-  if (!user) return false;
-  const jt = String(user.jobTitle || "").toUpperCase().trim();
-  const role = String(user.role || "").toUpperCase().trim();
-  return jt === "RAM_AGRI_SALES" || role === "RAM_AGRI_SALES" || jt === "SALES" || role === "SALES";
-}
+import {
+  isAgriDealerSelf,
+  dealerProfileToCustomerFields,
+  isUserRamAgriSalesRep,
+} from "utils/agriDealerOrder";
+import {
+  getRamAgriProductTypeLabel,
+  getRamAgriProductTypeLabelPlural,
+  getRamAgriProductTypeRadioLabel,
+} from "utils/ramAgriProductType";
 
 const useStyles = makeStyles()((theme) => ({
   dialog: {
@@ -139,9 +142,11 @@ const AddAgriSalesOrderForm = ({
   const { classes } = useStyles();
   const user = useUserData();
   const isRamAgriRepUser = isUserRamAgriSalesRep(user);
+  const isDealerSelfUser = isAgriDealerSelf(user);
   const [loading, setLoading] = useState(false);
   const [mobileLoading, setMobileLoading] = useState(false);
   const [ramAgriCrops, setRamAgriCrops] = useState([]);
+  const [inventoryGiftProducts, setInventoryGiftProducts] = useState([]);
   const [units, setUnits] = useState([]);
   const [customerData, setCustomerData] = useState({});
   const [productType, setProductType] = useState("seed");
@@ -150,14 +155,14 @@ const AddAgriSalesOrderForm = ({
   const editOrderId = editOrder?.details?.orderid || editOrder?.details?._id || null;
   const isEditMode = Boolean(editOrderId);
 
-  const productTypeLabel = productType === "chemical" ? "Chemical" : "Seed";
-  const productTypeLabelPlural = productType === "chemical" ? "Chemicals" : "Seeds";
+  const productTypeLabel = getRamAgriProductTypeLabel(productType);
+  const productTypeLabelPlural = getRamAgriProductTypeLabelPlural(productType);
+  const isGiftMode = productType === "gift";
 
-  const emptyProductLine = () => ({
-    ramAgriCropId: "",
-    ramAgriCropName: "",
-    varietySlots: [],
-  });
+  const emptyProductLine = (type = productType) =>
+    type === "gift"
+      ? { productId: "", productName: "", quantity: "", rate: "" }
+      : { ramAgriCropId: "", ramAgriCropName: "", varietySlots: [] };
   const [productLines, setProductLines] = useState([emptyProductLine()]);
   const [confirmSubmitOpen, setConfirmSubmitOpen] = useState(false);
   const [deliveryTiming, setDeliveryTiming] = useState(AGRI_DELIVERY_TIMING.TODAY);
@@ -211,7 +216,11 @@ const AddAgriSalesOrderForm = ({
   // Load Ram Agri crops and units
   useEffect(() => {
     if (open) {
-      loadRamAgriCrops(productType);
+      if (productType === "gift") {
+        loadInventoryGiftProducts();
+      } else {
+        loadRamAgriCrops(productType);
+      }
     }
   }, [open, productType]);
 
@@ -242,17 +251,36 @@ const AddAgriSalesOrderForm = ({
   };
 
   useEffect(() => {
-    if (open && !isRamAgriRepUser) {
+    if (open && !isRamAgriRepUser && !isDealerSelfUser) {
       loadRamAgriSalesReps();
     }
-  }, [open, isRamAgriRepUser]);
+  }, [open, isRamAgriRepUser, isDealerSelfUser]);
+
+  useEffect(() => {
+    if (open && isDealerSelfUser && !isEditMode && !isLinkedFlow) {
+      const profile = dealerProfileToCustomerFields(user);
+      setFormData((prev) => ({
+        ...prev,
+        customerName: profile.customerName || prev.customerName,
+        customerMobile: profile.customerMobile || prev.customerMobile,
+        customerVillage: profile.customerVillage || prev.customerVillage,
+        customerTaluka: profile.customerTaluka || prev.customerTaluka,
+        customerDistrict: profile.customerDistrict || prev.customerDistrict,
+        customerState: profile.customerState || prev.customerState,
+      }));
+    }
+  }, [open, isDealerSelfUser, isEditMode, isLinkedFlow, user]);
 
   useEffect(() => {
     if (!open || isLinkedFlow) {
       setRamAgriLimitSummary(null);
       return;
     }
-    const sp = isRamAgriRepUser ? user?._id || user?.id : agriSalesPersonId;
+    const sp = isDealerSelfUser
+      ? user?._id || user?.id
+      : isRamAgriRepUser
+        ? user?._id || user?.id
+        : agriSalesPersonId;
     if (!sp) {
       setRamAgriLimitSummary(null);
       return;
@@ -397,6 +425,33 @@ const AddAgriSalesOrderForm = ({
       next[lineIndex] = row;
       return next;
     });
+  };
+
+  const loadInventoryGiftProducts = async () => {
+    try {
+      setLoading(true);
+      const instance = NetworkManager(API.INVENTORY.GET_ALL_PRODUCTS);
+      const response = await instance.request({}, { category: "gift", isActive: true, limit: 500 });
+      const apiResponse = response?.data;
+      let products = [];
+      if (apiResponse?.success && Array.isArray(apiResponse.data)) {
+        products = apiResponse.data;
+      } else if (apiResponse?.status === "Success" && Array.isArray(apiResponse.data)) {
+        products = apiResponse.data;
+      } else if (Array.isArray(apiResponse?.data?.data)) {
+        products = apiResponse.data.data;
+      }
+      setInventoryGiftProducts(products);
+      if (!products.length) {
+        Toast.warn("No gift inventory products found. Add products under category Gifts.");
+      }
+    } catch (error) {
+      console.error("Error loading gift products:", error);
+      Toast.error("Failed to load gift products");
+      setInventoryGiftProducts([]);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const loadRamAgriCrops = async (type = productType) => {
@@ -552,7 +607,7 @@ const AddAgriSalesOrderForm = ({
   const handleProductTypeChange = (event) => {
     const nextType = event.target.value;
     setProductType(nextType);
-    setProductLines([emptyProductLine()]);
+    setProductLines([emptyProductLine(nextType)]);
   };
 
   const handlePaymentInputChange = (field, value) => {
@@ -884,6 +939,24 @@ const AddAgriSalesOrderForm = ({
       return false;
     }
     const linesToCheck = isLinkedFlow ? productLines.slice(0, 1) : productLines;
+    if (isGiftMode) {
+      for (let i = 0; i < linesToCheck.length; i++) {
+        const row = linesToCheck[i];
+        const label = linesToCheck.length > 1 ? ` (product ${i + 1})` : "";
+        if (!row.productId) {
+          Toast.error(`Please select a gift product${label}`);
+          return false;
+        }
+        if (!row.quantity || parseFloat(row.quantity) <= 0) {
+          Toast.error(`Please enter valid quantity${label}`);
+          return false;
+        }
+        if (!row.rate || parseFloat(row.rate) <= 0) {
+          Toast.error(`Please enter valid rate${label}`);
+          return false;
+        }
+      }
+    } else {
     for (let i = 0; i < linesToCheck.length; i++) {
       const row = linesToCheck[i];
       const label = linesToCheck.length > 1 ? ` (product ${i + 1})` : "";
@@ -913,12 +986,13 @@ const AddAgriSalesOrderForm = ({
         }
       }
     }
+    }
 
     if (isRamAgriRepUser && !(user?._id || user?.id)) {
       Toast.error("Unable to resolve your user id; please re-login");
       return false;
     }
-    if (!isRamAgriRepUser && !agriSalesPersonId && !isEditMode) {
+    if (!isRamAgriRepUser && !isDealerSelfUser && !agriSalesPersonId && !isEditMode) {
       Toast.error("Please select sales person");
       return false;
     }
@@ -985,6 +1059,22 @@ const AddAgriSalesOrderForm = ({
     try {
       const buildLineItemsPayload = () => {
         const linesSrc = isLinkedFlow ? productLines.slice(0, 1) : productLines;
+        if (isGiftMode) {
+          return linesSrc
+            .filter((row) => row.productId)
+            .map((row) => {
+              const product = inventoryGiftProducts.find((p) => p._id === row.productId);
+              return {
+                isRamAgriProduct: false,
+                productId: row.productId,
+                productName: row.productName || product?.name || "",
+                primaryUnit: product?.primaryUnit?._id || product?.primaryUnit || "",
+                conversionFactor: product?.conversionFactor || 1,
+                quantity: parseFloat(row.quantity),
+                rate: parseFloat(row.rate),
+              };
+            });
+        }
         const items = [];
         linesSrc.forEach((row) => {
           const crop = ramAgriCrops.find((c) => c._id === row.ramAgriCropId);
@@ -1023,7 +1113,9 @@ const AddAgriSalesOrderForm = ({
         notes: formData.notes || "",
       };
 
-      if (isRamAgriRepUser) {
+      if (isDealerSelfUser) {
+        payload.isDealerSelfOrder = true;
+      } else if (isRamAgriRepUser) {
         const sid = user?._id || user?.id;
         if (!sid) {
           Toast.error("Unable to resolve your user id; please re-login");
@@ -1063,17 +1155,28 @@ const AddAgriSalesOrderForm = ({
         response = await instance.request(payload, [editOrderId]);
       } else if (isLinkedFlow) {
         const row = productLines[0];
-        const slot0 = row.varietySlots?.[0];
         const linkedInstance = NetworkManager(API.INVENTORY.CREATE_LINKED_AGRI_ORDER);
-        response = await linkedInstance.request({
-          linkedNurseryOrderId,
-          ramAgriCropId: row.ramAgriCropId,
-          ramAgriVarietyId: slot0?.ramAgriVarietyId,
-          quantity: parseFloat(slot0?.quantity),
-          rate: parseFloat(slot0?.rate),
-          notes: payload.notes,
-          salesPerson: payload.salesPerson,
-        });
+        if (isGiftMode) {
+          response = await linkedInstance.request({
+            linkedNurseryOrderId,
+            productId: row.productId,
+            quantity: parseFloat(row.quantity),
+            rate: parseFloat(row.rate),
+            notes: payload.notes,
+            salesPerson: payload.salesPerson,
+          });
+        } else {
+          const slot0 = row.varietySlots?.[0];
+          response = await linkedInstance.request({
+            linkedNurseryOrderId,
+            ramAgriCropId: row.ramAgriCropId,
+            ramAgriVarietyId: slot0?.ramAgriVarietyId,
+            quantity: parseFloat(slot0?.quantity),
+            rate: parseFloat(slot0?.rate),
+            notes: payload.notes,
+            salesPerson: payload.salesPerson,
+          });
+        }
       } else {
         const instance = NetworkManager(API.INVENTORY.CREATE_AGRI_SALES_ORDER);
         response = await instance.request(payload);
@@ -1153,7 +1256,8 @@ const AddAgriSalesOrderForm = ({
       deliveryDate: resolveAgriDeliveryDate(AGRI_DELIVERY_TIMING.TODAY, null, new Date()),
       notes: "",
     });
-    setProductLines([emptyProductLine()]);
+    setProductType("seed");
+    setProductLines([emptyProductLine("seed")]);
     setPaymentData({
       paidAmount: "",
       paymentDate: moment().format("YYYY-MM-DD"),
@@ -1394,7 +1498,7 @@ const AddAgriSalesOrderForm = ({
             </Grid>
           </Grid>
 
-          {!isRamAgriRepUser && (
+          {!isRamAgriRepUser && !isDealerSelfUser && (
             <>
               <Typography className={classes.sectionTitle} sx={{ mt: 0.5 }}>
                 <PersonIcon sx={{ fontSize: "1rem" }} /> Sales person
@@ -1424,7 +1528,8 @@ const AddAgriSalesOrderForm = ({
 
           {/* Product Information */}
           <Typography className={classes.sectionTitle} sx={{ alignItems: "flex-start", mt: 0.25 }}>
-            <PackageIcon sx={{ fontSize: "1rem" }} /> Ram Agri {productTypeLabel} — उत्पादने
+            <PackageIcon sx={{ fontSize: "1rem" }} />{" "}
+            {isGiftMode ? "Gift products — भेटवस्तू" : `Ram Agri ${productTypeLabel} — उत्पादने`}
           </Typography>
           <Typography
             variant="caption"
@@ -1432,7 +1537,9 @@ const AddAgriSalesOrderForm = ({
             display="block"
             sx={{ mb: 0.5, ml: 0.25, lineHeight: 1.35, fontSize: "0.7rem" }}
           >
-            एकाच पिकासाठी एकाधिक वान (multi). प्रत्येक वानासाठी प्रमाण · सेलर दर auto.
+            {isGiftMode
+              ? "Inventory gift SKU from category Gifts · linked to plant dispatch."
+              : "एकाच पिकासाठी एकाधिक वान (multi). प्रत्येक वानासाठी प्रमाण · सेलर दर auto."}
           </Typography>
 
           <Grid container spacing={1}>
@@ -1445,8 +1552,9 @@ const AddAgriSalesOrderForm = ({
                   onChange={handleProductTypeChange}
                   sx={{ flexWrap: "wrap", gap: 0.25, "& .MuiFormControlLabel-root": { mr: 1, my: 0 } }}
                 >
-                  <FormControlLabel value="seed" control={<Radio size="small" />} label="Seeds · बियाणे" />
-                  <FormControlLabel value="chemical" control={<Radio size="small" />} label="Chemicals · रसायने" />
+                  <FormControlLabel value="seed" control={<Radio size="small" />} label={getRamAgriProductTypeRadioLabel("seed")} />
+                  <FormControlLabel value="chemical" control={<Radio size="small" />} label={getRamAgriProductTypeRadioLabel("chemical")} />
+                  <FormControlLabel value="gift" control={<Radio size="small" />} label={getRamAgriProductTypeRadioLabel("gift")} />
                 </RadioGroup>
               </FormControl>
             </Grid>
@@ -1497,6 +1605,80 @@ const AddAgriSalesOrderForm = ({
                         </Button>
                       )}
                     </Stack>
+                    {isGiftMode ? (
+                      <Grid container spacing={1}>
+                        <Grid item xs={12}>
+                          <Autocomplete
+                            fullWidth
+                            size="small"
+                            sx={searchableDropdownSx}
+                            options={inventoryGiftProducts}
+                            value={
+                              inventoryGiftProducts.find((p) => p._id === line.productId) || null
+                            }
+                            onChange={(_, product) => {
+                              setProductLines((prev) => {
+                                const next = [...prev];
+                                next[realIndex] = {
+                                  ...next[realIndex],
+                                  productId: product?._id || "",
+                                  productName: product?.name || "",
+                                  rate:
+                                    product?.averagePrice > 0
+                                      ? String(product.averagePrice)
+                                      : next[realIndex].rate,
+                                };
+                                return next;
+                              });
+                            }}
+                            getOptionLabel={(option) =>
+                              `${option?.code || ""} · ${option?.name || ""}`.trim()
+                            }
+                            isOptionEqualToValue={(option, value) => option?._id === value?._id}
+                            loading={loading}
+                            disabled={loading || inventoryGiftProducts.length === 0}
+                            noOptionsText="No gift products — add in Inventory → Products (category Gifts)"
+                            renderInput={(params) => (
+                              <TextField {...params} label="Gift product *" placeholder="Search gift SKU" />
+                            )}
+                          />
+                        </Grid>
+                        <Grid item xs={6}>
+                          <TextField
+                            fullWidth
+                            size="small"
+                            type="number"
+                            label="Quantity *"
+                            value={line.quantity || ""}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              setProductLines((prev) => {
+                                const next = [...prev];
+                                next[realIndex] = { ...next[realIndex], quantity: value };
+                                return next;
+                              });
+                            }}
+                          />
+                        </Grid>
+                        <Grid item xs={6}>
+                          <TextField
+                            fullWidth
+                            size="small"
+                            type="number"
+                            label="Rate *"
+                            value={line.rate || ""}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              setProductLines((prev) => {
+                                const next = [...prev];
+                                next[realIndex] = { ...next[realIndex], rate: value };
+                                return next;
+                              });
+                            }}
+                          />
+                        </Grid>
+                      </Grid>
+                    ) : (
                     <Grid container spacing={1}>
                       <Grid item xs={12} sm={isLinkedFlow ? 12 : 6}>
                         <Autocomplete
@@ -1640,6 +1822,7 @@ const AddAgriSalesOrderForm = ({
                         </Grid>
                       )}
                     </Grid>
+                    )}
                   </Paper>
                 </Grid>
               );

@@ -101,9 +101,19 @@ const PurchaseOrderDetails = () => {
     const year = date.getFullYear().toString().slice(-2);
     const month = (date.getMonth() + 1).toString().padStart(2, '0');
     const day = date.getDate().toString().padStart(2, '0');
-    const productCode = productName.substring(0, 3).toUpperCase().replace(/\s/g, '');
+    const productCode = (productName || 'PROD').substring(0, 3).toUpperCase().replace(/\s/g, '');
     const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
     return `BATCH${productCode}${year}${month}${day}${random}`;
+  };
+
+  const generateRamAgriBatchLabel = (cropName, varietyName) => {
+    const date = new Date();
+    const y = date.getFullYear().toString().slice(-2);
+    const m = (date.getMonth() + 1).toString().padStart(2, '0');
+    const d = date.getDate().toString().padStart(2, '0');
+    const cc = (cropName || 'CRP').substring(0, 3).toUpperCase().replace(/\s/g, '');
+    const vc = (varietyName || 'VAR').substring(0, 2).toUpperCase().replace(/\s/g, '');
+    return `RAG${cc}${vc}${y}${m}${d}${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`;
   };
 
   const handleCreateGRN = () => {
@@ -112,20 +122,35 @@ const PurchaseOrderDetails = () => {
       .filter(item => item.quantity > (item.receivedQuantity || 0))
       .map(item => {
         const orderedQty = item.quantity - (item.receivedQuantity || 0);
-        const productName = item.product?.name || 'PROD';
+        const isRamAgri = item.isRamAgriProduct;
+        const productName = isRamAgri
+          ? `${item.ramAgriCropName || ''} ${item.ramAgriVarietyName || ''}`.trim()
+          : item.product?.name || 'PROD';
+        const batchNumber = isRamAgri
+          ? (item.batchNumber?.trim() || generateRamAgriBatchLabel(item.ramAgriCropName, item.ramAgriVarietyName))
+          : generateBatchNumber(productName);
         return {
           poItemId: item._id,
           product: item.product,
-          productName: productName,
+          productName,
+          isRamAgriProduct: isRamAgri,
+          ramAgriCropId: item.ramAgriCropId,
+          ramAgriVarietyId: item.ramAgriVarietyId,
+          ramAgriCropName: item.ramAgriCropName,
+          ramAgriVarietyName: item.ramAgriVarietyName,
+          selectedUnitType: item.selectedUnitType,
+          conversionFactor: item.conversionFactor,
           unit: item.unit,
           unitName: item.unit?.abbreviation || item.unit?.name || '',
           rate: item.rate || 0,
           orderedQuantity: orderedQty,
-          batchNumber: generateBatchNumber(productName), // Auto-generate batch number
+          batchNumber,
           acceptedQuantity: orderedQty,
           rejectedQuantity: 0,
           damageQuantity: 0,
-          expiryDate: '', // Optional expiry date
+          expiryDate: item.expiryDate
+            ? new Date(item.expiryDate).toISOString().split('T')[0]
+            : '',
         };
       });
     
@@ -183,11 +208,12 @@ const PurchaseOrderDetails = () => {
     try {
       // Transform items for API
       const transformedItems = grnItems.map(item => {
-        // Ensure batch number is set (auto-generate if still empty)
-        const batchNum = item.batchNumber?.trim() || generateBatchNumber(item.productName);
-        
-        return {
-          product: item.product._id || item.product,
+        const batchNum = item.batchNumber?.trim() ||
+          (item.isRamAgriProduct
+            ? generateRamAgriBatchLabel(item.ramAgriCropName, item.ramAgriVarietyName)
+            : generateBatchNumber(item.productName));
+
+        const base = {
           poItem: item.poItemId,
           batchNumber: batchNum,
           quantity: item.orderedQuantity,
@@ -197,7 +223,25 @@ const PurchaseOrderDetails = () => {
           rejectedQuantity: item.rejectedQuantity || 0,
           damageQuantity: item.damageQuantity || 0,
           amount: item.acceptedQuantity * item.rate,
-          expiryDate: item.expiryDate || null, // Optional expiry date
+          expiryDate: item.expiryDate || null,
+        };
+
+        if (item.isRamAgriProduct) {
+          return {
+            ...base,
+            isRamAgriProduct: true,
+            ramAgriCropId: item.ramAgriCropId,
+            ramAgriVarietyId: item.ramAgriVarietyId,
+            ramAgriCropName: item.ramAgriCropName,
+            ramAgriVarietyName: item.ramAgriVarietyName,
+            selectedUnitType: item.selectedUnitType,
+            conversionFactor: item.conversionFactor,
+          };
+        }
+
+        return {
+          ...base,
+          product: item.product._id || item.product,
         };
       });
 
@@ -404,6 +448,25 @@ const PurchaseOrderDetails = () => {
               <div>
                 <p className="text-sm text-gray-500">Contact</p>
                 <p className="font-semibold text-gray-800">{po.supplier?.phone || 'N/A'}</p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">Supplier Invoice</p>
+                <p className="font-semibold text-gray-800">
+                  {po.supplierInvoiceNumber || '—'}
+                </p>
+                {po.supplierInvoiceFile?.url ? (
+                  <a
+                    href={po.supplierInvoiceFile.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-1 inline-flex text-sm font-semibold text-emerald-700 hover:underline"
+                  >
+                    View invoice
+                    {po.supplierInvoiceFile.originalName
+                      ? ` (${po.supplierInvoiceFile.originalName})`
+                      : ''}
+                  </a>
+                ) : null}
               </div>
             </div>
           </div>

@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useState } from "react";
 import {
   Box,
   Button,
-  Paper,
   Table,
   TableBody,
   TableCell,
@@ -11,26 +10,21 @@ import {
   TableRow,
   Typography,
   Link as MuiLink,
-  Stack,
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
+  Chip,
 } from "@mui/material";
-import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import AddIcon from "@mui/icons-material/Add";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
+import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import { Link } from "react-router-dom";
 import SecondaryOutwardDialog from "../../dialogs/SecondaryOutwardDialog";
 import VehicleLoadDialog from "../../dialogs/VehicleLoadDialog";
+import PipelineSectionCard from "../PipelineSectionCard";
+import PipelineEmptyState from "../PipelineEmptyState";
 import { fetchOrdersReadyForDispatch, fetchVehicleDispatches } from "../../utils/pipelineApi";
 import { formatPipelineDate } from "../../utils/pipelineLabels";
+import { STAGES, tableHeadSx, tableRowSx, contentPaperSx } from "../../utils/pipelineTheme";
 
-export default function DispatchSection({
-  batchId,
-  batchDoc,
-  locations,
-  onRefresh,
-}) {
+export default function DispatchSection({ batchId, batchDoc, locations, onRefresh }) {
   const [orders, setOrders] = useState([]);
   const [vehicles, setVehicles] = useState([]);
   const [outwardOpen, setOutwardOpen] = useState(false);
@@ -68,130 +62,154 @@ export default function DispatchSection({
 
   if (!batchId) {
     return (
-      <Paper sx={{ p: 3 }}>
-        <Typography color="text.secondary">Select a batch for dispatch operations.</Typography>
-      </Paper>
+      <PipelineEmptyState
+        icon={LocalShippingIcon}
+        title="Dispatch"
+        description="Link secondary inward stock to farmer orders or load vehicles."
+        stageColor={STAGES.dispatch.color}
+      />
     );
   }
 
   return (
     <Box>
-      <Stack direction="row" justifyContent="flex-end" sx={{ mb: 2 }}>
+      <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 1, mb: 2, flexWrap: "wrap" }}>
+        <Button
+          component={Link}
+          to="/u/secondary-dispatch-monitor"
+          endIcon={<OpenInNewIcon />}
+          variant="contained"
+          size="small"
+          sx={{
+            borderRadius: 2,
+            textTransform: "none",
+            bgcolor: STAGES.dispatch.color,
+            "&:hover": { bgcolor: STAGES.dispatch.color, filter: "brightness(0.92)" },
+          }}
+        >
+          Dispatch monitor
+        </Button>
         <Button
           component={Link}
           to="/u/dispatch-orders"
           endIcon={<OpenInNewIcon />}
+          variant="outlined"
           size="small"
+          sx={{ borderRadius: 2, textTransform: "none" }}
         >
-          Fleet / dispatch orders
+          Open fleet board
         </Button>
-      </Stack>
+      </Box>
 
-      <Accordion defaultExpanded>
-        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-          <Stack direction="row" alignItems="center" spacing={2} sx={{ width: "100%", pr: 2 }}>
-            <Typography fontWeight={600}>Order-linked dispatch</Typography>
-            <Box flex={1} />
-            <Button
-              size="small"
-              variant="contained"
-              startIcon={<AddIcon />}
-              onClick={(e) => {
-                e.stopPropagation();
-                setOutwardOpen(true);
-              }}
-            >
-              Dispatch to order
-            </Button>
-          </Stack>
-        </AccordionSummary>
-        <AccordionDetails>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-            Ready orders: {orders.length}
-          </Typography>
-          <TableContainer component={Paper} variant="outlined">
-            <Table size="small">
-              <TableHead>
+      <PipelineSectionCard
+        stage={STAGES.dispatch}
+        title="Order-linked dispatch"
+        subtitle={`${orders.length} farmer order(s) ready for this batch`}
+        count={secondaryOutward.length}
+        actionLabel="Dispatch to order"
+        actionIcon={AddIcon}
+        onAction={() => setOutwardOpen(true)}
+      >
+        <TableContainer sx={contentPaperSx}>
+          <Table size="small">
+            <TableHead sx={tableHeadSx}>
+              <TableRow>
+                <TableCell>Date</TableCell>
+                <TableCell align="right">Trays</TableCell>
+                <TableCell>Size</TableCell>
+                <TableCell>Order</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {secondaryOutward.length === 0 ? (
                 <TableRow>
-                  <TableCell>Date</TableCell>
-                  <TableCell align="right">Trays</TableCell>
-                  <TableCell>Size</TableCell>
-                  <TableCell>Linked order</TableCell>
+                  <TableCell colSpan={4} align="center" sx={{ py: 3, color: "text.secondary" }}>
+                    No dispatch records yet — link inward stock to a ready farmer order.
+                  </TableCell>
                 </TableRow>
-              </TableHead>
-              <TableBody>
-                {secondaryOutward.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={4} align="center">
-                      No secondary outward (dispatch) records yet.
+              ) : (
+                secondaryOutward.map((row) => (
+                  <TableRow key={String(row._id)} sx={tableRowSx}>
+                    <TableCell>{formatPipelineDate(row.secondaryOutwardDate)}</TableCell>
+                    <TableCell align="right">{row.numberOfTrays ?? "—"}</TableCell>
+                    <TableCell>{row.size ?? "—"}</TableCell>
+                    <TableCell>
+                      {row.linkedOrderId ? (
+                        <Chip size="small" label={`…${String(row.linkedOrderId).slice(-8)}`} />
+                      ) : (
+                        "—"
+                      )}
                     </TableCell>
                   </TableRow>
-                ) : (
-                  secondaryOutward.map((row) => (
-                    <TableRow key={String(row._id)}>
-                      <TableCell>{formatPipelineDate(row.secondaryOutwardDate)}</TableCell>
-                      <TableCell align="right">{row.numberOfTrays ?? "—"}</TableCell>
-                      <TableCell>{row.size ?? "—"}</TableCell>
-                      <TableCell>{row.linkedOrderId ? String(row.linkedOrderId).slice(-8) : "—"}</TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </TableContainer>
-        </AccordionDetails>
-      </Accordion>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </PipelineSectionCard>
 
-      <Accordion defaultExpanded sx={{ mt: 1 }}>
-        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-          <Typography fontWeight={600}>Vehicle dispatch load</Typography>
-        </AccordionSummary>
-        <AccordionDetails>
-          <TableContainer component={Paper} variant="outlined">
-            <Table size="small">
-              <TableHead>
+      <PipelineSectionCard
+        stage={STAGES.dispatch}
+        title="Vehicle load"
+        subtitle="Pull stock from secondary shed onto active dispatches"
+        count={vehicles.length}
+        defaultOpen
+      >
+        <TableContainer sx={contentPaperSx}>
+          <Table size="small">
+            <TableHead sx={tableHeadSx}>
+              <TableRow>
+                <TableCell>Vehicle</TableCell>
+                <TableCell>Date</TableCell>
+                <TableCell>Status</TableCell>
+                <TableCell align="right">Action</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {vehicles.length === 0 ? (
                 <TableRow>
-                  <TableCell>Vehicle</TableCell>
-                  <TableCell>Date</TableCell>
-                  <TableCell>Status</TableCell>
-                  <TableCell align="right">Actions</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {vehicles.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={4} align="center">
-                      No active vehicle dispatches.{" "}
+                  <TableCell colSpan={4} align="center" sx={{ py: 3 }}>
+                    <Typography variant="body2" color="text.secondary">
+                      No active vehicles.{" "}
                       <MuiLink component={Link} to="/u/dispatch-orders">
-                        Create in dispatch orders
+                        Create a dispatch
                       </MuiLink>
+                    </Typography>
+                  </TableCell>
+                </TableRow>
+              ) : (
+                vehicles.slice(0, 15).map((v) => (
+                  <TableRow key={String(v._id)} sx={tableRowSx}>
+                    <TableCell>{v.vehicleName ?? v.driverName ?? "Vehicle"}</TableCell>
+                    <TableCell>{formatPipelineDate(v.dispatchDate ?? v.createdAt)}</TableCell>
+                    <TableCell>
+                      <Chip size="small" label={v.status ?? "Active"} variant="outlined" />
+                    </TableCell>
+                    <TableCell align="right">
+                      <Button
+                        size="small"
+                        variant="contained"
+                        onClick={() => {
+                          setSelectedDispatch(v);
+                          setVehicleOpen(true);
+                        }}
+                        sx={{
+                          borderRadius: 2,
+                          textTransform: "none",
+                          bgcolor: STAGES.dispatch.color,
+                          "&:hover": { bgcolor: STAGES.dispatch.color, filter: "brightness(0.92)" },
+                        }}
+                      >
+                        Load stock
+                      </Button>
                     </TableCell>
                   </TableRow>
-                ) : (
-                  vehicles.slice(0, 15).map((v) => (
-                    <TableRow key={String(v._id)}>
-                      <TableCell>{v.vehicleName ?? v.driverName ?? v._id}</TableCell>
-                      <TableCell>{formatPipelineDate(v.dispatchDate ?? v.createdAt)}</TableCell>
-                      <TableCell>{v.status ?? "—"}</TableCell>
-                      <TableCell align="right">
-                        <Button
-                          size="small"
-                          onClick={() => {
-                            setSelectedDispatch(v);
-                            setVehicleOpen(true);
-                          }}
-                        >
-                          Load stock
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </TableContainer>
-        </AccordionDetails>
-      </Accordion>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </PipelineSectionCard>
 
       <SecondaryOutwardDialog
         open={outwardOpen}

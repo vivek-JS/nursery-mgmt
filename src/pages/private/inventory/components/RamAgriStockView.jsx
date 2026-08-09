@@ -15,7 +15,15 @@ import {
   ArrowDown,
   Sprout,
   FlaskConical,
+  Layers3,
+  Gift,
+  FileText,
 } from "lucide-react";
+import RamAgriBatchModal from "./RamAgriBatchModal";
+import {
+  getRamAgriProductTypeLabelPlural,
+  normalizeRamAgriProductType,
+} from "utils/ramAgriProductType";
 
 const LOW_STOCK_THRESHOLD = 100;
 
@@ -85,25 +93,27 @@ export default function RamAgriStockView({
   onCopyAll,
   onExportCsv,
   onShareCrop,
+  onOpenLedger,
 }) {
   const [cropFilter, setCropFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [sortKey, setSortKey] = useState("updated");
   const [sortDir, setSortDir] = useState("desc");
+  const [batchModal, setBatchModal] = useState(null);
 
   const stockByCrop = stock?.stockByCrop || [];
   const apiStockItems = stock?.stockItems;
 
   const cropsForTab = useMemo(() => {
-    const type = stockTypeTab === "chemical" ? "chemical" : "seed";
-    return stockByCrop.filter((c) => (c.productType || "seed") === type);
+    const type = normalizeRamAgriProductType(stockTypeTab);
+    return stockByCrop.filter((c) => normalizeRamAgriProductType(c.productType) === type);
   }, [stockByCrop, stockTypeTab]);
 
   const allRows = useMemo(() => {
     if (apiStockItems?.length) {
-      const type = stockTypeTab === "chemical" ? "chemical" : "seed";
-      return apiStockItems.filter((r) => (r.productType || "seed") === type);
+      const type = normalizeRamAgriProductType(stockTypeTab);
+      return apiStockItems.filter((r) => normalizeRamAgriProductType(r.productType) === type);
     }
     const rows = [];
     cropsForTab.forEach((crop) => {
@@ -192,7 +202,7 @@ export default function RamAgriStockView({
     }
   };
 
-  const activeLabel = stockTypeTab === "chemical" ? "Chemicals" : "Seeds";
+  const activeLabel = getRamAgriProductTypeLabelPlural(stockTypeTab);
   const lowStockList = stock?.lowStockVarieties || [];
 
   const formatUpdated = (dateVal) => {
@@ -244,6 +254,18 @@ export default function RamAgriStockView({
             <FlaskConical className="h-4 w-4" />
             Chemicals
           </button>
+          <button
+            type="button"
+            onClick={() => handleTypeTab("gift")}
+            className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${
+              stockTypeTab === "gift"
+                ? "bg-brand-600 text-white shadow-sm"
+                : "text-gray-600 hover:bg-gray-50"
+            }`}
+          >
+            <Gift className="h-4 w-4" />
+            Gifts
+          </button>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -271,7 +293,7 @@ export default function RamAgriStockView({
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard
           icon={Package}
-          label={stockTypeTab === "chemical" ? "Chemicals" : "Crops"}
+          label={stockTypeTab === "chemical" ? "Chemicals" : stockTypeTab === "gift" ? "Gifts" : "Crops"}
           value={summary.crops}
           accent={{ border: "border-brand-200", bg: "bg-brand-100", text: "text-brand-700" }}
         />
@@ -407,7 +429,9 @@ export default function RamAgriStockView({
                     </button>
                   </th>
                   <th className="px-4 py-3 text-left font-semibold text-gray-700">Status</th>
-                  <th className="px-4 py-3 text-right font-semibold text-gray-700">Share</th>
+                  <th className="sticky right-0 z-20 min-w-[11rem] bg-gray-50/95 px-4 py-3 text-right font-semibold text-gray-700 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.08)] backdrop-blur supports-[backdrop-filter]:bg-gray-50/80">
+                    Actions
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 bg-white">
@@ -418,12 +442,33 @@ export default function RamAgriStockView({
                   const cropForShare = cropsForTab.find((c) => String(c.cropId) === String(row.cropId));
 
                   return (
-                    <tr key={rowKey} className="transition-colors hover:bg-brand-50/40">
+                    <tr key={rowKey} className="group transition-colors hover:bg-brand-50/40">
                       <td className="whitespace-nowrap px-4 py-3 font-medium text-gray-900">
                         {row.cropName}
                       </td>
-                      <td className="max-w-[200px] truncate px-4 py-3 text-gray-800" title={row.varietyName}>
-                        {row.varietyName}
+                      <td className="max-w-[200px] px-4 py-3 text-gray-800">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span className="truncate" title={row.varietyName}>
+                            {row.varietyName}
+                          </span>
+                          {onOpenLedger ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                onOpenLedger({
+                                  cropId: row.cropId,
+                                  varietyId: row.varietyId,
+                                  cropName: row.cropName,
+                                  varietyName: row.varietyName,
+                                })
+                              }
+                              className="shrink-0 rounded border border-violet-200 bg-violet-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-800 hover:bg-violet-100"
+                              title="View stock movement ledger"
+                            >
+                              Ledger
+                            </button>
+                          ) : null}
+                        </div>
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">
                         <span
@@ -448,18 +493,54 @@ export default function RamAgriStockView({
                         {formatUpdated(row.stockUpdatedAt)}
                       </td>
                       <td className="px-4 py-3">{statusBadge(status)}</td>
-                      <td className="px-4 py-3 text-right">
-                        {cropForShare ? (
+                      <td className="sticky right-0 z-10 bg-white px-4 py-3 text-right shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)] group-hover:bg-brand-50/40">
+                        <div className="inline-flex flex-wrap items-center justify-end gap-1">
+                          {onOpenLedger ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                onOpenLedger({
+                                  cropId: row.cropId,
+                                  varietyId: row.varietyId,
+                                  cropName: row.cropName,
+                                  varietyName: row.varietyName,
+                                })
+                              }
+                              className="inline-flex items-center gap-1 rounded-lg border border-violet-200 bg-violet-50 px-2 py-1 text-xs font-medium text-violet-800 hover:bg-violet-100"
+                              title="View stock movement ledger"
+                            >
+                              <FileText className="h-3.5 w-3.5" />
+                              Ledger
+                            </button>
+                          ) : null}
                           <button
                             type="button"
-                            onClick={() => onShareCrop(cropForShare)}
-                            className="inline-flex items-center gap-1 rounded-lg border border-green-200 bg-green-50 px-2 py-1 text-xs font-medium text-green-800 hover:bg-green-100"
-                            title={`Share ${row.cropName} on WhatsApp`}
+                            onClick={() =>
+                              setBatchModal({
+                                cropId: row.cropId,
+                                varietyId: row.varietyId,
+                                cropName: row.cropName,
+                                varietyName: row.varietyName,
+                              })
+                            }
+                            className="inline-flex items-center gap-1 rounded-lg border border-brand-200 bg-brand-50 px-2 py-1 text-xs font-medium text-brand-800 hover:bg-brand-100"
+                            title="View batch-wise stock"
                           >
-                            <MessageCircle className="h-3.5 w-3.5" />
-                            WA
+                            <Layers3 className="h-3.5 w-3.5" />
+                            Batches
                           </button>
-                        ) : null}
+                          {cropForShare ? (
+                            <button
+                              type="button"
+                              onClick={() => onShareCrop(cropForShare)}
+                              className="inline-flex items-center gap-1 rounded-lg border border-green-200 bg-green-50 px-2 py-1 text-xs font-medium text-green-800 hover:bg-green-100"
+                              title={`Share ${row.cropName} on WhatsApp`}
+                            >
+                              <MessageCircle className="h-3.5 w-3.5" />
+                              WA
+                            </button>
+                          ) : null}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -491,6 +572,16 @@ export default function RamAgriStockView({
           </div>
         </div>
       )}
+
+      <RamAgriBatchModal
+        open={Boolean(batchModal)}
+        onClose={() => setBatchModal(null)}
+        cropId={batchModal?.cropId}
+        varietyId={batchModal?.varietyId}
+        cropName={batchModal?.cropName}
+        varietyName={batchModal?.varietyName}
+        formatCurrency={formatCurrency}
+      />
     </div>
   );
 }

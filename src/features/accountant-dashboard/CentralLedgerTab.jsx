@@ -27,6 +27,8 @@ export function CentralLedgerTab({
   selectedOrg,
   startDate,
   endDate,
+  onStartDateChange,
+  onEndDateChange,
   canSync = false,
   onOpenPartyLedger
 }) {
@@ -207,6 +209,32 @@ export function CentralLedgerTab({
             value={partyId}
             onChange={(e) => {
               setPartyId(e.target.value)
+              setPage(1)
+            }}
+          />
+        </label>
+        <label className="text-[11px] font-semibold text-muted-foreground">
+          Start
+          <input
+            type="date"
+            className="erp-input block mt-1 text-xs"
+            value={startDate ? moment(startDate).format("YYYY-MM-DD") : ""}
+            onChange={(e) => {
+              const d = e.target.value ? new Date(e.target.value) : null
+              if (d && onStartDateChange) onStartDateChange(d)
+              setPage(1)
+            }}
+          />
+        </label>
+        <label className="text-[11px] font-semibold text-muted-foreground">
+          End
+          <input
+            type="date"
+            className="erp-input block mt-1 text-xs"
+            value={endDate ? moment(endDate).format("YYYY-MM-DD") : ""}
+            onChange={(e) => {
+              const d = e.target.value ? new Date(e.target.value) : null
+              if (d && onEndDateChange) onEndDateChange(d)
               setPage(1)
             }}
           />

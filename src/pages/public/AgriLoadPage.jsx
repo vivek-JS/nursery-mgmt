@@ -2,12 +2,14 @@ import React, { useState, useEffect, useCallback } from "react"
 import { useSearchParams } from "react-router-dom"
 import {
   Box,
+  Button,
   Card,
   CardContent,
   CircularProgress,
   Stack,
   Typography,
   Alert,
+  Divider,
 } from "@mui/material"
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline"
 import CancelOutlinedIcon from "@mui/icons-material/CancelOutlined"
@@ -16,55 +18,87 @@ import axiosInstance from "services/axiosConfig"
 
 const AgriLoadPage = () => {
   const [searchParams] = useSearchParams()
-  const orderNumber = searchParams.get("orderNumber")
-  const actorPhone = searchParams.get("actorPhone")
+  const orderRef = searchParams.get("orderRef") || searchParams.get("orderNumber") || ""
+  const actorPhone = searchParams.get("actorPhone") || ""
+  const agriOrders = searchParams.get("agriOrders") || ""
 
-  const [status, setStatus] = useState("loading") // loading | success | error | already_loaded
+  const [status, setStatus] = useState("preview") // preview | confirming | success | declined | error | already_loaded
   const [message, setMessage] = useState("")
-  const [orderRef, setOrderRef] = useState(orderNumber || "")
+  const [preview, setPreview] = useState(null)
+  const [previewLoading, setPreviewLoading] = useState(true)
 
-  const markLoaded = useCallback(async () => {
-    if (!orderNumber || !actorPhone) {
+  const loadPreview = useCallback(async () => {
+    if (!orderRef || !actorPhone) {
       setStatus("error")
-      setMessage("Invalid link — missing order number or phone.")
+      setMessage("Invalid link — missing order or phone.")
+      setPreviewLoading(false)
       return
     }
     try {
-      const res = await axiosInstance.get("/api/v1/agri-load-link/mark-loaded", {
-        params: { orderNumber, actorPhone },
+      setPreviewLoading(true)
+      const res = await axiosInstance.get("/api/v1/agri-load-link/preview", {
+        params: { orderRef, actorPhone, agriOrders: agriOrders || undefined },
       })
-      // Backend returns HTML on success; axios still resolves with 200
-      // Check response data for already-loaded signal
-      const text = typeof res.data === "string" ? res.data : JSON.stringify(res.data)
-      if (text.toLowerCase().includes("already")) {
+      const data = res?.data?.data || res?.data
+      setPreview(data)
+      if (!data?.found) {
+        setStatus("error")
+        setMessage(`No linked agri order found for #${orderRef}.`)
+      } else if (data?.allLoaded) {
         setStatus("already_loaded")
-        setMessage(`ऑर्डर ${orderNumber} पहले ही LOADED मार्क हो चुका है।`)
+        setMessage("All linked agri items are already marked LOADED.")
       } else {
-        setStatus("success")
-        setMessage(`ऑर्डर ${orderNumber} सफलतापूर्वक LOADED मार्क किया गया!`)
+        setStatus("preview")
       }
     } catch (err) {
-      const msg =
-        err?.response?.data?.message ||
-        err?.response?.statusText ||
-        err?.message ||
-        "Something went wrong."
-      if (err?.response?.status === 403) {
-        setStatus("error")
-        setMessage("आप इस लिंक का उपयोग करने के लिए अधिकृत नहीं हैं।")
-      } else if (err?.response?.status === 404) {
-        setStatus("error")
-        setMessage(`ऑर्डर ${orderNumber} नहीं मिला।`)
-      } else {
-        setStatus("error")
-        setMessage(msg)
-      }
+      setStatus("error")
+      setMessage(
+        err?.response?.data?.message || err?.message || "Could not load order details."
+      )
+    } finally {
+      setPreviewLoading(false)
     }
-  }, [orderNumber, actorPhone])
+  }, [orderRef, actorPhone, agriOrders])
 
   useEffect(() => {
-    markLoaded()
-  }, [markLoaded])
+    loadPreview()
+  }, [loadPreview])
+
+  const handleConfirm = async (confirmed) => {
+    if (!confirmed) {
+      setStatus("declined")
+      setMessage("Load not confirmed. Agri items remain pending.")
+      return
+    }
+    setStatus("confirming")
+    try {
+      const res = await axiosInstance.post("/api/v1/agri-load-link/confirm", {
+        orderRef,
+        actorPhone,
+        agriOrders: agriOrders || undefined,
+      })
+      const data = res?.data?.data || res?.data
+      const marked = data?.marked || []
+      const already = data?.alreadyLoaded || []
+      if (marked.length) {
+        setStatus("success")
+        setMessage(`Marked LOADED: ${marked.join(", ")}. Nursery dispatch / DC will proceed after shed load.`)
+      } else if (already.length) {
+        setStatus("already_loaded")
+        setMessage(`Already LOADED: ${already.join(", ")}`)
+      } else {
+        setStatus("success")
+        setMessage("Confirmed.")
+      }
+    } catch (err) {
+      setStatus("error")
+      if (err?.response?.status === 403) {
+        setMessage("You are not authorized to confirm this load.")
+      } else {
+        setMessage(err?.response?.data?.message || err?.message || "Confirm failed.")
+      }
+    }
+  }
 
   const iconSize = 64
 
@@ -79,8 +113,7 @@ const AgriLoadPage = () => {
         p: 2,
       }}
     >
-      <Card sx={{ maxWidth: 420, width: "100%", borderRadius: 3, boxShadow: 4 }}>
-        {/* Header */}
+      <Card sx={{ maxWidth: 440, width: "100%", borderRadius: 3, boxShadow: 4 }}>
         <Box
           sx={{
             bgcolor: "success.main",
@@ -95,20 +128,72 @@ const AgriLoadPage = () => {
           <LocalShippingIcon sx={{ color: "white", fontSize: 28 }} />
           <Box>
             <Typography variant="h6" fontWeight={700} color="white">
-              Agri Load — Mark Loaded
+              Agri Load Confirm
             </Typography>
             <Typography variant="body2" sx={{ color: "rgba(255,255,255,0.85)" }}>
-              राम एग्री इनपुट — वाहन लोडिंग
+              राम एग्री इनपुट — वाहन पर लोड हुआ?
             </Typography>
           </Box>
         </Box>
 
         <CardContent sx={{ p: 3 }}>
-          {status === "loading" && (
+          {previewLoading && (
             <Stack alignItems="center" spacing={2} py={3}>
               <CircularProgress color="success" />
               <Typography variant="body2" color="text.secondary">
-                ऑर्डर {orderRef} मार्क हो रहा है…
+                Loading order details…
+              </Typography>
+            </Stack>
+          )}
+
+          {!previewLoading && status === "preview" && preview?.found && (
+            <Stack spacing={2}>
+              <Typography variant="body2" color="text.secondary">
+                Nursery order #{preview.nurseryOrderCode || orderRef}
+              </Typography>
+              <Divider />
+              {(preview.items || []).map((item) => (
+                <Box key={item.agriOrderNumber || item.agriOrderId} sx={{ py: 0.5 }}>
+                  <Typography variant="subtitle2" fontWeight={700}>
+                    {item.productName || "Agri Input"}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Agri {item.agriOrderNumber} · Qty {item.quantity} ·{" "}
+                    {item.isLoaded ? "LOADED" : "PENDING"}
+                  </Typography>
+                </Box>
+              ))}
+              <Typography variant="body2" fontWeight={600} textAlign="center" pt={1}>
+                Agri products loaded on vehicle?
+              </Typography>
+              <Stack direction="row" spacing={1.5} justifyContent="center">
+                <Button
+                  variant="contained"
+                  color="success"
+                  size="large"
+                  onClick={() => handleConfirm(true)}
+                  sx={{ minWidth: 120, fontWeight: 700 }}
+                >
+                  YES — Loaded
+                </Button>
+                <Button
+                  variant="outlined"
+                  color="error"
+                  size="large"
+                  onClick={() => handleConfirm(false)}
+                  sx={{ minWidth: 100 }}
+                >
+                  NO
+                </Button>
+              </Stack>
+            </Stack>
+          )}
+
+          {status === "confirming" && (
+            <Stack alignItems="center" spacing={2} py={3}>
+              <CircularProgress color="success" />
+              <Typography variant="body2" color="text.secondary">
+                Confirming load…
               </Typography>
             </Stack>
           )}
@@ -123,7 +208,7 @@ const AgriLoadPage = () => {
                 {message}
               </Alert>
               <Typography variant="caption" color="text.secondary" textAlign="center">
-                अब आप यह विंडो बंद कर सकते हैं।
+                Admin team notified on WhatsApp. You can close this page.
               </Typography>
             </Stack>
           )}
@@ -131,10 +216,16 @@ const AgriLoadPage = () => {
           {status === "already_loaded" && (
             <Stack alignItems="center" spacing={2} py={2}>
               <CheckCircleOutlineIcon sx={{ fontSize: iconSize, color: "info.main" }} />
-              <Typography variant="h6" fontWeight={700} color="info.main" textAlign="center">
-                Already Loaded
-              </Typography>
               <Alert severity="info" sx={{ width: "100%" }}>
+                {message}
+              </Alert>
+            </Stack>
+          )}
+
+          {status === "declined" && (
+            <Stack alignItems="center" spacing={2} py={2}>
+              <CancelOutlinedIcon sx={{ fontSize: iconSize, color: "warning.main" }} />
+              <Alert severity="warning" sx={{ width: "100%" }}>
                 {message}
               </Alert>
             </Stack>
@@ -143,9 +234,6 @@ const AgriLoadPage = () => {
           {status === "error" && (
             <Stack alignItems="center" spacing={2} py={2}>
               <CancelOutlinedIcon sx={{ fontSize: iconSize, color: "error.main" }} />
-              <Typography variant="h6" fontWeight={700} color="error.main" textAlign="center">
-                Error
-              </Typography>
               <Alert severity="error" sx={{ width: "100%" }}>
                 {message}
               </Alert>

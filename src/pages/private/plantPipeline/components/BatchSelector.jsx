@@ -1,5 +1,6 @@
 import React from "react";
-import { Autocomplete, TextField, Box, Typography } from "@mui/material";
+import { Autocomplete, TextField, Box, Typography, InputAdornment, Chip } from "@mui/material";
+import Inventory2Icon from "@mui/icons-material/Inventory2";
 import { batchLabel } from "../utils/pipelineLabels";
 
 export default function BatchSelector({ batchOptions, value, onChange, dispatchBatches = [] }) {
@@ -26,21 +27,51 @@ export default function BatchSelector({ batchOptions, value, onChange, dispatchB
   const selected = options.find((o) => o.id === value) ?? null;
 
   return (
-    <Box sx={{ minWidth: 280, flex: 1 }}>
+    <Box sx={{ minWidth: { xs: "100%", md: 420 }, flex: 1 }}>
       <Autocomplete
-        size="small"
         options={options}
         value={selected}
         onChange={(_, opt) => onChange(opt?.id ?? "")}
         getOptionLabel={(o) => o.label}
         isOptionEqualToValue={(a, b) => a.id === b.id}
+        renderOption={(props, option) => (
+          <Box component="li" {...props} sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            <Typography variant="body2" noWrap flex={1}>
+              {option.label}
+            </Typography>
+            {!option.hasOutward && (
+              <Chip label="New" size="small" color="warning" variant="outlined" sx={{ height: 22 }} />
+            )}
+          </Box>
+        )}
         renderInput={(params) => (
-          <TextField {...params} label="Select batch" placeholder="Search batch…" />
+          <TextField
+            {...params}
+            label="Search batch (plant / variety / number)"
+            placeholder="Type to search…"
+            InputProps={{
+              ...params.InputProps,
+              startAdornment: (
+                <>
+                  <InputAdornment position="start">
+                    <Inventory2Icon sx={{ color: "#059669", fontSize: 22 }} />
+                  </InputAdornment>
+                  {params.InputProps.startAdornment}
+                </>
+              ),
+            }}
+            sx={{
+              "& .MuiOutlinedInput-root": {
+                borderRadius: 2.5,
+                bgcolor: "#fff",
+              },
+            }}
+          />
         )}
       />
       {selected && !selected.hasOutward && (
-        <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: "block" }}>
-          Lab outward can be added — plant-outward doc will be created on first lab entry.
+        <Typography variant="caption" color="warning.main" sx={{ mt: 0.75, display: "block", fontWeight: 500 }}>
+          First lab entry will create the plant-outward record for this batch.
         </Typography>
       )}
     </Box>

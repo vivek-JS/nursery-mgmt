@@ -3,6 +3,10 @@ import { DownloadIcon } from "lucide-react"
 import jsPDF from "jspdf"
 import "jspdf-autotable"
 import moment from "moment"
+import {
+  getPlantLineItemsFromOrder,
+  plantLineItemsTotalAmount,
+} from "./plantLineItemsDisplay"
 
 // Helper function to sanitize text and remove unwanted characters
 const sanitizeText = (text) => {
@@ -147,38 +151,99 @@ const generateOrderPDF = (order) => {
   doc.setFont("helvetica", "bold")
   doc.text("ORDER DETAILS", leftMargin, orderY)
 
-  // Order Details Table
-  doc.autoTable({
-    startY: orderY + 3,
-    theme: "plain",
-    body: [
-      ...(isPapayaReceiptOrder(order)
-        ? [
-            ["Plant Type", "Papaya"],
-            ["Variety", "—"],
-          ]
-        : [
-            ["Plant Type", sanitizeText(order.plantType || "N/A")],
-            ["Variety", sanitizeText(order.plantVariety || "N/A")],
-          ]),
-      ["Quantity", sanitizeText(order.quantity || "0") + " units"],
-      ["Rate", "Rs. " + sanitizeText(order.rate || "0") + " per unit"],
-      ["Total Amount", "Rs. " + sanitizeText(order.total || "0")],
-      ["Booking Date", sanitizeText(getBookingDate(order))],
-      ["Delivery Date", sanitizeText(order.Delivery || "N/A")]
-    ],
-    styles: {
-      fontSize: 9,
-      cellPadding: 2
-    },
-    columnStyles: {
-      0: { cellWidth: 30, fontStyle: "bold" },
-      1: { cellWidth: 140 }
-    },
-    margin: { left: leftMargin, right: rightMargin },
-    tableLineColor: [220, 220, 220],
-    tableLineWidth: 0.1
-  })
+  const plantLines = getPlantLineItemsFromOrder(order)
+  const multiPlant = plantLines.length > 0
+  const multiTotal = plantLineItemsTotalAmount(order)
+
+  if (multiPlant) {
+    doc.autoTable({
+      startY: orderY + 3,
+      head: [["#", "Plant / Subtype", "Qty", "Rate", "Amount"]],
+      body: plantLines.map((ln, idx) => [
+        String(idx + 1),
+        sanitizeText(ln.label),
+        sanitizeText(String(ln.qty)),
+        "Rs. " + sanitizeText(String(ln.rate)),
+        "Rs. " + sanitizeText(ln.amount.toLocaleString("en-IN")),
+      ]),
+      theme: "grid",
+      headStyles: {
+        fillColor: [240, 240, 240],
+        textColor: [50, 50, 50],
+        fontSize: 9,
+        fontStyle: "bold",
+      },
+      styles: { fontSize: 9, cellPadding: 2 },
+      columnStyles: {
+        0: { cellWidth: 10 },
+        1: { cellWidth: 70 },
+        2: { cellWidth: 20, halign: "right" },
+        3: { cellWidth: 25, halign: "right" },
+        4: { cellWidth: 30, halign: "right" },
+      },
+      margin: { left: leftMargin, right: rightMargin },
+    })
+    doc.autoTable({
+      startY: doc.lastAutoTable.finalY + 2,
+      theme: "plain",
+      body: [
+        [
+          "Total Quantity",
+          sanitizeText(String(plantLines.reduce((s, l) => s + l.qty, 0))) + " units",
+        ],
+        [
+          "Total Amount",
+          "Rs. " +
+            sanitizeText(
+              multiTotal != null
+                ? multiTotal.toLocaleString("en-IN")
+                : order.total || "0"
+            ),
+        ],
+        ["Booking Date", sanitizeText(getBookingDate(order))],
+        ["Delivery Date", sanitizeText(order.Delivery || "N/A")],
+      ],
+      styles: { fontSize: 9, cellPadding: 2 },
+      columnStyles: {
+        0: { cellWidth: 30, fontStyle: "bold" },
+        1: { cellWidth: 140 },
+      },
+      margin: { left: leftMargin, right: rightMargin },
+    })
+  } else {
+    // Order Details Table (legacy single plant)
+    doc.autoTable({
+      startY: orderY + 3,
+      theme: "plain",
+      body: [
+        ...(isPapayaReceiptOrder(order)
+          ? [
+              ["Plant Type", "Papaya"],
+              ["Variety", "—"],
+            ]
+          : [
+              ["Plant Type", sanitizeText(order.plantType || "N/A")],
+              ["Variety", sanitizeText(order.plantVariety || "N/A")],
+            ]),
+        ["Quantity", sanitizeText(order.quantity || "0") + " units"],
+        ["Rate", "Rs. " + sanitizeText(order.rate || "0") + " per unit"],
+        ["Total Amount", "Rs. " + sanitizeText(order.total || "0")],
+        ["Booking Date", sanitizeText(getBookingDate(order))],
+        ["Delivery Date", sanitizeText(order.Delivery || "N/A")],
+      ],
+      styles: {
+        fontSize: 9,
+        cellPadding: 2,
+      },
+      columnStyles: {
+        0: { cellWidth: 30, fontStyle: "bold" },
+        1: { cellWidth: 140 },
+      },
+      margin: { left: leftMargin, right: rightMargin },
+      tableLineColor: [220, 220, 220],
+      tableLineWidth: 0.1,
+    })
+  }
 
   // Add a section divider
   const orderEndY = doc.lastAutoTable.finalY + 5
@@ -530,11 +595,37 @@ const generateMarathiReceiptHTMLForPrint = (order) => {
     plantVariety = ""
   }
   const plantTypeCell = plantVariety ? `${plantType} ${plantVariety}` : plantType
+  const plantLines = getPlantLineItemsFromOrder(order)
   const quantity = parseInt(order.quantity) || 0
   const rate = parseInt(order.rate) || 0
-  const total = extractNumericValue(order.total) || quantity * rate
+  const multiTotal = plantLineItemsTotalAmount(order)
+  const total =
+    multiTotal != null
+      ? multiTotal
+      : extractNumericValue(order.total) || quantity * rate
   const paidAmount = extractNumericValue(order["Paid Amt"])
   const remainingAmount = extractNumericValue(order["remaining Amt"])
+
+  const plantRowsHtml =
+    plantLines.length > 0
+      ? plantLines
+          .map(
+            (ln) => `
+                <tr>
+                  <td>${ln.qty}</td>
+                  <td>${sanitizeMarathiText(ln.label)}</td>
+                  <td>₹${ln.rate}</td>
+                  <td>₹${ln.amount.toLocaleString("en-IN")}</td>
+                </tr>`
+          )
+          .join("")
+      : `
+                <tr>
+                  <td>${quantity}</td>
+                  <td>${plantTypeCell}</td>
+                  <td>₹${rate}</td>
+                  <td>₹${total}</td>
+                </tr>`
 
   const htmlContent = `
     <!DOCTYPE html>
@@ -721,12 +812,7 @@ const generateMarathiReceiptHTMLForPrint = (order) => {
                 </tr>
               </thead>
               <tbody>
-                <tr>
-                  <td>${quantity}</td>
-                  <td>${plantTypeCell}</td>
-                  <td>₹${rate}</td>
-                  <td>₹${total}</td>
-                </tr>
+                ${plantRowsHtml}
               </tbody>
             </table>
             
@@ -772,12 +858,7 @@ const generateMarathiReceiptHTMLForPrint = (order) => {
                 </tr>
               </thead>
               <tbody>
-                <tr>
-                  <td>${quantity}</td>
-                  <td>${plantTypeCell}</td>
-                  <td>₹${rate}</td>
-                  <td>₹${total}</td>
-                </tr>
+                ${plantRowsHtml}
               </tbody>
             </table>
             
@@ -831,11 +912,36 @@ const generateMarathiReceiptHTML = (order) => {
     plantVariety = ""
   }
   const plantTypeCellHtml = plantVariety ? `${plantType}<br>${plantVariety}` : plantType
+  const plantLines = getPlantLineItemsFromOrder(order)
   const quantity = parseInt(order.quantity) || 0
   const rate = parseInt(order.rate) || 0
-  const total = extractNumericValue(order.total) || quantity * rate
+  const multiTotal = plantLineItemsTotalAmount(order)
+  const total =
+    multiTotal != null
+      ? multiTotal
+      : extractNumericValue(order.total) || quantity * rate
   const paidAmount = extractNumericValue(order["Paid Amt"])
   const remainingAmount = extractNumericValue(order["remaining Amt"])
+  const plantRowsHtml =
+    plantLines.length > 0
+      ? plantLines
+          .map(
+            (ln) => `
+            <tr>
+              <td>${ln.qty}</td>
+              <td>${sanitizeMarathiText(ln.label)}</td>
+              <td>₹${ln.rate}</td>
+              <td>₹${ln.amount.toLocaleString("en-IN")}</td>
+            </tr>`
+          )
+          .join("")
+      : `
+            <tr>
+              <td>${quantity}</td>
+              <td>${plantTypeCellHtml}</td>
+              <td>₹${rate}</td>
+              <td>₹${total}</td>
+            </tr>`
 
   const htmlContent = `
     <!DOCTYPE html>
@@ -939,12 +1045,7 @@ const generateMarathiReceiptHTML = (order) => {
             </tr>
           </thead>
           <tbody>
-            <tr>
-              <td>${quantity}</td>
-              <td>${plantTypeCellHtml}</td>
-              <td>${rate}</td>
-              <td>${total}</td>
-            </tr>
+            ${plantRowsHtml}
           </tbody>
         </table>
         

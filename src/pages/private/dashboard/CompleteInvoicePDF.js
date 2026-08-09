@@ -1,5 +1,9 @@
 import { Dialog } from "@mui/material"
 import React from "react"
+import {
+  getPlantLineItemsFromOrder,
+  plantLineItemsTotalAmount,
+} from "./plantLineItemsDisplay"
 
 const NAVY = "#000000"
 const ACCENT = "#111111"
@@ -74,7 +78,12 @@ const CompleteInvoicePDF = ({ open, onClose, dispatchData }) => {
     const dispatchedQty = Number(dispatchDetail?.dispatchQuantity || 0)
     const rate = Number(order?.rate || order?.details?.rate || 0)
     const freight = resolveOrderFreightCharges(order)
-    const plantAmount = dispatchedQty * rate
+    const plantLines = getPlantLineItemsFromOrder(order)
+    const multiAmount = plantLineItemsTotalAmount(order)
+    const plantAmount =
+      multiAmount != null
+        ? multiAmount
+        : dispatchedQty * rate
     const gross = plantAmount + freight
 
     const returned = Number(order?.returnedPlants ?? order?.details?.returnedPlants ?? 0)
@@ -86,15 +95,25 @@ const CompleteInvoicePDF = ({ open, onClose, dispatchData }) => {
     const totalPaid = collectedPayments.reduce((sum, p) => sum + Number(p?.paidAmount || 0), 0)
     const netDue = Math.max(0, gross - returnedAmount - damagedAmount - totalPaid)
 
-    const rawPlantName = order?.plantType?.name || "—"
+    const rawPlantName = order?.plantType?.name || order?.plantName?.name || "—"
     const plantSubtypeName = order?.plantSubtype?.name || ""
-    const plantName = plantSubtypeName ? `${rawPlantName} · ${plantSubtypeName}` : rawPlantName
+    const plantName =
+      plantLines.length > 0
+        ? plantLines.map((l) => l.label).join(", ")
+        : plantSubtypeName
+          ? `${rawPlantName} · ${plantSubtypeName}`
+          : rawPlantName
     const dcNo = resolveChallanInvoiceLabel(order, dispatchData?._id)
     const optionalManualDc = optionalManualDcSeparateFromOfficial(order)
     const orderNum = order?.orderId != null ? String(order.orderId) : ""
     const legacyRef = [dispatchData?.transportId, orderNum && `Order #${orderNum}`]
       .filter(Boolean)
       .join(" · ")
+
+    const totalQty =
+      plantLines.length > 0
+        ? plantLines.reduce((s, l) => s + l.qty, 0)
+        : dispatchedQty || 0
 
     const infoRows = [
       ["चालक", dispatchData.driverName, "वाहन", dispatchData.vehicleName],
@@ -110,7 +129,7 @@ const CompleteInvoicePDF = ({ open, onClose, dispatchData }) => {
         "ऑर्डर",
         orderNum || "—",
       ],
-      ["रोप", plantName, "डिस्पॅच", dispatchedQty || 0],
+      ["रोप", plantName, "डिस्पॅच", totalQty],
     ]
 
     return (
@@ -212,10 +231,44 @@ const CompleteInvoicePDF = ({ open, onClose, dispatchData }) => {
             <div style={sectionHeader}>रक्कम तपशील</div>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <tbody>
+                {plantLines.length > 0
+                  ? plantLines.map((ln) => (
+                      <tr key={ln.key} style={{ background: "#fff" }}>
+                        <td
+                          style={{
+                            ...pageCell({ fontWeight: "700", color: "#000" }),
+                            border: "none",
+                            borderBottom: `1px solid ${BORDER}`,
+                            width: "58%",
+                          }}
+                        >
+                          {ln.label}
+                        </td>
+                        <td
+                          style={{
+                            ...pageCell({ textAlign: "right", fontWeight: "700", color: "#000" }),
+                            border: "none",
+                            borderLeft: `1px solid ${BORDER}`,
+                            borderBottom: `1px solid ${BORDER}`,
+                          }}
+                        >
+                          {ln.qty.toLocaleString()} × ₹{ln.rate.toLocaleString()} = ₹
+                          {ln.amount.toLocaleString()}
+                        </td>
+                      </tr>
+                    ))
+                  : null}
                 {[
-                  ["डिस्पॅच प्रमाण", `${dispatchedQty} रोपे`],
-                  ["दर", `₹${rate.toLocaleString()} / रोप`],
-                  ["रोप रक्कम", `₹${plantAmount.toLocaleString()}`],
+                  ...(plantLines.length > 0
+                    ? [
+                        ["प्रमाण", `${totalQty} रोपे`],
+                        ["रोप रक्कम", `₹${plantAmount.toLocaleString()}`],
+                      ]
+                    : [
+                        ["डिस्पॅच प्रमाण", `${dispatchedQty} रोपे`],
+                        ["दर", `₹${rate.toLocaleString()} / रोप`],
+                        ["रोप रक्कम", `₹${plantAmount.toLocaleString()}`],
+                      ]),
                   ...(freight > 0
                     ? [["वाहतूक / Freight", `₹${freight.toLocaleString()}`]]
                     : []),

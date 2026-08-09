@@ -289,6 +289,7 @@ const SowingRequestsList = () => {
                 <TableCell align="right">Requested</TableCell>
                 <TableCell align="right">Excess</TableCell>
                 <TableCell align="right">Available</TableCell>
+                <TableCell>Transfer PO</TableCell>
                 <TableCell>Status</TableCell>
                 <TableCell>Requested By</TableCell>
                 <TableCell>Date</TableCell>
@@ -334,6 +335,30 @@ const SowingRequestsList = () => {
                   </TableCell>
                   <TableCell align="right">
                     {request.availablePackets || 0} {request.unitName}
+                  </TableCell>
+                  <TableCell>
+                    {request.transferPurchaseOrderId?.poNumber ? (
+                      <Chip
+                        size="small"
+                        color="info"
+                        variant="outlined"
+                        label={`${request.transferPurchaseOrderId.poNumber}${
+                          request.transferShortfallQty > 0
+                            ? ` (${request.transferShortfallQty} pkt)`
+                            : ""
+                        }`}
+                        onClick={() =>
+                          navigate(
+                            `/u/inventory/purchase-orders/${request.transferPurchaseOrderId._id}`
+                          )
+                        }
+                        sx={{ cursor: "pointer" }}
+                      />
+                    ) : request.packetsFromCompany > 0 ? (
+                      <Typography variant="caption" color="text.secondary">
+                        —
+                      </Typography>
+                    ) : null}
                   </TableCell>
                   <TableCell>
                     <Chip label={request.status} color={getStatusColor(request.status)} size="small" />

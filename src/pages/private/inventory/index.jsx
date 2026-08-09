@@ -19,8 +19,6 @@ import {
   MenuItem,
   IconButton,
   Chip,
-  Checkbox,
-  FormControlLabel,
   Table,
   TableBody,
   TableCell,
@@ -216,7 +214,6 @@ function Inventory() {
     sellingPrice: 0,
     supplier: { name: "", contact: "", email: "" },
     tags: [],
-    isAgriSales: false
   })
 
   const [batchForm, setBatchForm] = useState({
@@ -388,7 +385,6 @@ function Inventory() {
       sellingPrice: 0,
       supplier: { name: "", contact: "", email: "" },
       tags: [],
-      isAgriSales: false
     })
     setBatchForm({
       productId: "",
@@ -984,23 +980,6 @@ function Inventory() {
                   }
                   className={classes.formField}
                 />
-              </Grid>
-              <Grid item xs={12}>
-                <FormControlLabel
-                  control={
-                    <Checkbox
-                      checked={productForm.isAgriSales || false}
-                      onChange={(e) =>
-                        setProductForm({ ...productForm, isAgriSales: e.target.checked })
-                      }
-                      color="primary"
-                    />
-                  }
-                  label="Available for Ram Agri Sales"
-                />
-                <Typography variant="caption" color="textSecondary" display="block" sx={{ ml: 4, mt: 0.5 }}>
-                  Check this if the product should be available for Ram Agri Sales orders
-                </Typography>
               </Grid>
             </Grid>
           )

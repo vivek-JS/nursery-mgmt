@@ -11,6 +11,8 @@ import {
   IconButton,
   FormControlLabel,
   Switch,
+  ToggleButton,
+  ToggleButtonGroup,
 } from "@mui/material";
 import { Logout } from "@mui/icons-material";
 import { useUserRole, useIsDispatchManager, useUserData } from "utils/roleUtils";
@@ -22,6 +24,7 @@ import {
   setWhatsappMessagingDisabled,
 } from "utils/whatsappMessagingPref";
 import RemainingDispatchQueue from "./components/RemainingDispatchQueue";
+import SecondaryAbsentQuickComplete from "./components/SecondaryAbsentQuickComplete";
 
 const DispatchedListPage = () => {
   const theme = useTheme();
@@ -39,6 +42,7 @@ const DispatchedListPage = () => {
   const [whatsappMessagingEnabled, setWhatsappMessagingEnabled] = React.useState(
     () => !isWhatsappMessagingDisabled()
   );
+  const [pageTab, setPageTab] = React.useState("matrix");
 
   useEffect(() => {
     if (userData === undefined || userRole === undefined) return;
@@ -163,7 +167,21 @@ const DispatchedListPage = () => {
           flexDirection: "column",
         }}
       >
-        <RemainingDispatchQueue />
+        <ToggleButtonGroup
+          exclusive
+          value={pageTab}
+          onChange={(_, v) => v && setPageTab(v)}
+          size="small"
+          sx={{ mb: 1, alignSelf: "flex-start", bgcolor: "rgba(255,255,255,0.9)", borderRadius: 2 }}
+        >
+          <ToggleButton value="matrix" sx={{ textTransform: "none", fontWeight: 700, px: 2 }}>
+            Pending by variety
+          </ToggleButton>
+          <ToggleButton value="quick" sx={{ textTransform: "none", fontWeight: 700, px: 2 }}>
+            Quick complete
+          </ToggleButton>
+        </ToggleButtonGroup>
+        {pageTab === "matrix" ? <RemainingDispatchQueue /> : <SecondaryAbsentQuickComplete />}
       </Box>
     </Box>
   );

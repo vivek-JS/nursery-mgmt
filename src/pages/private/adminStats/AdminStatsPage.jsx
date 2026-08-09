@@ -29,6 +29,7 @@ import StorefrontIcon from "@mui/icons-material/Storefront"
 import WarningAmberIcon from "@mui/icons-material/WarningAmber"
 import MenuBookIcon from "@mui/icons-material/MenuBook"
 import Inventory2Icon from "@mui/icons-material/Inventory2"
+import WhatsAppIcon from "@mui/icons-material/WhatsApp"
 import { API, NetworkManager } from "network/core"
 import AvailableStockView from "../dashboard/AvailableStockView"
 import { saveStockPrefill } from "../dashboard/availableStockUtils"
@@ -38,7 +39,8 @@ import MisDailyTable from "./MisDailyTable"
 import MisVarietyTable from "./MisVarietyTable"
 import MisBreakdownTable from "./MisBreakdownTable"
 import { DELIVERY_BUCKETS, fmt, asDisplayLabel, formatDuePlus, duePlusCaption } from "./misConstants"
-import { breakdownRowsToCsv, downloadCsv } from "./misExportUtils"
+import { breakdownRowsToCsv, downloadCsv, salesSheetRowsToCsv } from "./misExportUtils"
+import { MIS_DATE_PICKER_FORMAT } from "./misIstDate"
 import MisGuideJoyride from "./MisGuideJoyride"
 
 const TAB_PLANT = 0
@@ -64,13 +66,10 @@ function AdminStatsPage() {
   const navigate = useNavigate()
   const userData = useSelector((s) => s?.userData?.userData)
 
+  const ALLOWED_ROLES = ["ADMIN", "SUPER_ADMIN", "SUPERADMIN", "OFFICE_ADMIN", "OFFICEADMIN"]
   const isAdmin =
-    userData?.jobTitle === "ADMIN" ||
-    userData?.jobTitle === "SUPER_ADMIN" ||
-    userData?.jobTitle === "SUPERADMIN" ||
-    userData?.role === "ADMIN" ||
-    userData?.role === "SUPER_ADMIN" ||
-    userData?.role === "SUPERADMIN"
+    ALLOWED_ROLES.includes(userData?.jobTitle) ||
+    ALLOWED_ROLES.includes(userData?.role)
 
   useEffect(() => {
     if (userData && !isAdmin) navigate("/u/dashboard", { replace: true })
@@ -104,6 +103,13 @@ function AdminStatsPage() {
   const [joyrideRun, setJoyrideRun] = useState(false)
   const [joyrideKey, setJoyrideKey] = useState(0)
   const [stockRefreshKey, setStockRefreshKey] = useState(0)
+
+  const [salesSheetLoading, setSalesSheetLoading] = useState(false)
+  const [salesSheetError, setSalesSheetError] = useState("")
+
+  const [waMisLoading, setWaMisLoading] = useState(false)
+  const [waMisMessage, setWaMisMessage] = useState("")
+  const [waMisError, setWaMisError] = useState("")
 
   const salesFetchedKeyRef = useRef(null)
   const dealerFetchedKeyRef = useRef(null)
@@ -428,6 +434,30 @@ function AdminStatsPage() {
     } else fetchMis()
   }
 
+  const sendDailyMisWhatsApp = useCallback(async () => {
+    if (!isAdmin || waMisLoading) return
+    setWaMisLoading(true)
+    setWaMisError("")
+    setWaMisMessage("")
+    const reportDate = endDate?.format("YYYY-MM-DD")
+    try {
+      const instance = NetworkManager(API.WHATSAPP_ALERT.SEND_ADMIN_DAILY_MIS)
+      const res = await instance.request({ date: reportDate })
+      if (res?.status === "Success" || res?.success) {
+        setWaMisMessage(
+          res?.message ||
+            `Marathi MIS WhatsApp sent for ${reportDate} (7 PM daily digest).`
+        )
+      } else {
+        setWaMisError(res?.message || "WhatsApp send failed")
+      }
+    } catch (err) {
+      setWaMisError(err?.response?.data?.message || err?.message || "WhatsApp send failed")
+    } finally {
+      setWaMisLoading(false)
+    }
+  }, [isAdmin, waMisLoading, endDate])
+
   const tabLoading =
     tab === TAB_STOCK
       ? false
@@ -544,6 +574,33 @@ function AdminStatsPage() {
       breakdownRowsToCsv("=== DEALER ===", dealerRows),
     ])
   }
+
+  const exportSalesSheet = useCallback(async () => {
+    if (salesSheetLoading) return
+    setSalesSheetLoading(true)
+    setSalesSheetError("")
+    try {
+      const instance = NetworkManager(API.ORDER.ADMIN_MIS_SALES_SHEET)
+      const res = await instance.request({}, dateParams(startDate, endDate, false, false))
+      if (!res?.success) throw new Error(res?.message || "Failed to build sales sheet")
+      const payload = res.data?.data || res.data
+      const columns = payload?.columns || []
+      const rows = payload?.rows || []
+      const totalsRow = payload?.totalsRow || null
+      if (!rows.length) {
+        setSalesSheetError("No dispatched orders found for this date range.")
+        return
+      }
+      downloadCsv(
+        `sales-sheet-${startDate?.format("DD-MM-YYYY")}-to-${endDate?.format("DD-MM-YYYY")}.csv`,
+        [salesSheetRowsToCsv(columns, rows, totalsRow)]
+      )
+    } catch (err) {
+      setSalesSheetError(err?.response?.data?.message || err?.message || "Failed to build sales sheet")
+    } finally {
+      setSalesSheetLoading(false)
+    }
+  }, [salesSheetLoading, startDate, endDate])
 
   const appendDueChip = (chips, dueSummary, inRangePlants) => {
     if (!dueSummary?.inRange) return chips
@@ -731,6 +788,33 @@ function AdminStatsPage() {
                   Guide
                 </Button>
               </Tooltip>
+              <Tooltip title="Download dispatched (Out) orders as a sales sheet for the selected date range">
+                <span>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={exportSalesSheet}
+                    disabled={salesSheetLoading}
+                    startIcon={
+                      salesSheetLoading ? (
+                        <CircularProgress size={14} color="inherit" />
+                      ) : (
+                        <FileDownloadIcon sx={{ fontSize: 16 }} />
+                      )
+                    }
+                    sx={{
+                      color: "#fff",
+                      borderColor: "rgba(255,255,255,0.55)",
+                      textTransform: "none",
+                      fontWeight: 700,
+                      fontSize: 12,
+                      py: 0.25,
+                      "&:hover": { borderColor: "#fff", bgcolor: "rgba(255,255,255,0.12)" },
+                    }}>
+                    Sales Sheet
+                  </Button>
+                </span>
+              </Tooltip>
               <Tooltip title="Click any number → order drawer. Hover header/cell → Hinglish tip.">
                 <InfoOutlinedIcon fontSize="small" sx={{ opacity: 0.85 }} />
               </Tooltip>
@@ -759,6 +843,33 @@ function AdminStatsPage() {
                   </span>
                 </Tooltip>
               )}
+              <Tooltip title="Send Marathi daily MIS on WhatsApp (booking, dispatch, payments, Ram Agri stock)">
+                <span>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={sendDailyMisWhatsApp}
+                    disabled={waMisLoading || tab === TAB_STOCK}
+                    startIcon={
+                      waMisLoading ? (
+                        <CircularProgress size={14} color="inherit" />
+                      ) : (
+                        <WhatsAppIcon sx={{ fontSize: 16 }} />
+                      )
+                    }
+                    sx={{
+                      color: "#fff",
+                      borderColor: "rgba(255,255,255,0.55)",
+                      textTransform: "none",
+                      fontWeight: 700,
+                      fontSize: 12,
+                      py: 0.25,
+                      "&:hover": { borderColor: "#fff", bgcolor: "rgba(76, 175, 80, 0.25)" },
+                    }}>
+                    WhatsApp MIS
+                  </Button>
+                </span>
+              </Tooltip>
               <Tooltip title="Refresh current tab">
                 <span>
                   <IconButton onClick={handleRefresh} disabled={tabLoading} size="small" sx={{ color: "#fff" }}>
@@ -831,6 +942,21 @@ function AdminStatsPage() {
             {tabError}
           </Alert>
         )}
+        {waMisMessage && (
+          <Alert severity="success" sx={{ mb: 2 }} onClose={() => setWaMisMessage("")}>
+            {waMisMessage}
+          </Alert>
+        )}
+        {waMisError && (
+          <Alert severity="error" sx={{ mb: 2 }} onClose={() => setWaMisError("")}>
+            {waMisError}
+          </Alert>
+        )}
+        {salesSheetError && (
+          <Alert severity="warning" sx={{ mb: 2 }} onClose={() => setSalesSheetError("")}>
+            {salesSheetError}
+          </Alert>
+        )}
 
         {tab !== TAB_STOCK && (
         <Box
@@ -849,22 +975,24 @@ function AdminStatsPage() {
           <DatePicker
             label="From"
             value={startDate}
+            format={MIS_DATE_PICKER_FORMAT}
             onChange={(v) => {
               if (!v) return
               setStartDate(v)
               if (endDate && v.isAfter(endDate, "day")) setEndDate(v)
             }}
-            slotProps={{ textField: { size: "small", sx: { width: 150 } } }}
+            slotProps={{ textField: { size: "small", sx: { width: 160 } } }}
           />
           <DatePicker
             label="To"
             value={endDate}
+            format={MIS_DATE_PICKER_FORMAT}
             onChange={(v) => {
               if (!v) return
               setEndDate(v)
               if (startDate && v.isBefore(startDate, "day")) setStartDate(v)
             }}
-            slotProps={{ textField: { size: "small", sx: { width: 150 } } }}
+            slotProps={{ textField: { size: "small", sx: { width: 160 } } }}
             minDate={startDate || undefined}
           />
           <Button

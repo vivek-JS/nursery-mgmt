@@ -34,6 +34,8 @@ const SowingRequestsList = React.lazy(() => import("pages/private/inventory/Sowi
 const RaisingSeedCollectPage = React.lazy(() => import("pages/private/inventory/RaisingSeedCollectPage"))
 const ReturnRequestList = React.lazy(() => import("pages/private/inventory/ReturnRequestList"))
 const RamAgriInputsProductMaster = React.lazy(() => import("pages/private/inventory/RamAgriInputsProductMaster"))
+const BiotechSeedProductMaster = React.lazy(() => import("pages/private/inventory/BiotechSeedProductMaster"))
+const SeedDualInventoryLinks = React.lazy(() => import("pages/private/inventory/SeedDualInventoryLinks"))
 const AgriInputSalesOrderPage = React.lazy(() => import("pages/private/inventory/AgriInputSalesOrderPage"))
 const RamAgriSalesDashboard = React.lazy(() => import("pages/private/inventory/RamAgriSalesDashboard"))
 const RamAgriInputHub = React.lazy(() => import("pages/private/ram-agri-input/RamAgriInputHub"))
@@ -63,6 +65,8 @@ const WhatsAppManagement = React.lazy(() => import("pages/private/whatsapp/Whats
 const SowingManagement = React.lazy(() => import("pages/private/Sowing/SowingManagement"))
 const PlantAvailability = React.lazy(() => import("pages/private/Sowing/PlantAvailability"))
 const SowingGapAnalysis = React.lazy(() => import("pages/private/Sowing/SowingGapAnalysis"))
+const SowingBookingGapAnalysis = React.lazy(() => import("pages/private/Sowing/SowingBookingGapAnalysis"))
+const OldSowingGapAnalysis = React.lazy(() => import("pages/private/Sowing/OldSowingGapAnalysis"))
 const AdminDirectSowPortal = React.lazy(() => import("pages/private/Sowing/AdminDirectSowPortal"))
 const SowingAdminCardsPortal = React.lazy(() => import("pages/private/Sowing/SowingAdminCardsPortal"))
 const PrimarySowingEntry = React.lazy(() => import("pages/private/Sowing/PrimarySowingEntry"))
@@ -141,6 +145,8 @@ export const PrivateRoutes = [
   { path: "/u/inventory/sowing-requests", component: SowingRequestsList },
   { path: "/u/inventory/return-requests", component: ReturnRequestList },
   { path: "/u/inventory/ram-agri-inputs-master", component: RamAgriInputsProductMaster },
+  { path: "/u/inventory/biotech-seed-master", component: BiotechSeedProductMaster },
+  { path: "/u/inventory/seed-dual-links", component: SeedDualInventoryLinks },
   { path: "/u/inventory/ram-agri-input-order/new", component: AgriInputSalesOrderPage },
   { path: "/u/inventory/ram-agri-sales-dashboard", component: RamAgriSalesDashboard },
   { path: "/u/ram-agri-input", component: RamAgriInputHub },
@@ -168,6 +174,8 @@ export const PrivateRoutes = [
   { path: "/u/sowing", component: SowingManagement },
   { path: "/u/plant-availability", component: PlantAvailability },
   { path: "/u/sowing-gap-analysis", component: SowingGapAnalysis },
+  { path: "/u/sowing-booking-gap-analysis", component: SowingBookingGapAnalysis },
+  { path: "/u/old-sowing-gap-analysis", component: OldSowingGapAnalysis },
   { path: "/u/admin-direct-sow", component: AdminDirectSowPortal },
   { path: "/u/sowing-admin-cards", component: SowingAdminCardsPortal },
   { path: "/u/primary-sowing-entry", component: PrimarySowingEntry },

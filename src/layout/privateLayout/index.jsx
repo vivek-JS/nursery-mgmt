@@ -19,7 +19,22 @@ import { useStyles } from "layout/privateLayoutStyles"
 import { useSelector } from "react-redux"
 import PasswordChangeModal from "components/Modals/PasswordChangeModal"
 import MotivationalQuoteModal from "components/Modals/MotivationalQuoteModal"
+import DailyNoteFab from "components/dailyNote/DailyNoteFab"
 import { useUserRole } from "utils/roleUtils"
+import { useWorkspace } from "workspace/WorkspaceContext"
+import AgriModeChrome from "workspace/AgriModeChrome"
+import WorkspaceTopBar from "workspace/WorkspaceTopBar"
+import {
+  ACCOUNTING_PATH,
+  AGRI_HUB_PATH,
+  AGRI_HOME_PATH,
+  canSeeAgriAccounting,
+  isAgriLockedRole,
+  isAgriPathAllowed,
+  isAgriInventoryPathBlocked,
+  isRamAgriInputAdmin,
+  isRamAgriMaster,
+} from "workspace/agriAccess"
 const drawerWidth = 65
 
 const Main = styled("main", { shouldForwardProp: (prop) => prop !== "open" })(
@@ -82,9 +97,13 @@ export default function PrivateLayout(props) {
   const primaryRedirectRef = useRef(false)
   const secondaryRedirectRef = useRef(false)
   const ramAgriSalesManagerRedirectRef = useRef(false)
+  const agriLockedRedirectRef = useRef(false)
+  const agriModeRedirectRef = useRef(false)
   const accountantRedirectRef = useRef(false)
   const cashierRedirectRef = useRef(false)
   const lastPathRef = useRef(location.pathname)
+  const { isAgriMode } = useWorkspace()
+  const agriLocked = isAgriLockedRole(userData)
   
   console.log("User Type:", userType, "User Role:", userRole)
   
@@ -116,6 +135,8 @@ export default function PrivateLayout(props) {
       primaryRedirectRef.current = false
       secondaryRedirectRef.current = false
       ramAgriSalesManagerRedirectRef.current = false
+      agriLockedRedirectRef.current = false
+      agriModeRedirectRef.current = false
       accountantRedirectRef.current = false
       cashierRedirectRef.current = false
       lastPathRef.current = location.pathname
@@ -166,7 +187,7 @@ export default function PrivateLayout(props) {
     }
   }, [isSecondaryEmployee, isSuperAdmin, isAdmin, location.pathname, navigate, userData])
 
-  // RAM_AGRI_SALES_MANAGER / RAM_AGRI_SALES_OFFICE_MANAGER can ONLY access: Dashboard, Ram Agri Input dashboard, Inventory, Ram Agri Input Order, Ram Agri Inputs Master
+  // RAM_AGRI_SALES_MANAGER / RAM_AGRI_SALES_OFFICE_MANAGER can ONLY access: Dashboard, Ram Agri Input hub/dashboard, Inventory, Ram Agri Input Order, Ram Agri Inputs Master
   useEffect(() => {
     if (!userData) return
     if (ramAgriSalesManagerRedirectRef.current) return
@@ -175,15 +196,52 @@ export default function PrivateLayout(props) {
     const allowed =
       p === "/u/dashboard" ||
       p === "/u/inventory" ||
+      p.startsWith(AGRI_HUB_PATH) ||
       p.startsWith("/u/inventory/ram-agri-sales-dashboard") ||
       p.startsWith("/u/inventory/ram-agri-input-order") ||
       p.startsWith("/u/inventory/ram-agri-inputs-master")
     if (!allowed) {
       ramAgriSalesManagerRedirectRef.current = true
-      navigate("/u/inventory/ram-agri-sales-dashboard", { replace: true })
+      navigate(AGRI_HOME_PATH, { replace: true })
     }
   }, [isRamAgriSalesManager, isSuperAdmin, isAdmin, location.pathname, navigate, userData])
-  
+
+  // RAM_AGRI_MASTER / RAM_AGRI_INPUT_ADMIN: agri paths only (+ Master may use agri Accounting)
+  useEffect(() => {
+    if (!userData) return
+    if (agriLockedRedirectRef.current) return
+    if (!agriLocked || isSuperAdmin) return
+    const p = location.pathname
+    const master = isRamAgriMaster(userData)
+    if (p.startsWith(ACCOUNTING_PATH) && !master) {
+      agriLockedRedirectRef.current = true
+      navigate(AGRI_HOME_PATH, { replace: true })
+      return
+    }
+    const adminOnly = isRamAgriInputAdmin(userData) && !master
+    if (adminOnly && p.startsWith("/u/inventory/ram-agri-inputs-master")) {
+      agriLockedRedirectRef.current = true
+      navigate(AGRI_HOME_PATH, { replace: true })
+      return
+    }
+    if (isAgriInventoryPathBlocked(p) || !isAgriPathAllowed(p)) {
+      agriLockedRedirectRef.current = true
+      navigate(AGRI_HOME_PATH, { replace: true })
+    }
+  }, [agriLocked, isSuperAdmin, location.pathname, navigate, userData])
+
+  // Agri workspace mode: agri routes + agri accounting; block GRN/suppliers/etc.
+  useEffect(() => {
+    if (!userData) return
+    if (agriModeRedirectRef.current) return
+    if (!isAgriMode || agriLocked) return
+    const p = location.pathname
+    if (isAgriInventoryPathBlocked(p) || !isAgriPathAllowed(p)) {
+      agriModeRedirectRef.current = true
+      navigate(AGRI_HOME_PATH, { replace: true })
+    }
+  }, [isAgriMode, agriLocked, location.pathname, navigate, userData])
+ 
   // ACCOUNTANT can ONLY access: Orders and Accounting Dashboard (sidebar + route-level)
   useEffect(() => {
     if (!userData) return
@@ -237,16 +295,26 @@ export default function PrivateLayout(props) {
       p.startsWith("/u/sowing-gap-analysis/") ||
       p === "/u/slots" ||
       p.startsWith("/u/slots/") ||
+      p === "/u/admin-stats" ||
+      p.startsWith("/u/admin-stats/") ||
       p === "/u/cms" ||
       p.startsWith("/u/cms/") ||
       p === "/u/employeese" ||
       p.startsWith("/u/employeese/") ||
+      p === "/u/attendance" ||
+      p.startsWith("/u/attendance/") ||
       p === "/u/inventory" ||
       p.startsWith("/u/inventory") ||
       p === "/u/dealers" ||
       p.startsWith("/u/dealers/") ||
       p === "/u/farmers" ||
-      p.startsWith("/u/farmers/")
+      p.startsWith("/u/farmers/") ||
+      p === "/u/dispatched-vehicles" ||
+      p.startsWith("/u/dispatched-vehicles/") ||
+      p === "/u/delivery-report" ||
+      p.startsWith("/u/delivery-report/") ||
+      p === "/u/admin-direct-sow" ||
+      p.startsWith("/u/admin-direct-sow/")
 
     if (!allowed) {
       console.log(`[PrivateLayout] OFFICEADMIN user accessing ${p}, redirecting to /u/dashboard`)
@@ -311,10 +379,15 @@ export default function PrivateLayout(props) {
         "Plants and Products",
         "Sowing Management",
         "Sowing Gap Analysis",
+        "Direct Sow Portal",
         "Slots Managment",
+        "Admin Stats",
+        "Delivery Report",
+        "Dispatched Vehicles",
         "CMS",
         "Farmers",
         "Employees",
+        "Attendance",
         "Inventory",
         "Ram Agri Input",
         "Dealers",
@@ -325,17 +398,42 @@ export default function PrivateLayout(props) {
         "/u/plants",
         "/u/sowing",
         "/u/sowing-gap-analysis",
+        "/u/admin-direct-sow",
         "/u/slots",
+        "/u/admin-stats",
+        "/u/delivery-report",
+        "/u/dispatched-vehicles",
         "/u/cms",
         "/u/farmers",
         "/u/employeese",
+        "/u/attendance",
         "/u/inventory",
         "/u/inventory/ram-agri-sales-dashboard",
+        AGRI_HUB_PATH,
         "/u/dealers",
         "/u/rewards-admin"
       ]
       const hasAccess = allowedTitles.includes(menuItem.title) || allowedRoutes.includes(menuItem.route)
       return hasAccess
+    }
+
+    if (agriLocked) {
+      const allowedTitles = ["Ram Agri Input", "Inventory", "Orders"]
+      const allowedRoutes = [
+        AGRI_HUB_PATH,
+        "/u/inventory",
+        "/u/dashboard",
+        "/u/inventory/ram-agri-sales-dashboard",
+        "/u/inventory/ram-agri-input-order/new",
+      ]
+      if (isRamAgriMaster(userData)) {
+        allowedTitles.push("Accounting Dashboard")
+        allowedRoutes.push(ACCOUNTING_PATH, "/u/inventory/ram-agri-inputs-master")
+      }
+      return (
+        allowedTitles.includes(menuItem.title) ||
+        allowedRoutes.includes(menuItem.route)
+      )
     }
     
     // If no allowedRoles specified, allow access (backward compatibility)
@@ -366,12 +464,6 @@ export default function PrivateLayout(props) {
               <ListItemButton
                 style={{ padding: 10 }}
                 sx={{ paddingLeft: "10px !important" }}></ListItemButton>
-
-              {/* <Typography sx={styles.drawerHeader} variant="h4">
-                <img src={Logo} style={{ height: 30 }}></img>
-              </Typography>
-              &nbsp; &nbsp;
-              <Typography sx={styles.listItemText}>Practease</Typography> */}
             </DrawerHeader>
             <Divider sx={styles.divider} />
           </Box>
@@ -415,9 +507,29 @@ export default function PrivateLayout(props) {
                 if (isRamAgriSalesManager && !isSuperAdmin && !isAdmin) {
                   return (
                     item.route === "/u/dashboard" ||
+                    item.route === AGRI_HUB_PATH ||
                     item.route === "/u/inventory/ram-agri-sales-dashboard" ||
                     item.route === "/u/inventory"
                   )
+                }
+
+                // Agri workspace: agri menus + Accounting (Ram Agri org only) for allowed roles
+                if (isAgriMode || agriLocked) {
+                  const isAccounting =
+                    item.title === "Accounting Dashboard" ||
+                    item.route === ACCOUNTING_PATH
+                  if (isAccounting) {
+                    return canSeeAgriAccounting(userData) && hasMenuAccess(item)
+                  }
+                  const agriMenuOk =
+                    item.route === AGRI_HUB_PATH ||
+                    item.route === "/u/inventory" ||
+                    item.route === "/u/dashboard" ||
+                    item.route === "/u/inventory/ram-agri-sales-dashboard" ||
+                    item.title === "Ram Agri Input" ||
+                    item.title === "Inventory" ||
+                    item.title === "Orders"
+                  if (!agriMenuOk) return false
                 }
                 
                 // Apply role-based access control
@@ -458,6 +570,8 @@ export default function PrivateLayout(props) {
       </Drawer>
       )}
       <Main open={false} sx={hideSidebar ? { marginLeft: 0, padding: 0, minWidth: 0 } : { minWidth: 0 }}>
+        <WorkspaceTopBar />
+        <AgriModeChrome />
         <Outlet />
       </Main>
       
@@ -481,6 +595,11 @@ export default function PrivateLayout(props) {
         onClose={handleQuoteModalClose}
         quote={quote}
       />
+
+      {/* Daily Notes — floating SpeedDial (add / previous / all) */}
+      {!showPasswordModal && (
+        <DailyNoteFab bottomOffset={hideSidebar ? 96 : 24} />
+      )}
     </Box>
   )
 }

@@ -36,9 +36,28 @@ const SowingRequestDialog = ({ open, onClose, request, onSuccess }) => {
     return request?.packetsNeeded || 0;
   };
 
-  const getPacketsRequested = () => {
+  /** Full request (company + raising) — display only. */
+  const getPacketsRequestedTotal = () => {
     return request?.packetsRequested || request?.packetsNeeded || 0;
   };
+
+  /** Warehouse must issue company packets only. */
+  const getCompanyIssuePackets = () => {
+    if (
+      request?.packetsFromCompany != null &&
+      Number.isFinite(Number(request.packetsFromCompany))
+    ) {
+      return Math.max(0, Number(request.packetsFromCompany));
+    }
+    if (request?.seedSource === 'RAISING') return 0;
+    return getPacketsRequestedTotal();
+  };
+
+  const getRaisingPackets = () => {
+    return Math.max(0, Number(request?.packetsFromRaising) || 0);
+  };
+
+  const getPacketsRequested = () => getCompanyIssuePackets();
 
   // Calculate total available stock in packets
   const calculateTotalAvailable = () => {
@@ -220,13 +239,45 @@ const SowingRequestDialog = ({ open, onClose, request, onSuccess }) => {
     if (!request) return;
 
     const totalAllocated = calculateTotalAllocated();
-    const packetsNeeded = request.packetsNeeded;
+    const packetsRequested = getCompanyIssuePackets();
 
-    // Validate exact quantity (must match packetsRequested, not packetsNeeded)
-    const packetsRequested = getPacketsRequested();
+    // Raising-only: confirm issue with empty allocations
+    if (packetsRequested < 0.01) {
+      setSubmitting(true);
+      setError(null);
+      try {
+        const instance = NetworkManager(API.sowing.ISSUE_STOCK_FROM_REQUEST);
+        const response = await instance.request(
+          {
+            batchAllocations: [],
+            notes: `Raising-only issue for ${request.requestNumber}`,
+            purpose: 'production',
+          },
+          [request._id]
+        );
+        if (response?.data?.success) {
+          setAlertDialog({
+            open: true,
+            title: 'Success',
+            message: 'Raising-only request marked issued (no warehouse stock).',
+          });
+          onSuccess?.();
+          setTimeout(() => onClose(), 1000);
+        } else {
+          setError(response?.data?.message || 'Failed to issue stock');
+        }
+      } catch (error) {
+        setError(error?.response?.data?.message || 'Failed to issue stock');
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
+
+    // Validate exact quantity (must match company packets)
     if (Math.abs(totalAllocated - packetsRequested) > 0.01) {
       setError(
-        `Total allocated (${totalAllocated.toFixed(2)}) must exactly match requested quantity (${packetsRequested.toFixed(2)}). Not more, not less.`
+        `Total allocated (${totalAllocated.toFixed(2)}) must exactly match company packets to issue (${packetsRequested.toFixed(2)}). Raising packets are not issued from warehouse.`
       );
       return;
     }
@@ -302,19 +353,21 @@ const SowingRequestDialog = ({ open, onClose, request, onSuccess }) => {
   if (!request) return null;
 
   const totalAllocated = calculateTotalAllocated();
-  const packetsRequested = getPacketsRequested();
+  const packetsRequested = getCompanyIssuePackets();
   const packetsNeeded = getPacketsNeeded();
+  const raisingPkts = getRaisingPackets();
+  const totalRequested = getPacketsRequestedTotal();
   const excessPackets = getExcessPackets();
   const difference = packetsRequested - totalAllocated;
+  const raisingOnly = packetsRequested < 0.01;
   
   // Check if at least one batch has allocation
   const hasAllocations = Object.values(allocations).some(qty => qty > 0);
   
-  // Button is enabled when:
-  // 1. Total allocated exactly matches packets requested (within 0.01 tolerance)
-  // 2. At least one batch has allocation
-  // 3. Batches are available
-  const isValid = Math.abs(difference) < 0.01 && hasAllocations && batches.length > 0;
+  // Button is enabled when company qty matches allocations, or raising-only confirm
+  const isValid = raisingOnly
+    ? true
+    : Math.abs(difference) < 0.01 && hasAllocations && batches.length > 0;
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
@@ -356,12 +409,25 @@ const SowingRequestDialog = ({ open, onClose, request, onSuccess }) => {
 
         <Box mb={2}>
           <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-            Packets Requested
+            Issue from warehouse (company)
           </Typography>
           <Typography variant="h6" sx={{ fontWeight: 700, color: '#1976d2' }}>
-            {getPacketsRequested().toFixed(2)} {request.unitName}
+            {getCompanyIssuePackets().toFixed(2)} {request.unitName}
+          </Typography>
+          <Typography variant="caption" color="text.secondary" display="block">
+            Total requested {totalRequested.toFixed(2)}
+            {raisingPkts > 0
+              ? ` · raising ${raisingPkts.toFixed(2)} (already collected — not from warehouse)`
+              : ''}
+            {request.seedSource ? ` · ${request.seedSource}` : ''}
           </Typography>
         </Box>
+
+        {raisingOnly && (
+          <Alert severity="info" sx={{ mb: 2 }}>
+            Raising-only request — no company packets. Confirm to mark issued without warehouse stock.
+          </Alert>
+        )}
 
         {getExcessPackets() > 0 && (
           <Box mb={3} p={1.5} sx={{ bgcolor: '#fff3e0', borderRadius: 1, border: '1px solid #f57c00' }}>
@@ -389,6 +455,7 @@ const SowingRequestDialog = ({ open, onClose, request, onSuccess }) => {
           </Alert>
         )}
 
+        {!raisingOnly && (
         <Box mb={2} display="flex" justifyContent="space-between" alignItems="center">
           <Button
             variant="outlined"
@@ -396,15 +463,18 @@ const SowingRequestDialog = ({ open, onClose, request, onSuccess }) => {
             onClick={autoFillAllocations}
             disabled={batches.length === 0}
           >
-            Auto-Fill to Requested
+            Auto-Fill company qty
           </Button>
           <Typography variant="caption" color="text.secondary">
             Total Available: {calculateTotalAvailable().toFixed(2)} {request.unitName}
           </Typography>
         </Box>
+        )}
 
+        {!raisingOnly && (
+        <>
         <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 2 }}>
-          Allocate Batches (Must equal {getPacketsRequested().toFixed(2)} {request.unitName})
+          Allocate Batches (Must equal {getCompanyIssuePackets().toFixed(2)} {request.unitName} company)
         </Typography>
 
         <TableContainer component={Paper} variant="outlined">
@@ -527,6 +597,8 @@ const SowingRequestDialog = ({ open, onClose, request, onSuccess }) => {
             </Typography>
           )}
         </Box>
+        </>
+        )}
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose} disabled={submitting}>
@@ -539,7 +611,11 @@ const SowingRequestDialog = ({ open, onClose, request, onSuccess }) => {
           startIcon={submitting ? <CircularProgress size={16} /> : null}
           color={isValid ? 'success' : 'primary'}
         >
-          {submitting ? 'Issuing...' : 'Issue Stock'}
+          {submitting
+            ? 'Issuing...'
+            : raisingOnly
+              ? 'Confirm raising issue'
+              : 'Issue Stock'}
         </Button>
       </DialogActions>
 

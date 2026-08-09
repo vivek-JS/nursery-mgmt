@@ -19,7 +19,8 @@ export function DashboardHeader({
   pendingAdvanceCount = 0,
   searchValue,
   onSearchChange,
-  userInitials
+  userInitials,
+  agriOnly = false,
 }) {
   return (
     <header className="bg-card border-b border-border sticky top-0 z-30 shadow-erp-sm w-full min-w-0 max-w-full">
@@ -31,11 +32,13 @@ export function DashboardHeader({
             </div>
             <span className="text-sm font-bold text-foreground tracking-tight">AgriERP</span>
             <span className="text-muted-foreground text-sm">/</span>
-            <span className="text-sm text-muted-foreground font-medium">Accounts</span>
+            <span className="text-sm text-muted-foreground font-medium">
+              {agriOnly ? "Ram Agri Accounts" : "Accounts"}
+            </span>
           </div>
         </div>
 
-        <OrgSwitcher selected={selectedOrg} onChange={onOrgChange} />
+        <OrgSwitcher selected={selectedOrg} onChange={onOrgChange} agriOnly={agriOnly} />
 
         <div className="flex items-center gap-2.5">
           <div className="relative">

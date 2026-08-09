@@ -1,5 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import RamAgriStockView from './components/RamAgriStockView';
+import RamAgriVarietyStockLedgerModal from './components/RamAgriVarietyStockLedgerModal';
+import RamAgriOutstandingPanel from './components/RamAgriOutstandingPanel';
+import RamAgriDailyClosingStockTab from './components/RamAgriDailyClosingStockTab';
+import { isRamAgriMaster } from '../../../workspace/agriAccess';
 import {
   Package,
   DollarSign,
@@ -20,8 +24,10 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { API, NetworkManager } from '../../../network/core';
+import { isApiErrorResponse } from '../../../network/core/responseParser';
 import { Toast } from "helpers/toasts/toastHelper";
-import { useUserData } from "utils/roleUtils";
+import { useUserData, useCanViewAgriOutstandingBySales } from "utils/roleUtils";
+import { normalizeRamAgriProductType } from "utils/ramAgriProductType";
 import {
   BarChart,
   Bar,
@@ -39,7 +45,7 @@ import {
 
 const RamAgriSalesDashboard = () => {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState('overview'); // 'overview', 'stock', 'directStock', 'sales', 'targets', 'orders', 'credit'
+  const [activeTab, setActiveTab] = useState('overview'); // 'overview', 'stock', 'directStock', 'dailyClosing', 'sales', ...
   const [orderStatusTab, setOrderStatusTab] = useState('pending'); // 'pending', 'accepted', 'dispatched', 'completed', 'outstanding'
   const [outstandingOrders, setOutstandingOrders] = useState([]);
   const [outstandingOrdersLoading, setOutstandingOrdersLoading] = useState(false);
@@ -60,8 +66,9 @@ const RamAgriSalesDashboard = () => {
   const [showCustomerLedger, setShowCustomerLedger] = useState(false);
   const [showCustomerLedgerSummaryDetails, setShowCustomerLedgerSummaryDetails] = useState(false);
   const [showMerchantLedger, setShowMerchantLedger] = useState(false);
-  const [stockTypeTab, setStockTypeTab] = useState('seed'); // 'seed' or 'chemical'
+  const [stockTypeTab, setStockTypeTab] = useState('seed'); // 'seed' | 'chemical' | 'gift'
   const [varietyLedgerData, setVarietyLedgerData] = useState(null);
+  const [varietyLedgerPendingLabel, setVarietyLedgerPendingLabel] = useState(null);
   const [customerLedgerData, setCustomerLedgerData] = useState(null);
   const [merchantLedgerData, setMerchantLedgerData] = useState(null);
   const [loadingLedger, setLoadingLedger] = useState(false);
@@ -88,12 +95,14 @@ const RamAgriSalesDashboard = () => {
   const user = useUserData();
   const userJobUpper = String(user?.jobTitle || "").toUpperCase().trim();
   const userRoleUpper = String(user?.role || "").toUpperCase().trim();
+  const canViewOutstandingBySales = useCanViewAgriOutstandingBySales();
   const canManageCreditLimits = [
     "SUPER_ADMIN",
     "ADMIN",
     "OFFICE_ADMIN",
     "RAM_AGRI_SALES_MANAGER",
     "RAM_AGRI_SALES_OFFICE_MANAGER",
+    "RAM_AGRI_MASTER",
   ].some((x) => x === userJobUpper || x === userRoleUpper);
   const isRamAgriSalesRep =
     userJobUpper === "RAM_AGRI_SALES" || userRoleUpper === "RAM_AGRI_SALES";
@@ -102,6 +111,9 @@ const RamAgriSalesDashboard = () => {
     userRoleUpper === "SUPER_ADMIN" ||
     userJobUpper === "SUPERADMIN" ||
     userRoleUpper === "SUPERADMIN";
+  const isRamAgriMasterUser = isRamAgriMaster(user);
+  const canDirectStockUpdate = isSuperAdmin || isRamAgriMasterUser;
+  const canManageDailyClosingStock = canDirectStockUpdate;
 
   const [outstandingLimitSummary, setOutstandingLimitSummary] = useState(null);
   const [creditSettings, setCreditSettings] = useState(null);
@@ -251,7 +263,7 @@ const RamAgriSalesDashboard = () => {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const params = {};
+      const params = { isOld: "false" };
       if (dateRange.startDate) params.startDate = dateRange.startDate;
       if (dateRange.endDate) params.endDate = dateRange.endDate;
 
@@ -429,8 +441,8 @@ const RamAgriSalesDashboard = () => {
   };
 
   const saveDirectStockUpdate = async (cropId, variety) => {
-    if (!isSuperAdmin) {
-      Toast.error("Only Super Admin can directly update stock");
+    if (!canDirectStockUpdate) {
+      Toast.error("Only Ram Agri Master or Super Admin can directly update stock");
       return;
     }
 
@@ -512,26 +524,41 @@ const RamAgriSalesDashboard = () => {
     }));
   };
 
-  const fetchVarietyLedger = async (cropId, varietyId) => {
+  const fetchVarietyLedger = async (cropId, varietyId, meta = {}) => {
+    if (!cropId || !varietyId) {
+      Toast.error('Could not open ledger — missing crop or variety');
+      return;
+    }
+
     try {
-      setLoadingLedger(true);
       setShowVarietyLedger(true);
-      const params = { cropId, varietyId };
-      if (dateRange.startDate) params.startDate = dateRange.startDate;
-      if (dateRange.endDate) params.endDate = dateRange.endDate;
+      setVarietyLedgerData(null);
+      setVarietyLedgerPendingLabel({
+        cropName: meta.cropName || null,
+        varietyName: meta.varietyName || null,
+      });
+      setLoadingLedger(true);
 
       const instance = NetworkManager(API.INVENTORY.GET_RAM_AGRI_VARIETY_LEDGER);
-      // For GET requests: first arg is body (empty), second arg is query params
-      const response = await instance.request({}, params);
+      const response = await instance.request(
+        {},
+        { cropId: String(cropId), varietyId: String(varietyId) }
+      );
 
-      if (response?.data) {
-        const apiResponse = response.data;
-        if (apiResponse.status === 'Success' || apiResponse.success) {
-          setVarietyLedgerData(apiResponse.data);
-        }
+      if (isApiErrorResponse(response)) {
+        Toast.error(response.message || 'Failed to load stock ledger');
+        return;
+      }
+
+      const apiResponse = response?.data;
+      if (apiResponse && (apiResponse.status === 'Success' || apiResponse.success)) {
+        setVarietyLedgerData(apiResponse.data);
+      } else {
+        Toast.error(apiResponse?.message || 'Failed to load stock ledger');
       }
     } catch (error) {
       console.error('Error fetching variety ledger:', error);
+      Toast.error('Failed to load stock ledger');
     } finally {
       setLoadingLedger(false);
     }
@@ -669,6 +696,7 @@ const RamAgriSalesDashboard = () => {
         {
           orderStatus: 'COMPLETED',
           limit: 1000, // Fetch more to filter client-side
+          isOld: 'false',
         }
       );
       if (response?.data?.success) {
@@ -1076,6 +1104,9 @@ const RamAgriSalesDashboard = () => {
         onCopyAll={copyAllStockData}
         onExportCsv={exportStockToCSV}
         onShareCrop={shareCropToWhatsApp}
+        onOpenLedger={({ cropId, varietyId, cropName, varietyName }) =>
+          fetchVarietyLedger(cropId, varietyId, { cropName, varietyName })
+        }
       />
     );
   };
@@ -1090,11 +1121,11 @@ const RamAgriSalesDashboard = () => {
     }
 
     if (!dashboardData) return null;
-    if (!isSuperAdmin) {
+    if (!canDirectStockUpdate) {
       return (
         <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-6">
           <p className="text-sm text-yellow-900 font-medium">
-            Only Super Admin can directly update Ram Agri stock.
+            Only Ram Agri Master or Super Admin can directly update Ram Agri stock.
           </p>
         </div>
       );
@@ -1103,19 +1134,19 @@ const RamAgriSalesDashboard = () => {
     const stockByCrop = dashboardData?.stock?.stockByCrop || [];
     const cropsByType = stockByCrop.reduce(
       (acc, crop) => {
-        const type = crop.productType === 'chemical' ? 'chemical' : 'seed';
+        const type = normalizeRamAgriProductType(crop.productType);
         acc[type].push(crop);
         return acc;
       },
-      { seed: [], chemical: [] }
+      { seed: [], chemical: [], gift: [] }
     );
-    const activeCrops = directStockTypeTab === 'chemical' ? cropsByType.chemical : cropsByType.seed;
+    const activeCrops = cropsByType[normalizeRamAgriProductType(directStockTypeTab)] || [];
 
     return (
       <div className="space-y-6">
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
           <p className="text-sm text-amber-900 font-medium">
-            Super Admin bypass: Direct stock update is applied immediately without PO/GRN.
+            Ram Agri Master / Super Admin: direct stock update is applied immediately without PO/GRN.
           </p>
         </div>
 
@@ -1141,6 +1172,17 @@ const RamAgriSalesDashboard = () => {
             }`}
           >
             Chemicals
+          </button>
+          <button
+            type="button"
+            onClick={() => setDirectStockTypeTab('gift')}
+            className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
+              directStockTypeTab === 'gift'
+                ? 'bg-brand-600 text-white'
+                : 'text-gray-600 hover:text-gray-800 hover:bg-gray-50'
+            }`}
+          >
+            Gifts
           </button>
         </div>
 
@@ -1490,8 +1532,13 @@ const RamAgriSalesDashboard = () => {
                           <span>View</span>
                         </button>
                         <button
-                          onClick={() => fetchVarietyLedger(variety.cropId, variety.varietyId)}
-                          className="px-3 py-1 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors text-sm flex items-center space-x-1"
+                          onClick={() =>
+                            fetchVarietyLedger(variety.cropId, variety.varietyId, {
+                              cropName: variety.cropName,
+                              varietyName: variety.varietyName,
+                            })
+                          }
+                          className="px-3 py-1 bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors text-sm flex items-center space-x-1"
                         >
                           <FileText className="w-3 h-3" />
                           <span>Ledger</span>
@@ -1874,6 +1921,23 @@ const RamAgriSalesDashboard = () => {
                   </div>
                 )}
               </div>
+              <button
+                type="button"
+                onClick={() =>
+                  fetchVarietyLedger(
+                    selectedVariety.crop.cropId || selectedVariety.crop._id,
+                    selectedVariety.variety.varietyId || selectedVariety.variety._id,
+                    {
+                      cropName: selectedVariety.crop.cropName,
+                      varietyName: selectedVariety.variety.name,
+                    }
+                  )
+                }
+                className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-sm font-semibold text-violet-800 hover:bg-violet-100"
+              >
+                <FileText className="h-4 w-4" />
+                View stock ledger
+              </button>
 
               {selectedVarietySales && (
                 <div className="mt-4 pt-4 border-t border-brand-200">
@@ -2264,7 +2328,7 @@ const RamAgriSalesDashboard = () => {
                   <span>Sales</span>
                 </div>
               </button>
-              {isSuperAdmin && (
+              {canDirectStockUpdate && (
                 <button
                   onClick={() => setActiveTab('directStock')}
                   className={`py-4 px-2 border-b-2 font-medium text-sm transition-colors ${
@@ -2276,6 +2340,21 @@ const RamAgriSalesDashboard = () => {
                   <div className="flex items-center space-x-2">
                     <Shield className="w-5 h-5" />
                     <span>Direct stock update</span>
+                  </div>
+                </button>
+              )}
+              {canManageDailyClosingStock && (
+                <button
+                  onClick={() => setActiveTab('dailyClosing')}
+                  className={`py-4 px-2 border-b-2 font-medium text-sm transition-colors ${
+                    activeTab === 'dailyClosing'
+                      ? 'border-purple-600 text-purple-700'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  <div className="flex items-center space-x-2">
+                    <Calendar className="w-5 h-5" />
+                    <span>Daily closing stock</span>
                   </div>
                 </button>
               )}
@@ -2305,6 +2384,19 @@ const RamAgriSalesDashboard = () => {
                   <span>Orders</span>
                 </div>
               </button>
+              <button
+                onClick={() => setActiveTab('outstanding')}
+                className={`py-4 px-2 border-b-2 font-medium text-sm transition-colors ${
+                  activeTab === 'outstanding'
+                    ? 'border-brand-600 text-brand-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <div className="flex items-center space-x-2">
+                  <DollarSign className="w-5 h-5" />
+                  <span>Outstanding</span>
+                </div>
+              </button>
               {canManageCreditLimits && (
                 <button
                   onClick={() => setActiveTab('credit')}
@@ -2329,9 +2421,19 @@ const RamAgriSalesDashboard = () => {
           {activeTab === 'overview' && renderOverviewTab()}
           {activeTab === 'stock' && renderStockTab()}
           {activeTab === 'directStock' && renderDirectStockUpdateTab()}
+          {activeTab === 'dailyClosing' && (
+            <RamAgriDailyClosingStockTab canManage={canManageDailyClosingStock} />
+          )}
           {activeTab === 'sales' && renderSalesTab()}
           {activeTab === 'targets' && renderTargetsTab()}
           {activeTab === 'orders' && renderOrdersTab()}
+          {activeTab === 'outstanding' && (
+            <RamAgriOutstandingPanel
+              dateRange={dateRange}
+              canViewBySales={canViewOutstandingBySales}
+              userId={user?._id || user?.id}
+            />
+          )}
           {activeTab === 'credit' && renderCreditLimitsTab()}
         </div>
       </div>
@@ -2339,93 +2441,19 @@ const RamAgriSalesDashboard = () => {
       {/* Sidebar */}
       {renderSidebar()}
 
-      {/* Variety Ledger Modal */}
-      {showVarietyLedger && varietyLedgerData && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-6xl w-full max-h-[90vh] overflow-hidden flex flex-col">
-            <div className="p-6 border-b border-gray-200 flex items-center justify-between sticky top-0 bg-white z-10">
-              <div>
-                <h2 className="text-2xl font-bold text-gray-800">Variety Ledger</h2>
-                <p className="text-gray-600 mt-1">{varietyLedgerData.variety?.cropName} - {varietyLedgerData.variety?.varietyName}</p>
-              </div>
-              <button
-                onClick={() => {
-                  setShowVarietyLedger(false);
-                  setVarietyLedgerData(null);
-                }}
-                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-              >
-                <X className="w-5 h-5 text-gray-600" />
-              </button>
-            </div>
-            <div className="p-6 overflow-y-auto flex-1">
-              {loadingLedger ? (
-                <div className="flex items-center justify-center h-64">
-                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-600"></div>
-                </div>
-              ) : (
-                <>
-                  {/* Summary Cards */}
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-                    <div className="bg-brand-50 rounded-lg p-4 border border-brand-200">
-                      <p className="text-sm text-gray-600">Opening Stock</p>
-                      <p className="text-xl font-bold text-brand-600">{formatNumber(varietyLedgerData.summary?.openingStock || 0)}</p>
-                    </div>
-                    <div className="bg-brand-50 rounded-lg p-4 border border-brand-200">
-                      <p className="text-sm text-gray-600">Total Credit</p>
-                      <p className="text-xl font-bold text-brand-600">{formatNumber(varietyLedgerData.summary?.totalCredit || 0)}</p>
-                    </div>
-                    <div className="bg-red-50 rounded-lg p-4 border border-red-200">
-                      <p className="text-sm text-gray-600">Total Debit</p>
-                      <p className="text-xl font-bold text-red-600">{formatNumber(varietyLedgerData.summary?.totalDebit || 0)}</p>
-                    </div>
-                    <div className="bg-brand-50 rounded-lg p-4 border border-brand-200">
-                      <p className="text-sm text-gray-600">Closing Stock</p>
-                      <p className="text-xl font-bold text-purple-600">{formatNumber(varietyLedgerData.summary?.closingStock || 0)}</p>
-                    </div>
-                  </div>
-
-                  {/* Ledger Entries */}
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead className="bg-gray-50">
-                        <tr>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Reference</th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
-                          <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Quantity</th>
-                          <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Balance</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-200">
-                        {varietyLedgerData.entries?.map((entry, index) => (
-                          <tr key={index} className="hover:bg-gray-50">
-                            <td className="px-4 py-3 text-sm text-gray-600">
-                              {new Date(entry.date).toLocaleDateString('en-IN')}
-                            </td>
-                            <td className="px-4 py-3">
-                              <span className={`px-2 py-1 rounded text-xs font-medium ${
-                                entry.type === 'CREDIT' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                              }`}>
-                                {entry.type}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3 text-sm text-gray-600">{entry.reference}</td>
-                            <td className="px-4 py-3 text-sm text-gray-800">{entry.description}</td>
-                            <td className="px-4 py-3 text-sm text-right font-medium">{formatNumber(entry.quantity || 0)}</td>
-                            <td className="px-4 py-3 text-sm text-right font-semibold">{formatNumber(entry.balance || 0)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Variety stock ledger modal (Stock + Sales tabs) */}
+      <RamAgriVarietyStockLedgerModal
+        open={showVarietyLedger}
+        onClose={() => {
+          setShowVarietyLedger(false);
+          setVarietyLedgerData(null);
+          setVarietyLedgerPendingLabel(null);
+        }}
+        loading={loadingLedger}
+        data={varietyLedgerData}
+        formatNumber={formatNumber}
+        pendingLabel={varietyLedgerPendingLabel}
+      />
 
       {/* Customer Ledger Modal */}
       {showCustomerLedger && customerLedgerData && (

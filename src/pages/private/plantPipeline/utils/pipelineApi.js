@@ -195,4 +195,57 @@ export async function submitVehicleLoad(dispatchId, body) {
   });
 }
 
+export async function fetchVehicleSowReadyEntries(dispatchId, plantRowIndex = 0) {
+  const res = await request(
+    API.PLANT_OUTWARD.SECONDARY_VEHICLE_SOW_READY_ENTRIES,
+    {},
+    { pathParams: [dispatchId], plantRowIndex }
+  );
+  return unpackData(res) ?? {};
+}
+
+export async function fetchSowReadyEntries(plantId, subtypeId) {
+  const res = await request(
+    API.PLANT_OUTWARD.SECONDARY_SOW_READY_ENTRIES,
+    {},
+    { plantId, subtypeId }
+  );
+  return unpackData(res) ?? {};
+}
+
+/** All sowingAllowed sow-ready slots in ±4d, grouped by plantReadyDate. */
+export async function fetchAllSowReadyEntriesByDate() {
+  const res = await request(
+    API.PLANT_OUTWARD.SECONDARY_SOW_READY_ENTRIES,
+    {},
+    { all: "1" }
+  );
+  return unpackData(res) ?? {};
+}
+
+export async function fetchVehicleLoadedLines(dispatchId) {
+  const res = await request(
+    API.PLANT_OUTWARD.SECONDARY_VEHICLE_LOADED_LINES,
+    {},
+    { pathParams: [dispatchId] }
+  );
+  return unpackData(res) ?? {};
+}
+
+export async function fetchSowingAllowedPlants() {
+  const res = await request(API.plantCms.GET_PLANTS, {}, {});
+  const list = unpackData(res);
+  const plants = Array.isArray(list) ? list : list?.data ?? [];
+  return plants
+    .filter((p) => p?.sowingAllowed)
+    .map((p) => ({
+      plantId: String(p._id ?? p.id),
+      name: p.name ?? "Plant",
+      subtypes: (p.subtypes || []).map((st) => ({
+        subtypeId: String(st._id ?? st.id),
+        name: st.name ?? "Subtype",
+      })),
+    }));
+}
+
 export { apiErrText };

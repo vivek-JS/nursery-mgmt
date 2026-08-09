@@ -170,11 +170,49 @@ const PublicLocationRuleSelector = ({ rule, onChange }) => {
             }
           })
 
-          map[t.talukaId] = list
+          const talukaKey = t.talukaCode || t.talukaId || t.talukaName
+          map[talukaKey] = list
         }
 
         setVillages(allVillages)
         setVillagesByTaluka(map)
+
+        // Selecting a taluka means all its villages are included on the public link
+        const nextVillages = []
+        const seen = new Set()
+        for (const t of rule.talukas) {
+          const talukaKey = t.talukaCode || t.talukaId || t.talukaName
+          for (const v of map[talukaKey] || []) {
+            const key = `${talukaKey}|${v.name.toLowerCase()}`
+            if (seen.has(key)) continue
+            seen.add(key)
+            nextVillages.push({
+              talukaId: t.talukaId,
+              talukaCode: t.talukaCode,
+              districtCode:
+                t.districtCode ||
+                rule.districts?.find((d) => d.districtId === t.districtId)?.districtCode,
+              villageId: v.id,
+              villageName: v.name,
+              villageCode: v.code
+            })
+          }
+        }
+        const sameCount = (rule.villages || []).length === nextVillages.length
+        const sameSet =
+          sameCount &&
+          nextVillages.every((v) =>
+            (rule.villages || []).some(
+              (rv) =>
+                String(rv.villageName || "").toLowerCase() ===
+                  String(v.villageName || "").toLowerCase() &&
+                String(rv.talukaCode || rv.talukaId || "") ===
+                  String(v.talukaCode || v.talukaId || "")
+            )
+          )
+        if (!sameSet) {
+          updateRule({ villages: nextVillages })
+        }
       } catch (err) {
         console.error("Failed to load villages for selected talukas", err)
         setVillages([])
@@ -418,10 +456,12 @@ const PublicLocationRuleSelector = ({ rule, onChange }) => {
           {talukas
             .filter((t) => t.name.toLowerCase().includes(talukaQuery.toLowerCase()))
             .map((t) => {
-              const checked = rule.talukas?.some((rt) => rt.talukaId === t.id)
+              const checked = rule.talukas?.some(
+                (rt) => rt.talukaCode === t.code || rt.talukaId === t.id
+              )
               return (
                 <FormControlLabel
-                  key={t.id}
+                  key={t.id || t.code}
                   control={
                     <Checkbox
                       size="small"
@@ -441,7 +481,9 @@ const PublicLocationRuleSelector = ({ rule, onChange }) => {
                             }
                           ]
                         } else {
-                          next = next.filter((rt) => rt.talukaId !== t.id)
+                          next = next.filter(
+                            (rt) => rt.talukaCode !== t.code && rt.talukaId !== t.id
+                          )
                         }
                         updateRule({
                           talukas: next,
@@ -460,13 +502,15 @@ const PublicLocationRuleSelector = ({ rule, onChange }) => {
           <Box sx={{ mt: 0.5, display: "flex", flexWrap: "wrap", gap: 0.5 }}>
             {rule.talukas.map((t) => (
               <Chip
-                key={t.talukaId || t.talukaCode}
+                key={t.talukaCode || t.talukaId}
                 size="small"
                 label={t.talukaName}
                 onDelete={() =>
                   updateRule({
                     talukas: (rule.talukas || []).filter(
-                      (rt) => rt.talukaId !== t.talukaId
+                      (rt) =>
+                        (rt.talukaCode || rt.talukaId) !==
+                        (t.talukaCode || t.talukaId)
                     ),
                     villages: []
                   })
@@ -505,19 +549,25 @@ const PublicLocationRuleSelector = ({ rule, onChange }) => {
             gap: 0.5
           }}>
           {rule.talukas?.map((t) => {
-            const list = (villagesByTaluka[t.talukaId] || []).filter((v) =>
+            const talukaKey = t.talukaCode || t.talukaId || t.talukaName
+            const list = (villagesByTaluka[talukaKey] || []).filter((v) =>
               v.name.toLowerCase().includes(villageQuery.toLowerCase())
             )
             const allSelectedInTaluka =
               list.length > 0 &&
               list.every((v) =>
                 (rule.villages || []).some(
-                  (rv) => rv.villageId === v.id && rv.talukaId === t.talukaId
+                  (rv) =>
+                    (rv.villageId === v.id ||
+                      String(rv.villageName || "").toLowerCase() === v.name.toLowerCase()) &&
+                    ((rv.talukaCode && rv.talukaCode === t.talukaCode) ||
+                      (rv.talukaId && rv.talukaId === t.talukaId) ||
+                      !rv.talukaCode)
                 )
               )
 
             return (
-              <Box key={t.talukaId}>
+              <Box key={talukaKey}>
                 {/* Divider between talukas */}
                 {rule.talukas?.indexOf(t) > 0 && (
                   <Divider sx={{ my: 0.5, borderColor: "#e5e7eb" }} />
@@ -539,7 +589,7 @@ const PublicLocationRuleSelector = ({ rule, onChange }) => {
                   <Typography
                     variant="caption"
                     sx={{ fontWeight: 600, color: "#111827", fontSize: "11px" }}>
-                    {t.talukaName} {t.districtName ? `(${t.districtName})` : ""}
+                    {t.talukaName} {t.districtName ? `(${t.districtName})` : ""} — {list.length} villages
                   </Typography>
                   <FormControlLabel
                     control={
@@ -551,19 +601,33 @@ const PublicLocationRuleSelector = ({ rule, onChange }) => {
                           const isChecked = e.target.checked
                           let next = rule.villages || []
                           if (!isChecked) {
-                            next = next.filter((rv) => rv.talukaId !== t.talukaId)
+                            next = next.filter(
+                              (rv) =>
+                                rv.talukaCode !== t.talukaCode &&
+                                rv.talukaId !== t.talukaId
+                            )
                           } else {
                             const toAdd = list.filter(
                               (v) =>
                                 !next.some(
                                   (rv) =>
-                                    rv.villageId === v.id && rv.talukaId === t.talukaId
+                                    (rv.villageId === v.id ||
+                                      String(rv.villageName || "").toLowerCase() ===
+                                        v.name.toLowerCase()) &&
+                                    (rv.talukaCode === t.talukaCode ||
+                                      rv.talukaId === t.talukaId ||
+                                      !rv.talukaCode)
                                 )
                             )
                             next = [
                               ...next,
                               ...toAdd.map((v) => ({
                                 talukaId: t.talukaId,
+                                talukaCode: t.talukaCode,
+                                districtCode:
+                                  t.districtCode ||
+                                  rule.districts?.find((d) => d.districtId === t.districtId)
+                                    ?.districtCode,
                                 villageId: v.id,
                                 villageName: v.name,
                                 villageCode: v.code
@@ -590,11 +654,17 @@ const PublicLocationRuleSelector = ({ rule, onChange }) => {
                   }}>
                   {list.map((v) => {
                     const checked = (rule.villages || []).some(
-                      (rv) => rv.villageId === v.id && rv.talukaId === t.talukaId
+                      (rv) =>
+                        (rv.villageId === v.id ||
+                          String(rv.villageName || "").toLowerCase() ===
+                            v.name.toLowerCase()) &&
+                        (rv.talukaCode === t.talukaCode ||
+                          rv.talukaId === t.talukaId ||
+                          !rv.talukaCode)
                     )
                     return (
                       <FormControlLabel
-                        key={v.id}
+                        key={v.id || v.code || v.name}
                         control={
                           <Checkbox
                             size="small"
@@ -606,13 +676,22 @@ const PublicLocationRuleSelector = ({ rule, onChange }) => {
                                 if (
                                   !next.some(
                                     (rv) =>
-                                      rv.villageId === v.id && rv.talukaId === t.talukaId
+                                      (rv.villageId === v.id ||
+                                        String(rv.villageName || "").toLowerCase() ===
+                                          v.name.toLowerCase()) &&
+                                      (rv.talukaCode === t.talukaCode ||
+                                        rv.talukaId === t.talukaId)
                                   )
                                 ) {
                                   next = [
                                     ...next,
                                     {
                                       talukaId: t.talukaId,
+                                      talukaCode: t.talukaCode,
+                                      districtCode:
+                                        t.districtCode ||
+                                        rule.districts?.find((d) => d.districtId === t.districtId)
+                                          ?.districtCode,
                                       villageId: v.id,
                                       villageName: v.name,
                                       villageCode: v.code
@@ -623,8 +702,12 @@ const PublicLocationRuleSelector = ({ rule, onChange }) => {
                                 next = next.filter(
                                   (rv) =>
                                     !(
-                                      rv.villageId === v.id &&
-                                      rv.talukaId === t.talukaId
+                                      (rv.villageId === v.id ||
+                                        String(rv.villageName || "").toLowerCase() ===
+                                          v.name.toLowerCase()) &&
+                                      (rv.talukaCode === t.talukaCode ||
+                                        rv.talukaId === t.talukaId ||
+                                        !rv.talukaCode)
                                     )
                                 )
                               }

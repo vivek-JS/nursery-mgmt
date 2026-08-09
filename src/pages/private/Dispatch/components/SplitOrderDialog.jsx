@@ -20,52 +20,56 @@ import {
   ArrowForward as ArrowRightIcon,
 } from "@mui/icons-material"
 import { API, NetworkManager } from "network/core"
+import { isApiErrorResponse } from "network/core/responseParser"
 import { Toast } from "helpers/toasts/toastHelper"
+import {
+  emptyOrderForEditShape,
+  buildSplitOrderRequestPayload,
+  resolveBookedByName,
+} from "../../dashboard/orderEditUtils"
+import SplitOrderAssignFarmerSection, {
+  validateSplitAssignDraft,
+} from "./SplitOrderAssignFarmerSection"
+import SplitOrderAttributionSection from "./SplitOrderAttributionSection"
 
-/**
- * SplitOrderDialog (web)
- *
- * Splits a single "ready" order into two orders.
- * The user picks how many plants to split off; they become a new child order
- * and the parent's quantity is reduced accordingly.
- *
- * Props:
- *   open           – boolean
- *   onClose        – () => void
- *   order          – the order object to split
- *   onSplitSuccess – (parentOrder, childOrder) => void
- */
 const SplitOrderDialog = ({ open, onClose, order, onSplitSuccess }) => {
   const [splitQty, setSplitQty] = useState("")
   const [notes, setNotes] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
+  const [assignEnabled, setAssignEnabled] = useState(false)
+  const [assignMode, setAssignMode] = useState("existing")
+  const [assignDraft, setAssignDraft] = useState(() => ({ ...emptyOrderForEditShape() }))
+  const [assignError, setAssignError] = useState("")
+  const [attribution, setAttribution] = useState(null)
 
   useEffect(() => {
     if (open) {
       setSplitQty("")
       setNotes("")
       setError("")
+      setAssignEnabled(false)
+      setAssignMode("existing")
+      setAssignDraft({ ...emptyOrderForEditShape() })
+      setAssignError("")
+      setAttribution(null)
+      setLoading(false)
     }
   }, [open])
 
   if (!order) return null
 
-  const farmerName =
-    order?.farmer?.name ||
-    order?.farmerName ||
-    "—"
-
+  const farmerName = resolveBookedByName(
+    order?.farmer,
+    order?.farmerName || order?.details?.farmerName
+  )
   const plantLabel = [
     order?.plantName?.name || order?.plantType?.name || order?.plantName || "",
     order?.plantSubtype?.name || order?.plantSubtype || "",
   ]
     .filter(Boolean)
     .join(" – ")
-
-  const remaining =
-    order?.remainingPlants ?? order?.numberOfPlants ?? 0
-
+  const remaining = order?.remainingPlants ?? order?.numberOfPlants ?? 0
   const qty = parseInt(splitQty, 10)
   const isQtyValid = !isNaN(qty) && qty >= 1 && qty < remaining
   const parentRemainsAfter = isQtyValid ? remaining - qty : null
@@ -76,17 +80,53 @@ const SplitOrderDialog = ({ open, onClose, order, onSplitSuccess }) => {
       setError(`Enter a quantity between 1 and ${remaining - 1}`)
       return
     }
+
+    if (assignEnabled) {
+      const assignCheck = validateSplitAssignDraft(assignEnabled, assignMode, assignDraft)
+      if (!assignCheck.ok) {
+        setAssignError(assignCheck.message || "Complete farmer details")
+        return
+      }
+    }
+
+    const splitBody = buildSplitOrderRequestPayload({
+      splitQuantity: qty,
+      notes,
+      assignEnabled,
+      assignMode,
+      assignDraft,
+      attributionMode: attribution?.attributionMode,
+      attributionId: attribution?.attributionId,
+      dealerOrder: attribution?.dealerOrder,
+    })
+    if (!splitBody.ok) {
+      setAssignError(splitBody.message || "Complete farmer details")
+      return
+    }
+
     setError("")
+    setAssignError("")
     setLoading(true)
     try {
       const orderId = order?._id || order?.id
       const instance = NetworkManager(API.ORDER.SPLIT_ORDER)
-      const response = await instance.request(
-        { splitQuantity: qty, notes: notes.trim() || undefined },
-        [orderId]
-      )
+      const response = await instance.request(splitBody.payload, [orderId])
+      if (isApiErrorResponse(response)) {
+        setError(response.error || "Failed to split order. Please try again.")
+        return
+      }
+
       const { parentOrder, childOrder } = response?.data?.data || {}
-      Toast.success(`Order split! New order #${childOrder?.orderId} created.`)
+      if (!childOrder?._id && !childOrder?.id) {
+        setError("Split response missing child order. Please refresh and verify.")
+        return
+      }
+
+      Toast.success(
+        assignEnabled
+          ? `Order split! #${childOrder?.orderId} assigned to new farmer.`
+          : `Order split! New order #${childOrder?.orderId} created.`
+      )
       onSplitSuccess?.(parentOrder, childOrder)
       onClose()
     } catch (err) {
@@ -101,7 +141,7 @@ const SplitOrderDialog = ({ open, onClose, order, onSplitSuccess }) => {
   }
 
   return (
-    <Dialog open={open} onClose={loading ? undefined : onClose} maxWidth="xs" fullWidth>
+    <Dialog open={open} onClose={loading ? undefined : onClose} maxWidth="sm" fullWidth>
       <DialogTitle sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", pb: 1 }}>
         <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
           <ScissorsIcon fontSize="small" />
@@ -115,7 +155,6 @@ const SplitOrderDialog = ({ open, onClose, order, onSplitSuccess }) => {
       <Divider />
 
       <DialogContent sx={{ pt: 2 }}>
-        {/* Order summary */}
         <Box sx={{ mb: 2, p: 1.5, bgcolor: "action.hover", borderRadius: 1 }}>
           <Typography variant="body2" color="text.secondary" gutterBottom>
             Farmer
@@ -133,7 +172,6 @@ const SplitOrderDialog = ({ open, onClose, order, onSplitSuccess }) => {
           </Typography>
         </Box>
 
-        {/* Qty input */}
         <TextField
           label="Plants to split off"
           type="number"
@@ -150,35 +188,14 @@ const SplitOrderDialog = ({ open, onClose, order, onSplitSuccess }) => {
           disabled={loading}
         />
 
-        {/* Live preview */}
         {isQtyValid && (
-          <Box
-            sx={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 1,
-              mb: 2,
-              flexWrap: "wrap",
-            }}
-          >
-            <Chip
-              label={`${parentRemainsAfter} stays`}
-              color="primary"
-              variant="outlined"
-              size="small"
-            />
+          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 1, mb: 2, flexWrap: "wrap" }}>
+            <Chip label={`${parentRemainsAfter} stays`} color="primary" variant="outlined" size="small" />
             <ArrowRightIcon fontSize="small" color="action" />
-            <Chip
-              label={`${childGets} new order`}
-              color="success"
-              variant="outlined"
-              size="small"
-            />
+            <Chip label={`${childGets} new order`} color="success" variant="outlined" size="small" />
           </Box>
         )}
 
-        {/* Notes */}
         <TextField
           label="Notes (optional)"
           value={notes}
@@ -188,6 +205,27 @@ const SplitOrderDialog = ({ open, onClose, order, onSplitSuccess }) => {
           multiline
           rows={2}
           disabled={loading}
+          sx={{ mb: 1 }}
+        />
+
+        <SplitOrderAttributionSection
+          order={order}
+          value={attribution}
+          onChange={setAttribution}
+        />
+
+        <SplitOrderAssignFarmerSection
+          enabled={assignEnabled}
+          onEnabledChange={setAssignEnabled}
+          bookingFarmerName={farmerName}
+          bookingFarmer={order?.farmer}
+          draft={assignDraft}
+          onDraftChange={setAssignDraft}
+          assignMode={assignMode}
+          onAssignModeChange={setAssignMode}
+          disabled={loading}
+          error={assignError}
+          onErrorClear={() => setAssignError("")}
         />
 
         {error && (
@@ -205,8 +243,7 @@ const SplitOrderDialog = ({ open, onClose, order, onSplitSuccess }) => {
           variant="contained"
           onClick={handleSubmit}
           disabled={loading || !isQtyValid}
-          startIcon={loading ? <CircularProgress size={14} color="inherit" /> : <ScissorsIcon />}
-        >
+          startIcon={loading ? <CircularProgress size={14} color="inherit" /> : <ScissorsIcon />}>
           {loading ? "Splitting…" : "Split Order"}
         </Button>
       </DialogActions>

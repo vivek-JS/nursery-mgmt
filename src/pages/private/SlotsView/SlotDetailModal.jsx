@@ -171,7 +171,9 @@ const SlotDetailModal = ({
             />
             {slot.isCurrentDateSlot && canRollPastDue && (
               <Button variant="outlined" color="secondary" size="small" className="mb-4" onClick={() => onOpenRollExpired(slot)} sx={{ textTransform: "none" }}>
-                Roll expired available
+                {slot.status === false
+                  ? "Roll expired available (slot Off)"
+                  : "Roll expired available"}
               </Button>
             )}
 

@@ -2,7 +2,7 @@
 import axios from "axios"
 import { APICustomRouter, APIWithOfflineRouter, HTTP_METHODS } from "./httpHelper"
 import { APIConfig } from "../config/serverConfig"
-import { APIError, APIResponse } from "./responseParser"
+import { APIError, APIResponse, isApiSuccessBody } from "./responseParser"
 import { refreshAuthToken } from "./tokenRefresher"
 import { CookieKeys } from "constants/cookieKeys"
 import { APIAborter } from "./abortController"
@@ -138,12 +138,17 @@ export default function networkManager(router, withFile = false, nmOptions = {})
     }
 
     const opts = requestOptions && typeof requestOptions === "object" ? requestOptions : {}
+    const silent = opts.silent === true
     const signal =
       opts.signal != null
         ? opts.signal
         : shouldAutoAbort
           ? APIAborter.initiate(abortRouter).signal
           : undefined
+
+    if (opts.headers && typeof opts.headers === "object") {
+      Object.assign(requestHeaders, opts.headers)
+    }
 
     try {
       const result = await axios.request({
@@ -157,10 +162,9 @@ export default function networkManager(router, withFile = false, nmOptions = {})
       // If token expired, get it refreshed
       const response = result.data
 
-      // Handle both response formats: response.success (boolean) and response.status === "success"
-      const isSuccess = response.success === true || response.status?.toLowerCase() === "success"
+      const isSuccess = isApiSuccessBody(response)
 
-      return new APIResponse(response, isSuccess, result.status, response.data?.message)
+      return new APIResponse(response, isSuccess, result.status, response.message || response.data?.message)
     } catch (err) {
       if (err?.code === "ERR_CANCELED" || err?.name === "CanceledError") {
         throw err
@@ -173,7 +177,8 @@ export default function networkManager(router, withFile = false, nmOptions = {})
       const errorMessage = err?.response?.data?.message || err?.response?.data?.error || fullError?.message || "Unknown error"
       
       // Show toast notification for the error (suppress for certain endpoints)
-      const suppressError = router?.endpoint?.includes("/dealers/transactions")
+      const suppressError =
+        silent || router?.endpoint?.includes("/dealers/transactions")
       if (!suppressError) apiError(errorMessage)
 
       const isNetworkError = err.code === HTTP_STATUS.NETWORK_ERR

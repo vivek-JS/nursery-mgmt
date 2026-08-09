@@ -15,6 +15,9 @@ export {
   API_YMD_FORMAT as MIS_API_YMD_FORMAT,
 } from "utils/istCalendar"
 
+/** MUI DatePicker display format for Admin MIS filters. */
+export const MIS_DATE_PICKER_FORMAT = "DD/MM/YYYY"
+
 export {
   isDeliveryDateInSlotWindow,
   slotWindowToDeliveryUtcRange,

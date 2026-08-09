@@ -14,8 +14,18 @@ import {
 } from "lucide-react"
 import { NetworkManager, API } from "network/core"
 import { Toast } from "helpers/toasts/toastHelper"
+import {
+  parseGeneratePdfsResponse,
+  pickPdfUrlFromPayload,
+  openDispatchPdfUrl,
+  preparePdfTab,
+  closePdfTab,
+} from "utils/dispatchPdfHelpers"
 import moment from "moment"
 import OrderCompleteDialog from "./OrderCompleteDialog"
+import { canShowInvoice } from "../DispatchedVehicles/dispatchVehiclesUtils"
+import { useInvoiceAadharPrompt } from "../DispatchedVehicles/useInvoiceAadharPrompt"
+import { getPlantLineItemsFromOrder, plantLineItemsSummaryLabel } from "./plantLineItemsDisplay"
 
 const DispatchAccordion = ({ 
   dispatch, 
@@ -39,6 +49,8 @@ const DispatchAccordion = ({
   const [loading, setLoading] = useState(false)
   const [orderCompleteOpen, setOrderCompleteOpen] = useState(false)
   const [pdfBusy, setPdfBusy] = useState(false)
+  const [orderDcPdfBusy, setOrderDcPdfBusy] = useState({})
+  const { prompt: promptInvoiceAadhar, dialog: invoiceAadharDialog } = useInvoiceAadharPrompt()
 
   // Debug: Log dispatch data
   useEffect(() => {
@@ -271,39 +283,255 @@ const DispatchAccordion = ({
     return 0
   }
 
+  const ordersForTotals =
+    relatedOrders?.length > 0 ? relatedOrders : dispatch?.orderIds || []
+
   const getTotalAmount = () => {
-    // Calculate based on dispatched quantities and rates
-    if (relatedOrders && relatedOrders.length > 0) {
-      const totalAmount = relatedOrders.reduce((total, order) => {
-        const dispatchedQty = getDispatchedQuantity(order._id)
-        const rate = order.rate || 0
-        const amount = dispatchedQty * rate
-        console.log(`Order ${order.orderId}: ${dispatchedQty} plants × ₹${rate} = ₹${amount}`)
-        return total + amount
-      }, 0)
-      console.log('Total dispatch amount:', totalAmount)
-      return totalAmount
-    }
-    return 0
+    if (!ordersForTotals.length) return 0
+    return ordersForTotals.reduce((total, order) => {
+      const oid = order._id
+      const dispatchedQty =
+        oid != null && getDispatchedQuantity(oid) > 0
+          ? getDispatchedQuantity(oid)
+          : Number(order.quantity ?? order.numberOfPlants ?? 0)
+      const rate = Number(order.rate || 0)
+      return total + dispatchedQty * rate
+    }, 0)
   }
 
   const getTotalPaid = () => {
-    if (relatedOrders && relatedOrders.length > 0) {
-      const totalPaid = relatedOrders.reduce((total, order) => {
-        const paid = (order.payment || [])
-          .filter(p => p.paymentStatus === "COLLECTED")
-          .reduce((sum, p) => sum + (p.paidAmount || 0), 0)
-        console.log(`Order ${order.orderId} paid: ₹${paid}`)
-        return total + paid
-      }, 0)
-      console.log('Total paid amount:', totalPaid)
-      return totalPaid
-    }
-    return 0
+    if (!ordersForTotals.length) return 0
+    return ordersForTotals.reduce((total, order) => {
+      const paidFromPayment = Array.isArray(order.payment)
+        ? order.payment
+            .filter((p) => p.paymentStatus === "COLLECTED")
+            .reduce((sum, p) => sum + Number(p.paidAmount || 0), 0)
+        : 0
+      const paidLegacy = Number(order.PaidAmt || order["Paid Amt"] || 0)
+      return total + (paidFromPayment || paidLegacy)
+    }, 0)
   }
 
   const getTotalRemaining = () => {
-    return getTotalAmount() - getTotalPaid()
+    return Math.max(0, getTotalAmount() - getTotalPaid())
+  }
+
+  const getFarmerSummaryLines = () => {
+    const rows = Array.isArray(dispatch?.orderIds) ? dispatch.orderIds : []
+    const lines = []
+    const seen = new Set()
+    for (const o of rows) {
+      const f = o?.details?.farmer || o?.farmer || {}
+      const name = String(o?.farmerName || f?.name || "").trim()
+      const village = String(f?.village || "").trim()
+      const taluka = String(f?.talukaName || f?.taluka || "").trim()
+      const label = [name, village, taluka].filter(Boolean).join(" · ")
+      if (!label || seen.has(label)) continue
+      seen.add(label)
+      lines.push(label)
+    }
+    return lines
+  }
+
+  const orderHasDcNumber = (order) =>
+    Boolean(
+      String(
+        order?.officialDeliveryChallanNumber ??
+          order?.details?.officialDeliveryChallanNumber ??
+          order?.deliveryChallanInvoiceNumber ??
+          order?.details?.deliveryChallanInvoiceNumber ??
+          dcInvoiceByOrder[String(order?._id || "")] ??
+          ""
+      ).trim()
+    )
+
+  const getOrderDcPdfUrl = (order) =>
+    String(order?.deliveryChallanPdfUrl || order?.details?.deliveryChallanPdfUrl || "").trim()
+
+  /** Any stored URL counts as already generated — do not call generate again. */
+  const orderHasExistingDcPdf = (order) => Boolean(getOrderDcPdfUrl(order))
+
+  /**
+   * Delivery Challan action: reuse existing PDF links; generate only for orders that never got a PDF.
+   * Never regenerates — use per-order Regenerate for that.
+   */
+  const handleDeliveryChallanClick = async () => {
+    if (agriLoadBlocked || pdfBusy) return
+    setPdfBusy(true)
+    try {
+      await persistUnsavedManualDcNumbers()
+
+      let list = relatedOrders?.length > 0 ? relatedOrders : dispatch.orderIds || []
+      const orderIds = (dispatch.orderIds || []).map((o) => o._id).filter(Boolean)
+      if (orderIds.length) {
+        try {
+          const instance = NetworkManager(API.ORDER.GET_ORDERS)
+          const response = await instance.request(
+            {},
+            { orderIds: orderIds.join(","), limit: 1000 }
+          )
+          const raw = response?.data
+          let fetched = null
+          if (raw?.data?.data && Array.isArray(raw.data.data)) fetched = raw.data.data
+          else if (raw?.data && Array.isArray(raw.data)) fetched = raw.data
+          else if (Array.isArray(raw)) fetched = raw
+          if (fetched?.length) {
+            list = fetched
+            setRelatedOrders(fetched)
+          }
+        } catch {
+          /* keep existing list */
+        }
+      }
+
+      const missing = (list || []).filter(
+        (o) => orderHasDcNumber(o) && !orderHasExistingDcPdf(o)
+      )
+
+      let generated = 0
+      let failed = 0
+      const pdfUpdates = new Map()
+      for (const order of missing) {
+        const orderId = String(order?._id || "")
+        if (!orderId) continue
+        try {
+          // force omitted → server returns existing URL if present; only creates when absent
+          const inst = NetworkManager(API.ORDER.GENERATE_DELIVERY_CHALLAN_PDF)
+          const res = await inst.request({}, [orderId])
+          const data = res?.data?.data || res?.data
+          const url = String(data?.deliveryChallanPdfUrl || "").trim()
+          if (url) {
+            generated += 1
+            pdfUpdates.set(orderId, data)
+          }
+        } catch {
+          failed += 1
+        }
+      }
+
+      if (pdfUpdates.size) {
+        list = (list || []).map((item) => {
+          const oid = String(item?._id || "")
+          const data = pdfUpdates.get(oid)
+          if (!data) return item
+          return {
+            ...item,
+            deliveryChallanPdfUrl: data.deliveryChallanPdfUrl,
+            deliveryChallanPdfGeneratedAt: data.deliveryChallanPdfGeneratedAt,
+            deliveryChallanPdfHistory: data.deliveryChallanPdfHistory,
+          }
+        })
+        setRelatedOrders(list)
+      }
+
+      if (generated > 0) {
+        Toast.success(
+          failed > 0
+            ? `Generated DC PDF for ${generated} order(s); ${failed} failed`
+            : `Generated DC PDF for ${generated} order(s)`
+        )
+      } else if (missing.length === 0) {
+        // all already had PDFs — reuse links, open preview
+      } else if (failed > 0) {
+        Toast.error("Could not generate DC PDFs for orders on this dispatch")
+      }
+
+      onDeliveryChallan?.({
+        ...dispatch,
+        orderIds: list.length > 0 ? list : dispatch.orderIds || [],
+      })
+    } catch (error) {
+      Toast.error(
+        error?.response?.data?.message || error?.message || "Failed to prepare delivery challan"
+      )
+      onDeliveryChallan?.({
+        ...dispatch,
+        orderIds: relatedOrders.length > 0 ? relatedOrders : dispatch.orderIds || [],
+      })
+    } finally {
+      setPdfBusy(false)
+    }
+  }
+
+  const handleOrderDcPdf = async (order, force = false) => {
+    const orderId = String(order?._id || "")
+    if (!orderId || orderDcPdfBusy[orderId]) return
+    const hasDc = String(
+      order?.officialDeliveryChallanNumber ??
+        order?.details?.officialDeliveryChallanNumber ??
+        order?.deliveryChallanInvoiceNumber ??
+        order?.details?.deliveryChallanInvoiceNumber ??
+        ""
+    ).trim()
+    if (!hasDc) {
+      Toast.error("Save or wait for a DC number before generating PDF")
+      return
+    }
+
+    const existingUrl = getOrderDcPdfUrl(order)
+    // Reuse existing link unless user explicitly regenerates
+    if (existingUrl && !force) {
+      if (/mock-reports\.example\.com/i.test(existingUrl)) {
+        Toast.error(
+          "DC PDF URL is a local mock (S3/Spaces not configured). Opening browser preview."
+        )
+        onDeliveryChallan?.(dispatch)
+        return
+      }
+      const ok = openDispatchPdfUrl(existingUrl)
+      if (!ok) Toast.error("Could not open DC PDF")
+      return
+    }
+
+    if (force) {
+      const ok = window.confirm(
+        "Regenerate delivery challan PDF? Previous PDF will be kept in history."
+      )
+      if (!ok) return
+    }
+    const preparedTab = preparePdfTab()
+    setOrderDcPdfBusy((prev) => ({ ...prev, [orderId]: true }))
+    try {
+      const inst = NetworkManager(API.ORDER.GENERATE_DELIVERY_CHALLAN_PDF)
+      const res = await inst.request(force ? { force: true } : {}, [orderId])
+      const data = res?.data?.data || res?.data
+      const url = String(data?.deliveryChallanPdfUrl || "").trim()
+      setRelatedOrders((prev) =>
+        (prev || []).map((item) =>
+          String(item?._id || "") === orderId
+            ? {
+                ...item,
+                deliveryChallanPdfUrl: data?.deliveryChallanPdfUrl || item.deliveryChallanPdfUrl,
+                deliveryChallanPdfGeneratedAt:
+                  data?.deliveryChallanPdfGeneratedAt ?? item.deliveryChallanPdfGeneratedAt,
+                deliveryChallanPdfHistory:
+                  data?.deliveryChallanPdfHistory ?? item.deliveryChallanPdfHistory,
+              }
+            : item
+        )
+      )
+      if (url && /mock-reports\.example\.com/i.test(url)) {
+        closePdfTab(preparedTab)
+        Toast.error(
+          "PDF saved with a mock URL (S3/Spaces not configured). Opening browser preview instead."
+        )
+        if (typeof onDeliveryChallan === "function") {
+          onDeliveryChallan(dispatch)
+        }
+      } else if (url && openDispatchPdfUrl(url, preparedTab)) {
+        Toast.success(force ? "DC PDF regenerated" : "DC PDF opened")
+      } else {
+        closePdfTab(preparedTab)
+        Toast.success(force ? "DC PDF regenerated" : "DC PDF generated")
+      }
+    } catch (error) {
+      closePdfTab(preparedTab)
+      Toast.error(
+        error?.response?.data?.message || error?.message || "Failed to generate order DC PDF"
+      )
+    } finally {
+      setOrderDcPdfBusy((prev) => ({ ...prev, [orderId]: false }))
+    }
   }
 
   const handleDcInvoiceChange = (orderId, value) => {
@@ -357,7 +585,11 @@ const DispatchAccordion = ({
   }
 
   const isDelivered = dispatch?.transportStatus === "DELIVERED"
-  const dispatchName = (dispatch?.name || "").trim() || "Unnamed Dispatch"
+  const showInvoice = canShowInvoice(dispatch)
+  const dispatchName = (dispatch?.name || "").trim()
+  const farmerSummaryLines = getFarmerSummaryLines()
+  const farmerSummaryPreview = farmerSummaryLines.slice(0, 2)
+  const farmerSummaryExtra = Math.max(0, farmerSummaryLines.length - farmerSummaryPreview.length)
   const agriLoadBlocked = Boolean(dispatch?.agriLoadBlocked)
   const agriLoadBlockedBy = Array.isArray(dispatch?.agriLoadBlockedBy) ? dispatch.agriLoadBlockedBy : []
   const dcPdfUrl = String(dispatch?.deliveryChallanPdfUrl || "").trim()
@@ -426,6 +658,13 @@ const DispatchAccordion = ({
 
   const handleRegenerateServerPdfs = async (types) => {
     if (pdfBusy) return
+    let invoiceAadhars = {}
+    if (types.includes("complete_invoice")) {
+      const { confirmed, aadharByOrderId } = await promptInvoiceAadhar(dispatch)
+      if (!confirmed) return
+      invoiceAadhars = aadharByOrderId || {}
+    }
+    const preparedTab = preparePdfTab()
     setPdfBusy(true)
     try {
       await persistUnsavedManualDcNumbers()
@@ -433,10 +672,10 @@ const DispatchAccordion = ({
         await fetchRelatedOrders({ silent: true })
       }
       const inst = NetworkManager(API.DISPATCHED.GENERATE_PDFS)
-      const res = await inst.request({ types }, [String(dispatch._id)])
-      const raw = res?.data?.data ?? res?.data
-      const data =
-        raw && typeof raw === "object" && !Array.isArray(raw) ? raw : raw?.data
+      const body = { types }
+      if (types.includes("complete_invoice")) body.invoiceAadhars = invoiceAadhars
+      const res = await inst.request(body, [String(dispatch._id)])
+      const data = parseGeneratePdfsResponse(res)
       if (data && typeof data === "object") {
         onDispatchPdfFields?.(String(dispatch._id), {
           deliveryChallanPdfUrl: data.deliveryChallanPdfUrl || "",
@@ -444,15 +683,128 @@ const DispatchAccordion = ({
           completeInvoicePdfUrl: data.completeInvoicePdfUrl || "",
           completeInvoicePdfGeneratedAt: data.completeInvoicePdfGeneratedAt ?? null,
         })
+        const url = pickPdfUrlFromPayload(data, types)
+        const label = types.includes("complete_invoice") ? "Invoice" : "Delivery challan"
+        if (url && openDispatchPdfUrl(url, preparedTab)) {
+          Toast.success(`${label} PDF opened`)
+        } else {
+          closePdfTab(preparedTab)
+          if (types.includes("complete_invoice")) {
+            onCompleteInvoice?.(dispatch, invoiceAadhars)
+            Toast.success(`${label} PDF generated — opening preview`)
+          } else if (types.includes("delivery_challan")) {
+            onDeliveryChallan?.(dispatch)
+            Toast.success(`${label} PDF generated — opening preview`)
+          } else if (url) {
+            Toast.success(`${label} PDF saved — use Preview if it does not open`)
+          } else {
+            Toast.success("PDF link(s) updated")
+          }
+        }
+      } else {
+        closePdfTab(preparedTab)
+        Toast.error("PDF generated but no download URL returned")
       }
-      Toast.success("PDF link(s) updated")
       void onRefresh?.()
     } catch (error) {
+      closePdfTab(preparedTab)
       const msg =
         error?.response?.data?.message ||
         error?.message ||
         "Failed to generate PDFs"
       Toast.error(msg)
+    } finally {
+      setPdfBusy(false)
+    }
+  }
+
+  const openInvoicePreview = async (dispatchWithOrders) => {
+    const { confirmed, aadharByOrderId } = await promptInvoiceAadhar(dispatchWithOrders)
+    if (!confirmed) return
+    onCompleteInvoice?.(dispatchWithOrders, aadharByOrderId)
+  }
+
+  /**
+   * Invoice: only after Complete Order (DELIVERED).
+   * Reuse server PDF link if present; generate once if missing; regenerate only when force=true.
+   */
+  const handleInvoiceClick = async (force = false) => {
+    if (!canShowInvoice(dispatch)) {
+      Toast.error("Complete the order form first to generate the invoice")
+      return
+    }
+    if (pdfBusy) return
+
+    const existing = String(dispatch?.completeInvoicePdfUrl || "").trim()
+    if (existing && !force) {
+      if (/mock-reports\.example\.com/i.test(existing)) {
+        Toast.error(
+          "Invoice PDF is a mock URL (S3/Spaces not configured). Opening browser preview."
+        )
+        const dispatchWithOrders = {
+          ...dispatch,
+          orderIds: relatedOrders.length > 0 ? relatedOrders : dispatch.orderIds || [],
+        }
+        void openInvoicePreview(dispatchWithOrders)
+        return
+      }
+      const ok = openDispatchPdfUrl(existing)
+      if (!ok) Toast.error("Could not open invoice PDF")
+      return
+    }
+
+    if (force) {
+      const ok = window.confirm(
+        "Regenerate invoice PDF? Previous PDF will be kept in history."
+      )
+      if (!ok) return
+    }
+
+    setPdfBusy(true)
+    let invoiceAadhars = {}
+    try {
+      const { confirmed, aadharByOrderId } = await promptInvoiceAadhar(dispatch)
+      if (!confirmed) {
+        setPdfBusy(false)
+        return
+      }
+      invoiceAadhars = aadharByOrderId || {}
+      const preparedTab = preparePdfTab()
+      await persistUnsavedManualDcNumbers()
+      const inst = NetworkManager(API.DISPATCHED.GENERATE_PDFS)
+      const res = await inst.request(
+        { types: ["complete_invoice"], invoiceAadhars, force: Boolean(force) },
+        [String(dispatch._id)]
+      )
+      const data = parseGeneratePdfsResponse(res)
+      const url = String(data?.completeInvoicePdfUrl || "").trim()
+      if (data && typeof data === "object") {
+        onDispatchPdfFields?.(String(dispatch._id), {
+          completeInvoicePdfUrl: data.completeInvoicePdfUrl || "",
+          completeInvoicePdfGeneratedAt: data.completeInvoicePdfGeneratedAt ?? null,
+          completeInvoicePdfHistory: data.completeInvoicePdfHistory,
+        })
+      }
+      if (url && /mock-reports\.example\.com/i.test(url)) {
+        closePdfTab(preparedTab)
+        Toast.error(
+          "Invoice saved with a mock URL (S3/Spaces not configured). Opening browser preview."
+        )
+        void openInvoicePreview({
+          ...dispatch,
+          orderIds: relatedOrders.length > 0 ? relatedOrders : dispatch.orderIds || [],
+        })
+      } else if (url && openDispatchPdfUrl(url, preparedTab)) {
+        Toast.success(force ? "Invoice PDF regenerated" : "Invoice PDF opened")
+      } else {
+        closePdfTab(preparedTab)
+        Toast.success(force ? "Invoice PDF regenerated" : "Invoice PDF generated")
+      }
+      void onRefresh?.()
+    } catch (error) {
+      Toast.error(
+        error?.response?.data?.message || error?.message || "Failed to generate invoice PDF"
+      )
     } finally {
       setPdfBusy(false)
     }
@@ -478,11 +830,13 @@ const DispatchAccordion = ({
             <Truck className="text-green-600" size={20} />
           )}
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <h3 className="font-semibold text-gray-900">Dispatch #{dispatch.transportId}</h3>
-              <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-50 text-green-700 border border-green-200">
-                {dispatchName}
-              </span>
+              {dispatchName ? (
+                <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-50 text-green-700 border border-green-200">
+                  {dispatchName}
+                </span>
+              ) : null}
               {isDelivered && (
                 <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 border border-green-200">
                   DELIVERED
@@ -494,10 +848,61 @@ const DispatchAccordion = ({
               {dispatch.driverName ? ` · ${dispatch.driverName}` : ""} •{" "}
               {dispatch.orderIds?.length || 0} orders • {getTotalPlants().toLocaleString()} plants
             </p>
+            {farmerSummaryPreview.length > 0 ? (
+              <p
+                className="text-xs text-gray-600 mt-0.5 line-clamp-2"
+                title={farmerSummaryLines.join(" | ")}
+              >
+                {farmerSummaryPreview.join(" · ")}
+                {farmerSummaryExtra > 0 ? ` +${farmerSummaryExtra} more` : ""}
+              </p>
+            ) : null}
             {(dispatch.driverRemark || dispatch.vehicleRemark || dispatch.routeNotes) && (
               <p className="text-xs text-slate-500 mt-0.5 truncate" title={[dispatch.routeNotes, dispatch.driverRemark, dispatch.vehicleRemark].filter(Boolean).join(" | ")}>
                 {[dispatch.routeNotes && `Route: ${dispatch.routeNotes}`, dispatch.driverRemark && `Driver: ${dispatch.driverRemark}`, dispatch.vehicleRemark && `Vehicle: ${dispatch.vehicleRemark}`].filter(Boolean).join(" · ")}
               </p>
+            )}
+            {(dcPdfUrl || invPdfUrl) && (
+              <div className="flex flex-wrap items-center gap-2 mt-1.5" onClick={(e) => e.stopPropagation()}>
+                {dcPdfUrl ? (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      if (/mock-reports\.example\.com/i.test(dcPdfUrl)) {
+                        Toast.error(
+                          "DC PDF is a mock URL (S3/Spaces not configured). Opening browser preview."
+                        )
+                        onDeliveryChallan?.(dispatch)
+                        return
+                      }
+                      const ok = openDispatchPdfUrl(dcPdfUrl)
+                      if (!ok) Toast.error("Could not open DC PDF")
+                    }}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100">
+                    <Download size={10} /> DC PDF
+                  </button>
+                ) : null}
+                {invPdfUrl ? (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      if (/mock-reports\.example\.com/i.test(invPdfUrl)) {
+                        Toast.error(
+                          "Invoice PDF is a mock URL (S3/Spaces not configured)."
+                        )
+                        return
+                      }
+                      const ok = openDispatchPdfUrl(invPdfUrl)
+                      if (!ok) Toast.error("Could not open invoice PDF")
+                    }}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100"
+                  >
+                    <Download size={10} /> Invoice PDF
+                  </button>
+                ) : null}
+              </div>
             )}
           </div>
         </div>
@@ -568,38 +973,62 @@ const DispatchAccordion = ({
                   <button
                     onClick={(e) => {
                       e.stopPropagation()
-                      if (agriLoadBlocked) return
-                      const dispatchWithOrders = {
-                        ...dispatch,
-                        orderIds: relatedOrders.length > 0 ? relatedOrders : dispatch.orderIds || []
-                      }
-                      onDeliveryChallan(dispatchWithOrders)
+                      void handleDeliveryChallanClick()
                     }}
-                    disabled={agriLoadBlocked}
-                    title={agriLoadBlocked ? "Agri Input pending load by Agri admin" : ""}
-                    className={`inline-flex items-center justify-center px-4 py-2 rounded-lg transition-colors ${
+                    disabled={agriLoadBlocked || pdfBusy}
+                    title={
                       agriLoadBlocked
+                        ? "Agri Input pending load by Agri admin"
+                        : pdfBusy
+                          ? "Generating DC PDFs…"
+                          : ""
+                    }
+                    className={`inline-flex items-center justify-center px-4 py-2 rounded-lg transition-colors ${
+                      agriLoadBlocked || pdfBusy
                         ? "bg-gray-100 text-gray-400 cursor-not-allowed"
                         : "bg-purple-50 text-purple-700 hover:bg-purple-100"
                     }`}>
                     <FileText size={16} className="mr-2" />
-                    Delivery Challan
+                    {pdfBusy ? "Preparing DC…" : "Delivery Challan"}
                   </button>
-                  {isDelivered && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      if (!showInvoice) {
+                        Toast.error("Complete the order form first to generate the invoice")
+                        return
+                      }
+                      void handleInvoiceClick(false)
+                    }}
+                    disabled={pdfBusy}
+                    title={
+                      !showInvoice
+                        ? "Complete the order form first to generate the invoice"
+                        : invPdfUrl
+                          ? "Open server invoice PDF"
+                          : "Generate server invoice PDF"
+                    }
+                    className={`inline-flex items-center justify-center px-4 py-2 rounded-lg transition-colors ${
+                      !showInvoice
+                        ? "bg-gray-100 text-gray-400 hover:bg-gray-100"
+                        : "bg-slate-50 text-slate-700 hover:bg-slate-100"
+                    } ${pdfBusy ? "opacity-50 cursor-not-allowed" : ""}`}>
+                    <Download size={16} className="mr-2" />
+                    {pdfBusy && showInvoice ? "Preparing invoice…" : "Invoice"}
+                  </button>
+                  {showInvoice && invPdfUrl ? (
                     <button
                       onClick={(e) => {
                         e.stopPropagation()
-                        const dispatchWithOrders = {
-                          ...dispatch,
-                          orderIds: relatedOrders.length > 0 ? relatedOrders : dispatch.orderIds || []
-                        }
-                        onCompleteInvoice?.(dispatchWithOrders)
+                        void handleInvoiceClick(true)
                       }}
-                      className="inline-flex items-center justify-center px-4 py-2 bg-slate-50 text-slate-700 rounded-lg hover:bg-slate-100 transition-colors">
-                      <Download size={16} className="mr-2" />
-                      Complete Invoice
+                      disabled={pdfBusy}
+                      className="inline-flex items-center justify-center px-3 py-2 bg-amber-50 text-amber-900 rounded-lg hover:bg-amber-100 transition-colors disabled:opacity-50 text-xs font-semibold"
+                      title="Regenerate invoice PDF (keeps previous in history)"
+                    >
+                      Regen invoice
                     </button>
-                  )}
+                  ) : null}
                   
                   {!isDelivered && (
                     <>
@@ -759,19 +1188,46 @@ const DispatchAccordion = ({
                               </div>
                             </div>
                             <div className="min-w-0">
-                              <span className="text-gray-500">Village</span>
-                              <div className="font-medium text-gray-900 truncate" title={order.farmer?.village || ""}>
-                                {order.farmer?.village || "N/A"}
+                              <span className="text-gray-500">Village · Taluka</span>
+                              <div
+                                className="font-medium text-gray-900 truncate"
+                                title={[order.farmer?.village, order.farmer?.talukaName || order.farmer?.taluka]
+                                  .filter(Boolean)
+                                  .join(" · ")}
+                              >
+                                {[order.farmer?.village, order.farmer?.talukaName || order.farmer?.taluka]
+                                  .filter(Boolean)
+                                  .join(" · ") || "N/A"}
                               </div>
                             </div>
                             <div className="min-w-0 col-span-2">
                               <span className="text-gray-500">Plant</span>
-                              <div className="font-medium text-gray-900 line-clamp-2 leading-snug">
-                                {order.plantType?.name || "N/A"}
-                                {order.plantSubtype?.name ? (
-                                  <span className="text-gray-600"> · {order.plantSubtype.name}</span>
-                                ) : null}
-                              </div>
+                              {(() => {
+                                const lines = getPlantLineItemsFromOrder(order)
+                                if (lines.length > 1) {
+                                  return (
+                                    <div className="font-medium text-gray-900 leading-snug space-y-0.5">
+                                      {lines.map((line) => (
+                                        <div key={line.key} className="truncate" title={`${line.label} × ${line.qty}`}>
+                                          {line.label}
+                                          <span className="text-gray-600 font-normal"> × {line.qty.toLocaleString()}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )
+                                }
+                                const fallback = [
+                                  order.plantType?.name,
+                                  order.plantSubtype?.name,
+                                ]
+                                  .filter(Boolean)
+                                  .join(" · ")
+                                return (
+                                  <div className="font-medium text-gray-900 line-clamp-2 leading-snug">
+                                    {plantLineItemsSummaryLabel(order, fallback || "N/A")}
+                                  </div>
+                                )
+                              })()}
                             </div>
                           </div>
                           
@@ -853,6 +1309,105 @@ const DispatchAccordion = ({
                                 {dcInvoiceSavingByOrder[String(order._id || "")] ? "Saving..." : "Save"}
                               </button>
                             </div>
+                            {(() => {
+                              const oid = String(order._id || "")
+                              const orderDcUrl = String(
+                                order?.deliveryChallanPdfUrl ||
+                                  order?.details?.deliveryChallanPdfUrl ||
+                                  ""
+                              ).trim()
+                              const hist = Array.isArray(order?.deliveryChallanPdfHistory)
+                                ? order.deliveryChallanPdfHistory
+                                : Array.isArray(order?.details?.deliveryChallanPdfHistory)
+                                  ? order.details.deliveryChallanPdfHistory
+                                  : []
+                              const hasDcNum = Boolean(
+                                String(
+                                  order?.officialDeliveryChallanNumber ??
+                                    order?.details?.officialDeliveryChallanNumber ??
+                                    order?.deliveryChallanInvoiceNumber ??
+                                    order?.details?.deliveryChallanInvoiceNumber ??
+                                    dcInvoiceByOrder[oid] ??
+                                    ""
+                                ).trim()
+                              )
+                              if (!hasDcNum) return null
+                              return (
+                                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                                  {!orderDcUrl ? (
+                                    <button
+                                      type="button"
+                                      disabled={Boolean(orderDcPdfBusy[oid])}
+                                      onClick={() => void handleOrderDcPdf(order, false)}
+                                      className="rounded border border-blue-300 bg-blue-50 px-2 py-1 text-[10px] font-semibold text-blue-800 hover:bg-blue-100 disabled:opacity-50"
+                                    >
+                                      {orderDcPdfBusy[oid] ? "…" : "Generate DC PDF"}
+                                    </button>
+                                  ) : (
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          if (/mock-reports\.example\.com/i.test(orderDcUrl)) {
+                                            Toast.error(
+                                              "DC PDF URL is a local mock (S3/Spaces not configured). Use Delivery Challan preview, or configure upload storage."
+                                            )
+                                            if (typeof onDeliveryChallan === "function") {
+                                              onDeliveryChallan(dispatch)
+                                            }
+                                            return
+                                          }
+                                          const ok = openDispatchPdfUrl(orderDcUrl)
+                                          if (!ok) {
+                                            Toast.error(
+                                              "Could not open DC PDF — URL missing or blocked."
+                                            )
+                                          }
+                                        }}
+                                        className="rounded border border-blue-200 bg-white px-2 py-1 text-[10px] font-semibold text-blue-700 hover:bg-blue-50"
+                                      >
+                                        Open DC
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={Boolean(orderDcPdfBusy[oid])}
+                                        onClick={() => void handleOrderDcPdf(order, true)}
+                                        className="rounded border border-amber-300 bg-amber-50 px-2 py-1 text-[10px] font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-50"
+                                      >
+                                        {orderDcPdfBusy[oid] ? "…" : "Regenerate"}
+                                      </button>
+                                    </>
+                                  )}
+                                  {hist.length > 0 ? (
+                                    <details className="text-[10px] text-stone-600">
+                                      <summary className="cursor-pointer font-medium">
+                                        Past DCs ({hist.length})
+                                      </summary>
+                                      <ul className="mt-1 space-y-0.5 pl-2">
+                                        {[...hist].reverse().map((h, i) => (
+                                          <li key={`${h.url}-${i}`}>
+                                            <button
+                                              type="button"
+                                              className="text-blue-700 underline"
+                                              onClick={(e) => {
+                                                e.stopPropagation()
+                                                const ok = openDispatchPdfUrl(h.url)
+                                                if (!ok) Toast.error("Could not open past DC PDF")
+                                              }}
+                                            >
+                                              {h.generatedAt
+                                                ? new Date(h.generatedAt).toLocaleString()
+                                                : `Version ${hist.length - i}`}
+                                            </button>
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    </details>
+                                  ) : null}
+                                </div>
+                              )
+                            })()}
                           </div>
 
                           {/* Dispatch Quantity Info */}
@@ -959,70 +1514,6 @@ const DispatchAccordion = ({
                   )}
                 </div>
               </div>
-
-              <div className="bg-white rounded-lg border border-gray-200 p-4">
-                <h4 className="font-medium text-gray-900 mb-1">PDF (server)</h4>
-                <p className="text-xs text-gray-500 mb-3">
-                  Enter manual DC numbers on each order above (when there is no system DC), then Save — or use
-                  Regenerate: any unsaved manual DC values are saved first, then the PDF is built from the server
-                  (same labels as the browser preview).
-                </p>
-                <div className="flex flex-col gap-3 text-sm">
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                    <span className="text-gray-600 shrink-0">Delivery challan</span>
-                    {dcPdfUrl ? (
-                      <a
-                        href={dcPdfUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-blue-600 hover:underline"
-                        onClick={(e) => e.stopPropagation()}>
-                        Open
-                      </a>
-                    ) : (
-                      <span className="text-gray-400">Not generated</span>
-                    )}
-                    <button
-                      type="button"
-                      disabled={pdfBusy || agriLoadBlocked}
-                      title={agriLoadBlocked ? "Agri Input pending load" : ""}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        void handleRegenerateServerPdfs(["delivery_challan"])
-                      }}
-                      className="text-purple-700 hover:underline disabled:opacity-40 disabled:cursor-not-allowed">
-                      {pdfBusy ? "Working…" : "Regenerate"}
-                    </button>
-                  </div>
-                  {isDelivered ? (
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-gray-100 pt-2">
-                      <span className="text-gray-600 shrink-0">Complete invoice</span>
-                      {invPdfUrl ? (
-                        <a
-                          href={invPdfUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-blue-600 hover:underline"
-                          onClick={(e) => e.stopPropagation()}>
-                          Open
-                        </a>
-                      ) : (
-                        <span className="text-gray-400">Not generated</span>
-                      )}
-                      <button
-                        type="button"
-                        disabled={pdfBusy}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          void handleRegenerateServerPdfs(["complete_invoice"])
-                        }}
-                        className="text-slate-700 hover:underline disabled:opacity-40">
-                        {pdfBusy ? "Working…" : "Regenerate"}
-                      </button>
-                    </div>
-                  ) : null}
-                </div>
-              </div>
             </div>
           )}
         </div>
@@ -1040,6 +1531,7 @@ const DispatchAccordion = ({
         onRefresh?.()
       }}
     />
+    {invoiceAadharDialog}
     </>
   )
 }

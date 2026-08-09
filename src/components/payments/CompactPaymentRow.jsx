@@ -71,13 +71,13 @@ export default function CompactPaymentRow({
       </div>
 
       <div className="grid grid-cols-2 gap-2 md:grid-cols-12">
-        <Field label="Upload" className="md:col-span-2">
+        <Field label="Receipt or screenshot" className="md:col-span-2">
           <div className="flex min-h-[34px] flex-wrap items-center gap-1">
             <label
               className={`inline-flex cursor-pointer items-center rounded border border-gray-300 bg-white px-2 py-1 text-[10px] font-semibold text-gray-700 hover:bg-gray-50 ${
                 receiptBusy || ocrBusy ? "pointer-events-none opacity-50" : ""
               }`}>
-              {receiptBusy ? "Uploading…" : ocrBusy ? "Scanning…" : "Choose"}
+              {receiptBusy ? "Uploading…" : ocrBusy ? "Scanning…" : "Upload receipt or screenshot"}
               <input
                 type="file"
                 accept="image/*"

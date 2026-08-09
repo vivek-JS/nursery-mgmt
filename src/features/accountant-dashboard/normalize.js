@@ -1,9 +1,20 @@
 /** Farmer order row from GET /order/payments aggregation */
+function mapPaymentActor(raw) {
+  if (!raw || !raw.name) return null
+  return {
+    name: String(raw.name || "—"),
+    phoneNumber: raw.phoneNumber != null ? String(raw.phoneNumber) : "",
+    role: String(raw.role || "").trim() || undefined
+  }
+}
+
 export function normalizeFarmerPayment(raw) {
   const payment = raw.payment || {}
   const farmer = raw.farmer
   const plantType = raw.plantType || { id: "", name: "" }
   const salesPerson = raw.salesPerson || { name: "—", phoneNumber: "" }
+  const paymentUpdatedBy = mapPaymentActor(raw.paymentUpdatedBy)
+  const paymentRecordedBy = mapPaymentActor(raw.paymentRecordedBy)
   // This table is payment-centric: show the payment status when present.
   const st = payment.paymentStatus || raw.orderPaymentStatus || "PENDING"
 
@@ -60,8 +71,11 @@ export function normalizeFarmerPayment(raw) {
     createdAt: raw.createdAt ? String(raw.createdAt) : "",
     totalOrderAmount: Number(raw.totalOrderAmount) || 0,
     farmer,
+    orderFor: raw.orderFor && typeof raw.orderFor === "object" ? raw.orderFor : null,
     plantType,
     salesPerson,
+    paymentUpdatedBy,
+    paymentRecordedBy,
     returnedPlants: Number(raw.returnedPlants) || 0,
     damagedPlants: Number(raw.damagedPlants) || 0,
     dispatch: raw.dispatch || null,
@@ -85,6 +99,8 @@ export function normalizeAgriPayment(raw) {
     numberOfPlants: Number(raw.quantity) || 1,
     rate: Number(raw.rate) || paid,
     orderPaymentStatus: st,
+    paymentUpdatedBy: mapPaymentActor(raw.paymentUpdatedBy),
+    paymentRecordedBy: mapPaymentActor(raw.paymentRecordedBy),
     payment: {
       paidAmount: paid,
       paymentStatus: st,

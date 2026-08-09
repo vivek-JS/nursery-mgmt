@@ -325,16 +325,63 @@ export function validateSplitAssignMode(assignMode, draft) {
 }
 
 /** Build POST /order/:id/split body including optional beneficiary assign. */
+export function resolveSplitAttributionFromOrder(order) {
+  const details = order?.details || order || {};
+  const dealerOrder = Boolean(details.dealerOrder ?? order?.dealerOrder);
+  const dealerRaw = details.dealer ?? order?.dealer;
+  const salesRaw = details.salesPerson ?? order?.salesPerson;
+  const dealerId = dealerRaw?._id ?? dealerRaw ?? "";
+  const salesPersonId = salesRaw?._id ?? salesRaw ?? "";
+
+  if (dealerOrder && dealerId) {
+    return {
+      attributionMode: "dealer",
+      attributionId: String(dealerId),
+      dealerOrder: true,
+      dealer: String(dealerId),
+      salesPerson: salesPersonId ? String(salesPersonId) : "",
+    };
+  }
+  if (salesPersonId) {
+    return {
+      attributionMode: "sales",
+      attributionId: String(salesPersonId),
+      dealerOrder: false,
+      dealer: "",
+      salesPerson: String(salesPersonId),
+    };
+  }
+  return {
+    attributionMode: "sales",
+    attributionId: "",
+    dealerOrder: false,
+    dealer: "",
+    salesPerson: "",
+  };
+}
+
 export function buildSplitOrderRequestPayload({
   splitQuantity,
   notes,
   assignEnabled,
   assignMode,
   assignDraft,
+  attributionMode,
+  attributionId,
+  dealerOrder,
 }) {
   const payload = {
     splitQuantity,
     ...(String(notes || "").trim() ? { notes: String(notes).trim() } : {}),
+  }
+
+  if (attributionMode === "dealer" && attributionId) {
+    payload.dealer = attributionId;
+    payload.dealerOrder = true;
+    payload.salesPerson = attributionId;
+  } else if (attributionMode === "sales" && attributionId) {
+    payload.salesPerson = attributionId;
+    payload.dealerOrder = Boolean(dealerOrder);
   }
 
   if (!assignEnabled) {

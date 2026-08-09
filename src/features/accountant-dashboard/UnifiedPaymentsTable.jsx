@@ -1,16 +1,20 @@
-import React, { useState, useCallback } from "react"
-import { FileImage, ChevronDown, ChevronUp, BookOpen, Layers, Users, ArrowUpRight, Loader2, Truck } from "lucide-react"
+import React, { useState, useCallback, useEffect, useRef } from "react"
+import { FileImage, ChevronDown, ChevronUp, BookOpen, Layers, Users, ArrowUpRight, Loader2, Truck, RefreshCw } from "lucide-react"
 import { StatusBadge } from "./StatusBadge"
 import { StatusChangePopover } from "./StatusChangePopover"
+import { PaymentsTableFilters } from "./PaymentsTableFilters"
 import { cn } from "lib/cn"
-import { getStatementMatchPresentation } from "lib/bankMatchLabels"
 import {
   normalizeFarmerIdForLedger,
   fetchFarmerPlantOrderDetails,
   fetchOrderPaymentTransferContext
 } from "./paymentsApi"
-import AttachmentViewerModal, { resolvePaymentMediaUrl } from "components/Modals/AttachmentViewerModal"
+import PaymentAttachmentModal, {
+  buildBulkAttachmentContext,
+  buildOrderAttachmentContext
+} from "./PaymentAttachmentModal"
 import OrderTimeline from "components/OrderTimeline"
+import { resolveOrderCustomerCell } from "./orderCustomerDisplay"
 
 const fmt = (n) => `₹${n.toLocaleString("en-IN")}`
 const fmtDate = (d) => new Date(d).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })
@@ -29,12 +33,6 @@ function bulkLedgerContact(b) {
   const name = String(a.customerName || "").trim()
   const mobile = String(a.customerMobile ?? a.mobileNumber ?? "").trim()
   return { mobile, name }
-}
-
-function orderAttachmentUrls(p) {
-  const r = Array.isArray(p.payment?.receiptPhoto) ? p.payment.receiptPhoto : []
-  const s = Array.isArray(p.screenshots) ? p.screenshots : []
-  return [...r, ...s].filter(Boolean).map(resolvePaymentMediaUrl)
 }
 
 /** Row-level hint for order payment transfer (cross-order); listing + expand details. */
@@ -87,6 +85,30 @@ function farmerOrderPaymentTransferHint(p) {
   return null
 }
 
+function formatActorRole(role) {
+  if (!role) return ""
+  return String(role).replace(/_/g, " ")
+}
+
+function PaymentActorCell({ actor, emptyLabel = "—" }) {
+  if (!actor?.name) {
+    return <span className="text-[11px] text-muted-foreground">{emptyLabel}</span>
+  }
+  return (
+    <div className="space-y-0.5">
+      <div className="font-medium text-foreground">{actor.name}</div>
+      {actor.role ? (
+        <div className="text-[10px] font-semibold uppercase tracking-wide text-violet-800">
+          {formatActorRole(actor.role)}
+        </div>
+      ) : null}
+      {actor.phoneNumber ? (
+        <div className="text-[11px] text-muted-foreground">{actor.phoneNumber}</div>
+      ) : null}
+    </div>
+  )
+}
+
 function PaymentTimingBadge({ timing }) {
   if (timing !== "advance" && timing !== "balance") return null
   const isAdvance = timing === "advance"
@@ -112,17 +134,42 @@ export function UnifiedPaymentsTable({
   canEditStatus,
   statusFilter,
   onStatusFilterChange,
+  typeFilter: typeFilterProp,
+  onTypeFilterChange,
   advancesMode = false,
   advanceViewFilter = "pending_advance",
-  onAdvanceViewFilterChange
+  onAdvanceViewFilterChange,
+  /** Backend pagination total for current filters */
+  totalCount,
+  hasMore = false,
+  loadingMore = false,
+  onLoadMore,
+  /** Optional { byType: { ALL, ORDER, BULK } } */
+  filterTotals,
+  onRefresh,
+  refreshing = false
 }) {
   const [expandedId, setExpandedId] = useState(null)
-  const [typeFilter, setTypeFilter] = useState("ALL")
+  const [localTypeFilter, setLocalTypeFilter] = useState("ALL")
+  const typeFilter = typeFilterProp ?? localTypeFilter
+  const setTypeFilter = onTypeFilterChange || setLocalTypeFilter
   const [attachModal, setAttachModal] = useState(null)
   const [orderDetailsCache, setOrderDetailsCache] = useState({})
   const [orderDetailsLoading, setOrderDetailsLoading] = useState({})
   const [transferContextCache, setTransferContextCache] = useState({})
   const [transferContextLoading, setTransferContextLoading] = useState({})
+  const scrollRef = useRef(null)
+  const sentinelRef = useRef(null)
+
+  const handleRefresh = useCallback(() => {
+    setExpandedId(null)
+    setAttachModal(null)
+    setOrderDetailsCache({})
+    setOrderDetailsLoading({})
+    setTransferContextCache({})
+    setTransferContextLoading({})
+    onRefresh?.()
+  }, [onRefresh])
 
   const handleOrderExpand = useCallback(
     async (id, p) => {
@@ -198,111 +245,81 @@ export function UnifiedPaymentsTable({
   })
 
   const getRowId = (r) => (r.kind === "order" ? r.data.id : r.data._id)
-  const tableColSpan = advancesMode ? 14 : 15
+  const tableColSpan = advancesMode ? 13 : 14
+  const displayTotal =
+    typeof totalCount === "number" && Number.isFinite(totalCount) ? totalCount : filtered.length
+
+  useEffect(() => {
+    const root = scrollRef.current
+    const target = sentinelRef.current
+    if (!root || !target || !onLoadMore) return undefined
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries[0]?.isIntersecting) return
+        if (!hasMore || loadingMore) return
+        onLoadMore()
+      },
+      { root, rootMargin: "160px 0px", threshold: 0 }
+    )
+    observer.observe(target)
+    return () => observer.disconnect()
+  }, [hasMore, loadingMore, onLoadMore, filtered.length])
 
   return (
-    <div className="erp-card animate-fade-up stagger-2 min-w-0 max-w-full">
-      <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-3 flex-wrap">
-        <div>
-          <h2 className="text-sm font-semibold text-foreground">{advancesMode ? "Advances" : "All Payments"}</h2>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            {advancesMode
-              ? `${filtered.length} advance payment lines`
-              : `${filtered.length} entries · order-wise & bulk combined`}
-          </p>
-        </div>
-
-        <div className="flex items-center gap-3 flex-wrap">
-          {advancesMode ? (
-            <div className="flex gap-1 flex-wrap">
-              {[
-                { id: "pending_advance", label: "All Pending Advance" },
-                { id: "all_advance", label: "All Advance" },
-                { id: "PENDING", label: "Pending" },
-                { id: "COLLECTED", label: "Collected" },
-                { id: "REJECTED", label: "Rejected" },
-                { id: "ALL", label: "All statuses" }
-              ].map(({ id, label }) => (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => onAdvanceViewFilterChange?.(id)}
-                  className={cn(
-                    "text-[11px] font-semibold px-2.5 py-1 rounded-sm",
-                    advanceViewFilter === id
-                      ? id === "pending_advance"
-                        ? "badge-pending"
-                        : "bg-primary text-primary-foreground"
-                      : "bg-muted text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          ) : (
-          <div className="flex gap-1 bg-muted rounded-sm p-0.5">
-            {["ALL", "ORDER", "BULK"].map((t) => (
-              <button
-                key={t}
-                type="button"
-                onClick={() => setTypeFilter(t)}
-                className={cn(
-                  "text-[11px] font-semibold px-2.5 py-1 rounded-sm transition-all",
-                  typeFilter === t ? "bg-card shadow-erp-sm text-foreground" : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                {t === "ALL" ? "All types" : t === "ORDER" ? "Order-wise" : "Bulk"}
-              </button>
-            ))}
+    <>
+    <div className="erp-card animate-fade-up stagger-2 min-w-0 max-w-full flex flex-col overflow-hidden h-[min(68vh,720px)]">
+      <div className="shrink-0 px-4 py-2.5 border-b border-border flex items-center gap-3 flex-wrap">
+        <PaymentsTableFilters
+          advancesMode={advancesMode}
+          typeFilter={typeFilter}
+          onTypeFilterChange={setTypeFilter}
+          statusFilter={activeStatusFilter}
+          onStatusFilterChange={onStatusFilterChange}
+          advanceViewFilter={advanceViewFilter}
+          onAdvanceViewFilterChange={onAdvanceViewFilterChange}
+          totals={filterTotals}
+        />
+        <div className="ml-auto flex items-center gap-2 min-w-0">
+          {onRefresh ? (
+            <button
+              type="button"
+              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1.5 text-[11px] font-semibold text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+              onClick={handleRefresh}
+              disabled={refreshing}
+              title="Refresh payments"
+            >
+              <RefreshCw className={cn("w-3.5 h-3.5", refreshing && "animate-spin")} />
+              Refresh
+            </button>
+          ) : null}
+          <div className="text-right min-w-0">
+            <h2 className="text-sm font-semibold text-foreground">{advancesMode ? "Advances" : "All Payments"}</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {advancesMode
+                ? `${filtered.length} loaded · ${displayTotal.toLocaleString("en-IN")} total`
+                : `${filtered.length.toLocaleString("en-IN")} loaded · ${displayTotal.toLocaleString("en-IN")} total from server`}
+            </p>
           </div>
-          )}
-
-          {!advancesMode && (
-          <div className="flex gap-1 flex-wrap">
-            {["ALL", "PENDING", "COLLECTED", "REJECTED"].map((s) => (
-              <button
-                key={s}
-                type="button"
-                onClick={() => onStatusFilterChange?.(s)}
-                className={cn(
-                  "text-[11px] font-semibold px-2.5 py-1 rounded-sm",
-                  activeStatusFilter === s
-                    ? s === "ALL"
-                      ? "bg-primary text-primary-foreground"
-                      : s === "PENDING"
-                        ? "badge-pending"
-                        : s === "COLLECTED"
-                          ? "badge-collected"
-                          : "badge-rejected"
-                    : "bg-muted text-muted-foreground hover:text-foreground"
-                )}
-              >
-                {s === "ALL" ? "All" : s.charAt(0) + s.slice(1).toLowerCase()}
-              </button>
-            ))}
-          </div>
-          )}
         </div>
       </div>
 
-      <div className="overflow-x-auto max-w-full">
+      <div ref={scrollRef} className="flex-1 min-h-0 overflow-auto">
         <table className="data-table">
-          <thead>
+          <thead className="sticky top-0 z-[1] bg-card shadow-sm">
             <tr>
-              <th>Type</th>
               {!advancesMode && <th>Timing</th>}
               <th>Ref #</th>
               <th>Customer / Party</th>
               <th>Detail</th>
               <th>Sales / Ref By</th>
+              <th>Updated By</th>
               <th>Total</th>
               <th>Paid</th>
               <th>Balance</th>
               <th>Mode</th>
               <th>Date</th>
               <th>Status</th>
-              <th>Bank / statement</th>
               <th>Attach</th>
               <th>Actions</th>
             </tr>
@@ -318,19 +335,13 @@ export function UnifiedPaymentsTable({
                 return (
                   <React.Fragment key={id}>
                     <tr>
-                      <td>
-                        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-sm bg-primary-light text-primary uppercase tracking-wide">
-                          <Layers className="w-3 h-3" /> Order
-                        </span>
-                        {advancesMode && <PaymentTimingBadge timing={p.paymentTiming || p.payment?.paymentTiming} />}
-                      </td>
                       {!advancesMode && (
                         <td>
                           <PaymentTimingBadge timing={p.paymentTiming || p.payment?.paymentTiming} />
                         </td>
                       )}
                       <td>
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1.5 flex-wrap">
                           <button
                             type="button"
                             className="p-0.5 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
@@ -342,17 +353,38 @@ export function UnifiedPaymentsTable({
                           >
                             {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                           </button>
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-sm bg-primary-light text-primary uppercase tracking-wide shrink-0">
+                            <Layers className="w-3 h-3" /> Order
+                          </span>
                           <span className="font-mono text-xs font-semibold text-primary">#{p.orderId}</span>
+                          {advancesMode && (
+                            <PaymentTimingBadge timing={p.paymentTiming || p.payment?.paymentTiming} />
+                          )}
                           {p.dealerOrder && (
                             <span className="text-[10px] bg-accent-light text-accent font-semibold px-1 rounded-sm">Dealer</span>
                           )}
                         </div>
                       </td>
                       <td>
-                        <div className="font-medium text-foreground">{p.farmer?.name ?? "—"}</div>
-                        <div className="text-[11px] text-muted-foreground">
-                          {p.farmer ? `${p.farmer.village || ""}${p.farmer.village && p.farmer.district ? ", " : ""}${p.farmer.district || ""}` : "—"}
-                        </div>
+                        {(() => {
+                          const c = resolveOrderCustomerCell({ orderFor: p.orderFor, farmer: p.farmer })
+                          return (
+                            <div className="space-y-0.5">
+                              <div className="font-medium text-foreground">{c.primaryName}</div>
+                              {c.secondaryLine ? (
+                                <div className="text-[11px] font-medium inline-flex flex-wrap items-baseline gap-x-0.5 rounded border border-sky-200 bg-sky-50 px-1.5 py-0.5 max-w-full">
+                                  <span className="text-sky-600 font-semibold shrink-0">Booking:</span>
+                                  <span className="text-sky-900">{c.bookingFarmer?.name || "Unknown"}</span>
+                                </div>
+                              ) : null}
+                              {c.locationLine ? (
+                                <div className="text-[11px] text-muted-foreground">{c.locationLine}</div>
+                              ) : !c.secondaryLine ? (
+                                <div className="text-[11px] text-muted-foreground">—</div>
+                              ) : null}
+                            </div>
+                          )
+                        })()}
                       </td>
                       <td>
                         <span className="font-medium">{p.plantType?.name || "—"}</span>
@@ -403,6 +435,9 @@ export function UnifiedPaymentsTable({
                           <div className="text-[11px] text-muted-foreground">{p.salesPerson.phoneNumber}</div>
                         )}
                       </td>
+                      <td>
+                        <PaymentActorCell actor={p.paymentUpdatedBy || p.paymentRecordedBy} />
+                      </td>
                       <td className="tabular font-semibold">{fmt(p.totalOrderAmount)}</td>
                       <td className="tabular text-status-collected font-semibold">{fmt(p.payment?.paidAmount || 0)}</td>
                       <td className={cn("tabular font-semibold", balance > 0 ? "text-status-rejected" : "text-status-collected")}>
@@ -425,33 +460,22 @@ export function UnifiedPaymentsTable({
                           <StatusBadge status={p.orderPaymentStatus} />
                         )}
                       </td>
-                      <td className="max-w-[160px]">
-                        {(() => {
-                          const pres = getStatementMatchPresentation(p.payment)
-                          return (
-                            <span className={cn("text-[11px] leading-snug", pres.className)}>{pres.label}</span>
-                          )
-                        })()}
-                      </td>
                       <td>
                         {(() => {
-                          const urls = orderAttachmentUrls(p)
-                          const n = urls.length
+                          const ctx = buildOrderAttachmentContext(p)
+                          const n = ctx.urls.length
                           return n > 0 ? (
                             <button
                               type="button"
-                              className="flex items-center gap-1 text-[11px] text-primary font-medium hover:underline"
-                              title="View attachments"
+                              className="inline-flex items-center gap-1 rounded-md border border-primary/30 bg-primary/5 px-2 py-1 text-[11px] text-primary font-semibold hover:bg-primary/10 transition-colors"
+                              title="View attachments & details"
                               onClick={(e) => {
                                 e.stopPropagation()
-                                setAttachModal({
-                                  title: `Order #${p.orderId} · attachments`,
-                                  urls
-                                })
+                                setAttachModal(ctx)
                               }}
                             >
                               <FileImage className="w-3.5 h-3.5" />
-                              {n}
+                              View ({n})
                             </button>
                           ) : (
                             <span className="text-[11px] text-muted-foreground">—</span>
@@ -491,6 +515,15 @@ export function UnifiedPaymentsTable({
                             {/* Static summary grid */}
                             <div className="px-5 py-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 border-b border-border/60">
                               <DetailCell label="Sales Person" value={p.salesPerson?.name || "—"} sub={String(p.salesPerson?.phoneNumber ?? "")} />
+                              <DetailCell
+                                label="Payment updated by"
+                                value={p.paymentUpdatedBy?.name || "—"}
+                                sub={
+                                  p.paymentUpdatedBy?.role
+                                    ? formatActorRole(p.paymentUpdatedBy.role)
+                                    : p.paymentUpdatedBy?.phoneNumber || ""
+                                }
+                              />
                               <DetailCell label="Booking Date" value={fmtDate(p.orderBookingDate)} />
                               <DetailCell label="Remark" value={p.payment?.remark || "—"} />
                               <DetailCell label="Order Status" value={<StatusBadge status={String(p.orderStatus)} />} />
@@ -547,13 +580,9 @@ export function UnifiedPaymentsTable({
               return (
                 <React.Fragment key={id}>
                   <tr>
+                    {!advancesMode && <td className="text-[11px] text-muted-foreground">—</td>}
                     <td>
-                      <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-sm bg-accent-light text-accent uppercase tracking-wide">
-                        <Users className="w-3 h-3" /> Bulk
-                      </span>
-                    </td>
-                    <td>
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-1.5 flex-wrap">
                         <button
                           type="button"
                           className="p-0.5 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
@@ -565,6 +594,9 @@ export function UnifiedPaymentsTable({
                         >
                           {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                         </button>
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-sm bg-accent-light text-accent uppercase tracking-wide shrink-0">
+                          <Users className="w-3 h-3" /> Bulk
+                        </span>
                         <span className="font-mono text-xs font-semibold text-accent">{b._id.slice(-6).toUpperCase()}</span>
                       </div>
                     </td>
@@ -581,6 +613,9 @@ export function UnifiedPaymentsTable({
                       </div>
                     </td>
                     <td className="text-[11px] text-muted-foreground">—</td>
+                    <td>
+                      <PaymentActorCell actor={b.acceptedBy || b.createdBy} emptyLabel="—" />
+                    </td>
                     <td className="tabular font-bold">{fmt(b.totalAmount)}</td>
                     <td className="tabular text-status-collected font-semibold">
                       {b.paymentStatus === "ACCEPTED" ? fmt(b.totalAmount) : "—"}
@@ -595,25 +630,22 @@ export function UnifiedPaymentsTable({
                     <td>
                       <StatusBadge status={b.paymentStatus === "ACCEPTED" ? "ACCEPTED" : b.paymentStatus} />
                     </td>
-                    <td className="text-[11px] text-muted-foreground">—</td>
                     <td>
                       {(() => {
-                        const urls = (Array.isArray(b.receiptPhoto) ? b.receiptPhoto : []).filter(Boolean).map(resolvePaymentMediaUrl)
-                        return urls.length > 0 ? (
+                        const ctx = buildBulkAttachmentContext(b)
+                        const n = ctx.urls.length
+                        return n > 0 ? (
                           <button
                             type="button"
-                            className="flex items-center gap-1 text-[11px] text-primary font-medium hover:underline"
-                            title="View attachments"
+                            className="inline-flex items-center gap-1 rounded-md border border-primary/30 bg-primary/5 px-2 py-1 text-[11px] text-primary font-semibold hover:bg-primary/10 transition-colors"
+                            title="View attachments & details"
                             onClick={(e) => {
                               e.stopPropagation()
-                              setAttachModal({
-                                title: `Bulk ${String(b._id).slice(-8)} · attachments`,
-                                urls
-                              })
+                              setAttachModal(ctx)
                             }}
                           >
                             <FileImage className="w-3.5 h-3.5" />
-                            {urls.length}
+                            View ({n})
                           </button>
                         ) : (
                           <span className="text-[11px] text-muted-foreground">—</span>
@@ -660,7 +692,7 @@ export function UnifiedPaymentsTable({
 
                   {isExpanded && (
                     <tr>
-                      <td colSpan={14} className="p-0 border-0">
+                      <td colSpan={tableColSpan} className="p-0 border-0">
                         <div className="px-5 py-3 bg-muted/40 border-b border-border space-y-2">
                           <div className="flex items-center justify-between mb-1">
                             <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Allocation Breakdown</span>
@@ -696,15 +728,29 @@ export function UnifiedPaymentsTable({
             )}
           </tbody>
         </table>
-      </div>
 
-      <AttachmentViewerModal
-        open={Boolean(attachModal)}
-        onClose={() => setAttachModal(null)}
-        title={attachModal?.title}
-        urls={attachModal?.urls || []}
-      />
+        <div ref={sentinelRef} className="h-8 w-full flex items-center justify-center py-3 text-xs text-muted-foreground">
+          {loadingMore
+            ? (
+              <span className="inline-flex items-center gap-1.5">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading more…
+              </span>
+            )
+            : hasMore
+              ? "Scroll for more"
+              : filtered.length > 0
+                ? "All matching payments loaded"
+                : null}
+        </div>
+      </div>
     </div>
+
+    <PaymentAttachmentModal
+      open={Boolean(attachModal)}
+      onClose={() => setAttachModal(null)}
+      context={attachModal}
+    />
+    </>
   )
 }
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react"
-import { ChevronDown, ChevronRight, Plus, Check, Trash2, Pencil, Zap } from "lucide-react"
+import { ChevronDown, ChevronRight, Plus, Check, Trash2, Pencil, Zap, Repeat } from "lucide-react"
 import { API, NetworkManager } from "network/core"
 import { Toast } from "helpers/toasts/toastHelper"
 import { useHasPaymentAccess, useUserData } from "utils/roleUtils"
@@ -10,6 +10,7 @@ import { transferableFarmerPlantPayments } from "features/accountant-dashboard/f
 import ReplaceOrderDialog from "./ReplaceOrderDialog"
 import QuickOrderDialog from "../Dispatch/components/QuickOrderDialog"
 import EditOrderModal from "../Dispatch/components/EditOrderModal"
+import RefusedReassignDialog from "../Dispatch/components/RefusedReassign/RefusedReassignDialog"
 import {
   extractUpiFromReceiptImageUrl,
   mergeUpiOcrIntoPaymentState,
@@ -187,6 +188,7 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
   const [editOrderTarget, setEditOrderTarget] = useState(null)
   const [showAddOrderDialog, setShowAddOrderDialog] = useState(false)
   const [showQuickOrderDialog, setShowQuickOrderDialog] = useState(false)
+  const [showReassignDialog, setShowReassignDialog] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
 
   const refreshDispatchPayload = useCallback(async (explicitDispatchId) => {
@@ -634,8 +636,22 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
       const user = await instance.request(payload, [localDispatch?._id || dispatchData?._id])
       if (user?.data?.status) {
         Toast.success(user?.data?.message)
+        // Server auto-builds complete invoice PDF after DELIVERED; refresh parent list/URLs.
         onSuccess?.()
         onClose()
+        const dispatchId = String(localDispatch?._id || dispatchData?._id || "")
+        if (dispatchId) {
+          setTimeout(() => {
+            void (async () => {
+              try {
+                const pdfInst = NetworkManager(API.DISPATCHED.GENERATE_PDFS)
+                await pdfInst.request({ types: ["complete_invoice"] }, [dispatchId])
+              } catch (e) {
+                console.warn("Invoice PDF auto-generate after complete:", e?.message || e)
+              }
+            })()
+          }, 400)
+        }
       }
     } catch (error) {
       console.error("Error completing orders:", error)
@@ -693,6 +709,14 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
                   className="inline-flex items-center justify-center rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-50 sm:text-sm">
                   <Zap className="mr-1.5 h-3.5 w-3.5 sm:h-4 sm:w-4" />
                   Quick order
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowReassignDialog(true)}
+                  disabled={isLoading}
+                  className="inline-flex items-center justify-center rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-50 sm:text-sm">
+                  <Repeat className="mr-1.5 h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                  Reassign refused
                 </button>
                 <button
                   type="button"
@@ -781,6 +805,13 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
                             title={headerTitle}>
                             {farmerLabel}
                           </span>
+                          {(order?.isFieldReassignment || order?.details?.isFieldReassignment) && (
+                            <span
+                              className="shrink-0 rounded-full border border-amber-300 bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800"
+                              title="Created on field from a refused delivery (no slot impact)">
+                              Field order
+                            </span>
+                          )}
                         </div>
                         <p
                           className="mt-0.5 truncate text-xs text-gray-600"
@@ -1329,6 +1360,16 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
         autoSlotSelection
         onSuccess={() => {
           setShowQuickOrderDialog(false)
+          void refreshAfterDispatchOrderChange()
+        }}
+      />
+
+      <RefusedReassignDialog
+        open={showReassignDialog}
+        onClose={() => setShowReassignDialog(false)}
+        dispatchData={localDispatch || dispatchData}
+        onSuccess={() => {
+          setShowReassignDialog(false)
           void refreshAfterDispatchOrderChange()
         }}
       />

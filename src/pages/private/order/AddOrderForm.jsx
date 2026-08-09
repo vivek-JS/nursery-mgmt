@@ -63,6 +63,9 @@ import {
 import moment from "moment"
 import LocationSelector from "components/LocationSelector"
 import SearchableSelect from "components/FormField/SearchableSelect"
+import InstantPlantLineItems, {
+  validateInstantPlantLines,
+} from "./components/InstantPlantLineItems"
 
 /** date-fns / MUI DatePicker — e.g. 26-March-2015 */
 const DATE_PICKER_FORMAT = "dd-MMMM-yyyy"
@@ -78,6 +81,22 @@ function orderSortTime(o) {
 }
 
 function formatRecentPlantSubtypeLine(o) {
+  const lines = o?.plantLineItems
+  if (Array.isArray(lines) && lines.length > 0) {
+    const first = lines[0]
+    const name =
+      first?.plantNameSnapshot ||
+      (typeof first?.plantName === "object" ? first.plantName?.name : "") ||
+      ""
+    const sub =
+      first?.plantSubtypeSnapshot ||
+      (typeof first?.plantSubtype === "object"
+        ? first.plantSubtype?.name || first.plantSubtype?.subtypeName
+        : "") ||
+      ""
+    const head = [name, sub].filter(Boolean).join(" · ") || "—"
+    return lines.length > 1 ? `${head} +${lines.length - 1} more` : head
+  }
   const pn = o?.plantName
   const name = typeof pn === "object" && pn?.name ? pn.name : pn || ""
   const st = o?.plantSubtype
@@ -443,7 +462,10 @@ const AddOrderForm = ({
     orderForTalukaName: "",
     orderForVillage: "",
     // Screenshot fields
-    screenshots: []
+    screenshots: [],
+    // Seed plan for sowing-allowed plants (booking: one checkbox)
+    farmerGivesSeed: false,
+    sowingNotes: "",
   }))
 
   // ============================================================================
@@ -461,6 +483,8 @@ const AddOrderForm = ({
   // ORDER TYPE STATE
   // ============================================================================
   const [isInstantOrder, setIsInstantOrder] = useState(false)
+  /** Instant multi-plant lines (API shape from InstantPlantLineItems). */
+  const [plantLineItems, setPlantLineItems] = useState([])
   const [bulkOrder, setBulkOrder] = useState(false)
   const [quotaType, setQuotaType] = useState(null) // "dealer" or "company"
   const [selectedSlotMonth, setSelectedSlotMonth] = useState("") // For dealer order: month-first then slot
@@ -1807,6 +1831,13 @@ const AddOrderForm = ({
   }
 
   const getTotalOrderAmount = () => {
+    if (isInstantOrder && !bulkOrder && Array.isArray(plantLineItems) && plantLineItems.length > 0) {
+      return plantLineItems.reduce((sum, line) => {
+        const q = Number(line.numberOfPlants) || 0
+        const r = Number(line.rate) || 0
+        return sum + q * r
+      }, 0)
+    }
     const quantity = parseInt(formData?.noOfPlants) || 0
     const rate = parseFloat(formData?.rate) || 0
     return quantity * rate
@@ -2168,7 +2199,10 @@ const AddOrderForm = ({
   // ============================================================================
   
   const validateForm = () => {
-    const requiredFields = ["plant", "subtype", "orderDate", "cavity"]
+    const isInstantMulti = isInstantOrder && !bulkOrder
+    const requiredFields = isInstantMulti
+      ? ["cavity"]
+      : ["plant", "subtype", "orderDate", "cavity"]
 
     // For bulk orders, don't require farmer details
     if (!bulkOrder) {
@@ -2182,19 +2216,27 @@ const AddOrderForm = ({
       }
     }
 
-    const rawPlants = formData?.noOfPlants
-    if (rawPlants === "" || rawPlants === null || rawPlants === undefined) {
-      Toast.error("Please fill in number of plants")
-      return false
-    }
-    const plantQty = parseInt(String(rawPlants).trim(), 10)
-    if (Number.isNaN(plantQty) || plantQty < 0) {
-      Toast.error("Please enter a valid number of plants")
-      return false
-    }
-    if (!bulkOrder && plantQty <= 0) {
-      Toast.error("Number of plants must be greater than 0")
-      return false
+    if (isInstantMulti) {
+      const lineErr = validateInstantPlantLines(plantLineItems)
+      if (lineErr) {
+        Toast.error(lineErr)
+        return false
+      }
+    } else {
+      const rawPlants = formData?.noOfPlants
+      if (rawPlants === "" || rawPlants === null || rawPlants === undefined) {
+        Toast.error("Please fill in number of plants")
+        return false
+      }
+      const plantQty = parseInt(String(rawPlants).trim(), 10)
+      if (Number.isNaN(plantQty) || plantQty < 0) {
+        Toast.error("Please enter a valid number of plants")
+        return false
+      }
+      if (!bulkOrder && plantQty <= 0) {
+        Toast.error("Number of plants must be greater than 0")
+        return false
+      }
     }
 
     // Only validate mobile number if it's provided and not a bulk order
@@ -2468,15 +2510,31 @@ const AddOrderForm = ({
     const selectedSales = sales.find((s) => s.value === formData?.sales)
     const selectedDealer = dealers.find((d) => d.value === formData?.dealer)
 
+    const instantLines =
+      isInstantOrder && !bulkOrder && Array.isArray(plantLineItems) ? plantLineItems : null
+    const instantQty = instantLines
+      ? instantLines.reduce((s, l) => s + (Number(l.numberOfPlants) || 0), 0)
+      : null
+    const firstInstant = instantLines?.[0]
+
     setConfirmationData({
       farmerName: formData?.name || "",
       mobileNumber: formData?.mobileNumber || "",
       orderDate: formData?.date || new Date(),
-      deliveryDate: formData?.orderDate, // The specific delivery date selected by user
-      plantName: selectedPlant?.label || "",
-      plantSubtype: selectedSubtype?.label || "",
-      numberOfPlants: formData?.noOfPlants || "",
-      rate: formData?.rate || "",
+      deliveryDate: firstInstant?.orderDate || formData?.orderDate,
+      plantName: firstInstant?.plantLabel || selectedPlant?.label || "",
+      plantSubtype: firstInstant?.subtypeLabel || selectedSubtype?.label || "",
+      numberOfPlants: instantQty != null ? String(instantQty) : formData?.noOfPlants || "",
+      rate: firstInstant != null ? String(firstInstant.rate ?? "") : formData?.rate || "",
+      plantLines: instantLines
+        ? instantLines.map((l) => ({
+            plant: l.plantLabel || l.plantNameSnapshot || "",
+            subtype: l.subtypeLabel || l.plantSubtypeSnapshot || "",
+            qty: l.numberOfPlants,
+            rate: l.rate,
+            deliveryDate: l.orderDate || l.deliveryDate,
+          }))
+        : null,
       slotPeriod: selectedSlot ? formatSlotPeriod(selectedSlot.startDay, selectedSlot.endDay) : "",
       salesPerson: isInstantOrder
         ? user?.name || "You (logged in)"
@@ -2497,43 +2555,55 @@ const AddOrderForm = ({
     const formDataForUpload = new FormData()
 
     try {
-      // Get slot ID - use transferred slot if available, otherwise use date-based slot
+      const isInstantMulti =
+        isInstantOrder && !bulkOrder && Array.isArray(plantLineItems) && plantLineItems.length > 0
+      const objectIdRegex = /^[0-9a-fA-F]{24}$/
+
       let slotId = formData?.transferredSlotId || getSlotIdForDate(formData?.orderDate)
 
-      if (!slotId) {
-        throw new Error("Could not determine slot for the selected date")
-      }
-
-        // If using transferred slot, log it
-        if (formData?.transferredSlotId) {
-          const transferredSlot = slots.find(s => s.value === formData.transferredSlotId)
-          console.log(`🔄 Booking transferred to nearby slot: ${transferredSlot?.startDay} - ${transferredSlot?.endDay}`)
+      if (isInstantMulti) {
+        const lineErr = validateInstantPlantLines(plantLineItems)
+        if (lineErr) throw new Error(lineErr)
+        for (const line of plantLineItems) {
+          if (!objectIdRegex.test(String(line.bookingSlot || ""))) {
+            throw new Error("Invalid booking slot on a plant line")
+          }
+        }
+        slotId = plantLineItems[0].bookingSlot
+      } else {
+        if (!slotId) {
+          throw new Error("Could not determine slot for the selected date")
         }
 
-        // Log product mapping info if selected
+        if (formData?.transferredSlotId) {
+          const transferredSlot = slots.find((s) => s.value === formData.transferredSlotId)
+          console.log(
+            `🔄 Booking transferred to nearby slot: ${transferredSlot?.startDay} - ${transferredSlot?.endDay}`
+          )
+        }
+
         if (formData?.productMappingId) {
-          const mapping = plantProductMappings.find(m => m._id === formData.productMappingId)
+          const mapping = plantProductMappings.find((m) => m._id === formData.productMappingId)
           console.log(`📦 Ready Plants Product Selected:`, {
             productMappingId: formData.productMappingId,
             productName: formData.productName,
             displayTitle: mapping?.displayTitle,
-            dateRange: mapping?.dateRange
+            dateRange: mapping?.dateRange,
           })
         }
 
-      const selectedSlotDetails = slots.find((s) => s.value === slotId)
+        const selectedSlotDetails = slots.find((s) => s.value === slotId)
 
-      if (!selectedSlotDetails) {
-        throw new Error("Selected slot not found in available slots")
+        if (!selectedSlotDetails) {
+          throw new Error("Selected slot not found in available slots")
+        }
+
+        if (!selectedSlotDetails.startDay || !selectedSlotDetails.endDay) {
+          throw new Error("Selected slot has invalid date format")
+        }
       }
 
-      // Validate that the slot has valid dates
-      if (!selectedSlotDetails.startDay || !selectedSlotDetails.endDay) {
-        throw new Error("Selected slot has invalid date format")
-      }
-
-      // Validate that the slot ID is a valid ObjectId format
-      const objectIdRegex = /^[0-9a-fA-F]{24}$/
+      // Validate that the (root) slot ID is a valid ObjectId format
       if (!objectIdRegex.test(slotId)) {
         throw new Error("Selected slot ID is not in valid ObjectId format")
       }
@@ -2629,9 +2699,35 @@ const AddOrderForm = ({
           payload.orderFor = orderForData
         }
 
+        if (plants.find((p) => p.value === formData?.plant)?.sowingAllowed && !formData?.productMappingId) {
+          payload.sowingPlan = {
+            seedSource: formData.farmerGivesSeed ? "RAISING" : "COMPANY",
+            companySeedPackets: 0,
+            raisingSeedPackets: 0,
+            sowingNotes: formData.farmerGivesSeed
+              ? formData.sowingNotes || "biyane shetkari denar aahe"
+              : formData.sowingNotes || "",
+          }
+        }
+
         endpoint = API.ORDER.CREATE_DEALER_ORDER
       } else {
-        // Regular order payload
+        // Regular / instant order payload
+        const instantMulti =
+          isInstantOrder &&
+          !bulkOrder &&
+          Array.isArray(plantLineItems) &&
+          plantLineItems.length > 0
+        const firstLine = instantMulti ? plantLineItems[0] : null
+        const totalLineQty = instantMulti
+          ? plantLineItems.reduce((s, l) => s + (Number(l.numberOfPlants) || 0), 0)
+          : parseInt(formData?.noOfPlants) || 0
+        const rootDelivery =
+          firstLine?.deliveryDate ||
+          (formData?.orderDate instanceof Date
+            ? formData.orderDate.toISOString()
+            : formData?.orderDate)
+
         payload = {
           name: formData?.name || "",
           village: formData?.village || "",
@@ -2643,8 +2739,10 @@ const AddOrderForm = ({
           talukaName: formData?.talukaName || "",
           mobileNumber: formData?.mobileNumber || "",
           typeOfPlants: formData?.typeOfPlant || "",
-          numberOfPlants: parseInt(formData?.noOfPlants) || 0,
-          rate: parseFloat(formData?.rate) || 0,
+          numberOfPlants: totalLineQty,
+          rate: instantMulti
+            ? Number(firstLine?.rate) || 0
+            : parseFloat(formData?.rate) || 0,
           paymentStatus: "not paid",
           salesPerson: (() => {
             if (isInstantOrder && !bulkOrder) {
@@ -2670,13 +2768,13 @@ const AddOrderForm = ({
             )
           })(),
           orderStatus: defaultOrderStatusOnPlace(isInstantOrder, user),
-          plantName: formData?.plant || "",
-          plantSubtype: formData?.subtype || "",
-          bookingSlot: slotId, // Auto-detected slot ID from order date
-          orderDate: formData?.orderDate instanceof Date ? formData?.orderDate.toISOString() : formData?.orderDate,
-          deliveryDate: formData?.orderDate instanceof Date ? formData?.orderDate.toISOString() : formData?.orderDate,
+          plantName: instantMulti ? firstLine.plantName : formData?.plant || "",
+          plantSubtype: instantMulti ? firstLine.plantSubtype : formData?.subtype || "",
+          bookingSlot: instantMulti ? firstLine.bookingSlot : slotId,
+          orderDate: rootDelivery,
+          deliveryDate: rootDelivery,
           orderPaymentStatus: "PENDING",
-          cavity: formData?.cavity || "",
+          cavity: formData?.cavity || firstLine?.cavity || "",
           orderBookingDate:
             formData?.date instanceof Date ? formData?.date.toISOString() : formData?.date,
           // Screenshots will be handled separately in FormData
@@ -2684,6 +2782,21 @@ const AddOrderForm = ({
           productName: formData?.productName || undefined, // Product name reference for plant products
           productMappingId: formData?.productMappingId || undefined, // PlantProductMapping ID for ready plants products
           productOrderSnapshot, // Snapshot for future reference (not linked)
+        }
+
+        if (instantMulti) {
+          payload.plantLineItems = plantLineItems.map((l, idx) => ({
+            plantName: l.plantName,
+            plantSubtype: l.plantSubtype,
+            plantNameSnapshot: l.plantNameSnapshot || l.plantLabel || "",
+            plantSubtypeSnapshot: l.plantSubtypeSnapshot || l.subtypeLabel || "",
+            bookingSlot: l.bookingSlot,
+            numberOfPlants: Number(l.numberOfPlants) || 0,
+            rate: Number(l.rate) || 0,
+            deliveryDate: l.deliveryDate || null,
+            cavity: l.cavity || formData?.cavity || "",
+            sortOrder: idx,
+          }))
         }
 
         // Add dealer field if dealer is selected for normal orders (or when user is DEALER)
@@ -2699,6 +2812,17 @@ const AddOrderForm = ({
         // Add orderFor data if provided
         if (orderForData) {
           payload.orderFor = orderForData
+        }
+
+        if (plants.find((p) => p.value === formData?.plant)?.sowingAllowed && !formData?.productMappingId) {
+          payload.sowingPlan = {
+            seedSource: formData.farmerGivesSeed ? "RAISING" : "COMPANY",
+            companySeedPackets: 0,
+            raisingSeedPackets: 0,
+            sowingNotes: formData.farmerGivesSeed
+              ? formData.sowingNotes || "biyane shetkari denar aahe"
+              : formData.sowingNotes || "",
+          }
         }
         
         endpoint = API.FARMER.CREATE_FARMER
@@ -2807,7 +2931,17 @@ const AddOrderForm = ({
           total: getTotalOrderAmount(),
           paidAmt: hasPaymentData ? parseFloat(newPayment.paidAmount) || 0 : 0,
           remainingAmt: getBalanceAmount(),
-          deliveryDate: orderDoc?.deliveryDate || formData?.deliveryDate || (selectedSlotDetails?.startDay ? formatSlotPeriod(selectedSlotDetails.startDay, selectedSlotDetails.endDay) : "")
+          deliveryDate: (() => {
+            if (orderDoc?.deliveryDate) return orderDoc.deliveryDate
+            if (formData?.deliveryDate) return formData.deliveryDate
+            if (isInstantMulti && plantLineItems[0]?.deliveryDate) {
+              return plantLineItems[0].deliveryDate
+            }
+            const slotDetails = slots.find((s) => s.value === slotId)
+            return slotDetails?.startDay
+              ? formatSlotPeriod(slotDetails.startDay, slotDetails.endDay)
+              : ""
+          })(),
         }
         onSuccess?.(createdOrderPayload)
         handleClose()
@@ -2916,7 +3050,9 @@ const AddOrderForm = ({
       orderForTalukaName: "",
       orderForVillage: "",
       // Reset screenshots
-      screenshots: []
+      screenshots: [],
+      farmerGivesSeed: false,
+      sowingNotes: "",
     })
     setFarmerData({})
     setRecentOrders([])
@@ -2926,6 +3062,7 @@ const AddOrderForm = ({
     setAttributionId("")
     // Always default to Normal Order (not Instant Order)
     setIsInstantOrder(false)
+    setPlantLineItems([])
     setBulkOrder(false)
     setQuotaType(null)
     setSelectedSlotMonth("")
@@ -3198,7 +3335,10 @@ const AddOrderForm = ({
   return (
     <Dialog
       open={open}
-      onClose={handleClose}
+      onClose={(event, reason) => {
+        if (reason === "backdropClick") return
+        handleClose()
+      }}
       maxWidth={fullScreen ? false : "sm"}
       fullWidth={!fullScreen}
       fullScreen={fullScreen}
@@ -3979,6 +4119,37 @@ const AddOrderForm = ({
             </div>
             <CardContent className={classes.formSection}>
               <Grid container spacing={2}>
+                {isInstantOrder && !bulkOrder ? (
+                  <>
+                    <Grid item xs={12} md={6}>
+                      <SearchableSelect
+                        label="Select Cavity"
+                        items={
+                          cavities.length === 0
+                            ? [
+                                {
+                                  label: loading ? "Loading cavities..." : "No cavities available",
+                                  value: "",
+                                },
+                              ]
+                            : cavities
+                        }
+                        value={formData?.cavity || ""}
+                        onChange={(e) => handleInputChange("cavity", e.target.value)}
+                        placeholder="Search cavity..."
+                        disabled={cavities.length === 0}
+                      />
+                    </Grid>
+                    <Grid item xs={12}>
+                      <InstantPlantLineItems
+                        cavities={cavities}
+                        defaultCavity={formData?.cavity || ""}
+                        onChange={setPlantLineItems}
+                      />
+                    </Grid>
+                  </>
+                ) : (
+                  <>
                 <Grid item xs={12} md={6}>
                   <SearchableSelect
                     label="Select Plant"
@@ -4762,49 +4933,45 @@ const AddOrderForm = ({
                   return null
                 })()}
 
-                {/* Sowing-Allowed Plant Info - Only show if NO ready plants product is selected */}
+                {/* Farmer seed checkbox (unlimited / sowing-allowed plants) */}
                 {plants.find((p) => p.value === formData?.plant)?.sowingAllowed && 
                  formData?.noOfPlants && 
                  !formData?.productMappingId && (
                   <Grid item xs={12}>
-                    <Box
+                    <FormControlLabel
                       sx={{
-                        p: 2,
-                        borderRadius: 2,
-                        border: "2px solid #4caf50",
-                        backgroundColor: "#e8f5e9",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 2
-                      }}>
-                      <Box
-                        sx={{
-                          width: 24,
-                          height: 24,
-                          borderRadius: "50%",
-                          backgroundColor: "#4caf50",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          color: "white",
-                          fontSize: "14px",
-                          fontWeight: "bold"
-                        }}>
-                        🌱
-                      </Box>
-                      <Box sx={{ flex: 1 }}>
-                        <Typography
-                          variant="body2"
-                          fontWeight={600}
-                          color="#2e7d32"
-                          sx={{ mb: 0.5 }}>
-                          Unlimited Booking Available!
-                        </Typography>
-                        <Typography variant="body2" color="#1b5e20">
-                          This plant type supports sowing on demand. You can book any quantity regardless of current availability.
-                        </Typography>
-                      </Box>
-                    </Box>
+                        alignItems: "flex-start",
+                        m: 0,
+                        p: 1.25,
+                        borderRadius: 1.5,
+                        bgcolor: formData.farmerGivesSeed ? "#fff8e1" : "#f1f8f2",
+                        border: "1px solid",
+                        borderColor: formData.farmerGivesSeed ? "#ffb300" : "#a5d6a7",
+                        width: "100%",
+                      }}
+                      control={
+                        <Checkbox
+                          checked={Boolean(formData.farmerGivesSeed)}
+                          onChange={(e) =>
+                            setFormData((prev) => ({
+                              ...prev,
+                              farmerGivesSeed: e.target.checked,
+                            }))
+                          }
+                          sx={{ pt: 0, color: "#2e7d32", "&.Mui-checked": { color: "#ef6c00" } }}
+                        />
+                      }
+                      label={
+                        <Box>
+                          <Typography fontWeight={800} color="#1b5e20" fontSize="0.95rem">
+                            बियाणे शेतकरी देणार आहे का?
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            Will the farmer give seeds?
+                          </Typography>
+                        </Box>
+                      }
+                    />
                   </Grid>
                 )}
 
@@ -4867,6 +5034,8 @@ const AddOrderForm = ({
                       </Box>
                     </Grid>
                   )}
+                  </>
+                )}
               </Grid>
             </CardContent>
           </Card>
@@ -5238,7 +5407,10 @@ const AddOrderForm = ({
       {/* Confirmation Dialog */}
       <Dialog
         open={showConfirmation}
-        onClose={() => setShowConfirmation(false)}
+        onClose={(event, reason) => {
+          if (reason === "backdropClick") return
+          setShowConfirmation(false)
+        }}
         maxWidth="sm"
         fullWidth
         className={classes.dialog}>
@@ -5301,16 +5473,50 @@ const AddOrderForm = ({
                 <Typography variant="body2" sx={{ mb: 0.5 }}>
                   <strong>Order Type:</strong> {confirmationData.orderType}
                 </Typography>
-                <Typography variant="body2" sx={{ mb: 0.5 }}>
-                  <strong>Plant:</strong> {confirmationData.plantName} -{" "}
-                  {confirmationData.plantSubtype}
-                </Typography>
-                <Typography variant="body2" sx={{ mb: 0.5 }}>
-                  <strong>Quantity:</strong> {confirmationData.numberOfPlants} plants
-                </Typography>
-                <Typography variant="body2" sx={{ mb: 0.5 }}>
-                  <strong>Rate:</strong> ₹{confirmationData.rate} per plant
-                </Typography>
+                {Array.isArray(confirmationData.plantLines) &&
+                confirmationData.plantLines.length > 0 ? (
+                  <Box sx={{ mb: 1 }}>
+                    <Typography variant="body2" sx={{ mb: 0.75, fontWeight: 600 }}>
+                      Plants ({confirmationData.plantLines.length} lines ·{" "}
+                      {confirmationData.numberOfPlants} total)
+                    </Typography>
+                    {confirmationData.plantLines.map((line, idx) => (
+                      <Box
+                        key={`confirm-line-${idx}`}
+                        sx={{
+                          mb: 0.5,
+                          p: 1,
+                          borderRadius: 1,
+                          bgcolor: "#fff",
+                          border: "1px solid #e2e8f0",
+                        }}
+                      >
+                        <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                          {line.plant} · {line.subtype}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {line.qty} plants × ₹{line.rate}
+                          {line.deliveryDate
+                            ? ` · ${moment(line.deliveryDate).format(DISPLAY_DATE_FORMAT)}`
+                            : ""}
+                        </Typography>
+                      </Box>
+                    ))}
+                  </Box>
+                ) : (
+                  <>
+                    <Typography variant="body2" sx={{ mb: 0.5 }}>
+                      <strong>Plant:</strong> {confirmationData.plantName} -{" "}
+                      {confirmationData.plantSubtype}
+                    </Typography>
+                    <Typography variant="body2" sx={{ mb: 0.5 }}>
+                      <strong>Quantity:</strong> {confirmationData.numberOfPlants} plants
+                    </Typography>
+                    <Typography variant="body2" sx={{ mb: 0.5 }}>
+                      <strong>Rate:</strong> ₹{confirmationData.rate} per plant
+                    </Typography>
+                  </>
+                )}
                 <Typography variant="body2" sx={{ mb: 0.5 }}>
                   <strong>Sales Person:</strong> {confirmationData.salesPerson}
                 </Typography>

@@ -391,7 +391,7 @@ export const getSlotStatPlantsTotal = (slot, statKey) => {
     case "dispatchedAll":
       return getTotalAllDispatchedPlants(slot)
     case "remaining":
-      return getRemainingToDispatch(slot)
+      return getActualRemainingPlants(slot)
     case "remainingNative":
       return getRemainingNative(slot)
     case "remainingRolled":

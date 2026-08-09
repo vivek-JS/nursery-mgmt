@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react"
+import React, { useState, useEffect, useCallback, useRef } from "react"
 import { Grid, Button, Box, Badge, Tabs, Tab } from "@mui/material"
 import { makeStyles } from "tss-react/mui"
 import { Add as AddIcon, Phone as PhoneIcon, Backup as BackupIcon } from "@mui/icons-material"
@@ -14,6 +14,9 @@ import {
 import AddOrderForm from "../order/AddOrderForm"
 import { FarmerPhoneCorrectionModal, ExcelExport } from "components"
 import useInvalidPhoneFarmers from "hooks/useInvalidPhoneFarmers"
+import { useWorkspace } from "workspace/WorkspaceContext"
+import { isAgriLockedRole } from "workspace/agriAccess"
+import { useUserData } from "utils/roleUtils"
 
 const TAB_BOOKING = 0
 const TAB_STOCK = 1
@@ -22,6 +25,10 @@ function Dashboard() {
   const { classes } = useStyles()
   const navigate = useNavigate()
   const location = useLocation()
+  const user = useUserData()
+  const { isAgriMode } = useWorkspace()
+  const isAgriWorkspace = isAgriMode || isAgriLockedRole(user)
+  const openAgriSalesOrderRef = useRef(null)
   const userRole = useSelector((state) => state?.userData?.userData?.role)
   const jobTitle = useSelector((state) => state?.userData?.userData?.jobTitle)
   const isSuperAdmin =
@@ -53,6 +60,22 @@ function Dashboard() {
     setCopyOrderPrefill(copyPrefill)
     setIsAddOrderOpen(true)
   }, [])
+
+  const openRamAgriInputOrderModal = useCallback(() => {
+    openAgriSalesOrderRef.current?.()
+  }, [])
+
+  const registerOpenAgriOrder = useCallback((fn) => {
+    openAgriSalesOrderRef.current = fn
+  }, [])
+
+  const handleAddOrderClick = useCallback(() => {
+    if (isAgriWorkspace) {
+      openRamAgriInputOrderModal()
+      return
+    }
+    openAddOrder()
+  }, [isAgriWorkspace, openAddOrder, openRamAgriInputOrderModal])
 
   const handleCloseAddOrder = useCallback(() => {
     setIsAddOrderOpen(false)
@@ -89,13 +112,32 @@ function Dashboard() {
           }
         : null)
     if (prefill) {
-      openAddOrder(prefill)
+      if (isAgriWorkspace) {
+        openRamAgriInputOrderModal()
+      } else {
+        openAddOrder(prefill)
+      }
       navigate(location.pathname, { replace: true, state: {} })
-    } else if (location.state?.openAddOrder) {
-      openAddOrder()
+    } else if (location.state?.openAddOrder || location.state?.openAgriSalesOrder) {
+      if (isAgriWorkspace) {
+        openRamAgriInputOrderModal()
+      } else {
+        openAddOrder()
+      }
       navigate(location.pathname, { replace: true, state: {} })
     }
   }, []) // run once on mount for MIS → Book handoff
+
+  useEffect(() => {
+    if (!location.state?.openAgriSalesOrder) return undefined
+    setMainTab(TAB_BOOKING)
+    sessionStorage.setItem(DASHBOARD_TAB_KEY, "booking")
+    const id = window.requestAnimationFrame(() => {
+      openAgriSalesOrderRef.current?.()
+      navigate(location.pathname, { replace: true, state: {} })
+    })
+    return () => window.cancelAnimationFrame(id)
+  }, [location.state?.openAgriSalesOrder, location.pathname, navigate])
 
   useEffect(() => {
     const onCopyOrderEvent = () => {
@@ -105,6 +147,13 @@ function Dashboard() {
     window.addEventListener(COPY_ORDER_OPEN_EVENT, onCopyOrderEvent)
     return () => window.removeEventListener(COPY_ORDER_OPEN_EVENT, onCopyOrderEvent)
   }, [openAddOrder])
+
+  useEffect(() => {
+    if (isAgriWorkspace && mainTab !== TAB_BOOKING) {
+      setMainTab(TAB_BOOKING)
+      sessionStorage.setItem(DASHBOARD_TAB_KEY, "booking")
+    }
+  }, [isAgriWorkspace, mainTab])
 
   useEffect(() => {
     const handleKeyDown = (event) => {
@@ -121,12 +170,12 @@ function Dashboard() {
       if (event.code !== "KeyA") return
 
       event.preventDefault()
-      openAddOrder()
+      handleAddOrderClick()
     }
 
     window.addEventListener("keydown", handleKeyDown, true)
     return () => window.removeEventListener("keydown", handleKeyDown, true)
-  }, [openAddOrder])
+  }, [handleAddOrderClick])
 
   const headerActions = (
     <Box display="flex" gap={2} flexWrap="wrap">
@@ -165,7 +214,7 @@ function Dashboard() {
         variant="contained"
         color="primary"
         startIcon={<AddIcon />}
-        onClick={() => openAddOrder()}
+        onClick={handleAddOrderClick}
         className={classes.addButton}>
         Add Order
       </Button>
@@ -176,30 +225,39 @@ function Dashboard() {
     <Grid className={classes.padding14}>
       <Box display="flex" justifyContent="space-between" alignItems="flex-start" mb={2} flexWrap="wrap" gap={2}>
         <Box>
-          <h1 style={{ margin: 0 }}>Orders</h1>
-          <Tabs value={mainTab} onChange={handleMainTabChange} sx={{ mt: 1 }}>
-            <Tab label="Booking & Dispatch" sx={{ textTransform: "none", fontWeight: 600 }} />
-            <Tab label="Available Stock" sx={{ textTransform: "none", fontWeight: 600 }} />
-          </Tabs>
+          <h1 style={{ margin: 0 }}>{isAgriWorkspace ? "Ram Agri Input Orders" : "Orders"}</h1>
+          {!isAgriWorkspace ? (
+            <Tabs value={mainTab} onChange={handleMainTabChange} sx={{ mt: 1 }}>
+              <Tab label="Booking & Dispatch" sx={{ textTransform: "none", fontWeight: 600 }} />
+              <Tab label="Available Stock" sx={{ textTransform: "none", fontWeight: 600 }} />
+            </Tabs>
+          ) : null}
         </Box>
         {headerActions}
       </Box>
 
-      {mainTab === TAB_BOOKING ? <FarmerOrdersTable onCopyOrder={handleCopyOrderFromTable} /> : null}
+      {mainTab === TAB_BOOKING ? (
+        <FarmerOrdersTable
+          onCopyOrder={handleCopyOrderFromTable}
+          registerOpenAgriOrder={registerOpenAgriOrder}
+        />
+      ) : null}
       {mainTab === TAB_STOCK ? (
         <AvailableStockView variant="dashboard" onBookSlot={handleBookFromStock} showBookAction />
       ) : null}
 
-      <AddOrderForm
-        open={isAddOrderOpen}
-        onClose={handleCloseAddOrder}
-        onSuccess={handleAddOrderSuccess}
-        initialPlantId={orderPrefill?.initialPlantId}
-        initialSubtypeId={orderPrefill?.initialSubtypeId}
-        initialSlotId={orderPrefill?.initialSlotId}
-        initialStartDay={orderPrefill?.initialStartDay}
-        copyFromOrder={copyOrderPrefill}
-      />
+      {!isAgriWorkspace ? (
+        <AddOrderForm
+          open={isAddOrderOpen}
+          onClose={handleCloseAddOrder}
+          onSuccess={handleAddOrderSuccess}
+          initialPlantId={orderPrefill?.initialPlantId}
+          initialSubtypeId={orderPrefill?.initialSubtypeId}
+          initialSlotId={orderPrefill?.initialSlotId}
+          initialStartDay={orderPrefill?.initialStartDay}
+          copyFromOrder={copyOrderPrefill}
+        />
+      ) : null}
 
       <FarmerPhoneCorrectionModal
         open={isFarmerPhoneModalOpen}

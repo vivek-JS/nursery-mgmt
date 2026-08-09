@@ -2,7 +2,6 @@ import React, { useState } from "react";
 import {
   Box,
   Button,
-  Paper,
   Table,
   TableBody,
   TableCell,
@@ -12,29 +11,26 @@ import {
   Typography,
   Chip,
   Stack,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
   TextField,
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
 } from "@mui/material";
-import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import AddIcon from "@mui/icons-material/Add";
 import CheckIcon from "@mui/icons-material/Check";
 import CloseIcon from "@mui/icons-material/Close";
+import GrassIcon from "@mui/icons-material/Grass";
 import { Toast } from "helpers/toasts/toastHelper";
 import PrimaryInwardDialog from "../../dialogs/PrimaryInwardDialog";
 import PrimaryOutwardDialog from "../../dialogs/PrimaryOutwardDialog";
 import PrimaryToSecondaryDialog from "../../dialogs/PrimaryToSecondaryDialog";
+import PipelineSectionCard from "../PipelineSectionCard";
+import PipelineEmptyState from "../PipelineEmptyState";
+import PipelineFormDialog from "../PipelineFormDialog";
 import {
   reviewLabLine,
   patchPrimaryReadinessBypass,
   apiErrText,
 } from "../../utils/pipelineApi";
 import { formatPipelineDate } from "../../utils/pipelineLabels";
+import { STAGES, tableHeadSx, tableRowSx, contentPaperSx } from "../../utils/pipelineTheme";
 
 function LabAcceptanceBlock({ batchId, lines, onRefresh }) {
   const [rejectOpen, setRejectOpen] = useState(false);
@@ -74,17 +70,17 @@ function LabAcceptanceBlock({ batchId, lines, onRefresh }) {
 
   if (!pending.length) {
     return (
-      <Typography variant="body2" color="text.secondary">
-        No pending lab lines for acceptance.
+      <Typography variant="body2" color="text.secondary" sx={{ py: 1 }}>
+        All lab lines reviewed — nothing pending acceptance.
       </Typography>
     );
   }
 
   return (
     <>
-      <TableContainer>
+      <TableContainer sx={contentPaperSx}>
         <Table size="small">
-          <TableHead>
+          <TableHead sx={tableHeadSx}>
             <TableRow>
               <TableCell>Outward</TableCell>
               <TableCell>Size</TableCell>
@@ -94,7 +90,7 @@ function LabAcceptanceBlock({ batchId, lines, onRefresh }) {
           </TableHead>
           <TableBody>
             {pending.map((row) => (
-              <TableRow key={String(row._id)}>
+              <TableRow key={String(row._id)} sx={tableRowSx}>
                 <TableCell>{formatPipelineDate(row.outwardDate)}</TableCell>
                 <TableCell>{row.size}</TableCell>
                 <TableCell align="right">{row.plants}</TableCell>
@@ -102,14 +98,17 @@ function LabAcceptanceBlock({ batchId, lines, onRefresh }) {
                   <Stack direction="row" spacing={1} justifyContent="flex-end">
                     <Button
                       size="small"
+                      variant="contained"
                       color="success"
                       startIcon={<CheckIcon />}
                       onClick={() => handleAccept(String(row._id))}
+                      sx={{ borderRadius: 2, textTransform: "none" }}
                     >
                       Accept
                     </Button>
                     <Button
                       size="small"
+                      variant="outlined"
                       color="error"
                       startIcon={<CloseIcon />}
                       onClick={() => {
@@ -127,26 +126,29 @@ function LabAcceptanceBlock({ batchId, lines, onRefresh }) {
         </Table>
       </TableContainer>
 
-      <Dialog open={rejectOpen} onClose={() => setRejectOpen(false)} maxWidth="xs" fullWidth>
-        <DialogTitle>Reject lab line</DialogTitle>
-        <DialogContent>
-          <TextField
-            fullWidth
-            multiline
-            minRows={2}
-            label="Reason"
-            value={rejectReason}
-            onChange={(e) => setRejectReason(e.target.value)}
-            sx={{ mt: 1 }}
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setRejectOpen(false)}>Cancel</Button>
-          <Button color="error" variant="contained" onClick={submitReject}>
-            Reject
-          </Button>
-        </DialogActions>
-      </Dialog>
+      <PipelineFormDialog
+        open={rejectOpen}
+        onClose={() => setRejectOpen(false)}
+        title="Reject lab line"
+        subtitle="Primary shed will not receive this line"
+        stageColor="#dc2626"
+        onSubmit={(e) => {
+          e.preventDefault();
+          submitReject();
+        }}
+        submitLabel="Reject line"
+      >
+        <TextField
+          fullWidth
+          multiline
+          minRows={3}
+          label="Rejection reason"
+          value={rejectReason}
+          onChange={(e) => setRejectReason(e.target.value)}
+          required
+          sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
+        />
+      </PipelineFormDialog>
     </>
   );
 }
@@ -173,9 +175,9 @@ function InwardTable({ rows, batchId, onRefresh }) {
 
   return (
     <>
-      <TableContainer>
+      <TableContainer sx={contentPaperSx}>
         <Table size="small">
-          <TableHead>
+          <TableHead sx={tableHeadSx}>
             <TableRow>
               <TableCell>Date</TableCell>
               <TableCell>Size</TableCell>
@@ -194,7 +196,7 @@ function InwardTable({ rows, batchId, onRefresh }) {
               </TableRow>
             ) : (
               rows.map((row) => (
-                <TableRow key={String(row._id)}>
+                <TableRow key={String(row._id)} sx={tableRowSx}>
                   <TableCell>{formatPipelineDate(row.primaryInwardDate)}</TableCell>
                   <TableCell>{row.size}</TableCell>
                   <TableCell align="right">{row.totalQuantity ?? row.numberOfTrays}</TableCell>
@@ -204,12 +206,14 @@ function InwardTable({ rows, batchId, onRefresh }) {
                     {!row.readinessBypassAt && (
                       <Button
                         size="small"
+                        variant="outlined"
                         onClick={() => {
                           setBypassId(String(row._id));
                           setBypassOpen(true);
                         }}
+                        sx={{ borderRadius: 2, textTransform: "none" }}
                       >
-                        Bypass ready
+                        Mark ready
                       </Button>
                     )}
                     {row.readinessBypassAt && (
@@ -223,26 +227,29 @@ function InwardTable({ rows, batchId, onRefresh }) {
         </Table>
       </TableContainer>
 
-      <Dialog open={bypassOpen} onClose={() => setBypassOpen(false)} maxWidth="xs" fullWidth>
-        <DialogTitle>Primary readiness bypass</DialogTitle>
-        <DialogContent>
-          <TextField
-            fullWidth
-            multiline
-            minRows={2}
-            label="Reason"
-            value={bypassReason}
-            onChange={(e) => setBypassReason(e.target.value)}
-            sx={{ mt: 1 }}
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setBypassOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={submitBypass}>
-            Apply
-          </Button>
-        </DialogActions>
-      </Dialog>
+      <PipelineFormDialog
+        open={bypassOpen}
+        onClose={() => setBypassOpen(false)}
+        title="Primary readiness override"
+        subtitle="Skip waiting period — requires a reason"
+        stageColor={STAGES.primary.color}
+        onSubmit={(e) => {
+          e.preventDefault();
+          submitBypass();
+        }}
+        submitLabel="Apply override"
+      >
+        <TextField
+          fullWidth
+          multiline
+          minRows={3}
+          label="Reason"
+          value={bypassReason}
+          onChange={(e) => setBypassReason(e.target.value)}
+          required
+          sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
+        />
+      </PipelineFormDialog>
     </>
   );
 }
@@ -260,132 +267,103 @@ export default function PrimarySection({
 
   if (!batchId) {
     return (
-      <Paper sx={{ p: 3 }}>
-        <Typography color="text.secondary">Select a batch for primary operations.</Typography>
-      </Paper>
+      <PipelineEmptyState
+        icon={GrassIcon}
+        title="Primary shed"
+        description="Select a batch to accept lab lines and record primary inward/outward."
+        stageColor={STAGES.primary.color}
+      />
     );
   }
 
   const labLines = batchDoc?.outward ?? [];
   const primaryInward = batchDoc?.primaryInward ?? [];
   const primaryOutward = batchDoc?.primaryOutward ?? [];
+  const pendingLab = labLines.filter((l) => (l.primaryReviewStatus ?? "pending") === "pending").length;
 
   return (
     <Box>
-      <Accordion defaultExpanded>
-        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-          <Typography fontWeight={600}>Lab acceptance</Typography>
-        </AccordionSummary>
-        <AccordionDetails>
-          <LabAcceptanceBlock batchId={batchId} lines={labLines} onRefresh={onRefresh} />
-        </AccordionDetails>
-      </Accordion>
+      <PipelineSectionCard
+        stage={STAGES.lab}
+        title="Lab acceptance"
+        subtitle="Review lines before primary can record inward"
+        count={pendingLab}
+      >
+        <LabAcceptanceBlock batchId={batchId} lines={labLines} onRefresh={onRefresh} />
+      </PipelineSectionCard>
 
-      <Accordion defaultExpanded sx={{ mt: 1 }}>
-        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-          <Stack direction="row" alignItems="center" spacing={2} sx={{ width: "100%", pr: 2 }}>
-            <Typography fontWeight={600}>Primary inward</Typography>
-            <Box flex={1} />
-            <Button
-              size="small"
-              variant="contained"
-              startIcon={<AddIcon />}
-              onClick={(e) => {
-                e.stopPropagation();
-                setInwardOpen(true);
-              }}
-            >
-              Add inward
-            </Button>
-          </Stack>
-        </AccordionSummary>
-        <AccordionDetails>
-          <InwardTable rows={primaryInward} batchId={batchId} onRefresh={onRefresh} />
-        </AccordionDetails>
-      </Accordion>
+      <PipelineSectionCard
+        stage={STAGES.primary}
+        title="Primary inward"
+        subtitle="Sowing in primary polyhouse — use FIFO preview before save"
+        count={primaryInward.length}
+        actionLabel="Add inward"
+        actionIcon={AddIcon}
+        onAction={() => setInwardOpen(true)}
+      >
+        <InwardTable rows={primaryInward} batchId={batchId} onRefresh={onRefresh} />
+      </PipelineSectionCard>
 
-      <Accordion defaultExpanded sx={{ mt: 1 }}>
-        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-          <Stack direction="row" alignItems="center" spacing={2} sx={{ width: "100%", pr: 2 }}>
-            <Typography fontWeight={600}>Primary outward</Typography>
-            <Box flex={1} />
-            <Button
-              size="small"
-              variant="contained"
-              startIcon={<AddIcon />}
-              onClick={(e) => {
-                e.stopPropagation();
-                setOutwardOpen(true);
-              }}
-            >
-              Add outward
-            </Button>
-          </Stack>
-        </AccordionSummary>
-        <AccordionDetails>
-          <TableContainer>
-            <Table size="small">
-              <TableHead>
+      <PipelineSectionCard
+        stage={STAGES.primary}
+        title="Primary outward"
+        subtitle="Plants ready to move to outward stock"
+        count={primaryOutward.length}
+        actionLabel="Add outward"
+        actionIcon={AddIcon}
+        onAction={() => setOutwardOpen(true)}
+      >
+        <TableContainer sx={contentPaperSx}>
+          <Table size="small">
+            <TableHead sx={tableHeadSx}>
+              <TableRow>
+                <TableCell>Date</TableCell>
+                <TableCell align="right">Plants</TableCell>
+                <TableCell>Quality</TableCell>
+                <TableCell>Secondary ack</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {primaryOutward.length === 0 ? (
                 <TableRow>
-                  <TableCell>Date</TableCell>
-                  <TableCell align="right">Plants</TableCell>
-                  <TableCell>Quality</TableCell>
-                  <TableCell>Ack secondary</TableCell>
+                  <TableCell colSpan={4} align="center" sx={{ py: 3, color: "text.secondary" }}>
+                    No primary outward records yet.
+                  </TableCell>
                 </TableRow>
-              </TableHead>
-              <TableBody>
-                {primaryOutward.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={4} align="center">
-                      No primary outward records.
+              ) : (
+                primaryOutward.map((row) => (
+                  <TableRow key={String(row._id)} sx={tableRowSx}>
+                    <TableCell>{formatPipelineDate(row.primaryOutwardDate)}</TableCell>
+                    <TableCell align="right">{row.totalQuantity ?? "—"}</TableCell>
+                    <TableCell>{row.qualityOfDispatch ?? "—"}</TableCell>
+                    <TableCell>
+                      {row.secondaryAcknowledgedAt ? (
+                        <Chip size="small" color="success" label="Acknowledged" />
+                      ) : (
+                        <Chip size="small" variant="outlined" label="Pending" />
+                      )}
                     </TableCell>
                   </TableRow>
-                ) : (
-                  primaryOutward.map((row) => (
-                    <TableRow key={String(row._id)}>
-                      <TableCell>{formatPipelineDate(row.primaryOutwardDate)}</TableCell>
-                      <TableCell align="right">{row.totalQuantity ?? "—"}</TableCell>
-                      <TableCell>{row.qualityOfDispatch ?? "—"}</TableCell>
-                      <TableCell>
-                        {row.secondaryAcknowledgedAt ? (
-                          <Chip size="small" color="success" label="Acknowledged" />
-                        ) : (
-                          <Chip size="small" label="Pending" />
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </TableContainer>
-        </AccordionDetails>
-      </Accordion>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </PipelineSectionCard>
 
-      <Accordion sx={{ mt: 1 }}>
-        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-          <Stack direction="row" alignItems="center" spacing={2} sx={{ width: "100%", pr: 2 }}>
-            <Typography fontWeight={600}>Send to secondary</Typography>
-            <Box flex={1} />
-            <Button
-              size="small"
-              variant="outlined"
-              startIcon={<AddIcon />}
-              onClick={(e) => {
-                e.stopPropagation();
-                setTransferOpen(true);
-              }}
-            >
-              Transfer
-            </Button>
-          </Stack>
-        </AccordionSummary>
-        <AccordionDetails>
-          <Typography variant="body2" color="text.secondary">
-            Record transfer of primary outward stock to secondary shed inward.
-          </Typography>
-        </AccordionDetails>
-      </Accordion>
+      <PipelineSectionCard
+        stage={STAGES.secondary}
+        title="Send to secondary"
+        subtitle="Transfer primary outward stock to secondary shed"
+        defaultOpen={false}
+        actionLabel="Transfer"
+        actionIcon={AddIcon}
+        onAction={() => setTransferOpen(true)}
+      >
+        <Typography variant="body2" color="text.secondary">
+          Pick a primary outward line, trays, and polyhouse — creates secondary inward on save.
+        </Typography>
+      </PipelineSectionCard>
 
       <PrimaryInwardDialog
         open={inwardOpen}

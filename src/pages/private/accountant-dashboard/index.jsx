@@ -5,7 +5,14 @@ import { Shield } from "@mui/icons-material"
 import { API, NetworkManager } from "network/core"
 import { Toast } from "helpers/toasts/toastHelper"
 import { PageLoader } from "components"
-import { useHasPaymentsAccess, useHasPaymentAccess, useUserData } from "utils/roleUtils"
+import {
+  useHasPaymentsAccess,
+  useHasPaymentAccess,
+  useHasAgriPaymentCollectAccess,
+  useUserData,
+} from "utils/roleUtils"
+import { useWorkspace } from "workspace/WorkspaceContext"
+import { forceRamAgriAccountingOrg } from "workspace/agriAccess"
 import { DashboardHeader } from "features/accountant-dashboard/DashboardHeader"
 import { KpiCards } from "features/accountant-dashboard/KpiCards"
 import { UnifiedPaymentsTable } from "features/accountant-dashboard/UnifiedPaymentsTable"
@@ -56,11 +63,20 @@ function getTotalPagesFromPagination(pagination, fallbackPage) {
 
 const AccountantDashboard = () => {
   const hasPaymentsAccess = useHasPaymentsAccess()
-  const hasPaymentAccess = useHasPaymentAccess()
+  const hasPaymentAccessPlant = useHasPaymentAccess()
+  const hasAgriPaymentCollectAccess = useHasAgriPaymentCollectAccess()
   const userData = useUserData()
+  const { isAgriMode } = useWorkspace()
+  const agriOnly = forceRamAgriAccountingOrg(userData, isAgriMode)
 
-  const [selectedOrg, setSelectedOrg] = useState(/** @type {"ram-biotech"|"ram-agri"} */ ("ram-biotech"))
+  const [selectedOrg, setSelectedOrg] = useState(/** @type {"ram-biotech"|"ram-agri"} */ (
+    agriOnly ? "ram-agri" : "ram-biotech"
+  ))
   const [activeTab, setActiveTab] = useState("payments")
+
+  /** Collect: plant = accountant/super; agri = Master + accountant/super */
+  const hasPaymentAccess =
+    selectedOrg === "ram-agri" ? hasAgriPaymentCollectAccess : hasPaymentAccessPlant
   const [searchTerm, setSearchTerm] = useState("")
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("")
   const [selectedDateRange, setSelectedDateRange] = useState(() => {
@@ -76,12 +92,28 @@ const AccountantDashboard = () => {
   const [loading, setLoading] = useState(false)
   const [loadingMorePayments, setLoadingMorePayments] = useState(false)
   const [page, setPage] = useState(1)
+  const [typeFilter, setTypeFilter] = useState("ALL")
+  const [paymentsTotals, setPaymentsTotals] = useState({
+    orderTotal: 0,
+    bulkTotal: 0,
+    collectedSum: 0,
+    pendingCount: 0,
+    collectedCount: 0,
+    rejectedCount: 0,
+    fromServer: false
+  })
+
+  useEffect(() => {
+    if (agriOnly && selectedOrg !== "ram-agri") {
+      setSelectedOrg("ram-agri")
+      setPage(1)
+    }
+  }, [agriOnly, selectedOrg])
   const [hasMorePayments, setHasMorePayments] = useState(false)
   const [statusFilter, setStatusFilter] = useState("ALL")
   /** advances tab: pending_advance | all_advance | PENDING | COLLECTED | REJECTED | ALL */
   const [advanceViewFilter, setAdvanceViewFilter] = useState("pending_advance")
   const [pendingAdvanceCount, setPendingAdvanceCount] = useState(0)
-  const loadMoreRef = useRef(null)
   const prevPaymentsFilterKeyRef = useRef("")
   const prevAdvancesFilterKeyRef = useRef("")
 
@@ -127,8 +159,6 @@ const AccountantDashboard = () => {
           debouncedSearchTerm: "",
           page: 1,
           rowsPerPage: 1,
-          startDate,
-          endDate,
           pendingAdvanceOnly: true
         })
         if (!cancelled) {
@@ -141,7 +171,7 @@ const AccountantDashboard = () => {
     return () => {
       cancelled = true
     }
-  }, [hasPaymentsAccess, startDate, endDate])
+  }, [hasPaymentsAccess])
 
   const loadPaymentsPage = useCallback(async ({ targetPage, append, advancesMode = false }) => {
     const orderStatusFilter = advancesMode
@@ -152,17 +182,18 @@ const AccountantDashboard = () => {
         ? undefined
         : statusFilter
     const bulkStatusFilter = statusFilter === "ALL" ? "" : BULK_STATUS_BY_UI_FILTER[statusFilter] || ""
+    const wantOrder = advancesMode || typeFilter === "ALL" || typeFilter === "ORDER"
+    const wantBulk = !advancesMode && (typeFilter === "ALL" || typeFilter === "BULK")
 
     try {
       let nextOrderRows = []
       let orderPagination = null
-      if (selectedOrg === "ram-biotech") {
+      let orderSummary = null
+      if (wantOrder && selectedOrg === "ram-biotech") {
         const farmerParams = {
           debouncedSearchTerm,
           page: targetPage,
           rowsPerPage: ROWS,
-          startDate,
-          endDate,
           allStatuses: advancesMode
             ? advanceViewFilter === "all_advance" || advanceViewFilter === "ALL"
             : statusFilter === "ALL",
@@ -178,16 +209,15 @@ const AccountantDashboard = () => {
             }
           }
         }
-        const { rows, pagination } = await fetchFarmerOrderPayments(farmerParams)
+        const { rows, pagination, summary } = await fetchFarmerOrderPayments(farmerParams)
         nextOrderRows = rows
         orderPagination = pagination
-      } else if (!advancesMode) {
+        orderSummary = summary
+      } else if (wantOrder && !advancesMode && selectedOrg !== "ram-biotech") {
         const { rows, pagination } = await fetchAgriOrderPayments({
           debouncedSearchTerm,
           page: targetPage,
           rowsPerPage: ROWS,
-          startDate,
-          endDate,
           paymentStatusFilter: orderStatusFilter || ""
         })
         nextOrderRows = rows
@@ -196,13 +226,11 @@ const AccountantDashboard = () => {
 
       let nextBulkRows = []
       let bulkPagination = null
-      if (!advancesMode) {
+      if (wantBulk) {
         const bulkResult = await fetchBulkPaymentsList({
           bulkPage: targetPage,
           rowsPerPage: ROWS,
           bulkStatusFilter,
-          startDate,
-          endDate,
           debouncedSearchTerm
         })
         nextBulkRows = bulkResult.rows
@@ -210,11 +238,33 @@ const AccountantDashboard = () => {
       }
 
       setOrderPayments((prev) => (append ? [...prev, ...nextOrderRows] : nextOrderRows))
-      setBulkPayments((prev) => (append && !advancesMode ? [...prev, ...nextBulkRows] : advancesMode ? [] : nextBulkRows))
+      setBulkPayments((prev) => (append && wantBulk ? [...prev, ...nextBulkRows] : wantBulk ? nextBulkRows : []))
 
-      const orderTotalPages = getTotalPagesFromPagination(orderPagination, targetPage)
-      const bulkTotalPages = getTotalPagesFromPagination(bulkPagination, targetPage)
+      const orderTotalPages = wantOrder ? getTotalPagesFromPagination(orderPagination, targetPage) : 0
+      const bulkTotalPages = wantBulk ? getTotalPagesFromPagination(bulkPagination, targetPage) : 0
       setHasMorePayments(targetPage < Math.max(orderTotalPages, bulkTotalPages))
+
+      if (!append || targetPage === 1) {
+        const orderTotal = wantOrder ? Number(orderPagination?.total) || 0 : 0
+        const bulkTotal = wantBulk ? Number(bulkPagination?.total) || 0 : 0
+        setPaymentsTotals({
+          orderTotal,
+          bulkTotal,
+          collectedSum:
+            (Number(orderSummary?.paidAmountSum) || 0) +
+            (Number(bulkPagination?.totalAmountSum) || 0),
+          pendingCount:
+            (Number(orderSummary?.pendingCount) || 0) +
+            (Number(bulkPagination?.pendingCount) || 0),
+          collectedCount:
+            (Number(orderSummary?.collectedCount) || 0) +
+            (Number(bulkPagination?.collectedCount) || 0),
+          rejectedCount:
+            (Number(orderSummary?.rejectedCount) || 0) +
+            (Number(bulkPagination?.rejectedCount) || 0),
+          fromServer: Boolean(orderPagination || bulkPagination || advancesMode)
+        })
+      }
 
       if (advancesMode && targetPage === 1 && advanceViewFilter === "pending_advance") {
         setPendingAdvanceCount(
@@ -229,10 +279,19 @@ const AccountantDashboard = () => {
       if (!append) {
         setOrderPayments([])
         setBulkPayments([])
+        setPaymentsTotals({
+          orderTotal: 0,
+          bulkTotal: 0,
+          collectedSum: 0,
+          pendingCount: 0,
+          collectedCount: 0,
+          rejectedCount: 0,
+          fromServer: false
+        })
       }
       setHasMorePayments(false)
     }
-  }, [selectedOrg, debouncedSearchTerm, startDate, endDate, statusFilter, advanceViewFilter])
+  }, [selectedOrg, debouncedSearchTerm, statusFilter, advanceViewFilter, typeFilter])
 
   useEffect(() => {
     if (activeTab !== "payments") return
@@ -240,9 +299,8 @@ const AccountantDashboard = () => {
     const paymentsFilterKey = JSON.stringify({
       selectedOrg,
       debouncedSearchTerm,
-      startDate: startDate ? moment(startDate).format("YYYY-MM-DD") : null,
-      endDate: endDate ? moment(endDate).format("YYYY-MM-DD") : null,
-      statusFilter
+      statusFilter,
+      typeFilter
     })
 
     if (prevPaymentsFilterKeyRef.current !== paymentsFilterKey) {
@@ -270,7 +328,7 @@ const AccountantDashboard = () => {
     return () => {
       mounted = false
     }
-  }, [activeTab, page, loadPaymentsPage, selectedOrg, debouncedSearchTerm, startDate, endDate, statusFilter])
+  }, [activeTab, page, loadPaymentsPage, selectedOrg, debouncedSearchTerm, statusFilter, typeFilter])
 
   useEffect(() => {
     if (activeTab !== "advances") return
@@ -278,8 +336,6 @@ const AccountantDashboard = () => {
     const advancesFilterKey = JSON.stringify({
       selectedOrg,
       debouncedSearchTerm,
-      startDate: startDate ? moment(startDate).format("YYYY-MM-DD") : null,
-      endDate: endDate ? moment(endDate).format("YYYY-MM-DD") : null,
       advanceViewFilter
     })
 
@@ -308,7 +364,7 @@ const AccountantDashboard = () => {
     return () => {
       mounted = false
     }
-  }, [activeTab, page, loadPaymentsPage, selectedOrg, debouncedSearchTerm, startDate, endDate, advanceViewFilter])
+  }, [activeTab, page, loadPaymentsPage, selectedOrg, debouncedSearchTerm, advanceViewFilter])
 
   const refreshPayments = useCallback(async () => {
     if (activeTab !== "payments" && activeTab !== "advances") return
@@ -325,24 +381,6 @@ const AccountantDashboard = () => {
     })
     setLoading(false)
   }, [activeTab, loadPaymentsPage, page])
-
-  useEffect(() => {
-    if (activeTab !== "payments" && activeTab !== "advances") return undefined
-    const target = loadMoreRef.current
-    if (!target) return undefined
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const [entry] = entries
-        if (!entry?.isIntersecting) return
-        if (loading || loadingMorePayments || !hasMorePayments) return
-        setPage((prev) => prev + 1)
-      },
-      { root: null, rootMargin: "220px 0px", threshold: 0 }
-    )
-    observer.observe(target)
-    return () => observer.disconnect()
-  }, [activeTab, loading, loadingMorePayments, hasMorePayments])
 
   const fetchUncleared = async () => {
     setLoadingUncleared(true)
@@ -691,8 +729,34 @@ const AccountantDashboard = () => {
   }
 
   const pendingCount =
-    orderPayments.filter((p) => p.orderPaymentStatus === "PENDING").length +
-    bulkPayments.filter((b) => b.paymentStatus === "PENDING").length
+    paymentsTotals.fromServer && activeTab === "payments"
+      ? paymentsTotals.pendingCount
+      : orderPayments.filter((p) => p.orderPaymentStatus === "PENDING").length +
+        bulkPayments.filter((b) => b.paymentStatus === "PENDING").length
+
+  const paymentsTotalCount =
+    typeFilter === "ORDER"
+      ? paymentsTotals.orderTotal
+      : typeFilter === "BULK"
+        ? paymentsTotals.bulkTotal
+        : paymentsTotals.orderTotal + paymentsTotals.bulkTotal
+
+  const kpiTotals =
+    paymentsTotals.fromServer
+      ? {
+          fromServer: true,
+          totalEntries: paymentsTotals.orderTotal + paymentsTotals.bulkTotal,
+          collectedSum: paymentsTotals.collectedSum,
+          pendingCount: paymentsTotals.pendingCount,
+          collectedCount: paymentsTotals.collectedCount,
+          rejectedCount: paymentsTotals.rejectedCount
+        }
+      : undefined
+
+  const handleLoadMorePayments = useCallback(() => {
+    if (loading || loadingMorePayments || !hasMorePayments) return
+    setPage((prev) => prev + 1)
+  }, [loading, loadingMorePayments, hasMorePayments])
 
   const initials =
     (userData?.name || userData?.firstName || "AC")
@@ -712,7 +776,8 @@ const AccountantDashboard = () => {
               Access Denied
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              This feature is only available to Accountant and Super Admin users.
+              This feature is only available to Accountant, Super Admin, and Ram
+              Agri Input Master (Ram Agri only).
             </Typography>
           </CardContent>
         </Card>
@@ -733,6 +798,7 @@ const AccountantDashboard = () => {
       <DashboardHeader
         selectedOrg={selectedOrg}
         onOrgChange={(id) => {
+          if (agriOnly && id !== "ram-agri") return
           setSelectedOrg(id)
           setPage(1)
         }}
@@ -743,36 +809,13 @@ const AccountantDashboard = () => {
         searchValue={searchTerm}
         onSearchChange={setSearchTerm}
         userInitials={initials}
+        agriOnly={agriOnly}
       />
 
       <main className="px-5 py-4 space-y-4 max-w-[1600px] mx-auto w-full min-w-0 box-border">
         {activeTab === "payments" && (
           <>
             <div className="flex flex-wrap gap-3 items-end mb-2">
-              <label className="text-[11px] font-semibold text-muted-foreground">
-                Start
-                <input
-                  type="date"
-                  className="erp-input block mt-1 text-xs"
-                  value={startDate ? moment(startDate).format("YYYY-MM-DD") : ""}
-                  onChange={(e) => {
-                    const d = e.target.value ? new Date(e.target.value) : null
-                    if (d) setSelectedDateRange([d, endDate])
-                  }}
-                />
-              </label>
-              <label className="text-[11px] font-semibold text-muted-foreground">
-                End
-                <input
-                  type="date"
-                  className="erp-input block mt-1 text-xs"
-                  value={endDate ? moment(endDate).format("YYYY-MM-DD") : ""}
-                  onChange={(e) => {
-                    const d = e.target.value ? new Date(e.target.value) : null
-                    if (d) setSelectedDateRange([startDate, d])
-                  }}
-                />
-              </label>
               <button
                 type="button"
                 className="btn-primary text-xs"
@@ -820,7 +863,7 @@ const AccountantDashboard = () => {
               )}
             </div>
 
-            <KpiCards orderPayments={orderPayments} bulkPayments={bulkPayments} />
+            <KpiCards orderPayments={orderPayments} bulkPayments={bulkPayments} totals={kpiTotals} />
 
             <UnifiedPaymentsTable
               orderPayments={orderPayments}
@@ -835,53 +878,34 @@ const AccountantDashboard = () => {
                 setStatusFilter(next)
                 setPage(1)
               }}
+              typeFilter={typeFilter}
+              onTypeFilterChange={(next) => {
+                setTypeFilter(next)
+                setPage(1)
+              }}
+              totalCount={paymentsTotalCount}
+              hasMore={hasMorePayments}
+              loadingMore={loadingMorePayments}
+              onLoadMore={handleLoadMorePayments}
+              onRefresh={refreshPayments}
+              refreshing={loading}
+              filterTotals={{
+                byType: {
+                  ALL: paymentsTotals.orderTotal + paymentsTotals.bulkTotal,
+                  ORDER: paymentsTotals.orderTotal,
+                  BULK: paymentsTotals.bulkTotal
+                }
+              }}
             />
 
-            <div className="flex justify-center py-2 text-xs text-muted-foreground">
-              {loadingMorePayments
-                ? "Loading more payments..."
-                : hasMorePayments
-                  ? "Scroll down to load more"
-                  : "All matching payments loaded"}
-            </div>
-            <div ref={loadMoreRef} className="h-1 w-full" />
-
-            <p className="text-[11px] text-muted-foreground text-center">Latest entries stay on top. Scrolling loads older pages automatically.</p>
+            <p className="text-[11px] text-muted-foreground text-center">
+              Scroll inside the table to load older pages. Totals come from the server.
+            </p>
           </>
         )}
 
         {activeTab === "advances" && (
           <>
-            <div className="flex flex-wrap gap-3 items-end mb-2">
-              <label className="text-[11px] font-semibold text-muted-foreground">
-                Start
-                <input
-                  type="date"
-                  className="erp-input block mt-1 text-xs"
-                  value={startDate ? moment(startDate).format("YYYY-MM-DD") : ""}
-                  onChange={(e) => {
-                    const d = e.target.value ? new Date(e.target.value) : null
-                    if (d) setSelectedDateRange([d, endDate])
-                  }}
-                />
-              </label>
-              <label className="text-[11px] font-semibold text-muted-foreground">
-                End
-                <input
-                  type="date"
-                  className="erp-input block mt-1 text-xs"
-                  value={endDate ? moment(endDate).format("YYYY-MM-DD") : ""}
-                  onChange={(e) => {
-                    const d = e.target.value ? new Date(e.target.value) : null
-                    if (d) setSelectedDateRange([startDate, d])
-                  }}
-                />
-              </label>
-              <button type="button" className="btn-primary text-xs" onClick={() => refreshPayments()}>
-                Refresh
-              </button>
-            </div>
-
             {selectedOrg !== "ram-biotech" ? (
               <div className="erp-card p-6 text-center text-sm text-muted-foreground">
                 Advances apply to farmer plant orders (Ram Biotech) only.
@@ -902,16 +926,13 @@ const AccountantDashboard = () => {
                     setAdvanceViewFilter(next)
                     setPage(1)
                   }}
+                  totalCount={paymentsTotals.orderTotal}
+                  hasMore={hasMorePayments}
+                  loadingMore={loadingMorePayments}
+                  onLoadMore={handleLoadMorePayments}
+                  onRefresh={refreshPayments}
+                  refreshing={loading}
                 />
-
-                <div className="flex justify-center py-2 text-xs text-muted-foreground">
-                  {loadingMorePayments
-                    ? "Loading more…"
-                    : hasMorePayments
-                      ? "Scroll down to load more"
-                      : "All matching advance payments loaded"}
-                </div>
-                <div ref={loadMoreRef} className="h-1 w-full" />
               </>
             )}
           </>
@@ -934,6 +955,8 @@ const AccountantDashboard = () => {
             selectedOrg={selectedOrg}
             startDate={startDate}
             endDate={endDate}
+            onStartDateChange={(d) => setSelectedDateRange([d, endDate])}
+            onEndDateChange={(d) => setSelectedDateRange([startDate, d])}
             canSync={hasPaymentAccess}
             onOpenPartyLedger={(partyId, partyType) => {
               const org =

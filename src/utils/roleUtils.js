@@ -29,8 +29,26 @@ export const useHasPaymentAccess = () => {
   const jobTitle = userData?.jobTitle
   const userRole = userData?.role
   // Prioritize jobTitle for all checks
+  // RAM_AGRI_MASTER intentionally excluded — plant-order collect stays accountant/super only
   const isAccountant = jobTitle === "ACCOUNTANT" || userRole === "ACCOUNTANT"
   const isSuperAdmin = jobTitle === "SUPER_ADMIN" || jobTitle === "SUPERADMIN" || userRole === "SUPER_ADMIN" || userRole === "SUPERADMIN"
+  return isAccountant || isSuperAdmin
+}
+
+/**
+ * Collect Ram Agri Input sales-order payments only (Master + accountant + super).
+ */
+export const useHasAgriPaymentCollectAccess = () => {
+  const userData = useUserData()
+  const jobTitle = String(userData?.jobTitle || "").toUpperCase()
+  const userRole = String(userData?.role || "").toUpperCase()
+  if (jobTitle === "RAM_AGRI_MASTER" || userRole === "RAM_AGRI_MASTER") return true
+  const isAccountant = jobTitle === "ACCOUNTANT" || userRole === "ACCOUNTANT"
+  const isSuperAdmin =
+    jobTitle === "SUPER_ADMIN" ||
+    jobTitle === "SUPERADMIN" ||
+    userRole === "SUPER_ADMIN" ||
+    userRole === "SUPERADMIN"
   return isAccountant || isSuperAdmin
 }
 
@@ -116,6 +134,27 @@ export const useIsSuperAdmin = () => {
   return jobTitle === "SUPER_ADMIN" || jobTitle === "SUPERADMIN" || userRole === "SUPER_ADMIN" || userRole === "SUPERADMIN"
 }
 
+const normalizeRole = (value) => String(value || "").toUpperCase().trim()
+
+/** Org-wide agri outstanding (by sales / villages / farmers). */
+export const AGRI_OUTSTANDING_LEADER_ROLES = [
+  "SUPER_ADMIN",
+  "SUPERADMIN",
+  "ADMIN",
+  "RAM_AGRI_MASTER",
+  "RAM_AGRI_SALES_MANAGER",
+  "RAM_AGRI_SALES_OFFICE_MANAGER",
+  "OFFICE_ADMIN",
+]
+
+/** Superadmin / Ram Agri Master (and managers) — full outstanding breakdown. */
+export const useCanViewAgriOutstandingBySales = () => {
+  const userData = useUserData()
+  const job = normalizeRole(userData?.jobTitle)
+  const role = normalizeRole(userData?.role)
+  return AGRI_OUTSTANDING_LEADER_ROLES.includes(job) || AGRI_OUTSTANDING_LEADER_ROLES.includes(role)
+}
+
 /**
  * Check if user is admin (includes SUPER_ADMIN)
  * Checks jobTitle first, then role
@@ -186,7 +225,9 @@ export const useHasPaymentsAccess = () => {
   // Prioritize jobTitle for all checks
   const isAccountant = jobTitle === "ACCOUNTANT" || userRole === "ACCOUNTANT"
   const isSuperAdmin = jobTitle === "SUPER_ADMIN" || jobTitle === "SUPERADMIN" || userRole === "SUPER_ADMIN" || userRole === "SUPERADMIN"
-  return isAccountant || isSuperAdmin
+  // Ram Agri Master: Accounting Dashboard (Ram Agri org only — enforced in page)
+  const isRamAgriMaster = jobTitle === "RAM_AGRI_MASTER" || userRole === "RAM_AGRI_MASTER"
+  return isAccountant || isSuperAdmin || isRamAgriMaster
 }
 
 /**

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react"
+import React, { useState, useEffect, useRef, useMemo } from "react"
 import {
   Dialog,
   DialogTitle,
@@ -10,11 +10,12 @@ import {
   useTheme,
   useMediaQuery
 } from "@mui/material"
-import { Leaf, Truck, Trash2, ChevronDown, ChevronUp } from "lucide-react"
+import { Leaf, Truck, ChevronDown, ChevronUp } from "lucide-react"
 import { ArrowLeft, X } from "lucide-react"
 
 import { NetworkManager, API } from "network/core"
 import { Toast } from "helpers/toasts/toastHelper"
+import { formatOrderFarmerDisplayName, normalizeOrderFor } from "utils/orderCustomerDisplay"
 import FleetAssignmentPanel from "components/fleet/FleetAssignmentPanel"
 import {
   emptyFleetAssignment,
@@ -26,6 +27,25 @@ import {
   getCavityLabelForDispatchOrder,
   orderRowHasTrayRef,
 } from "utils/cavityDisplay"
+import {
+  applyTrayToOrderDetails,
+  buildOrderCavityPatch,
+  getOrderCavityIdFromRow,
+  getTrayOptionLabel,
+  patchOrderInMap,
+  resolveTrayLabelById,
+} from "utils/dispatchOrderCavityUtils"
+import OrderCavitySelect from "./OrderCavitySelect"
+import { useIsDispatchManager } from "utils/roleUtils"
+import {
+  DISPATCH_MANAGER_EXTRA_QTY,
+  getMaxDispatchQty,
+  orderRemainingForDispatch,
+} from "utils/dispatchManagerExtra"
+import LinkedDispatchLoadsPanel from "../Dispatch/components/LinkedDispatchLoadsPanel"
+import OrderDispatchGiftLines from "../Dispatch/components/OrderDispatchGiftLines"
+import { useDispatchOrderGifts } from "../Dispatch/components/useDispatchOrderGifts"
+import { syncDispatchOrderGiftLines } from "utils/dispatchOrderGifts"
 
 const cavityKey = (v) => (v != null && v !== "" ? String(v) : "")
 
@@ -100,16 +120,6 @@ const formatOrderDateForCard = (value) => {
   return Number.isNaN(d.getTime()) ? "-" : d.toLocaleDateString("en-IN")
 }
 
-const orderFarmerDisplayName = (order) => {
-  const f = order?.farmer
-  if (f && typeof f === "object") {
-    if (f.name) return f.name
-    if (f.farmerName) return f.farmerName
-  }
-  if (typeof order?.farmerName === "string" && order.farmerName.trim()) return order.farmerName.trim()
-  return ""
-}
-
 const mapOrderToDispatchRow = (order) => {
   const quantity = Number(order?.numberOfPlants || order?.totalPlants || 0)
   const cavityIdStr = getCavityIdString(order?.cavity)
@@ -117,7 +127,7 @@ const mapOrderToDispatchRow = (order) => {
   const rate = Number(order?.rate || 0)
   return {
     order: order?.orderId,
-    farmerName: orderFarmerDisplayName(order) || (order?.dealerOrder ? "Dealer" : "Unknown"),
+    farmerName: formatOrderFarmerDisplayName(order) || (order?.dealerOrder ? "Dealer" : "Unknown"),
     plantType: `${order?.plantType?.name || "Unknown"} -> ${order?.plantSubtype?.name || "Unknown"}`,
     quantity,
     orderDate: order?.orderBookingDate ? formatOrderDateForCard(order.orderBookingDate) : "-",
@@ -146,6 +156,7 @@ const mapOrderToDispatchRow = (order) => {
         ) ||
         (hasTrayRef ? "Not specified" : "No tray on order"),
       farmer: order?.farmer || null,
+      orderFor: normalizeOrderFor(order?.orderFor) || null,
       dealerOrder: order?.dealerOrder,
     },
   }
@@ -211,6 +222,64 @@ const buildDisplayCrateLines = (qty, cavitySize, numberPerCrate) => {
     quantity: d.plantCount
   }))
 }
+
+const formatCratePreviewLine = (qty, cavitySize, numberPerCrate) => {
+  const lines = buildDisplayCrateLines(qty, cavitySize, numberPerCrate)
+  if (!lines.length) return "—"
+  return lines
+    .map((l) => `${l.numberOfCrates} crate(s) · ${Number(l.quantity).toLocaleString("en-IN")} plants`)
+    .join(" + ")
+}
+
+const QTY_STEP = 1000
+
+/** Office dispatch: crates from order cavity + dispatch qty — no shed/pickup UI. */
+const syncPlantsWithAutoTargets = (plants, qtyMap, cavities, getId) =>
+  (plants || []).map((plant) => {
+    const orders = plant.orders || []
+    const byCavity = new Map()
+    let plantQty = 0
+
+    for (const order of orders) {
+      const oid = String(order.details?.orderid || order.details?.orderId || "")
+      if (!oid) continue
+      const dispatchQty = Number(qtyMap.get(oid) || 0)
+      if (dispatchQty <= 0) continue
+      plantQty += dispatchQty
+      const cKey = getOrderCavityKey(order)
+      if (!cKey) continue
+      const tray = (cavities || []).find((t) => getId(t) === cKey)
+      if (!byCavity.has(cKey)) {
+        byCavity.set(cKey, {
+          cavity: cKey,
+          cavityName: tray?.name || order.details?.cavityName || "Cavity",
+          cavitySize: Number(tray?.cavity) || 0,
+          numberPerCrate: Number(tray?.numberPerCrate) || 0,
+          qty: 0,
+        })
+      }
+      byCavity.get(cKey).qty += dispatchQty
+    }
+
+    const cavityGroups = [...byCavity.values()].map((g) => ({
+      cavity: g.cavity,
+      cavityName: g.cavityName,
+      cavitySize: g.cavitySize,
+      numberPerCrate: g.numberPerCrate,
+      pickupDetails: [],
+      autoSelected: true,
+      crates: buildDisplayCrateLines(g.qty, g.cavitySize, g.numberPerCrate),
+    }))
+
+    return { ...plant, quantity: plantQty, cavityGroups }
+  })
+
+const totalCratesOnPlant = (plant) =>
+  (plant.cavityGroups || []).reduce(
+    (sum, g) =>
+      sum + (g.crates || []).reduce((s, c) => s + Number(c.numberOfCrates || 0), 0),
+    0,
+  )
 
 /** Build cavityGroups[] for view/edit from API plant row (pickups + crates), same shape as create flow. */
 const buildCavityGroupsFromPlantForView = (plant) => {
@@ -295,6 +364,7 @@ const DispatchForm = ({
 }) => {
   const theme = useTheme()
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"))
+  const isDispatchManager = useIsDispatchManager()
   const [formData, setFormData] = useState({
     name: "",
     driverName: "",
@@ -314,6 +384,11 @@ const DispatchForm = ({
   const [isEditing, setIsEditing] = useState(false)
   /** Snapshot of selected orders while editing in view mode (supports remove-from-dispatch). */
   const [editOrdersMap, setEditOrdersMap] = useState(null)
+  /** Local copy of selected orders in create mode (supports cavity PATCH). */
+  const [createOrdersMap, setCreateOrdersMap] = useState(null)
+  const [cavitySavingKey, setCavitySavingKey] = useState("")
+  /** Tray picks for add-order dialog when order has no cavity. */
+  const [addOrderCavityById, setAddOrderCavityById] = useState(() => new Map())
   const [eligibleAddOrders, setEligibleAddOrders] = useState([])
   const [addOrderDialogOpen, setAddOrderDialogOpen] = useState(false)
   const [addOrderLoading, setAddOrderLoading] = useState(false)
@@ -327,6 +402,7 @@ const DispatchForm = ({
   const [expectedNursery, setExpectedNursery] = useState("RB")
   // Track dispatch quantities per order (orderId -> quantity to dispatch)
   const [orderQuantities, setOrderQuantities] = useState(new Map())
+  const [orderShedLoadedMap, setOrderShedLoadedMap] = useState(new Map())
   const orderQuantitiesRef = useRef(new Map())
   const initialViewSnapshotRef = useRef(null)
   const getId = (obj) => String(obj?._id || obj?.id || "")
@@ -337,11 +413,29 @@ const DispatchForm = ({
     const id = getOrderId(order)
     return id != null && id !== "" ? String(id) : ""
   }
-  const getOrdersSourceMap = () =>
-    mode === "view" && isEditing && editOrdersMap != null ? editOrdersMap : selectedOrders
+  const getOrdersSourceMap = () => {
+    if (mode === "view" && isEditing && editOrdersMap != null) return editOrdersMap
+    if (mode !== "view") return createOrdersMap ?? selectedOrders
+    return selectedOrders
+  }
 
   const getSelectedOrdersArray = () =>
     Array.from(getOrdersSourceMap()?.values?.() || []).filter((order) => Boolean(orderRowKey(order)))
+
+  const dispatchOrderKeys = useMemo(
+    () => getSelectedOrdersArray().map((order) => orderRowKey(order)).filter(Boolean),
+    [open, mode, isEditing, editOrdersMap, createOrdersMap, selectedOrders]
+  )
+
+  const {
+    giftCatalog,
+    giftDraftsByOrder,
+    giftsLoading,
+    getLinesForOrder,
+    addGiftLine,
+    updateGiftLine,
+    removeGiftLine,
+  } = useDispatchOrderGifts({ open, orderKeys: dispatchOrderKeys })
 
   const applyDispatchDataToForm = (dispatchDoc) => {
     if (!dispatchDoc) return
@@ -386,12 +480,14 @@ const DispatchForm = ({
     })
 
     const qtyMap = new Map()
+    const shedMap = new Map()
     const details = Array.isArray(dispatchDoc.orderDispatchDetails)
       ? dispatchDoc.orderDispatchDetails
       : []
     details.forEach((row) => {
       if (row?.orderId != null) {
         qtyMap.set(String(row.orderId), Number(row.dispatchQuantity || 0))
+        shedMap.set(String(row.orderId), Number(row.shedLoadedQuantity) || 0)
       }
     })
     if (qtyMap.size === 0) {
@@ -403,6 +499,7 @@ const DispatchForm = ({
     }
     setOrderQuantities(qtyMap)
     orderQuantitiesRef.current = qtyMap
+    setOrderShedLoadedMap(shedMap)
 
     const oidRows = Array.isArray(dispatchDoc.orderIds) ? dispatchDoc.orderIds : []
     const exView = oidRows
@@ -486,6 +583,92 @@ const DispatchForm = ({
     })
   }
 
+  const setAddOrderTrayPick = (orderId, trayId) => {
+    setAddOrderCavityById((prev) => {
+      const next = new Map(prev)
+      if (!trayId) next.delete(orderId)
+      else next.set(orderId, trayId)
+      return next
+    })
+  }
+
+  const handleOrderCavityChange = async (order, rowKey, newTrayId) => {
+    if (!rowKey || !newTrayId) return
+    const origId = getOrderCavityIdFromRow(order)
+    if (String(newTrayId) === String(origId)) return
+
+    const newTray = cavities.find((c) => getId(c) === String(newTrayId))
+    if (!newTray) {
+      setError("Selected tray is invalid.")
+      return
+    }
+
+    const oldLabel =
+      getCavityLabelForDispatchOrder(order.details, cavities, getId) || "Not set"
+    const newLabel = getTrayOptionLabel(newTray)
+
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm(`Change tray from "${oldLabel}" to "${newLabel}"? This updates the order.`)
+    ) {
+      return
+    }
+
+    setCavitySavingKey(rowKey)
+    setError("")
+    try {
+      const instance = NetworkManager(API.ORDER.UPDATE_ORDER)
+      await instance.request(buildOrderCavityPatch(order, newTrayId))
+
+      const updatedOrder = {
+        ...order,
+        details: applyTrayToOrderDetails(order.details, newTray, getId),
+      }
+
+      const patchOrdersMap = (prev) => {
+        const base =
+          prev ??
+          (selectedOrders ? new Map(selectedOrders) : new Map())
+        return patchOrderInMap(base, rowKey, updatedOrder)
+      }
+
+      if (mode === "view" && isEditing) {
+        setEditOrdersMap(patchOrdersMap)
+      } else {
+        setCreateOrdersMap(patchOrdersMap)
+      }
+
+      setFormData((prev) => {
+        const updatedPlants = (prev.plants || []).map((p) => ({
+          ...p,
+          orders: (p.orders || []).map((o) =>
+            orderRowKey(o) === rowKey ? updatedOrder : o
+          ),
+        }))
+        return {
+          ...prev,
+          plants: syncPlantsWithAutoTargets(
+            updatedPlants,
+            orderQuantitiesRef.current,
+            cavities,
+            getId
+          ),
+        }
+      })
+
+      Toast.success("Tray updated on order.")
+    } catch (err) {
+      setError(
+        err?.response?.data?.message ||
+          err?.response?.data?.error ||
+          err?.message ||
+          "Failed to update order tray"
+      )
+    } finally {
+      setCavitySavingKey("")
+    }
+  }
+
   const handleConfirmAddOrders = async () => {
     if (!dispatchData?._id || selectedAddOrderIds.size === 0) return
     if (!addOrderShadeId) {
@@ -515,13 +698,31 @@ const DispatchForm = ({
         if (!orderId || !rowKey) continue
         if (nextMap.has(rowKey)) continue
 
-        const cavityId =
+        let cavityId =
           row?.details?.cavityId ||
           getCavityIdString(row?.details?.cavity) ||
-          getCavityIdString(order?.cavity)
+          getCavityIdString(order?.cavity) ||
+          addOrderCavityById.get(orderId) ||
+          ""
         if (!cavityId) {
           skippedNoCavity += 1
           continue
+        }
+
+        const hadCavityOnOrder = Boolean(
+          getCavityIdString(order?.cavity) ||
+            getCavityIdString(row?.details?.cavity)
+        )
+        if (!hadCavityOnOrder) {
+          const tray = cavities.find((c) => getId(c) === String(cavityId))
+          if (!tray) {
+            skippedNoCavity += 1
+            continue
+          }
+          await NetworkManager(API.ORDER.UPDATE_ORDER).request(
+            buildOrderCavityPatch(row, cavityId)
+          )
+          row.details = applyTrayToOrderDetails(row.details, tray, getId)
         }
 
         const dispatchQuantity = Number(row?.details?.remainingPlants ?? row?.quantity ?? 0)
@@ -545,6 +746,7 @@ const DispatchForm = ({
       setEditOrdersMap(nextMap)
       await refreshDispatchViewData()
       setSelectedAddOrderIds(new Set())
+      setAddOrderCavityById(new Map())
       setAddOrderSearch("")
       setAddOrderDialogOpen(false)
       if (addedCount > 0) {
@@ -552,7 +754,7 @@ const DispatchForm = ({
       }
       if (skippedNoCavity > 0) {
         setError(
-          `${skippedNoCavity} selected order${skippedNoCavity > 1 ? "s were" : " was"} skipped because tray/cavity is missing.`
+          `${skippedNoCavity} selected order${skippedNoCavity > 1 ? "s were" : " was"} skipped — select a tray for orders missing cavity.`
         )
       }
     } catch (err) {
@@ -658,7 +860,7 @@ const DispatchForm = ({
       const orderId = orderRowKey(order)
       const dispatchQty = orderQuantities.get(orderId) || 0
       const orderTotal = Number(order.quantity) || 0
-      const remainingQty = order.details?.remainingPlants ?? order.quantity ?? 0
+      const remainingQty = orderRemainingForDispatch(order)
 
       if (dispatchQty <= 0) {
         throw new Error(`Dispatch quantity for order #${order.order} must be greater than 0`)
@@ -670,79 +872,42 @@ const DispatchForm = ({
             `Dispatch quantity (${dispatchQty}) cannot exceed order quantity (${orderTotal}) for order #${order.order}`
           )
         }
-      } else if (dispatchQty > remainingQty) {
-        throw new Error(
-          `Dispatch quantity (${dispatchQty}) exceeds remaining quantity (${remainingQty}) for order #${order.order}`
-        )
+      } else {
+        const maxAllowed = getMaxDispatchQty(remainingQty, isDispatchManager, {
+          isEditMode: mode === "view" && isEditing,
+          currentDispatchQty: dispatchQty,
+        })
+        if (dispatchQty > maxAllowed) {
+          const zeroRemainingHint =
+            remainingQty <= 0
+              ? " — this order has 0 plants remaining (may already be fully dispatched)"
+              : ""
+          throw new Error(
+            `Dispatch quantity (${dispatchQty}) exceeds allowed quantity (${maxAllowed}) for order #${order.order}${zeroRemainingHint}${isDispatchManager ? ` (+${DISPATCH_MANAGER_EXTRA_QTY} dispatch manager allowance)` : ""}`
+          )
+        }
       }
     }
 
     if (!formData.plants?.length) {
-      throw new Error(
-        "Plant pickup layout is empty. Adjust cavity quantities or remove orders, then save."
-      )
+      throw new Error("No plants on this dispatch.")
+    }
+
+    for (const order of selectedOrdersArray) {
+      if (!getOrderCavityKey(order)) {
+        throw new Error(
+          `Order #${order.order} has no cavity/tray — set tray on the order first`,
+        )
+      }
     }
 
     formData.plants.forEach((plant) => {
-      if (!plant.cavityGroups || plant.cavityGroups.length === 0) {
-        throw new Error(`Please select at least one cavity for ${plant.name}`)
+      if (!plant.quantity || plant.quantity <= 0) {
+        throw new Error(`Plant quantity must be greater than 0 for ${plant.name}`)
       }
-
-      // Check if every cavity group has a cavity selected
-      const emptyCavity = plant.cavityGroups.find((group) => !group.cavity)
-      if (emptyCavity) {
-        throw new Error(`Please select a cavity for all cavity groups for ${plant.name}`)
-      }
-
-      // Check for valid pickup details in each cavity group
-      plant.cavityGroups.forEach((cavityGroup) => {
-        if (!cavityGroup.pickupDetails || cavityGroup.pickupDetails.length === 0) {
-          throw new Error(
-            `Please add pickup details for ${plant.name} (Cavity: ${cavityGroup.cavityName})`
-          )
-        }
-
-        // Check for empty shades
-        const emptyShade = cavityGroup.pickupDetails.find((detail) => !detail.shade)
-        if (emptyShade) {
-          throw new Error(
-            `Please select all shades for ${plant.name} (Cavity: ${cavityGroup.cavityName})`
-          )
-        }
-
-        // Check for valid quantities
-        const invalidQuantity = cavityGroup.pickupDetails.find(
-          (detail) => !detail.quantity || Number(detail.quantity) <= 0
-        )
-        if (invalidQuantity) {
-          throw new Error(
-            `All quantities must be greater than 0 for ${plant.name} (Cavity: ${cavityGroup.cavityName})`
-          )
-        }
-
-        // Check total pickup quantity for this cavity group
-        const pickupTotal = cavityGroup.pickupDetails?.reduce(
-          (sum, detail) => sum + Number(detail.quantity),
-          0
-        )
-
-        if (pickupTotal <= 0) {
-          throw new Error(
-            `Total pickup quantity must be greater than 0 for ${plant.name} (Cavity: ${cavityGroup.cavityName})`
-          )
-        }
-      })
-
-      // Check if total pickup quantity across all cavity groups matches required plant quantity
-      const totalPickup = plant.cavityGroups.reduce(
-        (sum, group) =>
-          sum + group.pickupDetails.reduce((subSum, detail) => subSum + Number(detail.quantity), 0),
-        0
-      )
-
-      if (totalPickup !== plant.quantity) {
+      if (!plant.cavityGroups?.length) {
         throw new Error(
-          `Total pickup quantity (${totalPickup}) doesn't match required quantity (${plant.quantity}) for ${plant.name}`
+          `Could not calculate crates for ${plant.name}. Check order cavity/tray.`,
         )
       }
     })
@@ -796,7 +961,7 @@ const DispatchForm = ({
       const orderId = getOrderId(order)
       const rowKey = orderRowKey(order)
       const dispatchQty = orderQuantities.get(rowKey) || 0
-      const remainingQty = order.details?.remainingPlants || order.quantity || 0
+      const remainingQty = orderRemainingForDispatch(order)
       const plantForOrder = plantsByOrder.get(rowKey)
       
       // Calculate crate details for this specific order based on its dispatch quantity
@@ -845,7 +1010,7 @@ const DispatchForm = ({
         if (!cavityGroup.cavity) return
 
         // Process pickup details for this cavity
-        cavityGroup.pickupDetails.forEach((detail) => {
+        cavityGroup.pickupDetails?.forEach((detail) => {
           if (!detail.shade || Number(detail.quantity) <= 0) return
 
           pickupDetailsList.push({
@@ -909,7 +1074,10 @@ const DispatchForm = ({
           resolveMongoId(plant.subTypeId) ||
           "",
         quantity: plant.quantity,
-        totalPlants: pickupDetailsList.reduce((sum, detail) => sum + Number(detail.quantity), 0),
+        totalPlants:
+          pickupDetailsList.length > 0
+            ? pickupDetailsList.reduce((sum, detail) => sum + Number(detail.quantity), 0)
+            : Number(plant.quantity) || 0,
         pickupDetails: pickupDetailsList,
         crates: cratesList
       }
@@ -958,6 +1126,7 @@ const DispatchForm = ({
       const instance = NetworkManager(API.DISPATCHED.CREATE_TRAY)
       const response = await instance.request(payload)
       if (response.data) {
+        await syncDispatchOrderGiftLines(giftDraftsByOrder)
         console.log("[DispatchForm] Dispatch created successfully:", response.data)
         // Trigger refresh of parent components
         if (typeof window !== "undefined") {
@@ -1335,9 +1504,13 @@ const DispatchForm = ({
   }
 
   // Handle order quantity change
-  const handleOrderQuantityChange = (changedOrderId, newQuantity, maxQuantity) => {
+  const handleOrderQuantityChange = (
+    changedOrderId,
+    newQuantity,
+    maxQuantity,
+    minQuantity = 0
+  ) => {
     const chKey = String(changedOrderId ?? "")
-    // Allow empty string for better UX when user is typing
     if (newQuantity === "" || newQuantity === undefined || newQuantity === null) {
       setOrderQuantities((prev) => {
         const updated = new Map(prev)
@@ -1348,9 +1521,11 @@ const DispatchForm = ({
       return
     }
 
-    const qty = Math.max(0, Math.min(Number(newQuantity) || 0, maxQuantity))
+    const qty = Math.max(
+      minQuantity,
+      Math.min(Number(newQuantity) || 0, maxQuantity)
+    )
 
-    // Update the orderQuantities map and ref
     setOrderQuantities((prev) => {
       const updated = new Map(prev)
       updated.set(chKey, qty)
@@ -1358,9 +1533,7 @@ const DispatchForm = ({
       return updated
     })
 
-    // Update formData separately to avoid stale state
     setFormData((prev) => {
-      // Recalculate plant quantities with the updated map
       const selectedOrdersArray = getSelectedOrdersArray()
       const plantGroups = selectedOrdersArray?.reduce((acc, order) => {
         const plantId = order.details?.plantID
@@ -1368,7 +1541,6 @@ const DispatchForm = ({
         const key = `${plantId}_${plantSubtypeId}`
         const rk = orderRowKey(order)
 
-        // Get the dispatch quantity for this order (use updated qty if this is the changed order)
         const dispatchQty =
           rk === chKey
             ? qty
@@ -1379,7 +1551,7 @@ const DispatchForm = ({
             id: plantId,
             name: order.plantType,
             quantity: dispatchQty,
-            cavityGroups: prev.plants.find(p => p.id === plantId)?.cavityGroups || [],
+            cavityGroups: [],
             orders: []
           }
         } else {
@@ -1390,9 +1562,16 @@ const DispatchForm = ({
         return acc
       }, {})
 
+      const plants = syncPlantsWithAutoTargets(
+        Object.values(plantGroups),
+        orderQuantitiesRef.current,
+        cavities,
+        getId
+      )
+
       return {
         ...prev,
-        plants: Object.values(plantGroups)
+        plants
       }
     })
   }
@@ -1426,7 +1605,8 @@ const DispatchForm = ({
           }, 0)
           return { ...p, quantity: q }
         })
-      return { ...prev, plants: nextPlants }
+      const synced = syncPlantsWithAutoTargets(nextPlants, nextQty, cavities, getId)
+      return { ...prev, plants: synced }
     })
   }
 
@@ -1434,6 +1614,22 @@ const DispatchForm = ({
     getShades()
     getCavities()
   }, [])
+
+  useEffect(() => {
+    if (!open || !cavities?.length) return
+    setFormData((prev) => {
+      if (!prev.plants?.length) return prev
+      return {
+        ...prev,
+        plants: syncPlantsWithAutoTargets(
+          prev.plants,
+          orderQuantitiesRef.current,
+          cavities,
+          getId
+        ),
+      }
+    })
+  }, [cavities, open, orderQuantities])
 
   useEffect(() => {
     if (!open) return undefined
@@ -1548,16 +1744,27 @@ const DispatchForm = ({
   }, [orderQuantities])
 
   useEffect(() => {
+    if (!open) {
+      setCreateOrdersMap(null)
+      setCavitySavingKey("")
+      setAddOrderCavityById(new Map())
+    }
+  }, [open])
+
+  useEffect(() => {
     if (mode === "view" && dispatchData) {
       applyDispatchDataToForm(dispatchData)
     } else if (selectedOrders?.size > 0) {
-      const selectedOrdersArray = getSelectedOrdersArray()
+      setCreateOrdersMap(new Map(selectedOrders))
+      const selectedOrdersArray = Array.from(selectedOrders.values()).filter((order) =>
+        Boolean(orderRowKey(order))
+      )
       
       // Initialize order quantities with full order quantity or remaining quantity
       const initialQuantities = new Map()
       selectedOrdersArray.forEach(order => {
         const rk = orderRowKey(order)
-        const availableQty = order.details?.remainingPlants || order.quantity || 0
+        const availableQty = orderRemainingForDispatch(order)
         initialQuantities.set(rk, availableQty)
       })
       setOrderQuantities(initialQuantities)
@@ -1593,7 +1800,12 @@ const DispatchForm = ({
         ...prev,
         driverName: "",
         vehicleName: "",
-        plants: Object.values(plantGroups)
+        plants: syncPlantsWithAutoTargets(
+          Object.values(plantGroups),
+          initialQuantities,
+          cavities,
+          getId
+        )
       }))
 
       const initialExpandedState = Object.keys(plantGroups)?.reduce((acc, key) => {
@@ -1647,6 +1859,7 @@ const DispatchForm = ({
       }
       const instance = NetworkManager(API.DISPATCHED.UPDATE_DISPATCH)
       await instance.request(payload, [dispatchData._id])
+      await syncDispatchOrderGiftLines(giftDraftsByOrder)
       if (typeof window !== "undefined") {
         window.dispatchEvent(new CustomEvent("dispatchCreated"))
       }
@@ -1679,7 +1892,7 @@ const DispatchForm = ({
   const filteredEligibleAddOrders = eligibleAddOrders.filter((order) => {
     if (!addOrderSearch.trim()) return true
     const s = addOrderSearch.trim().toLowerCase()
-    const farmer = orderFarmerDisplayName(order).toLowerCase()
+    const farmer = formatOrderFarmerDisplayName(order).toLowerCase()
     const orderCode = String(order?.orderId || "").toLowerCase()
     const plant = `${order?.plantType?.name || ""} ${order?.plantSubtype?.name || ""}`.toLowerCase()
     return farmer.includes(s) || orderCode.includes(s) || plant.includes(s)
@@ -1727,6 +1940,11 @@ const DispatchForm = ({
 
       <DialogContent className={`space-y-6 bg-gray-50 ${isMobile ? "mt-2 px-2 pb-2" : "mt-6"}`}>
         {isViewMode && isEditing && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+            Qty changes recalculate crates on save. Shed app will show +/− office adjustment.
+          </div>
+        )}
+        {isViewMode && isEditing && (
           <div className="flex items-center justify-between gap-2 bg-white border border-blue-100 rounded-lg p-3">
             <div className="text-sm text-blue-900">
               Add more ready orders to this dispatch.
@@ -1750,12 +1968,36 @@ const DispatchForm = ({
             const rk = orderRowKey(order)
             const orderId = rk || getOrderId(order)
             const totalQty = order.quantity || 0
-            const remainingQty = order.details?.remainingPlants || totalQty
+            const remainingQty = orderRemainingForDispatch(order)
             const dispatchQty =
               orderQuantities.get(rk) !== undefined
                 ? orderQuantities.get(rk)
                 : remainingQty
             const isPartialDispatch = dispatchQty < remainingQty
+            const minDispatchQty =
+              isViewMode && isEditing ? orderShedLoadedMap.get(rk) ?? 0 : 0
+            const maxDispatchQty = getMaxDispatchQty(remainingQty, isDispatchManager, {
+              isEditMode: isViewMode && isEditing,
+              currentDispatchQty: dispatchQty,
+            })
+            const baselineQty =
+              initialViewSnapshotRef.current?.orderQuantities?.get(rk)
+            const sessionDelta =
+              baselineQty != null ? dispatchQty - baselineQty : 0
+            const plantForPreview = formData.plants?.find((p) =>
+              p.orders?.some((o) => orderRowKey(o) === rk)
+            )
+            const cavityGroupForPreview =
+              plantForPreview?.cavityGroups?.find(
+                (g) => cavityKey(g.cavity) === getOrderCavityKey(order)
+              ) || plantForPreview?.cavityGroups?.[0]
+            const cratePreview = cavityGroupForPreview
+              ? formatCratePreviewLine(
+                  dispatchQty,
+                  cavityGroupForPreview.cavitySize,
+                  cavityGroupForPreview.numberPerCrate
+                )
+              : "—"
 
             return (
               <div
@@ -1791,12 +2033,24 @@ const DispatchForm = ({
                       </div>
                       <div>
                         <span className="text-gray-500">Cavity: </span>
-                        <span className="text-gray-700 font-medium">
-                          {getCavityLabelForDispatchOrder(order.details, cavities, getId) ||
-                            (orderRowHasTrayRef(order.details)
-                              ? "Not specified"
-                              : "No tray on order — select below")}
-                        </span>
+                        {!isViewMode || isEditing ? (
+                          <OrderCavitySelect
+                            value={getOrderCavityIdFromRow(order)}
+                            trays={cavities}
+                            getId={getId}
+                            saving={cavitySavingKey === rk}
+                            disabled={Boolean(cavitySavingKey && cavitySavingKey !== rk)}
+                            onChange={(trayId) => handleOrderCavityChange(order, rk, trayId)}
+                            className="mt-1 max-w-full"
+                          />
+                        ) : (
+                          <span className="text-gray-700 font-medium">
+                            {getCavityLabelForDispatchOrder(order.details, cavities, getId) ||
+                              (orderRowHasTrayRef(order.details)
+                                ? "Not specified"
+                                : "No tray on order")}
+                          </span>
+                        )}
                       </div>
                       <div>
                         <span className="text-gray-500">Delivery: </span>
@@ -1814,7 +2068,6 @@ const DispatchForm = ({
                       </div>
                     </div>
                     
-                    {/* Dispatch Quantity Input */}
                     {isViewMode && isEditing && (
                       <div className="mt-2 pt-2 border-t border-red-100">
                         <button
@@ -1825,37 +2078,115 @@ const DispatchForm = ({
                         </button>
                       </div>
                     )}
-                    {!isViewMode && (
+                    {(!isViewMode || isEditing) && (
                       <div className="mt-2 pt-2 border-t border-gray-100">
                         <label className="block text-xs text-gray-600 mb-1">
-                          Dispatch Quantity {isPartialDispatch && <span className="text-orange-600">(Split Order)</span>}
+                          Dispatch Quantity{" "}
+                          {isPartialDispatch && (
+                            <span className="text-orange-600">(Split Order)</span>
+                          )}
+                          {sessionDelta !== 0 && (
+                            <span
+                              className={`ml-2 font-semibold ${
+                                sessionDelta > 0 ? "text-amber-700" : "text-sky-700"
+                              }`}>
+                              {sessionDelta > 0 ? "+" : ""}
+                              {sessionDelta.toLocaleString("en-IN")} this edit
+                            </span>
+                          )}
                         </label>
                         <div className={`flex gap-2 items-center ${isMobile ? "flex-wrap" : ""}`}>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleOrderQuantityChange(
+                                rk,
+                                dispatchQty - QTY_STEP,
+                                maxDispatchQty,
+                                minDispatchQty
+                              )
+                            }
+                            className={`text-xs font-semibold px-2 ${isMobile ? "py-2" : "py-1"} bg-slate-100 text-slate-700 rounded hover:bg-slate-200`}
+                            title={`−${QTY_STEP}`}>
+                            −{QTY_STEP.toLocaleString("en-IN")}
+                          </button>
                           <input
                             type="number"
-                            min="0"
-                            max={remainingQty}
+                            min={minDispatchQty}
+                            max={maxDispatchQty}
                             value={dispatchQty === 0 ? "" : dispatchQty}
                             onChange={(e) => {
-                              handleOrderQuantityChange(rk, e.target.value, remainingQty)
+                              handleOrderQuantityChange(
+                                rk,
+                                e.target.value,
+                                maxDispatchQty,
+                                minDispatchQty
+                              )
                             }}
                             className={`flex-1 px-2 ${isMobile ? "py-2 text-base" : "py-1 text-sm"} border border-gray-300 rounded focus:ring-2 focus:ring-green-500 focus:border-green-500`}
                             placeholder="Enter quantity"
                           />
                           <button
-                            onClick={() => handleOrderQuantityChange(rk, remainingQty, remainingQty)}
-                            className={`text-xs px-2 ${isMobile ? "py-2 min-w-[64px]" : "py-1"} bg-green-50 text-green-600 rounded hover:bg-green-100`}
-                            title="Use full quantity">
-                            Full
+                            type="button"
+                            onClick={() =>
+                              handleOrderQuantityChange(
+                                rk,
+                                dispatchQty + QTY_STEP,
+                                maxDispatchQty,
+                                minDispatchQty
+                              )
+                            }
+                            className={`text-xs font-semibold px-2 ${isMobile ? "py-2" : "py-1"} bg-slate-100 text-slate-700 rounded hover:bg-slate-200`}
+                            title={`+${QTY_STEP}`}>
+                            +{QTY_STEP.toLocaleString("en-IN")}
                           </button>
+                          {!isViewMode && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleOrderQuantityChange(
+                                  rk,
+                                  remainingQty,
+                                  maxDispatchQty,
+                                  minDispatchQty
+                                )
+                              }
+                              className={`text-xs px-2 ${isMobile ? "py-2 min-w-[64px]" : "py-1"} bg-green-50 text-green-600 rounded hover:bg-green-100`}
+                              title="Use full quantity">
+                              Full
+                            </button>
+                          )}
                         </div>
-                        {isPartialDispatch && (
+                        {isDispatchManager && !isViewMode && (
+                          <p className="text-xs text-violet-700 mt-1">
+                            Dispatch manager: up to +{DISPATCH_MANAGER_EXTRA_QTY.toLocaleString("en-IN")} extra plants per order (slot may go negative).
+                          </p>
+                        )}
+                        {minDispatchQty > 0 && (
+                          <p className="text-xs text-amber-700 mt-1">
+                            Min {minDispatchQty.toLocaleString("en-IN")} — already loaded from shed
+                          </p>
+                        )}
+                        <p className="text-xs text-teal-800 mt-1 font-medium">
+                          Crates: {cratePreview}
+                        </p>
+                        {isPartialDispatch && !isViewMode && (
                           <p className="text-xs text-orange-600 mt-1">
                             {remainingQty - dispatchQty} plants will remain for later dispatch
                           </p>
                         )}
                       </div>
                     )}
+                    <OrderDispatchGiftLines
+                      orderKey={rk}
+                      lines={getLinesForOrder(rk)}
+                      giftCatalog={giftCatalog}
+                      giftsLoading={giftsLoading}
+                      disabled={isViewMode && !isEditing}
+                      onAddLine={addGiftLine}
+                      onUpdateLine={updateGiftLine}
+                      onRemoveLine={removeGiftLine}
+                    />
                   </div>
                 </div>
               </div>
@@ -1870,6 +2201,14 @@ const DispatchForm = ({
               <span className="text-2xl">&times;</span>
             </button>
           </div>
+        )}
+
+        {!isViewMode && (
+          <LinkedDispatchLoadsPanel
+            loading={linkedAgriCheckLoading}
+            blockedBy={linkedAgriBlockedBy}
+            isViewMode={isViewMode}
+          />
         )}
 
         <div className="space-y-6">
@@ -1942,8 +2281,29 @@ const DispatchForm = ({
 
 
 
-          {/* Plants Details */}
+          {/* Plants Details — auto crates from order cavity (office; no shed pickup) */}
           <div className="space-y-4">
+            {(() => {
+              const vehicleTotalPlants =
+                formData.plants?.reduce((s, p) => s + Number(p.quantity || 0), 0) || 0
+              const vehicleTotalCrates =
+                formData.plants?.reduce((s, p) => s + totalCratesOnPlant(p), 0) || 0
+              return (
+                <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3">
+                  <div className="text-sm font-medium text-blue-900">Vehicle load (auto-calculated)</div>
+                  <div className="mt-1 flex flex-wrap gap-3 text-sm text-blue-800">
+                    <span>{vehicleTotalPlants.toLocaleString("en-IN")} plants</span>
+                    <span className="text-blue-400">·</span>
+                    <span>{vehicleTotalCrates.toLocaleString("en-IN")} crates</span>
+                  </div>
+                  <p className="mt-1 text-xs text-blue-700">
+                    Crates are calculated from each order&apos;s tray and dispatch quantity. Shed loading
+                    assigns shades in the shed app.
+                  </p>
+                </div>
+              )
+            })()}
+
             {formData.plants?.map((plant, plantIndex) => (
               <div key={plant.id} className="border rounded-lg">
                 <div
@@ -1956,6 +2316,9 @@ const DispatchForm = ({
                       <span className="text-sm text-green-600 bg-green-100 px-2 py-0.5 rounded-full">
                         {plant.quantity.toLocaleString()} plants
                       </span>
+                      <span className="text-sm text-gray-600 bg-gray-100 px-2 py-0.5 rounded-full">
+                        {totalCratesOnPlant(plant).toLocaleString()} crates
+                      </span>
                     </div>
                   </div>
                   {expandedPlants[plant.id] ? (
@@ -1967,204 +2330,77 @@ const DispatchForm = ({
 
                 {expandedPlants[plant.id] && (
                   <div className="p-4 space-y-4">
-                    {/* Add Cavity Button */}
-                    {!isViewMode && (
-                      <div className="flex justify-end">
-                        <button
-                          onClick={() => handleAddCavityGroup(plantIndex)}
-                          className="text-sm bg-green-50 text-green-600 hover:bg-green-100 px-3 py-1.5 rounded-md border border-green-200">
-                          + Add Cavity
-                        </button>
-                      </div>
-                    )}
-
-                    {/* Cavity Groups */}
-                    {plant.cavityGroups?.length > 0 ? (
-                      <div className="space-y-6">
+                    {!cavities?.length ? (
+                      <p className="text-sm text-gray-500 italic">Loading tray data…</p>
+                    ) : plant.cavityGroups?.length > 0 ? (
+                      <div className="space-y-4">
                         {plant.cavityGroups.map((cavityGroup, groupIndex) => (
                           <div
                             key={groupIndex}
-                            className="border rounded-lg bg-white p-4 space-y-4">
-                            {/* Cavity Selection */}
-                            <div className="flex items-center justify-between">
-                              <h4 className="font-medium">Cavity Selection</h4>
-                              {!isViewMode && (
-                                <IconButton
-                                  onClick={() => handleDeleteCavityGroup(plantIndex, groupIndex)}
-                                  disabled={isViewMode}>
-                                  <Trash2 size={18} className="text-red-500" />
-                                </IconButton>
-                              )}
+                            className="rounded-lg border bg-white p-4 space-y-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <h4 className="font-medium">{cavityGroup.cavityName || "Tray"}</h4>
+                              <span className="text-xs text-green-700 bg-green-50 px-2 py-0.5 rounded">
+                                From order tray
+                              </span>
                             </div>
-
-                            <div className="space-y-2">
-                              {cavityGroup.autoSelected && cavityGroup.cavity && (
-                                <div className="text-xs text-green-600 bg-green-50 p-2 rounded flex items-center gap-1">
-                                  <span>✓</span>
-                                  <span>Auto-selected from order cavity: <strong>{cavityGroup.cavityName}</strong></span>
-                                </div>
-                              )}
-                              <div className="flex gap-4">
-                                <select
-                                  className="flex-1 p-2 border rounded"
-                                  value={cavityGroup.cavity || ""}
-                                  onChange={(e) =>
-                                    handleCavityChange(plantIndex, groupIndex, e.target.value)
-                                  }
-                                  disabled={isViewMode && !isEditing}>
-                                  <option value="">Select Cavity</option>
-                                  {cavities?.map((cavity) => (
-                                    <option
-                                      key={getId(cavity)}
-                                      value={getId(cavity)}
-                                      disabled={plant.cavityGroups.some(
-                                        (group, idx) =>
-                                          idx !== groupIndex &&
-                                          String(group.cavity) === String(getId(cavity))
-                                      )}>
-                                      {cavity.name}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-                            </div>
-
-                            {/* Pickup Details - only shown if cavity is selected */}
-                            {cavityGroup.cavity && (
-                              <div className="space-y-4 mt-4 pt-4 border-t">
-                                <div className="flex justify-between items-center">
-                                  <h4 className="font-medium">
-                                    Pickup Details for {cavityGroup.cavityName}
-                                  </h4>
-                                  {!isViewMode && (
-                                    <button
-                                      onClick={() => handleAddPickupDetail(plantIndex, groupIndex)}
-                                      className="text-sm text-green-600 hover:text-green-700">
-                                      + Add Pickup Detail
-                                    </button>
-                                  )}
-                                </div>
-
-                                {cavityGroup.pickupDetails?.map((detail, detailIndex) => {
-                                  const batchLoadKey = `${plantIndex}-${groupIndex}-${detailIndex}`
-                                  return (
-                                    <div key={detailIndex} className="flex flex-col gap-1 w-full">
-                                      <div className="flex gap-4 items-center">
-                                        <select
-                                          className="flex-1 p-2 border rounded"
-                                          value={detail.shade}
-                                          onChange={(e) =>
-                                            handleShadeSelectWithBatchLookup(
-                                              plantIndex,
-                                              groupIndex,
-                                              detailIndex,
-                                              e.target.value,
-                                              plant,
-                                              cavityGroup
-                                            )
-                                          }
-                                          disabled={
-                                            (isViewMode && !isEditing) ||
-                                            pickupBatchLoadingKey === batchLoadKey
-                                          }>
-                                          <option value="">Select Shade</option>
-                                          {shades?.map((shade) => (
-                                            <option key={getId(shade)} value={getId(shade)}>
-                                              {shade.name}
-                                            </option>
-                                          ))}
-                                        </select>
-
-                                        <input
-                                          type="number"
-                                          className="flex-1 p-2 border rounded"
-                                          value={detail.quantity}
-                                          onChange={(e) =>
-                                            handlePickupDetailChange(
-                                              plantIndex,
-                                              groupIndex,
-                                              detailIndex,
-                                              "quantity",
-                                              e.target.value
-                                            )
-                                          }
-                                          placeholder="Quantity"
-                                          disabled={isViewMode && !isEditing}
-                                        />
-
-                                        {!isViewMode && (
-                                          <IconButton
-                                            onClick={() =>
-                                              handleDeletePickupDetail(
-                                                plantIndex,
-                                                groupIndex,
-                                                detailIndex
-                                              )
-                                            }
-                                            disabled={cavityGroup.pickupDetails.length === 1}>
-                                            <Trash2 size={20} className="text-red-500" />
-                                          </IconButton>
-                                        )}
-                                      </div>
-                                      {pickupBatchLoadingKey === batchLoadKey && (
-                                        <p className="text-xs text-gray-500 pl-0.5">
-                                          Looking up nursery batch (FIFO) for this shed…
-                                        </p>
-                                      )}
-                                      {(detail.batchNumber || detail.secondaryInwardId) &&
-                                        pickupBatchLoadingKey !== batchLoadKey && (
-                                          <p className="text-xs text-gray-600 pl-0.5">
-                                            <span className="font-medium">Plantation / batch:</span>{" "}
-                                            {detail.batchNumber
-                                              ? `Batch ${detail.batchNumber}`
-                                              : "—"}
-                                            {detail.secondaryInwardDate
-                                              ? ` · planted ${formatPlantationDateShort(
-                                                  detail.secondaryInwardDate
-                                                )}`
-                                              : ""}
-                                            {detail.pollyhouseMatched
-                                              ? ` · stock at ${detail.pollyhouseMatched}`
-                                              : ""}
-                                          </p>
-                                        )}
+                            {cavityGroup.crates?.length > 0 ? (
+                              <div className="space-y-2">
+                                {cavityGroup.crates.map((crate, crateIndex) => (
+                                  <div
+                                    key={crateIndex}
+                                    className="grid grid-cols-2 gap-4 rounded bg-gray-50 p-2 text-sm">
+                                    <div>
+                                      <span className="text-gray-500">Crates: </span>
+                                      <span className="font-medium">{crate.numberOfCrates}</span>
                                     </div>
-                                  )
-                                })}
-
-                                {/* Crate Details */}
-                                {cavityGroup.crates?.length > 0 && (
-                                  <div className="mt-4 pt-4 border-t">
-                                    <h4 className="font-medium mb-2">Crate Details</h4>
-                                    <div className="space-y-2">
-                                      {cavityGroup.crates.map((crate, crateIndex) => (
-                                        <div
-                                          key={crateIndex}
-                                          className="grid grid-cols-2 gap-4 p-2 bg-gray-50 rounded">
-                                          <div className="text-sm">
-                                            <span className="text-gray-500">Crates: </span>
-                                            <span className="font-medium">
-                                              {crate.numberOfCrates}
-                                            </span>
-                                          </div>
-                                          <div className="text-sm">
-                                            <span className="text-gray-500">Plants: </span>
-                                            <span className="font-medium">{crate.quantity}</span>
-                                          </div>
-                                        </div>
-                                      ))}
+                                    <div>
+                                      <span className="text-gray-500">Plants: </span>
+                                      <span className="font-medium">
+                                        {Number(crate.quantity).toLocaleString("en-IN")}
+                                      </span>
                                     </div>
                                   </div>
-                                )}
+                                ))}
                               </div>
+                            ) : (
+                              <p className="text-sm text-gray-500">No crates for this tray.</p>
                             )}
                           </div>
                         ))}
+
+                        <div className="border-t pt-3 space-y-2">
+                          <h4 className="text-sm font-medium text-gray-700">By order</h4>
+                          {(plant.orders || []).map((order) => {
+                            const rk = orderRowKey(order)
+                            const dispatchQty = orderQuantities.get(rk) || 0
+                            const cKey = getOrderCavityKey(order)
+                            const tray = cavities.find((t) => getId(t) === cKey)
+                            const cavitySize = Number(tray?.cavity) || 0
+                            const numberPerCrate = Number(tray?.numberPerCrate) || 0
+                            return (
+                              <div
+                                key={rk}
+                                className="flex flex-wrap items-center justify-between gap-2 rounded border bg-gray-50 px-3 py-2 text-sm">
+                                <span>
+                                  #{order.order}{" "}
+                                  {formatOrderFarmerDisplayName(order)
+                                    ? `· ${formatOrderFarmerDisplayName(order)}`
+                                    : ""}
+                                </span>
+                                <span className="text-gray-600">
+                                  {Number(dispatchQty).toLocaleString("en-IN")} plants ·{" "}
+                                  {formatCratePreviewLine(dispatchQty, cavitySize, numberPerCrate)}
+                                </span>
+                              </div>
+                            )
+                          })}
+                        </div>
                       </div>
                     ) : (
-                      <div className="text-center py-6 text-gray-500 italic">
-                        Please add a cavity to continue
-                      </div>
+                      <p className="text-center py-4 text-sm text-amber-700 italic">
+                        Set tray/cavity on each order to calculate crates.
+                      </p>
                     )}
                   </div>
                 )}
@@ -2257,24 +2493,23 @@ const DispatchForm = ({
               filteredEligibleAddOrders.map((order) => {
                 const oid = String(order?._id || order?.id || "")
                 const cavityId = getCavityIdString(order?.cavity)
-                const disabled = !cavityId
                 const selected = selectedAddOrderIds.has(oid)
+                const pickedTrayId = addOrderCavityById.get(oid) || cavityId || ""
                 return (
-                  <label
+                  <div
                     key={oid}
                     className={`flex items-start gap-3 p-3 border-b last:border-b-0 ${
-                      disabled ? "bg-gray-50 opacity-70" : "cursor-pointer hover:bg-blue-50"
+                      selected ? "bg-blue-50" : "hover:bg-gray-50"
                     }`}>
                     <input
                       type="checkbox"
                       checked={selected}
-                      disabled={disabled}
                       onChange={() => toggleAddOrderSelection(oid)}
-                      className="mt-1"
+                      className="mt-1 cursor-pointer"
                     />
-                    <div className="text-sm">
+                    <div className="text-sm flex-1">
                       <div className="font-semibold text-gray-900">
-                        #{order?.orderId || "N/A"} - {orderFarmerDisplayName(order) || "Unknown"}
+                        #{order?.orderId || "N/A"} - {formatOrderFarmerDisplayName(order) || "Unknown"}
                       </div>
                       <div className="text-gray-700">
                         {(order?.plantType?.name || "Unknown")} {"->"} {(order?.plantSubtype?.name || "Unknown")}
@@ -2282,13 +2517,22 @@ const DispatchForm = ({
                       <div className="text-gray-500">
                         Remaining: {Number(order?.remainingPlants ?? order?.numberOfPlants ?? order?.totalPlants ?? 0).toLocaleString()}
                       </div>
-                      {disabled && (
-                        <div className="text-xs text-red-600 mt-1">
-                          Tray/cavity missing on order (cannot quick add).
+                      <div className="text-gray-500 mt-1">
+                        Tray: {cavityId ? resolveTrayLabelById(cavityId, cavities) : "Not set"}
+                      </div>
+                      {selected && !cavityId && (
+                        <div className="mt-2">
+                          <label className="block text-xs text-gray-600 mb-1">Select tray for this order</label>
+                          <OrderCavitySelect
+                            value={pickedTrayId}
+                            trays={cavities}
+                            getId={getId}
+                            onChange={(trayId) => setAddOrderTrayPick(oid, trayId)}
+                          />
                         </div>
                       )}
                     </div>
-                  </label>
+                  </div>
                 )
               })
             )}

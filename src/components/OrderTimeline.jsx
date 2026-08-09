@@ -14,6 +14,7 @@ const EVENT_LABELS = {
   RATE_CHANGE_REQUESTED: "Rate change requested",
   RATE_CHANGE_APPROVED: "Rate change approved",
   RATE_CHANGE_REJECTED: "Rate change rejected",
+  CUSTOMER_CHANGED: "Customer / farmer changed",
 }
 
 function formatValue(val) {

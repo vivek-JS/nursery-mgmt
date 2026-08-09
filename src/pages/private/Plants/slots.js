@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
-import { Plus, Pencil, Trash2, ChevronDown, IndianRupee } from "lucide-react"
+import { Plus, Pencil, Trash2, ChevronDown } from "lucide-react"
 import { API, NetworkManager } from "network/core"
 import { Formik, Form, FieldArray } from "formik"
 import * as Yup from "yup"
 import SlotManager from "./SlotManager"
 import SlotStockPanel from "../SlotsView/SlotStockPanel"
+import AddSubtypeModal from "./AddSubtypeModal"
+import EditSubtypeModal from "./EditSubtypeModal"
 
 // Validation Schema
 const plantSchema = Yup.object().shape({
@@ -21,10 +23,27 @@ const plantSchema = Yup.object().shape({
       Yup.object().shape({
         name: Yup.string().required("Subtype name is required"),
         description: Yup.string(),
-        slotDays: Yup.number().required("Slot days is required").min(1, "Must be at least 1 day").integer("Must be a whole number"),
-        slotStartDate: Yup.string().required("Slot start date is required"),
-        slotEndDate: Yup.string().required("Slot end date is required"),
-        slotCapacity: Yup.number().required("Slot capacity is required").min(1, "Must be at least 1").integer("Must be a whole number")
+        // Slot fields required only for brand-new subtypes (no _id yet)
+        slotDays: Yup.number().when("_id", {
+          is: (id) => !id,
+          then: (s) => s.required("Slot days is required").min(1, "Must be at least 1 day").integer("Must be a whole number"),
+          otherwise: (s) => s.notRequired(),
+        }),
+        slotStartDate: Yup.string().when("_id", {
+          is: (id) => !id,
+          then: (s) => s.required("Slot start date is required"),
+          otherwise: (s) => s.notRequired(),
+        }),
+        slotEndDate: Yup.string().when("_id", {
+          is: (id) => !id,
+          then: (s) => s.required("Slot end date is required"),
+          otherwise: (s) => s.notRequired(),
+        }),
+        slotCapacity: Yup.number().when("_id", {
+          is: (id) => !id,
+          then: (s) => s.required("Slot capacity is required").min(1, "Must be at least 1").integer("Must be a whole number"),
+          otherwise: (s) => s.notRequired(),
+        }),
       })
     )
     .min(1, "At least one subtype is required")
@@ -113,8 +132,6 @@ const Label = ({ className = "", ...props }) => (
   />
 )
 
-const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"]
-
 const Slots = () => {
   const navigate = useNavigate()
   const [plants, setPlants] = useState([])
@@ -124,11 +141,8 @@ const Slots = () => {
   const [expandedPlants, setExpandedPlants] = useState({})
   const [activeTab, setActiveTab] = useState("plants") // "plants" or "slots"
 
-  // Monthly rates dedicated modal state
-  const [ratesModalOpen, setRatesModalOpen] = useState(false)
-  const [ratesTarget, setRatesTarget] = useState(null) // { plantId, subtypeId, subtypeName, defaultRate }
-  const [monthlyRatesForm, setMonthlyRatesForm] = useState({}) // { January: "15", February: "", ... }
-  const [ratesSaving, setRatesSaving] = useState(false)
+  const [addSubtypePlant, setAddSubtypePlant] = useState(null)
+  const [editSubtypeTarget, setEditSubtypeTarget] = useState(null) // { plant, subtype }
 
   const handleOpen = (plant = null) => {
     setEditPlant(plant)
@@ -222,69 +236,6 @@ const Slots = () => {
                           "Failed to delete plant. Please try again."
       
       alert(`Cannot delete plant:\n\n${errorMessage}`)
-    }
-  }
-
-  const openRatesModal = (plantId, subtype) => {
-    const existing = {}
-    MONTHS.forEach((m) => { existing[m] = "" })
-    ;(subtype.monthlyRates || []).forEach((mr) => {
-      if (mr.month) existing[mr.month] = String(mr.rate ?? "")
-    })
-    setRatesTarget({
-      plantId,
-      subtypeId: subtype._id,
-      subtypeName: subtype.name,
-      defaultRate: (subtype.rates || []).join(", "),
-    })
-    setMonthlyRatesForm(existing)
-    setRatesModalOpen(true)
-  }
-
-  const closeRatesModal = () => {
-    setRatesModalOpen(false)
-    setRatesTarget(null)
-    setMonthlyRatesForm({})
-  }
-
-  const handleRatesMonthChange = (month, value) => {
-    setMonthlyRatesForm((prev) => ({ ...prev, [month]: value }))
-  }
-
-  const saveMonthlyRates = async () => {
-    if (!ratesTarget) return
-    setRatesSaving(true)
-    try {
-      const payload = {
-        monthlyRates: MONTHS
-          .filter((m) => monthlyRatesForm[m] !== "" && monthlyRatesForm[m] !== undefined)
-          .map((m) => ({ month: m, rate: parseFloat(monthlyRatesForm[m]) || 0 }))
-      }
-      const instance = NetworkManager(API.plantCms.UPDATE_SUBTYPE)
-      const response = await instance.request(payload, {
-        pathParams: [ratesTarget.plantId, ratesTarget.subtypeId]
-      })
-      if (response?.data?.message) {
-        // Update local plants state so badges refresh without a full reload
-        setPlants((prev) =>
-          prev.map((plant) => {
-            if (String(plant._id) !== String(ratesTarget.plantId)) return plant
-            return {
-              ...plant,
-              subtypes: plant.subtypes.map((st) => {
-                if (String(st._id) !== String(ratesTarget.subtypeId)) return st
-                return { ...st, monthlyRates: payload.monthlyRates }
-              })
-            }
-          })
-        )
-        closeRatesModal()
-      }
-    } catch (error) {
-      console.error("Error saving monthly rates:", error)
-      alert("Failed to save monthly rates. Please try again.")
-    } finally {
-      setRatesSaving(false)
     }
   }
 
@@ -389,7 +340,15 @@ const Slots = () => {
                             )}
                           </div>
                         </div>
-                        <div className="flex gap-2">
+                        <div className="flex gap-2 flex-wrap justify-end">
+                          <Button
+                            variant="success"
+                            size="sm"
+                            onClick={() => setAddSubtypePlant(plant)}
+                            className="gap-2">
+                            <Plus className="h-4 w-4" />
+                            Add Subtype
+                          </Button>
                           <Button
                             variant="outline"
                             size="sm"
@@ -453,15 +412,25 @@ const Slots = () => {
                           </button>
                           {expandedPlants[plant._id] && (
                             <div className="bg-white p-4 space-y-3 animate-in slide-in-from-top-2 duration-300">
+                              <div className="flex justify-end">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => setAddSubtypePlant(plant)}
+                                  className="gap-2 border-dashed">
+                                  <Plus className="h-4 w-4" />
+                                  Add Subtype
+                                </Button>
+                              </div>
                               {plant.subtypes.map((subtype) => (
                                 <div key={subtype._id} className="bg-gradient-to-r from-gray-50 to-gray-100 rounded-xl p-4 border border-gray-200">
                                   <div className="flex items-center justify-between mb-2">
                                     <div className="font-semibold text-gray-900">{subtype.name}</div>
                                     <button
-                                      onClick={() => openRatesModal(plant._id, subtype)}
-                                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 hover:border-amber-300 transition-all duration-200">
-                                      <IndianRupee className="h-3.5 w-3.5" />
-                                      Monthly Rates
+                                      onClick={() => setEditSubtypeTarget({ plant, subtype })}
+                                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 hover:border-blue-300 transition-all duration-200">
+                                      <Pencil className="h-3.5 w-3.5" />
+                                      Edit Subtype
                                     </button>
                                   </div>
                                   {subtype.description && (
@@ -742,6 +711,8 @@ const Slots = () => {
                                       )}
                                     </div>
 
+                                    {/* Slot config only for new subtypes — existing ones use Slot Management / Add Subtype */}
+                                    {!subtype._id && (
                                     <div className="bg-blue-50 rounded-xl p-4 mb-4">
                                       <h5 className="text-sm font-bold text-blue-900 mb-3">🎯 Slot Configuration (Mandatory)</h5>
                                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
@@ -810,6 +781,7 @@ const Slots = () => {
                                         </div>
                                       </div>
                                     </div>
+                                    )}
 
                                     <div className="space-y-3">
                                       <Label className="text-sm font-semibold text-gray-700">Default Rate (fallback)</Label>
@@ -936,6 +908,26 @@ const Slots = () => {
                 </Formik>
               </DialogContent>
             </Dialog>
+
+            <AddSubtypeModal
+              open={Boolean(addSubtypePlant)}
+              plant={addSubtypePlant}
+              onClose={() => setAddSubtypePlant(null)}
+              onSuccess={() => {
+                if (addSubtypePlant?._id) {
+                  setExpandedPlants((prev) => ({ ...prev, [addSubtypePlant._id]: true }))
+                }
+                fetchPlants()
+              }}
+            />
+
+            <EditSubtypeModal
+              open={Boolean(editSubtypeTarget)}
+              plant={editSubtypeTarget?.plant}
+              subtype={editSubtypeTarget?.subtype}
+              onClose={() => setEditSubtypeTarget(null)}
+              onSuccess={() => fetchPlants()}
+            />
           </>
         ) : activeTab === "stock" ? (
           <SlotStockPanel plants={plants} />
@@ -943,73 +935,6 @@ const Slots = () => {
           <SlotManager />
         )}
       </div>
-
-      {/* ── Dedicated Monthly Rates Modal ── */}
-      {ratesModalOpen && ratesTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={closeRatesModal} />
-          <div className="z-50 w-full max-w-lg rounded-3xl bg-white/98 backdrop-blur-xl shadow-2xl border border-white/20 animate-in fade-in-0 zoom-in-95 duration-300 overflow-hidden">
-            {/* Header */}
-            <div className="bg-gradient-to-r from-amber-500 to-orange-500 px-6 py-5">
-              <div className="flex items-center gap-3">
-                <div className="bg-white/20 rounded-xl p-2">
-                  <IndianRupee className="h-5 w-5 text-white" />
-                </div>
-                <div>
-                  <h2 className="text-lg font-bold text-white">Monthly Rates</h2>
-                  <p className="text-amber-100 text-sm">{ratesTarget.subtypeName}</p>
-                </div>
-              </div>
-              {ratesTarget.defaultRate && (
-                <div className="mt-3 bg-white/15 rounded-xl px-4 py-2 text-sm text-white">
-                  Default rate (fallback): <span className="font-bold">₹{ratesTarget.defaultRate}</span>
-                </div>
-              )}
-            </div>
-
-            {/* Body */}
-            <div className="px-6 py-5 max-h-[55vh] overflow-y-auto">
-              <p className="text-xs text-gray-500 mb-4">
-                Enter a rate for specific months. Leave blank to use the default rate. Changes take effect on new orders immediately.
-              </p>
-              <div className="grid grid-cols-2 gap-3">
-                {MONTHS.map((month) => (
-                  <div key={month} className="flex items-center gap-2 bg-gray-50 rounded-xl px-3 py-2 border border-gray-200 hover:border-amber-300 transition-colors">
-                    <span className="text-xs font-semibold text-gray-600 w-20 shrink-0">{month.slice(0,3)}</span>
-                    <div className="flex items-center gap-1 flex-1">
-                      <span className="text-gray-400 text-sm">₹</span>
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        placeholder="Default"
-                        value={monthlyRatesForm[month] ?? ""}
-                        onChange={(e) => handleRatesMonthChange(month, e.target.value)}
-                        className="w-full text-sm font-medium bg-transparent outline-none placeholder-gray-300 text-gray-800"
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Footer */}
-            <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-3 bg-gray-50/50">
-              <button
-                onClick={closeRatesModal}
-                className="px-5 py-2.5 rounded-xl border-2 border-gray-200 text-sm font-semibold text-gray-600 hover:bg-gray-100 transition-all duration-200">
-                Cancel
-              </button>
-              <button
-                onClick={saveMonthlyRates}
-                disabled={ratesSaving}
-                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-white text-sm font-semibold shadow-lg hover:shadow-xl hover:from-amber-600 hover:to-orange-600 disabled:opacity-50 transition-all duration-200">
-                {ratesSaving ? "Saving..." : "Save Monthly Rates"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

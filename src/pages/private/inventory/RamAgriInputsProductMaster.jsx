@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Plus,
@@ -17,12 +17,22 @@ import {
 } from 'lucide-react';
 import { API, NetworkManager } from 'network/core';
 import { Toast } from 'helpers/toasts/toastHelper';
+import {
+  getRamAgriProductTypeLabel,
+  getRamAgriProductTypeLabelPlural,
+} from 'utils/ramAgriProductType';
+import RamAgriVarietyInventoryLinkFields, {
+  emptyLinkForm,
+  saveVarietyInventoryLink,
+  clearVarietyInventoryLink,
+} from './components/RamAgriVarietyInventoryLinkFields';
 
 const RamAgriInputsProductMaster = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [crops, setCrops] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [unlinkedOnly, setUnlinkedOnly] = useState(false);
   const [productType, setProductType] = useState('seed');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [varietyDialogOpen, setVarietyDialogOpen] = useState(false);
@@ -63,10 +73,12 @@ const RamAgriInputsProductMaster = () => {
   const [deleteRateDialogOpen, setDeleteRateDialogOpen] = useState(false);
   const [deleteRateTarget, setDeleteRateTarget] = useState(null);
   const [errors, setErrors] = useState({});
+  const [linkErrors, setLinkErrors] = useState({});
+  const [linkForm, setLinkForm] = useState(emptyLinkForm());
   const [rateErrors, setRateErrors] = useState({});
 
-  const productTypeLabel = productType === 'chemical' ? 'Chemical' : 'Seed';
-  const productTypeLabelPlural = productType === 'chemical' ? 'Chemicals' : 'Seeds';
+  const productTypeLabel = getRamAgriProductTypeLabel(productType);
+  const productTypeLabelPlural = getRamAgriProductTypeLabelPlural(productType);
 
   /** Returns undefined if empty/0, 'invalid' if bad, else integer ≥ 1 */
   const parseOptionalDisplayOrder = (value) => {
@@ -116,6 +128,34 @@ const RamAgriInputsProductMaster = () => {
     }
   };
 
+  const handleClearAllSowingLinks = async () => {
+    if (
+      !window.confirm(
+        'Remove ALL plant/seed sowing links? Request packets will need varieties re-mapped. Ram Agri stock mirror flags will also be cleared.'
+      )
+    ) {
+      return;
+    }
+    try {
+      setLoading(true);
+      const instance = NetworkManager(API.INVENTORY.CLEAR_ALL_VARIETY_INVENTORY_LINKS);
+      const response = await instance.request({});
+      if (response?.data?.success || response?.data?.status === 'Success') {
+        const d = response?.data?.data || {};
+        Toast.success(
+          `Unlinked ${d.varietiesCleared ?? 0} varieties · ${d.productsModified ?? 0} Ram Agri flags · ${d.cmsSeedLinksCleared ?? 0} seed CMS links cleared`
+        );
+        fetchCrops();
+      } else {
+        Toast.error(response?.data?.message || 'Failed to unlink');
+      }
+    } catch (error) {
+      Toast.error(error?.response?.data?.message || 'Failed to unlink all');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleSearch = (e) => {
     setSearchTerm(e.target.value);
   };
@@ -153,6 +193,8 @@ const RamAgriInputsProductMaster = () => {
   const openVarietyDialog = (crop, variety = null) => {
     setSelectedCrop(crop);
     setEditingVariety(variety);
+    setLinkForm(emptyLinkForm());
+    setLinkErrors({});
     if (variety) {
       setVarietyFormData({
         name: variety.name,
@@ -164,6 +206,14 @@ const RamAgriInputsProductMaster = () => {
         defaultRate: variety.defaultRate ? variety.defaultRate.toString() : '',
         purchasePrice: variety.purchasePrice ? variety.purchasePrice.toString() : '',
       });
+      if (variety.inventoryLink?.linked) {
+        setLinkForm({
+          plantId: variety.inventoryLink.plantId ? String(variety.inventoryLink.plantId) : '',
+          subtypeId: variety.inventoryLink.subtypeId ? String(variety.inventoryLink.subtypeId) : '',
+          tentativePlantsPerPacket: '',
+          productId: variety.inventoryLink.productId ? String(variety.inventoryLink.productId) : '',
+        });
+      }
     } else {
       setVarietyFormData({
         name: '',
@@ -201,7 +251,8 @@ const RamAgriInputsProductMaster = () => {
       defaultRate: '',
       purchasePrice: '',
     });
-    setErrors({});
+    setLinkForm(emptyLinkForm());
+    setLinkErrors({});
   };
 
   const openRateDialog = (crop, variety, rate = null) => {
@@ -318,9 +369,22 @@ const RamAgriInputsProductMaster = () => {
     }
   };
 
+  const validateLinkForm = () => {
+    if (productType !== 'seed') return true;
+    const hasPlant = Boolean(linkForm.plantId);
+    const hasSubtype = Boolean(linkForm.subtypeId);
+    if (!hasPlant && !hasSubtype) return true;
+    const next = {};
+    if (!hasPlant) next.plantId = 'Select plant for sowing link';
+    if (hasPlant && !hasSubtype) next.subtypeId = 'Select subtype for sowing link';
+    setLinkErrors(next);
+    return Object.keys(next).length === 0;
+  };
+
   const handleVarietySubmit = async (e) => {
     e.preventDefault();
     if (!validateVarietyForm()) return;
+    if (!validateLinkForm()) return;
 
     try {
       setLoading(true);
@@ -347,6 +411,33 @@ const RamAgriInputsProductMaster = () => {
 
       if (response?.data?.success || response?.data?.status === 'Success') {
         Toast.success(`Variety ${editingVariety ? 'updated' : 'added'} successfully`);
+
+        let varietyId = editingVariety?._id;
+        if (!varietyId) {
+          const cropData = response?.data?.data;
+          const match = (cropData?.varieties || []).find(
+            (v) => String(v.name || '').toLowerCase() === varietyPayload.name.trim().toLowerCase()
+          );
+          varietyId = match?._id;
+        }
+
+        if (
+          productType === 'seed' &&
+          varietyId &&
+          linkForm.plantId &&
+          linkForm.subtypeId
+        ) {
+          const linkOk = await saveVarietyInventoryLink(
+            selectedCrop._id,
+            varietyId,
+            linkForm
+          );
+          if (!linkOk) {
+            setLoading(false);
+            return;
+          }
+        }
+
         closeVarietyDialog();
         fetchCrops();
       } else {
@@ -612,6 +703,28 @@ const RamAgriInputsProductMaster = () => {
     );
   });
 
+  const seedUnlinkedCount = useMemo(() => {
+    if (productType !== 'seed') return 0;
+    return crops.reduce(
+      (sum, crop) =>
+        sum +
+        (crop.varieties || []).filter((v) => v.isActive !== false && !v.inventoryLink?.linked).length,
+      0
+    );
+  }, [crops, productType]);
+
+  const displayCrops = useMemo(() => {
+    if (productType !== 'seed' || !unlinkedOnly) return filteredCrops;
+    return filteredCrops
+      .map((crop) => ({
+        ...crop,
+        varieties: (crop.varieties || []).filter(
+          (v) => v.isActive !== false && !v.inventoryLink?.linked
+        ),
+      }))
+      .filter((c) => c.varieties.length > 0);
+  }, [filteredCrops, productType, unlinkedOnly]);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-4 md:p-6">
       {/* Header */}
@@ -674,10 +787,31 @@ const RamAgriInputsProductMaster = () => {
             />
             <span>Chemicals</span>
           </label>
+          <label className="flex items-center space-x-2 text-sm text-gray-700 cursor-pointer">
+            <input
+              type="radio"
+              name="productType"
+              value="gift"
+              checked={productType === 'gift'}
+              onChange={() => setProductType('gift')}
+              className="text-green-600 focus:ring-green-500"
+            />
+            <span>Gifts</span>
+          </label>
         </div>
         <div className="text-sm text-gray-600">
           Showing <span className="font-semibold">{productTypeLabelPlural}</span>
         </div>
+        {productType === 'seed' && (
+          <button
+            type="button"
+            onClick={handleClearAllSowingLinks}
+            disabled={loading}
+            className="text-sm font-semibold text-red-700 border border-red-200 bg-red-50 px-3 py-1.5 rounded-lg hover:bg-red-100 disabled:opacity-50"
+          >
+            Unlink all plant & seed mappings
+          </button>
+        )}
       </div>
 
       {/* Statistics Cards */}
@@ -730,7 +864,7 @@ const RamAgriInputsProductMaster = () => {
       </div>
 
       {/* Search Bar */}
-      <div className="mb-6">
+      <div className="mb-6 space-y-3">
         <div className="relative">
           <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
           <input
@@ -741,6 +875,42 @@ const RamAgriInputsProductMaster = () => {
             className="w-full pl-12 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all bg-white shadow-sm"
           />
         </div>
+        {productType === 'seed' && (
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-gray-700">
+              <input
+                type="checkbox"
+                checked={unlinkedOnly}
+                onChange={(e) => setUnlinkedOnly(e.target.checked)}
+                className="rounded border-gray-300 text-green-600"
+              />
+              Show unlinked varieties only
+              {seedUnlinkedCount > 0 && (
+                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
+                  {seedUnlinkedCount} unlinked
+                </span>
+              )}
+            </label>
+            <p className="text-xs text-gray-500 mt-1">
+              Link seed varieties to Ram Biotech via{' '}
+              <button
+                type="button"
+                onClick={() => navigate('/u/inventory/seed-dual-links')}
+                className="font-semibold text-violet-700 hover:underline"
+              >
+                Seed Dual Links
+              </button>
+              {' '}or{' '}
+              <button
+                type="button"
+                onClick={() => navigate('/u/inventory/biotech-seed-master')}
+                className="font-semibold text-teal-700 hover:underline"
+              >
+                Biotech Seed Master
+              </button>
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Loading State */}
@@ -752,7 +922,7 @@ const RamAgriInputsProductMaster = () => {
         <>
           {/* Crops Accordion List */}
           <div className="space-y-3">
-            {filteredCrops.map((crop) => {
+            {displayCrops.map((crop) => {
               const isExpanded = expandedCrops[crop._id];
               const varietiesCount = crop.varieties?.length || 0;
               const totalRates = crop.varieties?.reduce((sum, v) => sum + (v.rates?.length || 0), 0) || 0;
@@ -873,6 +1043,30 @@ const RamAgriInputsProductMaster = () => {
                                             Inactive
                                           </span>
                                         )}
+                                        {variety.inventoryLink?.linked && (
+                                          <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-xs rounded-full">
+                                            Sowing linked
+                                            {variety.inventoryLink.availablePackets > 0
+                                              ? ` · ${variety.inventoryLink.availablePackets} pkt`
+                                              : ''}
+                                          </span>
+                                        )}
+                                        {productType === 'seed' &&
+                                          variety.inventoryLink?.productCode && (
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                navigate('/u/inventory/biotech-seed-master')
+                                              }
+                                              className="px-2 py-0.5 bg-teal-100 text-teal-800 text-xs rounded-full hover:bg-teal-200"
+                                              title="Open Ram Biotech Seed Master"
+                                            >
+                                              Biotech: {variety.inventoryLink.productCode}
+                                              {variety.inventoryLink.currentStock != null
+                                                ? ` · ${Number(variety.inventoryLink.currentStock).toLocaleString('en-IN')}`
+                                                : ''}
+                                            </button>
+                                          )}
                                       </div>
                                       {variety.description && (
                                         <p className="text-xs text-gray-500 mt-1 ml-6 line-clamp-2">
@@ -1007,7 +1201,7 @@ const RamAgriInputsProductMaster = () => {
           </div>
 
 
-          {filteredCrops.length === 0 && (
+          {displayCrops.length === 0 && (
             <div className="text-center py-20">
               <Crop className="w-20 h-20 mx-auto text-gray-300 mb-4" />
               <p className="text-xl text-gray-500 mb-2">No {productTypeLabelPlural.toLowerCase()} found</p>
@@ -1280,6 +1474,34 @@ const RamAgriInputsProductMaster = () => {
                   </div>
                 )}
               </div>
+
+              {productType === 'seed' && (
+                <RamAgriVarietyInventoryLinkFields
+                  cropId={selectedCrop?._id}
+                  varietyId={editingVariety?._id}
+                  enabled={productType === 'seed'}
+                  value={linkForm}
+                  onChange={setLinkForm}
+                  errors={linkErrors}
+                />
+              )}
+
+              {productType === 'seed' && editingVariety?._id && linkForm.plantId && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!window.confirm('Remove sowing link for this variety?')) return;
+                    const ok = await clearVarietyInventoryLink(selectedCrop._id, editingVariety._id);
+                    if (ok) {
+                      setLinkForm(emptyLinkForm());
+                      fetchCrops();
+                    }
+                  }}
+                  className="text-xs font-semibold text-red-700 hover:text-red-800"
+                >
+                  Remove sowing link
+                </button>
+              )}
 
               <div>
                 <label className="block text-xs font-semibold text-gray-700 mb-1.5">

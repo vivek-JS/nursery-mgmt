@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import {
@@ -16,10 +16,32 @@ import { API, NetworkManager } from 'network/core';
 import SowingRequestDialog from './components/SowingRequestDialog';
 import { Toast } from 'helpers/toasts/toastHelper';
 import { CheckCircle, XCircle } from 'lucide-react';
+import { useWorkspace } from 'workspace/WorkspaceContext';
+import { isAgriLockedRole } from 'workspace/agriAccess';
+
+const AGRI_HIDDEN_QUICK = new Set([
+  'New Product',
+  'Create GRN',
+  'Issue Stock',
+]);
+
+const AGRI_HIDDEN_MENU = new Set([
+  'GRN',
+  'Suppliers',
+  'Merchants',
+  'Sell Orders',
+  'Transactions',
+  'Ledger',
+  'Stock Outward',
+]);
+
+const BIOTECH_ONLY_MENU = new Set(['Biotech Seed Master']);
 
 const InventoryDashboard = () => {
   const navigate = useNavigate();
   const userData = useSelector((state) => state?.userData?.userData) || {};
+  const { isAgriMode } = useWorkspace();
+  const agriInventory = isAgriMode || isAgriLockedRole(userData);
   const isRamAgriSalesManager =
     userData?.jobTitle === 'RAM_AGRI_SALES_MANAGER';
   const [summary, setSummary] = useState(null);
@@ -180,7 +202,7 @@ const InventoryDashboard = () => {
     }
   };
 
-  const quickActions = [
+  const quickActionsAll = [
     {
       title: 'New Product',
       icon: Package,
@@ -217,6 +239,13 @@ const InventoryDashboard = () => {
       path: '/u/inventory/ram-agri-input-order/new',
     },
   ];
+  const quickActions = useMemo(
+    () =>
+      agriInventory
+        ? quickActionsAll.filter((a) => !AGRI_HIDDEN_QUICK.has(a.title))
+        : quickActionsAll,
+    [agriInventory]
+  );
 
   const statsCards = [
     {
@@ -255,7 +284,7 @@ const InventoryDashboard = () => {
     },
   ];
 
-  const menuItems = [
+  const menuItemsAll = [
     {
       title: 'Products',
       description: 'Manage your product catalog',
@@ -279,6 +308,14 @@ const InventoryDashboard = () => {
       path: '/u/inventory/grn',
       color: 'text-purple-600',
       bgColor: 'bg-purple-50',
+    },
+    {
+      title: 'Raising Seeds',
+      description: 'Collect farmer-given seed vs order',
+      icon: Package,
+      path: '/u/inventory/raising-seeds',
+      color: 'text-emerald-600',
+      bgColor: 'bg-emerald-50',
     },
     {
       title: 'Stock Outward',
@@ -337,6 +374,22 @@ const InventoryDashboard = () => {
       bgColor: 'bg-yellow-50',
     },
     {
+      title: 'Subtype → Seed Links',
+      description: 'Sowing plant subtypes · assign Biotech seed + Agri variety',
+      icon: Package,
+      path: '/u/inventory/seed-dual-links',
+      color: 'text-violet-600',
+      bgColor: 'bg-violet-50',
+    },
+    {
+      title: 'Biotech Seed Master',
+      description: 'Manage plants and variety/subtypes (same as Ram Agri master)',
+      icon: Package,
+      path: '/u/inventory/biotech-seed-master',
+      color: 'text-teal-600',
+      bgColor: 'bg-teal-50',
+    },
+    {
       title: 'Ram Agri Inputs Master',
       description: 'Manage crops and varieties',
       icon: Package,
@@ -361,6 +414,15 @@ const InventoryDashboard = () => {
       bgColor: 'bg-green-50',
     },
   ];
+  const menuItems = useMemo(
+    () =>
+      agriInventory
+        ? menuItemsAll.filter(
+            (m) => !AGRI_HIDDEN_MENU.has(m.title) && !BIOTECH_ONLY_MENU.has(m.title)
+          )
+        : menuItemsAll,
+    [agriInventory]
+  );
 
   if (loading) {
     return (
@@ -541,7 +603,17 @@ const InventoryDashboard = () => {
                     </div>
                     <div className="text-right">
                       <span className="bg-orange-100 text-orange-700 text-xs font-semibold px-2 py-1 rounded block mb-1">
-                        {request.packetsRequested?.toFixed(2) || request.packetsNeeded?.toFixed(2) || request.packetsNeeded} {request.unitName}
+                        {(request.packetsFromCompany != null
+                          ? Number(request.packetsFromCompany)
+                          : request.seedSource === "RAISING"
+                            ? 0
+                            : request.packetsRequested ?? request.packetsNeeded
+                        )?.toFixed?.(2) ??
+                          request.packetsNeeded}{" "}
+                        {request.unitName}
+                        {Number(request.packetsFromRaising) > 0
+                          ? ` (+${Number(request.packetsFromRaising).toFixed(2)} raising)`
+                          : ""}
                       </span>
                       {request.excessPackets > 0 && (
                         <span className="bg-yellow-100 text-yellow-700 text-xs font-semibold px-2 py-1 rounded block">

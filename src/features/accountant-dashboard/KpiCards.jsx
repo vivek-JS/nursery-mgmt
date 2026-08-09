@@ -9,20 +9,37 @@ const fmt = (n) =>
       ? `₹${(n / 100000).toFixed(2)}L`
       : `₹${n.toLocaleString("en-IN")}`
 
-export function KpiCards({ orderPayments, bulkPayments }) {
+export function KpiCards({ orderPayments, bulkPayments, totals }) {
   const pendingCount =
-    orderPayments.filter((p) => p.orderPaymentStatus === "PENDING").length +
-    bulkPayments.filter((b) => b.paymentStatus === "PENDING").length
+    totals?.pendingCount != null
+      ? Number(totals.pendingCount) || 0
+      : orderPayments.filter((p) => p.orderPaymentStatus === "PENDING").length +
+        bulkPayments.filter((b) => b.paymentStatus === "PENDING").length
   const collectedCount =
-    orderPayments.filter((p) => p.orderPaymentStatus === "COLLECTED" || p.orderPaymentStatus === "BANK_VERIFIED").length +
-    bulkPayments.filter((b) => b.paymentStatus === "ACCEPTED").length
-  const rejectedCount = orderPayments.filter((p) => p.orderPaymentStatus === "REJECTED").length
+    totals?.collectedCount != null
+      ? Number(totals.collectedCount) || 0
+      : orderPayments.filter((p) => p.orderPaymentStatus === "COLLECTED" || p.orderPaymentStatus === "BANK_VERIFIED").length +
+        bulkPayments.filter((b) => b.paymentStatus === "ACCEPTED").length
+  const rejectedCount =
+    totals?.rejectedCount != null
+      ? Number(totals.rejectedCount) || 0
+      : orderPayments.filter((p) => p.orderPaymentStatus === "REJECTED").length
 
-  const totalOutstanding = orderPayments.reduce((s, p) => s + Math.max(0, p.totalOrderAmount - (p.payment?.paidAmount || 0)), 0)
+  const totalOutstanding =
+    totals?.outstandingSum != null
+      ? Number(totals.outstandingSum) || 0
+      : orderPayments.reduce((s, p) => s + Math.max(0, p.totalOrderAmount - (p.payment?.paidAmount || 0)), 0)
   const totalCollected =
-    orderPayments.reduce((s, p) => s + (p.payment?.paidAmount || 0), 0) +
-    bulkPayments.filter((b) => b.paymentStatus === "ACCEPTED").reduce((s, b) => s + b.totalAmount, 0)
-  const totalEntries = orderPayments.length + bulkPayments.length
+    totals?.collectedSum != null
+      ? Number(totals.collectedSum) || 0
+      : orderPayments.reduce((s, p) => s + (p.payment?.paidAmount || 0), 0) +
+        bulkPayments.filter((b) => b.paymentStatus === "ACCEPTED").reduce((s, b) => s + b.totalAmount, 0)
+  const totalEntries =
+    totals?.totalEntries != null
+      ? Number(totals.totalEntries) || 0
+      : orderPayments.length + bulkPayments.length
+
+  const fromServer = Boolean(totals?.fromServer)
 
   return (
     <div className="erp-card animate-fade-up stagger-1 overflow-hidden">
@@ -63,9 +80,10 @@ export function KpiCards({ orderPayments, bulkPayments }) {
           iconBg="bg-primary-light"
           iconColor="text-primary"
           label="Total Entries"
-          value={totalEntries.toString()}
+          value={totalEntries.toLocaleString("en-IN")}
           valueColor="text-primary"
           delay="stagger-3"
+          hint={fromServer ? "Server total" : "Loaded rows"}
         />
 
         <div className="flex-1 px-5 py-3 flex items-center justify-between gap-4 min-w-[200px] animate-fade-up stagger-4">
@@ -83,14 +101,17 @@ export function KpiCards({ orderPayments, bulkPayments }) {
   )
 }
 
-function StatCell({ icon, iconBg, iconColor, label, value, valueColor, delay }) {
+function StatCell({ icon, iconBg, iconColor, label, value, valueColor, delay, hint }) {
   return (
     <div className={cn("flex items-center gap-3 px-5 py-3 min-w-[160px] animate-fade-up", delay)}>
       <span className={cn("w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0", iconBg)}>
         <span className={iconColor}>{icon}</span>
       </span>
       <div>
-        <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</div>
+        <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          {label}
+          {hint ? <span className="ml-1 font-normal normal-case tracking-normal opacity-70">· {hint}</span> : null}
+        </div>
         <div className={cn("text-xl font-bold tabular tracking-tight leading-tight mt-0.5", valueColor)}>{value}</div>
       </div>
     </div>

@@ -19,6 +19,7 @@ import { API } from "../../network/config/endpoints"
 import { Toast } from "../../helpers/toasts/toastHelper"
 import { CookieKeys } from "../../constants/cookieKeys"
 import axios from "axios"
+import { sumOrderAdvancePayments } from "../../utils/orderPaymentAdvance"
 
 function escapeCsvCell(val) {
   const s = val === undefined || val === null ? "" : String(val)
@@ -33,6 +34,15 @@ function formatInDate(d) {
   } catch {
     return "N/A"
   }
+}
+
+/** Manual/sticker DC label — same resolution as FarmerOrdersTable badges. */
+export function resolveManualDcNumber(obj) {
+  const raw =
+    obj?.deliveryChallanInvoiceNumber ?? obj?.details?.deliveryChallanInvoiceNumber
+  if (raw == null || raw === "") return ""
+  const s = String(raw).trim()
+  return s || ""
 }
 
 /** Latest dispatch flag/date from order row (matches dashboard list). */
@@ -64,14 +74,17 @@ export function ordersListRowsToCsv(rows) {
     "Village",
     "Plant",
     "Subtype",
+    "Delivery date",
+    "Original delivery date",
     "Quantity (plants)",
     "Base qty",
     "Extra qty",
     "Returned plants",
     "Damaged plants",
-    "Billable plants (net)",
     "Rate (₹)",
-    "Delivery date",
+    "Billable plants (net)",
+    "Advance (Completed)",
+    "Advance (Pending)",
     "Dispatched",
     "Dispatched date",
     "Manual DC number",
@@ -95,6 +108,7 @@ export function ordersListRowsToCsv(rows) {
     }
     const bookingRef = obj.orderBookingDate || obj.createdAt
     const delivery = obj.deliveryDate ?? obj.farmReadyDate
+    const originalDelivery = obj.oldDeliveryDate ?? null
     const refParts = []
     if (obj.salesPerson?.name) refParts.push(obj.salesPerson.name)
     const reference = refParts.length ? refParts.join(" / ") : "N/A"
@@ -109,6 +123,7 @@ export function ordersListRowsToCsv(rows) {
     const booked = Number.isFinite(totalQty) ? totalQty : 0
     const billable = Math.max(0, booked - ret - dmg)
     const dispatchInfo = resolveLatestDispatchInfo(obj)
+    const { completed: advanceCompleted, pending: advancePending } = sumOrderAdvancePayments(obj)
 
     const row = [
       ++sr,
@@ -125,19 +140,20 @@ export function ordersListRowsToCsv(rows) {
       farmer.village || "N/A",
       plantName,
       subName,
+      formatInDate(delivery),
+      formatInDate(originalDelivery),
       Number.isFinite(totalQty) ? totalQty : "",
       baseQty,
       extraQty,
       ret,
       dmg,
-      billable,
       obj.rate ?? "",
-      formatInDate(delivery),
+      billable,
+      advanceCompleted || "",
+      advancePending || "",
       dispatchInfo.dispatched,
       formatInDate(dispatchInfo.date),
-      obj.deliveryChallanInvoiceNumber != null && obj.deliveryChallanInvoiceNumber !== ""
-        ? String(obj.deliveryChallanInvoiceNumber)
-        : "",
+      resolveManualDcNumber(obj),
       obj.orderStatus ?? "",
       obj.salesPerson?.name || "",
       reference

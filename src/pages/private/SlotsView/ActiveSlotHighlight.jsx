@@ -21,6 +21,11 @@ const ActiveSlotHighlight = ({
       <span className="inline-flex items-center gap-0.5 rounded border border-sky-300 bg-sky-100 px-1 py-0.5 text-[9px] font-bold text-sky-900">
         Today&apos;s slot
       </span>
+      {slot.status === false && (
+        <span className="inline-flex items-center gap-0.5 rounded border border-slate-300 bg-slate-100 px-1 py-0.5 text-[9px] font-bold text-slate-700">
+          Off
+        </span>
+      )}
       {mixedRolledAndNative && (
         <Tooltip
           title={`${getRolledInOrdersOnCurrentSlot(slot)} rolled-in + native bookings (${getNativeBookedPlantsOnSlot(slot).toLocaleString()} plants native)`}

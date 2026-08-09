@@ -40,7 +40,6 @@ import { API, NetworkManager } from "network/core"
 import { PageLoader } from "components"
 import { Toast } from "helpers/toasts/toastHelper"
 import SlotTrailModal from "components/Modals/SlotTrailModal"
-import StockChangeHistoryModal from "./StockChangeHistoryModal"
 import TransferPlantsModal from "./TransferPlantsModal"
 import SlotOrdersDrawer from "./SlotOrdersDrawer"
 import PastDueRollModal from "./PastDueRollModal"
@@ -102,6 +101,7 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
   // Slot trail modal states
   const [showSlotTrailModal, setShowSlotTrailModal] = useState(false)
   const [selectedSlotForTrail, setSelectedSlotForTrail] = useState(null)
+  const [trailInitialTab, setTrailInitialTab] = useState("all")
 
   // Sowing modal states
   const [showSowingModal, setShowSowingModal] = useState(false)
@@ -112,8 +112,6 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
 
   const [transferModalOpen, setTransferModalOpen] = useState(false)
   const [transferSlotData, setTransferSlotData] = useState(null)
-
-  const [stockHistorySlot, setStockHistorySlot] = useState(null)
 
   const [slotOrdersDrawer, setSlotOrdersDrawer] = useState(null)
   const [pastDueRollModal, setPastDueRollModal] = useState(null)
@@ -410,7 +408,16 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
 
   const openStockHistory = (e, slot) => {
     if (e) e.stopPropagation()
-    setStockHistorySlot(slot)
+    setSelectedSlotForTrail(slot)
+    setTrailInitialTab("stock")
+    setShowSlotTrailModal(true)
+  }
+
+  const openSlotTrail = (e, slot, tab = "all") => {
+    if (e) e.stopPropagation()
+    setSelectedSlotForTrail(slot)
+    setTrailInitialTab(tab)
+    setShowSlotTrailModal(true)
   }
 
   const openBufferModal = (e, slot, currentBuffer = 0) => {
@@ -1566,11 +1573,7 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                     onOpenActual={setActualBreakdownSlot}
                     onPendingRoll={openPendingRollModal}
                     onRollExpiredAvailable={setRollExpiredModal}
-                    onTrail={(e, s) => {
-                      e.stopPropagation()
-                      setSelectedSlotForTrail(s)
-                      setShowSlotTrailModal(true)
-                    }}
+                    onTrail={(e, s) => openSlotTrail(e, s, "all")}
                     onEdit={startEditing}
                     onBuffer={openBufferModal}
                     onReleaseBuffer={openReleaseBufferModal}
@@ -1602,17 +1605,13 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
           onClose={() => {
             setShowSlotTrailModal(false)
             setSelectedSlotForTrail(null)
+            setTrailInitialTab("all")
           }}
           slotId={selectedSlotForTrail._id}
           slotInfo={selectedSlotForTrail}
+          initialTab={trailInitialTab}
         />
       )}
-
-      <StockChangeHistoryModal
-        open={Boolean(stockHistorySlot)}
-        onClose={() => setStockHistorySlot(null)}
-        slot={stockHistorySlot}
-      />
 
       {/* Transfer Plants Modal */}
       <TransferPlantsModal

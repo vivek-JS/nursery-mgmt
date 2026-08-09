@@ -1,517 +1,28 @@
 import { Dialog } from "@mui/material"
-import React from "react"
+import React, { useMemo } from "react"
+import {
+  mapDispatchToChallanPages,
+  renderDeliveryChallanBody,
+} from "shared/dispatch-documents"
 
-const NAVY = "#000000"
-const ACCENT = "#111111"
 const BORDER = "#000000"
-
-/** Prefer system official DC; then manual label; then dispatch-history invoice for this leg. */
-function resolveChallanInvoiceLabel(order, dispatchMongoId) {
-  const official =
-    order?.officialDeliveryChallanNumber ||
-    order?.details?.officialDeliveryChallanNumber
-  if (official) return String(official).trim()
-  const edited =
-    order?.deliveryChallanInvoiceNumber ||
-    order?.details?.deliveryChallanInvoiceNumber
-  if (edited) return String(edited).trim()
-  const hist = order?.details?.dispatchHistory || order?.dispatchHistory || []
-  const entry = hist.find(
-    (h) => h?.dispatchId && String(h.dispatchId) === String(dispatchMongoId)
-  )
-  if (entry?.invoiceNumber) return String(entry.invoiceNumber).trim()
-  return ""
-}
-
-function resolveOrderFreightCharges(order) {
-  return Math.max(
-    0,
-    Number(order?.freightCharges ?? order?.details?.freightCharges ?? 0) || 0
-  )
-}
-
-function optionalManualDcSeparateFromOfficial(order) {
-  const official = String(
-    order?.officialDeliveryChallanNumber ??
-      order?.details?.officialDeliveryChallanNumber ??
-      ""
-  ).trim()
-  const manual = String(
-    order?.deliveryChallanInvoiceNumber ?? order?.details?.deliveryChallanInvoiceNumber ?? ""
-  ).trim()
-  if (!official || !manual || manual === official) return ""
-  return manual
-}
-
-const cell = (extra = {}) => ({
-  border: `1px solid ${BORDER}`,
-  padding: "1.8mm 2.5mm",
-  fontSize: "7.5pt",
-  lineHeight: 1.3,
-  ...extra,
-})
-
-const sectionHeader = {
-  background: "#fff",
-  color: "#000",
-  padding: "1.8mm 3mm",
-  fontSize: "7.5pt",
-  fontWeight: "700",
-  letterSpacing: "0.3px",
-  borderBottom: `1px solid ${BORDER}`,
-}
+const ACCENT = "#111111"
 
 const DeliveryChallanPDF = ({ open, onClose, dispatchData }) => {
   if (!dispatchData) return null
-  const today = new Date().toLocaleDateString("mr-IN")
   const agriLoadBlocked = Boolean(dispatchData?.agriLoadBlocked)
 
-  const DeliveryChallanPage = ({ order }) => {
-    const plantDetailsList = Array.isArray(dispatchData?.plantsDetails)
-      ? dispatchData.plantsDetails
-      : []
-    const orderPlantName = order?.plantDetails?.name?.toLowerCase()
+  const pages = useMemo(
+    () => mapDispatchToChallanPages(dispatchData),
+    [dispatchData]
+  )
 
-    const plant = (() => {
-      if (!plantDetailsList.length) return null
-      if (!orderPlantName) return plantDetailsList[0]
-      return (
-        plantDetailsList.find((p) =>
-          p?.name?.toLowerCase().includes(orderPlantName)
-        ) || plantDetailsList[0]
-      )
-    })()
-
-    const orderDispatchDetails = Array.isArray(dispatchData?.orderDispatchDetails)
-      ? dispatchData.orderDispatchDetails
-      : []
-    const dispatchDetail = orderDispatchDetails.find(
-      (d) => String(d.orderId) === String(order._id)
-    )
-    const hasOrderDispatchBreakup = orderDispatchDetails.length > 0
-    const dispatchQty = dispatchDetail?.dispatchQuantity ?? order.quantity
-    const orderCrates =
-      Array.isArray(dispatchDetail?.crates) && dispatchDetail.crates.length > 0
-        ? dispatchDetail.crates
-        : !hasOrderDispatchBreakup && Array.isArray(plant?.crates)
-        ? plant.crates
-        : []
-
-    const paymentEntries = Array.isArray(order?.details?.payment)
-      ? order.details.payment
-      : Array.isArray(order?.payment)
-        ? order.payment
-        : []
-    const totalPaid = paymentEntries.reduce((s, p) => s + (p?.paidAmount || 0), 0)
-    const rate = Number(order.rate || order.details?.rate || 0)
-    const freightCharges = resolveOrderFreightCharges(order)
-    const plantAmount = dispatchQty * rate
-    const dispatchTotal = plantAmount + freightCharges
-    const remaining = Math.max(0, dispatchTotal - totalPaid)
-    const rawPlantName = plant?.name?.replace(/\s*-\s*>\s*/g, " ").trim() || "—"
-    const plantName = /papaya/i.test(rawPlantName) ? "Papaya" : rawPlantName
-
-    const dispatchMongoId = dispatchData?._id
-    const invoiceLabel = resolveChallanInvoiceLabel(order, dispatchMongoId)
-    const optionalManualDc = optionalManualDcSeparateFromOfficial(order)
-    const orderNum =
-      order?.order != null
-        ? String(order.order)
-        : order?.details?.orderid != null
-        ? String(order.details.orderid)
-        : ""
-    const legacyRef = [dispatchData?.transportId, orderNum && `Order #${orderNum}`]
-      .filter(Boolean)
-      .join(" · ")
-
-    const infoRows = [
-      ["चालक", dispatchData.driverName, "वाहन", dispatchData.vehicleName],
-      [
-        "शेतकरी",
-        order.details?.farmer?.name || "N/A",
-        "मोबाईल",
-        order.details?.farmer?.mobileNumber || "N/A",
-      ],
-      [
-        "गाव",
-        order.details?.farmer?.village || "N/A",
-        "वितरण",
-        order.Delivery || "निर्दिष्ट नाही",
-      ],
-      ["रोप", plantName, "प्रमाण", dispatchQty],
-    ]
-
-    return (
-      <div
-        className="challan-page"
-        style={{
-          width: "148mm",
-          minHeight: "210mm",
-          boxSizing: "border-box",
-          background: "#fff",
-          fontFamily: "system-ui, -apple-system, Arial, sans-serif",
-          pageBreakAfter: "always",
-          display: "flex",
-          flexDirection: "column",
-        }}
-      >
-        {/* ── Header bar ─────────────────────────────── */}
-        <div
-          style={{
-            background: "#fff",
-            padding: "3.5mm 5mm 3mm",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            borderBottom: `1px solid ${BORDER}`,
-          }}
-        >
-          <div>
-            <div
-              style={{
-                color: "#000",
-                fontSize: "13pt",
-                fontWeight: "800",
-                letterSpacing: "0.5px",
-              }}
-            >
-              डिलिव्हरी चलन
-            </div>
-            <div style={{ color: "#000", fontSize: "6.5pt", marginTop: "0.5mm" }}>
-              DELIVERY CHALLAN
-            </div>
-          </div>
-          <div style={{ textAlign: "right" }}>
-            <div
-              style={{
-                background: "#fff",
-                border: `1px solid ${BORDER}`,
-                borderRadius: "1.5mm",
-                padding: "1mm 2.5mm",
-                color: "#000",
-                fontSize: "7.5pt",
-                fontWeight: "700",
-              }}
-            >
-              {invoiceLabel || legacyRef || "—"}
-            </div>
-            {optionalManualDc ? (
-              <div style={{ color: "#000", fontSize: "6.5pt", marginTop: "0.8mm", fontWeight: 600 }}>
-                मॅन्युअल DC: {optionalManualDc}
-              </div>
-            ) : null}
-            <div style={{ color: "#000", fontSize: "6.5pt", marginTop: "1mm" }}>
-              तारीख: {today}
-            </div>
-          </div>
-        </div>
-
-        {/* ── Body padding ───────────────────────────── */}
-        <div style={{ padding: "3.5mm 4.5mm", flex: 1, display: "flex", flexDirection: "column", gap: "3mm" }}>
-
-          {/* ── Info grid ──────────────────────────── */}
-          <div style={{ border: `1px solid ${BORDER}`, borderRadius: "1.5mm", overflow: "hidden" }}>
-            {infoRows.map(([l1, v1, l2, v2], i) => (
-              <div
-                key={i}
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "22mm 1fr 22mm 1fr",
-                  background: "#fff",
-                  borderBottom: i < 3 ? `1px solid ${BORDER}` : "none",
-                }}
-              >
-                {[l1, v1, l2, v2].map((txt, j) => (
-                  <div
-                    key={j}
-                    style={{
-                      ...cell(),
-                      fontWeight: j % 2 === 0 ? "700" : "400",
-                      color: j % 2 === 0 ? NAVY : "#1f2937",
-                      background: "transparent",
-                      border: "none",
-                      borderLeft: j > 0 ? `1px solid ${BORDER}` : "none",
-                    }}
-                  >
-                    {txt}
-                  </div>
-                ))}
-              </div>
-            ))}
-          </div>
-
-          {/* ── Crate details + Order summary (50/50) ───────────── */}
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: orderCrates.length > 0 ? "1fr 1fr" : "1fr",
-              gap: "2mm",
-            }}
-          >
-            {orderCrates.length > 0 && (
-              <div style={{ borderRadius: "1.5mm", overflow: "hidden", border: `1px solid ${BORDER}` }}>
-                <div style={sectionHeader}>कॅव्हिटी व क्रेट तपशील</div>
-                <div
-                  style={{
-                    padding: "2mm",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "2mm",
-                    background: "#fff",
-                  }}
-                >
-                  {orderCrates.map((crate, ci) => {
-                    const hasDetails =
-                      Array.isArray(crate.crateDetails) && crate.crateDetails.length > 0
-                    const totalCrates = hasDetails
-                      ? crate.crateDetails.reduce((s, cd) => s + (cd.crateCount || 0), 0)
-                      : crate.crateCount || 0
-                    const totalPlants = hasDetails
-                      ? crate.crateDetails.reduce((s, cd) => s + (cd.plantCount || 0), 0)
-                      : crate.plantCount || 0
-                    return (
-                      <div
-                        key={ci}
-                        style={{
-                          border: `1px solid ${BORDER}`,
-                          borderRadius: "1mm",
-                          overflow: "hidden",
-                        }}
-                      >
-                        <div
-                          style={{
-                            background: "#fff",
-                            color: "#000",
-                            fontSize: "8pt",
-                            fontWeight: "700",
-                            textAlign: "center",
-                            padding: "1mm 2mm",
-                            borderBottom: `1px solid ${BORDER}`,
-                          }}
-                        >
-                          {crate.cavityName}
-                        </div>
-                        {hasDetails &&
-                          crate.crateDetails.map((cd, di) => (
-                            <div
-                              key={di}
-                              style={{
-                                display: "flex",
-                                justifyContent: "space-between",
-                                padding: "0.8mm 2mm",
-                                fontSize: "8.5pt",
-                                fontWeight: "700",
-                                background: "#fff",
-                                borderBottom:
-                                  di < crate.crateDetails.length - 1
-                                    ? `1px dotted ${BORDER}`
-                                    : "none",
-                              }}
-                            >
-                              <span>{cd.crateCount || 0} क्रेट</span>
-                              <span>{cd.plantCount || 0} रोपे</span>
-                            </div>
-                          ))}
-                        <div
-                          style={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            padding: "1mm 2mm",
-                            background: "#fff",
-                            color: "#000",
-                            fontSize: "9pt",
-                            fontWeight: "700",
-                            borderTop: `1px solid ${BORDER}`,
-                          }}
-                        >
-                          <span>{totalCrates} क्रेट</span>
-                          <span>{totalPlants} रोपे</span>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
-
-            <div style={{ borderRadius: "1.5mm", overflow: "hidden", border: `1px solid ${BORDER}` }}>
-              <div style={sectionHeader}>ऑर्डर सारांश</div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", background: "#fff" }}>
-                {[
-                  ["वर्णन", plantName],
-                  ["प्रमाण", dispatchQty],
-                  ["दर", `₹${rate.toLocaleString()}`],
-                  ["रोप रक्कम", `₹${plantAmount.toLocaleString()}`],
-                  ...(freightCharges > 0
-                    ? [["वाहतूक / Freight", `₹${freightCharges.toLocaleString()}`]]
-                    : []),
-                  ["एकूण रक्कम", `₹${dispatchTotal.toLocaleString()}`],
-                ].map(([label, value]) => (
-                  <React.Fragment key={label}>
-                    <div
-                      style={{
-                        ...cell({ fontWeight: "700", color: "#000", background: "#fff" }),
-                        border: "none",
-                        borderRight: `1px solid ${BORDER}`,
-                        borderBottom: `1px solid ${BORDER}`,
-                        textAlign: "left",
-                      }}
-                    >
-                      {label}
-                    </div>
-                    <div
-                      style={{
-                        ...cell({ fontWeight: "700", color: "#000", background: "#fff" }),
-                        border: "none",
-                        borderBottom: `1px solid ${BORDER}`,
-                        textAlign: "right",
-                      }}
-                    >
-                      {value}
-                    </div>
-                  </React.Fragment>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* ── Payment details ────────────────────── */}
-          <div style={{ borderRadius: "1.5mm", overflow: "hidden", border: `1px solid ${BORDER}` }}>
-            <div style={sectionHeader}>पेमेंट तपशील</div>
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <thead>
-                <tr style={{ background: "#fff" }}>
-                  {["तारीख", "पद्धत", "रक्कम"].map((h, i) => (
-                    <th
-                      key={i}
-                      style={{
-                        ...cell({ fontWeight: "700", color: "#000" }),
-                        textAlign: i === 2 ? "right" : "left",
-                        border: "none",
-                        borderLeft: i > 0 ? `1px solid ${BORDER}` : "none",
-                        borderBottom: `1px solid ${BORDER}`,
-                      }}
-                    >
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {paymentEntries.length === 0 && (
-                  <tr>
-                    <td
-                      colSpan={3}
-                      style={{
-                        ...cell({ textAlign: "center", color: "#9ca3af" }),
-                        border: "none",
-                        borderBottom: `1px solid ${BORDER}`,
-                      }}
-                    >
-                      कोणतेही पेमेंट नाही
-                    </td>
-                  </tr>
-                )}
-                {paymentEntries.map((p, idx) => (
-                  <tr key={idx} style={{ background: "#fff" }}>
-                    {[
-                      {
-                        v: p?.paymentDate
-                          ? new Date(p.paymentDate).toLocaleDateString("mr-IN")
-                          : "N/A",
-                        align: "left",
-                      },
-                      { v: p?.modeOfPayment || "N/A", align: "left" },
-                      { v: `₹${(p?.paidAmount || 0).toLocaleString()}`, align: "right" },
-                    ].map(({ v, align }, i) => (
-                      <td
-                        key={i}
-                        style={{
-                          ...cell(),
-                          textAlign: align,
-                          border: "none",
-                          borderLeft: i > 0 ? `1px solid ${BORDER}` : "none",
-                          borderBottom: `1px solid ${BORDER}`,
-                        }}
-                      >
-                        {v}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                {[
-                  { label: "एकूण भरलेली रक्कम", value: totalPaid, bg: "#fff", bold: false },
-                  { label: "एकूण रक्कम", value: dispatchTotal, bg: "#fff", bold: false },
-                  {
-                    label: "उर्वरित रक्कम",
-                    value: remaining,
-                    bg: "#fff",
-                    bold: true,
-                  },
-                ].map(({ label, value, bg, bold }, i) => (
-                  <tr key={i} style={{ background: bg }}>
-                    <td
-                      colSpan={2}
-                      style={{
-                        ...cell({ fontWeight: bold ? "700" : "600", color: "#000" }),
-                        border: "none",
-                        borderTop: `1px solid ${BORDER}`,
-                      }}
-                    >
-                      {label}
-                    </td>
-                    <td
-                      style={{
-                        ...cell({
-                          textAlign: "right",
-                          fontWeight: bold ? "700" : "600",
-                          color: "#000",
-                        }),
-                        border: "none",
-                        borderTop: `1px solid ${BORDER}`,
-                        borderLeft: `1px solid ${BORDER}`,
-                      }}
-                    >
-                      ₹{value.toLocaleString()}
-                    </td>
-                  </tr>
-                ))}
-              </tfoot>
-            </table>
-          </div>
-
-          <div style={{ marginTop: "auto" }} />
-        </div>
-      </div>
-    )
-  }
+  const challanHtml = useMemo(() => renderDeliveryChallanBody(pages), [pages])
 
   const handlePrint = () => {
-    if (agriLoadBlocked) {
-      return
-    }
+    if (agriLoadBlocked) return
     const printWindow = window.open("", "_blank")
     if (!printWindow) return
-
-    const challanElements = Array.from(
-      document?.querySelectorAll?.(".challan-page") ?? []
-    )
-    const orderIds = dispatchData.orderIds || []
-
-    const challanContents = orderIds
-      .map((_, index) => {
-        const html = challanElements[index]?.outerHTML
-        return html || null
-      })
-      .filter(Boolean)
-      .join("")
-
-    if (!challanContents) {
-      printWindow.close()
-      return
-    }
 
     printWindow.document.write(`
       <!DOCTYPE html>
@@ -526,7 +37,7 @@ const DeliveryChallanPDF = ({ open, onClose, dispatchData }) => {
             .challan-page:last-child { page-break-after: auto; }
           </style>
         </head>
-        <body>${challanContents}</body>
+        <body>${challanHtml}</body>
       </html>
     `)
 
@@ -538,10 +49,11 @@ const DeliveryChallanPDF = ({ open, onClose, dispatchData }) => {
     }, 800)
   }
 
+  const orderCount = dispatchData.orderIds?.length || pages.length || 0
+
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
       <div style={{ background: "#fff", display: "flex", flexDirection: "column", maxHeight: "92vh" }}>
-        {/* Dialog header */}
         <div
           style={{
             display: "flex",
@@ -555,10 +67,11 @@ const DeliveryChallanPDF = ({ open, onClose, dispatchData }) => {
             zIndex: 10,
           }}
         >
-          <span style={{ fontWeight: "600", fontSize: "15px", color: NAVY }}>
+          <span style={{ fontWeight: "600", fontSize: "15px", color: "#000" }}>
             डिलिव्हरी चलन — {dispatchData.transportId}
           </span>
           <button
+            type="button"
             onClick={onClose}
             style={{
               background: "none",
@@ -575,7 +88,6 @@ const DeliveryChallanPDF = ({ open, onClose, dispatchData }) => {
           </button>
         </div>
 
-        {/* Preview: no challan HTML when Agri load is still pending (avoids browser print / screenshot of DC) */}
         {agriLoadBlocked ? (
           <div
             style={{
@@ -607,26 +119,22 @@ const DeliveryChallanPDF = ({ open, onClose, dispatchData }) => {
               gap: "20px",
             }}
           >
-            {dispatchData.orderIds?.map((order, index) => (
-              <div
-                key={index}
-                style={{
-                  boxShadow: "0 6px 24px rgba(0,0,0,0.14)",
-                  borderRadius: "2mm",
-                  overflow: "hidden",
-                  transform: "scale(0.82)",
-                  transformOrigin: "top center",
-                  marginBottom: "-36px",
-                }}
-              >
-                <DeliveryChallanPage order={order} />
-              </div>
-            ))}
+            <div
+              style={{
+                boxShadow: "0 6px 24px rgba(0,0,0,0.14)",
+                borderRadius: "2mm",
+                overflow: "hidden",
+                transform: "scale(0.82)",
+                transformOrigin: "top center",
+                marginBottom: "-36px",
+                width: "148mm",
+              }}
+              dangerouslySetInnerHTML={{ __html: challanHtml }}
+            />
             <div style={{ height: "10px" }} />
           </div>
         )}
 
-        {/* Footer */}
         <div
           style={{
             display: "flex",
@@ -638,14 +146,17 @@ const DeliveryChallanPDF = ({ open, onClose, dispatchData }) => {
           }}
         >
           {agriLoadBlocked ? (
-            <span style={{ fontSize: "12px", color: "#b45309", fontWeight: 600 }}>Printing disabled until Agri load is cleared.</span>
+            <span style={{ fontSize: "12px", color: "#b45309", fontWeight: 600 }}>
+              Printing disabled until Agri load is cleared.
+            </span>
           ) : (
             <span style={{ fontSize: "12px", color: "#6b7280" }}>
-              {dispatchData.orderIds?.length || 0} चलन · A5 Portrait
+              {orderCount} चलन · A5 Portrait
             </span>
           )}
           <span style={{ flex: 1, minWidth: 8 }} />
           <button
+            type="button"
             onClick={handlePrint}
             disabled={agriLoadBlocked}
             style={{
@@ -662,14 +173,6 @@ const DeliveryChallanPDF = ({ open, onClose, dispatchData }) => {
               gap: "7px",
             }}
           >
-            <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="2"
-                d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"
-              />
-            </svg>
             सर्व चलन प्रिंट करा
           </button>
         </div>

@@ -2,7 +2,6 @@ import React, { useState } from "react";
 import {
   Box,
   Button,
-  Paper,
   Table,
   TableBody,
   TableCell,
@@ -12,19 +11,15 @@ import {
   Typography,
   Chip,
   Stack,
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
   TextField,
 } from "@mui/material";
-import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import AddIcon from "@mui/icons-material/Add";
+import ParkIcon from "@mui/icons-material/Park";
 import { Toast } from "helpers/toasts/toastHelper";
 import SecondaryLagwadDialog from "../../dialogs/SecondaryLagwadDialog";
+import PipelineSectionCard from "../PipelineSectionCard";
+import PipelineEmptyState from "../PipelineEmptyState";
+import PipelineFormDialog from "../PipelineFormDialog";
 import {
   acknowledgePrimaryOutward,
   recordMortality,
@@ -33,6 +28,7 @@ import {
   apiErrText,
 } from "../../utils/pipelineApi";
 import { formatPipelineDate } from "../../utils/pipelineLabels";
+import { STAGES, tableHeadSx, tableRowSx, contentPaperSx } from "../../utils/pipelineTheme";
 
 function IncomingBlock({ batchId, rows, onRefresh }) {
   const [mortalityOpen, setMortalityOpen] = useState(false);
@@ -88,9 +84,9 @@ function IncomingBlock({ batchId, rows, onRefresh }) {
 
   return (
     <>
-      <TableContainer>
+      <TableContainer sx={contentPaperSx}>
         <Table size="small">
-          <TableHead>
+          <TableHead sx={tableHeadSx}>
             <TableRow>
               <TableCell>Date</TableCell>
               <TableCell align="right">Plants</TableCell>
@@ -101,14 +97,19 @@ function IncomingBlock({ batchId, rows, onRefresh }) {
           </TableHead>
           <TableBody>
             {incoming.map((row) => (
-              <TableRow key={String(row._id)}>
+              <TableRow key={String(row._id)} sx={tableRowSx}>
                 <TableCell>{formatPipelineDate(row.primaryOutwardDate)}</TableCell>
                 <TableCell align="right">{row.totalQuantity ?? row.availableQuantity ?? "—"}</TableCell>
                 <TableCell>
                   {row.secondaryAcknowledgedAt ? (
                     <Chip size="small" color="success" label="Yes" />
                   ) : (
-                    <Button size="small" onClick={() => handleAck(String(row._id))}>
+                    <Button
+                      size="small"
+                      variant="contained"
+                      onClick={() => handleAck(String(row._id))}
+                      sx={{ borderRadius: 2, textTransform: "none", bgcolor: STAGES.secondary.color }}
+                    >
                       Accept
                     </Button>
                   )}
@@ -146,33 +147,36 @@ function IncomingBlock({ batchId, rows, onRefresh }) {
         </Table>
       </TableContainer>
 
-      <Dialog open={mortalityOpen} onClose={() => setMortalityOpen(false)} maxWidth="xs" fullWidth>
-        <DialogTitle>Record mortality</DialogTitle>
-        <DialogContent>
-          <TextField
-            fullWidth
-            type="number"
-            label="Quantity"
-            value={mortalityQty}
-            onChange={(e) => setMortalityQty(e.target.value)}
-            sx={{ mt: 1, mb: 2 }}
-          />
-          <TextField
-            fullWidth
-            multiline
-            minRows={2}
-            label="Remarks"
-            value={mortalityRemarks}
-            onChange={(e) => setMortalityRemarks(e.target.value)}
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setMortalityOpen(false)}>Cancel</Button>
-          <Button variant="contained" color="warning" onClick={submitMortality}>
-            Save
-          </Button>
-        </DialogActions>
-      </Dialog>
+      <PipelineFormDialog
+        open={mortalityOpen}
+        onClose={() => setMortalityOpen(false)}
+        title="Record mortality"
+        subtitle="Loss during secondary sowing stage"
+        stageColor="#d97706"
+        onSubmit={(e) => {
+          e.preventDefault();
+          submitMortality();
+        }}
+        submitLabel="Save mortality"
+      >
+        <TextField
+          fullWidth
+          type="number"
+          label="Quantity (plants)"
+          value={mortalityQty}
+          onChange={(e) => setMortalityQty(e.target.value)}
+          sx={{ mb: 2, "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
+        />
+        <TextField
+          fullWidth
+          multiline
+          minRows={2}
+          label="Remarks"
+          value={mortalityRemarks}
+          onChange={(e) => setMortalityRemarks(e.target.value)}
+          sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
+        />
+      </PipelineFormDialog>
     </>
   );
 }
@@ -199,9 +203,9 @@ function SecondaryInwardTable({ batchId, rows, onRefresh }) {
 
   return (
     <>
-      <TableContainer>
+      <TableContainer sx={contentPaperSx}>
         <Table size="small">
-          <TableHead>
+          <TableHead sx={tableHeadSx}>
             <TableRow>
               <TableCell>Inward date</TableCell>
               <TableCell>Dispatch date</TableCell>
@@ -219,7 +223,7 @@ function SecondaryInwardTable({ batchId, rows, onRefresh }) {
               </TableRow>
             ) : (
               rows.map((row) => (
-                <TableRow key={String(row._id)}>
+                <TableRow key={String(row._id)} sx={tableRowSx}>
                   <TableCell>{formatPipelineDate(row.secondaryInwardDate)}</TableCell>
                   <TableCell>{formatPipelineDate(row.dateOfDispatch ?? row.expectedReadyDate)}</TableCell>
                   <TableCell>{row.size ?? "—"}</TableCell>
@@ -247,26 +251,29 @@ function SecondaryInwardTable({ batchId, rows, onRefresh }) {
         </Table>
       </TableContainer>
 
-      <Dialog open={bypassOpen} onClose={() => setBypassOpen(false)} maxWidth="xs" fullWidth>
-        <DialogTitle>Secondary readiness bypass</DialogTitle>
-        <DialogContent>
-          <TextField
-            fullWidth
-            multiline
-            minRows={2}
-            label="Reason"
-            value={bypassReason}
-            onChange={(e) => setBypassReason(e.target.value)}
-            sx={{ mt: 1 }}
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setBypassOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={submitBypass}>
-            Apply
-          </Button>
-        </DialogActions>
-      </Dialog>
+      <PipelineFormDialog
+        open={bypassOpen}
+        onClose={() => setBypassOpen(false)}
+        title="Mark ready for dispatch"
+        subtitle="Override expected ready date"
+        stageColor={STAGES.dispatch.color}
+        onSubmit={(e) => {
+          e.preventDefault();
+          submitBypass();
+        }}
+        submitLabel="Mark ready"
+      >
+        <TextField
+          fullWidth
+          multiline
+          minRows={3}
+          label="Reason"
+          value={bypassReason}
+          onChange={(e) => setBypassReason(e.target.value)}
+          required
+          sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
+        />
+      </PipelineFormDialog>
     </>
   );
 }
@@ -282,63 +289,55 @@ export default function SecondarySection({
 
   if (!batchId) {
     return (
-      <Paper sx={{ p: 3 }}>
-        <Typography color="text.secondary">Select a batch for secondary operations.</Typography>
-      </Paper>
+      <PipelineEmptyState
+        icon={ParkIcon}
+        title="Secondary shed"
+        description="Accept primary transfers, record lagwad sowing, and manage inward lines."
+        stageColor={STAGES.secondary.color}
+      />
     );
   }
 
   const primaryOutward = batchDoc?.primaryOutward ?? [];
   const secondaryInward = batchDoc?.secondaryInward ?? [];
+  const incomingCount = primaryOutward.filter((po) => !po.secondarySowingCompletedAt).length;
 
   return (
     <Box>
-      <Accordion defaultExpanded>
-        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-          <Typography fontWeight={600}>Incoming from primary</Typography>
-        </AccordionSummary>
-        <AccordionDetails>
-          <IncomingBlock batchId={batchId} rows={primaryOutward} onRefresh={onRefresh} />
-        </AccordionDetails>
-      </Accordion>
+      <PipelineSectionCard
+        stage={STAGES.primary}
+        title="Incoming from primary"
+        subtitle="Accept → sow → mark complete or record mortality"
+        count={incomingCount}
+      >
+        <IncomingBlock batchId={batchId} rows={primaryOutward} onRefresh={onRefresh} />
+      </PipelineSectionCard>
 
-      <Accordion defaultExpanded sx={{ mt: 1 }}>
-        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-          <Stack direction="row" alignItems="center" spacing={2} sx={{ width: "100%", pr: 2 }}>
-            <Typography fontWeight={600}>Secondary lagwad (sowing)</Typography>
-            <Box flex={1} />
-            <Button
-              size="small"
-              variant="contained"
-              startIcon={<AddIcon />}
-              onClick={(e) => {
-                e.stopPropagation();
-                setLagwadOpen(true);
-              }}
-            >
-              Add lagwad
-            </Button>
-          </Stack>
-        </AccordionSummary>
-        <AccordionDetails>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-            FIFO lagwad from acknowledged primary outward stock (batch-scoped).
-          </Typography>
-        </AccordionDetails>
-      </Accordion>
+      <PipelineSectionCard
+        stage={STAGES.secondary}
+        title="Secondary lagwad"
+        subtitle="FIFO sowing from acknowledged primary outward stock"
+        actionLabel="Add lagwad"
+        actionIcon={AddIcon}
+        onAction={() => setLagwadOpen(true)}
+      >
+        <Typography variant="body2" color="text.secondary">
+          Enter R1/R2/R3 split, cavity, polyhouse and labour — one session per size group (R3 separate from R1/R2).
+        </Typography>
+      </PipelineSectionCard>
 
-      <Accordion defaultExpanded sx={{ mt: 1 }}>
-        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-          <Typography fontWeight={600}>Secondary inward</Typography>
-        </AccordionSummary>
-        <AccordionDetails>
-          <SecondaryInwardTable
-            batchId={batchId}
-            rows={secondaryInward}
-            onRefresh={onRefresh}
-          />
-        </AccordionDetails>
-      </Accordion>
+      <PipelineSectionCard
+        stage={STAGES.secondary}
+        title="Secondary inward"
+        subtitle="Plants in secondary polyhouse — mark ready when dispatch date arrives"
+        count={secondaryInward.length}
+      >
+        <SecondaryInwardTable
+          batchId={batchId}
+          rows={secondaryInward}
+          onRefresh={onRefresh}
+        />
+      </PipelineSectionCard>
 
       <SecondaryLagwadDialog
         open={lagwadOpen}
