@@ -230,6 +230,8 @@ export const API = {
     GET_BIOTECH_SEED_MASTER: new APIRouter("/inventory/biotech-seed-master", HTTP_METHODS.GET),
     GET_SEED_DUAL_LINKS: new APIRouter("/inventory/seed-dual-links", HTTP_METHODS.GET),
     ASSIGN_SUBTYPE_SEED: new APIRouter("/inventory/seed-dual-links/assign", HTTP_METHODS.POST),
+    REMOVE_SUBTYPE_SEED_LINK: new APIRouter("/inventory/seed-dual-links/remove", HTTP_METHODS.POST),
+    GET_SUBTYPE_INVENTORY_LINKS: new APIRouter("/inventory/seed-dual-links/by-subtype", HTTP_METHODS.GET),
     GET_ALL_BIOTECH_SEED_PRODUCTS: new APIRouter("/inventory/biotech-seed-products", HTTP_METHODS.GET),
     CREATE_BIOTECH_SEED_PLANT: new APIRouter("/inventory/biotech-seed-products", HTTP_METHODS.POST),
     UPDATE_BIOTECH_SEED_PLANT: new APIRouter("/inventory/biotech-seed-products/:id", HTTP_METHODS.PATCH),
@@ -446,6 +448,10 @@ export const API = {
     GET_AGRI_SALES_ORDER_BATCH_SUMMARY: new APIRouter(
       "/inventory/agri-sales-orders/:id/batch-summary",
       HTTP_METHODS.GET
+    ),
+    GENERATE_AGRI_DELIVERY_CHALLAN_PDF: new APIRouter(
+      "/inventory/agri-sales-orders/:id/delivery-challan-pdf",
+      HTTP_METHODS.POST
     ),
     REQUEST_AGRI_SALES_RETURN: new APIRouter("/inventory/agri-sales-orders/returns/request", HTTP_METHODS.POST),
     LIST_AGRI_SALES_RETURN_REQUESTS: new APIRouter("/inventory/agri-sales-orders/returns", HTTP_METHODS.GET),

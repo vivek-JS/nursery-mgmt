@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, CheckCircle, XCircle, ShoppingCart, Package, FileText, Zap, X } from 'lucide-react';
+import { ArrowLeft, CheckCircle, XCircle, ShoppingCart, Package, FileText, Zap, X, MessageCircle } from 'lucide-react';
 import { API, NetworkManager } from '../../../network/core';
 import { formatDisplayDate } from '../../../utils/dateUtils';
 import { formatDecimal, formatCurrency } from '../../../utils/numberUtils';
+import { openPurchaseOrderWhatsApp } from './utils/poWhatsAppShare';
 
 const PurchaseOrderDetails = () => {
   const navigate = useNavigate();
@@ -389,6 +390,18 @@ const PurchaseOrderDetails = () => {
               </div>
 
               <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const result = openPurchaseOrderWhatsApp(po);
+                    if (!result.ok) alert(result.error);
+                  }}
+                  className="flex items-center space-x-2 bg-emerald-600 text-white px-6 py-3 rounded-xl hover:bg-emerald-700 transition-colors"
+                  title="Share PO to supplier WhatsApp"
+                >
+                  <MessageCircle className="w-5 h-5" />
+                  <span>WhatsApp</span>
+                </button>
                 {(po.status === 'draft' || po.status === 'pending') && (
                   <>
                     <button

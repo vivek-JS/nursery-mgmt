@@ -9,6 +9,7 @@ import {
   Search,
   Sprout,
   ExternalLink,
+  Trash2,
 } from "lucide-react";
 import { API, NetworkManager } from "network/core";
 import { Toast } from "helpers/toasts/toastHelper";
@@ -21,14 +22,14 @@ const statusBadge = (status) => {
   if (status === "linked") {
     return (
       <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">
-        Seed + Agri linked
+        Biotech + Agri linked
       </span>
     );
   }
   if (status === "seed_only") {
     return (
       <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
-        Seed only · Agri pending
+        Biotech only · Agri pending
       </span>
     );
   }
@@ -39,14 +40,54 @@ const statusBadge = (status) => {
   );
 };
 
-function SubtypeRow({ plant, row, onLinkSubtype }) {
-  const primary = row.products[0] || null;
-  const agriFromProduct = primary?.agriLink?.linked ? primary.agriLink : null;
-  const sourceLabel = primary
-    ? agriFromProduct
-      ? "Ram Agri Input"
-      : "Ram Biotech"
-    : null;
+function SubtypeRow({ plant, row, onLinkSubtype, onRemoveLink }) {
+  const products = row.products || [];
+  const agriVarieties = row.agriVarieties || [];
+  const inventoryLinks = row.inventoryLinks || [];
+  const bioCount = products.length || inventoryLinks.filter((l) => l.source === "BIOTECH").length;
+  const agriCount =
+    agriVarieties.length || inventoryLinks.filter((l) => l.source === "RAM_AGRI").length;
+  const sourceLabel =
+    bioCount && agriCount
+      ? `Biotech (${bioCount}) + Input (${agriCount})`
+      : bioCount
+        ? `Biotech (${bioCount})`
+        : agriCount
+          ? `Input (${agriCount})`
+          : null;
+
+  const removeByProduct = async (product) => {
+    const link =
+      inventoryLinks.find(
+        (l) =>
+          l.source === "BIOTECH" &&
+          String(l.productId?._id || l.productId) === String(product._id)
+      ) || null;
+    await onRemoveLink({
+      plantId: plant.plantId,
+      subtypeId: row.subtypeId,
+      linkId: link?._id,
+      source: "BIOTECH",
+      productId: product._id,
+    });
+  };
+
+  const removeByAgri = async (agri) => {
+    const link =
+      inventoryLinks.find(
+        (l) =>
+          l.source === "RAM_AGRI" &&
+          String(l.ramAgriVarietyId) === String(agri.varietyId)
+      ) || null;
+    await onRemoveLink({
+      plantId: plant.plantId,
+      subtypeId: row.subtypeId,
+      linkId: link?._id,
+      source: "RAM_AGRI",
+      cropId: agri.cropId,
+      varietyId: agri.varietyId,
+    });
+  };
 
   return (
     <tr className="border-t border-gray-100 hover:bg-gray-50/80">
@@ -54,22 +95,53 @@ function SubtypeRow({ plant, row, onLinkSubtype }) {
       <td className="px-4 py-3">{statusBadge(row.linkStatus)}</td>
       <td className="px-4 py-3 text-xs text-gray-500">{sourceLabel || "—"}</td>
       <td className="px-4 py-3 text-sm">
-        {primary ? (
-          <div className="text-xs">
-            <span className="font-mono font-medium text-gray-800">{primary.code}</span>
-            <span className="text-gray-500"> · {primary.name}</span>
-            <p className="text-gray-500 mt-0.5">Biotech stock {fmt(primary.currentStock)}</p>
-          </div>
+        {products.length > 0 ? (
+          <ul className="space-y-1.5">
+            {products.map((p) => (
+              <li key={p._id} className="flex items-start justify-between gap-2 text-xs">
+                <div>
+                  <span className="font-mono font-medium text-gray-800">{p.code}</span>
+                  <span className="text-gray-500"> · {p.name}</span>
+                  <p className="text-gray-500 mt-0.5">Biotech stock {fmt(p.currentStock)}</p>
+                </div>
+                <button
+                  type="button"
+                  title="Remove Biotech link"
+                  onClick={() => removeByProduct(p)}
+                  className="shrink-0 rounded p-1 text-red-500 hover:bg-red-50"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </li>
+            ))}
+          </ul>
         ) : (
-          <span className="text-xs text-gray-400">No seed assigned</span>
+          <span className="text-xs text-gray-400">No Biotech product</span>
         )}
       </td>
       <td className="px-4 py-3 text-sm">
-        {agriFromProduct ? (
-          <div className="text-xs text-violet-900">
-            {agriFromProduct.cropName} · {agriFromProduct.varietyName}
-            <p className="text-gray-500 mt-0.5">Agri stock {fmt(agriFromProduct.agriStock)}</p>
-          </div>
+        {agriVarieties.length > 0 ? (
+          <ul className="space-y-1.5">
+            {agriVarieties.map((a) => (
+              <li
+                key={`${a.cropId}-${a.varietyId}`}
+                className="flex items-start justify-between gap-2 text-xs text-violet-900"
+              >
+                <div>
+                  {a.cropName} · {a.varietyName}
+                  <p className="text-gray-500 mt-0.5">Agri stock {fmt(a.agriStock)}</p>
+                </div>
+                <button
+                  type="button"
+                  title="Remove Agri link"
+                  onClick={() => removeByAgri(a)}
+                  className="shrink-0 rounded p-1 text-red-500 hover:bg-red-50"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </li>
+            ))}
+          </ul>
         ) : (
           <span className="text-xs text-gray-400">—</span>
         )}
@@ -84,12 +156,14 @@ function SubtypeRow({ plant, row, onLinkSubtype }) {
               subtypeId: row.subtypeId,
               subtypeName: row.subtypeName,
               products: row.products,
+              agriVarieties: row.agriVarieties,
+              inventoryLinks: row.inventoryLinks,
             })
           }
           className="inline-flex items-center gap-1 rounded-lg border border-brand-200 bg-brand-50 px-3 py-1.5 text-xs font-semibold text-brand-800 hover:bg-brand-100"
         >
           <Link2 className="h-3.5 w-3.5" />
-          {primary ? "Edit seed link" : "Link seed"}
+          Add / manage links
         </button>
       </td>
     </tr>
@@ -126,6 +200,31 @@ export default function SeedDualInventoryLinks() {
       setLoading(false);
     }
   }, [unlinkedOnly, search]);
+
+  const handleRemoveLink = useCallback(
+    async ({ plantId, subtypeId, linkId, source, productId, cropId, varietyId }) => {
+      try {
+        const res = await NetworkManager(API.INVENTORY.REMOVE_SUBTYPE_SEED_LINK).request({
+          linkId,
+          plantId,
+          subtypeId,
+          source,
+          productId,
+          cropId,
+          varietyId,
+        });
+        if (isApiErrorResponse(res)) {
+          Toast.error(res.message || "Failed to remove link");
+          return;
+        }
+        Toast.success("Link removed");
+        await fetchLinks();
+      } catch (e) {
+        Toast.error(e?.response?.data?.message || e?.message || "Failed to remove link");
+      }
+    },
+    [fetchLinks]
+  );
 
   useEffect(() => {
     const t = setTimeout(fetchLinks, search ? 300 : 0);
@@ -181,8 +280,9 @@ export default function SeedDualInventoryLinks() {
 
       <div className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6">
         <div className="rounded-xl border border-blue-100 bg-blue-50/80 px-4 py-3 text-sm text-blue-900">
-          Each plant subtype can have <strong>only one seed</strong> — from Ram Biotech or Ram Agri Input
-          (not multiple). Click <strong>Link seed</strong> to assign or replace it.
+          Each plant subtype can link <strong>multiple Biotech products</strong> and{" "}
+          <strong>multiple Ram Agri Input varieties</strong>. Use trash to remove a link, or{" "}
+          <strong>Add / manage links</strong> to add more.
         </div>
 
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -259,14 +359,20 @@ export default function SeedDualInventoryLinks() {
                           <th className="px-4 py-2 text-left">Subtype</th>
                           <th className="px-4 py-2 text-left">Status</th>
                           <th className="px-4 py-2 text-left">Source</th>
-                          <th className="px-4 py-2 text-left">Linked seed</th>
-                          <th className="px-4 py-2 text-left">Ram Agri variety</th>
+                          <th className="px-4 py-2 text-left">Biotech products</th>
+                          <th className="px-4 py-2 text-left">Ram Agri varieties</th>
                           <th className="px-4 py-2 text-right">Action</th>
                         </tr>
                       </thead>
                       <tbody>
                         {plant.subtypes.map((st) => (
-                          <SubtypeRow key={st.subtypeId} plant={plant} row={st} onLinkSubtype={setLinkContext} />
+                          <SubtypeRow
+                            key={st.subtypeId}
+                            plant={plant}
+                            row={st}
+                            onLinkSubtype={setLinkContext}
+                            onRemoveLink={handleRemoveLink}
+                          />
                         ))}
                       </tbody>
                     </table>

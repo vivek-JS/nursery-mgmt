@@ -21,7 +21,6 @@ export function buildPoItemPayloads({
   units = [],
   autoGRN,
   isSuperAdmin,
-  hideExpiry = false,
 }) {
   return orderItems.map((item) => {
     if (item.isRamAgriProduct) {
@@ -47,10 +46,10 @@ export function buildPoItemPayloads({
         discount: 0,
         selectedUnitType: item.selectedUnitType || 'primary',
         conversionFactor: item.conversionFactor || variety?.conversionFactor || 1,
+        expiryDate: item.expiryDate || null,
       };
       if (autoGRN) {
         itemData.batchNumber = item.batchNumber || '';
-        if (!hideExpiry) itemData.expiryDate = item.expiryDate || null;
       }
       return itemData;
     }
@@ -71,6 +70,7 @@ export function buildPoItemPayloads({
       amount: (item.quantity || 0) * (item.rate || 0),
       gst: 0,
       discount: 0,
+      expiryDate: item.expiryDate || null,
     };
 
     if (isSuperAdmin) {
@@ -99,10 +99,16 @@ export function buildPoItemPayloads({
 
     if (autoGRN) {
       itemData.batchNumber = item.batchNumber || '';
-      if (!hideExpiry) itemData.expiryDate = item.expiryDate || null;
     }
     return itemData;
   });
+}
+
+/** Returns error message if any line is missing expiry date. */
+export function validateExpiryDates(orderItems) {
+  const missing = orderItems.findIndex((item) => !String(item.expiryDate || '').trim());
+  if (missing < 0) return null;
+  return `Expiry date is required on every line (missing on line ${missing + 1})`;
 }
 
 /** Returns error message or null if ready-plants rows are valid (super admin). */

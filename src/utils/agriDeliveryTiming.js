@@ -76,3 +76,49 @@ export function formatAgriOrderDeliveryLabel(deliveryDate, orderDate = new Date(
   const timing = inferAgriDeliveryTiming(deliveryDate, orderDate);
   return formatAgriDeliveryTimingLabel(timing, deliveryDate);
 }
+
+/**
+ * Normalize any picker/Date/string into API-safe ISO for agri delivery/order dates.
+ * Uses local calendar day + noon UTC so "आज" does not flip to the previous UTC day,
+ * and always matches backend validators that expect ...T...Z.
+ */
+export function toAgriApiDateISO(value) {
+  if (value == null || value === "") return null;
+
+  let localDay = null;
+
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return null;
+    localDay = startOfLocalDay(value);
+  } else if (typeof value === "object" && typeof value.toDate === "function") {
+    const asDate = value.toDate();
+    if (!(asDate instanceof Date) || Number.isNaN(asDate.getTime())) return null;
+    localDay = startOfLocalDay(asDate);
+  } else if (typeof value === "string") {
+    const trimmed = value.trim();
+    const ymd = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (ymd) {
+      localDay = new Date(Number(ymd[1]), Number(ymd[2]) - 1, Number(ymd[3]), 0, 0, 0, 0);
+    } else {
+      const dmy = trimmed.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
+      if (dmy) {
+        localDay = new Date(Number(dmy[3]), Number(dmy[2]) - 1, Number(dmy[1]), 0, 0, 0, 0);
+      } else {
+        const parsed = new Date(trimmed);
+        if (Number.isNaN(parsed.getTime())) return null;
+        localDay = startOfLocalDay(parsed);
+      }
+    }
+  } else {
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return null;
+    localDay = startOfLocalDay(parsed);
+  }
+
+  if (!localDay || Number.isNaN(localDay.getTime())) return null;
+
+  const y = localDay.getFullYear();
+  const m = String(localDay.getMonth() + 1).padStart(2, "0");
+  const d = String(localDay.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}T12:00:00.000Z`;
+}

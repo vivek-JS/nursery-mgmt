@@ -24,6 +24,7 @@ import { useUserRole } from "utils/roleUtils"
 import { useWorkspace } from "workspace/WorkspaceContext"
 import AgriModeChrome from "workspace/AgriModeChrome"
 import WorkspaceTopBar from "workspace/WorkspaceTopBar"
+import InventoryNavChrome from "pages/private/inventory/InventoryNavChrome"
 import {
   ACCOUNTING_PATH,
   AGRI_HUB_PATH,
@@ -96,7 +97,6 @@ export default function PrivateLayout(props) {
   const userData = useSelector((state) => state?.userData?.userData)
   const primaryRedirectRef = useRef(false)
   const secondaryRedirectRef = useRef(false)
-  const ramAgriSalesManagerRedirectRef = useRef(false)
   const agriLockedRedirectRef = useRef(false)
   const agriModeRedirectRef = useRef(false)
   const accountantRedirectRef = useRef(false)
@@ -121,12 +121,6 @@ export default function PrivateLayout(props) {
     isSuperAdmin
   const jtUpper = String(userData?.jobTitle || "").toUpperCase().trim()
   const roleUpper = String(userRole || "").toUpperCase().trim()
-  // Ram Agri programme leads: restricted nav like sales manager (Dashboard, Ram Agri inventory only)
-  const isRamAgriSalesManager =
-    jtUpper === "RAM_AGRI_SALES_MANAGER" ||
-    roleUpper === "RAM_AGRI_SALES_MANAGER" ||
-    jtUpper === "RAM_AGRI_SALES_OFFICE_MANAGER" ||
-    roleUpper === "RAM_AGRI_SALES_OFFICE_MANAGER"
   const isCashier = userType === "CASHIER" || userRole === "CASHIER" || userData?.jobTitle === "CASHIER"
 
   // Reset redirect flags when path changes (user navigated to a different route)
@@ -134,7 +128,6 @@ export default function PrivateLayout(props) {
     if (lastPathRef.current !== location.pathname) {
       primaryRedirectRef.current = false
       secondaryRedirectRef.current = false
-      ramAgriSalesManagerRedirectRef.current = false
       agriLockedRedirectRef.current = false
       agriModeRedirectRef.current = false
       accountantRedirectRef.current = false
@@ -187,26 +180,7 @@ export default function PrivateLayout(props) {
     }
   }, [isSecondaryEmployee, isSuperAdmin, isAdmin, location.pathname, navigate, userData])
 
-  // RAM_AGRI_SALES_MANAGER / RAM_AGRI_SALES_OFFICE_MANAGER can ONLY access: Dashboard, Ram Agri Input hub/dashboard, Inventory, Ram Agri Input Order, Ram Agri Inputs Master
-  useEffect(() => {
-    if (!userData) return
-    if (ramAgriSalesManagerRedirectRef.current) return
-    if (!isRamAgriSalesManager || isSuperAdmin || isAdmin) return
-    const p = location.pathname
-    const allowed =
-      p === "/u/dashboard" ||
-      p === "/u/inventory" ||
-      p.startsWith(AGRI_HUB_PATH) ||
-      p.startsWith("/u/inventory/ram-agri-sales-dashboard") ||
-      p.startsWith("/u/inventory/ram-agri-input-order") ||
-      p.startsWith("/u/inventory/ram-agri-inputs-master")
-    if (!allowed) {
-      ramAgriSalesManagerRedirectRef.current = true
-      navigate(AGRI_HOME_PATH, { replace: true })
-    }
-  }, [isRamAgriSalesManager, isSuperAdmin, isAdmin, location.pathname, navigate, userData])
-
-  // RAM_AGRI_MASTER / RAM_AGRI_INPUT_ADMIN: agri paths only (+ Master may use agri Accounting)
+  // RAM_AGRI_MASTER / RAM_AGRI_INPUT_ADMIN / RAM_AGRI_SALES_MANAGER: agri workspace paths only
   useEffect(() => {
     if (!userData) return
     if (agriLockedRedirectRef.current) return
@@ -502,16 +476,6 @@ export default function PrivateLayout(props) {
                 if (isSecondaryEmployee && !isSuperAdmin && !isAdmin) {
                   return false
                 }
-                
-                // RAM_AGRI_SALES_MANAGER / RAM_AGRI_SALES_OFFICE_MANAGER: only Dashboard, Ram Agri Input + Inventory
-                if (isRamAgriSalesManager && !isSuperAdmin && !isAdmin) {
-                  return (
-                    item.route === "/u/dashboard" ||
-                    item.route === AGRI_HUB_PATH ||
-                    item.route === "/u/inventory/ram-agri-sales-dashboard" ||
-                    item.route === "/u/inventory"
-                  )
-                }
 
                 // Agri workspace: agri menus + Accounting (Ram Agri org only) for allowed roles
                 if (isAgriMode || agriLocked) {
@@ -572,6 +536,7 @@ export default function PrivateLayout(props) {
       <Main open={false} sx={hideSidebar ? { marginLeft: 0, padding: 0, minWidth: 0 } : { minWidth: 0 }}>
         <WorkspaceTopBar />
         <AgriModeChrome />
+        <InventoryNavChrome />
         <Outlet />
       </Main>
       

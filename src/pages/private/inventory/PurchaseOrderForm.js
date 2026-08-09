@@ -3,8 +3,9 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Save } from 'lucide-react';
 import 'react-datepicker/dist/react-datepicker.css';
 import { API, NetworkManager } from '../../../network/core';
-import { useIsSuperAdmin } from '../../../utils/roleUtils';
+import { useIsSuperAdmin, useUserData } from '../../../utils/roleUtils';
 import { useWorkspace } from '../../../workspace/WorkspaceContext';
+import { canPurchaseOrderAutoAccept } from '../../../workspace/agriAccess';
 import {
   getRamAgriProductTypeRadioLabel,
   normalizeRamAgriProductType,
@@ -18,6 +19,7 @@ import {
 import {
   buildPoItemPayloads,
   validateReadyPlantsItems,
+  validateExpiryDates,
 } from './components/po/poSubmitHelpers';
 
 const PurchaseOrderForm = () => {
@@ -25,6 +27,8 @@ const PurchaseOrderForm = () => {
   const { id } = useParams();
   const isEditMode = !!id;
   const isSuperAdmin = useIsSuperAdmin();
+  const user = useUserData();
+  const canPoAutoAccept = canPurchaseOrderAutoAccept(user);
   const { isAgriMode } = useWorkspace();
 
   const [loading, setLoading] = useState(false);
@@ -50,7 +54,7 @@ const PurchaseOrderForm = () => {
     expectedDeliveryDate: new Date().toISOString().split('T')[0],
     supplierInvoiceNumber: '',
     notes: '',
-    autoGRN: true,
+    autoGRN: false,
   });
   const [invoiceFile, setInvoiceFile] = useState(null);
   const [existingInvoiceUrl, setExistingInvoiceUrl] = useState('');
@@ -74,6 +78,12 @@ const PurchaseOrderForm = () => {
         })),
     [merchants]
   );
+
+  useEffect(() => {
+    if (!isEditMode && canPoAutoAccept) {
+      setFormData((prev) => ({ ...prev, autoGRN: true }));
+    }
+  }, [canPoAutoAccept, isEditMode]);
 
   useEffect(() => {
     loadMerchants();
@@ -519,6 +529,12 @@ const PurchaseOrderForm = () => {
       return;
     }
 
+    const expiryErr = validateExpiryDates(orderItems);
+    if (expiryErr) {
+      alert(expiryErr);
+      return;
+    }
+
     if (isSuperAdmin && !isAgriMode) {
       const readyErr = validateReadyPlantsItems(orderItems, products);
       if (readyErr) {
@@ -536,7 +552,6 @@ const PurchaseOrderForm = () => {
         units,
         autoGRN: formData.autoGRN,
         isSuperAdmin: isAgriMode ? false : isSuperAdmin,
-        hideExpiry: isAgriMode,
       });
 
       const fd = new FormData();
@@ -562,7 +577,7 @@ const PurchaseOrderForm = () => {
         }
       } else {
         fd.append('supplier', selectedSupplier._id);
-        fd.append('autoGRN', formData.autoGRN ? 'true' : 'false');
+        fd.append('autoGRN', canPoAutoAccept && formData.autoGRN ? 'true' : 'false');
         const instance = NetworkManager(API.INVENTORY.CREATE_PURCHASE_ORDER);
         const response = await instance.request(fd);
         if (response?.data?.success || response?.data?.status === 'Success') {
@@ -674,6 +689,7 @@ const PurchaseOrderForm = () => {
           invoiceFile={invoiceFile}
           onInvoiceFileChange={setInvoiceFile}
           existingInvoiceUrl={existingInvoiceUrl}
+          canPoAutoAccept={canPoAutoAccept}
         />
 
         <PoItemsTable

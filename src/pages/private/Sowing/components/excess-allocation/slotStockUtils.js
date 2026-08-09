@@ -141,6 +141,8 @@ export function flattenStockBoardSlots(plants = []) {
           slotId: slot.slotId,
           slotStartDay: slot.slotStartDay,
           slotEndDay: slot.slotEndDay,
+          sowByDate: slot.sowByDate,
+          isOverdue: Boolean(slot.isOverdue),
           availablePlants: available,
           totalBookedPlants: booked,
           primarySowed: sowed,
@@ -179,6 +181,23 @@ export function filterSlotRows(rows, query) {
       String(r.slotStartDay || "").includes(q) ||
       String(r.slotEndDay || "").includes(q)
   )
+}
+
+export function groupSlotsByMonth(rows, monthKeyFn) {
+  const map = new Map()
+  for (const row of rows) {
+    const key = monthKeyFn(row)
+    if (!map.has(key)) map.set(key, [])
+    map.get(key).push(row)
+  }
+  return [...map.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, slots]) => ({
+      monthKey: key,
+      slots: [...slots].sort(compareSlotsByDate),
+      totalAvailable: slots.reduce((s, r) => s + (Number(r.availablePlants) || 0), 0),
+      totalGap: slots.reduce((s, r) => s + (Number(r.gap) || 0), 0),
+    }))
 }
 
 export function groupSlotsByPlant(rows) {

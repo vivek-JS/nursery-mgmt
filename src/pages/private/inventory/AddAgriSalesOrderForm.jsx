@@ -48,11 +48,13 @@ import LocationSelector from "components/LocationSelector";
 import { useUserData } from "utils/roleUtils";
 import { buildAgriEditFormStateFromOrderRow } from "../dashboard/agriSalesOrderEditPrefill";
 import AgriDeliveryTimingField from "./components/AgriDeliveryTimingField";
+import AgriOrderPartyChannel from "./components/AgriOrderPartyChannel";
 import {
   AGRI_DELIVERY_TIMING,
   formatAgriDeliveryTimingLabel,
   inferAgriDeliveryTiming,
   resolveAgriDeliveryDate,
+  toAgriApiDateISO,
 } from "utils/agriDeliveryTiming";
 import {
   isAgriDealerSelf,
@@ -199,6 +201,10 @@ const AddAgriSalesOrderForm = ({
   const [ramAgriSalesRepOptions, setRamAgriSalesRepOptions] = useState([]);
   const [agriSalesPersonId, setAgriSalesPersonId] = useState("");
   const [ramAgriLimitSummary, setRamAgriLimitSummary] = useState(null);
+  const [orderChannel, setOrderChannel] = useState("RETAIL");
+  const [merchants, setMerchants] = useState([]);
+  const [selectedMerchantId, setSelectedMerchantId] = useState("");
+  const [loadingMerchants, setLoadingMerchants] = useState(false);
 
   // Debounced mobile number for customer lookup
   const debouncedMobileNumber = useDebounce(formData?.customerMobile || "", 500);
@@ -255,6 +261,59 @@ const AddAgriSalesOrderForm = ({
       loadRamAgriSalesReps();
     }
   }, [open, isRamAgriRepUser, isDealerSelfUser]);
+
+  const loadMerchantsForB2B = async () => {
+    setLoadingMerchants(true);
+    try {
+      const instance = NetworkManager(API.INVENTORY.GET_ALL_MERCHANTS_SIMPLE);
+      const res = await instance.request();
+      const list = res?.data?.data || res?.data || [];
+      setMerchants(Array.isArray(list) ? list : []);
+    } catch (e) {
+      console.error("Error loading merchants:", e);
+      setMerchants([]);
+    } finally {
+      setLoadingMerchants(false);
+    }
+  };
+
+  useEffect(() => {
+    if (open && orderChannel === "B2B" && merchants.length === 0) {
+      loadMerchantsForB2B();
+    }
+  }, [open, orderChannel]);
+
+  const handleOrderChannelChange = (channel) => {
+    setOrderChannel(channel);
+    if (channel !== "B2B") {
+      setSelectedMerchantId("");
+    } else if (merchants.length === 0) {
+      loadMerchantsForB2B();
+    }
+  };
+
+  const handleMerchantSelect = (merchant) => {
+    if (!merchant) {
+      setSelectedMerchantId("");
+      return;
+    }
+    setSelectedMerchantId(merchant._id);
+    const village =
+      merchant.address?.village ||
+      merchant.address?.city ||
+      (typeof merchant.address === "string" ? merchant.address : "") ||
+      "";
+    setFormData((prev) => ({
+      ...prev,
+      customerName: merchant.name || prev.customerName,
+      customerMobile: String(merchant.phone || "").replace(/\D/g, "").slice(-10) || prev.customerMobile,
+      customerVillage: village || prev.customerVillage,
+      customerTaluka: merchant.address?.taluka || merchant.address?.state || prev.customerTaluka,
+      customerDistrict: merchant.address?.district || merchant.address?.city || prev.customerDistrict,
+      customerState: merchant.address?.state || prev.customerState || "Maharashtra",
+    }));
+    setCustomerData({});
+  };
 
   useEffect(() => {
     if (open && isDealerSelfUser && !isEditMode && !isLinkedFlow) {
@@ -992,7 +1051,11 @@ const AddAgriSalesOrderForm = ({
       Toast.error("Unable to resolve your user id; please re-login");
       return false;
     }
-    if (!isRamAgriRepUser && !isDealerSelfUser && !agriSalesPersonId && !isEditMode) {
+    if (orderChannel === "B2B" && !selectedMerchantId) {
+      Toast.error("Please select a merchant for B2B order");
+      return false;
+    }
+    if (!isRamAgriRepUser && !isDealerSelfUser && !agriSalesPersonId && !isEditMode && orderChannel !== "B2B") {
       Toast.error("Please select sales person");
       return false;
     }
@@ -1005,8 +1068,10 @@ const AddAgriSalesOrderForm = ({
       Toast.error("Please pick a delivery date (तारीख निवडा)");
       return false;
     }
-
-    // Validate payment if provided (create flow only)
+    if (!toAgriApiDateISO(formData.deliveryDate)) {
+      Toast.error("Invalid delivery date. Please choose आज / उद्या or pick a valid date.");
+      return false;
+    }
     if (!isEditMode && paymentData.paidAmount && parseFloat(paymentData.paidAmount) > 0) {
       if (!paymentData.isWalletPayment && !paymentData.modeOfPayment) {
         Toast.error("Please select payment mode");
@@ -1108,9 +1173,13 @@ const AddAgriSalesOrderForm = ({
         customerDistrict: formData.customerDistrict || "",
         customerState: formData.customerState || "Maharashtra",
         lineItems,
-        orderDate: formData.orderDate instanceof Date ? formData.orderDate.toISOString() : formData.orderDate,
-        deliveryDate: formData.deliveryDate ? (formData.deliveryDate instanceof Date ? formData.deliveryDate.toISOString() : formData.deliveryDate) : null,
+        orderDate: toAgriApiDateISO(formData.orderDate) || new Date().toISOString(),
+        deliveryDate: toAgriApiDateISO(formData.deliveryDate),
         notes: formData.notes || "",
+        orderChannel: orderChannel === "B2B" ? "B2B" : "RETAIL",
+        ...(orderChannel === "B2B" && selectedMerchantId
+          ? { merchant: selectedMerchantId }
+          : {}),
       };
 
       if (isDealerSelfUser) {
@@ -1271,6 +1340,8 @@ const AddAgriSalesOrderForm = ({
     setCustomerData({});
     setAgriSalesPersonId("");
     setRamAgriLimitSummary(null);
+    setOrderChannel("RETAIL");
+    setSelectedMerchantId("");
     onClose();
   };
 
@@ -1327,6 +1398,16 @@ const AddAgriSalesOrderForm = ({
           <Typography className={classes.sectionTitle}>
             <PersonIcon /> Customer Information
           </Typography>
+          {!isLinkedFlow && !isDealerSelfUser && (
+            <AgriOrderPartyChannel
+              orderChannel={orderChannel}
+              onOrderChannelChange={handleOrderChannelChange}
+              merchants={merchants}
+              selectedMerchantId={selectedMerchantId}
+              onMerchantChange={handleMerchantSelect}
+              loadingMerchants={loadingMerchants}
+            />
+          )}
           {isLinkedFlow && (
             <Alert severity="info" sx={{ mb: 1, py: 0.5 }}>
               Linked with nursery order #
@@ -1498,7 +1579,7 @@ const AddAgriSalesOrderForm = ({
             </Grid>
           </Grid>
 
-          {!isRamAgriRepUser && !isDealerSelfUser && (
+          {!isRamAgriRepUser && !isDealerSelfUser && orderChannel !== "B2B" && (
             <>
               <Typography className={classes.sectionTitle} sx={{ mt: 0.5 }}>
                 <PersonIcon sx={{ fontSize: "1rem" }} /> Sales person
@@ -1517,6 +1598,32 @@ const AddAgriSalesOrderForm = ({
                     loading={loading}
                     renderInput={(params) => (
                       <TextField {...params} label="Ram Agri / Sales *" placeholder="Select sales person" />
+                    )}
+                  />
+                </Grid>
+              </Grid>
+            </>
+          )}
+
+          {!isRamAgriRepUser && !isDealerSelfUser && orderChannel === "B2B" && (
+            <>
+              <Typography className={classes.sectionTitle} sx={{ mt: 0.5 }}>
+                <PersonIcon sx={{ fontSize: "1rem" }} /> Sales person (optional)
+              </Typography>
+              <Grid container spacing={1}>
+                <Grid item xs={12} sm={6}>
+                  <Autocomplete
+                    fullWidth
+                    size="small"
+                    sx={searchableDropdownSx}
+                    options={ramAgriSalesRepOptions}
+                    value={ramAgriSalesRepOptions.find((o) => o.value === agriSalesPersonId) || null}
+                    onChange={(_, opt) => setAgriSalesPersonId(opt?.value || "")}
+                    getOptionLabel={(o) => o?.label || ""}
+                    isOptionEqualToValue={(a, b) => a?.value === b?.value}
+                    loading={loading}
+                    renderInput={(params) => (
+                      <TextField {...params} label="Ram Agri / Sales" placeholder="Optional attribution" />
                     )}
                   />
                 </Grid>

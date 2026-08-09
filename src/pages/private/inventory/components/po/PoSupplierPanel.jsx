@@ -13,6 +13,7 @@ export default function PoSupplierPanel({
   invoiceFile,
   onInvoiceFileChange,
   existingInvoiceUrl,
+  canPoAutoAccept = false,
 }) {
   const invoiceRequired = !!formData.autoGRN;
   const supplierOptions = useMemo(
@@ -135,6 +136,7 @@ export default function PoSupplierPanel({
       </div>
 
       <div className="col-span-12 sm:col-span-6 lg:col-span-3 flex items-end">
+        {canPoAutoAccept ? (
         <label className="flex items-start gap-2.5 w-full px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 cursor-pointer hover:bg-emerald-50/60 transition">
           <input
             type="checkbox"
@@ -147,10 +149,15 @@ export default function PoSupplierPanel({
           <span>
             <span className="block text-sm font-medium text-slate-800">Auto GRN on approve</span>
             <span className="block text-[11px] text-slate-500 leading-snug">
-              Stock updates when PO is approved. Invoice number & file required only when this is on.
+              PO auto-approved on save; stock updates when invoice is attached.
             </span>
           </span>
         </label>
+        ) : (
+          <p className="text-[11px] text-slate-500 px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 w-full">
+            PO will stay pending until an admin approves it.
+          </p>
+        )}
       </div>
 
       <div className="col-span-12 sm:col-span-6 lg:col-span-2">

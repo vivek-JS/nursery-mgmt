@@ -6,6 +6,8 @@ export const WORKSPACE_AGRI = "agri"
 
 export const JOB_RAM_AGRI_MASTER = "RAM_AGRI_MASTER"
 export const JOB_RAM_AGRI_INPUT_ADMIN = "RAM_AGRI_INPUT_ADMIN"
+export const JOB_RAM_AGRI_SALES_MANAGER = "RAM_AGRI_SALES_MANAGER"
+export const JOB_RAM_AGRI_SALES_OFFICE_MANAGER = "RAM_AGRI_SALES_OFFICE_MANAGER"
 
 /** Base agri ops tabs — Overview embed is Master + Super Admin. */
 export const AGRI_ADMIN_TABS = [
@@ -22,6 +24,10 @@ export const AGRI_MASTER_TABS = [
   "inputs-master",
   "agri-payments",
 ]
+
+/** Ram Biotech seed catalog — programme leads in agri workspace. */
+export const AGRI_BIOTECH_SEED_TAB = "biotech-seed-master"
+export const BIOTECH_SEED_MASTER_PATH = "/u/inventory/biotech-seed-master"
 
 export const AGRI_HUB_PATH = "/u/ram-agri-input"
 /** Default landing in Ram Agri workspace — Orders dashboard (Ram Agri Input list). */
@@ -83,9 +89,49 @@ export function isRamAgriInputAdmin(user) {
   return j === JOB_RAM_AGRI_INPUT_ADMIN || r === JOB_RAM_AGRI_INPUT_ADMIN
 }
 
+export function isRamAgriSalesManager(user) {
+  const j = normalizeJob({ jobTitle: user?.jobTitle })
+  const r = normalizeJob({ jobTitle: user?.role })
+  return j === JOB_RAM_AGRI_SALES_MANAGER || r === JOB_RAM_AGRI_SALES_MANAGER
+}
+
+export function isRamAgriSalesOfficeManager(user) {
+  const j = normalizeJob({ jobTitle: user?.jobTitle })
+  const r = normalizeJob({ jobTitle: user?.role })
+  return j === JOB_RAM_AGRI_SALES_OFFICE_MANAGER || r === JOB_RAM_AGRI_SALES_OFFICE_MANAGER
+}
+
+/** Sales manager + office manager — full Ram Agri workspace (collect blocked elsewhere). */
+export function isRamAgriSalesProgramLead(user) {
+  return (
+    isRamAgriSalesManager(user) ||
+    isRamAgriSalesOfficeManager(user) ||
+    isRamAgriMaster(user)
+  )
+}
+
+/** Biotech Seed Master in agri workspace — sales programme leads + super admin. */
+export function canSeeBiotechSeedMaster(user) {
+  return isRamAgriSalesProgramLead(user) || isSuperAdminUser(user)
+}
+
+/**
+ * Inventory PO auto-approve + auto GRN on create.
+ * Super Admin, Ram Agri Master (inputs/biotech master), Ram Agri Sales Manager.
+ */
+export function canPurchaseOrderAutoAccept(user) {
+  if (isSuperAdminUser(user) || isRamAgriSalesProgramLead(user)) return true
+  return false
+}
+
 /** Forced agri-only (no biotech sidebar / no switch back). */
 export function isAgriLockedRole(user) {
-  return isRamAgriMaster(user) || isRamAgriInputAdmin(user)
+  return (
+    isRamAgriMaster(user) ||
+    isRamAgriInputAdmin(user) ||
+    isRamAgriSalesManager(user) ||
+    isRamAgriSalesOfficeManager(user)
+  )
 }
 
 export function canUseWorkspaceSwitch(user) {
@@ -117,8 +163,9 @@ export function forceRamAgriAccountingOrg(user, isAgriMode) {
 
 export function tabsForUser(user) {
   let tabs
-  if (isRamAgriMaster(user)) tabs = [...AGRI_MASTER_TABS]
-  else if (isRamAgriInputAdmin(user)) tabs = [...AGRI_ADMIN_TABS]
+  if (isRamAgriSalesProgramLead(user)) {
+    tabs = [...AGRI_MASTER_TABS]
+  } else if (isRamAgriInputAdmin(user)) tabs = [...AGRI_ADMIN_TABS]
   else {
     const j = normalizeJob({ jobTitle: user?.jobTitle })
     const r = normalizeJob({ jobTitle: user?.role })
@@ -136,9 +183,12 @@ export function tabsForUser(user) {
       tabs = [...AGRI_ADMIN_TABS, "inputs-master"]
     }
   }
-  // Overview (sales dashboard embed) — Ram Agri Master + Super Admin
-  if (isRamAgriMaster(user) || isSuperAdminUser(user)) {
+  // Overview (sales dashboard embed) — programme leads + Super Admin
+  if (isRamAgriSalesProgramLead(user) || isSuperAdminUser(user)) {
     tabs = ["overview", ...tabs.filter((t) => t !== "overview")]
+  }
+  if (canSeeBiotechSeedMaster(user) && !tabs.includes(AGRI_BIOTECH_SEED_TAB)) {
+    tabs = [...tabs, AGRI_BIOTECH_SEED_TAB]
   }
   return tabs
 }
@@ -158,7 +208,7 @@ export function isAgriPathAllowed(pathname) {
   )
 }
 
-/** Master / accountant / super may collect agri sales payments. */
+/** Master / accountant / super may collect agri sales payments — not RAM_AGRI_SALES_MANAGER. */
 export function hasAgriPaymentCollectAccess(user) {
   if (isRamAgriMaster(user)) return true
   const j = normalizeJob({ jobTitle: user?.jobTitle })
@@ -182,6 +232,11 @@ export const TAB_META = [
   { id: "agri-order", label: "Orders", path: AGRI_HOME_PATH },
   { id: "inputs-master", label: "Inputs master", path: "/u/inventory/ram-agri-inputs-master" },
   { id: "agri-payments", label: "Agri payments", path: null },
+  {
+    id: AGRI_BIOTECH_SEED_TAB,
+    label: "Biotech seed master",
+    path: BIOTECH_SEED_MASTER_PATH,
+  },
 ]
 
 /** Inventory hub cards/actions allowed in agri workspace (by path). */
@@ -199,6 +254,8 @@ export function isAgriInventoryMenuPathAllowed(path) {
     "/u/inventory/ram-agri-inputs-master",
     "/u/inventory/ram-agri-input-order",
     "/u/inventory/ram-agri-sales-dashboard",
+    BIOTECH_SEED_MASTER_PATH,
+    "/u/inventory/seed-dual-links",
   ]
   if (p === "/u/inventory/products/new") return false
   return allowed.some((a) => p === a || p.startsWith(`${a}/`) || p.startsWith(a))

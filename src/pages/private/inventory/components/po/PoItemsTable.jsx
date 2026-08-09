@@ -37,7 +37,6 @@ export default function PoItemsTable({
   const th =
     'px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-slate-500 whitespace-nowrap';
   const showAdminColumns = isSuperAdmin && !isAgriMode;
-  const showExpiry = autoGRN && !isAgriMode;
 
   return (
     <div className="flex-1 min-h-0 flex flex-col bg-white">
@@ -150,12 +149,10 @@ export default function PoItemsTable({
                     <th className={th}>Ready plants</th>
                   </>
                 ) : null}
-                {autoGRN ? (
-                  <>
-                    <th className={th}>Batch / lot</th>
-                    {showExpiry ? <th className={th}>Expiry</th> : null}
-                  </>
-                ) : null}
+                {autoGRN ? <th className={th}>Batch / lot</th> : null}
+                <th className={th}>
+                  Expiry <span className="text-rose-500">*</span>
+                </th>
                 <th className={th}>Amount</th>
                 <th className={th} />
               </tr>

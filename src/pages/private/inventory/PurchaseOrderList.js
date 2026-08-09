@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Search, Filter, Eye, ShoppingCart } from 'lucide-react';
+import { Plus, Search, Filter, Eye, ShoppingCart, MessageCircle } from 'lucide-react';
 import { API, NetworkManager } from '../../../network/core';
 import { formatDisplayDate } from '../../../utils/dateUtils';
 import { formatDecimal, formatCurrency } from '../../../utils/numberUtils';
+import { openPurchaseOrderWhatsApp } from './utils/poWhatsAppShare';
 
 const PurchaseOrderList = () => {
   const navigate = useNavigate();
@@ -202,6 +203,17 @@ const PurchaseOrderList = () => {
                     </div>
 
                     <div className="flex space-x-2 ml-4">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const result = openPurchaseOrderWhatsApp(po);
+                          if (!result.ok) alert(result.error);
+                        }}
+                        className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                        title="WhatsApp to supplier"
+                      >
+                        <MessageCircle className="w-5 h-5" />
+                      </button>
                       <button
                         onClick={() => navigate(`/u/inventory/purchase-orders/${po._id}`)}
                         className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors"

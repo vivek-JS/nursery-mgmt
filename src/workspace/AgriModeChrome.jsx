@@ -26,6 +26,7 @@ function pathToTab(pathname) {
     return "inventory"
   }
   if (pathname.includes("/ram-agri-sales-dashboard")) return "overview"
+  if (pathname.includes("/biotech-seed-master")) return "biotech-seed-master"
   return null
 }
 

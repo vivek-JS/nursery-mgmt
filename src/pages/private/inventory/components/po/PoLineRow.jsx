@@ -59,7 +59,6 @@ export default function PoLineRow({
   const slotsLoading = loadingSlots[item.productId];
   const isPlantCat = product && String(product.category || '').toLowerCase() === 'plants';
   const showAdminColumns = isSuperAdmin && !isAgriMode;
-  const showExpiry = autoGRN && !isAgriMode;
 
   return (
     <tr className="group hover:bg-emerald-50/30 transition-colors align-top">
@@ -205,28 +204,26 @@ export default function PoLineRow({
       ) : null}
 
       {autoGRN ? (
-        <>
-          <td className="px-3 py-2.5 min-w-[120px]">
-            <input
-              type="text"
-              value={item.batchNumber || ''}
-              onChange={(e) => updateOrderItem(index, 'batchNumber', e.target.value)}
-              placeholder="Auto if empty"
-              className={inputClass}
-            />
-          </td>
-          {showExpiry ? (
-            <td className="px-3 py-2.5 min-w-[130px]">
-              <input
-                type="date"
-                value={item.expiryDate || ''}
-                onChange={(e) => updateOrderItem(index, 'expiryDate', e.target.value)}
-                className={inputClass}
-              />
-            </td>
-          ) : null}
-        </>
+        <td className="px-3 py-2.5 min-w-[120px]">
+          <input
+            type="text"
+            value={item.batchNumber || ''}
+            onChange={(e) => updateOrderItem(index, 'batchNumber', e.target.value)}
+            placeholder="Auto if empty"
+            className={inputClass}
+          />
+        </td>
       ) : null}
+
+      <td className="px-3 py-2.5 min-w-[130px]">
+        <input
+          type="date"
+          value={item.expiryDate || ''}
+          onChange={(e) => updateOrderItem(index, 'expiryDate', e.target.value)}
+          required
+          className={inputClass}
+        />
+      </td>
 
       <td className="px-3 py-2.5 whitespace-nowrap">
         <span className="text-sm font-semibold text-slate-800">

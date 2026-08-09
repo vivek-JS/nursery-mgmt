@@ -33,3 +33,21 @@ export async function rejectAgriReturnRequest(id, reviewNotes = "") {
   const instance = NetworkManager(API.INVENTORY.REJECT_AGRI_SALES_RETURN_REQUEST);
   return instance.request({ reviewNotes }, [id]);
 }
+
+/** Same payload as FarmerOrdersTable complete modal — completes order with optional return. */
+export async function completeAgriSalesOrderWithReturn({
+  orderId,
+  returnQuantity = 0,
+  returnReason = "",
+  returnNotes = "",
+}) {
+  const instance = NetworkManager(API.INVENTORY.COMPLETE_AGRI_SALES_ORDERS);
+  const id = String(orderId);
+  const res = await instance.request({
+    orderIds: [id],
+    returnQuantities: { [id]: Number(returnQuantity) || 0 },
+    returnReason: returnReason || "",
+    returnNotes: returnNotes || "",
+  });
+  return res?.data?.data || res?.data;
+}

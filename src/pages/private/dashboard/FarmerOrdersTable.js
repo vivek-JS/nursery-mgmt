@@ -35,6 +35,10 @@ import {
   slotDayEndMoment,
   slotDayStartMoment,
 } from "utils/istSlotDate"
+import {
+  getAgriDeliveryChallanUrl,
+  openOrGenerateAgriDeliveryChallan,
+} from "utils/agriDeliveryChallan"
 import SplitOrderDialog from "../Dispatch/components/SplitOrderDialog"
 import { OrderStatusPickerPortal, OrderStatusTrigger } from "./OrderStatusPicker"
 import moment from "moment"
@@ -80,7 +84,7 @@ import {
   formatAgriDisplayOrderKey,
   isRamAgriOrderRow,
 } from "./agriSalesOrderEditPrefill"
-import { isRamAgriMaster } from "../../../workspace/agriAccess"
+import { isRamAgriMaster, isAgriLockedRole } from "../../../workspace/agriAccess"
 import { isLinkedGiftAgriOrder } from "utils/dispatchOrderGifts"
 import OrderTimeline from "components/OrderTimeline"
 import { Toast } from "helpers/toasts/toastHelper"
@@ -2573,11 +2577,9 @@ const FarmerOrdersTable = ({
     userJobRoleUpper === "SALES"
   const isRamAgriMasterUser = isRamAgriMaster(user)
   const { isAgriMode } = useWorkspace()
-  const isRamAgriWorkspaceLocked =
-    userJobRoleUpper === "RAM_AGRI_MASTER" || userJobRoleUpper === "RAM_AGRI_INPUT_ADMIN"
-  /** Agri workspace, Master/Admin, or Ram Agri programme leads: plant orders hidden — Ram Agri Input only */
-  const forceAgriOrdersOnly =
-    isAgriMode || isRamAgriWorkspaceLocked || isRamAgriSalesManager
+  const isRamAgriWorkspaceLocked = isAgriLockedRole(user)
+  /** Agri workspace or locked agri roles: plant orders hidden — Ram Agri Input only */
+  const forceAgriOrdersOnly = isAgriMode || isRamAgriWorkspaceLocked
   const isAgriLoadAdmin = ["RAM_AGRI_SALES_MANAGER", "RAM_AGRI_SALES_OFFICE_MANAGER", "ADMIN", "SUPER_ADMIN"].includes(
     userJobRoleUpper
   )
@@ -2587,18 +2589,13 @@ const FarmerOrdersTable = ({
     [orders]
   )
 
-  // Ram Agri workspace: only Ram Agri Input orders. Biotech mode restores plant list (sales manager stays agri-default).
   useEffect(() => {
     if (forceAgriOrdersOnly) {
       setShowAgriSalesOrders(true)
       return
     }
-    if (isRamAgriSalesManager) {
-      setShowAgriSalesOrders(true)
-      return
-    }
     setShowAgriSalesOrders(false)
-  }, [forceAgriOrdersOnly, isRamAgriSalesManager])
+  }, [forceAgriOrdersOnly])
 
   const openAgriSalesOrderModal = React.useCallback(() => {
     setLinkedAgriSourceOrder(null)
@@ -5322,8 +5319,9 @@ const loadFilterOptions = async () => {
       const response = await instance.request(payload)
 
       if (response?.data) {
+        const dispatchedIds = [...selectedAgriSalesOrders]
         Toast.success(
-          `${selectedAgriSalesOrders.length} order(s) dispatched successfully via ${
+          `${dispatchedIds.length} order(s) dispatched successfully via ${
             agriDispatchForm.dispatchMode === "COURIER"
               ? "courier"
               : agriDispatchForm.dispatchMode === "WITH_ORDER"
@@ -5350,6 +5348,25 @@ const loadFilterOptions = async () => {
         setAgriDispatchStatusFilter("DISPATCHED")
         getOrders()
         fetchAgriStatusCounts() // Refresh counts after dispatch
+
+        // A5 DC is scheduled server-side; soft-open first challan after a short delay
+        if (dispatchedIds.length > 0) {
+          const firstId = dispatchedIds[0]
+          setTimeout(async () => {
+            try {
+              const url = await openOrGenerateAgriDeliveryChallan(firstId, {
+                open: dispatchedIds.length === 1,
+              })
+              if (url && dispatchedIds.length === 1) {
+                Toast.success("Delivery challan ready — opened in new tab")
+              } else if (url && dispatchedIds.length > 1) {
+                Toast.success("Delivery challans generating — use Open DC on each order")
+              }
+            } catch {
+              /* non-blocking */
+            }
+          }, 2500)
+        }
       } else {
         Toast.error("Failed to dispatch orders")
       }
@@ -6510,6 +6527,9 @@ const mapSlotForUi = (slotData) => {
             isDealerSelfOrder,
             orderSource,
             dealer,
+            deliveryChallanPdfUrl,
+            dcNumber,
+            dcGeneratedAt,
           } = order
 
           // Handle populated fields (productId, createdBy, assignedTo can be objects)
@@ -6556,6 +6576,8 @@ const mapSlotForUi = (slotData) => {
             "Farm Ready": "-",
             isAgriSalesOrder: true, // Flag to identify Agri Sales orders
             isOld: Boolean(isOld),
+            deliveryChallanPdfUrl: deliveryChallanPdfUrl || "",
+            dcNumber: dcNumber || "",
             details: {
               customerName,
               customerMobile,
@@ -6584,6 +6606,9 @@ const mapSlotForUi = (slotData) => {
               orderNumber,
               displayOrderKey: displayOrderKey ?? null,
               isOld: Boolean(isOld),
+              deliveryChallanPdfUrl: deliveryChallanPdfUrl || "",
+              dcNumber: dcNumber || "",
+              dcGeneratedAt: dcGeneratedAt || null,
               // Dispatch details
               dispatchStatus: dispatchStatus || "NOT_DISPATCHED",
               dispatchMode: dispatchMode || "VEHICLE",
@@ -8782,43 +8807,6 @@ const mapSlotForUi = (slotData) => {
                     </span>
                   )}
                 </span>
-              ) : isRamAgriSalesManager ? (
-                showAgriSalesOrders ? (
-                  <>
-                    <span className="px-3 py-1.5 text-xs font-medium rounded-md bg-orange-600 text-white shadow-sm flex items-center gap-1 relative">
-                      📦 Ram Agri Inputs
-                      {agriSalesPendingCount > 0 && (
-                        <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center border-2 border-white">
-                          {agriSalesPendingCount > 99 ? "99+" : agriSalesPendingCount}
-                        </span>
-                      )}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setShowAgriSalesOrders(false)}
-                      className="px-3 py-1.5 text-xs font-medium rounded-md bg-white text-gray-600 hover:bg-gray-100 border border-gray-300 transition-colors">
-                      📋 Regular Orders
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <span className="px-3 py-1.5 text-xs font-medium rounded-md bg-brand-600 text-white shadow-sm">
-                      📋 Regular Orders
-                    </span>
-                  <button
-                    id="ram-agri-inputs-btn"
-                    type="button"
-                    onClick={() => setShowAgriSalesOrders(true)}
-                    className="px-3 py-1.5 text-xs font-medium rounded-md bg-white text-gray-600 hover:bg-gray-100 border border-orange-300 text-orange-700 transition-colors flex items-center gap-1 relative">
-                      📦 Ram Agri Inputs
-                      {agriSalesPendingCount > 0 && (
-                        <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold rounded-full min-w-[1.25rem] h-5 px-0.5 flex items-center justify-center border-2 border-white">
-                          {agriSalesPendingCount > 99 ? "99+" : agriSalesPendingCount}
-                        </span>
-                      )}
-                    </button>
-                  </>
-                )
               ) : (
                 <>
                   <button
@@ -10125,6 +10113,27 @@ const mapSlotForUi = (slotData) => {
                                     Reject
                                   </button>
                                 </div>
+                              )}
+                              {(row.orderStatus === "DISPATCHED" ||
+                                row.orderStatus === "COMPLETED" ||
+                                row.details?.dispatchStatus === "DISPATCHED" ||
+                                row.details?.dispatchStatus === "DELIVERED") && (
+                                <button
+                                  type="button"
+                                  title={
+                                    getAgriDeliveryChallanUrl(row)
+                                      ? "Open delivery challan PDF"
+                                      : "Generate / open delivery challan"
+                                  }
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    openOrGenerateAgriDeliveryChallan(row.details?.orderid || row._id, {
+                                      existingUrl: getAgriDeliveryChallanUrl(row),
+                                    })
+                                  }}
+                                  className="text-[10px] px-2 py-0.5 rounded bg-indigo-100 text-indigo-800 font-medium hover:bg-indigo-200 w-fit">
+                                  {getAgriDeliveryChallanUrl(row) ? "Open DC" : "Get DC"}
+                                </button>
                               )}
                             </div>
                         ) : (row.orderStatus !== "COMPLETED" && canChangeOrderStatus) ? (
@@ -13975,6 +13984,10 @@ const mapSlotForUi = (slotData) => {
             (o) => String(o.details?.orderid) === String(order._id || order.id)
           )
           if (row) openOrderForAddPayment(row)
+        }}
+        onSaleReturnSuccess={() => {
+          getOrders()
+          fetchAgriStatusCounts()
         }}
       />
 

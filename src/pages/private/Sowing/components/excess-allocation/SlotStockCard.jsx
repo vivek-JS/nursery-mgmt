@@ -103,6 +103,7 @@ export default function SlotStockCard({
 }) {
   const [loading, setLoading] = useState(false)
   const [detail, setDetail] = useState(null)
+  const [expanded, setExpanded] = useState(false)
 
   const seedRow = useMemo(
     () => ({
@@ -135,13 +136,13 @@ export default function SlotStockCard({
   }, [slotId, emptySeed])
 
   useEffect(() => {
-    if (emptySeed) {
-      setDetail(null)
+    if (!expanded || emptySeed) {
+      if (!expanded) setDetail(null)
       setLoading(false)
       return
     }
     load()
-  }, [load, refreshKey, emptySeed])
+  }, [load, refreshKey, emptySeed, expanded])
 
   const summary = detail?.summary || {}
   const available =
@@ -228,7 +229,7 @@ export default function SlotStockCard({
           />
         </Stack>
 
-        {loading && !emptySeed ? (
+        {loading && expanded && !emptySeed ? (
           <Box display="flex" justifyContent="center" alignItems="center" py={2}>
             <CircularProgress size={20} />
           </Box>
@@ -265,7 +266,7 @@ export default function SlotStockCard({
               </Stack>
             )}
 
-            {batches.length > 0 && (
+            {expanded && batches.length > 0 && (
               <Box mt={1}>
                 <Typography variant="caption" fontWeight={800} color="text.secondary">
                   Sowing ({batches.length})
@@ -278,7 +279,7 @@ export default function SlotStockCard({
               </Box>
             )}
 
-            {(covered.length > 0 || sowedOnSlot.length > 0) && (
+            {expanded && (covered.length > 0 || sowedOnSlot.length > 0) && (
               <Box mt={1}>
                 <Stack direction="row" alignItems="center" spacing={0.5} mb={0.5}>
                   <CheckCircleIcon sx={{ fontSize: 14, color: "#16a34a" }} />
@@ -292,7 +293,7 @@ export default function SlotStockCard({
               </Box>
             )}
 
-            {pending.length > 0 && (
+            {expanded && pending.length > 0 && (
               <Box mt={1}>
                 <Stack direction="row" alignItems="center" spacing={0.5} mb={0.5}>
                   <WarningAmberIcon sx={{ fontSize: 14, color: "#d97706" }} />
@@ -322,6 +323,18 @@ export default function SlotStockCard({
               </Typography>
             )}
           </>
+        )}
+
+        {!expanded && !emptySeed && (
+          <Button
+            size="small"
+            fullWidth
+            variant="text"
+            onClick={() => setExpanded(true)}
+            sx={{ mt: 1, textTransform: "none", fontWeight: 800, fontSize: "0.72rem" }}
+          >
+            Load orders & actions
+          </Button>
         )}
 
         {canAssign && !loading && (

@@ -1803,6 +1803,23 @@ const RamAgriSalesDashboard = () => {
                               <span className="text-brand-600">Paid: <span className="font-semibold">{formatCurrency(order.totalPaidAmount || 0)}</span></span>
                               <span className="text-orange-600 font-semibold">Outstanding: {formatCurrency(order.balanceAmount || 0)}</span>
                             </div>
+                            {(order.orderStatus === "DISPATCHED" ||
+                              order.orderStatus === "COMPLETED" ||
+                              order.deliveryChallanPdfUrl) && (
+                              <button
+                                type="button"
+                                className="mt-2 text-xs font-semibold text-indigo-700 hover:text-indigo-900 underline"
+                                onClick={async () => {
+                                  const { openOrGenerateAgriDeliveryChallan, getAgriDeliveryChallanUrl } =
+                                    await import("utils/agriDeliveryChallan");
+                                  openOrGenerateAgriDeliveryChallan(order._id, {
+                                    existingUrl: getAgriDeliveryChallanUrl(order),
+                                  });
+                                }}
+                              >
+                                {order.deliveryChallanPdfUrl ? "Open DC" : "Get DC"}
+                              </button>
+                            )}
                           </div>
                         </div>
                       </div>
