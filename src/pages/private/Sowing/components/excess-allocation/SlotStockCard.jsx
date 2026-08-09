@@ -6,15 +6,24 @@ import {
   CardContent,
   Chip,
   CircularProgress,
-  Divider,
   Stack,
   Typography,
 } from "@mui/material"
 import CheckCircleIcon from "@mui/icons-material/CheckCircle"
 import WarningAmberIcon from "@mui/icons-material/WarningAmber"
 import SwapHorizIcon from "@mui/icons-material/SwapHoriz"
+import EventAvailableIcon from "@mui/icons-material/EventAvailable"
 import { NetworkManager, API } from "network/core"
-import { fmtNum } from "./slotStockUtils"
+import { fmtNum, isSlotEmpty, slotStatusKind } from "./slotStockUtils"
+import SlotStatGrid from "./SlotStatGrid"
+
+const STATUS_META = {
+  open: { label: "Open slot", color: "#64748b", bg: "#f8fafc", border: "#cbd5e1" },
+  surplus: { label: "Surplus", color: "#166534", bg: "#f0fdf4", border: "#86efac" },
+  gap: { label: "Need sow", color: "#92400e", bg: "#fffbeb", border: "#fcd34d" },
+  mixed: { label: "Mixed", color: "#1d4ed8", bg: "#eff6ff", border: "#93c5fd" },
+  balanced: { label: "Balanced", color: "#475569", bg: "#f1f5f9", border: "#cbd5e1" },
+}
 
 function OrderLine({ order, variant, canAct, onCover, onAssign }) {
   const plants = Number(order.plants || order.numberOfPlants) || 0
@@ -73,9 +82,6 @@ function OrderLine({ order, variant, canAct, onCover, onAssign }) {
   )
 }
 
-/**
- * Full slot card: available · gap · booked · sowed · covered · pending orders + actions.
- */
 export default function SlotStockCard({
   slotId,
   slotStartDay,
@@ -95,8 +101,19 @@ export default function SlotStockCard({
   onSlotTransfer,
   onOpenDetail,
 }) {
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false)
   const [detail, setDetail] = useState(null)
+
+  const seedRow = useMemo(
+    () => ({
+      availablePlants: seedAvailable,
+      totalBookedPlants: seedBooked,
+      primarySowed: seedSowed,
+      gap: seedGap,
+    }),
+    [seedAvailable, seedBooked, seedSowed, seedGap]
+  )
+  const emptySeed = isSlotEmpty(seedRow)
 
   const label =
     slotStartDay && slotEndDay && slotStartDay !== slotEndDay
@@ -104,7 +121,7 @@ export default function SlotStockCard({
       : slotStartDay || "—"
 
   const load = useCallback(async () => {
-    if (!slotId) return
+    if (!slotId || emptySeed) return
     setLoading(true)
     try {
       const instance = NetworkManager(API.sowing.GET_SLOT_ORDERS_SUMMARY)
@@ -115,11 +132,16 @@ export default function SlotStockCard({
     } finally {
       setLoading(false)
     }
-  }, [slotId])
+  }, [slotId, emptySeed])
 
   useEffect(() => {
+    if (emptySeed) {
+      setDetail(null)
+      setLoading(false)
+      return
+    }
     load()
-  }, [load, refreshKey])
+  }, [load, refreshKey, emptySeed])
 
   const summary = detail?.summary || {}
   const available =
@@ -127,13 +149,10 @@ export default function SlotStockCard({
     Number(seedAvailable) ||
     0
   const booked = Number(summary.totalPlants) || Number(seedBooked) || 0
-  const sowed =
-    Number(summary.totalSowedPlants) ||
-    Number(seedSowed) ||
-    0
+  const sowed = Number(summary.totalSowedPlants) || Number(seedSowed) || 0
   const gap =
     Number(summary.pendingPlants) ||
-    Math.max(0, Number(seedGap) || booked - sowed) ||
+    Math.max(0, Number(seedGap) || Math.max(0, booked - sowed)) ||
     0
   const reserved = Number(summary.orderReservedPlants) || 0
   const covered = detail?.coveredOrders || []
@@ -144,10 +163,10 @@ export default function SlotStockCard({
   )
   const batches = detail?.sowBatches || []
 
-  const borderColor =
-    available > 0 ? "#86efac" : gap > 0 ? "#fcd34d" : sowed > 0 ? "#93c5fd" : "#e2e8f0"
-  const bgColor =
-    available > 0 ? "#f0fdf4" : gap > 0 ? "#fffbeb" : sowed > 0 ? "#eff6ff" : "#fafafa"
+  const liveRow = { availablePlants: available, totalBookedPlants: booked, primarySowed: sowed, gap }
+  const isEmpty = isSlotEmpty(liveRow) && pending.length === 0 && covered.length === 0
+  const status = slotStatusKind(liveRow)
+  const meta = STATUS_META[status] || STATUS_META.open
 
   const handleCover = (order) => {
     onCoverOrder?.({
@@ -171,39 +190,80 @@ export default function SlotStockCard({
   return (
     <Card
       variant="outlined"
-      sx={{ borderRadius: 2, borderColor, bgcolor: bgColor, height: "100%" }}
+      sx={{
+        borderRadius: 2,
+        borderColor: meta.border,
+        borderStyle: isEmpty ? "dashed" : "solid",
+        bgcolor: meta.bg,
+        height: "100%",
+        minHeight: 168,
+        transition: "box-shadow 0.15s",
+        "&:hover": { boxShadow: isEmpty ? "0 2px 8px rgba(100,116,139,0.12)" : "0 4px 14px rgba(0,0,0,0.06)" },
+      }}
     >
-      <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
-        {(plantName || subtypeName) && (
-          <Typography variant="caption" color="text.secondary" fontWeight={700} noWrap display="block">
-            {[plantName, subtypeName].filter(Boolean).join(" · ")}
-          </Typography>
-        )}
-        <Typography fontWeight={800} fontSize="0.95rem">
-          {label}
-        </Typography>
+      <CardContent sx={{ p: 1.25, "&:last-child": { pb: 1.25 } }}>
+        <Stack direction="row" alignItems="flex-start" justifyContent="space-between" gap={0.5} mb={0.5}>
+          <Box minWidth={0} flex={1}>
+            {(plantName || subtypeName) && (
+              <Typography variant="caption" color="text.secondary" fontWeight={700} noWrap display="block">
+                {[plantName, subtypeName].filter(Boolean).join(" · ")}
+              </Typography>
+            )}
+            <Typography fontWeight={900} fontSize="0.9rem" lineHeight={1.25}>
+              {label}
+            </Typography>
+          </Box>
+          <Chip
+            size="small"
+            label={meta.label}
+            sx={{
+              height: 20,
+              fontWeight: 800,
+              fontSize: "0.62rem",
+              bgcolor: "#fff",
+              color: meta.color,
+              border: `1px solid ${meta.border}`,
+              flexShrink: 0,
+            }}
+          />
+        </Stack>
 
-        {loading ? (
-          <Box display="flex" justifyContent="center" py={2}>
-            <CircularProgress size={22} />
+        {loading && !emptySeed ? (
+          <Box display="flex" justifyContent="center" alignItems="center" py={2}>
+            <CircularProgress size={20} />
           </Box>
         ) : (
           <>
-            <Stack direction="row" spacing={0.4} flexWrap="wrap" useFlexGap sx={{ mt: 1 }}>
-              <Chip size="small" label={`Avail ${fmtNum(available)}`} sx={{ fontWeight: 800, bgcolor: "#dcfce7", color: "#166534" }} />
-              {gap > 0 && (
-                <Chip size="small" label={`Gap ${fmtNum(gap)}`} sx={{ fontWeight: 800, bgcolor: "#fef3c7", color: "#92400e" }} />
-              )}
-              {booked > 0 && (
-                <Chip size="small" variant="outlined" label={`Booked ${fmtNum(booked)}`} />
-              )}
-              {sowed > 0 && (
-                <Chip size="small" variant="outlined" label={`Sowed ${fmtNum(sowed)}`} />
-              )}
-              {reserved > 0 && (
-                <Chip size="small" label={`Reserved ${fmtNum(reserved)}`} sx={{ bgcolor: "#dbeafe", color: "#1d4ed8", fontWeight: 700 }} />
-              )}
-            </Stack>
+            <SlotStatGrid available={available} booked={booked} sowed={sowed} gap={gap} />
+
+            {reserved > 0 && (
+              <Chip
+                size="small"
+                label={`Reserved ${fmtNum(reserved)}`}
+                sx={{ mt: 0.75, height: 20, fontWeight: 700, bgcolor: "#dbeafe", color: "#1d4ed8" }}
+              />
+            )}
+
+            {isEmpty && (
+              <Stack
+                direction="row"
+                spacing={0.75}
+                alignItems="center"
+                sx={{
+                  mt: 1,
+                  px: 1,
+                  py: 0.75,
+                  borderRadius: 1.25,
+                  bgcolor: "#fff",
+                  border: "1px dashed #cbd5e1",
+                }}
+              >
+                <EventAvailableIcon sx={{ fontSize: 18, color: "#94a3b8" }} />
+                <Typography variant="caption" color="text.secondary" fontWeight={600}>
+                  No bookings or sow yet — ready to receive transfer or new sow
+                </Typography>
+              </Stack>
+            )}
 
             {batches.length > 0 && (
               <Box mt={1}>
@@ -218,72 +278,81 @@ export default function SlotStockCard({
               </Box>
             )}
 
-            <Divider sx={{ my: 1 }} />
-
             {(covered.length > 0 || sowedOnSlot.length > 0) && (
-              <Box mb={1}>
+              <Box mt={1}>
                 <Stack direction="row" alignItems="center" spacing={0.5} mb={0.5}>
                   <CheckCircleIcon sx={{ fontSize: 14, color: "#16a34a" }} />
                   <Typography variant="caption" fontWeight={800} color="success.main">
                     Sow complete ({Math.max(covered.length, sowedOnSlot.length)})
                   </Typography>
                 </Stack>
-                {(covered.length ? covered : sowedOnSlot).slice(0, 4).map((o) => (
+                {(covered.length ? covered : sowedOnSlot).slice(0, 3).map((o) => (
                   <OrderLine key={o._id} order={o} variant="covered" />
                 ))}
               </Box>
             )}
 
             {pending.length > 0 && (
-              <Box mb={1}>
+              <Box mt={1}>
                 <Stack direction="row" alignItems="center" spacing={0.5} mb={0.5}>
                   <WarningAmberIcon sx={{ fontSize: 14, color: "#d97706" }} />
                   <Typography variant="caption" fontWeight={800} color="warning.main">
-                    Need sow ({pending.length}) · {fmtNum(gap)} gap
+                    Pending ({pending.length})
                   </Typography>
                 </Stack>
-                {pending.slice(0, 5).map((o) => (
-                  <OrderLine
-                    key={o._id}
-                    order={o}
-                    variant="pending"
-                    canAct={canAssign}
-                    onCover={handleCover}
-                    onAssign={available > 0 ? handleAssignOne : null}
-                  />
-                ))}
+                {pending.slice(0, 3).map((o) => {
+                  const isPartial = o.partiallyCovered || (o.coveredPlants > 0 && !o.sowingDone)
+                  return (
+                    <OrderLine
+                      key={o._id}
+                      order={{ ...o, statusLabel: isPartial ? "Partial" : o.statusLabel }}
+                      variant="pending"
+                      canAct={canAssign}
+                      onCover={handleCover}
+                      onAssign={available > 0 ? handleAssignOne : null}
+                    />
+                  )
+                })}
               </Box>
             )}
 
-            {pending.length === 0 && covered.length === 0 && sowed === 0 && available === 0 && (
-              <Typography variant="caption" color="text.secondary" display="block" mb={1}>
-                Empty slot — receive transfer or cover orders from other slots
+            {gap > 0 && available === 0 && pending.length > 0 && (
+              <Typography variant="caption" color="warning.main" fontWeight={700} display="block" mt={0.75}>
+                Short {fmtNum(gap)} — receive from nearby surplus (±4d)
               </Typography>
             )}
           </>
         )}
 
         {canAssign && !loading && (
-          <Stack direction="row" spacing={0.5} mt={1} flexWrap="wrap" useFlexGap>
+          <Stack direction="row" spacing={0.5} mt={1.25} flexWrap="wrap" useFlexGap>
             {available > 0 && onSlotTransfer && (
               <Button
                 size="small"
                 variant="outlined"
                 startIcon={<SwapHorizIcon sx={{ fontSize: 14 }} />}
                 onClick={() => onSlotTransfer({ slotId, slotLabel: label, mode: "out" })}
-                sx={{ textTransform: "none", fontWeight: 700, fontSize: "0.7rem" }}
+                sx={{ textTransform: "none", fontWeight: 700, fontSize: "0.68rem", py: 0.25 }}
               >
                 Move out
               </Button>
             )}
-            {(gap > 0 || available === 0) && onSlotTransfer && (
+            {onSlotTransfer && (isEmpty || gap > 0 || available === 0) && (
               <Button
                 size="small"
-                variant="outlined"
-                color="warning"
+                variant={isEmpty ? "contained" : "outlined"}
+                color={isEmpty ? "inherit" : "warning"}
                 startIcon={<SwapHorizIcon sx={{ fontSize: 14 }} />}
                 onClick={() => onSlotTransfer({ slotId, slotLabel: label, mode: "in" })}
-                sx={{ textTransform: "none", fontWeight: 700, fontSize: "0.7rem" }}
+                sx={{
+                  textTransform: "none",
+                  fontWeight: 700,
+                  fontSize: "0.68rem",
+                  py: 0.25,
+                  ...(isEmpty
+                    ? { bgcolor: "#e2e8f0", color: "#334155", "&:hover": { bgcolor: "#cbd5e1" } }
+                    : {}),
+                }}
               >
                 Receive in
               </Button>
@@ -294,17 +363,17 @@ export default function SlotStockCard({
                 variant="contained"
                 color="success"
                 onClick={handleAssignOne}
-                sx={{ textTransform: "none", fontWeight: 800, fontSize: "0.7rem" }}
+                sx={{ textTransform: "none", fontWeight: 800, fontSize: "0.68rem", py: 0.25 }}
               >
-                Assign & mark sow
+                Assign
               </Button>
             )}
-            {onOpenDetail && (
+            {onOpenDetail && !isEmpty && (
               <Button
                 size="small"
                 variant="text"
                 onClick={() => onOpenDetail(slotId)}
-                sx={{ textTransform: "none", fontWeight: 600, fontSize: "0.7rem" }}
+                sx={{ textTransform: "none", fontWeight: 600, fontSize: "0.68rem" }}
               >
                 Details
               </Button>

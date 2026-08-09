@@ -5,7 +5,7 @@ import { Link as RouterLink } from "react-router-dom"
 import ExcessiveSowingModal from "components/Modals/ExcessiveSowingModal"
 import EasyRequestPanel from "./components/EasyRequestPanel"
 import CompletedSowingEntries from "./components/CompletedSowingEntries"
-import SlotStockPanel from "./components/excess-allocation/SlotStockPanel"
+import SlotStockBoard from "./components/excess-allocation/SlotStockBoard"
 import PendingSowingOrdersPanel from "./components/PendingSowingOrdersPanel"
 import SowingPageTabs from "./components/SowingPageTabs"
 import { SowHorizonProvider } from "./components/SowHorizonContext"
@@ -71,12 +71,11 @@ export default function SowingGapAnalysis() {
           />
         }
         surplusPanel={
-          <SlotStockPanel
+          <SlotStockBoard
             refreshToken={refreshToken}
-            onLoaded={({ slotCount, totalAvailable }) => {
-              setSurplusSlotCount(
-                Number(totalAvailable) > 0 ? slotCount : 0
-              )
+            onRefresh={bumpRefresh}
+            onLoaded={({ slotCount }) => {
+              setSurplusSlotCount(slotCount || 0)
             }}
           />
         }

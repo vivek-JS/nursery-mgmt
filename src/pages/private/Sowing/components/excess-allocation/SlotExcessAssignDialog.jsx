@@ -165,9 +165,17 @@ export default function SlotExcessAssignDialog({
           <Stack spacing={2}>
             <Alert severity="info" sx={{ py: 0.75 }}>
               Transfer saleable plants from this slot to pending orders&apos;
-              booking slots. Orders are marked sow complete only when fully
-              covered.
+              booking slots (delivery −4d…0 prioritized). Orders are marked sow
+              complete only when fully covered; partial allocation leaves them pending.
             </Alert>
+
+            {data?.windowDays != null && (
+              <Chip
+                size="small"
+                label={`Cover window: delivery −${data.windowDays}d…0 · ${data.inWindowCount ?? 0} in window`}
+                sx={{ fontWeight: 700, alignSelf: "flex-start" }}
+              />
+            )}
 
             {error && <Alert severity="error">{error}</Alert>}
 
@@ -246,10 +254,17 @@ export default function SlotExcessAssignDialog({
                             <Typography variant="caption" color="text.secondary">
                               Need {fmtNum(o.plantsNeeded)} · delivery {fmtDay(o.deliveryDate)}
                               {o.bookingSlotLabel ? ` · booked ${o.bookingSlotLabel}` : ""}
+                              {o.offsetLabel ? ` · ${o.offsetLabel}` : ""}
                             </Typography>
                           </Box>
                         </Stack>
                         <Stack direction="row" alignItems="center" spacing={1}>
+                          {o.inCoverWindow && (
+                            <Chip size="small" label="In window" color="primary" sx={{ height: 20 }} />
+                          )}
+                          {!o.inCoverWindow && o.offsetDays != null && (
+                            <Chip size="small" label="Outside window" variant="outlined" sx={{ height: 20 }} />
+                          )}
                           <TextField
                             size="small"
                             type="number"
@@ -262,7 +277,10 @@ export default function SlotExcessAssignDialog({
                             sx={{ width: 120 }}
                           />
                           {fully && qty > 0 && (
-                            <Chip size="small" label="Full cover" color="success" />
+                            <Chip size="small" label="Full → sow done" color="success" />
+                          )}
+                          {checked && qty > 0 && !fully && (
+                            <Chip size="small" label="Partial" color="warning" />
                           )}
                         </Stack>
                       </Stack>

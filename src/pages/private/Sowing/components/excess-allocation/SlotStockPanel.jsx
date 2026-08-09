@@ -16,14 +16,17 @@ import {
 import RefreshIcon from "@mui/icons-material/Refresh"
 import SearchIcon from "@mui/icons-material/Search"
 import Inventory2RoundedIcon from "@mui/icons-material/Inventory2Rounded"
-import SwapHorizIcon from "@mui/icons-material/SwapHoriz"
 import { NetworkManager, API } from "network/core"
 import SlotStockCard from "./SlotStockCard"
+import SlotCoverSuggestions from "./SlotCoverSuggestions"
 import {
   flattenStockBoardSlots,
   filterSlotRows,
   groupSlotsByPlant,
+  buildCoverSuggestions,
   fmtNum,
+  COVER_WINDOW_DAYS,
+  isSlotEmpty,
 } from "./slotStockUtils"
 
 /**
@@ -36,6 +39,7 @@ export default function SlotStockPanel({
   onOpenDetail,
   onCoverOrder,
   onSlotTransfer,
+  onOpenCoverPicker,
   onLoaded,
 }) {
   const [loading, setLoading] = useState(false)
@@ -43,6 +47,7 @@ export default function SlotStockPanel({
   const [plants, setPlants] = useState([])
   const [summary, setSummary] = useState(null)
   const [search, setSearch] = useState("")
+  const [showActiveOnly, setShowActiveOnly] = useState(false)
   const [expandedPlants, setExpandedPlants] = useState(() => new Set())
 
   const load = useCallback(async () => {
@@ -76,8 +81,22 @@ export default function SlotStockPanel({
   }, [refreshToken, load])
 
   const allRows = useMemo(() => flattenStockBoardSlots(plants), [plants])
-  const filteredRows = useMemo(() => filterSlotRows(allRows, search), [allRows, search])
+  const displayRows = useMemo(() => {
+    if (!showActiveOnly) return allRows
+    return allRows.filter(
+      (r) =>
+        r.availablePlants > 0 ||
+        r.gap > 0 ||
+        r.totalBookedPlants > 0 ||
+        r.primarySowed > 0
+    )
+  }, [allRows, showActiveOnly])
+  const filteredRows = useMemo(() => filterSlotRows(displayRows, search), [displayRows, search])
   const grouped = useMemo(() => groupSlotsByPlant(filteredRows), [filteredRows])
+  const coverSuggestions = useMemo(
+    () => buildCoverSuggestions(allRows, COVER_WINDOW_DAYS),
+    [allRows]
+  )
 
   useEffect(() => {
     if (grouped.length === 0) return
@@ -98,6 +117,8 @@ export default function SlotStockPanel({
 
   const totalAvailable = summary?.totalAvailableGap ?? allRows.reduce((s, r) => s + r.availablePlants, 0)
   const totalGap = summary?.totalBookingGap ?? allRows.reduce((s, r) => s + r.gap, 0)
+  const emptySlotCount = useMemo(() => allRows.filter(isSlotEmpty).length, [allRows])
+  const activeSlotCount = Math.max(0, allRows.length - emptySlotCount)
 
   return (
     <Box>
@@ -116,20 +137,20 @@ export default function SlotStockPanel({
             </Typography>
           </Stack>
           <Typography variant="body2" color="text.secondary" maxWidth={620}>
-            Each card shows available, gap, covered (sow complete) and pending orders.
-            Move stock slot-to-slot, then assign or cover to mark sow complete.
+            Every slot (including zero sow). Transfer surplus slot-to-slot, assign to pending
+            orders, or cover via delivery −{COVER_WINDOW_DAYS}d…0 window. Full cover marks sow
+            complete; partial leaves order pending.
           </Typography>
         </Box>
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap justifyContent="flex-end">
-          {canAssign && onCoverOrder && (
+          {canAssign && onOpenCoverPicker && (
             <Button
               variant="outlined"
-              color="success"
-              startIcon={<SwapHorizIcon />}
-              onClick={onCoverOrder}
+              color="primary"
+              onClick={onOpenCoverPicker}
               sx={{ textTransform: "none", fontWeight: 800 }}
             >
-              Cover order from stock
+              Cover order (pick)
             </Button>
           )}
           <IconButton onClick={load} disabled={loading} color="success" aria-label="Refresh">
@@ -142,7 +163,28 @@ export default function SlotStockPanel({
         <Chip label={`${fmtNum(totalAvailable)} available`} sx={{ fontWeight: 800, bgcolor: "#dcfce7", color: "#166534" }} />
         <Chip label={`${fmtNum(totalGap)} gap`} sx={{ fontWeight: 800, bgcolor: "#fef3c7", color: "#92400e" }} />
         <Chip label={`${allRows.length} slots`} variant="outlined" />
+        <Chip
+          label={`${emptySlotCount} open · ${activeSlotCount} active`}
+          variant="outlined"
+          sx={{ fontWeight: 700, borderStyle: "dashed" }}
+        />
+        <Chip
+          clickable
+          label={showActiveOnly ? "Active only" : "All slots (incl. zero)"}
+          onClick={() => setShowActiveOnly((v) => !v)}
+          color={showActiveOnly ? "warning" : "default"}
+          sx={{ fontWeight: 700 }}
+        />
       </Stack>
+
+      {canAssign && coverSuggestions.length > 0 && (
+        <SlotCoverSuggestions
+          suggestions={coverSuggestions}
+          canAct={canAssign}
+          onTransfer={onSlotTransfer}
+          onAssign={onAssign}
+        />
+      )}
 
       <TextField
         size="small"
@@ -172,7 +214,7 @@ export default function SlotStockPanel({
         </Box>
       ) : !loading && filteredRows.length === 0 ? (
         <Alert severity="info" icon={<Inventory2RoundedIcon />}>
-          {search ? "No slots match your search." : "No slots with sowing or booking activity yet."}
+          {search ? "No slots match your search." : "No slots found for sowing-allowed plants."}
         </Alert>
       ) : (
         <Stack spacing={2}>
@@ -207,15 +249,27 @@ export default function SlotStockPanel({
                   <Box sx={{ p: 2 }}>
                     {plantGroup.subtypes.map((st) => (
                       <Box key={st.subtypeId || st.subtypeName} mb={2.5}>
-                        <Stack direction="row" alignItems="center" spacing={1} mb={1.25}>
+                        <Stack direction="row" alignItems="center" spacing={1} mb={1.25} flexWrap="wrap" useFlexGap>
                           <Typography variant="subtitle2" fontWeight={800} color="text.secondary">
                             {st.subtypeName}
                           </Typography>
-                          <Chip size="small" label={`${st.slots.length} slot(s)`} variant="outlined" />
+                          <Chip size="small" label={`${st.slots.length} slots`} variant="outlined" />
+                          {(st.emptyCount || 0) > 0 && (
+                            <Chip
+                              size="small"
+                              label={`${st.emptyCount} open (0/0/0/0)`}
+                              sx={{
+                                height: 22,
+                                fontWeight: 700,
+                                borderStyle: "dashed",
+                                color: "#64748b",
+                              }}
+                            />
+                          )}
                         </Stack>
                         <Grid container spacing={1.5}>
                           {st.slots.map((slot) => (
-                            <Grid item xs={12} sm={6} md={4} key={slot.slotId}>
+                            <Grid item xs={12} sm={6} md={4} lg={3} key={slot.slotId}>
                               <SlotStockCard
                                 slotId={slot.slotId}
                                 slotStartDay={slot.slotStartDay}
