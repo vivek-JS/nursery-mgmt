@@ -12584,7 +12584,6 @@ const mapSlotForUi = (slotData) => {
                         <h3 className="text-lg font-medium text-gray-900">Sowing Details</h3>
                         <OrderSowingDetailsPanel
                           orderMongoId={selectedOrder?.details?.orderid}
-                          orderNumber={selectedOrder?.order}
                           plantsBooked={
                             selectedOrderCounts?.total ??
                             selectedOrder?.details?.totalPlants ??
@@ -12596,6 +12595,7 @@ const mapSlotForUi = (slotData) => {
                           sowingPlan={selectedOrder?.details?.sowingPlan}
                           plantId={selectedOrder?.details?.plantID}
                           subtypeId={selectedOrder?.details?.plantSubtypeID}
+                          deliveryDate={selectedOrder?.details?.deliveryDate}
                           bookingSlotId={
                             selectedOrder?.details?.bookingSlot?.slotId ||
                             selectedOrder?.details?.bookingSlot?._id ||

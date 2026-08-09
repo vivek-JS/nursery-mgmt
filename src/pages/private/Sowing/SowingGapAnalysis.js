@@ -6,6 +6,7 @@ import ExcessiveSowingModal from "components/Modals/ExcessiveSowingModal"
 import EasyRequestPanel from "./components/EasyRequestPanel"
 import CompletedSowingEntries from "./components/CompletedSowingEntries"
 import SlotStockPanel from "./components/excess-allocation/SlotStockPanel"
+import PendingSowingOrdersPanel from "./components/PendingSowingOrdersPanel"
 import SowingPageTabs from "./components/SowingPageTabs"
 import { SowHorizonProvider } from "./components/SowHorizonContext"
 
@@ -14,6 +15,7 @@ export default function SowingGapAnalysis() {
   const [excessiveSowingModalOpen, setExcessiveSowingModalOpen] = useState(false)
   const [refreshToken, setRefreshToken] = useState(0)
   const [surplusSlotCount, setSurplusSlotCount] = useState(0)
+  const [pendingOrderCount, setPendingOrderCount] = useState(0)
 
   const bumpRefresh = () => setRefreshToken((n) => n + 1)
 
@@ -55,10 +57,18 @@ export default function SowingGapAnalysis() {
         tab={tab}
         onTabChange={setTab}
         surplusSlotCount={surplusSlotCount}
+        pendingOrderCount={pendingOrderCount}
         requestPanel={
           <SowHorizonProvider defaultDays={0}>
             <EasyRequestPanel refreshToken={refreshToken} embedded />
           </SowHorizonProvider>
+        }
+        pendingPanel={
+          <PendingSowingOrdersPanel
+            refreshToken={refreshToken}
+            onLoaded={({ orderCount }) => setPendingOrderCount(orderCount || 0)}
+            onSowed={bumpRefresh}
+          />
         }
         surplusPanel={
           <SlotStockPanel

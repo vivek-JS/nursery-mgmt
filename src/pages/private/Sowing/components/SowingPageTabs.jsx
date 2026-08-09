@@ -3,9 +3,11 @@ import { Box, Card, Tab, Tabs, Typography } from "@mui/material"
 import LocalFloristRoundedIcon from "@mui/icons-material/LocalFloristRounded"
 import Inventory2RoundedIcon from "@mui/icons-material/Inventory2Rounded"
 import AnalyticsIcon from "@mui/icons-material/Analytics"
+import AssignmentLateIcon from "@mui/icons-material/AssignmentLate"
 
 const TAB_META = [
   { id: "request", label: "Request & sow", icon: LocalFloristRoundedIcon },
+  { id: "pending", label: "Pending orders", icon: AssignmentLateIcon },
   { id: "surplus", label: "Surplus stock", icon: Inventory2RoundedIcon },
   { id: "advanced", label: "Gap analytics", icon: AnalyticsIcon },
 ]
@@ -43,11 +45,13 @@ export default function SowingPageTabs({
   tab,
   onTabChange,
   surplusSlotCount = 0,
+  pendingOrderCount = 0,
   requestPanel,
+  pendingPanel,
   surplusPanel,
   advancedPanel,
 }) {
-  const panels = [requestPanel, surplusPanel, advancedPanel]
+  const panels = [requestPanel, pendingPanel, surplusPanel, advancedPanel]
 
   return (
     <Card sx={{ mb: 3, boxShadow: 2, overflow: "visible" }}>
@@ -71,7 +75,13 @@ export default function SowingPageTabs({
               <TabLabel
                 label={t.label}
                 Icon={t.icon}
-                badge={t.id === "surplus" ? surplusSlotCount : null}
+                badge={
+                  t.id === "surplus"
+                    ? surplusSlotCount
+                    : t.id === "pending"
+                      ? pendingOrderCount
+                      : null
+                }
               />
             }
           />
