@@ -26,6 +26,7 @@ import {
   emptyOrderForEditShape,
   buildSplitOrderRequestPayload,
   resolveBookedByName,
+  resolveSplitAttributionFromOrder,
 } from "../../dashboard/orderEditUtils"
 import SplitOrderAssignFarmerSection, {
   validateSplitAssignDraft,
@@ -52,10 +53,10 @@ const SplitOrderDialog = ({ open, onClose, order, onSplitSuccess }) => {
       setAssignMode("existing")
       setAssignDraft({ ...emptyOrderForEditShape() })
       setAssignError("")
-      setAttribution(null)
+      setAttribution(order ? resolveSplitAttributionFromOrder(order) : null)
       setLoading(false)
     }
-  }, [open])
+  }, [open, order])
 
   if (!order) return null
 
@@ -89,15 +90,25 @@ const SplitOrderDialog = ({ open, onClose, order, onSplitSuccess }) => {
       }
     }
 
+    if (attribution?.useOriginalAttribution === false) {
+      const childAttr = attribution?.childAttribution || attribution
+      if (!String(childAttr?.attributionId || "").trim()) {
+        setError("Select a sales person or dealer for the child order")
+        return
+      }
+    }
+
+    const childAttr = attribution?.childAttribution || attribution
     const splitBody = buildSplitOrderRequestPayload({
       splitQuantity: qty,
       notes,
       assignEnabled,
       assignMode,
       assignDraft,
-      attributionMode: attribution?.attributionMode,
-      attributionId: attribution?.attributionId,
-      dealerOrder: attribution?.dealerOrder,
+      useOriginalAttribution: attribution?.useOriginalAttribution !== false,
+      attributionMode: childAttr?.attributionMode,
+      attributionId: childAttr?.attributionId,
+      dealerOrder: childAttr?.dealerOrder,
     })
     if (!splitBody.ok) {
       setAssignError(splitBody.message || "Complete farmer details")

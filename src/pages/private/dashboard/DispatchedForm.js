@@ -46,6 +46,7 @@ import LinkedDispatchLoadsPanel from "../Dispatch/components/LinkedDispatchLoads
 import OrderDispatchGiftLines from "../Dispatch/components/OrderDispatchGiftLines"
 import { useDispatchOrderGifts } from "../Dispatch/components/useDispatchOrderGifts"
 import { syncDispatchOrderGiftLines } from "utils/dispatchOrderGifts"
+import { formatSplitAttributionLineage } from "./orderEditUtils"
 
 const cavityKey = (v) => (v != null && v !== "" ? String(v) : "")
 
@@ -158,6 +159,9 @@ const mapOrderToDispatchRow = (order) => {
       farmer: order?.farmer || null,
       orderFor: normalizeOrderFor(order?.orderFor) || null,
       dealerOrder: order?.dealerOrder,
+      salesPerson: order?.salesPerson || null,
+      isSplit: Boolean(order?.isSplit),
+      splitHistory: Array.isArray(order?.splitHistory) ? order.splitHistory : [],
     },
   }
 }
@@ -2011,6 +2015,19 @@ const DispatchForm = ({
                       <span className="font-medium text-gray-900">{order.farmerName}</span>
                       <span className="text-xs text-gray-500 font-mono">#{order.order}</span>
                     </div>
+                    {order.details?.isSplit && order.details?.splitHistory?.[0] && (
+                      <p
+                        className="text-[10px] text-orange-700 leading-snug"
+                        title={formatSplitAttributionLineage(order.details.splitHistory[0])}>
+                        Split child
+                        {order.details.splitHistory[0].relatedOrderNumber
+                          ? ` ← #${order.details.splitHistory[0].relatedOrderNumber}`
+                          : ""}
+                        {formatSplitAttributionLineage(order.details.splitHistory[0])
+                          ? ` · ${formatSplitAttributionLineage(order.details.splitHistory[0])}`
+                          : ""}
+                      </p>
+                    )}
                     <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-sm">
                       <div>
                         <span className="text-gray-500">Plant: </span>

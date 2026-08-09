@@ -325,39 +325,75 @@ export function validateSplitAssignMode(assignMode, draft) {
 }
 
 /** Build POST /order/:id/split body including optional beneficiary assign. */
-export function resolveSplitAttributionFromOrder(order) {
-  const details = order?.details || order || {};
-  const dealerOrder = Boolean(details.dealerOrder ?? order?.dealerOrder);
-  const dealerRaw = details.dealer ?? order?.dealer;
-  const salesRaw = details.salesPerson ?? order?.salesPerson;
-  const dealerId = dealerRaw?._id ?? dealerRaw ?? "";
-  const salesPersonId = salesRaw?._id ?? salesRaw ?? "";
+function buildSplitAttributionSlice(order) {
+  const details = order?.details || order || {}
+  const dealerOrder = Boolean(details.dealerOrder ?? order?.dealerOrder)
+  const dealerRaw = details.dealer ?? order?.dealer
+  const salesRaw = details.salesPerson ?? order?.salesPerson
+  const dealerId = dealerRaw?._id ?? dealerRaw ?? ""
+  const salesPersonId = salesRaw?._id ?? salesRaw ?? ""
+  const dealerName = dealerRaw?.name ?? details.dealerName ?? ""
+  const salesName = salesRaw?.name ?? details.salesPersonName ?? ""
 
   if (dealerOrder && dealerId) {
     return {
       attributionMode: "dealer",
       attributionId: String(dealerId),
+      attributionLabel: dealerName || "Dealer",
       dealerOrder: true,
       dealer: String(dealerId),
-      salesPerson: salesPersonId ? String(salesPersonId) : "",
-    };
+      salesPerson: salesPersonId ? String(salesPersonId) : String(dealerId),
+    }
   }
   if (salesPersonId) {
     return {
       attributionMode: "sales",
       attributionId: String(salesPersonId),
+      attributionLabel: salesName || "Sales person",
       dealerOrder: false,
       dealer: "",
       salesPerson: String(salesPersonId),
-    };
+    }
   }
   return {
     attributionMode: "sales",
     attributionId: "",
+    attributionLabel: "—",
     dealerOrder: false,
     dealer: "",
     salesPerson: "",
-  };
+  }
+}
+
+export function resolveSplitAttributionFromOrder(order) {
+  const originalAttribution = buildSplitAttributionSlice(order)
+  return {
+    useOriginalAttribution: true,
+    originalAttribution,
+    childAttribution: { ...originalAttribution },
+    ...originalAttribution,
+  }
+}
+
+/** Human-readable split attribution from splitHistory audit snapshot. */
+export function formatSplitAttributionLineage(entry) {
+  if (!entry || typeof entry !== "object") return ""
+  const parts = []
+  if (entry.performedByName) parts.push(`By ${entry.performedByName}`)
+  const orig =
+    entry.originalDealerOrder && entry.originalDealerName
+      ? entry.originalDealerName
+      : entry.originalSalesPersonName || entry.originalDealerName || ""
+  const child =
+    entry.childDealerOrder && entry.childDealerName
+      ? entry.childDealerName
+      : entry.childSalesPersonName || entry.childDealerName || ""
+  if (orig && child && orig !== child) {
+    parts.push(`Original: ${orig} → Child: ${child}`)
+  } else if (child) {
+    parts.push(`Booked by: ${child}`)
+  }
+  return parts.join(" · ")
 }
 
 export function buildSplitOrderRequestPayload({
@@ -366,6 +402,7 @@ export function buildSplitOrderRequestPayload({
   assignEnabled,
   assignMode,
   assignDraft,
+  useOriginalAttribution = true,
   attributionMode,
   attributionId,
   dealerOrder,
@@ -375,13 +412,15 @@ export function buildSplitOrderRequestPayload({
     ...(String(notes || "").trim() ? { notes: String(notes).trim() } : {}),
   }
 
-  if (attributionMode === "dealer" && attributionId) {
-    payload.dealer = attributionId;
-    payload.dealerOrder = true;
-    payload.salesPerson = attributionId;
-  } else if (attributionMode === "sales" && attributionId) {
-    payload.salesPerson = attributionId;
-    payload.dealerOrder = Boolean(dealerOrder);
+  if (!useOriginalAttribution) {
+    if (attributionMode === "dealer" && attributionId) {
+      payload.dealer = attributionId
+      payload.dealerOrder = true
+      payload.salesPerson = attributionId
+    } else if (attributionMode === "sales" && attributionId) {
+      payload.salesPerson = attributionId
+      payload.dealerOrder = Boolean(dealerOrder)
+    }
   }
 
   if (!assignEnabled) {

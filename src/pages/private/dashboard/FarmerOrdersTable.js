@@ -141,7 +141,8 @@ import {
   orderEditDeliveryDateChanged,
   stripUnchangedOrderEditFields,
   startOfTodayMoment,
-  isSlotEndOnOrAfterToday
+  isSlotEndOnOrAfterToday,
+  formatSplitAttributionLineage,
 } from "./orderEditUtils"
 import {
   buildCopyOrderPrefillFromRow,
@@ -824,6 +825,16 @@ function buildSplitOrderDialogPayload(row) {
     salesPerson: d.salesPerson,
     details: d,
   }
+}
+
+function splitOrderLineageTooltip(row) {
+  const hist = row?.details?.splitHistory?.[0]
+  if (!row?.details?.isSplit) return ""
+  const parentNum = hist?.relatedOrderNumber ?? "—"
+  const lineage = formatSplitAttributionLineage(hist)
+  return lineage
+    ? `Split from #${parentNum} · ${lineage}`
+    : `Split order — parent #${parentNum}`
 }
 
 function farmerOrderStatusSelectValue(orderStatus) {
@@ -9757,7 +9768,7 @@ const mapSlotForUi = (slotData) => {
                           {!(row.isAgriSalesOrder || row.details?.isRamAgriProduct) && row.details?.isSplit && (
                             <span
                               className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-orange-100 text-orange-700 border border-orange-300"
-                              title={`Split order — parent #${row.details?.splitHistory?.[0]?.relatedOrderNumber ?? "—"}`}
+                              title={splitOrderLineageTooltip(row) || `Split order — parent #${row.details?.splitHistory?.[0]?.relatedOrderNumber ?? "—"}`}
                             >
                               S{row.order}
                             </span>
@@ -10370,7 +10381,7 @@ const mapSlotForUi = (slotData) => {
                                   {!(row.isAgriSalesOrder || row.details?.isRamAgriProduct) && row.details?.isSplit && (
                                     <span
                                       className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-orange-100 text-orange-700 border border-orange-300"
-                                      title={`Split order — parent #${row.details?.splitHistory?.[0]?.relatedOrderNumber ?? "—"}`}
+                                      title={splitOrderLineageTooltip(row) || `Split order — parent #${row.details?.splitHistory?.[0]?.relatedOrderNumber ?? "—"}`}
                                     >
                                       S{row.order}
                                     </span>
