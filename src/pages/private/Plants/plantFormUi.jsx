@@ -10,12 +10,14 @@ export const emptySubtypeValues = {
   description: "",
   rates: [""],
   monthlyRates: [],
+  raisingRate: 0,
   buffer: 0,
   plantReadyDays: 0,
   slotDays: "",
   slotStartDate: "",
   slotEndDate: "",
   slotCapacity: "",
+  isBillable: true,
 }
 
 export const Button = ({ children, variant = "default", size = "default", className = "", ...props }) => {

@@ -61,6 +61,7 @@ import {
   Inventory2 as InventoryIcon
 } from "@mui/icons-material"
 import moment from "moment"
+import { resolveEffectiveRate, mapSubtypeOption } from "utils/resolveEffectiveRate"
 import LocationSelector from "components/LocationSelector"
 import SearchableSelect from "components/FormField/SearchableSelect"
 import InstantPlantLineItems, {
@@ -896,29 +897,7 @@ const AddOrderForm = ({
       const instance = NetworkManager(API.slots.GET_PLANTS_SUBTYPE)
       const response = await instance.request(null, { plantId, year: new Date().getFullYear() })
       if (response?.data?.subtypes) {
-        const subtypes = response.data.subtypes.map((subtype) => {
-          // Handle rate as array - pick 0th element
-          let rate = 0
-
-          // Check multiple possible rate properties
-          if (subtype.rates) {
-            if (Array.isArray(subtype.rates)) {
-              rate = subtype.rates.length > 0 ? subtype.rates[0] : 0
-            } else {
-              rate = subtype.rates
-            }
-          } else if (subtype.rate) {
-            // Fallback to single rate property
-            rate = subtype.rate
-          }
-
-          return {
-            label: subtype.subtypeName,
-            value: subtype.subtypeId,
-            rate: rate,
-            monthlyRates: Array.isArray(subtype.monthlyRates) ? subtype.monthlyRates : [],
-          }
-        })
+        const subtypes = response.data.subtypes.map((subtype) => mapSubtypeOption(subtype))
         setSubTypes(subtypes)
       } else {
         setSubTypes([])
@@ -1978,6 +1957,33 @@ const AddOrderForm = ({
   // FORM HANDLER FUNCTIONS
   // ============================================================================
   
+  const isAdminRateEditor =
+    user?.jobTitle === "SUPERADMIN" ||
+    user?.jobTitle === "OFFICE_ADMIN" ||
+    user?.jobTitle === "ACCOUNTANT"
+
+  const shouldAutoSetRate = () =>
+    (!formData?.rate || formData?.rate === "" || formData?.rate === "0") &&
+    (!rateManuallySet || isAdminRateEditor)
+
+  const applySubtypeRate = (subtype, { farmerGivesSeed, deliveryDate } = {}) => {
+    if (!subtype || !shouldAutoSetRate()) return
+    const rateValue = resolveEffectiveRate(subtype, { farmerGivesSeed, deliveryDate })
+    setFormData((prev) => ({ ...prev, rate: rateValue.toString() }))
+    setRate(rateValue)
+  }
+
+  const handleFarmerGivesSeedChange = (checked) => {
+    setFormData((prev) => ({ ...prev, farmerGivesSeed: checked }))
+    const selectedSubtype = subTypes.find((st) => st.value === formData?.subtype)
+    if (selectedSubtype) {
+      applySubtypeRate(selectedSubtype, {
+        farmerGivesSeed: checked,
+        deliveryDate: formData?.orderDate,
+      })
+    }
+  }
+
   const handleInputChange = (field, value) => {
 
     // Handle Order For mobile number validation before setting form data
@@ -2046,68 +2052,43 @@ const AddOrderForm = ({
     if (field === "subtype") {
       const selectedSubtype = subTypes.find((st) => st.value === value)
 
-      // Check if user is admin (can always edit rate)
-      const isAdminUser =
-        user?.jobTitle === "SUPERADMIN" ||
-        user?.jobTitle === "OFFICE_ADMIN" ||
-        user?.jobTitle === "ACCOUNTANT"
-
-      // Only auto-set rate if current rate is empty or hasn't been manually set
-      // For admin users, always allow rate editing regardless of manual setting
-      const shouldAutoSetRate =
-        (!formData?.rate || formData?.rate === "" || formData?.rate === "0") &&
-        (!rateManuallySet || isAdminUser)
-
-      if (
-        selectedSubtype &&
-        selectedSubtype.rate !== undefined &&
-        selectedSubtype.rate !== null &&
-        shouldAutoSetRate
-      ) {
-        // Ensure rate is a number and convert to string for the form
-        const rateValue =
-          typeof selectedSubtype.rate === "number"
-            ? selectedSubtype.rate
-            : parseFloat(selectedSubtype.rate) || 0
+      if (selectedSubtype && shouldAutoSetRate()) {
+        const rateValue = resolveEffectiveRate(selectedSubtype, {
+          farmerGivesSeed: formData?.farmerGivesSeed,
+          deliveryDate: null,
+        })
         setFormData((prev) => ({
           ...prev,
           rate: rateValue.toString(),
-          orderDate: null // Reset order date when subtype changes (affects available slots)
+          orderDate: null,
         }))
         setRate(rateValue)
-      } else if (!selectedSubtype || !selectedSubtype.rate) {
+      } else if (!selectedSubtype || selectedSubtype.rate === undefined || selectedSubtype.rate === null) {
         setFormData((prev) => ({
           ...prev,
           rate: "",
-          orderDate: null // Reset order date when subtype changes (affects available slots)
+          orderDate: null,
         }))
         setRate(null)
       } else {
-        // Only reset order date, keep the current rate
         setFormData((prev) => ({
           ...prev,
-          orderDate: null // Reset order date when subtype changes (affects available slots)
+          orderDate: null,
         }))
       }
     }
 
     // Reset rate when plant changes (only if rate was auto-set from subtype)
     if (field === "plant") {
-      // Check if user is admin (can always edit rate)
-      const isAdminUser =
-        user?.jobTitle === "SUPERADMIN" ||
-        user?.jobTitle === "OFFICE_ADMIN" ||
-        user?.jobTitle === "ACCOUNTANT"
-
       setFormData((prev) => ({
         ...prev,
-        rate: isAdminUser ? prev.rate : "", // Keep rate for admin users, reset for others
-        subtype: "", // Also reset subtype when plant changes
-        orderDate: null // Reset order date when plant changes (affects available slots)
+        rate: isAdminRateEditor ? prev.rate : "",
+        subtype: "",
+        orderDate: null,
       }))
-      setRate(isAdminUser ? parseFloat(formData?.rate) || null : null)
-      setRateManuallySet(isAdminUser ? rateManuallySet : false) // Keep manual flag for admin users
-      setSubTypes([]) // Clear subtypes when plant changes
+      setRate(isAdminRateEditor ? parseFloat(formData?.rate) || null : null)
+      setRateManuallySet(isAdminRateEditor ? rateManuallySet : false)
+      setSubTypes([])
       void loadPlants()
     }
 
@@ -2124,24 +2105,16 @@ const AddOrderForm = ({
         loadPlantProductMappings(formData.plant, formData.subtype)
       }
 
-      // Autofill rate based on delivery date's month (if monthlyRates are configured for this subtype)
+      // Autofill rate based on delivery date / farmer seed selection
       if (value && formData?.subtype && !rateManuallySet) {
-        const deliveryMonth = moment(value).format("MMMM") // e.g. "June", "September"
         const selectedSubtype = subTypes.find((st) => st.value === formData.subtype)
-        if (selectedSubtype && deliveryMonth && Array.isArray(selectedSubtype.monthlyRates) && selectedSubtype.monthlyRates.length > 0) {
-          const monthEntry = selectedSubtype.monthlyRates.find((mr) => mr.month === deliveryMonth)
-          if (monthEntry && monthEntry.rate) {
-            const monthlyRateValue = parseFloat(monthEntry.rate) || 0
-            setFormData((prev) => ({ ...prev, rate: monthlyRateValue.toString() }))
-            setRate(monthlyRateValue)
-          } else {
-            // No monthly override — fall back to rates[0]
-            const fallbackRate = parseFloat(selectedSubtype.rate) || 0
-            if (fallbackRate) {
-              setFormData((prev) => ({ ...prev, rate: fallbackRate.toString() }))
-              setRate(fallbackRate)
-            }
-          }
+        if (selectedSubtype) {
+          const rateValue = resolveEffectiveRate(selectedSubtype, {
+            farmerGivesSeed: formData?.farmerGivesSeed,
+            deliveryDate: value,
+          })
+          setFormData((prev) => ({ ...prev, rate: rateValue.toString() }))
+          setRate(rateValue)
         }
       }
     }
@@ -4952,12 +4925,7 @@ const AddOrderForm = ({
                       control={
                         <Checkbox
                           checked={Boolean(formData.farmerGivesSeed)}
-                          onChange={(e) =>
-                            setFormData((prev) => ({
-                              ...prev,
-                              farmerGivesSeed: e.target.checked,
-                            }))
-                          }
+                          onChange={(e) => handleFarmerGivesSeedChange(e.target.checked)}
                           sx={{ pt: 0, color: "#2e7d32", "&.Mui-checked": { color: "#ef6c00" } }}
                         />
                       }

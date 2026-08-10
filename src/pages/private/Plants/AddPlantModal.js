@@ -27,7 +27,7 @@ const AddPlantModal = ({
   const handleAddSubtype = () => {
     const newSubtypes = [
       ...plantData.subtypes,
-      { name: "", description: "", rates: [""], buffer: 0, plantReadyDays: 0 }
+      { name: "", description: "", rates: [""], buffer: 0, plantReadyDays: 0, raisingRate: 0 }
     ]
     onInputChange({ target: { name: "subtypes", value: newSubtypes } })
   }
@@ -160,15 +160,26 @@ const AddPlantModal = ({
                       sx={{ flex: "0 1 120px" }}
                     />
                     {plantData.sowingAllowed && (
-                      <TextField
-                        label="Plant Ready Days"
-                        type="number"
-                        inputProps={{ min: 0, step: 1 }}
-                        value={subtype.plantReadyDays || 0}
-                        onChange={(e) => handleSubtypeChange(index, "plantReadyDays", e.target.value)}
-                        sx={{ flex: "0 1 150px" }}
-                        helperText="Days to plant maturity"
-                      />
+                      <>
+                        <TextField
+                          label="Plant Ready Days"
+                          type="number"
+                          inputProps={{ min: 0, step: 1 }}
+                          value={subtype.plantReadyDays || 0}
+                          onChange={(e) => handleSubtypeChange(index, "plantReadyDays", e.target.value)}
+                          sx={{ flex: "0 1 150px" }}
+                          helperText="Days to plant maturity"
+                        />
+                        <TextField
+                          label="Raising Rate"
+                          type="number"
+                          inputProps={{ min: 0, step: 0.01 }}
+                          value={subtype.raisingRate || 0}
+                          onChange={(e) => handleSubtypeChange(index, "raisingRate", e.target.value)}
+                          sx={{ flex: "0 1 150px" }}
+                          helperText="बियाणे शेतकरी देणार"
+                        />
+                      </>
                     )}
                     {plantData.subtypes.length > 1 && (
                       <IconButton

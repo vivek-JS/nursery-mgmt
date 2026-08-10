@@ -37,6 +37,8 @@ const EditSubtypeModal = ({ open, plant, subtype, onClose, onSuccess }) => {
         monthlyRates: (values.monthlyRates || []).filter((mr) => mr.month && mr.rate !== ""),
         buffer: Number(values.buffer) || 0,
         plantReadyDays: Number(values.plantReadyDays) || 0,
+        raisingRate: Number(values.raisingRate) || 0,
+        isBillable: values.isBillable !== false,
       }
 
       const instance = NetworkManager(API.plantCms.UPDATE_SUBTYPE)
@@ -84,6 +86,8 @@ const EditSubtypeModal = ({ open, plant, subtype, onClose, onSuccess }) => {
               : [],
             buffer: subtype.buffer !== undefined ? subtype.buffer : 0,
             plantReadyDays: subtype.plantReadyDays !== undefined ? subtype.plantReadyDays : 0,
+            raisingRate: subtype.raisingRate !== undefined ? subtype.raisingRate : 0,
+            isBillable: subtype.isBillable !== false,
           }}
           validationSchema={editSubtypeSchema}
           onSubmit={handleSubmit}
@@ -116,6 +120,26 @@ const EditSubtypeModal = ({ open, plant, subtype, onClose, onSuccess }) => {
                   </div>
                 </div>
 
+                <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+                  <Label className="mb-2 block">DC billing</Label>
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      name="isBillable"
+                      checked={values.isBillable !== false}
+                      onChange={handleChange}
+                      className="mt-1 h-4 w-4 rounded border-gray-300 text-green-600 focus:ring-green-600"
+                    />
+                    <span className="text-sm text-gray-700">
+                      <span className="font-semibold">Billable</span>
+                      <span className="block text-xs text-gray-500 mt-0.5">
+                        Uncheck for non-billable (separate DC sequence; plant name only on DC — no
+                        subtype like &quot;15 No&quot;).
+                      </span>
+                    </span>
+                  </label>
+                </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="space-y-2">
                     <Label>Buffer (%)</Label>
@@ -131,18 +155,35 @@ const EditSubtypeModal = ({ open, plant, subtype, onClose, onSuccess }) => {
                     />
                   </div>
                   {plant.sowingAllowed && (
-                    <div className="space-y-2">
-                      <Label>Plant Ready Days</Label>
-                      <Input
-                        name="plantReadyDays"
-                        type="number"
-                        min="0"
-                        step="1"
-                        value={values.plantReadyDays}
-                        onChange={handleChange}
-                        onBlur={handleBlur}
-                      />
-                    </div>
+                    <>
+                      <div className="space-y-2">
+                        <Label>Plant Ready Days</Label>
+                        <Input
+                          name="plantReadyDays"
+                          type="number"
+                          min="0"
+                          step="1"
+                          value={values.plantReadyDays}
+                          onChange={handleChange}
+                          onBlur={handleBlur}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Raising Rate (बियाणे शेतकरी देणार)</Label>
+                        <Input
+                          name="raisingRate"
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={values.raisingRate}
+                          onChange={handleChange}
+                          onBlur={handleBlur}
+                        />
+                        <p className="text-xs text-gray-500">
+                          Used when farmer gives seed on the order form.
+                        </p>
+                      </div>
+                    </>
                   )}
                 </div>
 
