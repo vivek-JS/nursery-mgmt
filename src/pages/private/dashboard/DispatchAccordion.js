@@ -25,6 +25,8 @@ import moment from "moment"
 import OrderCompleteDialog from "./OrderCompleteDialog"
 import { canShowInvoice } from "../DispatchedVehicles/dispatchVehiclesUtils"
 import { useInvoiceAadharPrompt } from "../DispatchedVehicles/useInvoiceAadharPrompt"
+import { useDuplicateInvoicePrompt } from "../DispatchedVehicles/useDuplicateInvoicePrompt"
+import { buildInvoiceNumberOverrides } from "../DispatchedVehicles/invoiceNumberUtils"
 import { getPlantLineItemsFromOrder, plantLineItemsSummaryLabel } from "./plantLineItemsDisplay"
 
 const DispatchAccordion = ({ 
@@ -44,13 +46,13 @@ const DispatchAccordion = ({
   const [relatedOrders, setRelatedOrders] = useState([])
   const [dcInvoiceByOrder, setDcInvoiceByOrder] = useState({})
   const [dcInvoiceSavingByOrder, setDcInvoiceSavingByOrder] = useState({})
-  const [invoicePrefix, setInvoicePrefix] = useState("R")
-  const [invoiceNext, setInvoiceNext] = useState(null)
   const [loading, setLoading] = useState(false)
   const [orderCompleteOpen, setOrderCompleteOpen] = useState(false)
   const [pdfBusy, setPdfBusy] = useState(false)
   const [orderDcPdfBusy, setOrderDcPdfBusy] = useState({})
   const { prompt: promptInvoiceAadhar, dialog: invoiceAadharDialog } = useInvoiceAadharPrompt()
+  const { prompt: promptDuplicateInvoice, dialog: duplicateInvoiceDialog } =
+    useDuplicateInvoicePrompt()
 
   // Debug: Log dispatch data
   useEffect(() => {
@@ -66,37 +68,12 @@ const DispatchAccordion = ({
   }, [relatedOrders])
 
   useEffect(() => {
-    let cancelled = false
-    const loadInvoiceSequence = async () => {
-      try {
-        const inst = NetworkManager(API.INVOICE_SEQUENCE.GET)
-        const res = await inst.request({})
-        const payload = res?.data?.data || {}
-        const prefix = String(payload.prefix || "R").trim() || "R"
-        const next = Number(payload.nextNumber)
-        if (cancelled) return
-        setInvoicePrefix(prefix)
-        setInvoiceNext(Number.isFinite(next) ? next : null)
-      } catch (error) {
-        if (cancelled) return
-        setInvoicePrefix("R")
-        setInvoiceNext(null)
-      }
-    }
-    void loadInvoiceSequence()
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  useEffect(() => {
     if (!Array.isArray(relatedOrders) || relatedOrders.length === 0) {
       setDcInvoiceByOrder({})
       return
     }
     setDcInvoiceByOrder((prev) => {
       const nextByOrder = {}
-      let generatedCounter = Number.isFinite(invoiceNext) ? invoiceNext : 1
       relatedOrders.forEach((order) => {
         const orderKey = String(order?._id || "")
         if (!orderKey) return
@@ -122,17 +99,11 @@ const DispatchAccordion = ({
           nextByOrder[orderKey] = prev[orderKey]
           return
         }
-        if (official) {
-          nextByOrder[orderKey] = ""
-          return
-        }
-        const generated = `${invoicePrefix}${generatedCounter}`
-        nextByOrder[orderKey] = generated
-        generatedCounter += 1
+        nextByOrder[orderKey] = ""
       })
       return nextByOrder
     })
-  }, [relatedOrders, invoicePrefix, invoiceNext])
+  }, [relatedOrders])
 
   useEffect(() => {
     if (expandOnMount) setIsExpanded(true)
@@ -753,11 +724,15 @@ const DispatchAccordion = ({
       return
     }
 
+    let invoiceNumberOverrides = undefined
     if (force) {
-      const ok = window.confirm(
-        "Regenerate invoice PDF? Previous PDF will be kept in history."
-      )
-      if (!ok) return
+      const dispatchWithOrders = {
+        ...dispatch,
+        orderIds: relatedOrders.length > 0 ? relatedOrders : dispatch.orderIds || [],
+      }
+      const { confirmed: dupOk, rows } = await promptDuplicateInvoice(dispatchWithOrders)
+      if (!dupOk) return
+      invoiceNumberOverrides = buildInvoiceNumberOverrides(rows)
     }
 
     setPdfBusy(true)
@@ -772,10 +747,15 @@ const DispatchAccordion = ({
       const preparedTab = preparePdfTab()
       await persistUnsavedManualDcNumbers()
       const inst = NetworkManager(API.DISPATCHED.GENERATE_PDFS)
-      const res = await inst.request(
-        { types: ["complete_invoice"], invoiceAadhars, force: Boolean(force) },
-        [String(dispatch._id)]
-      )
+      const body = {
+        types: ["complete_invoice"],
+        invoiceAadhars,
+        force: Boolean(force),
+      }
+      if (invoiceNumberOverrides && Object.keys(invoiceNumberOverrides).length) {
+        body.invoiceNumberOverrides = invoiceNumberOverrides
+      }
+      const res = await inst.request(body, [String(dispatch._id)])
       const data = parseGeneratePdfsResponse(res)
       const url = String(data?.completeInvoicePdfUrl || "").trim()
       if (data && typeof data === "object") {
@@ -795,10 +775,10 @@ const DispatchAccordion = ({
           orderIds: relatedOrders.length > 0 ? relatedOrders : dispatch.orderIds || [],
         })
       } else if (url && openDispatchPdfUrl(url, preparedTab)) {
-        Toast.success(force ? "Invoice PDF regenerated" : "Invoice PDF opened")
+        Toast.success(force ? "Invoice PDF duplicated" : "Invoice PDF opened")
       } else {
         closePdfTab(preparedTab)
-        Toast.success(force ? "Invoice PDF regenerated" : "Invoice PDF generated")
+        Toast.success(force ? "Invoice PDF duplicated" : "Invoice PDF generated")
       }
       void onRefresh?.()
     } catch (error) {
@@ -1024,9 +1004,9 @@ const DispatchAccordion = ({
                       }}
                       disabled={pdfBusy}
                       className="inline-flex items-center justify-center px-3 py-2 bg-amber-50 text-amber-900 rounded-lg hover:bg-amber-100 transition-colors disabled:opacity-50 text-xs font-semibold"
-                      title="Regenerate invoice PDF (keeps previous in history)"
+                      title="Duplicate invoice PDF (edit numbers; keeps previous in history)"
                     >
-                      Regen invoice
+                      Duplicate invoice
                     </button>
                   ) : null}
                   
@@ -1532,6 +1512,7 @@ const DispatchAccordion = ({
       }}
     />
     {invoiceAadharDialog}
+    {duplicateInvoiceDialog}
     </>
   )
 }

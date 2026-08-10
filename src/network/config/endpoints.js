@@ -351,6 +351,18 @@ export const API = {
     ),
     MONEY_LEDGER_ADD_PAYMENT: new APIRouter("/inventory/money-ledger/payments", HTTP_METHODS.POST),
     MONEY_LEDGER_ADD_DISCOUNT: new APIRouter("/inventory/money-ledger/discounts", HTTP_METHODS.POST),
+    MONEY_LEDGER_PENDING_ADJUSTMENTS: new APIRouter(
+      "/inventory/money-ledger/pending-adjustments",
+      HTTP_METHODS.GET
+    ),
+    MONEY_LEDGER_ACCEPT_PENDING: new APIRouter(
+      "/inventory/money-ledger/pending-adjustments/:id/accept",
+      HTTP_METHODS.POST
+    ),
+    MONEY_LEDGER_REJECT_PENDING: new APIRouter(
+      "/inventory/money-ledger/pending-adjustments/:id/reject",
+      HTTP_METHODS.POST
+    ),
     MONEY_LEDGER_DOC_PAYMENT: new APIRouter(
       "/inventory/money-ledger/documents/:type/:id/payments",
       HTTP_METHODS.POST
@@ -450,6 +462,10 @@ export const API = {
       OFFLINE.PROFILE
     ),
     CREATE_AGRI_SALES_ORDER: new APIRouter("/inventory/agri-sales-orders/create", HTTP_METHODS.POST),
+    RETRY_AGRI_SALES_ORDER_MONEY_LEDGER: new APIRouter(
+      "/inventory/agri-sales-orders/:id/retry-money-ledger",
+      HTTP_METHODS.POST
+    ),
     CREATE_LINKED_AGRI_ORDER: new APIRouter("/inventory/agri-sales-orders/linked/create", HTTP_METHODS.POST),
     GET_LINKED_AGRI_BY_NURSERY_ORDER: new APIRouter("/inventory/agri-sales-orders/linked/by-nursery-order/:orderId", HTTP_METHODS.GET),
     GET_TODAY_PENDING_LINKED_AGRI_LOAD: new APIRouter("/inventory/agri-sales-orders/linked/today-pending-load", HTTP_METHODS.GET),
@@ -987,12 +1003,10 @@ export const API = {
     ASSIGN_ROUTE: new APIRouter("dispatched/assign-route", HTTP_METHODS.PATCH),
     BULK_MARK_READY: new APIRouter("dispatched/bulk-mark-ready", HTTP_METHODS.PATCH),
   },
-  /** Delivery challan invoice sequences: per-plant (primary) + global fallback. */
+  /** Global billable / non-billable DC and tax-invoice sequences. */
   INVOICE_SEQUENCE: {
     GET: new APIRouter("invoice-sequence", HTTP_METHODS.GET),
     PUT: new APIRouter("invoice-sequence", HTTP_METHODS.PUT),
-    GET_PLANTS: new APIRouter("invoice-sequence/plants", HTTP_METHODS.GET),
-    PUT_PLANT: new APIRouter("invoice-sequence/plants", HTTP_METHODS.PUT),
   },
   READY_DISPATCH_GROUP: {
     SUGGEST: new APIRouter("ready-dispatch-groups/suggest", HTTP_METHODS.POST),

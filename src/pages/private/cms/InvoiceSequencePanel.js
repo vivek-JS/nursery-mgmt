@@ -2,31 +2,116 @@ import React, { useState, useEffect, useCallback } from "react"
 import { NetworkManager, API } from "network/core"
 import { PageLoader } from "components"
 
+function bucketDraftKey(kind, billable, field) {
+  const b = billable ? "billable" : "nonBillable"
+  return `_${kind}_${b}_${field}`
+}
+
+function GlobalSequenceTable({ title, help, kind, draft, savingKey, updateDraft, saveBucket }) {
+  const billPrefix = draft[bucketDraftKey(kind, true, "prefix")] ?? ""
+  const billNext = draft[bucketDraftKey(kind, true, "next")] ?? 1
+  const nbPrefix = draft[bucketDraftKey(kind, false, "prefix")] ?? ""
+  const nbNext = draft[bucketDraftKey(kind, false, "next")] ?? 1
+  const billPreview = `${String(billPrefix).trim()}${Math.max(1, Math.floor(Number(billNext) || 1))}`
+  const nbPreview = `${String(nbPrefix).trim()}${Math.max(1, Math.floor(Number(nbNext) || 1))}`
+  const savingB = savingKey === `${kind}:billable`
+  const savingNb = savingKey === `${kind}:nonBillable`
+  const billFocus =
+    kind === "invoice"
+      ? "focus:border-blue-600 focus:ring-blue-600"
+      : "focus:border-green-600 focus:ring-green-600"
+  const nbFocus =
+    kind === "invoice"
+      ? "focus:border-indigo-600 focus:ring-indigo-600"
+      : "focus:border-amber-600 focus:ring-amber-600"
+  const billBtn =
+    kind === "invoice" ? "bg-blue-600 hover:bg-blue-700" : "bg-green-600 hover:bg-green-700"
+  const nbBtn =
+    kind === "invoice" ? "bg-indigo-700 hover:bg-indigo-800" : "bg-amber-700 hover:bg-amber-800"
+
+  const renderBucket = (billable, prefix, next, preview, saving, btnClass, focusClass) => (
+    <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+      <h4 className="mb-3 text-sm font-semibold text-gray-800">
+        {billable ? "Billable" : "Non-billable"}
+      </h4>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="block">
+          <span className="text-xs font-medium uppercase tracking-wide text-gray-500">Prefix</span>
+          <input
+            type="text"
+            className={`mt-1 block w-full rounded-md border border-gray-300 px-2 py-1.5 font-mono text-sm focus:outline-none focus:ring-1 ${focusClass}`}
+            value={prefix}
+            maxLength={24}
+            onChange={(e) =>
+              updateDraft(bucketDraftKey(kind, billable, "prefix"), e.target.value)
+            }
+          />
+        </label>
+        <label className="block">
+          <span className="text-xs font-medium uppercase tracking-wide text-gray-500">Next</span>
+          <input
+            type="number"
+            min={1}
+            step={1}
+            className={`mt-1 block w-full rounded-md border border-gray-300 px-2 py-1.5 font-mono text-sm focus:outline-none focus:ring-1 ${focusClass}`}
+            value={next}
+            onChange={(e) =>
+              updateDraft(bucketDraftKey(kind, billable, "next"), Number(e.target.value))
+            }
+          />
+        </label>
+      </div>
+      <p className="mt-2 font-mono text-sm text-gray-600">Preview: {preview}</p>
+      <button
+        type="button"
+        disabled={saving}
+        onClick={() => void saveBucket(kind, billable)}
+        className={`mt-3 inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-medium text-white shadow disabled:opacity-50 ${btnClass}`}>
+        {saving ? "Saving…" : "Save"}
+      </button>
+    </div>
+  )
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <h3 className="text-base font-semibold text-gray-900">{title}</h3>
+        <p className="mt-1 text-sm text-gray-600">{help}</p>
+      </div>
+      <div className="grid gap-4 md:grid-cols-2">
+        {renderBucket(true, billPrefix, billNext, billPreview, savingB, billBtn, billFocus)}
+        {renderBucket(false, nbPrefix, nbNext, nbPreview, savingNb, nbBtn, nbFocus)}
+      </div>
+    </div>
+  )
+}
+
 const InvoiceSequencePanel = () => {
   const [loading, setLoading] = useState(true)
-  const [savingId, setSavingId] = useState(null)
-  const [rows, setRows] = useState([])
-  const [fallback, setFallback] = useState({ prefix: "R", nextNumber: 1 })
-  const [savingFallback, setSavingFallback] = useState(false)
+  const [savingKey, setSavingKey] = useState(null)
+  const [draft, setDraft] = useState({})
+
+  const applyPayload = (data) => {
+    const dc = data?.dc || {}
+    const invoice = data?.invoice || {}
+    setDraft({
+      [bucketDraftKey("dc", true, "prefix")]: dc.billable?.prefix ?? "B",
+      [bucketDraftKey("dc", true, "next")]: dc.billable?.nextNumber ?? 1,
+      [bucketDraftKey("dc", false, "prefix")]: dc.nonBillable?.prefix ?? "BN",
+      [bucketDraftKey("dc", false, "next")]: dc.nonBillable?.nextNumber ?? 1,
+      [bucketDraftKey("invoice", true, "prefix")]: invoice.billable?.prefix ?? "INV",
+      [bucketDraftKey("invoice", true, "next")]: invoice.billable?.nextNumber ?? 1,
+      [bucketDraftKey("invoice", false, "prefix")]: invoice.nonBillable?.prefix ?? "INN",
+      [bucketDraftKey("invoice", false, "next")]: invoice.nonBillable?.nextNumber ?? 1,
+    })
+  }
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const plantsInst = NetworkManager(API.INVOICE_SEQUENCE.GET_PLANTS)
-      const globalInst = NetworkManager(API.INVOICE_SEQUENCE.GET)
-      const [plantsRes, globalRes] = await Promise.all([
-        plantsInst.request(),
-        globalInst.request().catch(() => null),
-      ])
-      const list = plantsRes?.data?.data
-      setRows(Array.isArray(list) ? list.map((r) => ({ ...r, _draftPrefix: r.prefix, _draftNext: r.nextNumber })) : [])
-      const g = globalRes?.data?.data
-      if (g) {
-        setFallback({
-          prefix: g.prefix != null ? String(g.prefix) : "R",
-          nextNumber: Number(g.nextNumber) > 0 ? Math.floor(Number(g.nextNumber)) : 1,
-        })
-      }
+      const inst = NetworkManager(API.INVOICE_SEQUENCE.GET)
+      const res = await inst.request()
+      applyPayload(res?.data?.data)
     } catch (e) {
       console.error(e)
     } finally {
@@ -38,53 +123,36 @@ const InvoiceSequencePanel = () => {
     void load()
   }, [load])
 
-  const updateDraft = (plantId, patch) => {
-    setRows((prev) =>
-      prev.map((r) => (String(r.plantId) === String(plantId) ? { ...r, ...patch } : r))
-    )
+  const updateDraft = (key, value) => {
+    setDraft((prev) => ({ ...prev, [key]: value }))
   }
 
-  const savePlant = async (row) => {
-    const p = String(row._draftPrefix || "").trim()
-    const nn = Math.max(1, Math.floor(Number(row._draftNext) || 1))
-    if (!p) {
-      window.alert("Prefix is required (e.g. B).")
+  const saveBucket = async (kind, billable) => {
+    const prefix = String(draft[bucketDraftKey(kind, billable, "prefix")] || "").trim()
+    const nn = Math.max(1, Math.floor(Number(draft[bucketDraftKey(kind, billable, "next")]) || 1))
+    if (!prefix) {
+      window.alert("Prefix is required (e.g. B or INV).")
       return
     }
-    setSavingId(row.plantId)
+    const saveKey = `${kind}:${billable ? "billable" : "nonBillable"}`
+    setSavingKey(saveKey)
     try {
-      const inst = NetworkManager(API.INVOICE_SEQUENCE.PUT_PLANT)
-      await inst.request({ plantId: row.plantId, prefix: p, nextNumber: nn })
+      const inst = NetworkManager(API.INVOICE_SEQUENCE.PUT)
+      await inst.request({
+        kind,
+        billable,
+        prefix,
+        nextNumber: nn,
+      })
       await load()
       window.alert(
-        `Saved ${row.plantName}. Previously printed challan numbers on orders are unchanged. Cancelled legs do not free numbers.`
+        `Saved global ${kind === "invoice" ? "invoice" : "DC"} (${billable ? "billable" : "non-billable"}). Previously issued numbers on orders are unchanged.`
       )
     } catch (e) {
       console.error(e)
       window.alert(e?.response?.data?.message || e?.message || "Save failed")
     } finally {
-      setSavingId(null)
-    }
-  }
-
-  const saveFallback = async () => {
-    const p = String(fallback.prefix || "").trim()
-    const nn = Math.max(1, Math.floor(Number(fallback.nextNumber) || 1))
-    if (!p) {
-      window.alert("Fallback prefix is required.")
-      return
-    }
-    setSavingFallback(true)
-    try {
-      const inst = NetworkManager(API.INVOICE_SEQUENCE.PUT)
-      await inst.request({ prefix: p, nextNumber: nn })
-      await load()
-      window.alert("Fallback (global) sequence saved. Used only if plant id is missing.")
-    } catch (e) {
-      console.error(e)
-      window.alert(e?.response?.data?.message || e?.message || "Save failed")
-    } finally {
-      setSavingFallback(false)
+      setSavingKey(null)
     }
   }
 
@@ -93,124 +161,39 @@ const InvoiceSequencePanel = () => {
   }
 
   return (
-    <div className="max-w-4xl space-y-6">
+    <div className="max-w-4xl space-y-8">
       <div className="space-y-2">
         <p className="text-sm text-gray-600">
-          Each <strong className="font-semibold text-gray-800">plant</strong> (Banana, Papaya,
-          Muskmelon, …) has its own delivery challan sequence:{" "}
-          <strong className="font-semibold text-gray-800">prefix + number</strong> (e.g.{" "}
-          <span className="font-mono">B640</span>, <span className="font-mono">P120</span>). The
-          next number is issued when an order is fully dispatched (or instant DISPATCHED).
+          Global Delivery Challan and Tax Invoice sequences — billable and non-billable counters
+          shared across all plants. Which bucket is used depends on the subtype{" "}
+          <strong className="font-semibold text-gray-800">isBillable</strong> flag in Plant CMS.
+          DC numbers are allocated on dispatch; invoice numbers when the invoice PDF is generated.
         </p>
         <p className="text-sm text-gray-600">
-          Changing prefix or next number does <em>not</em> rewrite numbers already stored on
-          orders. Cancelled dispatch legs do not free numbers.
+          Changing prefix or next number does <em>not</em> rewrite numbers already stored on orders.
+          Cancelled dispatch legs do not free numbers.
         </p>
       </div>
 
-      <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white shadow-sm">
-        <table className="min-w-full text-sm">
-          <thead className="bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">
-            <tr>
-              <th className="px-3 py-2">Plant</th>
-              <th className="px-3 py-2">Prefix</th>
-              <th className="px-3 py-2">Next number</th>
-              <th className="px-3 py-2">Preview</th>
-              <th className="px-3 py-2" />
-            </tr>
-          </thead>
-          <tbody>
-            {rows.length === 0 ? (
-              <tr>
-                <td colSpan={5} className="px-3 py-6 text-center text-gray-500">
-                  No plants found in Plant CMS.
-                </td>
-              </tr>
-            ) : (
-              rows.map((row) => {
-                const preview = `${String(row._draftPrefix || "").trim()}${Math.max(
-                  1,
-                  Math.floor(Number(row._draftNext) || 1)
-                )}`
-                return (
-                  <tr key={row.plantId} className="border-t border-gray-100">
-                    <td className="px-3 py-2 font-medium text-gray-900">{row.plantName}</td>
-                    <td className="px-3 py-2">
-                      <input
-                        type="text"
-                        className="w-24 rounded-md border border-gray-300 px-2 py-1.5 font-mono text-sm focus:border-green-600 focus:outline-none focus:ring-1 focus:ring-green-600"
-                        value={row._draftPrefix ?? ""}
-                        maxLength={24}
-                        onChange={(e) => updateDraft(row.plantId, { _draftPrefix: e.target.value })}
-                      />
-                    </td>
-                    <td className="px-3 py-2">
-                      <input
-                        type="number"
-                        min={1}
-                        step={1}
-                        className="w-28 rounded-md border border-gray-300 px-2 py-1.5 font-mono text-sm focus:border-green-600 focus:outline-none focus:ring-1 focus:ring-green-600"
-                        value={row._draftNext ?? 1}
-                        onChange={(e) =>
-                          updateDraft(row.plantId, { _draftNext: Number(e.target.value) })
-                        }
-                      />
-                    </td>
-                    <td className="px-3 py-2 font-mono text-gray-700">{preview}</td>
-                    <td className="px-3 py-2 text-right">
-                      <button
-                        type="button"
-                        disabled={savingId === row.plantId}
-                        onClick={() => void savePlant(row)}
-                        className="inline-flex items-center rounded-lg bg-green-600 px-3 py-1.5 text-xs font-medium text-white shadow hover:bg-green-700 disabled:opacity-50">
-                        {savingId === row.plantId ? "Saving…" : "Save"}
-                      </button>
-                    </td>
-                  </tr>
-                )
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
+      <GlobalSequenceTable
+        title="Delivery Challan sequences"
+        help="Used when creating delivery challans (billable / non-billable pages)."
+        kind="dc"
+        draft={draft}
+        savingKey={savingKey}
+        updateDraft={updateDraft}
+        saveBucket={saveBucket}
+      />
 
-      <details className="rounded-lg border border-amber-200 bg-amber-50/60 p-4">
-        <summary className="cursor-pointer text-sm font-semibold text-amber-900">
-          Fallback global sequence (rare — only if plant id missing)
-        </summary>
-        <div className="mt-3 grid max-w-md gap-3">
-          <label className="block">
-            <span className="text-sm font-medium text-gray-700">Prefix</span>
-            <input
-              type="text"
-              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 font-mono text-sm shadow-sm focus:border-green-600 focus:outline-none focus:ring-1 focus:ring-green-600"
-              value={fallback.prefix}
-              onChange={(e) => setFallback((f) => ({ ...f, prefix: e.target.value }))}
-              maxLength={24}
-            />
-          </label>
-          <label className="block">
-            <span className="text-sm font-medium text-gray-700">Next invoice number</span>
-            <input
-              type="number"
-              min={1}
-              step={1}
-              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 font-mono text-sm shadow-sm focus:border-green-600 focus:outline-none focus:ring-1 focus:ring-green-600"
-              value={fallback.nextNumber}
-              onChange={(e) =>
-                setFallback((f) => ({ ...f, nextNumber: Number(e.target.value) }))
-              }
-            />
-          </label>
-          <button
-            type="button"
-            disabled={savingFallback}
-            onClick={() => void saveFallback()}
-            className="inline-flex items-center rounded-lg bg-amber-700 px-4 py-2 text-sm font-medium text-white shadow hover:bg-amber-800 disabled:opacity-50">
-            {savingFallback ? "Saving…" : "Save fallback"}
-          </button>
-        </div>
-      </details>
+      <GlobalSequenceTable
+        title="Tax Invoice sequences"
+        help="Used when creating / duplicating complete invoices (separate from DC numbers)."
+        kind="invoice"
+        draft={draft}
+        savingKey={savingKey}
+        updateDraft={updateDraft}
+        saveBucket={saveBucket}
+      />
     </div>
   )
 }
