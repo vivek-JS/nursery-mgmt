@@ -14,6 +14,7 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableContainer,
   TableHead,
   TableRow,
   TextField,
@@ -66,7 +67,7 @@ function productLineText(entry) {
 
 export default function InventoryLedger() {
   const [book, setBook] = useState("RAM_AGRI");
-  const [partyKind, setPartyKind] = useState("ALL");
+  const [partyKind, setPartyKind] = useState("MERCHANT");
   const [search, setSearch] = useState("");
   const [debouncedQ, setDebouncedQ] = useState("");
   const [parties, setParties] = useState([]);
@@ -86,7 +87,7 @@ export default function InventoryLedger() {
   }, [search]);
 
   useEffect(() => {
-    setPartyKind("ALL");
+    setPartyKind(book === "RAM_AGRI" ? "MERCHANT" : "ALL");
     setSelected(null);
   }, [book]);
 
@@ -251,11 +252,8 @@ export default function InventoryLedger() {
               value={partyKind}
               onChange={(_, v) => v && setPartyKind(v)}
             >
-              <ToggleButton value="ALL" sx={{ textTransform: "none", fontWeight: 700 }}>
-                All parties
-              </ToggleButton>
               <ToggleButton value="MERCHANT" sx={{ textTransform: "none", fontWeight: 700 }}>
-                Merchants
+                Merchants (B2B)
               </ToggleButton>
               <ToggleButton value="FARMER" sx={{ textTransform: "none", fontWeight: 700 }}>
                 Farmers
@@ -270,7 +268,13 @@ export default function InventoryLedger() {
           <TextField
             fullWidth
             size="small"
-            placeholder="Search party"
+            placeholder={
+              isRamAgri
+                ? partyKind === "FARMER"
+                  ? "Search farmer"
+                  : "Search merchant (e.g. Dharti)"
+                : "Search party"
+            }
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             InputProps={{
@@ -349,13 +353,15 @@ export default function InventoryLedger() {
               <CircularProgress />
             </Box>
           ) : (
-            <Table size="small stickyHeader">
+            <TableContainer sx={{ maxHeight: { xs: 420, md: 560 }, mt: 1.5 }}>
+            <Table size="small" stickyHeader>
               <TableHead>
                 <TableRow>
                   <TableCell>Date (IST)</TableCell>
                   <TableCell>Type</TableCell>
                   <TableCell>Doc</TableCell>
                   <TableCell>Particulars</TableCell>
+                  <TableCell>Product</TableCell>
                   <TableCell align="right">Debit</TableCell>
                   <TableCell align="right">Credit</TableCell>
                   <TableCell align="right">Balance</TableCell>
@@ -364,9 +370,10 @@ export default function InventoryLedger() {
               <TableBody>
                 {!statement?.entries?.length ? (
                   <TableRow>
-                    <TableCell colSpan={7}>
+                    <TableCell colSpan={8}>
                       <Typography color="text.secondary" sx={{ py: 3, textAlign: "center" }}>
-                        Select a party to see debit / credit lines
+                        Select a {isRamAgri && partyKind === "FARMER" ? "farmer" : "merchant"} to see
+                        debit / credit lines
                       </Typography>
                     </TableCell>
                   </TableRow>
@@ -374,6 +381,10 @@ export default function InventoryLedger() {
                   statement.entries.map((e, idx) => {
                     const key = e._id || `${e.documentId}-${e.refType}-${idx}`;
                     const products = productLineText(e);
+                    const showProduct =
+                      ["SELL", "PURCHASE", "SALES_RETURN", "PURCHASE_RETURN"].includes(
+                        String(e.refType || "").toUpperCase()
+                      );
                     return (
                       <TableRow key={key} hover>
                         <TableCell>{formatDateIst(e.entryDate)}</TableCell>
@@ -387,11 +398,15 @@ export default function InventoryLedger() {
                         </TableCell>
                         <TableCell>
                           <Typography variant="body2">{e.description || e.reference || "—"}</Typography>
-                          {products ? (
-                            <Typography variant="caption" color="text.secondary">
+                        </TableCell>
+                        <TableCell sx={{ maxWidth: 220 }}>
+                          {showProduct && products ? (
+                            <Typography variant="body2" color="text.secondary">
                               {products}
                             </Typography>
-                          ) : null}
+                          ) : (
+                            "—"
+                          )}
                         </TableCell>
                         <TableCell
                           align="right"
@@ -431,6 +446,7 @@ export default function InventoryLedger() {
                 )}
               </TableBody>
             </Table>
+            </TableContainer>
           )}
         </Paper>
       </Stack>
