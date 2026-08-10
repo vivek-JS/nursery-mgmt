@@ -322,6 +322,41 @@ export const API = {
     APPROVE_PURCHASE_ORDER: new APIRouter("/inventory/purchase-orders", HTTP_METHODS.POST), // /:id/approve
     CANCEL_PURCHASE_ORDER: new APIRouter("/inventory/purchase-orders", HTTP_METHODS.POST), // /:id/cancel
 
+    // Purchase Returns (classic / biotech plant inventory)
+    LIST_PURCHASE_RETURNS: new APIRouter("/inventory/purchase-returns", HTTP_METHODS.GET),
+    LIST_ELIGIBLE_POS_FOR_PURCHASE_RETURN: new APIRouter(
+      "/inventory/purchase-returns/eligible-pos",
+      HTTP_METHODS.GET
+    ),
+    LIST_ELIGIBLE_SUPPLIERS_FOR_PURCHASE_RETURN: new APIRouter(
+      "/inventory/purchase-returns/eligible-suppliers",
+      HTTP_METHODS.GET
+    ),
+    GET_PURCHASE_RETURNABLE_BATCHES: new APIRouter(
+      "/inventory/purchase-returns/returnable-batches",
+      HTTP_METHODS.GET
+    ),
+    CREATE_PURCHASE_RETURN: new APIRouter("/inventory/purchase-returns", HTTP_METHODS.POST),
+    DOWNLOAD_PURCHASE_RETURN_INVOICE: new APIRouter(
+      "/inventory/purchase-returns/:id/invoice",
+      HTTP_METHODS.GET
+    ),
+
+    // Centralized Money Ledger (Biotech + Ram Agri)
+    MONEY_LEDGER_BOOKS: new APIRouter("/inventory/money-ledger/books", HTTP_METHODS.GET),
+    MONEY_LEDGER_PARTIES: new APIRouter("/inventory/money-ledger/parties", HTTP_METHODS.GET),
+    MONEY_LEDGER_PARTY_STATEMENT: new APIRouter(
+      "/inventory/money-ledger/parties/:partyType/:partyId",
+      HTTP_METHODS.GET
+    ),
+    MONEY_LEDGER_ADD_PAYMENT: new APIRouter("/inventory/money-ledger/payments", HTTP_METHODS.POST),
+    MONEY_LEDGER_ADD_DISCOUNT: new APIRouter("/inventory/money-ledger/discounts", HTTP_METHODS.POST),
+    MONEY_LEDGER_DOC_PAYMENT: new APIRouter(
+      "/inventory/money-ledger/documents/:type/:id/payments",
+      HTTP_METHODS.POST
+    ),
+    MONEY_LEDGER_BACKFILL: new APIRouter("/inventory/money-ledger/backfill", HTTP_METHODS.POST),
+
     // GRN (Goods Received Note)
     GET_ALL_GRN: new APIRouter("/inventory/grn", HTTP_METHODS.GET),
     GET_GRN_BY_ID: new APIRouter("/inventory/grn", HTTP_METHODS.GET),
@@ -455,6 +490,14 @@ export const API = {
     ),
     REQUEST_AGRI_SALES_RETURN: new APIRouter("/inventory/agri-sales-orders/returns/request", HTTP_METHODS.POST),
     LIST_AGRI_SALES_RETURN_REQUESTS: new APIRouter("/inventory/agri-sales-orders/returns", HTTP_METHODS.GET),
+    GET_AGRI_MERCHANT_RETURNABLE_BATCHES: new APIRouter(
+      "/inventory/agri-sales-orders/returns/merchant-batches",
+      HTTP_METHODS.GET
+    ),
+    PROCESS_AGRI_MERCHANT_BATCH_RETURN: new APIRouter(
+      "/inventory/agri-sales-orders/returns/merchant-batch-return",
+      HTTP_METHODS.POST
+    ),
     APPROVE_AGRI_SALES_RETURN_REQUEST: new APIRouter(
       "/inventory/agri-sales-orders/returns/:id/approve",
       HTTP_METHODS.PATCH
@@ -465,6 +508,10 @@ export const API = {
     ),
     GET_AGRI_SALES_RETURN_REQUESTS_BY_ORDER: new APIRouter(
       "/inventory/agri-sales-orders/returns/by-order/:orderId",
+      HTTP_METHODS.GET
+    ),
+    DOWNLOAD_AGRI_SALES_RETURN_INVOICE: new APIRouter(
+      "/inventory/agri-sales-orders/returns/:id/invoice",
       HTTP_METHODS.GET
     ),
 
