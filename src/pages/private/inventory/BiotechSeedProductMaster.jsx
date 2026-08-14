@@ -63,7 +63,7 @@ export default function BiotechSeedProductMaster() {
     displayOrder: "",
     primaryUnit: "",
     secondaryUnit: "",
-    conversionFactor: 1,
+    conversionFactor: "",
   });
   const [linkForm, setLinkForm] = useState(emptyBiotechLinkForm());
   const [errors, setErrors] = useState({});
@@ -179,7 +179,10 @@ export default function BiotechSeedProductMaster() {
             : "",
         primaryUnit: variety.primaryUnit?._id || variety.primaryUnit || "",
         secondaryUnit: variety.secondaryUnit?._id || variety.secondaryUnit || "",
-        conversionFactor: variety.conversionFactor || 1,
+        conversionFactor:
+          variety.conversionFactor != null && variety.conversionFactor !== ""
+            ? String(variety.conversionFactor)
+            : "",
       });
     } else {
       setVarietyFormData({
@@ -188,7 +191,7 @@ export default function BiotechSeedProductMaster() {
         displayOrder: "",
         primaryUnit: "",
         secondaryUnit: "",
-        conversionFactor: 1,
+        conversionFactor: "",
       });
     }
     setErrors({});
@@ -257,7 +260,10 @@ export default function BiotechSeedProductMaster() {
         description: varietyFormData.description.trim(),
         primaryUnit: varietyFormData.primaryUnit,
         secondaryUnit: varietyFormData.secondaryUnit || undefined,
-        conversionFactor: varietyFormData.conversionFactor || 1,
+        conversionFactor:
+          varietyFormData.conversionFactor === "" || varietyFormData.conversionFactor == null
+            ? 1
+            : Number(varietyFormData.conversionFactor),
         sowingPlantId: linkForm.sowingPlantId || undefined,
         sowingSubtypeId: linkForm.sowingSubtypeId || undefined,
         tentativePlantsPerPacket: linkForm.tentativePlantsPerPacket

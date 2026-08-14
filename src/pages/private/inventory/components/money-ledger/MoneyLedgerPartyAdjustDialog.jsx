@@ -21,6 +21,10 @@ import { addMoneyLedgerPartyPayment, addMoneyLedgerPartyDiscount } from "./money
 
 const MODES = ["Cash", "UPI", "Cheque", "NEFT/RTGS", "Card", "Bank Transfer"];
 
+function todayIstYmd() {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+}
+
 /**
  * Party-scoped Payment or Discount on Ram Agri unified ledger (no document required).
  * Discount / payment auto posts on the minus side of net balance.
@@ -30,6 +34,7 @@ export default function MoneyLedgerPartyAdjustDialog({
   onClose,
   onSuccess,
   kind = "PAYMENT", // PAYMENT | DISCOUNT
+  book = "RAM_AGRI",
   partyType,
   partyId,
   partyName = "",
@@ -37,13 +42,15 @@ export default function MoneyLedgerPartyAdjustDialog({
 }) {
   const [amount, setAmount] = useState("");
   const [modeOfPayment, setModeOfPayment] = useState("Cash");
-  const [entryDate, setEntryDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [entryDate, setEntryDate] = useState(() => todayIstYmd());
   const [remark, setRemark] = useState("");
   const [direction, setDirection] = useState("AUTO");
   const [submitting, setSubmitting] = useState(false);
 
   const isDiscount = String(kind).toUpperCase() === "DISCOUNT";
   const net = Number(netBalance) || 0;
+  const bookId = String(book || "RAM_AGRI").toUpperCase() === "BIOTECH" ? "BIOTECH" : "RAM_AGRI";
+  const bookLabel = bookId === "BIOTECH" ? "Biotech Master" : "Ram Agri Input";
 
   useEffect(() => {
     if (!open) return;
@@ -51,8 +58,8 @@ export default function MoneyLedgerPartyAdjustDialog({
     setRemark("");
     setModeOfPayment("Cash");
     setDirection("AUTO");
-    setEntryDate(new Date().toISOString().slice(0, 10));
-  }, [open, kind, partyId]);
+    setEntryDate(todayIstYmd());
+  }, [open, kind, partyId, bookId]);
 
   const autoHint =
     net < 0
@@ -81,19 +88,19 @@ export default function MoneyLedgerPartyAdjustDialog({
         amount: amt,
         entryDate,
         remark: remark.trim(),
-        book: "RAM_AGRI",
+        book: bookId,
         direction,
       };
       if (isDiscount) {
         await addMoneyLedgerPartyDiscount(payload);
-        Toast.success("Discount posted (− side)");
+        Toast.success(`Discount submitted for approval (${bookLabel})`);
       } else {
         await addMoneyLedgerPartyPayment({
           ...payload,
           modeOfPayment,
           kind: "PAYMENT",
         });
-        Toast.success("Payment posted on party");
+        Toast.success(`Payment submitted for approval (${bookLabel})`);
       }
       onSuccess?.();
       onClose?.();
@@ -111,7 +118,7 @@ export default function MoneyLedgerPartyAdjustDialog({
         <Box>
           <Typography fontWeight={800}>{isDiscount ? "Add Discount" : "Add Payment"}</Typography>
           <Typography variant="caption" color="text.secondary">
-            {partyName || "Party"} · Ram Agri ledger
+            {partyName || "Party"} · {bookLabel}
           </Typography>
         </Box>
         <Button
@@ -128,6 +135,9 @@ export default function MoneyLedgerPartyAdjustDialog({
           <br />
           Current net: ₹{net.toLocaleString("en-IN")}{" "}
           {net > 0 ? "(they owe)" : net < 0 ? "(we owe)" : "(settled)"}
+          <br />
+          Goes to Accounting Dashboard first — accepted by Accountant / Super Admin / Agri Input
+          Master, then posts to Money Ledger.
         </Alert>
 
         <TextField

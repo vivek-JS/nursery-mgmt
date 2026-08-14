@@ -23,6 +23,7 @@ import {
   mapCentralPartyStatementToPanel
 } from "features/accountant-dashboard/normalize"
 import { CentralLedgerTab } from "features/accountant-dashboard/CentralLedgerTab"
+import { MoneyLedgerAccountantTab } from "features/accountant-dashboard/MoneyLedgerAccountantTab"
 import {
   fetchCentralPartyStatement,
   fetchCentralLedgerSyncStatus,
@@ -33,6 +34,9 @@ import {
   fetchAgriOrderPayments,
   fetchBulkPaymentsList,
   fetchFarmerPlantLedger,
+  fetchMoneyLedgerPartyPendingRows,
+  acceptMoneyLedgerPartyPending,
+  rejectMoneyLedgerPartyPending,
   normalizeFarmerIdForLedger,
   searchRamAgriCustomersForLedgerTransfer,
   transferRamAgriCustomerAdvance,
@@ -237,16 +241,49 @@ const AccountantDashboard = () => {
         bulkPagination = bulkResult.pagination
       }
 
-      setOrderPayments((prev) => (append ? [...prev, ...nextOrderRows] : nextOrderRows))
+      let pendingLedgerRows = []
+      let pendingLedgerPagination = null
+      const wantLedgerPending =
+        !advancesMode &&
+        (typeFilter === "ALL" || typeFilter === "ORDER") &&
+        (statusFilter === "ALL" ||
+          statusFilter === "PENDING" ||
+          statusFilter === "COLLECTED" ||
+          statusFilter === "REJECTED")
+      if (wantLedgerPending) {
+        const led = await fetchMoneyLedgerPartyPendingRows({
+          selectedOrg,
+          statusFilter: statusFilter === "ALL" ? "PENDING" : statusFilter,
+          debouncedSearchTerm,
+          page: targetPage,
+          rowsPerPage: ROWS
+        })
+        pendingLedgerRows = led.rows
+        pendingLedgerPagination = led.pagination
+      }
+
+      const mergedOrderRows = wantLedgerPending
+        ? [...pendingLedgerRows, ...nextOrderRows]
+        : nextOrderRows
+
+      setOrderPayments((prev) => (append ? [...prev, ...mergedOrderRows] : mergedOrderRows))
       setBulkPayments((prev) => (append && wantBulk ? [...prev, ...nextBulkRows] : wantBulk ? nextBulkRows : []))
 
       const orderTotalPages = wantOrder ? getTotalPagesFromPagination(orderPagination, targetPage) : 0
       const bulkTotalPages = wantBulk ? getTotalPagesFromPagination(bulkPagination, targetPage) : 0
-      setHasMorePayments(targetPage < Math.max(orderTotalPages, bulkTotalPages))
+      const ledgerPendingPages = wantLedgerPending
+        ? getTotalPagesFromPagination(pendingLedgerPagination, targetPage)
+        : 0
+      setHasMorePayments(targetPage < Math.max(orderTotalPages, bulkTotalPages, ledgerPendingPages))
 
       if (!append || targetPage === 1) {
-        const orderTotal = wantOrder ? Number(orderPagination?.total) || 0 : 0
+        const orderTotal =
+          (wantOrder ? Number(orderPagination?.total) || 0 : 0) +
+          (wantLedgerPending ? Number(pendingLedgerPagination?.total) || 0 : 0)
         const bulkTotal = wantBulk ? Number(bulkPagination?.total) || 0 : 0
+        const ledgerPendingCount = wantLedgerPending
+          ? Number(pendingLedgerPagination?.pendingCount) || 0
+          : 0
         setPaymentsTotals({
           orderTotal,
           bulkTotal,
@@ -255,14 +292,15 @@ const AccountantDashboard = () => {
             (Number(bulkPagination?.totalAmountSum) || 0),
           pendingCount:
             (Number(orderSummary?.pendingCount) || 0) +
-            (Number(bulkPagination?.pendingCount) || 0),
+            (Number(bulkPagination?.pendingCount) || 0) +
+            ledgerPendingCount,
           collectedCount:
             (Number(orderSummary?.collectedCount) || 0) +
             (Number(bulkPagination?.collectedCount) || 0),
           rejectedCount:
             (Number(orderSummary?.rejectedCount) || 0) +
             (Number(bulkPagination?.rejectedCount) || 0),
-          fromServer: Boolean(orderPagination || bulkPagination || advancesMode)
+          fromServer: Boolean(orderPagination || bulkPagination || pendingLedgerPagination || advancesMode)
         })
       }
 
@@ -484,6 +522,21 @@ const AccountantDashboard = () => {
 
   const runPaymentStatusUpdate = async (row, newStatus) => {
     try {
+      if (row?.__source === "moneyLedgerPending" || row?.kind) {
+        const id = row._id || row.payment?._id
+        if (newStatus === "COLLECTED") {
+          await acceptMoneyLedgerPartyPending(id)
+          Toast.success("Accepted — posted to Money Ledger")
+        } else if (newStatus === "REJECTED") {
+          await rejectMoneyLedgerPartyPending(id)
+          Toast.success("Adjustment rejected")
+        } else {
+          Toast.error("Use Completed to accept or Rejected to decline")
+          return false
+        }
+        refreshPayments()
+        return true
+      }
       if (selectedOrg === "ram-agri") {
         const paymentIndex = row.paymentIndex !== undefined ? row.paymentIndex : 0
         const instance = NetworkManager(API.INVENTORY.UPDATE_AGRI_SALES_ORDER_PAYMENT_STATUS)
@@ -508,6 +561,11 @@ const AccountantDashboard = () => {
   const handleOrderStatusSave = async (displayRow, newStatus) => {
     const raw = displayRow.__raw
     if (!raw) return false
+    if (displayRow.__source === "moneyLedgerPending") {
+      const label = newStatus === "COLLECTED" ? "accept & post to ledger" : String(newStatus).toLowerCase()
+      if (!window.confirm(`${label}?`)) return false
+      return runPaymentStatusUpdate({ ...raw, __source: "moneyLedgerPending" }, newStatus)
+    }
     if (!window.confirm(`Change payment status to ${newStatus}?`)) return false
     return runPaymentStatusUpdate(raw, newStatus)
   }
@@ -969,6 +1027,13 @@ const AccountantDashboard = () => {
                 if (ctx) await loadCentralLedgerForContext(ctx)
               })()
             }}
+          />
+        )}
+
+        {activeTab === "money-ledger" && (
+          <MoneyLedgerAccountantTab
+            selectedOrg={selectedOrg}
+            canAdjust={hasPaymentAccess}
           />
         )}
 

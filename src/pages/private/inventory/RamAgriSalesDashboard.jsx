@@ -3,6 +3,7 @@ import RamAgriStockView from './components/RamAgriStockView';
 import RamAgriVarietyStockLedgerModal from './components/RamAgriVarietyStockLedgerModal';
 import RamAgriOutstandingPanel from './components/RamAgriOutstandingPanel';
 import RamAgriDailyClosingStockTab from './components/RamAgriDailyClosingStockTab';
+import RamAgriDirectStockUpdateModal from './components/RamAgriDirectStockUpdateModal';
 import { isRamAgriMaster } from '../../../workspace/agriAccess';
 import {
   Package,
@@ -123,7 +124,7 @@ const RamAgriSalesDashboard = () => {
   const [userLimitDrafts, setUserLimitDrafts] = useState({});
   const [savingUserId, setSavingUserId] = useState(null);
   const [directStockTypeTab, setDirectStockTypeTab] = useState('seed');
-  const [stockDrafts, setStockDrafts] = useState({});
+  const [stockUpdateTarget, setStockUpdateTarget] = useState(null);
   const [savingStockKey, setSavingStockKey] = useState(null);
 
   const fetchOutstandingLimitSummary = async () => {
@@ -248,18 +249,6 @@ const RamAgriSalesDashboard = () => {
     }
   }, [showTargetModal, targetUserId, salesTargets]);
 
-  const buildStockDraftsFromDashboard = (data) => {
-    const drafts = {};
-    const stockByCrop = data?.stock?.stockByCrop || [];
-    stockByCrop.forEach((crop) => {
-      (crop.varieties || []).forEach((variety) => {
-        const key = `${crop.cropId}_${variety.varietyId}`;
-        drafts[key] = String(variety.currentStock ?? 0);
-      });
-    });
-    return drafts;
-  };
-
   const fetchData = async () => {
     try {
       setLoading(true);
@@ -275,7 +264,6 @@ const RamAgriSalesDashboard = () => {
         if (apiResponse.status === 'Success' || apiResponse.success) {
           const data = apiResponse.data;
           setDashboardData(data);
-          setStockDrafts(buildStockDraftsFromDashboard(data));
         } else {
           console.error('API Error:', apiResponse.message || 'Unknown error');
         }
@@ -435,52 +423,51 @@ const RamAgriSalesDashboard = () => {
     setTimeout(() => setRefreshing(false), 500);
   };
 
-  const updateStockDraftValue = (cropId, varietyId, value) => {
-    const key = `${cropId}_${varietyId}`;
-    setStockDrafts((prev) => ({ ...prev, [key]: value }));
-  };
-
-  const saveDirectStockUpdate = async (cropId, variety) => {
+  const openDirectStockUpdate = (crop, variety) => {
     if (!canDirectStockUpdate) {
       Toast.error("Only Ram Agri Master or Super Admin can directly update stock");
       return;
     }
+    setStockUpdateTarget({
+      cropId: crop.cropId,
+      cropName: crop.cropName,
+      variety,
+    });
+  };
 
+  const saveDirectStockUpdate = async ({ currentStock, batches }) => {
+    if (!stockUpdateTarget) return;
+    const { cropId, variety } = stockUpdateTarget;
     const varietyId = variety?.varietyId;
     const key = `${cropId}_${varietyId}`;
-    const raw = String(stockDrafts[key] ?? '').trim();
-    if (raw === '') {
-      Toast.error('Stock is required');
-      return;
-    }
-
-    const nextStock = Number(raw);
+    const nextStock = Number(currentStock);
     if (!Number.isFinite(nextStock) || nextStock < 0) {
-      Toast.error('Stock must be a non-negative number');
+      Toast.error("Stock must be a non-negative number");
       return;
     }
-
     const existingStock = Number(variety.currentStock || 0);
     if (nextStock === existingStock) {
-      Toast.success('No stock change to save');
+      Toast.success("No stock change to save");
       return;
     }
 
     setSavingStockKey(key);
     try {
       const instance = NetworkManager(API.INVENTORY.UPDATE_VARIETY);
-      const response = await instance.request(
-        { currentStock: nextStock },
-        [cropId, varietyId]
-      );
-      if (response?.data?.status === 'Success' || response?.data?.success) {
-        Toast.success('Stock updated successfully');
+      const payload = { currentStock: nextStock };
+      if (nextStock > existingStock) {
+        payload.batches = batches || [];
+      }
+      const response = await instance.request(payload, [cropId, varietyId]);
+      if (response?.data?.status === "Success" || response?.data?.success) {
+        Toast.success("Stock updated successfully");
+        setStockUpdateTarget(null);
         await fetchData();
       } else {
-        Toast.error(response?.data?.message || 'Failed to update stock');
+        Toast.error(response?.data?.message || "Failed to update stock");
       }
     } catch (error) {
-      Toast.error(error?.response?.data?.message || 'Failed to update stock');
+      Toast.error(error?.response?.data?.message || "Failed to update stock");
     } finally {
       setSavingStockKey(null);
     }
@@ -1146,7 +1133,7 @@ const RamAgriSalesDashboard = () => {
       <div className="space-y-6">
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
           <p className="text-sm text-amber-900 font-medium">
-            Ram Agri Master / Super Admin: direct stock update is applied immediately without PO/GRN.
+            Ram Agri Master / Super Admin: increases need batch # + expiry (multiple batches allowed). Decreases use FEFO.
           </p>
         </div>
 
@@ -1202,30 +1189,19 @@ const RamAgriSalesDashboard = () => {
                   return (
                     <div
                       key={key}
-                      className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end border border-gray-100 rounded-lg p-3"
+                      className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center border border-gray-100 rounded-lg p-3"
                     >
-                      <div className="md:col-span-4">
+                      <div className="md:col-span-8">
                         <p className="text-sm font-semibold text-gray-900">{variety.name}</p>
                         <p className="text-xs text-gray-500">
                           Current: {formatNumber(variety.currentStock || 0)} {unit}
                         </p>
                       </div>
                       <div className="md:col-span-4">
-                        <label className="block text-xs text-gray-600 mb-1">New Stock</label>
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={stockDrafts[key] ?? ''}
-                          onChange={(e) => updateStockDraftValue(crop.cropId, variety.varietyId, e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
-                        />
-                      </div>
-                      <div className="md:col-span-4">
                         <button
                           type="button"
                           disabled={isSaving}
-                          onClick={() => saveDirectStockUpdate(crop.cropId, variety)}
+                          onClick={() => openDirectStockUpdate(crop, variety)}
                           className="w-full flex items-center justify-center space-x-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-60 transition-colors"
                         >
                           <Save className={`w-4 h-4 ${isSaving ? 'animate-pulse' : ''}`} />
@@ -1814,6 +1790,7 @@ const RamAgriSalesDashboard = () => {
                                     await import("utils/agriDeliveryChallan");
                                   openOrGenerateAgriDeliveryChallan(order._id, {
                                     existingUrl: getAgriDeliveryChallanUrl(order),
+                                    force: true,
                                   });
                                 }}
                               >
@@ -2470,6 +2447,21 @@ const RamAgriSalesDashboard = () => {
         data={varietyLedgerData}
         formatNumber={formatNumber}
         pendingLabel={varietyLedgerPendingLabel}
+      />
+
+      <RamAgriDirectStockUpdateModal
+        open={Boolean(stockUpdateTarget)}
+        onClose={() => !savingStockKey && setStockUpdateTarget(null)}
+        onSubmit={saveDirectStockUpdate}
+        cropName={stockUpdateTarget?.cropName || ""}
+        varietyName={stockUpdateTarget?.variety?.name || ""}
+        currentStock={stockUpdateTarget?.variety?.currentStock || 0}
+        unit={
+          stockUpdateTarget?.variety?.primaryUnit?.abbreviation ||
+          stockUpdateTarget?.variety?.primaryUnit?.name ||
+          ""
+        }
+        saving={Boolean(savingStockKey)}
       />
 
       {/* Customer Ledger Modal */}

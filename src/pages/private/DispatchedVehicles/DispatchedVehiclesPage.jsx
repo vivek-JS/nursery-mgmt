@@ -13,6 +13,7 @@ import DispatchedVehiclesStats from "./DispatchedVehiclesStats";
 import DispatchDateFilter from "./DispatchDateFilter";
 import { useDispatchVehicleDialogs } from "./useDispatchVehicleDialogs";
 import { useInvoiceAadharPrompt } from "./useInvoiceAadharPrompt";
+import { useDuplicateInvoicePrompt } from "./useDuplicateInvoicePrompt";
 import {
   runDeliveryChallanFlow,
   runInvoiceFlow,
@@ -151,6 +152,8 @@ export default function DispatchedVehiclesPage() {
 
   const dialogs = useDispatchVehicleDialogs({ onRefresh: refreshList });
   const { prompt: promptInvoiceAadhar, dialog: invoiceAadharDialog } = useInvoiceAadharPrompt();
+  const { prompt: promptDuplicateInvoice, dialog: duplicateInvoiceDialog } =
+    useDuplicateInvoicePrompt();
 
   const handleDeliveryChallan = useCallback(
     async (dispatch) => {
@@ -178,6 +181,7 @@ export default function DispatchedVehiclesPage() {
         await runInvoiceFlow(dispatch, {
           force,
           promptInvoiceAadhar,
+          promptDuplicateInvoice,
           onPatchPdfFields: patchPdfFields,
           onOpenInvoicePreview: (merged, aadharByOrderId) =>
             dialogs.openInvoice(merged, aadharByOrderId),
@@ -187,7 +191,14 @@ export default function DispatchedVehiclesPage() {
         setPdfBusyId(null);
       }
     },
-    [dialogs, patchPdfFields, pdfBusyId, promptInvoiceAadhar, refreshList]
+    [
+      dialogs,
+      patchPdfFields,
+      pdfBusyId,
+      promptDuplicateInvoice,
+      promptInvoiceAadhar,
+      refreshList,
+    ]
   );
 
   const loadMore = useCallback(async () => {
@@ -432,6 +443,7 @@ export default function DispatchedVehiclesPage() {
       )}
 
       {invoiceAadharDialog}
+      {duplicateInvoiceDialog}
 
       {dialogs.isOrderCompleteOpen && dialogs.selectedDispatch && (
         <OrderCompleteDialog

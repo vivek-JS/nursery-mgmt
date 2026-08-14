@@ -60,3 +60,28 @@ export async function addDocumentMoneyPayment(type, id, payload) {
   const res = await instance.request(payload, { pathParams: [type, id] });
   return unwrap(res);
 }
+
+/** Pending party Payment/Discount awaiting accountant accept. */
+export async function fetchMoneyLedgerPendingAdjustments({
+  book,
+  status = "PENDING",
+  q,
+  page = 1,
+  limit = 50,
+} = {}) {
+  const instance = NetworkManager(API.INVENTORY.MONEY_LEDGER_PENDING_ADJUSTMENTS);
+  const res = await instance.request({}, { book, status, q, page, limit });
+  return unwrap(res) || { data: [], total: 0, pendingCount: 0 };
+}
+
+export async function acceptMoneyLedgerPendingAdjustment(id) {
+  const instance = NetworkManager(API.INVENTORY.MONEY_LEDGER_ACCEPT_PENDING);
+  const res = await instance.request({}, { pathParams: [id] });
+  return unwrap(res);
+}
+
+export async function rejectMoneyLedgerPendingAdjustment(id, reason = "") {
+  const instance = NetworkManager(API.INVENTORY.MONEY_LEDGER_REJECT_PENDING);
+  const res = await instance.request({ reason }, { pathParams: [id] });
+  return unwrap(res);
+}

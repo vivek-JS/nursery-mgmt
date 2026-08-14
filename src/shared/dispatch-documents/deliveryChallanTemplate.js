@@ -1,4 +1,4 @@
-import { escapeHtml } from "./challanUtils.js";
+import { escapeHtml, formatInr, formatQty, cleanPlantLabel } from "./challanUtils.js";
 
 const BORDER = "#000000";
 
@@ -33,15 +33,15 @@ function renderCrateSection(orderCrates) {
               (cd, di) =>
                 `<div style="display:flex;justify-content:space-between;padding:0.8mm 2mm;font-size:8.5pt;font-weight:700;background:#fff;border-bottom:${
                   di < crate.crateDetails.length - 1 ? "1px dotted #000" : "none"
-                }"><span>${cd.crateCount || 0} क्रेट</span><span>${cd.plantCount || 0} रोपे</span></div>`
+                }"><span>${formatQty(cd.crateCount || 0)} क्रेट</span><span>${formatQty(cd.plantCount || 0)} रोपे</span></div>`
             )
             .join("")
         : "";
       return `<div style="border:1px solid #000;border-radius:1mm;overflow:hidden">
-        <div style="background:#fff;color:#000;font-size:8pt;font-weight:700;text-align:center;padding:1mm 2mm;border-bottom:1px solid #000">${escapeHtml(crate.cavityName)}</div>
+        <div style="background:#fff;color:#000;font-size:8pt;font-weight:700;text-align:center;padding:1mm 2mm;border-bottom:1px solid #000">${escapeHtml(cleanPlantLabel(crate.cavityName))}</div>
         ${detailRows}
         <div style="display:flex;justify-content:space-between;padding:1mm 2mm;background:#fff;color:#000;font-size:9pt;font-weight:700;border-top:1px solid #000">
-          <span>${totalCrates} क्रेट</span><span>${totalPlants} रोपे</span>
+          <span>${formatQty(totalCrates)} क्रेट</span><span>${formatQty(totalPlants)} रोपे</span>
         </div>
       </div>`;
     })
@@ -53,16 +53,28 @@ function renderCrateSection(orderCrates) {
 }
 
 function renderSummaryRows(page) {
-  const rows = [
-    ["वर्णन", page.plantName],
-    ["प्रमाण", page.dispatchQty],
-    ["दर", `₹${Number(page.rate || 0).toLocaleString()}`],
-    ["रोप रक्कम", `₹${Number(page.plantAmount || 0).toLocaleString()}`],
-  ];
+  const multi = Array.isArray(page.plantLines) && page.plantLines.length > 0;
+  const rows = multi
+    ? [
+        ...page.plantLines.map((line) => [
+          cleanPlantLabel(line.label),
+          `${formatQty(line.qty)} × ${formatInr(line.rate)} = ${formatInr(
+            line.amount ?? (Number(line.qty) || 0) * (Number(line.rate) || 0)
+          )}`,
+        ]),
+        ["एकूण संख्या", formatQty(page.dispatchQty)],
+        ["रोप रक्कम", formatInr(page.plantAmount)],
+      ]
+    : [
+        ["रोप", cleanPlantLabel(page.plantName)],
+        ["संख्या", formatQty(page.dispatchQty)],
+        ["दर", formatInr(page.rate)],
+        ["रोप रक्कम", formatInr(page.plantAmount)],
+      ];
   if (page.freightCharges > 0) {
-    rows.push(["वाहतूक / Freight", `₹${Number(page.freightCharges).toLocaleString()}`]);
+    rows.push(["वाहतूक / Freight", formatInr(page.freightCharges)]);
   }
-  rows.push(["एकूण रक्कम", `₹${Number(page.dispatchTotal || 0).toLocaleString()}`]);
+  rows.push(["एकूण रक्कम", formatInr(page.dispatchTotal)]);
   return rows
     .map(
       ([label, value]) =>
@@ -92,7 +104,7 @@ function renderPaymentTable(page) {
             const cells = [
               { v: date, align: "left" },
               { v: p?.modeOfPayment || "N/A", align: "left" },
-              { v: `₹${(Number(p?.paidAmount) || 0).toLocaleString()}`, align: "right" },
+              { v: formatInr(p?.paidAmount), align: "right" },
             ];
             return `<tr style="background:#fff">${cells
               .map(
@@ -113,7 +125,7 @@ function renderPaymentTable(page) {
       ({ label, value, bold }) =>
         `<tr style="background:#fff">
           <td colspan="2" style="${cellStyle({ fontWeight: bold ? "700" : "600" })};border:none;border-top:1px solid #000">${escapeHtml(label)}</td>
-          <td style="${cellStyle({ fontWeight: bold ? "700" : "600", textAlign: "right" })};border:none;border-top:1px solid #000;border-left:1px solid #000">₹${Number(value || 0).toLocaleString()}</td>
+          <td style="${cellStyle({ fontWeight: bold ? "700" : "600", textAlign: "right" })};border:none;border-top:1px solid #000;border-left:1px solid #000">${escapeHtml(formatInr(value))}</td>
         </tr>`
     )
     .join("");
@@ -124,8 +136,8 @@ function renderChallanPage(page) {
   const infoRows = [
     ["चालक", page.driverName, "वाहन", page.vehicleName],
     ["शेतकरी", page.farmerName, "मोबाईल", page.farmerMobile],
-    ["गाव", page.village, "वितरण", page.delivery],
-    ["रोप", page.plantName, "प्रमाण", page.dispatchQty],
+    ["गाव", page.village, "रोप", cleanPlantLabel(page.plantName)],
+    ["प्रमाण", formatQty(page.dispatchQty), "", ""],
   ];
   const infoGrid = infoRows
     .map(([l1, v1, l2, v2], i) => {
@@ -138,7 +150,7 @@ function renderChallanPage(page) {
         )
         .join("");
       return `<div style="display:grid;grid-template-columns:22mm 1fr 22mm 1fr;background:#fff;border-bottom:${
-        i < 3 ? "1px solid #000" : "none"
+        i < infoRows.length - 1 ? "1px solid #000" : "none"
       }">${cells}</div>`;
     })
     .join("");
@@ -159,6 +171,7 @@ function renderChallanPage(page) {
       <div style="text-align:right">
         <div style="background:#fff;border:1px solid ${BORDER};border-radius:1.5mm;padding:1mm 2.5mm;color:#000;font-size:7.5pt;font-weight:700">${escapeHtml(page.invoiceLabel)}</div>
         ${manualDcHtml}
+        ${page.orderRef ? `<div style="color:#000;font-size:6.5pt;margin-top:0.8mm;font-weight:600">${escapeHtml(page.orderRef)}</div>` : ""}
         <div style="color:#000;font-size:6.5pt;margin-top:1mm">तारीख: ${escapeHtml(page.today)}</div>
       </div>
     </div>

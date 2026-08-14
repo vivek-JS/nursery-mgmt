@@ -7,7 +7,8 @@ const TABS = [
   { id: "advances", label: "Advances", icon: "⏳" },
   { id: "bank", label: "Bank Recon", icon: "🏦" },
   { id: "ledger-parties", label: "All farmers", icon: "👥" },
-  { id: "central-ledger", label: "Central ledger", icon: "📒" }
+  { id: "central-ledger", label: "Central ledger", icon: "📒" },
+  { id: "money-ledger", label: "Money Ledger", icon: "💰" },
 ]
 
 export function DashboardHeader({

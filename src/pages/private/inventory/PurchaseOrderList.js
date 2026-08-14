@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Search, Filter, Eye, ShoppingCart, MessageCircle } from 'lucide-react';
+import { Plus, Search, Filter, Eye, ShoppingCart, MessageCircle, Undo2 } from 'lucide-react';
 import { API, NetworkManager } from '../../../network/core';
 import { formatDisplayDate } from '../../../utils/dateUtils';
 import { formatDecimal, formatCurrency } from '../../../utils/numberUtils';
 import { openPurchaseOrderWhatsApp } from './utils/poWhatsAppShare';
+import PurchaseReturnDialog from './components/purchase-return/PurchaseReturnDialog';
 
 const PurchaseOrderList = () => {
   const navigate = useNavigate();
@@ -14,6 +15,7 @@ const PurchaseOrderList = () => {
   const [filterStatus, setFilterStatus] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [pagination, setPagination] = useState({ page: 1, limit: 20, total: 0, pages: 0 });
+  const [returnDialogOpen, setReturnDialogOpen] = useState(false);
 
   useEffect(() => {
     fetchPOs();
@@ -76,13 +78,31 @@ const PurchaseOrderList = () => {
             <h1 className="text-4xl font-bold text-gray-800 mb-2">Purchase Orders</h1>
             <p className="text-gray-600">Manage purchase orders</p>
           </div>
-          <button
-            onClick={() => navigate('/u/inventory/purchase-orders/new')}
-            className="bg-gradient-to-r from-green-500 to-green-600 text-white px-6 py-3 rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 flex items-center space-x-2 transform hover:-translate-y-1"
-          >
-            <Plus className="w-5 h-5" />
-            <span className="font-semibold">New PO</span>
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => navigate('/u/inventory/purchase-returns')}
+              className="bg-white border border-blue-200 text-blue-800 px-5 py-3 rounded-xl shadow-sm hover:bg-blue-50 transition-all duration-300 flex items-center space-x-2 font-semibold"
+            >
+              <Undo2 className="w-5 h-5" />
+              <span>Purchase Returns</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setReturnDialogOpen(true)}
+              className="bg-gradient-to-r from-blue-500 to-blue-700 text-white px-5 py-3 rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 flex items-center space-x-2 transform hover:-translate-y-1"
+            >
+              <Undo2 className="w-5 h-5" />
+              <span className="font-semibold">Create Return</span>
+            </button>
+            <button
+              onClick={() => navigate('/u/inventory/purchase-orders/new')}
+              className="bg-gradient-to-r from-green-500 to-green-600 text-white px-6 py-3 rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 flex items-center space-x-2 transform hover:-translate-y-1"
+            >
+              <Plus className="w-5 h-5" />
+              <span className="font-semibold">New PO</span>
+            </button>
+          </div>
         </div>
 
         {/* Search and Filter */}
@@ -252,6 +272,12 @@ const PurchaseOrderList = () => {
           )}
         </>
       )}
+
+      <PurchaseReturnDialog
+        open={returnDialogOpen}
+        onClose={() => setReturnDialogOpen(false)}
+        onSuccess={() => fetchPOs()}
+      />
     </div>
   );
 };

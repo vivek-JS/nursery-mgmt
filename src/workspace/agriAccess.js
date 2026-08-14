@@ -12,10 +12,14 @@ export const JOB_RAM_AGRI_SALES_OFFICE_MANAGER = "RAM_AGRI_SALES_OFFICE_MANAGER"
 /** Base agri ops tabs — Overview embed is Master + Super Admin. */
 export const AGRI_ADMIN_TABS = [
   "inventory",
+  "stock",
   "purchase-orders",
   "raising-seeds",
   "sowing-requests",
   "agri-order",
+  "sell-returns",
+  "purchase-returns",
+  "money-ledger",
 ]
 
 /** Master = Admin + Inputs Master + Agri Payments. */
@@ -47,7 +51,8 @@ export const AGRI_ALLOWED_PATH_PREFIXES = [
 
 /**
  * Inventory modules hidden in Ram Agri workspace
- * (GRN, suppliers, merchants, sell orders, transactions, ledger, issue stock, new product).
+ * (GRN, suppliers, merchants, sell orders, transactions, issue stock, new product).
+ * Money ledger + sell returns are allowed in agri sidebar.
  */
 export const AGRI_BLOCKED_INVENTORY_PREFIXES = [
   "/u/inventory/grn",
@@ -55,7 +60,6 @@ export const AGRI_BLOCKED_INVENTORY_PREFIXES = [
   "/u/inventory/merchants",
   "/u/inventory/sell-orders",
   "/u/inventory/transactions",
-  "/u/inventory/ledger",
   "/u/inventory/outward",
   "/u/inventory/products/new",
 ]
@@ -226,10 +230,14 @@ export function hasAgriPaymentCollectAccess(user) {
 export const TAB_META = [
   { id: "overview", label: "Overview", path: null },
   { id: "inventory", label: "Inventory", path: "/u/inventory" },
+  { id: "stock", label: "Stock", path: "/u/inventory/ram-agri-stock" },
   { id: "purchase-orders", label: "Purchase orders", path: "/u/inventory/purchase-orders" },
   { id: "raising-seeds", label: "Raising seeds", path: "/u/inventory/raising-seeds" },
   { id: "sowing-requests", label: "Sowing requests", path: "/u/inventory/sowing-requests" },
   { id: "agri-order", label: "Orders", path: AGRI_HOME_PATH },
+  { id: "sell-returns", label: "Sell returns", path: "/u/inventory/agri-sales-returns" },
+  { id: "purchase-returns", label: "Purchase returns", path: "/u/inventory/purchase-returns" },
+  { id: "money-ledger", label: "Money Ledger", path: "/u/inventory/ledger" },
   { id: "inputs-master", label: "Inputs master", path: "/u/inventory/ram-agri-inputs-master" },
   { id: "agri-payments", label: "Agri payments", path: null },
   {
@@ -251,6 +259,10 @@ export function isAgriInventoryMenuPathAllowed(path) {
     "/u/inventory/raising-seeds",
     "/u/inventory/sowing-requests",
     "/u/inventory/return-requests",
+    "/u/inventory/agri-sales-returns",
+    "/u/inventory/ledger",
+    "/u/inventory/purchase-returns",
+    "/u/inventory/ram-agri-stock",
     "/u/inventory/ram-agri-inputs-master",
     "/u/inventory/ram-agri-input-order",
     "/u/inventory/ram-agri-sales-dashboard",

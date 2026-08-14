@@ -18,6 +18,7 @@ export function buildPoItemPayloads({
   orderItems,
   products,
   ramAgriCrops,
+  biotechProductsById,
   units = [],
   autoGRN,
   isSuperAdmin,
@@ -54,12 +55,17 @@ export function buildPoItemPayloads({
       return itemData;
     }
 
-    const product = products.find((p) => p._id === item.productId);
+    const product =
+      products.find((p) => String(p._id) === String(item.productId)) ||
+      (biotechProductsById instanceof Map
+        ? biotechProductsById.get(String(item.productId))
+        : null);
     if (!product) throw new Error(`Product not found: ${item.productId}`);
     const unitId =
-      typeof product.primaryUnit === 'object'
+      item.unitId ||
+      (typeof product.primaryUnit === 'object'
         ? product.primaryUnit?._id
-        : product.primaryUnit;
+        : product.primaryUnit);
     if (!unitId) throw new Error(`Product ${product.name} has no primary unit`);
 
     const itemData = {

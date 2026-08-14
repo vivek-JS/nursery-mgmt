@@ -33,6 +33,9 @@ const InventoryLedger = React.lazy(() => import("pages/private/inventory/Invento
 const SowingRequestsList = React.lazy(() => import("pages/private/inventory/SowingRequestsList"))
 const RaisingSeedCollectPage = React.lazy(() => import("pages/private/inventory/RaisingSeedCollectPage"))
 const ReturnRequestList = React.lazy(() => import("pages/private/inventory/ReturnRequestList"))
+const AgriSellReturnsList = React.lazy(() => import("pages/private/inventory/AgriSellReturnsList"))
+const PurchaseReturnsList = React.lazy(() => import("pages/private/inventory/PurchaseReturnsList"))
+const RamAgriStockPage = React.lazy(() => import("pages/private/inventory/RamAgriStockPage"))
 const RamAgriInputsProductMaster = React.lazy(() => import("pages/private/inventory/RamAgriInputsProductMaster"))
 const BiotechSeedProductMaster = React.lazy(() => import("pages/private/inventory/BiotechSeedProductMaster"))
 const SeedDualInventoryLinks = React.lazy(() => import("pages/private/inventory/SeedDualInventoryLinks"))
@@ -144,6 +147,9 @@ export const PrivateRoutes = [
   { path: "/u/inventory/ledger", component: InventoryLedger },
   { path: "/u/inventory/sowing-requests", component: SowingRequestsList },
   { path: "/u/inventory/return-requests", component: ReturnRequestList },
+  { path: "/u/inventory/purchase-returns", component: PurchaseReturnsList },
+  { path: "/u/inventory/agri-sales-returns", component: AgriSellReturnsList },
+  { path: "/u/inventory/ram-agri-stock", component: RamAgriStockPage },
   { path: "/u/inventory/ram-agri-inputs-master", component: RamAgriInputsProductMaster },
   { path: "/u/inventory/biotech-seed-master", component: BiotechSeedProductMaster },
   { path: "/u/inventory/seed-dual-links", component: SeedDualInventoryLinks },

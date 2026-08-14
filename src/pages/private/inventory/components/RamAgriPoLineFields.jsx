@@ -80,6 +80,15 @@ export default function RamAgriPoLineFields({
             </option>
           ))}
       </select>
+      {variety && (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1.5 text-[11px]">
+          <span className="font-semibold text-emerald-900">Stock: </span>
+          <span className="font-bold tabular-nums text-emerald-800">
+            {(Number(variety.currentStock) || 0).toLocaleString('en-IN')}
+            {primaryUnit?.abbreviation ? ` ${primaryUnit.abbreviation}` : ''}
+          </span>
+        </div>
+      )}
       {variety && secondaryUnit && variety.conversionFactor > 1 && (
         <select
           value={item.selectedUnitType || 'primary'}

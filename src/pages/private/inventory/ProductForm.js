@@ -25,7 +25,7 @@ const ProductForm = () => {
     category: '',
     primaryUnit: '',
     secondaryUnit: '',
-    conversionFactor: 1,
+    conversionFactor: '',
     minStockLevel: 0,
     maxStockLevel: '',
     reorderLevel: 0,
@@ -150,7 +150,10 @@ const ProductForm = () => {
             category: product.category,
             primaryUnit: product.primaryUnit?._id || '',
             secondaryUnit: product.secondaryUnit?._id || '',
-            conversionFactor: product.conversionFactor || 1,
+            conversionFactor:
+              product.conversionFactor != null && product.conversionFactor !== ''
+                ? String(product.conversionFactor)
+                : '',
             minStockLevel: product.minStockLevel || 0,
             maxStockLevel: product.maxStockLevel || '',
             reorderLevel: product.reorderLevel || 0,
@@ -204,7 +207,7 @@ const ProductForm = () => {
             // Keep secondary unit enabled - it's required
             setFormData({ ...formData, primaryUnit: value });
           } else {
-            setFormData(prev => ({ ...prev, primaryUnit: value, secondaryUnit: '', conversionFactor: 1 }));
+            setFormData(prev => ({ ...prev, primaryUnit: value, secondaryUnit: '', conversionFactor: '' }));
           }
         } else {
           setFormData({ ...formData, [name]: value });

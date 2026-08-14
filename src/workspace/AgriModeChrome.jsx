@@ -20,6 +20,9 @@ function pathToTab(pathname) {
     return "agri-order"
   }
   if (pathname.includes("/purchase-orders")) return "purchase-orders"
+  if (pathname.includes("/agri-sales-returns")) return "sell-returns"
+  if (pathname.includes("/purchase-returns")) return "purchase-returns"
+  if (pathname.includes("/ledger") && !pathname.includes("/merchants/")) return "money-ledger"
   if (pathname.includes("/raising-seeds")) return "raising-seeds"
   if (pathname.includes("/sowing-requests")) return "sowing-requests"
   if (pathname === "/u/inventory" || pathname.startsWith("/u/inventory/products")) {

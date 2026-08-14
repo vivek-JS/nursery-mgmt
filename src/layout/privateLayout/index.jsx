@@ -392,13 +392,25 @@ export default function PrivateLayout(props) {
     }
 
     if (agriLocked) {
-      const allowedTitles = ["Ram Agri Input", "Inventory", "Orders"]
+      const allowedTitles = [
+        "Ram Agri Input",
+        "Inventory",
+        "Orders",
+        "Stock",
+        "Sell Returns",
+        "Purchase Returns",
+        "Money Ledger",
+      ]
       const allowedRoutes = [
         AGRI_HUB_PATH,
         "/u/inventory",
         "/u/dashboard",
         "/u/inventory/ram-agri-sales-dashboard",
         "/u/inventory/ram-agri-input-order/new",
+        "/u/inventory/ram-agri-stock",
+        "/u/inventory/agri-sales-returns",
+        "/u/inventory/purchase-returns",
+        "/u/inventory/ledger",
       ]
       if (isRamAgriMaster(userData)) {
         allowedTitles.push("Accounting Dashboard")
@@ -490,9 +502,17 @@ export default function PrivateLayout(props) {
                     item.route === "/u/inventory" ||
                     item.route === "/u/dashboard" ||
                     item.route === "/u/inventory/ram-agri-sales-dashboard" ||
+                    item.route === "/u/inventory/ram-agri-stock" ||
+                    item.route === "/u/inventory/agri-sales-returns" ||
+                    item.route === "/u/inventory/purchase-returns" ||
+                    item.route === "/u/inventory/ledger" ||
                     item.title === "Ram Agri Input" ||
                     item.title === "Inventory" ||
-                    item.title === "Orders"
+                    item.title === "Orders" ||
+                    item.title === "Stock" ||
+                    item.title === "Sell Returns" ||
+                    item.title === "Purchase Returns" ||
+                    item.title === "Money Ledger"
                   if (!agriMenuOk) return false
                 }
                 

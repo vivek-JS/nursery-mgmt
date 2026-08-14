@@ -13,6 +13,7 @@ import {
   groupDispatchesByDate,
   resolveDatePresetRange,
 } from "../DispatchedVehicles/dispatchVehiclesUtils"
+import { ensureDispatchDcNumbers } from "../DispatchedVehicles/dispatchDocumentActions"
 import { Toast } from "helpers/toasts/toastHelper"
 import moment from "moment"
 const DISPATCH_PAGE_SIZE = 20
@@ -668,11 +669,13 @@ const DispatchList = ({ setisDispatchtab, viewMode, refresh, hideHeader = false,
             const res = await inst.request({}, [String(dispatch._id)])
             const d = parseDispatchFromGetByIdResponse(res)
             const merged = mergeDispatchWithFreshDetail(dispatch, d || {})
-            setSelectedDispatch(merged)
+            const withDc = await ensureDispatchDcNumbers(merged)
+            setSelectedDispatch(withDc)
             setIsDCOpen(true)
           } catch (err) {
             console.error("getDispatch for delivery challan:", err)
-            setSelectedDispatch(dispatch)
+            const withDc = await ensureDispatchDcNumbers(dispatch)
+            setSelectedDispatch(withDc)
             setIsDCOpen(true)
           }
         }

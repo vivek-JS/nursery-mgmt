@@ -8,21 +8,96 @@ export function escapeHtml(str) {
     .replace(/"/g, "&quot;");
 }
 
-export function resolveChallanInvoiceLabel(order, dispatchMongoId) {
+/** Strip arrow separators (Banana -> G9 / Banana → G9) for clean PDF labels. */
+export function cleanPlantLabel(raw) {
+  return String(raw ?? "")
+    .replace(/&gt;/gi, ">")
+    .replace(/\s*-+\s*>\s*/g, " ")
+    .replace(/\s*→\s*/g, " ")
+    .replace(/\s*>\s*/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+/** Indian currency for PDFs e.g. ₹80,000 */
+export function formatInr(amount) {
+  const n = Number(amount);
+  if (!Number.isFinite(n)) return "₹0";
+  return `₹${n.toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
+}
+
+/** Qty for PDFs with en-IN grouping */
+export function formatQty(qty) {
+  const n = Number(qty);
+  if (!Number.isFinite(n)) return "0";
+  return n.toLocaleString("en-IN");
+}
+
+function resolveDispatchHistoryId(ref) {
+  if (ref == null) return "";
+  if (typeof ref === "object" && ref._id != null) return String(ref._id);
+  return String(ref);
+}
+
+export function resolveChallanInvoiceLabel(order, dispatchMongoId, options = {}) {
+  const billable = options?.billable !== false;
+  if (!billable) {
+    const nb =
+      order?.officialNonBillableDeliveryChallanNumber ||
+      order?.details?.officialNonBillableDeliveryChallanNumber;
+    if (nb) return String(nb).trim();
+  }
   const official =
     order?.officialDeliveryChallanNumber ||
     order?.details?.officialDeliveryChallanNumber;
-  if (official) return String(official).trim();
+  if (official && billable) return String(official).trim();
+  if (!billable) {
+    // Non-billable page with no dedicated number — do not fall back to billable DC
+    return "";
+  }
   const edited =
     order?.deliveryChallanInvoiceNumber ||
     order?.details?.deliveryChallanInvoiceNumber;
   if (edited) return String(edited).trim();
   const hist = order?.details?.dispatchHistory || order?.dispatchHistory || [];
+  const dispatchKey = String(dispatchMongoId || "");
   const entry = hist.find(
-    (h) => h?.dispatchId && String(h.dispatchId) === String(dispatchMongoId || "")
+    (h) =>
+      h?.dispatchId &&
+      resolveDispatchHistoryId(h.dispatchId) === dispatchKey
   );
   if (entry?.invoiceNumber) return String(entry.invoiceNumber).trim();
   return "";
+}
+
+/**
+ * Tax-invoice number (separate from DC). Precedence:
+ * manual override → official invoice (billable/NB). Does not fall back to DC.
+ */
+export function resolveTaxInvoiceLabel(order, options = {}) {
+  const billable = options?.billable !== false;
+  if (!billable) {
+    const manualNb = String(
+      order?.manualNonBillableInvoiceNumber ??
+        order?.details?.manualNonBillableInvoiceNumber ??
+        ""
+    ).trim();
+    if (manualNb) return manualNb;
+    const officialNb = String(
+      order?.officialNonBillableInvoiceNumber ??
+        order?.details?.officialNonBillableInvoiceNumber ??
+        ""
+    ).trim();
+    return officialNb;
+  }
+  const manual = String(
+    order?.manualInvoiceNumber ?? order?.details?.manualInvoiceNumber ?? ""
+  ).trim();
+  if (manual) return manual;
+  const official = String(
+    order?.officialInvoiceNumber ?? order?.details?.officialInvoiceNumber ?? ""
+  ).trim();
+  return official;
 }
 
 export function optionalManualDcSeparateFromOfficial(order) {
@@ -94,7 +169,8 @@ export function getDispatchedQty(order, orderDispatchDetails) {
   return Number(order?.quantity ?? order?.numberOfPlants ?? 0) || 0;
 }
 
-export function plantDisplayName(order, plantsDetails = []) {
+export function plantDisplayName(order, plantsDetails = [], options = {}) {
+  const omitSubtype = Boolean(options?.omitSubtype);
   const list = Array.isArray(plantsDetails) ? plantsDetails : [];
   const orderPlantName = (
     order?.plantDetails?.name ||
@@ -109,28 +185,125 @@ export function plantDisplayName(order, plantsDetails = []) {
         list.find((p) => p?.name?.toLowerCase().includes(orderPlantName))) ||
       list[0];
   }
-  const raw =
-    plant?.name?.replace(/\s*-\s*>\s*/g, " ").trim() ||
-    order?.plantName?.name ||
-    order?.plantType?.name ||
-    "—";
-  return /papaya/i.test(raw) ? "Papaya" : raw;
+  const raw = cleanPlantLabel(
+    plant?.name ||
+      order?.plantName?.name ||
+      order?.plantType?.name ||
+      order?.plantDetails?.name ||
+      "—"
+  );
+  const plantOnly = /papaya/i.test(raw) ? "Papaya" : raw;
+  if (omitSubtype) return plantOnly || "—";
+  const sub = cleanPlantLabel(
+    order?.plantSubtype?.name ||
+      order?.plantDetails?.subtype ||
+      (order?.plantSubtype &&
+        Array.isArray(order?.plantName?.subtypes) &&
+        order.plantName.subtypes.find((s) => String(s._id) === String(order.plantSubtype))
+          ?.name) ||
+      ""
+  );
+  // Prefer "Banana G9" (no arrow). If plant string already includes subtype, don't duplicate.
+  if (sub && !new RegExp(sub.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i").test(plantOnly)) {
+    return `${plantOnly} ${sub}`.trim();
+  }
+  return plantOnly || "—";
 }
 
 export function plantLineWithSubtype(order) {
-  const raw =
-    order?.plantName?.name ||
-    order?.plantType?.name ||
-    order?.plantDetails?.name ||
-    "—";
-  const subName =
-    order?.plantSubtype?.name ||
-    order?.plantDetails?.subtype ||
-    (order?.plantSubtype &&
-      Array.isArray(order?.plantName?.subtypes) &&
-      order.plantName.subtypes.find((s) => String(s._id) === String(order.plantSubtype))?.name);
-  if (subName) return `${raw} · ${subName}`;
-  return raw;
+  return plantDisplayName(order, []);
+}
+
+/** Resolve whether a plant line (or root order) is billable. Default true. */
+export function resolveLineIsBillable(line, order = null) {
+  if (typeof line?.isBillable === "boolean") return line.isBillable;
+  const plant = line?.plantName || order?.plantName;
+  const subtypeId = line?.plantSubtype ?? order?.plantSubtype;
+  if (plant && Array.isArray(plant.subtypes) && subtypeId != null) {
+    const st = plant.subtypes.find((s) => String(s._id) === String(subtypeId?._id ?? subtypeId));
+    if (typeof st?.isBillable === "boolean") return st.isBillable;
+  }
+  if (!line && order && typeof order.isBillable === "boolean") return order.isBillable;
+  if (!line && order?.plantName && Array.isArray(order.plantName.subtypes)) {
+    const st = order.plantName.subtypes.find(
+      (s) => String(s._id) === String(order.plantSubtype?._id ?? order.plantSubtype)
+    );
+    if (typeof st?.isBillable === "boolean") return st.isBillable;
+  }
+  return true;
+}
+
+/**
+ * Split order plant lines into billable / non-billable groups.
+ * Root-only orders synthesize a single pseudo-line from root plant fields.
+ */
+export function partitionOrderLinesByBillable(order) {
+  const rawLines = order?.plantLineItems ?? order?.details?.plantLineItems;
+  if (Array.isArray(rawLines) && rawLines.length > 0) {
+    const billable = [];
+    const nonBillable = [];
+    for (const line of rawLines) {
+      if (resolveLineIsBillable(line, order)) billable.push(line);
+      else nonBillable.push(line);
+    }
+    return { billable, nonBillable };
+  }
+  const synthetic = {
+    plantName: order?.plantName,
+    plantSubtype: order?.plantSubtype,
+    plantNameSnapshot: order?.plantName?.name || "",
+    plantSubtypeSnapshot: order?.plantSubtype?.name || "",
+    numberOfPlants: Number(order?.numberOfPlants ?? order?.quantity ?? 0) || 0,
+    rate: Number(order?.rate ?? order?.details?.rate ?? 0) || 0,
+    isBillable: resolveLineIsBillable(null, order),
+  };
+  if (synthetic.isBillable) return { billable: [synthetic], nonBillable: [] };
+  return { billable: [], nonBillable: [synthetic] };
+}
+
+/** Compact multi-plant label for challan header / lists. */
+export function multiPlantDisplayName(order, plantsDetails = [], options = {}) {
+  const omitSubtype = Boolean(options?.omitSubtype);
+  const lines = options?.lines ?? order?.plantLineItems ?? order?.details?.plantLineItems;
+  if (!Array.isArray(lines) || lines.length === 0) {
+    return plantDisplayName(order, plantsDetails, { omitSubtype });
+  }
+  const labels = lines.map((line) => {
+    const raw = cleanPlantLabel(
+      line?.plantNameSnapshot ||
+        line?.plantName?.name ||
+        line?.plantType?.name ||
+        (typeof line?.plantName === "string" ? line.plantName : "") ||
+        "—"
+    );
+    const plant = /papaya/i.test(raw) ? "Papaya" : raw;
+    if (omitSubtype) return plant;
+    const sub = cleanPlantLabel(
+      line?.plantSubtypeSnapshot ||
+        line?.plantSubtype?.name ||
+        line?.plantDetails?.subtype ||
+        (line?.plantSubtype &&
+          Array.isArray(line?.plantName?.subtypes) &&
+          line.plantName.subtypes.find((s) => String(s._id) === String(line.plantSubtype))
+            ?.name) ||
+        ""
+    );
+    if (sub && !new RegExp(sub.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i").test(plant)) {
+      return `${plant} ${sub}`.trim();
+    }
+    return plant;
+  });
+  return labels.filter(Boolean).join(", ") || plantDisplayName(order, plantsDetails, { omitSubtype });
+}
+
+export function multiPlantLineAmount(order) {
+  const lines = order?.plantLineItems ?? order?.details?.plantLineItems;
+  if (!Array.isArray(lines) || lines.length === 0) return null;
+  return lines.reduce((sum, line) => {
+    const q = Number(line?.numberOfPlants) || 0;
+    const r = Number(line?.rate) || 0;
+    return sum + q * r;
+  }, 0);
 }
 
 export function resolveOrderCrates(order, dispatch, plantsDetails) {

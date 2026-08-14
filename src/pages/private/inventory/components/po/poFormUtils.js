@@ -69,11 +69,66 @@ export const emptyOrderItem = (overrides = {}) => ({
   ramAgriVarietyId: '',
   ramAgriCropName: '',
   ramAgriVarietyName: '',
+  isBiotechProduct: false,
+  biotechPlantId: '',
+  biotechVarietyId: '',
+  biotechPlantName: '',
+  biotechVarietyName: '',
   selectedUnitType: 'primary',
   conversionFactor: 1,
   unitId: '',
   ...overrides,
 });
+
+/** Flatten linked inventory Product stubs from Biotech Seed Master plants. */
+export const buildBiotechLinkedProductIndex = (biotechPlants = []) => {
+  const map = new Map();
+  for (const plant of biotechPlants) {
+    for (const v of plant.varieties || []) {
+      const link = v.inventoryLink;
+      const productId = link?.productId || v.linkedInventoryProductId;
+      if (!productId) continue;
+      const id = String(productId);
+      map.set(id, {
+        _id: link?.productId || productId,
+        code: link?.productCode || '',
+        name: link?.productName || v.name || '',
+        currentStock: link?.currentStock ?? 0,
+        primaryUnit: link?.primaryUnit || v.primaryUnit || null,
+        secondaryUnit: link?.secondaryUnit || v.secondaryUnit || null,
+        conversionFactor: link?.conversionFactor || v.conversionFactor || 1,
+        category: link?.category || 'seeds',
+        plantId: link?.plantId || v.sowingPlantId || null,
+        subtypeId: link?.subtypeId || v.sowingSubtypeId || null,
+        biotechPlantId: plant._id,
+        biotechVarietyId: v._id,
+        biotechPlantName: plant.plantName || '',
+        biotechVarietyName: v.name || '',
+      });
+    }
+  }
+  return map;
+};
+
+/** Resolve plant/variety ids for a linked inventory productId. */
+export const resolveBiotechMasterFromProductId = (biotechPlants = [], productId) => {
+  if (!productId) return null;
+  const pid = String(productId);
+  for (const plant of biotechPlants) {
+    for (const v of plant.varieties || []) {
+      const linked = String(v.inventoryLink?.productId || v.linkedInventoryProductId || '');
+      if (linked && linked === pid) {
+        return {
+          biotechPlantId: plant._id,
+          biotechVarietyId: v._id,
+          biotechPlantName: plant.plantName || '',
+          biotechVarietyName: v.name || '',
+        };
+      }
+    }
+  }
+  return null;
+};
 
 export const productOptionLabel = (product) => {
   const plantName = getPlantName(product);
@@ -82,6 +137,13 @@ export const productOptionLabel = (product) => {
   if (product.code) label = `${product.code} — ${label}`;
   if (plantName && subtypeName) label += ` · ${plantName}/${subtypeName}`;
   else if (plantName) label += ` · ${plantName}`;
+  if (product.currentStock != null && product.currentStock !== '') {
+    const unit =
+      (typeof product.primaryUnit === 'object' &&
+        (product.primaryUnit?.abbreviation || product.primaryUnit?.name)) ||
+      '';
+    label += ` · Stock ${Number(product.currentStock) || 0}${unit ? ` ${unit}` : ''}`;
+  }
   return label;
 };
 

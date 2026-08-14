@@ -23,6 +23,7 @@ import {
 } from "utils/dispatchPdfHelpers"
 import moment from "moment"
 import OrderCompleteDialog from "./OrderCompleteDialog"
+import { ensureDispatchDcNumbers } from "../DispatchedVehicles/dispatchDocumentActions"
 import { canShowInvoice } from "../DispatchedVehicles/dispatchVehiclesUtils"
 import { useInvoiceAadharPrompt } from "../DispatchedVehicles/useInvoiceAadharPrompt"
 import { useDuplicateInvoicePrompt } from "../DispatchedVehicles/useDuplicateInvoicePrompt"
@@ -407,10 +408,15 @@ const DispatchAccordion = ({
         Toast.error("Could not generate DC PDFs for orders on this dispatch")
       }
 
-      onDeliveryChallan?.({
+      const dispatchForPreview = await ensureDispatchDcNumbers({
         ...dispatch,
         orderIds: list.length > 0 ? list : dispatch.orderIds || [],
       })
+      list = Array.isArray(dispatchForPreview.orderIds)
+        ? dispatchForPreview.orderIds
+        : list
+
+      onDeliveryChallan?.(dispatchForPreview)
     } catch (error) {
       Toast.error(
         error?.response?.data?.message || error?.message || "Failed to prepare delivery challan"

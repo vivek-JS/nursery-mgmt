@@ -139,6 +139,83 @@ export function normalizeAgriPayment(raw) {
   }
 }
 
+/** Party Money Ledger Payment/Discount awaiting accept → then ledger post. */
+export function normalizeMoneyLedgerPendingAdjustment(raw) {
+  const kind = String(raw.kind || "PAYMENT").toUpperCase()
+  const st = String(raw.status || "PENDING").toUpperCase()
+  const paymentStatus = st === "APPROVED" ? "COLLECTED" : st === "REJECTED" ? "REJECTED" : "PENDING"
+  const amt = Number(raw.amount) || 0
+  const createdBy = raw.createdBy && typeof raw.createdBy === "object" ? raw.createdBy : null
+  const reviewedBy = raw.reviewedBy && typeof raw.reviewedBy === "object" ? raw.reviewedBy : null
+  const partyLabel = `${raw.partyType || "PARTY"} · ${raw.partyName || "—"}`
+
+  return {
+    id: `ml-pending-${String(raw._id)}`,
+    orderId: "LEDGER",
+    dealerOrder: false,
+    numberOfPlants: 1,
+    rate: amt,
+    orderPaymentStatus: paymentStatus,
+    paymentUpdatedBy: mapPaymentActor(
+      reviewedBy
+        ? {
+            name: reviewedBy.name,
+            phoneNumber: reviewedBy.phoneNumber,
+            role: reviewedBy.jobTitle || reviewedBy.role
+          }
+        : null
+    ),
+    paymentRecordedBy: mapPaymentActor(
+      createdBy
+        ? {
+            name: createdBy.name,
+            phoneNumber: createdBy.phoneNumber,
+            role: createdBy.jobTitle || createdBy.role
+          }
+        : null
+    ),
+    payment: {
+      paidAmount: amt,
+      paymentStatus,
+      paymentDate: raw.entryDate
+        ? String(raw.entryDate)
+        : raw.createdAt
+          ? String(raw.createdAt)
+          : new Date().toISOString(),
+      modeOfPayment: String(raw.modeOfPayment || (kind === "DISCOUNT" ? "Discount" : "—")),
+      remark:
+        [kind === "DISCOUNT" ? "Discount" : "Payment", raw.remark].filter(Boolean).join(" · ") ||
+        undefined,
+      _id: String(raw._id || ""),
+      createdAt: raw.createdAt ? String(raw.createdAt) : undefined,
+      updatedAt: raw.updatedAt ? String(raw.updatedAt) : undefined
+    },
+    screenshots: [],
+    orderStatus: "PENDING",
+    orderBookingDate: raw.entryDate ? String(raw.entryDate) : "",
+    createdAt: raw.createdAt ? String(raw.createdAt) : "",
+    totalOrderAmount: amt,
+    farmer: {
+      name: String(raw.partyName || "—"),
+      mobileNumber: "",
+      village: String(raw.partyType || ""),
+      taluka: "",
+      district: String(raw.book || "")
+    },
+    plantType: {
+      id: String(raw._id || ""),
+      name: kind === "DISCOUNT" ? "Money Ledger · Discount" : "Money Ledger · Payment"
+    },
+    salesPerson: {
+      name: String((createdBy && createdBy.name) || "—"),
+      phoneNumber: createdBy && createdBy.phoneNumber
+    },
+    __source: "moneyLedgerPending",
+    __partyLabel: partyLabel,
+    __raw: raw
+  }
+}
+
 /**
  * Map GET /inventory/ram-agri-customer-ledger response to the same shape as farmer plant
  * full modal (`mapFarmerPlantLedgerApiToPanel`).

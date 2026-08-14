@@ -74,7 +74,7 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
   const [oldFarmersData, setOldFarmersData] = useState([])
   const [oldSalesData, setOldSalesData] = useState([])
   const [publicLeadsData, setPublicLeadsData] = useState([])
-  const [activeTab, setActiveTab] = useState(0) // 0: Old Farmers, 1: Old Sales, 2: Public Leads
+  const [activeTab, setActiveTab] = useState(0) // 0: Farmers, 1: Old Sales, 2: Public Leads, 3: All Contacts
   const [selectedFarmers, setSelectedFarmers] = useState([]) // objects with full data
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -106,6 +106,13 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
   const [oldSalesPagination, setOldSalesPagination] = useState({ total: 0, totalPages: 1 })
   const [publicLeadsPage, setPublicLeadsPage] = useState(1)
   const [publicLeadsPagination, setPublicLeadsPagination] = useState({ total: 0, totalPages: 1 })
+  const [allContactsData, setAllContactsData] = useState([])
+  const [loadingAllContacts, setLoadingAllContacts] = useState(false)
+  const [allContactsPage, setAllContactsPage] = useState(1)
+  const [allContactsPagination, setAllContactsPagination] = useState({ total: 0, totalPages: 1 })
+  const [allContactsBreakdown, setAllContactsBreakdown] = useState({
+    farmer: 0, oldSales: 0, publicLink: 0, unique: 0
+  })
   const [filterOptions, setFilterOptions] = useState({
     districts: [], talukas: [], villages: [],
     plant: [], variety: [], media: [], batch: [], paymentMode: [], reference: [], marketingReference: [],
@@ -144,6 +151,7 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
         fetchOldFarmers({ page: 1, limit: 50 }, "", { district: "", taluka: "", village: "" })
       }
       fetchOldSalesData({ page: 1, limit: 50 }, "", { district: "", taluka: "", village: "" })
+      fetchAllContactsBreakdown()
     }
   }, [open, initialListId])
 
@@ -276,6 +284,87 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
     }
   }
 
+  const normalizeAllContact = (item, page, limit, index) => {
+    const phone = String(item.mobileNumber || item.phone || "").replace(/\D/g, "").slice(-10)
+    const id = item.sourceIds?.farmer || item.sourceIds?.publicLink || `all-${phone}-${(page - 1) * limit + index}`
+    return {
+      _id: id,
+      id,
+      name: item.name || "",
+      mobileNumber: phone || item.mobileNumber || item.phone || "",
+      village: item.village || "",
+      taluka: item.taluka || "",
+      district: item.district || "",
+      state: item.stateName || item.state || "",
+      opt_in: item.opt_in,
+      source: "allContacts",
+      sources: Array.isArray(item.sources) ? item.sources : [],
+      sourceIds: item.sourceIds || {},
+    }
+  }
+
+  const fetchAllContactsBreakdown = async (search = "", filterOverrides = null) => {
+    try {
+      const instance = NetworkManager(API.FARMER.GET_ALL_CONTACTS)
+      const params = { page: 1, limit: 1 }
+      if (search && search.trim()) params.q = search.trim()
+      const f = filterOverrides ?? filters
+      if (f.district) params.district = f.district
+      if (f.taluka) params.taluka = f.taluka
+      if (f.village) params.village = f.village
+      const response = await instance.request({}, params)
+      const data = response?.data?.data || {}
+      const breakdown = data.breakdown || {}
+      setAllContactsBreakdown({
+        farmer: breakdown.farmer ?? 0,
+        oldSales: breakdown.oldSales ?? 0,
+        publicLink: breakdown.publicLink ?? 0,
+        unique: breakdown.unique ?? data.pagination?.total ?? 0,
+      })
+    } catch (error) {
+      console.error("Error fetching all contacts breakdown:", error)
+    }
+  }
+
+  const fetchAllContacts = async ({ page = 1, limit = 50 } = {}, search = "", filterOverrides = null) => {
+    setLoadingAllContacts(true)
+    try {
+      const instance = NetworkManager(API.FARMER.GET_ALL_CONTACTS)
+      const params = { page, limit }
+      if (search && search.trim()) params.q = search.trim()
+      const f = filterOverrides ?? filters
+      if (f.district) params.district = f.district
+      if (f.taluka) params.taluka = f.taluka
+      if (f.village) params.village = f.village
+      const response = await instance.request({}, params)
+      const data = response?.data?.data || {}
+      const items = data.items || []
+      const pagination = data.pagination || {}
+      const breakdown = data.breakdown || {}
+      const normalized = items
+        .map((item, index) => normalizeAllContact(item, page, limit, index))
+        .filter((f) => f.mobileNumber)
+      setAllContactsData(normalized)
+      setAllContactsPage(page)
+      setAllContactsPagination({
+        total: pagination.total ?? 0,
+        totalPages: pagination.totalPages ?? 1,
+      })
+      setAllContactsBreakdown({
+        farmer: breakdown.farmer ?? 0,
+        oldSales: breakdown.oldSales ?? 0,
+        publicLink: breakdown.publicLink ?? 0,
+        unique: breakdown.unique ?? pagination.total ?? 0,
+      })
+    } catch (error) {
+      console.error("Error fetching all contacts:", error)
+      setError("Failed to fetch all contacts")
+      setAllContactsData([])
+    } finally {
+      setLoadingAllContacts(false)
+    }
+  }
+
   const fetchPublicLeads = async (linkId, search = "", page = 1, filterOverrides = null) => {
     setLoadingPublicLeads(true)
     setError(null)
@@ -398,6 +487,7 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
     if (activeTab === 0) return oldFarmersData
     if (activeTab === 1) return oldSalesData
     if (activeTab === 2) return publicLeadsData
+    if (activeTab === 3) return allContactsData
     return []
   }
 
@@ -412,16 +502,19 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
       if (activeTab === 0) fetchFilterOptions(0, value, "")
       else if (activeTab === 1) fetchFilterOptions(1, value, "")
       else if (activeTab === 2) fetchFilterOptions(2, value, "")
+      else if (activeTab === 3) fetchFilterOptions(0, value, "")
     } else if (key === "taluka") {
       newFilters = { ...newFilters, village: "" }
       if (activeTab === 0) fetchFilterOptions(0, filters.district, value)
       else if (activeTab === 1) fetchFilterOptions(1, filters.district, value)
       else if (activeTab === 2) fetchFilterOptions(2, filters.district, value)
+      else if (activeTab === 3) fetchFilterOptions(0, filters.district, value)
     }
     setFilters(newFilters)
     setOldFarmersPage(1)
     setOldSalesPage(1)
     setPublicLeadsPage(1)
+    setAllContactsPage(1)
     if (activeTab === 0) {
       setOldFarmersData([])
       fetchOldFarmers({ page: 1, limit: PAGE_LIMIT }, searchTerm, newFilters)
@@ -431,6 +524,9 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
     } else if (activeTab === 2) {
       setPublicLeadsData([])
       fetchPublicLeads(selectedPublicLinkId || "all", searchTerm, 1, newFilters)
+    } else if (activeTab === 3) {
+      setAllContactsData([])
+      fetchAllContacts({ page: 1, limit: PAGE_LIMIT }, searchTerm, newFilters)
     }
   }
 
@@ -451,9 +547,11 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
       setOldSalesFilters(emptyOldSalesFilters)
       fetchFilterOptions(1, "", "")
     } else if (activeTab === 2) fetchFilterOptions(2, "", "")
+    else if (activeTab === 3) fetchFilterOptions(0, "", "")
     setOldFarmersPage(1)
     setOldSalesPage(1)
     setPublicLeadsPage(1)
+    setAllContactsPage(1)
     if (activeTab === 0) {
       setOldFarmersData([])
       fetchOldFarmers({ page: 1, limit: PAGE_LIMIT }, searchTerm, emptyFilters)
@@ -463,6 +561,9 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
     } else if (activeTab === 2) {
       setPublicLeadsData([])
       fetchPublicLeads(selectedPublicLinkId || "all", searchTerm, 1, emptyFilters)
+    } else if (activeTab === 3) {
+      setAllContactsData([])
+      fetchAllContacts({ page: 1, limit: PAGE_LIMIT }, searchTerm, emptyFilters)
     }
   }
 
@@ -481,6 +582,7 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
       setOldFarmersPage(1)
       setOldSalesPage(1)
       setPublicLeadsPage(1)
+      setAllContactsPage(1)
       if (tab === 0 && !useListMode) {
         setOldFarmersData([])
         fetchOldFarmers({ page: 1, limit: PAGE_LIMIT }, searchTerm)
@@ -490,6 +592,9 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
       } else if (tab === 2) {
         setPublicLeadsData([])
         fetchPublicLeads(selectedPublicLinkId || "all", searchTerm, 1)
+      } else if (tab === 3) {
+        setAllContactsData([])
+        fetchAllContacts({ page: 1, limit: PAGE_LIMIT }, searchTerm)
       }
     }, 400)
     return () => { if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current) }
@@ -506,6 +611,10 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
   const handlePublicLeadsPageChange = (_, page) => {
     setPublicLeadsPage(page)
     fetchPublicLeads(selectedPublicLinkId || "all", searchTerm, page)
+  }
+  const handleAllContactsPageChange = (_, page) => {
+    setAllContactsPage(page)
+    fetchAllContacts({ page, limit: PAGE_LIMIT }, searchTerm)
   }
 
   // Initialize parameter values
@@ -576,7 +685,7 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
   const handleAddManualNumber = () => {
     const digits = String(manualNumberInput || "").replace(/\D/g, "")
     const phone = digits.length === 10 ? digits : digits.length === 12 && digits.startsWith("91") ? digits.slice(2) : null
-    const allFarmers = [...oldFarmersData, ...oldSalesData, ...publicLeadsData, ...selectedFarmers]
+    const allFarmers = [...oldFarmersData, ...oldSalesData, ...publicLeadsData, ...allContactsData, ...selectedFarmers]
     if (phone) {
       const normalized = String(phone).slice(-10)
       const alreadyExists = allFarmers.some(f => String(f.mobileNumber || "").replace(/\D/g, "").slice(-10) === normalized)
@@ -684,8 +793,8 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
         return {
           whatsappMsisdn: phone,
           name: farmer.name || "",
-          farmerId: farmer._id || farmer.id,
-          leadId: farmer.source === "publicLead" ? farmer._id : null,
+          farmerId: farmer.sourceIds?.farmer || (farmer.source === "oldFarmer" ? farmer._id || farmer.id : null),
+          leadId: farmer.sourceIds?.publicLink || (farmer.source === "publicLead" ? farmer._id || farmer.id : null),
           customParams
         }
       })
@@ -768,7 +877,20 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
     if (activeTab === 0) return loadingOldFarmers
     if (activeTab === 1) return loadingOldSales
     if (activeTab === 2) return loadingPublicLeads
+    if (activeTab === 3) return loadingAllContacts
     return false
+  }
+
+  const getSourceChipLabel = (farmer) => {
+    if (farmer.source === "allContacts" && Array.isArray(farmer.sources) && farmer.sources.length > 0) {
+      const labels = { farmer: "ERP", oldSales: "Sales", publicLink: "Lead" }
+      return farmer.sources.map((s) => labels[s] || s).join(" + ")
+    }
+    if (farmer.source === "publicLead") return "Lead"
+    if (farmer.source === "manual") return "Manual"
+    if (farmer.source === "oldSales") return "Sales"
+    if (farmer.source === "contact") return "Contact"
+    return "Farmer"
   }
 
   if (!open) return null
@@ -1110,6 +1232,10 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
                 } else if (newValue === 2) {
                   setPublicLeadsPage(1)
                   setPublicLeadsData([])
+                } else if (newValue === 3) {
+                  setAllContactsPage(1)
+                  setAllContactsData([])
+                  fetchAllContacts({ page: 1, limit: PAGE_LIMIT }, "", { district: "", taluka: "", village: "" })
                 }
               }}
               sx={{
@@ -1134,7 +1260,18 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
               <Tab icon={<Database size={16} />} iconPosition="start" label={`Farmers (${oldFarmersPagination.total || oldFarmersData.length})`} />
               <Tab icon={<FileText size={16} />} iconPosition="start" label={`Sales (${oldSalesPagination.total || oldSalesData.length})`} />
               <Tab icon={<LinkIcon size={16} />} iconPosition="start" label={`Leads (${publicLeadsPagination.total || publicLeadsData.length})`} />
+              <Tab icon={<Users size={16} />} iconPosition="start" label={`All (${allContactsBreakdown.unique || allContactsPagination.total || 0})`} />
             </Tabs>
+            {(allContactsBreakdown.unique > 0 || allContactsBreakdown.farmer > 0) && (
+              <Box sx={{ px: 1.5, py: 1, borderBottom: 1, borderColor: "divider", bgcolor: alpha(theme.primary, 0.04) }}>
+                <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                  <Chip size="small" label={`Unique: ${allContactsBreakdown.unique || 0}`} color="primary" variant="outlined" sx={{ fontWeight: 600 }} />
+                  <Chip size="small" label={`ERP farmers: ${allContactsBreakdown.farmer || 0}`} variant="outlined" />
+                  <Chip size="small" label={`Old sales: ${allContactsBreakdown.oldSales || 0}`} variant="outlined" color="warning" />
+                  <Chip size="small" label={`Public links: ${allContactsBreakdown.publicLink || 0}`} variant="outlined" color="info" />
+                </Stack>
+              </Box>
+            )}
             {activeTab === 2 && (
               <Box sx={{ px: 1, py: 0.75, borderBottom: 1, borderColor: 'divider' }}>
                 <FormControl fullWidth size="small">
@@ -1481,6 +1618,14 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
                 <Pagination count={Math.max(1, publicLeadsPagination.totalPages || 1)} page={publicLeadsPage} onChange={handlePublicLeadsPageChange} color="primary" size="small" showFirstButton showLastButton disabled={loadingPublicLeads} />
               </>
             )}
+            {activeTab === 3 && (
+              <>
+                <Typography variant="caption" color="text.secondary">
+                  {allContactsPagination.total || 0} unique · ERP {allContactsBreakdown.farmer || 0} · Sales {allContactsBreakdown.oldSales || 0} · Leads {allContactsBreakdown.publicLink || 0} · {allContactsPage}/{allContactsPagination.totalPages || 1}
+                </Typography>
+                <Pagination count={Math.max(1, allContactsPagination.totalPages || 1)} page={allContactsPage} onChange={handleAllContactsPageChange} color="primary" size="small" showFirstButton showLastButton disabled={loadingAllContacts} />
+              </>
+            )}
           </Box>
         )}
 
@@ -1586,7 +1731,7 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
                         <TableCell>{farmer.district || farmer.districtName}</TableCell>
                         <TableCell>
                           <Chip
-                            label={farmer.source === "publicLead" ? "Lead" : farmer.source === "manual" ? "Manual" : farmer.source === "oldSales" ? "Sales" : "Farmer"}
+                            label={getSourceChipLabel(farmer)}
                             size="small"
                             sx={{
                               height: 22,
@@ -1594,7 +1739,7 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
                               fontWeight: 600,
                               borderRadius: 1.5,
                             }}
-                            color={farmer.source === "publicLead" ? "primary" : farmer.source === "manual" ? "secondary" : farmer.source === "contact" ? "secondary" : "default"}
+                            color={farmer.source === "publicLead" || farmer.sources?.includes?.("publicLink") ? "primary" : farmer.source === "manual" ? "secondary" : farmer.source === "oldSales" || farmer.sources?.includes?.("oldSales") ? "warning" : farmer.source === "contact" ? "secondary" : farmer.source === "allContacts" ? "success" : "default"}
                             variant="outlined"
                           />
                         </TableCell>
@@ -1676,6 +1821,9 @@ const FarmerCampaignModal = ({ open, onClose, template: initialTemplate, templat
               )}
               {activeTab === 2 && (
                 <Chip label={`Source: ${selectedPublicLinkId ? (publicLinks.find(l => l._id === selectedPublicLinkId)?.name || 'Public Link') : 'All Public Leads'}`} size="small" color="primary" variant="outlined" />
+              )}
+              {activeTab === 3 && (
+                <Chip label={`Source: All contacts (${allContactsBreakdown.unique || 0} unique)`} size="small" color="success" variant="outlined" />
               )}
             </Stack>
           </Box>

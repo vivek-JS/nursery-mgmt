@@ -7,6 +7,7 @@ import {
   closePdfTab,
 } from "utils/dispatchPdfHelpers";
 import { canShowInvoice } from "./dispatchVehiclesUtils";
+import { buildInvoiceNumberOverrides } from "./invoiceNumberUtils";
 
 const MOCK_PDF_HOST = /mock-reports\.example\.com/i;
 
@@ -45,6 +46,47 @@ async function fetchOrdersForDispatch(dispatch) {
   return list;
 }
 
+function mergeOrderDcNumbers(orders, orderDcNumbers = []) {
+  if (!Array.isArray(orders) || !Array.isArray(orderDcNumbers) || !orderDcNumbers.length) {
+    return orders;
+  }
+  const byId = new Map(orderDcNumbers.map((o) => [String(o?._id ?? ""), o]));
+  return orders.map((item) => {
+    const fresh = byId.get(String(item?._id ?? ""));
+    if (!fresh) return item;
+    const official = String(fresh.officialDeliveryChallanNumber || "").trim();
+    const manual = String(fresh.deliveryChallanInvoiceNumber || "").trim();
+    const officialNb = String(fresh.officialNonBillableDeliveryChallanNumber || "").trim();
+    return {
+      ...item,
+      ...(official ? { officialDeliveryChallanNumber: official } : {}),
+      ...(officialNb ? { officialNonBillableDeliveryChallanNumber: officialNb } : {}),
+      ...(manual ? { deliveryChallanInvoiceNumber: manual } : {}),
+      details: {
+        ...(item.details || {}),
+        ...(official ? { officialDeliveryChallanNumber: official } : {}),
+        ...(officialNb ? { officialNonBillableDeliveryChallanNumber: officialNb } : {}),
+        ...(manual ? { deliveryChallanInvoiceNumber: manual } : {}),
+      },
+    };
+  });
+}
+
+export async function ensureDispatchDcNumbers(dispatch) {
+  const dispatchId = String(dispatch?._id || "").trim();
+  if (!dispatchId) return dispatch;
+  try {
+    const inst = NetworkManager(API.DISPATCHED.ENSURE_DC_NUMBERS);
+    const res = await inst.request({}, [dispatchId]);
+    const payload = res?.data?.data ?? res?.data;
+    const orderDcNumbers = Array.isArray(payload?.orderDcNumbers) ? payload.orderDcNumbers : [];
+    const orderIds = mergeOrderDcNumbers(dispatch.orderIds || [], orderDcNumbers);
+    return { ...dispatch, orderIds };
+  } catch {
+    return dispatch;
+  }
+}
+
 /**
  * Same as DispatchAccordion Delivery Challan:
  * generate missing per-order DC PDFs only, then open browser DC preview.
@@ -57,6 +99,11 @@ export async function runDeliveryChallanFlow(dispatch, { onOpenDcPreview, agriLo
 
   try {
     let list = await fetchOrdersForDispatch(dispatch);
+    const dispatchWithDc = await ensureDispatchDcNumbers({
+      ...dispatch,
+      orderIds: list.length > 0 ? list : dispatch.orderIds || [],
+    });
+    list = Array.isArray(dispatchWithDc.orderIds) ? dispatchWithDc.orderIds : list;
     const missing = (list || []).filter((o) => orderHasDcNumber(o) && !getOrderDcPdfUrl(o));
     let generated = 0;
     let failed = 0;
@@ -117,14 +164,16 @@ export async function runDeliveryChallanFlow(dispatch, { onOpenDcPreview, agriLo
 }
 
 /**
- * Same as DispatchAccordion Invoice:
- * blocked until DELIVERED; reuse server URL; generate once; regenerate only with force.
+ * Invoice PDF flow.
+ * - First generate: allocate invoice sequences server-side.
+ * - Duplicate (force): prompt editable prefilled invoice numbers, then regenerate PDF.
  */
 export async function runInvoiceFlow(
   dispatch,
   {
     force = false,
     promptInvoiceAadhar,
+    promptDuplicateInvoice,
     onPatchPdfFields,
     onOpenInvoicePreview,
     onRefresh,
@@ -151,11 +200,25 @@ export async function runInvoiceFlow(
     return;
   }
 
+  let invoiceNumberOverrides = undefined;
   if (force) {
-    const ok = window.confirm(
-      "Regenerate invoice PDF? Previous PDF will be kept in history."
-    );
-    if (!ok) return;
+    let merged = dispatch;
+    try {
+      const list = await fetchOrdersForDispatch(dispatch);
+      if (list?.length) merged = { ...dispatch, orderIds: list };
+    } catch {
+      /* keep */
+    }
+    if (typeof promptDuplicateInvoice === "function") {
+      const { confirmed, rows } = await promptDuplicateInvoice(merged);
+      if (!confirmed) return;
+      invoiceNumberOverrides = buildInvoiceNumberOverrides(rows);
+    } else {
+      const ok = window.confirm(
+        "Duplicate invoice PDF? Numbers stay the same unless you edit them later. Previous PDF will be kept in history."
+      );
+      if (!ok) return;
+    }
   }
 
   const { confirmed, aadharByOrderId } = await promptInvoiceAadhar(dispatch);
@@ -164,14 +227,15 @@ export async function runInvoiceFlow(
   const preparedTab = preparePdfTab();
   try {
     const inst = NetworkManager(API.DISPATCHED.GENERATE_PDFS);
-    const res = await inst.request(
-      {
-        types: ["complete_invoice"],
-        invoiceAadhars: aadharByOrderId || {},
-        force: Boolean(force),
-      },
-      [String(dispatch._id)]
-    );
+    const body = {
+      types: ["complete_invoice"],
+      invoiceAadhars: aadharByOrderId || {},
+      force: Boolean(force),
+    };
+    if (invoiceNumberOverrides && Object.keys(invoiceNumberOverrides).length) {
+      body.invoiceNumberOverrides = invoiceNumberOverrides;
+    }
+    const res = await inst.request(body, [String(dispatch._id)]);
     const data = parseGeneratePdfsResponse(res);
     const url = String(data?.completeInvoicePdfUrl || "").trim();
     if (data && typeof data === "object") {
@@ -188,10 +252,10 @@ export async function runInvoiceFlow(
       );
       await onOpenInvoicePreview?.(dispatch, aadharByOrderId);
     } else if (url && openDispatchPdfUrl(url, preparedTab)) {
-      Toast.success(force ? "Invoice PDF regenerated" : "Invoice PDF opened");
+      Toast.success(force ? "Invoice PDF duplicated" : "Invoice PDF opened");
     } else {
       closePdfTab(preparedTab);
-      Toast.success(force ? "Invoice PDF regenerated" : "Invoice PDF generated");
+      Toast.success(force ? "Invoice PDF duplicated" : "Invoice PDF generated");
     }
     void onRefresh?.();
   } catch (error) {

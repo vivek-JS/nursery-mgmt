@@ -257,9 +257,9 @@ export default function DispatchedVehiclesTable({
                                 disabled={pdfBusy}
                                 onClick={() => onInvoice?.(dispatch, true)}
                                 className="border-amber-200 text-amber-900 hover:bg-amber-50"
-                                title="Regenerate invoice PDF (keeps previous in history)"
+                                title="Duplicate invoice PDF (edit numbers; keeps previous in history)"
                               >
-                                Regen invoice
+                                Duplicate invoice
                               </ActionBtn>
                             ) : null}
                             {!isDelivered ? (

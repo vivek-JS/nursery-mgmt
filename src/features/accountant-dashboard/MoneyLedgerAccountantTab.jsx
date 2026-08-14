@@ -1,6 +1,6 @@
 /**
- * Money Ledger — Biotech Master vs Ram Agri Input (separate books).
- * Each book is one unified debit/credit ledger (no Receivable/Payable split).
+ * Money Ledger embedded on Accounting Dashboard.
+ * Book follows org toggle: ram-agri → RAM_AGRI, ram-biotech → BIOTECH.
  */
 import React, { useCallback, useEffect, useState } from "react";
 import {
@@ -24,13 +24,13 @@ import {
 } from "@mui/material";
 import { Payments, Refresh, Search, LocalOffer } from "@mui/icons-material";
 import { Toast } from "helpers/toasts/toastHelper";
-import MoneyLedgerAddPaymentDialog from "./components/money-ledger/MoneyLedgerAddPaymentDialog";
-import MoneyLedgerPartyAdjustDialog from "./components/money-ledger/MoneyLedgerPartyAdjustDialog";
-import LedgerSummaryCards from "./components/money-ledger/LedgerSummaryCards";
+import MoneyLedgerAddPaymentDialog from "pages/private/inventory/components/money-ledger/MoneyLedgerAddPaymentDialog";
+import MoneyLedgerPartyAdjustDialog from "pages/private/inventory/components/money-ledger/MoneyLedgerPartyAdjustDialog";
+import LedgerSummaryCards from "pages/private/inventory/components/money-ledger/LedgerSummaryCards";
 import {
   fetchMoneyLedgerParties,
   fetchPartyStatement,
-} from "./components/money-ledger/moneyLedgerApi";
+} from "pages/private/inventory/components/money-ledger/moneyLedgerApi";
 
 function formatMoney(n) {
   return `₹${Number(n || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
@@ -65,8 +65,13 @@ function productLineText(entry) {
     .join(", ");
 }
 
-export default function InventoryLedger() {
-  const [book, setBook] = useState("RAM_AGRI");
+/**
+ * @param {{ selectedOrg: "ram-agri"|"ram-biotech", canAdjust?: boolean }} props
+ */
+export function MoneyLedgerAccountantTab({ selectedOrg = "ram-agri", canAdjust = true }) {
+  const book = selectedOrg === "ram-biotech" ? "BIOTECH" : "RAM_AGRI";
+  const isRamAgri = book === "RAM_AGRI";
+
   const [partyKind, setPartyKind] = useState("MERCHANT");
   const [search, setSearch] = useState("");
   const [debouncedQ, setDebouncedQ] = useState("");
@@ -79,17 +84,17 @@ export default function InventoryLedger() {
   const [partyAdjustOpen, setPartyAdjustOpen] = useState(false);
   const [partyAdjustKind, setPartyAdjustKind] = useState("PAYMENT");
 
-  const isRamAgri = book === "RAM_AGRI";
-
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQ(search.trim()), 300);
     return () => clearTimeout(t);
   }, [search]);
 
   useEffect(() => {
-    setPartyKind(book === "RAM_AGRI" ? "MERCHANT" : "ALL");
+    setPartyKind(isRamAgri ? "MERCHANT" : "ALL");
     setSelected(null);
-  }, [book]);
+    setSearch("");
+    setDebouncedQ("");
+  }, [book, isRamAgri]);
 
   const loadParties = useCallback(async () => {
     setLoadingParties(true);
@@ -148,14 +153,17 @@ export default function InventoryLedger() {
     loadStatement();
   }, [loadStatement]);
 
+  const canPartyAdjust =
+    canAdjust && selected?.partyType && selected.partyType !== "CUSTOMER";
+
   return (
-    <Box sx={{ p: { xs: 2, md: 3 }, maxWidth: 1280, mx: "auto" }}>
+    <Box sx={{ maxWidth: 1280, mx: "auto" }}>
       <Paper
         elevation={0}
         sx={{
-          p: 2.5,
+          p: 2,
           mb: 2,
-          borderRadius: 3,
+          borderRadius: 2,
           border: "1px solid",
           borderColor: isRamAgri ? "#ffe0b2" : "#bbdefb",
           background: isRamAgri
@@ -170,21 +178,19 @@ export default function InventoryLedger() {
           justifyContent="space-between"
         >
           <Box>
-            <Typography variant="h5" fontWeight={800}>
+            <Typography variant="h6" fontWeight={800}>
               Money Ledger
             </Typography>
             <Typography variant="body2" color="text.secondary">
               {isRamAgri
-                ? "Ram Agri Input — own debit/credit book (B2B + purchase)."
-                : "Biotech Master — own debit/credit book (plant sell + purchase)."}
-            </Typography>
-            <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
-              Separate books. Balance &gt; 0 they owe · &lt; 0 we owe. Times in IST.
+                ? "Ram Agri Input — B2B sell, purchase, payments, discount"
+                : "Biotech Master — plant sell, purchase, payments, discount"}
             </Typography>
           </Box>
           <Stack direction="row" spacing={1} flexWrap="wrap">
             <Button
               variant="outlined"
+              size="small"
               startIcon={<Refresh />}
               onClick={() => {
                 loadParties();
@@ -194,10 +200,11 @@ export default function InventoryLedger() {
             >
               Refresh
             </Button>
-            {selected?.partyType && selected?.partyType !== "CUSTOMER" ? (
+            {canPartyAdjust ? (
               <>
                 <Button
                   variant="contained"
+                  size="small"
                   startIcon={<Payments />}
                   onClick={() => {
                     setPartyAdjustKind("PAYMENT");
@@ -210,6 +217,7 @@ export default function InventoryLedger() {
                 <Button
                   variant="outlined"
                   color="warning"
+                  size="small"
                   startIcon={<LocalOffer />}
                   onClick={() => {
                     setPartyAdjustKind("DISCOUNT");
@@ -221,50 +229,39 @@ export default function InventoryLedger() {
                 </Button>
               </>
             ) : null}
-            <Button
-              variant="text"
-              onClick={() => setPayOpen(true)}
-              sx={{ textTransform: "none", fontWeight: 600 }}
-            >
-              Pay on document…
-            </Button>
+            {canAdjust ? (
+              <Button
+                variant="text"
+                size="small"
+                onClick={() => setPayOpen(true)}
+                sx={{ textTransform: "none", fontWeight: 600 }}
+              >
+                Pay on document…
+              </Button>
+            ) : null}
           </Stack>
         </Stack>
 
-        <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} sx={{ mt: 2 }}>
+        {isRamAgri ? (
           <ToggleButtonGroup
             exclusive
             size="small"
-            value={book}
-            onChange={(_, v) => v && setBook(v)}
+            value={partyKind}
+            onChange={(_, v) => v && setPartyKind(v)}
+            sx={{ mt: 1.5 }}
           >
-            <ToggleButton value="RAM_AGRI" sx={{ textTransform: "none", fontWeight: 700 }}>
-              Ram Agri Input
+            <ToggleButton value="MERCHANT" sx={{ textTransform: "none", fontWeight: 700 }}>
+              Merchants (B2B)
             </ToggleButton>
-            <ToggleButton value="BIOTECH" sx={{ textTransform: "none", fontWeight: 700 }}>
-              Biotech Master
+            <ToggleButton value="FARMER" sx={{ textTransform: "none", fontWeight: 700 }}>
+              Farmers
             </ToggleButton>
           </ToggleButtonGroup>
-          {isRamAgri ? (
-            <ToggleButtonGroup
-              exclusive
-              size="small"
-              value={partyKind}
-              onChange={(_, v) => v && setPartyKind(v)}
-            >
-              <ToggleButton value="MERCHANT" sx={{ textTransform: "none", fontWeight: 700 }}>
-                Merchants (B2B)
-              </ToggleButton>
-              <ToggleButton value="FARMER" sx={{ textTransform: "none", fontWeight: 700 }}>
-                Farmers
-              </ToggleButton>
-            </ToggleButtonGroup>
-          ) : null}
-        </Stack>
+        ) : null}
       </Paper>
 
       <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems="stretch">
-        <Paper sx={{ width: { xs: "100%", md: 340 }, borderRadius: 2, p: 1.5, flexShrink: 0 }}>
+        <Paper sx={{ width: { xs: "100%", md: 320 }, borderRadius: 2, p: 1.5, flexShrink: 0 }}>
           <TextField
             fullWidth
             size="small"
@@ -272,7 +269,7 @@ export default function InventoryLedger() {
               isRamAgri
                 ? partyKind === "FARMER"
                   ? "Search farmer"
-                  : "Search merchant (e.g. Dharti)"
+                  : "Search merchant"
                 : "Search party"
             }
             value={search}
@@ -295,7 +292,7 @@ export default function InventoryLedger() {
               No parties in this book yet.
             </Typography>
           ) : (
-            <Stack spacing={0.5} sx={{ maxHeight: 560, overflow: "auto" }}>
+            <Stack spacing={0.5} sx={{ maxHeight: 520, overflow: "auto" }}>
               {parties.map((p) => {
                 const active =
                   selected &&
@@ -353,99 +350,106 @@ export default function InventoryLedger() {
               <CircularProgress />
             </Box>
           ) : (
-            <TableContainer sx={{ maxHeight: { xs: 420, md: 560 }, mt: 1.5 }}>
-            <Table size="small" stickyHeader>
-              <TableHead>
-                <TableRow>
-                  <TableCell>Date (IST)</TableCell>
-                  <TableCell>Type</TableCell>
-                  <TableCell>Doc</TableCell>
-                  <TableCell>Particulars</TableCell>
-                  <TableCell>Product</TableCell>
-                  <TableCell align="right">Debit</TableCell>
-                  <TableCell align="right">Credit</TableCell>
-                  <TableCell align="right">Balance</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {!statement?.entries?.length ? (
+            <TableContainer sx={{ maxHeight: { xs: 420, md: 520 }, mt: 1.5 }}>
+              <Table size="small" stickyHeader>
+                <TableHead>
                   <TableRow>
-                    <TableCell colSpan={8}>
-                      <Typography color="text.secondary" sx={{ py: 3, textAlign: "center" }}>
-                        Select a {isRamAgri && partyKind === "FARMER" ? "farmer" : "merchant"} to see
-                        debit / credit lines
-                      </Typography>
-                    </TableCell>
+                    <TableCell>Date (IST)</TableCell>
+                    <TableCell>Type</TableCell>
+                    <TableCell>Doc</TableCell>
+                    <TableCell>Particulars</TableCell>
+                    <TableCell>Product</TableCell>
+                    <TableCell align="right">Debit</TableCell>
+                    <TableCell align="right">Credit</TableCell>
+                    <TableCell align="right">Balance</TableCell>
                   </TableRow>
-                ) : (
-                  statement.entries.map((e, idx) => {
-                    const key = e._id || `${e.documentId}-${e.refType}-${idx}`;
-                    const products = productLineText(e);
-                    const showProduct =
-                      ["SELL", "PURCHASE", "SALES_RETURN", "PURCHASE_RETURN"].includes(
-                        String(e.refType || "").toUpperCase()
-                      );
-                    return (
-                      <TableRow key={key} hover>
-                        <TableCell>{formatDateIst(e.entryDate)}</TableCell>
-                        <TableCell>
-                          <Chip size="small" label={e.refType || "—"} sx={{ height: 22, fontSize: 11, fontWeight: 700 }} />
-                        </TableCell>
-                        <TableCell>
-                          <Typography variant="body2" fontWeight={600}>
-                            {e.documentNumber || "—"}
-                          </Typography>
-                        </TableCell>
-                        <TableCell>
-                          <Typography variant="body2">{e.description || e.reference || "—"}</Typography>
-                        </TableCell>
-                        <TableCell sx={{ maxWidth: 220 }}>
-                          {showProduct && products ? (
-                            <Typography variant="body2" color="text.secondary">
-                              {products}
+                </TableHead>
+                <TableBody>
+                  {!statement?.entries?.length ? (
+                    <TableRow>
+                      <TableCell colSpan={8}>
+                        <Typography color="text.secondary" sx={{ py: 3, textAlign: "center" }}>
+                          Select a party to see debit / credit lines
+                        </Typography>
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    statement.entries.map((e, idx) => {
+                      const key = e._id || `${e.documentId}-${e.refType}-${idx}`;
+                      const products = productLineText(e);
+                      const showProduct = [
+                        "SELL",
+                        "PURCHASE",
+                        "SALES_RETURN",
+                        "PURCHASE_RETURN",
+                      ].includes(String(e.refType || "").toUpperCase());
+                      return (
+                        <TableRow key={key} hover>
+                          <TableCell>{formatDateIst(e.entryDate)}</TableCell>
+                          <TableCell>
+                            <Chip
+                              size="small"
+                              label={e.refType || "—"}
+                              sx={{ height: 22, fontSize: 11, fontWeight: 700 }}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Typography variant="body2" fontWeight={600}>
+                              {e.documentNumber || "—"}
                             </Typography>
-                          ) : (
-                            "—"
-                          )}
-                        </TableCell>
-                        <TableCell
-                          align="right"
-                          sx={{
-                            color: Number(e.debit) > 0 ? "#c62828" : "text.secondary",
-                            fontWeight: Number(e.debit) > 0 ? 700 : 400,
-                          }}
-                        >
-                          {Number(e.debit) > 0 ? formatMoney(e.debit) : "—"}
-                        </TableCell>
-                        <TableCell
-                          align="right"
-                          sx={{
-                            color: Number(e.credit) > 0 ? "#2e7d32" : "text.secondary",
-                            fontWeight: Number(e.credit) > 0 ? 700 : 400,
-                          }}
-                        >
-                          {Number(e.credit) > 0 ? formatMoney(e.credit) : "—"}
-                        </TableCell>
-                        <TableCell
-                          align="right"
-                          sx={{
-                            fontWeight: 700,
-                            color:
-                              Number(e.runningBalance) > 0
-                                ? "#c62828"
-                                : Number(e.runningBalance) < 0
-                                  ? "#2e7d32"
-                                  : "text.primary",
-                          }}
-                        >
-                          {formatMoney(e.runningBalance)}
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })
-                )}
-              </TableBody>
-            </Table>
+                          </TableCell>
+                          <TableCell>
+                            <Typography variant="body2">
+                              {e.description || e.reference || "—"}
+                            </Typography>
+                          </TableCell>
+                          <TableCell sx={{ maxWidth: 200 }}>
+                            {showProduct && products ? (
+                              <Typography variant="body2" color="text.secondary">
+                                {products}
+                              </Typography>
+                            ) : (
+                              "—"
+                            )}
+                          </TableCell>
+                          <TableCell
+                            align="right"
+                            sx={{
+                              color: Number(e.debit) > 0 ? "#c62828" : "text.secondary",
+                              fontWeight: Number(e.debit) > 0 ? 700 : 400,
+                            }}
+                          >
+                            {Number(e.debit) > 0 ? formatMoney(e.debit) : "—"}
+                          </TableCell>
+                          <TableCell
+                            align="right"
+                            sx={{
+                              color: Number(e.credit) > 0 ? "#2e7d32" : "text.secondary",
+                              fontWeight: Number(e.credit) > 0 ? 700 : 400,
+                            }}
+                          >
+                            {Number(e.credit) > 0 ? formatMoney(e.credit) : "—"}
+                          </TableCell>
+                          <TableCell
+                            align="right"
+                            sx={{
+                              fontWeight: 700,
+                              color:
+                                Number(e.runningBalance) > 0
+                                  ? "#c62828"
+                                  : Number(e.runningBalance) < 0
+                                    ? "#2e7d32"
+                                    : "text.primary",
+                            }}
+                          >
+                            {formatMoney(e.runningBalance)}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
+                  )}
+                </TableBody>
+              </Table>
             </TableContainer>
           )}
         </Paper>
@@ -480,3 +484,5 @@ export default function InventoryLedger() {
     </Box>
   );
 }
+
+export default MoneyLedgerAccountantTab;

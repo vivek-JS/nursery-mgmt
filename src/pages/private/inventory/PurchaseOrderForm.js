@@ -15,6 +15,8 @@ import PoItemsTable from './components/po/PoItemsTable';
 import {
   emptyOrderItem,
   isReadyPlantsCategory,
+  buildBiotechLinkedProductIndex,
+  resolveBiotechMasterFromProductId,
 } from './components/po/poFormUtils';
 import {
   buildPoItemPayloads,
@@ -33,18 +35,16 @@ const PurchaseOrderForm = () => {
 
   const [loading, setLoading] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
-  const [products, setProducts] = useState([]);
   const [units, setUnits] = useState([]);
   const [merchants, setMerchants] = useState([]);
-  const [categories, setCategories] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterCategory, setFilterCategory] = useState('');
   const [selectedSupplier, setSelectedSupplier] = useState(null);
   const [orderItems, setOrderItems] = useState([]);
   const [productSlots, setProductSlots] = useState({});
   const [loadingSlots, setLoadingSlots] = useState({});
   const [plants, setPlants] = useState([]);
   const [ramAgriCrops, setRamAgriCrops] = useState([]);
+  const [biotechPlants, setBiotechPlants] = useState([]);
   const [ramAgriProductType, setRamAgriProductType] = useState('seed');
   const ramAgriTypeInitialized = useRef(false);
   const [subtypes, setSubtypes] = useState({});
@@ -79,38 +79,36 @@ const PurchaseOrderForm = () => {
     [merchants]
   );
 
+  const biotechProductIndex = useMemo(
+    () => buildBiotechLinkedProductIndex(biotechPlants),
+    [biotechPlants]
+  );
+
+  const productsForPo = useMemo(
+    () => Array.from(biotechProductIndex.values()),
+    [biotechProductIndex]
+  );
+
   useEffect(() => {
     if (!isEditMode && canPoAutoAccept) {
       setFormData((prev) => ({ ...prev, autoGRN: true }));
     }
   }, [canPoAutoAccept, isEditMode]);
 
+  // Biotech Seed Master + Ram Agri only — no GET /inventory/products (sowing catalog).
   useEffect(() => {
     loadMerchants();
     loadUnits();
-    if (isAgriMode) {
-      loadRamAgriCrops(ramAgriProductType);
-    } else {
-      loadProducts();
-      loadCategories();
-      loadPlants();
-      loadRamAgriCrops();
-    }
-  }, [isAgriMode]);
+    loadPlants();
+    loadBiotechPlants();
+    loadRamAgriCrops(ramAgriProductType);
+  }, []);
 
   useEffect(() => {
-    if (!isAgriMode) loadProducts();
-  }, [filterCategory, isAgriMode]);
+    loadRamAgriCrops(ramAgriProductType);
+  }, [ramAgriProductType]);
 
   useEffect(() => {
-    if (isAgriMode) loadRamAgriCrops(ramAgriProductType);
-  }, [ramAgriProductType, isAgriMode]);
-
-  useEffect(() => {
-    if (!isAgriMode) {
-      ramAgriTypeInitialized.current = false;
-      return;
-    }
     if (!ramAgriTypeInitialized.current) {
       ramAgriTypeInitialized.current = true;
       return;
@@ -127,13 +125,34 @@ const PurchaseOrderForm = () => {
           : item
       )
     );
-  }, [ramAgriProductType, isAgriMode]);
+  }, [ramAgriProductType]);
 
   useEffect(() => {
     if (isEditMode && id && merchants.length) {
       loadPurchaseOrder();
     }
   }, [id, merchants.length, isEditMode]);
+
+  // When Biotech master loads after PO edit hydrate, remap product lines to plant→variety.
+  useEffect(() => {
+    if (!biotechPlants.length) return;
+    setOrderItems((prev) =>
+      prev.map((item) => {
+        if (item.isRamAgriProduct) return item;
+        const meta = item.productId
+          ? resolveBiotechMasterFromProductId(biotechPlants, item.productId)
+          : null;
+        return {
+          ...item,
+          isBiotechProduct: true,
+          biotechPlantId: meta?.biotechPlantId || item.biotechPlantId || '',
+          biotechVarietyId: meta?.biotechVarietyId || item.biotechVarietyId || '',
+          biotechPlantName: meta?.biotechPlantName || item.biotechPlantName || '',
+          biotechVarietyName: meta?.biotechVarietyName || item.biotechVarietyName || '',
+        };
+      })
+    );
+  }, [biotechPlants]);
 
   const unwrapList = (apiResponse) => {
     if (!apiResponse) return [];
@@ -150,18 +169,6 @@ const PurchaseOrderForm = () => {
     return [];
   };
 
-  const loadProducts = async () => {
-    try {
-      const instance = NetworkManager(API.INVENTORY.GET_ALL_PRODUCTS);
-      const params = { limit: 1000, isActive: true };
-      if (filterCategory) params.category = filterCategory;
-      const response = await instance.request({}, params);
-      setProducts(unwrapList(response?.data));
-    } catch (error) {
-      console.error('Error loading products:', error);
-    }
-  };
-
   const loadMerchants = async () => {
     try {
       const instance = NetworkManager(API.INVENTORY.GET_ALL_MERCHANTS_SIMPLE);
@@ -170,16 +177,6 @@ const PurchaseOrderForm = () => {
     } catch (error) {
       console.error('Error loading merchants:', error);
       alert('Error loading merchants: ' + (error.response?.data?.message || error.message));
-    }
-  };
-
-  const loadCategories = async () => {
-    try {
-      const instance = NetworkManager(API.INVENTORY.GET_ALL_CATEGORIES);
-      const response = await instance.request({}, { isActive: true });
-      setCategories(unwrapList(response?.data));
-    } catch (error) {
-      console.error('Error loading categories:', error);
     }
   };
 
@@ -192,6 +189,16 @@ const PurchaseOrderForm = () => {
       setRamAgriCrops(unwrapList(response?.data));
     } catch (error) {
       console.error('Error loading Ram Agri crops:', error);
+    }
+  };
+
+  const loadBiotechPlants = async () => {
+    try {
+      const instance = NetworkManager(API.INVENTORY.GET_ALL_BIOTECH_SEED_PRODUCTS);
+      const response = await instance.request({}, { limit: 500, isActive: true });
+      setBiotechPlants(unwrapList(response?.data));
+    } catch (error) {
+      console.error('Error loading Biotech Seed Master plants:', error);
     }
   };
 
@@ -317,6 +324,7 @@ const PurchaseOrderForm = () => {
           }
           const productId =
             typeof item.product === 'object' ? item.product._id : item.product;
+          const biotechMeta = resolveBiotechMasterFromProductId(biotechPlants, productId);
           return emptyOrderItem({
             productId,
             quantity: item.quantity || 1,
@@ -338,12 +346,18 @@ const PurchaseOrderForm = () => {
             subtypeId: item.subtypeId || '',
             conversionFactor: item.conversionFactor || 1,
             unitId: typeof item.unit === 'object' ? item.unit?._id : item.unit || '',
+            isBiotechProduct: true,
+            biotechPlantId: biotechMeta?.biotechPlantId || '',
+            biotechVarietyId: biotechMeta?.biotechVarietyId || '',
+            biotechPlantName: biotechMeta?.biotechPlantName || '',
+            biotechVarietyName: biotechMeta?.biotechVarietyName || '',
           });
         });
         setOrderItems(items);
         items.forEach((it) => {
           if (it.productId) {
-            const p = products.find((x) => x._id === it.productId) ||
+            const p =
+              biotechProductIndex.get(String(it.productId)) ||
               (typeof poData.items.find((i) =>
                 (typeof i.product === 'object' ? i.product._id : i.product) === it.productId
               )?.product === 'object'
@@ -384,7 +398,8 @@ const PurchaseOrderForm = () => {
   };
 
   const fetchSlotsForProduct = async (productId, productOverride) => {
-    const product = productOverride || products.find((p) => p._id === productId);
+    const product =
+      productOverride || biotechProductIndex.get(String(productId));
     if (!product?.plantId || !product?.subtypeId) return;
 
     const plantId = typeof product.plantId === 'object' ? product.plantId._id : product.plantId;
@@ -435,7 +450,7 @@ const PurchaseOrderForm = () => {
       }
 
       if (field === 'productId') {
-        const product = products.find((p) => p._id === value);
+        const product = biotechProductIndex.get(String(value));
         if (product) {
           if (isReadyPlantsCategory(product.category)) {
             updated[index].isReadyPlantsProduct = true;
@@ -446,7 +461,7 @@ const PurchaseOrderForm = () => {
             updated[index].displayTitle = product.name || '';
           }
           if (product.plantId && product.subtypeId) {
-            fetchSlotsForProduct(value);
+            fetchSlotsForProduct(value, product);
           } else {
             updated[index].slotId = '';
             updated[index].productName = '';
@@ -471,7 +486,8 @@ const PurchaseOrderForm = () => {
     setOrderItems((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const addOrderItem = () => setOrderItems((prev) => [...prev, emptyOrderItem()]);
+  const addOrderItem = () =>
+    setOrderItems((prev) => [...prev, emptyOrderItem({ isBiotechProduct: true })]);
   const addRamAgriOrderItem = () =>
     setOrderItems((prev) => [...prev, emptyOrderItem({ isRamAgriProduct: true })]);
 
@@ -512,7 +528,7 @@ const PurchaseOrderForm = () => {
     }
     if (
       orderItems.some((item) => {
-        if (item.isRamAgriProduct || isAgriMode) {
+        if (item.isRamAgriProduct) {
           return (
             !item.ramAgriCropId ||
             !item.ramAgriVarietyId ||
@@ -522,10 +538,21 @@ const PurchaseOrderForm = () => {
             item.rate <= 0
           );
         }
-        return !item.productId || !item.quantity || item.quantity <= 0;
+        if (item.isBiotechProduct) {
+          return (
+            !item.biotechPlantId ||
+            !item.biotechVarietyId ||
+            !item.productId ||
+            !item.quantity ||
+            item.quantity <= 0 ||
+            !item.rate ||
+            item.rate <= 0
+          );
+        }
+        return !item.productId || !item.quantity || item.quantity <= 0 || !item.rate || item.rate <= 0;
       })
     ) {
-      alert('Please complete crop, variety, quantity, and rate for all items');
+      alert('Please complete product/crop, variety, quantity, and rate for all items');
       return;
     }
 
@@ -535,8 +562,8 @@ const PurchaseOrderForm = () => {
       return;
     }
 
-    if (isSuperAdmin && !isAgriMode) {
-      const readyErr = validateReadyPlantsItems(orderItems, products);
+    if (isSuperAdmin) {
+      const readyErr = validateReadyPlantsItems(orderItems, productsForPo);
       if (readyErr) {
         alert(readyErr);
         return;
@@ -547,11 +574,12 @@ const PurchaseOrderForm = () => {
       setLoading(true);
       const transformedItems = buildPoItemPayloads({
         orderItems,
-        products,
+        products: productsForPo,
         ramAgriCrops: ramAgriCrops,
+        biotechProductsById: biotechProductIndex,
         units,
         autoGRN: formData.autoGRN,
-        isSuperAdmin: isAgriMode ? false : isSuperAdmin,
+        isSuperAdmin,
       });
 
       const fd = new FormData();
@@ -595,16 +623,6 @@ const PurchaseOrderForm = () => {
     }
   };
 
-  const filteredProducts = products.filter((product) => {
-    const matchesSearch =
-      !searchTerm ||
-      product.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      product.code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      product.category?.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesCategory = !filterCategory || product.category === filterCategory;
-    return matchesSearch && matchesCategory;
-  });
-
   const filteredRamAgriCrops = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
     if (!term) return ramAgriCrops;
@@ -616,6 +634,18 @@ const PurchaseOrderForm = () => {
       return cropMatch || varietyMatch;
     });
   }, [ramAgriCrops, searchTerm]);
+
+  const filteredBiotechPlants = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    if (!term) return biotechPlants;
+    return biotechPlants.filter((plant) => {
+      const plantMatch = plant.plantName?.toLowerCase().includes(term);
+      const varietyMatch = (plant.varieties || []).some((v) =>
+        v.name?.toLowerCase().includes(term)
+      );
+      return plantMatch || varietyMatch;
+    });
+  }, [biotechPlants, searchTerm]);
 
   if (loadingData) {
     return (
@@ -644,9 +674,7 @@ const PurchaseOrderForm = () => {
               {isEditMode ? 'Edit purchase order' : 'New purchase order'}
             </h1>
             <p className="text-xs text-slate-500 truncate">
-              {isAgriMode
-                ? 'Ram Agri seeds & chemicals · supplier invoice required'
-                : 'Supplier invoice required · use Gifts category for gift products'}
+              Biotech Seed Master + Ram Agri inputs · supplier invoice required · ledger book by product type
             </p>
           </div>
         </div>
@@ -694,10 +722,10 @@ const PurchaseOrderForm = () => {
 
         <PoItemsTable
           orderItems={orderItems}
-          products={products}
-          filteredProducts={filteredProducts}
+          products={productsForPo}
           units={units}
           ramAgriCrops={filteredRamAgriCrops}
+          biotechPlants={filteredBiotechPlants}
           productSlots={productSlots}
           loadingSlots={loadingSlots}
           isSuperAdmin={isSuperAdmin}
@@ -711,9 +739,6 @@ const PurchaseOrderForm = () => {
           loadingSubtypes={loadingSubtypes}
           searchTerm={searchTerm}
           setSearchTerm={setSearchTerm}
-          filterCategory={filterCategory}
-          setFilterCategory={setFilterCategory}
-          categories={categories}
           updateOrderItem={updateOrderItem}
           removeOrderItem={removeOrderItem}
           addOrderItem={addOrderItem}

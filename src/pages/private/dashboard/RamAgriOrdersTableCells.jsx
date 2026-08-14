@@ -3,6 +3,10 @@ import { FaCopy, FaCreditCard, FaEdit } from "react-icons/fa"
 import DeliveryDateBadge from "components/DeliveryDateBadge"
 import DeliveryDateChangesInfo from "components/DeliveryDateChangesInfo"
 import { canEditAgriSalesOrderRow, formatAgriDisplayOrderKey } from "./agriSalesOrderEditPrefill"
+import {
+  getAgriDeliveryChallanUrl,
+  openOrGenerateAgriDeliveryChallan,
+} from "utils/agriDeliveryChallan"
 
 const toStatusBadgeCssClass = (status) => {
   if (status == null || status === "") return "unknown"
@@ -407,6 +411,30 @@ export function RamAgriTableRowCells({
               </button>
             </div>
           ) : null}
+          {(row.orderStatus === "DISPATCHED" ||
+            row.orderStatus === "COMPLETED" ||
+            row.details?.dispatchStatus === "DISPATCHED" ||
+            row.details?.dispatchStatus === "DELIVERED" ||
+            row.details?.dispatchStatus === "IN_TRANSIT") && (
+            <button
+              type="button"
+              title={
+                getAgriDeliveryChallanUrl(row)
+                  ? "Open delivery challan PDF"
+                  : "Generate / open delivery challan"
+              }
+              onClick={(e) => {
+                e.stopPropagation()
+                openOrGenerateAgriDeliveryChallan(row.details?.orderid || row._id, {
+                  existingUrl: getAgriDeliveryChallanUrl(row),
+                  force: true,
+                })
+              }}
+              className="text-[10px] px-2 py-0.5 rounded bg-indigo-100 text-indigo-800 font-semibold hover:bg-indigo-200 w-fit"
+            >
+              {getAgriDeliveryChallanUrl(row) ? "Open DC" : "Get DC"}
+            </button>
+          )}
         </div>
       </td>
 

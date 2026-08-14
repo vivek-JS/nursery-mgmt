@@ -60,6 +60,7 @@ import {
   isAgriDealerSelf,
   dealerProfileToCustomerFields,
   isUserRamAgriSalesRep,
+  resolveRbOfficeSalesPersonId,
 } from "utils/agriDealerOrder";
 import {
   getRamAgriProductTypeLabel,
@@ -262,6 +263,13 @@ const AddAgriSalesOrderForm = ({
     }
   }, [open, isRamAgriRepUser, isDealerSelfUser]);
 
+  // B2B: lock sales person to RB Office once options are loaded
+  useEffect(() => {
+    if (!open || orderChannel !== "B2B" || isRamAgriRepUser || isDealerSelfUser) return;
+    const rbId = resolveRbOfficeSalesPersonId(ramAgriSalesRepOptions);
+    if (rbId) setAgriSalesPersonId(rbId);
+  }, [open, orderChannel, ramAgriSalesRepOptions, isRamAgriRepUser, isDealerSelfUser]);
+
   const loadMerchantsForB2B = async () => {
     setLoadingMerchants(true);
     try {
@@ -287,8 +295,10 @@ const AddAgriSalesOrderForm = ({
     setOrderChannel(channel);
     if (channel !== "B2B") {
       setSelectedMerchantId("");
-    } else if (merchants.length === 0) {
-      loadMerchantsForB2B();
+    } else {
+      if (merchants.length === 0) loadMerchantsForB2B();
+      const rbId = resolveRbOfficeSalesPersonId(ramAgriSalesRepOptions);
+      if (rbId) setAgriSalesPersonId(rbId);
     }
   };
 
@@ -1055,6 +1065,13 @@ const AddAgriSalesOrderForm = ({
       Toast.error("Please select a merchant for B2B order");
       return false;
     }
+    if (orderChannel === "B2B" && !isRamAgriRepUser && !isDealerSelfUser) {
+      const rbId = resolveRbOfficeSalesPersonId(ramAgriSalesRepOptions) || agriSalesPersonId;
+      if (!rbId) {
+        Toast.error("RB Office sales user not found — add employee named “RB Office”");
+        return false;
+      }
+    }
     if (!isRamAgriRepUser && !isDealerSelfUser && !agriSalesPersonId && !isEditMode && orderChannel !== "B2B") {
       Toast.error("Please select sales person");
       return false;
@@ -1177,10 +1194,16 @@ const AddAgriSalesOrderForm = ({
         deliveryDate: toAgriApiDateISO(formData.deliveryDate),
         notes: formData.notes || "",
         orderChannel: orderChannel === "B2B" ? "B2B" : "RETAIL",
-        ...(orderChannel === "B2B" && selectedMerchantId
-          ? { merchant: selectedMerchantId }
-          : {}),
       };
+      if (orderChannel === "B2B") {
+        if (!selectedMerchantId) {
+          Toast.error("Please select a merchant for B2B order");
+          setLoading(false);
+          return;
+        }
+        payload.merchant = selectedMerchantId;
+        payload.merchantId = selectedMerchantId;
+      }
 
       if (isDealerSelfUser) {
         payload.isDealerSelfOrder = true;
@@ -1192,6 +1215,14 @@ const AddAgriSalesOrderForm = ({
           return;
         }
         payload.salesPerson = sid;
+      } else if (orderChannel === "B2B") {
+        const rbId = resolveRbOfficeSalesPersonId(ramAgriSalesRepOptions) || agriSalesPersonId;
+        if (!rbId) {
+          Toast.error("RB Office sales user not found — add employee named “RB Office”");
+          setLoading(false);
+          return;
+        }
+        payload.salesPerson = rbId;
       } else if (agriSalesPersonId) {
         payload.salesPerson = agriSalesPersonId;
       }
@@ -1252,14 +1283,52 @@ const AddAgriSalesOrderForm = ({
       }
 
       if (response?.data) {
-        Toast.success(
-          isEditMode
-            ? "Ram Agri Input order updated successfully"
-            : isLinkedFlow
-            ? "Linked Agri Inputs added successfully"
-            : "Agri Sales Order created successfully"
-        );
         const orderDoc = response?.data?.data || response?.data;
+        const moneyLedger = response?.data?.moneyLedger;
+        if (
+          !isEditMode &&
+          !isLinkedFlow &&
+          orderChannel === "B2B" &&
+          moneyLedger &&
+          moneyLedger.posted === false &&
+          !moneyLedger.skipped &&
+          orderDoc?._id
+        ) {
+          Toast.error(
+            moneyLedger.error
+              ? `Order saved, but money ledger failed: ${moneyLedger.error}`
+              : "Order saved, but money ledger failed — retrying…"
+          );
+          try {
+            const retryInst = NetworkManager(API.INVENTORY.RETRY_AGRI_SALES_ORDER_MONEY_LEDGER);
+            const retryRes = await retryInst.request({}, [orderDoc._id]);
+            if (retryRes?.data?.moneyLedger?.posted || retryRes?.data?.status === "Success") {
+              Toast.success("Money ledger posted after retry");
+            } else {
+              Toast.error(
+                retryRes?.data?.message ||
+                  retryRes?.data?.moneyLedger?.error ||
+                  "Money ledger still missing — open Money Ledger and retry later"
+              );
+            }
+          } catch (retryErr) {
+            Toast.error(
+              retryErr?.response?.data?.message ||
+                retryErr?.message ||
+                "Money ledger retry failed"
+            );
+          }
+        } else {
+          Toast.success(
+            isEditMode
+              ? "Ram Agri Input order updated successfully"
+              : isLinkedFlow
+              ? "Linked Agri Inputs added successfully"
+              : orderChannel === "B2B"
+              ? "B2B Agri Sales Order created — money ledger updated"
+              : "Agri Sales Order created successfully"
+          );
+        }
         const totalAmountComputed = (() => {
           const rows = isLinkedFlow ? productLines.slice(0, 1) : productLines;
           return rows.reduce(
@@ -1436,7 +1505,7 @@ const AddAgriSalesOrderForm = ({
             </Alert>
           )}
 
-          {customerData?.name && (
+          {customerData?.name && orderChannel !== "B2B" && (
             <Box className={classes.customerInfo}>
               <Box display="flex" alignItems="center" gap={0.5} mb={0.5}>
                 <CheckIcon color="success" fontSize="small" sx={{ fontSize: "16px" }} />
@@ -1459,7 +1528,7 @@ const AddAgriSalesOrderForm = ({
                 label="Mobile Number *"
                 value={formData.customerMobile}
                 onChange={(e) => handleInputChange("customerMobile", e.target.value)}
-                disabled={isLinkedFlow}
+                disabled={isLinkedFlow || orderChannel === "B2B"}
                 inputProps={{ maxLength: 10, pattern: "[0-9]*" }}
                 InputProps={{
                   startAdornment: <Box sx={{ mr: 0.5, color: "text.secondary", fontSize: "0.875rem" }}>+91</Box>,
@@ -1469,6 +1538,8 @@ const AddAgriSalesOrderForm = ({
                 helperText={
                   formData.customerMobile?.length > 0 && formData.customerMobile?.length !== 10
                     ? `Enter ${10 - formData.customerMobile.length} more digits`
+                    : orderChannel === "B2B"
+                    ? "Filled from merchant"
                     : customerData?.name
                     ? "✓ Customer found - details auto-filled"
                     : "Enter 10-digit mobile number to auto-fill"
@@ -1485,11 +1556,12 @@ const AddAgriSalesOrderForm = ({
                 label="Customer Name *"
                 value={formData.customerName}
                 onChange={(e) => handleInputChange("customerName", e.target.value)}
-                disabled={isLinkedFlow || !!customerData?.name}
+                disabled={isLinkedFlow || !!customerData?.name || orderChannel === "B2B"}
                 placeholder="Enter customer name"
               />
             </Grid>
 
+            {orderChannel !== "B2B" && (
             <Grid item xs={12}>
               {customerData?.name ? (
                 // Show location as read-only when customer is found
@@ -1577,6 +1649,7 @@ const AddAgriSalesOrderForm = ({
                 </Alert>
               )}
             </Grid>
+            )}
           </Grid>
 
           {!isRamAgriRepUser && !isDealerSelfUser && orderChannel !== "B2B" && (
@@ -1606,29 +1679,14 @@ const AddAgriSalesOrderForm = ({
           )}
 
           {!isRamAgriRepUser && !isDealerSelfUser && orderChannel === "B2B" && (
-            <>
-              <Typography className={classes.sectionTitle} sx={{ mt: 0.5 }}>
-                <PersonIcon sx={{ fontSize: "1rem" }} /> Sales person (optional)
+            <Alert severity="info" sx={{ mt: 1, py: 0.75 }}>
+              <Typography variant="body2" fontWeight={600}>
+                Sales person: RB Office
               </Typography>
-              <Grid container spacing={1}>
-                <Grid item xs={12} sm={6}>
-                  <Autocomplete
-                    fullWidth
-                    size="small"
-                    sx={searchableDropdownSx}
-                    options={ramAgriSalesRepOptions}
-                    value={ramAgriSalesRepOptions.find((o) => o.value === agriSalesPersonId) || null}
-                    onChange={(_, opt) => setAgriSalesPersonId(opt?.value || "")}
-                    getOptionLabel={(o) => o?.label || ""}
-                    isOptionEqualToValue={(a, b) => a?.value === b?.value}
-                    loading={loading}
-                    renderInput={(params) => (
-                      <TextField {...params} label="Ram Agri / Sales" placeholder="Optional attribution" />
-                    )}
-                  />
-                </Grid>
-              </Grid>
-            </>
+              <Typography variant="caption" color="text.secondary">
+                B2B orders are attributed to RB Office automatically.
+              </Typography>
+            </Alert>
           )}
 
           <Divider sx={{ my: 1 }} />

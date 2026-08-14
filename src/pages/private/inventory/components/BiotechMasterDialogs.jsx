@@ -212,7 +212,7 @@ export function BiotechVarietyDialog({
                       onFormChange({
                         ...formData,
                         secondaryUnit: e.target.value,
-                        conversionFactor: e.target.value ? formData.conversionFactor : 1,
+                        conversionFactor: e.target.value ? formData.conversionFactor : "",
                       })
                     }
                     className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
@@ -241,11 +241,19 @@ export function BiotechVarietyDialog({
                     onChange={(e) =>
                       onFormChange({
                         ...formData,
-                        conversionFactor: parseFloat(e.target.value) || 1,
+                        conversionFactor: e.target.value === "" ? "" : e.target.value,
                       })
                     }
                     className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                    placeholder="e.g., 1000"
                   />
+                  <p className="text-xs text-gray-500 mt-1">
+                    1 primary unit ={" "}
+                    {formData.conversionFactor === "" || formData.conversionFactor == null
+                      ? "—"
+                      : formData.conversionFactor}{" "}
+                    secondary unit
+                  </p>
                 </div>
               )}
             </div>

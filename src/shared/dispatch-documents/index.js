@@ -1,6 +1,10 @@
 export {
   escapeHtml,
+  cleanPlantLabel,
+  formatInr,
+  formatQty,
   resolveChallanInvoiceLabel,
+  resolveTaxInvoiceLabel,
   optionalManualDcSeparateFromOfficial,
   resolveOrderFreightCharges,
   getFarmerFromOrder,
@@ -8,6 +12,10 @@ export {
   getDispatchedQty,
   plantDisplayName,
   plantLineWithSubtype,
+  multiPlantDisplayName,
+  multiPlantLineAmount,
+  partitionOrderLinesByBillable,
+  resolveLineIsBillable,
   resolveOrderCrates,
   numberToWords,
   toWordsRupees,
@@ -16,7 +24,9 @@ export {
 
 export {
   mapOrderToChallanPage,
+  mapOrderToChallanPages,
   mapOrderToRamInvoicePage,
+  mapOrderToRamInvoicePages,
   mapDispatchToChallanPages,
   mapDispatchToRamInvoicePages,
 } from "./dispatchDocumentMappers.js";
@@ -36,3 +46,4 @@ export {
 
 /** Re-export for backend PDF label resolution (alias). */
 export { resolveChallanInvoiceLabel as resolveChallanInvoiceLabelForPdf } from "./challanUtils.js";
+export { resolveTaxInvoiceLabel as resolveTaxInvoiceLabelForPdf } from "./challanUtils.js";

@@ -27,3 +27,10 @@ export function isUserRamAgriSalesRep(user) {
   const role = String(user.role || "").toUpperCase().trim();
   return jt === "RAM_AGRI_SALES" || role === "RAM_AGRI_SALES" || jt === "SALES" || role === "SALES";
 }
+
+/** Match sales-rep option labeled "RB Office" (B2B default attribution). */
+export function resolveRbOfficeSalesPersonId(reps = []) {
+  const list = Array.isArray(reps) ? reps : [];
+  const hit = list.find((o) => /^RB\s*Office$/i.test(String(o?.label || o?.name || "").trim()));
+  return hit?.value || hit?._id || "";
+}

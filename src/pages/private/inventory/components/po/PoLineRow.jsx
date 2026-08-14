@@ -1,13 +1,10 @@
-import React, { useMemo } from 'react';
+import React from 'react';
 import { Trash2, Info } from 'lucide-react';
 import RamAgriPoLineFields from '../RamAgriPoLineFields';
-import PoSearchSelect from './PoSearchSelect';
+import BiotechPoLineFields from '../BiotechPoLineFields';
 import PoReadyPlantsCell from './PoReadyPlantsCell';
 import {
-  getPlantName,
-  getSubtypeName,
   inputClass,
-  productOptionLabel,
   requiresSecondaryUnit,
 } from './poFormUtils';
 import { formatCurrency, formatDecimal } from '../../../../../utils/numberUtils';
@@ -16,9 +13,9 @@ export default function PoLineRow({
   item,
   index,
   products,
-  filteredProducts,
   units,
   ramAgriCrops,
+  biotechPlants = [],
   productSlots,
   loadingSlots,
   isSuperAdmin,
@@ -32,15 +29,8 @@ export default function PoLineRow({
   loadSubtypes,
   setSubtypes,
 }) {
-  const product = products.find((p) => p._id === item.productId);
-  const productOptions = useMemo(
-    () =>
-      filteredProducts.map((p) => ({
-        value: p._id,
-        label: productOptionLabel(p),
-        subLabel: [getPlantName(p), getSubtypeName(p)].filter(Boolean).join(' / '),
-      })),
-    [filteredProducts]
+  const product = products.find(
+    (p) => String(p._id) === String(item.productId || '')
   );
 
   const primaryUnit = product
@@ -72,19 +62,12 @@ export default function PoLineRow({
             updateOrderItem={updateOrderItem}
           />
         ) : (
-          <div className="space-y-1">
-            <PoSearchSelect
-              value={item.productId || ''}
-              onChange={(v) => updateOrderItem(index, 'productId', v)}
-              options={productOptions}
-              placeholder="Search product…"
-            />
-            {(getPlantName(product) || getSubtypeName(product)) && (
-              <div className="text-[10px] text-sky-700 bg-sky-50 border border-sky-100 rounded px-1.5 py-0.5">
-                {[getPlantName(product), getSubtypeName(product)].filter(Boolean).join(' / ')}
-              </div>
-            )}
-          </div>
+          <BiotechPoLineFields
+            item={item}
+            index={index}
+            biotechPlants={biotechPlants}
+            updateOrderItem={updateOrderItem}
+          />
         )}
       </td>
 
@@ -142,7 +125,7 @@ export default function PoLineRow({
           step="0.01"
           value={item.rate}
           onChange={(e) => updateOrderItem(index, 'rate', parseFloat(e.target.value) || 0)}
-          required={isAgriMode || item.isRamAgriProduct}
+          required={isAgriMode || item.isRamAgriProduct || item.isBiotechProduct}
           className={inputClass}
           placeholder="Rate"
         />

@@ -3,7 +3,12 @@
  */
 import moment from "moment"
 import { API, NetworkManager } from "network/core"
-import { normalizeAgriPayment, normalizeFarmerPayment, mapFarmerPlantLedgerApiToPanel } from "./normalize"
+import {
+  normalizeAgriPayment,
+  normalizeFarmerPayment,
+  normalizeMoneyLedgerPendingAdjustment,
+  mapFarmerPlantLedgerApiToPanel
+} from "./normalize"
 import {
   buildFarmerPlantOrderPaymentTransferPayload,
   buildFarmerOrderTransferRequestPayload,
@@ -11,6 +16,11 @@ import {
   isOrderEligibleForPlantTransfer,
   ORDER_TRANSFER_SEARCH_STATUS_QUERY
 } from "./farmerPlantPaymentTransfer.utils"
+import {
+  fetchMoneyLedgerPendingAdjustments,
+  acceptMoneyLedgerPendingAdjustment,
+  rejectMoneyLedgerPendingAdjustment
+} from "pages/private/inventory/components/money-ledger/moneyLedgerApi"
 
 /** Mongo id string for ?farmer= — never pass a plain object (would become "[object Object]"). */
 export function normalizeFarmerIdForLedger(farmerId) {
@@ -129,6 +139,51 @@ export async function fetchBulkPaymentsList({ bulkPage, rowsPerPage, bulkStatusF
       rejectedCount: Number(data?.rejectedCount) || 0
     }
   }
+}
+
+/**
+ * Party Money Ledger Payment/Discount pending accept (book follows org).
+ * @param {{ selectedOrg: "ram-agri"|"ram-biotech", statusFilter?: string, debouncedSearchTerm?: string, page?: number, rowsPerPage?: number }} opts
+ */
+export async function fetchMoneyLedgerPartyPendingRows({
+  selectedOrg,
+  statusFilter,
+  debouncedSearchTerm,
+  page = 1,
+  rowsPerPage = 50
+}) {
+  const book = selectedOrg === "ram-biotech" ? "BIOTECH" : "RAM_AGRI"
+  let status = "PENDING"
+  if (statusFilter === "COLLECTED") status = "APPROVED"
+  else if (statusFilter === "REJECTED") status = "REJECTED"
+  else if (statusFilter === "ALL" || !statusFilter) status = "PENDING"
+
+  const data = await fetchMoneyLedgerPendingAdjustments({
+    book,
+    status,
+    q: debouncedSearchTerm || "",
+    page,
+    limit: rowsPerPage
+  })
+  const list = Array.isArray(data?.data) ? data.data : []
+  return {
+    rows: list.map((r) => normalizeMoneyLedgerPendingAdjustment(r)),
+    pagination: {
+      total: Number(data?.total) || list.length,
+      page: Number(data?.page) || page,
+      limit: Number(data?.limit) || rowsPerPage,
+      totalPages: Number(data?.totalPages) || 1,
+      pendingCount: Number(data?.pendingCount) || 0
+    }
+  }
+}
+
+export async function acceptMoneyLedgerPartyPending(id) {
+  return acceptMoneyLedgerPendingAdjustment(id)
+}
+
+export async function rejectMoneyLedgerPartyPending(id, reason = "") {
+  return rejectMoneyLedgerPendingAdjustment(id, reason)
 }
 
 /**

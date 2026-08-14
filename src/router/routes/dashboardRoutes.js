@@ -26,6 +26,10 @@ import EmojiEventsIcon from "@mui/icons-material/EmojiEvents"
 import QueryStatsIcon from "@mui/icons-material/QueryStats"
 import LocalShippingOutlinedIcon from "@mui/icons-material/LocalShippingOutlined"
 import MonitorHeartIcon from "@mui/icons-material/MonitorHeart"
+import UndoIcon from "@mui/icons-material/Undo"
+import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn"
+import AccountBalanceWalletIcon from "@mui/icons-material/AccountBalanceWallet"
+import WarehouseIcon from "@mui/icons-material/Warehouse"
 
 export const DashboardMenus = [
   new MenuPath("Orders", <HomeIcon />, "/u/dashboard"),
@@ -110,6 +114,10 @@ export const DashboardMenus = [
   new MenuPath("Public Farmer Links", <LinkIcon />, "/u/public-links", null, ["SUPER_ADMIN", "SUPERADMIN"]),
   new MenuPath("Rate Approvals", <PriceChangeIcon />, "/u/rate-approvals", null, ["SUPER_ADMIN", "SUPERADMIN"]),
   new MenuPath("Ram Agri Input", <DashboardIcon />, "/u/ram-agri-input"),
+  new MenuPath("Stock", <WarehouseIcon />, "/u/inventory/ram-agri-stock"),
+  new MenuPath("Sell Returns", <UndoIcon />, "/u/inventory/agri-sales-returns"),
+  new MenuPath("Purchase Returns", <AssignmentReturnIcon />, "/u/inventory/purchase-returns"),
+  new MenuPath("Money Ledger", <AccountBalanceWalletIcon />, "/u/inventory/ledger"),
   new MenuPath("Secondary ops", <ParkIcon />, "/u/secondary-sowing-entry", null, ["SUPER_ADMIN", "ADMIN"]),
   new MenuPath(
     "Secondary Dispatch Monitor",

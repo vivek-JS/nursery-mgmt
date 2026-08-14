@@ -991,6 +991,10 @@ export const API = {
     GET_TRAYS: new APIRouter("dispatched", HTTP_METHODS.GET),
     GET_BY_ID: new APIRouter("dispatched/:id", HTTP_METHODS.GET),
     GENERATE_PDFS: new APIRouter("dispatched/:id/generate-pdfs", HTTP_METHODS.POST),
+    ENSURE_DC_NUMBERS: new APIRouter(
+      "dispatched/:id/ensure-delivery-challan-numbers",
+      HTTP_METHODS.POST
+    ),
     CREATE_TRAY: new APIRouter("dispatched", HTTP_METHODS.POST),
     DELETE_TRANSPORT: new APIRouter("dispatched/transport", HTTP_METHODS.DEL),
     UPDATE_COMPLETE: new APIRouter("dispatched/complete", HTTP_METHODS.PATCH),
@@ -1175,6 +1179,7 @@ export const API = {
   },
   FARMER: {
     GET_FARMERS: new APIRouter("farmer/getFarmers", HTTP_METHODS.GET),
+    GET_ALL_CONTACTS: new APIRouter("farmer/all-contacts", HTTP_METHODS.GET),
     GET_FILTER_OPTIONS: new APIRouter("farmer/filter-options", HTTP_METHODS.GET),
     GET_FARMER_BY_MOBILE: new APIRouter("farmer/getfarmer", HTTP_METHODS.GET),
     GET_WHATSAPP_HISTORY: new APIRouter("farmer/:id/whatsapp-history", HTTP_METHODS.GET),

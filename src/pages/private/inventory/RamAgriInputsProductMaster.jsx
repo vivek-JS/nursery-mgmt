@@ -55,7 +55,7 @@ const RamAgriInputsProductMaster = () => {
     displayOrder: '',
     primaryUnit: '',
     secondaryUnit: '',
-    conversionFactor: 1,
+    conversionFactor: '',
     defaultRate: '',
     purchasePrice: '',
   });
@@ -202,7 +202,12 @@ const RamAgriInputsProductMaster = () => {
         displayOrder: variety.displayOrder != null && variety.displayOrder !== '' ? String(variety.displayOrder) : '',
         primaryUnit: variety.primaryUnit?._id || variety.primaryUnit || '',
         secondaryUnit: variety.secondaryUnit?._id || variety.secondaryUnit || '',
-        conversionFactor: variety.conversionFactor || 1,
+        conversionFactor:
+          variety.conversionFactor != null &&
+          variety.conversionFactor !== '' &&
+          Number(variety.conversionFactor) !== 1
+            ? String(variety.conversionFactor)
+            : '',
         defaultRate: variety.defaultRate ? variety.defaultRate.toString() : '',
         purchasePrice: variety.purchasePrice ? variety.purchasePrice.toString() : '',
       });
@@ -221,7 +226,7 @@ const RamAgriInputsProductMaster = () => {
         displayOrder: '',
         primaryUnit: '',
         secondaryUnit: '',
-        conversionFactor: 1,
+        conversionFactor: '',
         defaultRate: '',
         purchasePrice: '',
       });
@@ -247,7 +252,7 @@ const RamAgriInputsProductMaster = () => {
       displayOrder: '',
       primaryUnit: '',
       secondaryUnit: '',
-      conversionFactor: 1,
+      conversionFactor: '',
       defaultRate: '',
       purchasePrice: '',
     });
@@ -395,11 +400,16 @@ const RamAgriInputsProductMaster = () => {
         description: varietyFormData.description.trim(),
         primaryUnit: varietyFormData.primaryUnit,
         secondaryUnit: varietyFormData.secondaryUnit || undefined,
-        conversionFactor: varietyFormData.conversionFactor || 1,
         defaultRate: varietyFormData.defaultRate ? varietyFormData.defaultRate : null,
         purchasePrice: varietyFormData.purchasePrice ? varietyFormData.purchasePrice : null,
       };
       if (varOrder !== undefined && varOrder !== 'invalid') varietyPayload.displayOrder = varOrder;
+      if (
+        varietyFormData.conversionFactor !== '' &&
+        varietyFormData.conversionFactor != null
+      ) {
+        varietyPayload.conversionFactor = Number(varietyFormData.conversionFactor);
+      }
 
       if (editingVariety) {
         const instance = NetworkManager(API.INVENTORY.UPDATE_VARIETY);
@@ -1441,7 +1451,13 @@ const RamAgriInputsProductMaster = () => {
                     </label>
                     <select
                       value={varietyFormData.secondaryUnit}
-                      onChange={(e) => setVarietyFormData({ ...varietyFormData, secondaryUnit: e.target.value, conversionFactor: e.target.value ? varietyFormData.conversionFactor : 1 })}
+                      onChange={(e) =>
+                        setVarietyFormData({
+                          ...varietyFormData,
+                          secondaryUnit: e.target.value,
+                          conversionFactor: e.target.value ? varietyFormData.conversionFactor : '',
+                        })
+                      }
                       className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all"
                     >
                       <option value="">Select secondary unit (optional)</option>
@@ -1464,12 +1480,21 @@ const RamAgriInputsProductMaster = () => {
                       step="0.01"
                       min="0.01"
                       value={varietyFormData.conversionFactor}
-                      onChange={(e) => setVarietyFormData({ ...varietyFormData, conversionFactor: parseFloat(e.target.value) || 1 })}
+                      onChange={(e) =>
+                        setVarietyFormData({
+                          ...varietyFormData,
+                          conversionFactor: e.target.value === '' ? '' : e.target.value,
+                        })
+                      }
                       className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all"
                       placeholder="e.g., 1000"
                     />
                     <p className="text-xs text-gray-500 mt-1">
-                      1 {units.find(u => u._id === varietyFormData.primaryUnit)?.name || 'primary unit'} = {varietyFormData.conversionFactor} {units.find(u => u._id === varietyFormData.secondaryUnit)?.name || 'secondary unit'}
+                      1 {units.find(u => u._id === varietyFormData.primaryUnit)?.name || 'primary unit'} ={' '}
+                      {varietyFormData.conversionFactor === '' || varietyFormData.conversionFactor == null
+                        ? '—'
+                        : varietyFormData.conversionFactor}{' '}
+                      {units.find(u => u._id === varietyFormData.secondaryUnit)?.name || 'secondary unit'}
                     </p>
                   </div>
                 )}

@@ -40,10 +40,13 @@ function basePlantName(order) {
   ).trim();
 }
 
-/** e.g. "Banana G-9 Plants", "Papaya Red Lady Plants" */
-export function buildInvoiceGoodsDescription(order, isBanana) {
-  const sub = subtypeName(order);
-  const rawPlant = basePlantName(order);
+/** e.g. "Banana G-9 Plants", "Papaya Red Lady Plants" — no arrow separators.
+ * When omitSubtype=true (non-billable DC): "Papaya Plants" only.
+ */
+export function buildInvoiceGoodsDescription(order, isBanana, options = {}) {
+  const omitSubtype = Boolean(options?.omitSubtype);
+  const sub = omitSubtype ? "" : cleanSubtype(subtypeName(order));
+  const rawPlant = cleanPlant(basePlantName(order));
   let plantLabel = rawPlant;
   if (isBanana) {
     plantLabel = "Banana";
@@ -52,6 +55,48 @@ export function buildInvoiceGoodsDescription(order, isBanana) {
   }
   if (sub) return `${plantLabel} ${sub} Plants`;
   return `${plantLabel} Plants`;
+}
+
+function cleanPlant(s) {
+  return String(s || "")
+    .replace(/&gt;/gi, ">")
+    .replace(/\s*-+\s*>\s*/g, " ")
+    .replace(/\s*→\s*/g, " ")
+    .replace(/\s*>\s*/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+function cleanSubtype(s) {
+  return cleanPlant(s);
+}
+
+/** Same goods description for a plantLineItems row (populated, snapshot, or id-only). */
+export function buildInvoiceGoodsDescriptionForLine(line, options = {}) {
+  if (!line) return "Plants";
+  const asOrder = {
+    plantName: line.plantNameSnapshot
+      ? { name: line.plantNameSnapshot }
+      : line.plantName,
+    plantSubtype: line.plantSubtypeSnapshot
+      ? { name: line.plantSubtypeSnapshot }
+      : line.plantSubtype,
+    plantDetails: line.plantDetails || {
+      name: line.plantNameSnapshot,
+      subtype: line.plantSubtypeSnapshot,
+    },
+    plantType: line.plantType,
+  };
+  return buildInvoiceGoodsDescription(
+    asOrder,
+    isBananaPlantOrder(asOrder),
+    options
+  );
+}
+
+export function getOrderPlantLineItems(order) {
+  const lines = order?.plantLineItems ?? order?.details?.plantLineItems;
+  return Array.isArray(lines) && lines.length > 0 ? lines : null;
 }
 
 export function resolveLotOrBatchNo(order, isBanana) {

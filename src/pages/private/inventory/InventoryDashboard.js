@@ -31,8 +31,8 @@ const AGRI_HIDDEN_MENU = new Set([
   'Merchants',
   'Sell Orders',
   'Transactions',
-  'Ledger',
   'Stock Outward',
+  'Purchase Returns',
 ]);
 
 
@@ -297,6 +297,14 @@ const InventoryDashboard = () => {
       bgColor: 'bg-green-50',
     },
     {
+      title: 'Purchase Returns',
+      description: 'Return plant stock to supplier (PO + batch)',
+      icon: RotateCcw,
+      path: '/u/inventory/purchase-returns',
+      color: 'text-blue-600',
+      bgColor: 'bg-blue-50',
+    },
+    {
       title: 'GRN',
       description: 'Goods Receipt Notes',
       icon: FileText,
@@ -353,8 +361,8 @@ const InventoryDashboard = () => {
       bgColor: 'bg-pink-50',
     },
     {
-      title: 'Ledger',
-      description: 'Merchant & Farmer ledgers',
+      title: 'Money Ledger',
+      description: 'Biotech & Ram Agri AR/AP — durable payments',
       icon: FileText,
       path: '/u/inventory/ledger',
       color: 'text-indigo-600',

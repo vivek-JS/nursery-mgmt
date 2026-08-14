@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, CheckCircle, XCircle, ShoppingCart, Package, FileText, Zap, X, MessageCircle } from 'lucide-react';
+import { ArrowLeft, CheckCircle, XCircle, ShoppingCart, Package, FileText, Zap, X, MessageCircle, CreditCard } from 'lucide-react';
 import { API, NetworkManager } from '../../../network/core';
 import { formatDisplayDate } from '../../../utils/dateUtils';
 import { formatDecimal, formatCurrency } from '../../../utils/numberUtils';
 import { openPurchaseOrderWhatsApp } from './utils/poWhatsAppShare';
+import MoneyLedgerAddPaymentDialog from './components/money-ledger/MoneyLedgerAddPaymentDialog';
 
 const PurchaseOrderDetails = () => {
   const navigate = useNavigate();
@@ -16,6 +17,7 @@ const PurchaseOrderDetails = () => {
   const [creatingGRN, setCreatingGRN] = useState(false);
   const [showGRNModal, setShowGRNModal] = useState(false);
   const [grnItems, setGrnItems] = useState([]);
+  const [payOpen, setPayOpen] = useState(false);
 
   useEffect(() => {
     fetchPODetails();
@@ -392,6 +394,15 @@ const PurchaseOrderDetails = () => {
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
+                  onClick={() => setPayOpen(true)}
+                  className="flex items-center space-x-2 bg-blue-600 text-white px-6 py-3 rounded-xl hover:bg-blue-700 transition-colors"
+                  title="Record supplier payment on money ledger"
+                >
+                  <CreditCard className="w-5 h-5" />
+                  <span>Add Payment</span>
+                </button>
+                <button
+                  type="button"
                   onClick={() => {
                     const result = openPurchaseOrderWhatsApp(po);
                     if (!result.ok) alert(result.error);
@@ -421,7 +432,8 @@ const PurchaseOrderDetails = () => {
                     </button>
                   </>
                 )}
-                {(po.status === 'approved' || po.status === 'partial_received') && (
+                {(po.status === 'approved' || po.status === 'partial_received') &&
+                  !po.autoGRN && (
                   <>
                     <button
                       onClick={handleCreateGRN}
@@ -443,7 +455,11 @@ const PurchaseOrderDetails = () => {
                     </button>
                   </>
                 )}
-              </div>
+                {(po.status === 'approved' || po.status === 'partial_received') && po.autoGRN ? (
+                  <span className="inline-flex items-center rounded-xl bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800 border border-emerald-200">
+                    Auto GRN enabled — stock/GRN handled on approve
+                  </span>
+                ) : null}              </div>
             </div>
           </div>
         </div>
@@ -574,8 +590,55 @@ const PurchaseOrderDetails = () => {
               <span>Total Amount</span>
               <span>{formatCurrency(formatDecimal(po.totalAmount) || 0)}</span>
             </div>
+            <div className="flex justify-between text-sm pt-1">
+              <span className="text-gray-600">Paid ({po.paymentStatus || 'pending'})</span>
+              <span className="font-semibold text-green-700">
+                {formatCurrency(formatDecimal(po.paidAmount) || 0)}
+              </span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-600">Balance (we owe)</span>
+              <span className="font-semibold text-orange-700">
+                {formatCurrency(
+                  formatDecimal(Math.max(0, (Number(po.totalAmount) || 0) - (Number(po.paidAmount) || 0))) || 0
+                )}
+              </span>
+            </div>
           </div>
         </div>
+
+        {(po.payments || []).length > 0 && (
+          <div className="bg-white rounded-2xl shadow-lg p-6 mb-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold text-gray-800">Payments</h2>
+              <button
+                type="button"
+                onClick={() => setPayOpen(true)}
+                className="text-sm font-semibold text-blue-700 hover:underline"
+              >
+                Add Payment
+              </button>
+            </div>
+            <div className="space-y-2">
+              {po.payments.map((p) => (
+                <div
+                  key={p._id || `${p.paymentDate}-${p.paidAmount}`}
+                  className="flex justify-between items-center border border-gray-100 rounded-xl px-4 py-3"
+                >
+                  <div>
+                    <p className="font-semibold text-gray-800">
+                      {formatCurrency(formatDecimal(p.paidAmount) || 0)} · {p.modeOfPayment || 'Cash'}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {formatDisplayDate(p.paymentDate)} · {p.paymentStatus || 'COLLECTED'}
+                      {p.remark ? ` · ${p.remark}` : ''}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Related GRNs */}
         {grns.length > 0 && (
@@ -783,6 +846,16 @@ const PurchaseOrderDetails = () => {
           </div>
         </div>
       )}
+
+      <MoneyLedgerAddPaymentDialog
+        open={payOpen}
+        onClose={() => setPayOpen(false)}
+        onSuccess={() => fetchPODetails()}
+        defaultDocumentType="PurchaseOrder"
+        defaultDocumentId={po?._id || id}
+        defaultBook="BIOTECH"
+        documentLabel={po?.poNumber ? `PO ${po.poNumber}` : ''}
+      />
     </div>
   );
 };
