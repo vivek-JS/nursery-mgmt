@@ -166,6 +166,33 @@ function parseDispatchFromGetByIdResponse(res) {
   return null
 }
 
+/** Unique batch numbers from shed load mapping on orderDispatchDetails. */
+function batchNumbersFromShedLoaded(shedLoadedBatches) {
+  const seen = new Set()
+  const ordered = []
+  for (const b of shedLoadedBatches || []) {
+    const n = String(b?.batchNumber ?? "").trim()
+    if (!n || seen.has(n)) continue
+    seen.add(n)
+    ordered.push(n)
+  }
+  return ordered.join(", ")
+}
+
+function orderDispatchRowId(row) {
+  return String(row?.orderId?._id ?? row?.orderId ?? "").trim()
+}
+
+function shedBatchesForOrder(dispatch, order) {
+  const oid = String(apiOrderId(order) ?? "").trim()
+  if (!oid) return []
+  const rows = Array.isArray(dispatch?.orderDispatchDetails)
+    ? dispatch.orderDispatchDetails
+    : []
+  const row = rows.find((d) => orderDispatchRowId(d) === oid)
+  return Array.isArray(row?.shedLoadedBatches) ? row.shedLoadedBatches : []
+}
+
 const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
   const hasPaymentAccess = useHasPaymentAccess()
   const user = useUserData()
@@ -269,7 +296,9 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
       initialAdditional[k] = existingAdditional
       initialPay[k] = [defaultPaymentDraft()]
       const bn = order.details?.batchNumber ?? order.batchNumber
-      initialBatch[k] = bn != null && bn !== "" ? String(bn) : ""
+      const fromOrder = bn != null && bn !== "" ? String(bn) : ""
+      const fromShed = batchNumbersFromShedLoaded(shedBatchesForOrder(localDispatch, order))
+      initialBatch[k] = fromOrder || fromShed
       const fc = order.details?.freightCharges ?? order.freightCharges
       initialFreight[k] = fc != null && fc !== "" ? String(fc) : "0"
       const savedN =
