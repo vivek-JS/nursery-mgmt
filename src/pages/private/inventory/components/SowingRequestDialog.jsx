@@ -31,6 +31,7 @@ const SowingRequestDialog = ({ open, onClose, request, onSuccess }) => {
   const [error, setError] = useState(null);
   const [alertDialog, setAlertDialog] = useState({ open: false, message: '', title: '' });
   const autoFilledRef = useRef(false);
+  const initializedRequestIdRef = useRef(null);
   const [inventorySource, setInventorySource] = useState('BIOTECH');
   const [packetsFromBiotech, setPacketsFromBiotech] = useState('');
   const [packetsFromRamAgri, setPacketsFromRamAgri] = useState('');
@@ -179,6 +180,13 @@ const SowingRequestDialog = ({ open, onClose, request, onSuccess }) => {
 
   useEffect(() => {
     if (open && request) {
+      const reqId = request?._id ? String(request._id) : null;
+      if (reqId && initializedRequestIdRef.current === reqId) {
+        // Prevent re-initialization while the same request is still open.
+        // This avoids resetting the user's selected inventorySource to BIOTECH.
+        return;
+      }
+      initializedRequestIdRef.current = reqId;
       setBatches(request.batches || []);
       setAllocations({});
       setExpiryDates({});
