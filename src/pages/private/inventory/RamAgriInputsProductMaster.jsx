@@ -216,7 +216,6 @@ const RamAgriInputsProductMaster = () => {
           plantId: variety.inventoryLink.plantId ? String(variety.inventoryLink.plantId) : '',
           subtypeId: variety.inventoryLink.subtypeId ? String(variety.inventoryLink.subtypeId) : '',
           tentativePlantsPerPacket: '',
-          productId: variety.inventoryLink.productId ? String(variety.inventoryLink.productId) : '',
         });
       }
     } else {

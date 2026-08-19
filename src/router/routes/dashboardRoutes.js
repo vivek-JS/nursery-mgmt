@@ -30,6 +30,7 @@ import UndoIcon from "@mui/icons-material/Undo"
 import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn"
 import AccountBalanceWalletIcon from "@mui/icons-material/AccountBalanceWallet"
 import WarehouseIcon from "@mui/icons-material/Warehouse"
+import InsightsIcon from "@mui/icons-material/Insights"
 
 export const DashboardMenus = [
   new MenuPath("Orders", <HomeIcon />, "/u/dashboard"),
@@ -127,6 +128,7 @@ export const DashboardMenus = [
     ["SUPER_ADMIN", "SUPERADMIN", "ADMIN", "DISPATCH_MANAGER", "OFFICE_ADMIN", "OFFICEADMIN"]
   ),
   new MenuPath("Slots Managment", <BiotechIcon />, "/u/slots"),
+  new MenuPath("Lagwad Analysis", <InsightsIcon />, "/u/lagwad-analysis"),
   new MenuPath("Sowing Gap Analysis", <TrendingDownIcon />, "/u/sowing-gap-analysis"),
   new MenuPath(
     "Direct Sow Portal",

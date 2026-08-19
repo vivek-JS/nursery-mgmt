@@ -1,0 +1,271 @@
+/* Clean light theme for the lagwad analysis screen. Scoped under .lag-root. */
+
+.lag-root {
+  --lag-sellable: 16, 185, 129;
+  --lag-mortality: 244, 63, 94;
+  --lag-ready: 6, 182, 212;
+  --lag-delivery: 139, 92, 246;
+  --lag-ink: 15, 23, 42;
+  background: #f6f8fb;
+  color: rgb(var(--lag-ink));
+  position: relative;
+  isolation: isolate;
+}
+
+/* Soft colour blooms drifting behind the content — keeps a flat page feeling alive. */
+.lag-root::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(760px 420px at 8% -8%, rgba(16, 185, 129, 0.16), transparent 62%),
+    radial-gradient(680px 420px at 92% -4%, rgba(139, 92, 246, 0.14), transparent 60%),
+    radial-gradient(620px 520px at 50% 108%, rgba(6, 182, 212, 0.12), transparent 62%);
+  animation: lag-float 16s ease-in-out infinite alternate;
+}
+
+@keyframes lag-float {
+  from {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  to {
+    transform: translate3d(0, -18px, 0) scale(1.04);
+  }
+}
+
+/* Card */
+.lag-panel {
+  background: #ffffff;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 16px;
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 8px 24px -16px rgba(15, 23, 42, 0.25);
+}
+
+.lag-panel-hover {
+  transition:
+    transform 260ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 260ms ease,
+    box-shadow 260ms ease;
+}
+
+.lag-panel-hover:hover {
+  transform: translateY(-3px);
+  border-color: rgba(15, 23, 42, 0.14);
+  box-shadow:
+    0 2px 4px rgba(15, 23, 42, 0.05),
+    0 22px 44px -22px rgba(15, 23, 42, 0.4);
+}
+
+/* Accent rail across the top edge of a tile */
+.lag-rail {
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  height: 3px;
+  border-radius: 0 0 3px 3px;
+}
+
+.lag-rail-sellable {
+  background: linear-gradient(90deg, rgba(var(--lag-sellable), 0.5), rgb(var(--lag-sellable)));
+}
+.lag-rail-mortality {
+  background: linear-gradient(90deg, rgba(var(--lag-mortality), 0.5), rgb(var(--lag-mortality)));
+}
+.lag-rail-ready {
+  background: linear-gradient(90deg, rgba(var(--lag-ready), 0.5), rgb(var(--lag-ready)));
+}
+.lag-rail-delivery {
+  background: linear-gradient(90deg, rgba(var(--lag-delivery), 0.5), rgb(var(--lag-delivery)));
+}
+
+/* Metric readouts */
+.lag-readout {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.lag-glow-sellable {
+  color: #047857;
+}
+.lag-glow-mortality {
+  color: #be123c;
+}
+.lag-glow-ready {
+  color: #0e7490;
+}
+.lag-glow-delivery {
+  color: #6d28d9;
+}
+
+/* Attention pulse for the ready tile when lines are overdue */
+@keyframes lag-alert {
+  0%,
+  100% {
+    box-shadow:
+      0 1px 2px rgba(15, 23, 42, 0.04),
+      0 0 0 0 rgba(245, 158, 11, 0);
+  }
+  50% {
+    box-shadow:
+      0 1px 2px rgba(15, 23, 42, 0.04),
+      0 0 0 4px rgba(245, 158, 11, 0.16);
+  }
+}
+
+.lag-alert {
+  animation: lag-alert 2.6s ease-in-out infinite;
+}
+
+/* Entrance */
+@keyframes lag-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.lag-rise {
+  animation: lag-rise 480ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Loading shimmer */
+@keyframes lag-shimmer {
+  from {
+    background-position: -460px 0;
+  }
+  to {
+    background-position: 460px 0;
+  }
+}
+
+.lag-skeleton {
+  background:
+    linear-gradient(
+      90deg,
+      rgba(15, 23, 42, 0.04) 0%,
+      rgba(15, 23, 42, 0.09) 50%,
+      rgba(15, 23, 42, 0.04) 100%
+    );
+  background-size: 460px 100%;
+  border-radius: 16px;
+  animation: lag-shimmer 1.5s linear infinite;
+}
+
+/* Live indicator */
+@keyframes lag-ping {
+  0% {
+    transform: scale(1);
+    opacity: 0.7;
+  }
+  70%,
+  100% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+}
+
+.lag-live::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: inherit;
+  animation: lag-ping 1.8s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+/* Chips */
+.lag-chip {
+  transition:
+    background-color 180ms ease,
+    border-color 180ms ease,
+    color 180ms ease,
+    box-shadow 180ms ease,
+    transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.lag-chip:hover {
+  transform: translateY(-1px);
+}
+
+.lag-chip:active {
+  transform: translateY(0) scale(0.97);
+}
+
+.lag-chip-on {
+  box-shadow: 0 6px 16px -8px rgba(var(--lag-ready), 0.9);
+}
+
+/* Native selects */
+.lag-select {
+  background-color: #ffffff;
+  color: rgb(var(--lag-ink));
+  border: 1px solid rgba(15, 23, 42, 0.14);
+  transition: border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.lag-select:focus {
+  outline: none;
+  border-color: rgba(var(--lag-ready), 0.7);
+  box-shadow: 0 0 0 3px rgba(var(--lag-ready), 0.16);
+}
+
+/* Scroll areas */
+.lag-scroll::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+.lag-scroll::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.04);
+  border-radius: 999px;
+}
+.lag-scroll::-webkit-scrollbar-thumb {
+  background: rgba(15, 23, 42, 0.18);
+  border-radius: 999px;
+}
+.lag-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(15, 23, 42, 0.3);
+}
+
+/* Collapsible body */
+@keyframes lag-expand {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.lag-expand {
+  animation: lag-expand 300ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lag-root::before,
+  .lag-alert,
+  .lag-rise,
+  .lag-skeleton,
+  .lag-expand,
+  .lag-live::after {
+    animation: none !important;
+  }
+  .lag-panel-hover,
+  .lag-chip {
+    transition: none !important;
+  }
+  .lag-panel-hover:hover,
+  .lag-chip:hover,
+  .lag-chip:active {
+    transform: none;
+  }
+}

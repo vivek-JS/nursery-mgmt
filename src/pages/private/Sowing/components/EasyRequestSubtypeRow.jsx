@@ -153,23 +153,23 @@ export default function EasyRequestSubtypeRow({
       <TableCell
         onClick={(e) => {
           e.stopPropagation()
-          onRaisingOrders?.(card)
+          if (m.raisingOrders > 0) onRaisingOrders?.(card)
         }}
         sx={{
-          cursor: "pointer",
-          "&:hover": { bgcolor: "#ecfdf5" },
+          cursor: m.raisingOrders > 0 ? "pointer" : "default",
+          "&:hover": m.raisingOrders > 0 ? { bgcolor: "#ecfdf5" } : undefined,
         }}
       >
         <Typography
           fontWeight={800}
           fontSize="0.9rem"
           color={
-            m.raisingAvailable ? "#047857" : m.raisingOrders > 0 ? "#b45309" : "text.secondary"
+            m.raisingAvailable ? "#047857" : m.raisingPendingCollect ? "#b45309" : "text.secondary"
           }
         >
           {m.raisingAvailable
             ? m.fmt(m.raising, 2)
-            : m.raisingOrders > 0
+            : m.raisingPendingCollect
               ? "0"
               : "—"}{" "}
           <Typography component="span" variant="caption" color="text.secondary">
@@ -178,11 +178,15 @@ export default function EasyRequestSubtypeRow({
         </Typography>
         {m.raisingOrders > 0 ? (
           <Typography variant="caption" fontWeight={700} color="#065f46" sx={{ textDecoration: "underline" }}>
-            {m.raisingOrders} orders · click
+            {m.raisingOrders} collected · click
+          </Typography>
+        ) : m.raisingPendingCollect ? (
+          <Typography variant="caption" fontWeight={700} color="#b45309">
+            not collected
           </Typography>
         ) : (
           <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.62rem" }}>
-            farmer seed
+            —
           </Typography>
         )}
       </TableCell>

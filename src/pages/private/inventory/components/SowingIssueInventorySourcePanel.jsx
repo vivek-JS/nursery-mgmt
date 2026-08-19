@@ -95,10 +95,17 @@ export default function SowingIssueInventorySourcePanel({
         </Box>
       )}
 
+      {inventorySource === 'BOTH' && (
+        <Alert severity="info" sx={{ mt: 1.5 }}>
+          Ram Agri share creates an internal PO (Ram Agri → Ram Biotech) on approve; Biotech share
+          issues from warehouse batches.
+        </Alert>
+      )}
+
       {inventorySource === 'RAM_AGRI' && (
         <Alert severity="info" sx={{ mt: 1.5 }}>
-          Full company qty ({companyQty.toFixed(2)}) will deduct from linked Ram Agri Input varieties
-          (FEFO).
+          Approving this request creates an internal PO for {companyQty.toFixed(2)} packets
+          (Ram Agri → Ram Biotech), then issues from the transferred Biotech batch.
         </Alert>
       )}
     </Box>

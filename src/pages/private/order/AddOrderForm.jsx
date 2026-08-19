@@ -467,6 +467,7 @@ const AddOrderForm = ({
     // Seed plan for sowing-allowed plants (booking: one checkbox)
     farmerGivesSeed: false,
     sowingNotes: "",
+    raisingSeedPackets: "",
   }))
 
   // ============================================================================
@@ -773,7 +774,7 @@ const AddOrderForm = ({
         // Store full plant data for subtype name lookup
         const plantsMap = new Map()
         response.data.forEach(plant => {
-          plantsMap.set(plant.plantId, plant)
+          plantsMap.set(String(plant.plantId), plant)
         })
         setPlantDetails(plantsMap)
       }
@@ -1966,21 +1967,78 @@ const AddOrderForm = ({
     (!formData?.rate || formData?.rate === "" || formData?.rate === "0") &&
     (!rateManuallySet || isAdminRateEditor)
 
-  const applySubtypeRate = (subtype, { farmerGivesSeed, deliveryDate } = {}) => {
-    if (!subtype || !shouldAutoSetRate()) return
+  const resolveSubtypeForRate = (subtypeId) => {
+    const id = String(subtypeId || "")
+    const fromSlots = subTypes.find((st) => String(st.value) === id)
+    const plant =
+      plantDetails.get(String(formData?.plant)) ||
+      [...plantDetails.values()].find(
+        (p) => String(p.plantId) === String(formData?.plant)
+      )
+    const cms = (plant?.subtypes || []).find((s) => String(s._id) === id)
+    const raisingRate =
+      parseFloat(fromSlots?.raisingRate) || parseFloat(cms?.raisingRate) || 0
+    const defaultRate =
+      fromSlots?.rate ??
+      (Array.isArray(cms?.rates) ? cms.rates[0] : cms?.rates) ??
+      0
+    return {
+      ...(fromSlots || { value: id, rate: defaultRate, monthlyRates: [] }),
+      rate: fromSlots?.rate ?? defaultRate,
+      monthlyRates: fromSlots?.monthlyRates || cms?.monthlyRates || [],
+      raisingRate,
+    }
+  }
+
+  const applySubtypeRate = (subtype, { farmerGivesSeed, deliveryDate, force } = {}) => {
+    if (!subtype) return
+    const raisingRate = parseFloat(subtype.raisingRate) || 0
+    const shouldApplyRaising = Boolean(farmerGivesSeed) && raisingRate > 0
+    if (!force && !shouldApplyRaising && !shouldAutoSetRate()) return
     const rateValue = resolveEffectiveRate(subtype, { farmerGivesSeed, deliveryDate })
     setFormData((prev) => ({ ...prev, rate: rateValue.toString() }))
     setRate(rateValue)
+    return rateValue
   }
 
   const handleFarmerGivesSeedChange = (checked) => {
-    setFormData((prev) => ({ ...prev, farmerGivesSeed: checked }))
-    const selectedSubtype = subTypes.find((st) => st.value === formData?.subtype)
-    if (selectedSubtype) {
-      applySubtypeRate(selectedSubtype, {
-        farmerGivesSeed: checked,
-        deliveryDate: formData?.orderDate,
-      })
+    setFormData((prev) => ({
+      ...prev,
+      farmerGivesSeed: checked,
+      raisingSeedPackets: checked ? prev.raisingSeedPackets : "",
+    }))
+    setRateManuallySet(false)
+    const selectedSubtype = resolveSubtypeForRate(formData?.subtype)
+    if (!formData?.subtype) {
+      if (checked) Toast.error("Select plant subtype first, then tick farmer seed")
+      return
+    }
+    const applied = applySubtypeRate(selectedSubtype, {
+      farmerGivesSeed: checked,
+      deliveryDate: formData?.orderDate,
+      force: true,
+    })
+    if (checked && !(parseFloat(selectedSubtype.raisingRate) > 0)) {
+      Toast.error(
+        "Raising rate is not set for this subtype in Plant CMS. Set it (e.g. ₹1.10) then try again."
+      )
+    } else if (checked && applied) {
+      Toast.success(`Raising rate ₹${applied} applied`)
+    }
+  }
+
+  const buildSowingPlanPayload = () => {
+    const selectedPlant = plants.find((p) => p.value === formData?.plant)
+    if (!selectedPlant?.sowingAllowed || formData?.productMappingId) return null
+    const farmerSeed = Boolean(formData.farmerGivesSeed)
+    const packets = Number(formData.raisingSeedPackets)
+    return {
+      seedSource: farmerSeed ? "RAISING" : "COMPANY",
+      companySeedPackets: 0,
+      raisingSeedPackets: farmerSeed && Number.isFinite(packets) && packets > 0 ? packets : 0,
+      sowingNotes: farmerSeed
+        ? formData.sowingNotes || "biyane shetkari denar aahe"
+        : formData.sowingNotes || "",
     }
   }
 
@@ -2048,13 +2106,14 @@ const AddOrderForm = ({
       }))
     }
 
-    // Auto-set rate when subtype is selected (only if rate is empty or hasn't been manually set)
+    // Auto-set rate when subtype is selected (raising rate if farmer gives seed)
     if (field === "subtype") {
-      const selectedSubtype = subTypes.find((st) => st.value === value)
+      const selectedSubtype = resolveSubtypeForRate(value)
+      const farmerSeed = Boolean(formData?.farmerGivesSeed)
 
-      if (selectedSubtype && shouldAutoSetRate()) {
+      if (selectedSubtype && (farmerSeed || shouldAutoSetRate())) {
         const rateValue = resolveEffectiveRate(selectedSubtype, {
-          farmerGivesSeed: formData?.farmerGivesSeed,
+          farmerGivesSeed: farmerSeed,
           deliveryDate: null,
         })
         setFormData((prev) => ({
@@ -2085,6 +2144,8 @@ const AddOrderForm = ({
         rate: isAdminRateEditor ? prev.rate : "",
         subtype: "",
         orderDate: null,
+        farmerGivesSeed: false,
+        raisingSeedPackets: "",
       }))
       setRate(isAdminRateEditor ? parseFloat(formData?.rate) || null : null)
       setRateManuallySet(isAdminRateEditor ? rateManuallySet : false)
@@ -2106,8 +2167,8 @@ const AddOrderForm = ({
       }
 
       // Autofill rate based on delivery date / farmer seed selection
-      if (value && formData?.subtype && !rateManuallySet) {
-        const selectedSubtype = subTypes.find((st) => st.value === formData.subtype)
+      if (value && formData?.subtype && (!rateManuallySet || formData?.farmerGivesSeed)) {
+        const selectedSubtype = resolveSubtypeForRate(formData.subtype)
         if (selectedSubtype) {
           const rateValue = resolveEffectiveRate(selectedSubtype, {
             farmerGivesSeed: formData?.farmerGivesSeed,
@@ -2333,6 +2394,18 @@ const AddOrderForm = ({
     // Skip validation if plant has sowingAllowed (can grow on demand) AND no ready plants product is selected
     const selectedPlant = plants.find((p) => p.value === formData?.plant)
     const isSowingAllowedPlant = selectedPlant?.sowingAllowed
+
+    if (
+      isSowingAllowedPlant &&
+      formData?.farmerGivesSeed &&
+      !formData?.productMappingId
+    ) {
+      const packets = Number(formData?.raisingSeedPackets)
+      if (!Number.isFinite(packets) || packets <= 0) {
+        Toast.error("किती packets देणार ते भरा / Enter packets the farmer will give")
+        return false
+      }
+    }
 
     if (formData?.orderDate && formData?.noOfPlants && !isSowingAllowedPlant && !formData?.productMappingId) {
       const requestedQuantity = parseInt(formData?.noOfPlants) || 0
@@ -2672,16 +2745,8 @@ const AddOrderForm = ({
           payload.orderFor = orderForData
         }
 
-        if (plants.find((p) => p.value === formData?.plant)?.sowingAllowed && !formData?.productMappingId) {
-          payload.sowingPlan = {
-            seedSource: formData.farmerGivesSeed ? "RAISING" : "COMPANY",
-            companySeedPackets: 0,
-            raisingSeedPackets: 0,
-            sowingNotes: formData.farmerGivesSeed
-              ? formData.sowingNotes || "biyane shetkari denar aahe"
-              : formData.sowingNotes || "",
-          }
-        }
+        const sowingPlan = buildSowingPlanPayload()
+        if (sowingPlan) payload.sowingPlan = sowingPlan
 
         endpoint = API.ORDER.CREATE_DEALER_ORDER
       } else {
@@ -2787,16 +2852,8 @@ const AddOrderForm = ({
           payload.orderFor = orderForData
         }
 
-        if (plants.find((p) => p.value === formData?.plant)?.sowingAllowed && !formData?.productMappingId) {
-          payload.sowingPlan = {
-            seedSource: formData.farmerGivesSeed ? "RAISING" : "COMPANY",
-            companySeedPackets: 0,
-            raisingSeedPackets: 0,
-            sowingNotes: formData.farmerGivesSeed
-              ? formData.sowingNotes || "biyane shetkari denar aahe"
-              : formData.sowingNotes || "",
-          }
-        }
+        const sowingPlan = buildSowingPlanPayload()
+        if (sowingPlan) payload.sowingPlan = sowingPlan
         
         endpoint = API.FARMER.CREATE_FARMER
       }
@@ -3026,6 +3083,7 @@ const AddOrderForm = ({
       screenshots: [],
       farmerGivesSeed: false,
       sowingNotes: "",
+      raisingSeedPackets: "",
     })
     setFarmerData({})
     setRecentOrders([])
@@ -4770,6 +4828,9 @@ const AddOrderForm = ({
                           ? formData?.subtype
                             ? "Rate auto-filled from selected subtype. You can edit it as you have admin privileges."
                             : "Select a subtype to auto-fill rate. You can edit it as you have admin privileges."
+                          : formData?.farmerGivesSeed &&
+                            parseFloat(resolveSubtypeForRate(formData?.subtype)?.raisingRate) > 0
+                          ? `Raising rate ₹${resolveSubtypeForRate(formData?.subtype).raisingRate} applied (farmer gives seed)`
                           : formData?.subtype
                           ? "Rate auto-filled from selected subtype, but you can edit it."
                           : "Select a subtype to auto-fill rate"
@@ -4936,10 +4997,31 @@ const AddOrderForm = ({
                           </Typography>
                           <Typography variant="caption" color="text.secondary">
                             Will the farmer give seeds?
+                            {(() => {
+                              const st = resolveSubtypeForRate(formData?.subtype)
+                              const rr = parseFloat(st?.raisingRate) || 0
+                              return rr > 0
+                                ? ` · Raising rate ₹${rr} auto-selected`
+                                : ""
+                            })()}
                           </Typography>
                         </Box>
                       }
                     />
+                    {formData.farmerGivesSeed && (
+                      <TextField
+                        fullWidth
+                        required
+                        type="number"
+                        size="small"
+                        label="किती packets देणार? / Packets farmer will give"
+                        value={formData.raisingSeedPackets || ""}
+                        onChange={(e) => handleInputChange("raisingSeedPackets", e.target.value)}
+                        inputProps={{ min: 0.01, step: 0.01 }}
+                        sx={{ mt: 1.5 }}
+                        helperText="Raising seed packets to collect from the farmer"
+                      />
+                    )}
                   </Grid>
                 )}
 

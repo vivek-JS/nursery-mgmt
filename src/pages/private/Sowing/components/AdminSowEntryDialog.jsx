@@ -9,6 +9,7 @@ import {
   Stack,
   Typography,
   MenuItem,
+  ListSubheader,
   Alert,
   CircularProgress,
   Chip,
@@ -23,8 +24,28 @@ function companyPacketCap(req) {
   return Number(req?.packetsRequested) || Number(req?.packetsIssued) || 0
 }
 
+function parsePagedList(res) {
+  const body = res?.data
+  const nested = body?.data?.data
+  if (Array.isArray(nested)) return nested
+  if (Array.isArray(body?.data)) return body.data
+  if (Array.isArray(body)) return body
+  return []
+}
+
+function houseOption(row, group) {
+  const name = String(row?.name || row?.title || row?.pollyHouseName || "").trim()
+  const loc = String(row?.location || row?.number || "").trim()
+  const value = name || loc || String(row?._id || "")
+  if (!value) return null
+  const label =
+    name && loc && name !== loc ? `${name} — ${loc}` : name || loc || value
+  return { value, label, group }
+}
+
 /**
  * Office / Super Admin sow entry — completes an issued sowing request (same complete-sow API as shed).
+ * Request stays issued when used + returned < packets still open.
  */
 export default function AdminSowEntryDialog({ open, request, card, onClose, onSuccess }) {
   const [plants, setPlants] = useState("")
@@ -32,6 +53,7 @@ export default function AdminSowEntryDialog({ open, request, card, onClose, onSu
   const [packetsReturned, setPacketsReturned] = useState("")
   const [shedName, setShedName] = useState("")
   const [shedOptions, setShedOptions] = useState([])
+  const [shedsLoading, setShedsLoading] = useState(false)
   const [ladies, setLadies] = useState("")
   const [gents, setGents] = useState("")
   const [notes, setNotes] = useState("")
@@ -46,39 +68,73 @@ export default function AdminSowEntryDialog({ open, request, card, onClose, onSu
   }, [req, cf, card])
   const returnable = companyPacketCap(req)
   const canReturn = returnable > 0
+  const issuedOpen = useMemo(() => {
+    const issued =
+      Number(req?.packetsIssued) ||
+      returnable ||
+      Number(req?.packetsRequested) ||
+      0
+    const alreadyUsed = Number(req?.packetsUsed) || 0
+    const alreadyReturned = Number(req?.packetsReturned) || 0
+    return Math.max(0, issued - alreadyUsed - alreadyReturned)
+  }, [req, returnable])
   const plantsNum = Number(plants) || 0
   const usedNum = Number(packetsUsed) || 0
   const returnedNum = Number(packetsReturned) || 0
+  const leftoverPkts = Math.max(0, Number((issuedOpen - usedNum - (canReturn ? returnedNum : 0)).toFixed(2)))
+  const willClose = leftoverPkts <= 0.001
   const readyDaysNum = Math.max(0, Number(plantReadyDays) || 0)
   const defaultReady =
     Number(card?.plantReadyDays) || Number(req?.plantReadyDays) || 0
 
+  const pollyOpts = shedOptions.filter((o) => o.group === "pollyhouse")
+  const shadeOpts = shedOptions.filter((o) => o.group === "shed")
+
   useEffect(() => {
     if (!open || !req) return
     setPlants(expectedPlants > 0 ? String(expectedPlants) : "")
-    setPacketsUsed(returnable > 0 ? String(returnable) : String(Number(req.packetsRequested) || ""))
+    setPacketsUsed(issuedOpen > 0 ? String(issuedOpen) : "")
     setPacketsReturned("")
     setShedName("")
     setLadies("")
     setGents("")
     setNotes("")
     setPlantReadyDays(defaultReady > 0 ? String(defaultReady) : "")
-  }, [open, req?._id, expectedPlants, returnable, defaultReady])
+  }, [open, req?._id, expectedPlants, issuedOpen, defaultReady])
 
   useEffect(() => {
     if (!open) return
     let cancelled = false
     ;(async () => {
+      setShedsLoading(true)
       try {
-        const instance = NetworkManager(API.POLLY_HOUSE.GET_HOUSES)
-        const res = await instance.request()
-        const list = res?.data?.data || res?.data || []
-        const names = (Array.isArray(list) ? list : [])
-          .map((h) => h?.name || h?.pollyHouseName || h?.label || "")
+        const pollyInst = NetworkManager(API.POLLY_HOUSE.GET_HOUSES)
+        const shadeInst = NetworkManager(API.SHADE.GET_SHADES)
+        const query = { page: 1, limit: 500, status: "true" }
+        const [pollyRes, shadeRes] = await Promise.all([
+          pollyInst.request({}, query),
+          shadeInst.request({}, query),
+        ])
+        if (cancelled) return
+        const polly = parsePagedList(pollyRes)
+          .filter((p) => p?.isActive !== false)
+          .map((p) => houseOption(p, "pollyhouse"))
           .filter(Boolean)
-        if (!cancelled) setShedOptions([...new Set(names)])
+        const shades = parsePagedList(shadeRes)
+          .filter((s) => s?.isActive !== false)
+          .map((s) => houseOption(s, "shed"))
+          .filter(Boolean)
+        const seen = new Set()
+        const merged = [...polly, ...shades].filter((o) => {
+          if (seen.has(o.value)) return false
+          seen.add(o.value)
+          return true
+        })
+        setShedOptions(merged)
       } catch {
         if (!cancelled) setShedOptions([])
+      } finally {
+        if (!cancelled) setShedsLoading(false)
       }
     })()
     return () => {
@@ -86,23 +142,24 @@ export default function AdminSowEntryDialog({ open, request, card, onClose, onSu
     }
   }, [open])
 
-  // Keep used = issued - returned when return changes (company packets)
-  useEffect(() => {
-    if (!canReturn || packetsReturned === "") return
-    const ret = Math.min(returnable, Math.max(0, Number(packetsReturned) || 0))
-    setPacketsUsed(String(Math.max(0, returnable - ret)))
-  }, [packetsReturned, canReturn, returnable])
-
   if (!open || !req?._id) return null
 
+  const usedPlusReturned = usedNum + (canReturn ? returnedNum : 0)
+  const packetsOver = usedPlusReturned - issuedOpen > 0.001
   const canSubmit =
     Boolean(shedName.trim()) &&
     readyDaysNum >= 1 &&
-    (plantsNum > 0 || (canReturn && returnedNum > 0))
+    (plantsNum > 0 || (canReturn && returnedNum > 0)) &&
+    !packetsOver &&
+    (issuedOpen <= 0 || usedPlusReturned > 0 || plantsNum > 0)
 
   const handleSubmit = async () => {
     if (!canSubmit) {
-      Toast.error("Enter shed, plant ready days, plants sowed, and/or packets returned")
+      Toast.error("Select pollyhouse/shed, plant ready days, and plants / packets")
+      return
+    }
+    if (packetsOver) {
+      Toast.error(`Used + returned cannot exceed ${issuedOpen} pkt still issued`)
       return
     }
     setSaving(true)
@@ -116,12 +173,20 @@ export default function AdminSowEntryDialog({ open, request, card, onClose, onSu
         laboursGents: Number(gents) || 0,
         notes: notes.trim(),
         plantReadyDays: readyDaysNum,
-        completeSowing: true,
+        completeSowing: willClose,
       }
       const instance = NetworkManager(API.sowing.COMPLETE_SOWING_REQUEST)
       const res = await instance.request(payload, { pathParams: [req._id] })
       if (res?.data?.success || res?.data?.message) {
-        Toast.success(res?.data?.message || "Sow entry saved")
+        const remaining = Number(res?.data?.data?.packetsRemaining)
+        const closed = Boolean(res?.data?.data?.sowingCompleted)
+        Toast.success(
+          closed
+            ? res?.data?.message || "Sow entry saved — request closed"
+            : remaining > 0
+              ? `Sow saved · ${remaining} pkt still on request (not closed)`
+              : res?.data?.message || "Sowing progress saved"
+        )
         onSuccess?.(res?.data)
         onClose?.()
       } else {
@@ -148,7 +213,12 @@ export default function AdminSowEntryDialog({ open, request, card, onClose, onSu
         <Stack spacing={1.75} mt={1}>
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
             <Chip size="small" label={`Expected ~${expectedPlants} plants`} />
-            <Chip size="small" label={`${Number(req.packetsRequested) || 0} pkt issued`} color="primary" variant="outlined" />
+            <Chip
+              size="small"
+              label={`${issuedOpen} pkt still issued`}
+              color="primary"
+              variant="outlined"
+            />
             {canReturn ? (
               <Chip size="small" label={`Company cap ${returnable} pkt`} variant="outlined" />
             ) : (
@@ -157,7 +227,8 @@ export default function AdminSowEntryDialog({ open, request, card, onClose, onSu
           </Stack>
 
           <Alert severity="info" sx={{ py: 0.5 }}>
-            Same complete-sow flow as shed. Slot gets plantReadyDate = sow day + plant ready days.
+            Ready date = sow day + plant ready days. If used + returned is less than issued,
+            the request stays open with leftover packets.
           </Alert>
 
           <TextField
@@ -186,7 +257,8 @@ export default function AdminSowEntryDialog({ open, request, card, onClose, onSu
               value={packetsUsed}
               onChange={(e) => setPacketsUsed(e.target.value)}
               fullWidth
-              inputProps={{ min: 0 }}
+              inputProps={{ min: 0, max: issuedOpen }}
+              helperText={`Open ${issuedOpen} pkt`}
             />
             {canReturn && (
               <TextField
@@ -195,33 +267,70 @@ export default function AdminSowEntryDialog({ open, request, card, onClose, onSu
                 value={packetsReturned}
                 onChange={(e) => setPacketsReturned(e.target.value)}
                 fullWidth
-                inputProps={{ min: 0, max: returnable }}
-                helperText={`Max ${returnable}`}
+                inputProps={{ min: 0, max: issuedOpen }}
+                helperText={`Max ${issuedOpen}`}
               />
             )}
           </Stack>
 
-          {shedOptions.length > 0 ? (
-            <TextField
-              select
-              label="Shed / pollyhouse *"
-              value={shedName}
-              onChange={(e) => setShedName(e.target.value)}
-              fullWidth
-            >
-              {shedOptions.map((name) => (
-                <MenuItem key={name} value={name}>
-                  {name}
-                </MenuItem>
-              ))}
-            </TextField>
+          {issuedOpen > 0 ? (
+            leftoverPkts > 0.001 ? (
+              <Alert severity="warning" sx={{ py: 0.5 }}>
+                Used {usedNum} + returned {canReturn ? returnedNum : 0} = {usedPlusReturned} of{" "}
+                {issuedOpen} issued. <strong>{leftoverPkts} pkt stay on this request</strong> — it
+                will not close.
+              </Alert>
+            ) : (
+              <Alert severity="success" sx={{ py: 0.5 }}>
+                Used + returned matches issued — request will close.
+              </Alert>
+            )
+          ) : null}
+
+          {packetsOver ? (
+            <Alert severity="error" sx={{ py: 0.5 }}>
+              Used + returned cannot be more than {issuedOpen} pkt still issued.
+            </Alert>
+          ) : null}
+
+          {shedOptions.length > 0 || shedsLoading ? (
+          <TextField
+            select
+            label="Pollyhouse / shed *"
+            value={shedName}
+            onChange={(e) => setShedName(e.target.value)}
+            fullWidth
+            disabled={shedsLoading}
+            helperText={
+              shedsLoading
+                ? "Loading pollyhouses and sheds…"
+                : "Select where sowing was done"
+            }
+          >
+            <MenuItem value="" disabled>
+              {shedsLoading ? "Loading…" : "Select pollyhouse or shed"}
+            </MenuItem>
+            {pollyOpts.length > 0 ? <ListSubheader disableSticky>Pollyhouse</ListSubheader> : null}
+            {pollyOpts.map((o) => (
+              <MenuItem key={`p-${o.value}`} value={o.value}>
+                {o.label}
+              </MenuItem>
+            ))}
+            {shadeOpts.length > 0 ? <ListSubheader disableSticky>Shed</ListSubheader> : null}
+            {shadeOpts.map((o) => (
+              <MenuItem key={`s-${o.value}`} value={o.value}>
+                {o.label}
+              </MenuItem>
+            ))}
+          </TextField>
           ) : (
             <TextField
-              label="Shed / pollyhouse *"
+              label="Pollyhouse / shed *"
               value={shedName}
               onChange={(e) => setShedName(e.target.value)}
               fullWidth
               placeholder="e.g. Shed A"
+              helperText="No CMS list loaded — type the shed name"
             />
           )}
 
@@ -268,7 +377,11 @@ export default function AdminSowEntryDialog({ open, request, card, onClose, onSu
           disabled={saving || !canSubmit}
           startIcon={saving ? <CircularProgress size={16} color="inherit" /> : null}
         >
-          {saving ? "Saving…" : "Complete sow"}
+          {saving
+            ? "Saving…"
+            : willClose
+              ? "Complete sow"
+              : `Save progress · ${leftoverPkts} pkt remain`}
         </Button>
       </DialogActions>
     </Dialog>

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react"
+import React, { useCallback, useEffect, useState } from "react"
 import {
   X,
   Loader2,
@@ -8,6 +8,8 @@ import {
   ChevronRight,
   Leaf,
   AlertTriangle,
+  ShoppingBag,
+  CheckCircle2,
 } from "lucide-react"
 import { API, NetworkManager } from "network/core"
 import { Toast } from "helpers/toasts/toastHelper"
@@ -24,37 +26,81 @@ const fmt = (iso) => {
   return m.isValid() ? m.format("DD MMM YYYY") : "—"
 }
 
-const SlotActualBreakdownModal = ({ open, onClose, slotRow }) => {
+const SlotActualBreakdownModal = ({ open, onClose, slotRow, onSlotChanged }) => {
   const [loading, setLoading] = useState(false)
   const [data, setData] = useState(null)
   const [expandedBatch, setExpandedBatch] = useState(null)
+  const [bypassOpen, setBypassOpen] = useState(false)
+  const [bypassLine, setBypassLine] = useState(null)
+  const [bypassBatchId, setBypassBatchId] = useState("")
+  const [bypassReason, setBypassReason] = useState("")
+  const [bypassSubmitting, setBypassSubmitting] = useState(false)
+
+  const loadBreakdown = useCallback(async () => {
+    if (!slotRow?._id) {
+      setData(null)
+      return
+    }
+    setLoading(true)
+    try {
+      const instance = NetworkManager(API.slots.GET_SLOT_SECONDARY_SHED_BREAKDOWN)
+      const response = await instance.request({}, [slotRow._id])
+      const payload = response?.data?.data ?? response?.data ?? response
+      setData(payload)
+    } catch (e) {
+      console.error(e)
+      Toast.error("Failed to load batch breakdown")
+      setData(null)
+    } finally {
+      setLoading(false)
+    }
+  }, [slotRow?._id])
 
   useEffect(() => {
     if (!open || !slotRow?._id) {
       setData(null)
       setExpandedBatch(null)
+      setBypassOpen(false)
+      setBypassLine(null)
       return
     }
-    let cancelled = false
-    ;(async () => {
-      setLoading(true)
-      try {
-        const instance = NetworkManager(API.slots.GET_SLOT_SECONDARY_SHED_BREAKDOWN)
-        const response = await instance.request({}, [slotRow._id])
-        const payload = response?.data?.data ?? response?.data ?? response
-        if (!cancelled) setData(payload)
-      } catch (e) {
-        console.error(e)
-        Toast.error("Failed to load batch breakdown")
-        if (!cancelled) setData(null)
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    })()
-    return () => {
-      cancelled = true
+    void loadBreakdown()
+  }, [open, slotRow?._id, loadBreakdown])
+
+  const openMarkReady = (line, batchId) => {
+    setBypassLine(line)
+    setBypassBatchId(String(batchId))
+    setBypassReason("")
+    setBypassOpen(true)
+  }
+
+  const submitMarkReadyForSell = async () => {
+    if (!bypassLine?.secondaryInwardId || !bypassBatchId) return
+    setBypassSubmitting(true)
+    try {
+      const inst = NetworkManager(API.PLANT_OUTWARD.SECONDARY_INWARD_READINESS_BYPASS)
+      await inst.request(
+        { reason: bypassReason.trim() || "Marked ready from slot breakdown" },
+        {
+          pathParams: [
+            bypassBatchId,
+            String(bypassLine.secondaryInwardId),
+          ],
+        }
+      )
+      Toast.success("Marked ready for sell / dispatch")
+      setBypassOpen(false)
+      setBypassLine(null)
+      await loadBreakdown()
+      onSlotChanged?.()
+    } catch (e) {
+      Toast.error(
+        e?.response?.data?.message || e?.message || "Failed to mark ready"
+      )
+    } finally {
+      setBypassSubmitting(false)
     }
-  }, [open, slotRow?._id])
+  }
 
   if (!open) return null
 
@@ -63,9 +109,18 @@ const SlotActualBreakdownModal = ({ open, onClose, slotRow }) => {
   const dayWiseRows = buildDayWiseRows(batches)
   const slot = data?.slot || {}
   const pendingSync = Number(summary.pendingSlotSync) || 0
+  const actualPlants =
+    Number(slotRow?.actualPlants ?? summary.actualPlants ?? slot.actualPlants) || 0
+  const expectedMortality =
+    Number(slotRow?.expectedMortality ?? summary.expectedMortality ?? slot.expectedMortality) || 0
+  const actualReadyPlants =
+    Number(
+      slotRow?.actualReadyPlants ?? summary.actualReadyPlantsStored ?? slot.actualReadyPlants
+    ) || 0
+  const orderQueueRem = Number(slotRow?.remainingToDispatch) || 0
   const actualAvailable =
     slotRow?.actualAvailable ??
-    Math.max(0, (slotRow?.actualPlants ?? 0) - (slotRow?.remainingToDispatch ?? 0))
+    Math.max(0, actualPlants - orderQueueRem)
 
   const subtypeLabel =
     slot.subtypeName ||
@@ -104,35 +159,50 @@ const SlotActualBreakdownModal = ({ open, onClose, slotRow }) => {
             </button>
           </div>
 
-          <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
+          <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
+            <div className="rounded-xl bg-white/20 px-3 py-2 backdrop-blur ring-1 ring-white/25">
+              <p className="text-[10px] uppercase text-emerald-100">Sellable (90%)</p>
+              <p className="text-lg font-black tabular-nums">{actualPlants.toLocaleString()}</p>
+              <p className="text-[10px] text-emerald-100">excludes mortality</p>
+            </div>
             <div className="rounded-xl bg-white/15 px-3 py-2 backdrop-blur">
-              <p className="text-[10px] uppercase text-emerald-100">Actual avail.</p>
+              <p className="text-[10px] uppercase text-emerald-100">Exp. mortality</p>
               <p className="text-lg font-black tabular-nums">
+                {expectedMortality.toLocaleString()}
+              </p>
+            </div>
+            <div className="rounded-xl bg-white/15 px-3 py-2 backdrop-blur">
+              <p className="text-[10px] uppercase text-emerald-100">Actual ready</p>
+              <p className="text-lg font-black tabular-nums">
+                {actualReadyPlants.toLocaleString()}
+              </p>
+              <p className="text-[10px] text-emerald-100">calendar / manual</p>
+            </div>
+          </div>
+
+          <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <div className="rounded-xl bg-white/10 px-3 py-2 backdrop-blur">
+              <p className="text-[10px] uppercase text-emerald-100">Queue avail.</p>
+              <p className="text-base font-bold tabular-nums">
                 {actualAvailable.toLocaleString()}
               </p>
             </div>
-            <div className="rounded-xl bg-white/15 px-3 py-2 backdrop-blur">
-              <p className="text-[10px] uppercase text-emerald-100">On slot</p>
-              <p className="text-lg font-black tabular-nums">
-                {(summary.actualPlants ?? slotRow?.actualPlants ?? 0).toLocaleString()}
-              </p>
-            </div>
-            <div className="rounded-xl bg-white/15 px-3 py-2 backdrop-blur">
+            <div className="rounded-xl bg-white/10 px-3 py-2 backdrop-blur">
               <p className="text-[10px] uppercase text-emerald-100">Shed synced</p>
-              <p className="text-lg font-black tabular-nums">
+              <p className="text-base font-bold tabular-nums">
                 {(summary.shedSyncedToSlot ?? 0).toLocaleString()}
               </p>
             </div>
             <div
               className={`rounded-xl px-3 py-2 backdrop-blur ${
-                pendingSync > 0 ? "bg-amber-400/25 ring-1 ring-amber-200/40" : "bg-white/15"
+                pendingSync > 0 ? "bg-amber-400/20 ring-1 ring-amber-200/30" : "bg-white/10"
               }`}>
               <p className="text-[10px] uppercase text-emerald-100">Pending sync</p>
-              <p className="text-lg font-black tabular-nums">{pendingSync.toLocaleString()}</p>
+              <p className="text-base font-bold tabular-nums">{pendingSync.toLocaleString()}</p>
             </div>
-            <div className="rounded-xl bg-white/15 px-3 py-2 backdrop-blur col-span-2 sm:col-span-1">
+            <div className="rounded-xl bg-white/10 px-3 py-2 backdrop-blur">
               <p className="text-[10px] uppercase text-emerald-100">In shed</p>
-              <p className="text-lg font-black tabular-nums">
+              <p className="text-base font-bold tabular-nums">
                 {(summary.shedAvailableInShed ?? 0).toLocaleString()}
               </p>
             </div>
@@ -165,7 +235,9 @@ const SlotActualBreakdownModal = ({ open, onClose, slotRow }) => {
                 No secondary lagwad lines linked to this slot yet.
               </p>
               <p className="mt-1 text-xs text-slate-500">
-                Slot actual: {(slotRow?.actualPlants ?? 0).toLocaleString()} plants on record.
+                Actual {actualPlants.toLocaleString()} · mortality{" "}
+                {expectedMortality.toLocaleString()} · ready{" "}
+                {actualReadyPlants.toLocaleString()}
               </p>
             </div>
           )}
@@ -333,12 +405,28 @@ const SlotActualBreakdownModal = ({ open, onClose, slotRow }) => {
                                   {ln.size} · {ln.cavity}cav · {ln.numberOfTrays} trays
                                 </span>
                               </div>
-                              <span
-                                className={`rounded-full px-2 py-0.5 font-semibold ${slotSyncStatusClass(
-                                  ln.slotSyncStatus
-                                )}`}>
-                                {slotSyncStatusLabel(ln.slotSyncStatus)}
-                              </span>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span
+                                  className={`rounded-full px-2 py-0.5 font-semibold ${slotSyncStatusClass(
+                                    ln.slotSyncStatus
+                                  )}`}>
+                                  {slotSyncStatusLabel(ln.slotSyncStatus)}
+                                </span>
+                                {ln.dispatchEligible || ln.readinessBypassAt ? (
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-800">
+                                    <CheckCircle2 className="h-3 w-3" />
+                                    Ready for sell
+                                  </span>
+                                ) : (ln.availableQuantity ?? 0) > 0 ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => openMarkReady(ln, batch.batchId)}
+                                    className="inline-flex items-center gap-1 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1 text-[10px] font-semibold text-amber-900 hover:bg-amber-100">
+                                    <ShoppingBag className="h-3 w-3" />
+                                    Mark ready for sell
+                                  </button>
+                                ) : null}
+                              </div>
                             </div>
                             <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-4 text-slate-600">
                               <span>
@@ -355,7 +443,7 @@ const SlotActualBreakdownModal = ({ open, onClose, slotRow }) => {
                               </span>
                               <span>
                                 <span className="text-slate-400">Vehicle </span>
-                                {ln.dispatchEligible ? "Calendar ready" : "Not yet"}
+                                {ln.dispatchEligible ? "Ready to sell" : "Not yet"}
                               </span>
                             </div>
                             <div className="mt-2 flex flex-wrap gap-3 font-medium tabular-nums">
@@ -390,6 +478,67 @@ const SlotActualBreakdownModal = ({ open, onClose, slotRow }) => {
           </button>
         </div>
       </div>
+
+      {bypassOpen && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
+          <button
+            type="button"
+            className="absolute inset-0 bg-slate-900/40"
+            aria-label="Close mark ready dialog"
+            onClick={() => {
+              if (bypassSubmitting) return
+              setBypassOpen(false)
+            }}
+          />
+          <div className="relative w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl">
+            <h3 className="text-lg font-bold text-slate-900">Mark ready for sell</h3>
+            <p className="mt-1 text-sm text-slate-600">
+              Bypasses the calendar rule (lagwad + secondary-ready days). Stock becomes eligible
+              for vehicle dispatch and sow-ready lists.
+            </p>
+            {bypassLine && (
+              <p className="mt-3 text-sm text-slate-700">
+                <span className="font-semibold">{bypassLine.pollyhouse || "—"}</span>
+                {" · "}
+                {bypassLine.size}
+                {" · "}
+                {(bypassLine.availableQuantity ?? 0).toLocaleString()} in shed
+              </p>
+            )}
+            <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Reason (optional)
+            </label>
+            <textarea
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-200"
+              rows={3}
+              value={bypassReason}
+              onChange={(e) => setBypassReason(e.target.value)}
+              placeholder="e.g. quality check done, early sell"
+            />
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                disabled={bypassSubmitting}
+                onClick={() => setBypassOpen(false)}
+                className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={bypassSubmitting}
+                onClick={() => void submitMarkReadyForSell()}
+                className="inline-flex items-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-50">
+                {bypassSubmitting ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <ShoppingBag className="h-4 w-4" />
+                )}
+                Confirm ready for sell
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -17,9 +17,21 @@ import { NetworkManager, API } from "network/core"
 import SeedPlanChip from "./SeedPlanChip"
 import { useSowHorizon } from "./SowHorizonContext"
 
-function isRaisingOrder(o) {
+function isRaisingCollected(o) {
+  return Boolean(
+    o?.raisingCollected ||
+      o?.sowingPlan?.raisingIntakeCollected ||
+      o?.sowingPlan?.raisingIntakeId ||
+      Number(o?.raisingInHandPackets) > 0
+  )
+}
+
+function isRaisingOrder(o, collectedOnly = false) {
   const src = o?.sowingPlan?.seedSource
-  return src === "RAISING" || src === "MIXED"
+  const planned = src === "RAISING" || src === "MIXED"
+  if (!planned) return false
+  if (collectedOnly) return isRaisingCollected(o)
+  return true
 }
 
 function fmtDelivery(d) {
@@ -117,7 +129,7 @@ export default function OrderWiseDrawer({
         })
         if (!cancelled) {
           const data = res?.data?.data || []
-          const filtered = raisingOnly ? data.filter(isRaisingOrder) : data
+          const filtered = raisingOnly ? data.filter((o) => isRaisingOrder(o, true)) : data
           setRows(filtered)
           // Only pre-select orders that are not already on an active request
           setSelected(
@@ -153,7 +165,7 @@ export default function OrderWiseDrawer({
         <Stack direction="row" alignItems="center" justifyContent="space-between" mb={1}>
           <Box>
             <Typography variant="h6" fontWeight={700}>
-              {raisingOnly ? "Raising orders" : "Orders"}
+              {raisingOnly ? "Collected farmer seed" : "Orders"}
             </Typography>
             <Typography variant="body2" color="text.secondary">
               {card?.plantName} · {card?.subtypeName}
@@ -167,7 +179,7 @@ export default function OrderWiseDrawer({
         <Typography variant="body2" sx={{ mb: 1.5 }}>
           {raisingOnly ? (
             <>
-              Farmer-seed orders only · gap{" "}
+              Collected farmer seed · gap{" "}
               {Number(card?.totalPlantsToSowRaw) ||
                 card?.totalPlantsToSowWithBuffer ||
                 card?.totalGap ||
@@ -175,7 +187,7 @@ export default function OrderWiseDrawer({
               plants (no buffer)
               {Number(card?.raisingInHandPackets) > 0
                 ? ` · ${card.raisingInHandPackets} pkt in hand`
-                : " · packets not collected yet"}
+                : " · none in hand"}
             </>
           ) : (
             <>
@@ -192,8 +204,8 @@ export default function OrderWiseDrawer({
           </Box>
         ) : rows.length === 0 ? (
           <Typography color="text.secondary">
-            {raisingOnly
-              ? "No raising orders for this plant / subtype."
+              {raisingOnly
+              ? "No collected farmer seed for this plant / subtype."
               : "No active orders for these slots."}
           </Typography>
         ) : (
@@ -274,7 +286,12 @@ export default function OrderWiseDrawer({
                         <SeedPlanChip
                           seedSource={o.sowingPlan?.seedSource}
                           companyPackets={o.sowingPlan?.companySeedPackets}
-                          raisingPackets={o.sowingPlan?.raisingSeedPackets}
+                          raisingPackets={
+                            isRaisingCollected(o)
+                              ? o.raisingInHandPackets || o.sowingPlan?.raisingSeedPackets
+                              : 0
+                          }
+                          collected={isRaisingCollected(o)}
                         />
                         {locked && (
                           <Chip

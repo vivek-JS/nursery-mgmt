@@ -309,7 +309,9 @@ export default function OrderSowForm({
       ) : null}
 
       <Typography variant="caption" color="text.secondary" display="block" mb={1}>
-        Plants go to the ready-date slot (sow date + ready days), then cover this order.
+        Plants go to the ready-date slot (sow date + ready days). 90% counts as
+        actual (available = actual − dispatched), 10% as expected mortality, then
+        this order is marked covered.
       </Typography>
 
       {metaLoading ? (

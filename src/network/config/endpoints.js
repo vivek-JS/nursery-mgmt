@@ -866,9 +866,19 @@ export const API = {
     GET_PLANTS_SUBTYPE: new APIRouter("/slots/subtyps", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_PLANTS_SLOTS: new APIRouter("/slots/getslots", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_STOCK_ENTRY: new APIRouter("/slots/stock-entry", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_LAGWAD_ANALYSIS: new APIRouter(
+      "/slots/lagwad-analysis",
+      HTTP_METHODS.GET,
+      OFFLINE.PROFILE
+    ),
     GET_SLOT_SECONDARY_SHED_BREAKDOWN: new APIRouter(
       "/slots/:slotId/secondary-shed-breakdown",
       HTTP_METHODS.GET,
+      OFFLINE.PROFILE
+    ),
+    TRANSFER_EXPECTED_MORTALITY: new APIRouter(
+      "/slots/:slotId/transfer-expected-mortality",
+      HTTP_METHODS.POST,
       OFFLINE.PROFILE
     ),
     RUN_PAST_DUE_ROLLOVER: new APIRouter(

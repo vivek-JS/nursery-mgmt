@@ -3,7 +3,8 @@ import { API, NetworkManager } from "network/core";
 import { Toast } from "helpers/toasts/toastHelper";
 
 /**
- * Sowing / inventory link for a Ram Agri seed variety (plant + subtype → request packets).
+ * Sowing link for a Ram Agri seed variety (plant + subtype → request packets).
+ * Stock is not mirrored here; inventory approve of a packet request creates an internal PO.
  */
 export default function RamAgriVarietyInventoryLinkFields({
   cropId,
@@ -14,7 +15,6 @@ export default function RamAgriVarietyInventoryLinkFields({
   errors = {},
 }) {
   const [plants, setPlants] = useState([]);
-  const [seedProducts, setSeedProducts] = useState([]);
   const [loadingLink, setLoadingLink] = useState(false);
   const [linkedProduct, setLinkedProduct] = useState(null);
 
@@ -42,23 +42,6 @@ export default function RamAgriVarietyInventoryLinkFields({
   }, [enabled]);
 
   useEffect(() => {
-    if (!enabled) return;
-    (async () => {
-      try {
-        const instance = NetworkManager(API.INVENTORY.GET_ALL_PRODUCTS);
-        const response = await instance.request({}, { category: "seeds", isActive: true });
-        const apiResponse = response?.data;
-        let rows = [];
-        if (apiResponse?.success && Array.isArray(apiResponse.data)) rows = apiResponse.data;
-        else if (apiResponse?.status === "Success" && Array.isArray(apiResponse.data)) rows = apiResponse.data;
-        setSeedProducts(rows);
-      } catch (e) {
-        console.error("Failed to load seed products", e);
-      }
-    })();
-  }, [enabled]);
-
-  useEffect(() => {
     if (!enabled || !cropId || !varietyId) {
       setLinkedProduct(null);
       return;
@@ -80,7 +63,6 @@ export default function RamAgriVarietyInventoryLinkFields({
               data.product?.tentativePlantsPerPacket != null
                 ? String(data.product.tentativePlantsPerPacket)
                 : "",
-            productId: data.product?._id || "",
           });
         } else {
           setLinkedProduct(null);
@@ -105,9 +87,8 @@ export default function RamAgriVarietyInventoryLinkFields({
           Sowing / inventory link
         </h3>
         <p className="text-[11px] text-emerald-800/80 mt-0.5">
-          Map this variety to nursery plant + subtype for request packets. Pick an existing seed
-          product if stock already exists (e.g. after unlink). Stock moves via internal PO (Ram Agri
-          → Ram Biotech), not direct mirror sync.
+          Map this variety to nursery plant + subtype so sowing can request packets. When inventory
+          approves that request, an internal PO moves stock Ram Agri → Ram Biotech.
         </p>
         {loadingLink && (
           <p className="text-[11px] text-gray-500 mt-1">Loading existing link…</p>
@@ -175,41 +156,20 @@ export default function RamAgriVarietyInventoryLinkFields({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <div>
-          <label className="block text-xs font-semibold text-gray-700 mb-1.5">
-            Tentative plants per packet
-          </label>
-          <input
-            type="number"
-            min={1}
-            value={value.tentativePlantsPerPacket || ""}
-            onChange={(e) =>
-              onChange({ ...value, tentativePlantsPerPacket: e.target.value })
-            }
-            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500"
-            placeholder="e.g. 1000"
-          />
-        </div>
-
-        <div>
-          <label className="block text-xs font-semibold text-gray-700 mb-1.5">
-            Existing seed product (optional)
-          </label>
-          <select
-            value={value.productId || ""}
-            onChange={(e) => onChange({ ...value, productId: e.target.value })}
-            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500"
-          >
-            <option value="">Auto-create / match by link</option>
-            {seedProducts.map((p) => (
-              <option key={p._id} value={p._id}>
-                {p.code} — {p.name}
-                {p.currentStock != null && p.currentStock > 0 ? ` (${p.currentStock} in stock)` : ""}
-              </option>
-            ))}
-          </select>
-        </div>
+      <div>
+        <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+          Tentative plants per packet
+        </label>
+        <input
+          type="number"
+          min={1}
+          value={value.tentativePlantsPerPacket || ""}
+          onChange={(e) =>
+            onChange({ ...value, tentativePlantsPerPacket: e.target.value })
+          }
+          className="w-full max-w-md px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500"
+          placeholder="e.g. 1000"
+        />
       </div>
     </div>
   );
@@ -227,7 +187,6 @@ export async function saveVarietyInventoryLink(cropId, varietyId, linkForm) {
     const payload = {
       plantId,
       subtypeId,
-      productId: linkForm.productId || undefined,
       tentativePlantsPerPacket: linkForm.tentativePlantsPerPacket
         ? Number(linkForm.tentativePlantsPerPacket)
         : undefined,
@@ -267,5 +226,4 @@ export const emptyLinkForm = () => ({
   plantId: "",
   subtypeId: "",
   tentativePlantsPerPacket: "",
-  productId: "",
 });

@@ -54,6 +54,7 @@ const Slots = React.lazy(() => import("pages/private/SlotsView/index"))
 const SlotSubtypeManagePage = React.lazy(() =>
   import("pages/private/SlotsView/SlotSubtypeManagePage")
 )
+const LagwadAnalysis = React.lazy(() => import("pages/private/LagwadAnalysis/index"))
 const Hardening = React.lazy(() => import("pages/private/hardening/Index"))
 const Stats = React.lazy(() => import("pages/private/slotsStats"))
 const FarmerComponent = React.lazy(() => import("pages/private/farmer/Farmer"))
@@ -164,6 +165,7 @@ export const PrivateRoutes = [
   { path: "/u/cms", component: Cms },
   { path: "/u/labs", component: Labs },
   { path: "/u/plants", component: Plants },
+  { path: "/u/lagwad-analysis", component: LagwadAnalysis },
   { path: "/u/slots/:plantId/:subtypeId", component: SlotSubtypeManagePage },
   { path: "/u/slots", component: Slots },
   { path: "/u/hardening", component: Hardening },

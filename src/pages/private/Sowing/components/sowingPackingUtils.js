@@ -166,7 +166,6 @@ export function buildRoadmapLines(cards = []) {
     const raisingDefault =
       Number(card.raisingInHandPackets) ||
       Number(summary.raisingInHandPackets) ||
-      Number(summary.raisingPackets) ||
       0
     const seedHint =
       (summary.raisingPackets > 0 && summary.companyPackets > 0) ||

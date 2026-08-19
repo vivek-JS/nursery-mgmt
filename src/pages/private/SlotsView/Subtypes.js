@@ -922,6 +922,7 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
         onOpenStockHistory={openStockHistory}
         onOpenOrdersDrawer={setSlotOrdersDrawer}
         onOpenActual={setActualBreakdownSlot}
+        onSlotChanged={fetchPlantsSlots}
         onOpenPendingRoll={openPendingRollModal}
         onOpenRollExpired={setRollExpiredModal}
       />
@@ -1571,6 +1572,7 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                     onOpenOrders={openSlotOrders}
                     onOpenPastDue={openPastDueOnSlot}
                     onOpenActual={setActualBreakdownSlot}
+                    onSlotChanged={fetchPlantsSlots}
                     onPendingRoll={openPendingRollModal}
                     onRollExpiredAvailable={setRollExpiredModal}
                     onTrail={(e, s) => openSlotTrail(e, s, "all")}
@@ -1668,6 +1670,7 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
         open={Boolean(actualBreakdownSlot)}
         onClose={() => setActualBreakdownSlot(null)}
         slotRow={actualBreakdownSlot}
+        onSlotChanged={fetchPlantsSlots}
       />
     </div>
   )

@@ -538,8 +538,8 @@ export default function EasyRequestPanel({
                       Number(card.orderSeedSummary?.raisingInHandPackets) ||
                       0
                     const raisingOrders =
-                      Number(card.raisingOrderCount) ||
-                      Number(card.orderSeedSummary?.mixedOrderCount) ||
+                      Number(card.raisingCollectedOrderCount) ||
+                      Number(card.orderSeedSummary?.raisingCollectedOrderCount) ||
                       0
                     const raisingAvailable = raising > 0
                     const requestPending =

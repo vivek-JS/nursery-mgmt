@@ -12,17 +12,22 @@ export function getEasyRequestRowMetrics(card) {
     Number(card.raisingInHandPackets) ||
     Number(summary.raisingInHandPackets) ||
     0
-  const raisingOrders =
+  const raisingOrdersPlanned =
     Number(card.raisingOrderCount) > 0
       ? Number(card.raisingOrderCount)
       : Number(summary.mixedOrderCount) > 0
         ? Number(summary.mixedOrderCount)
         : (Number(summary.raisingOrderCount) || 0) +
           (Number(summary.pureMixedOrderCount) || 0)
+  const raisingOrdersCollected =
+    Number(card.raisingCollectedOrderCount) > 0
+      ? Number(card.raisingCollectedOrderCount)
+      : Number(summary.raisingCollectedOrderCount) || 0
   const raisingAvailable = raising > 0
-  const raisingPendingCollect = raisingOrders > 0 && raising <= 0
+  const raisingOrders = raisingOrdersCollected
+  const raisingPendingCollect = raisingOrdersPlanned > 0 && raising <= 0
   const isRaisingPlan =
-    raisingOrders > 0 || raising > 0 || Number(summary.raisingPackets) > 0
+    raisingOrdersPlanned > 0 || raising > 0 || Number(summary.raisingPackets) > 0
   const availPlants = Number(card.availablePlants) || 0
   const coverPct =
     plants > 0 ? Math.min(100, Math.round((availPlants / plants) * 100)) : 100
@@ -96,6 +101,7 @@ export function getEasyRequestRowMetrics(card) {
     coStock,
     raising,
     raisingOrders,
+    raisingOrdersPlanned,
     raisingAvailable,
     raisingPendingCollect,
     isRaisingPlan,

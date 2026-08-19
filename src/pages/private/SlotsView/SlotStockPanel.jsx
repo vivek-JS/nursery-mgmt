@@ -504,6 +504,7 @@ const SlotStockPanel = ({ plants = [], defaultYear }) => {
         open={Boolean(breakdownSlot)}
         onClose={() => setBreakdownSlot(null)}
         slotRow={breakdownSlot}
+        onSlotChanged={fetchSlots}
       />
     </div>
   )

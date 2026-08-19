@@ -383,7 +383,7 @@ const SowingRequestDialog = ({ open, onClose, request, onSuccess }) => {
         setAlertDialog({
           open: true,
           title: 'Success',
-          message: 'Stock issued successfully!',
+          message: response.data.message || 'Stock issued successfully!',
         });
         onSuccess?.();
         setTimeout(() => onClose(), 1000);

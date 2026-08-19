@@ -88,15 +88,16 @@ export default function RequestPacketsDialog({
       (o) => !selectedOrderIds.length || selectedOrderIds.includes(String(o.orderId))
     )
     const sourceRows = rows.length ? rows : orderRows
-    let raising = 0
-    sourceRows.forEach((o) => {
-      raising += Number(o.sowingPlan?.raisingSeedPackets) || 0
-    })
-    if (raising > 0) return raising
-    const inHandFromOrders = sourceRows.reduce(
-      (s, o) => s + (Number(o.raisingInHandPackets) || 0),
-      0
-    )
+    const inHandFromOrders = sourceRows.reduce((s, o) => {
+      const collected = Boolean(
+        o?.raisingCollected ||
+          o?.sowingPlan?.raisingIntakeCollected ||
+          o?.sowingPlan?.raisingIntakeId ||
+          Number(o?.raisingInHandPackets) > 0
+      )
+      if (!collected) return s
+      return s + (Number(o.raisingInHandPackets) || 0)
+    }, 0)
     if (inHandFromOrders > 0) return inHandFromOrders
     return (
       Number(card?.raisingInHandPackets) ||

@@ -10,6 +10,7 @@ const PublicAddFarmer = React.lazy(() => import("pages/public/add-farmer/PublicA
 const CallListMobile = React.lazy(() => import("pages/public/CallListMobile"))
 const RateApprovalPage = React.lazy(() => import("pages/public/RateApprovalPage"))
 const AgriLoadPage = React.lazy(() => import("pages/public/AgriLoadPage"))
+const LagwadPreview = React.lazy(() => import("pages/public/__LagwadPreview"))
 
 export const PublicRoutes = [
   { path: "/auth/login", component: Login },
@@ -26,4 +27,5 @@ export const PublicRoutes = [
   { path: "/rate-approval", component: RateApprovalPage, allowWhenLoggedIn: true },
   // Agri load mark-loaded page: WhatsApp one-click link, auto-marks order as LOADED
   { path: "/agri-load", component: AgriLoadPage, allowWhenLoggedIn: true },
+  { path: "/__lagwad-preview", component: LagwadPreview, allowWhenLoggedIn: true },
 ]

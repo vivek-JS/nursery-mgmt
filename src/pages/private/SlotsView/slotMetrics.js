@@ -250,16 +250,45 @@ export const getActualRemainingToDispatch = (slot) =>
 /** Alias — plants still to dispatch (native + rolled queue). */
 export const getActualRemainingPlants = (slot) => getActualRemainingToDispatch(slot)
 
-/** Physical sellable headroom after dispatch queue. */
+/** Physical remaining after dispatch (plants still in nursery). */
 export const getActualAvailablePlants = (slot) => {
   if (slot?.actualAvailable != null && Number.isFinite(Number(slot.actualAvailable))) {
     return Math.max(0, Number(slot.actualAvailable))
   }
   return Math.max(
     0,
+    (Number(slot?.actualPlants) || 0) - getTotalAllDispatchedPlants(slot)
+  )
+}
+
+export const getQueueAvailablePlants = (slot) => {
+  if (slot?.queueAvailable != null && Number.isFinite(Number(slot.queueAvailable))) {
+    return Math.max(0, Number(slot.queueAvailable))
+  }
+  return Math.max(
+    0,
     (Number(slot?.actualPlants) || 0) - (Number(slot?.remainingToDispatch) || 0)
   )
 }
+
+/** Booked plants already sowingDone or dispatched. */
+export const getBookedCoveredPlants = (slot) =>
+  Math.max(0, Number(slot?.bookedCoveredPlants) || 0)
+
+/** Booked plants still needing sow. */
+export const getBookedUncoveredPlants = (slot) => {
+  if (slot?.bookedUncoveredPlants != null && Number.isFinite(Number(slot.bookedUncoveredPlants))) {
+    return Math.max(0, Number(slot.bookedUncoveredPlants))
+  }
+  return Math.max(0, getBookedPlants(slot) - getBookedCoveredPlants(slot))
+}
+
+export const getSowingEntries = (slot) =>
+  Array.isArray(slot?.sowingEntries)
+    ? slot.sowingEntries
+    : Array.isArray(slot?.sowingBatches)
+      ? slot.sowingBatches
+      : []
 
 /** Shortfall: dispatch queue exceeds physical stock (positive = need more actual). */
 export const getActualGapPlants = (slot) => {
@@ -291,6 +320,28 @@ export const getActualSurplusPlants = (slot) => {
   return Math.max(0, -getActualGapPlants(slot))
 }
 
+/** Shed-synced plants on slot that are calendar-ready for dispatch / sell. */
+export const getActualReadyPlants = (slot) =>
+  Math.max(0, Number(slot?.actualReadyPlants) || 0)
+
+/** 10% lagwad reserve on slot (expected mortality). */
+export const getExpectedMortality = (slot) =>
+  Math.max(0, Number(slot?.expectedMortality) || 0)
+
+/** Gross lagwad on slot = actual (90%) + expected mortality (10%). */
+export const getLagwadGrossPlants = (slot) => {
+  const actual = Math.max(0, Number(slot?.actualPlants) || 0)
+  return actual + getExpectedMortality(slot)
+}
+
+/** Legacy field — dispatch now subtracts actualReadyPlants. */
+export const getLagwadRemaining = (slot) =>
+  Math.max(0, Number(slot?.lagwadRemaining) || 0)
+
+/** Calendar-ready stock still in shed (may include not yet synced to slot). */
+export const getShedReadyInShed = (slot) =>
+  Math.max(0, Number(slot?.shedReadyInShed) || 0)
+
 export const getRolledInAvailablePlants = (slot) =>
   Number(slot?.rolledInAvailablePlants) || 0
 
@@ -312,8 +363,16 @@ export const rollupMonthSlotMetrics = (slots) => {
   let totalActualPlants = 0
   let totalActualRemaining = 0
   let totalActualAvailable = 0
+  let totalActualReadyPlants = 0
+  let totalShedReadyInShed = 0
+  let totalExpectedMortality = 0
+  let totalLagwadGrossPlants = 0
+  let totalLagwadRemaining = 0
   let totalRolledInAvailable = 0
   let hasDualAvailable = false
+  let totalQueueAvailable = 0
+  let totalBookedCoveredPlants = 0
+  let totalBookedUncoveredPlants = 0
 
   for (const slot of list) {
     totalPlants += getTotalCapacity(slot)
@@ -334,7 +393,15 @@ export const rollupMonthSlotMetrics = (slots) => {
     totalActualPlants += Number(slot?.actualPlants) || 0
     totalActualRemaining += getActualRemainingPlants(slot)
     totalActualAvailable += getActualAvailablePlants(slot)
+    totalQueueAvailable += getQueueAvailablePlants(slot)
+    totalActualReadyPlants += getActualReadyPlants(slot)
+    totalShedReadyInShed += getShedReadyInShed(slot)
+    totalExpectedMortality += getExpectedMortality(slot)
+    totalLagwadGrossPlants += getLagwadGrossPlants(slot)
+    totalLagwadRemaining += getLagwadRemaining(slot)
     totalRolledInAvailable += getRolledInAvailablePlants(slot)
+    totalBookedCoveredPlants += getBookedCoveredPlants(slot)
+    totalBookedUncoveredPlants += getBookedUncoveredPlants(slot)
   }
 
   const gapRaw = totalActualRemaining - totalActualPlants
@@ -365,10 +432,18 @@ export const rollupMonthSlotMetrics = (slots) => {
     totalActualPlants,
     totalActualRemaining,
     totalActualAvailable,
+    totalQueueAvailable,
+    totalActualReadyPlants,
+    totalShedReadyInShed,
+    totalExpectedMortality,
+    totalLagwadGrossPlants,
+    totalLagwadRemaining,
     actualGapPlants,
     actualGapPct,
     actualSurplusPlants,
     totalRolledInAvailable,
+    totalBookedCoveredPlants,
+    totalBookedUncoveredPlants,
     sowingGap,
   }
 }

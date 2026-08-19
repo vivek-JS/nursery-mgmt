@@ -34,6 +34,7 @@ export default function EasyRequestCard({
     coStock,
     raising,
     raisingOrders,
+    raisingOrdersPlanned,
     raisingAvailable,
     raisingPendingCollect,
     isRaisingPlan,
@@ -124,7 +125,7 @@ export default function EasyRequestCard({
         ) : isRaisingPlan ? (
           <Chip
             size="small"
-            label={raisingAvailable ? `${raisingOrders} raising · in hand` : `${raisingOrders} raising · not collected`}
+            label={raisingAvailable ? `${raisingOrders} raising · in hand` : `${raisingOrdersPlanned} raising · not collected`}
             sx={{ height: 22, fontSize: "0.62rem", fontWeight: 800, bgcolor: raisingAvailable ? "#10b981" : "#f59e0b", color: "#fff", maxWidth: 160 }}
           />
         ) : null}
@@ -171,13 +172,14 @@ export default function EasyRequestCard({
 
       {isRaisingPlan && !statusLocked && (
         <Box
-          role="button"
-          tabIndex={0}
+          role={raisingOrders > 0 ? "button" : undefined}
+          tabIndex={raisingOrders > 0 ? 0 : undefined}
           onClick={(e) => {
             e.stopPropagation()
-            onRaisingOrders?.()
+            if (raisingOrders > 0) onRaisingOrders?.()
           }}
           onKeyDown={(e) => {
+            if (raisingOrders <= 0) return
             if (e.key === "Enter" || e.key === " ") {
               e.preventDefault()
               e.stopPropagation()
@@ -191,16 +193,18 @@ export default function EasyRequestCard({
             border: "1px solid",
             borderColor: raisingAvailable ? "#6ee7b7" : "#fcd34d",
             bgcolor: raisingAvailable ? "#d1fae5" : "#fef3c7",
-            cursor: "pointer",
+            cursor: raisingOrders > 0 ? "pointer" : "default",
           }}
         >
           <Typography fontSize="0.75rem" fontWeight={700} color={raisingAvailable ? "#065f46" : "#92400e"}>
-            Raising orders: {raisingOrders}
-            {" · "}
-            {raisingAvailable ? `Packets available: ${fmt(raising, 2)} pkt` : "Packets: not available yet (collect at Inventory)"}
-            <Typography component="span" fontSize="0.68rem" fontWeight={800} sx={{ ml: 0.75, textDecoration: "underline" }}>
-              View
-            </Typography>
+            {raisingAvailable
+              ? `Raising collected: ${raisingOrders} · ${fmt(raising, 2)} pkt`
+              : `Farmer seed planned: ${raisingOrdersPlanned} · not collected`}
+            {raisingOrders > 0 ? (
+              <Typography component="span" fontSize="0.68rem" fontWeight={800} sx={{ ml: 0.75, textDecoration: "underline" }}>
+                View
+              </Typography>
+            ) : null}
           </Typography>
         </Box>
       )}
@@ -262,13 +266,14 @@ export default function EasyRequestCard({
           </Typography>
         </Box>
         <Box
-          role="button"
-          tabIndex={0}
+          role={raisingOrders > 0 ? "button" : undefined}
+          tabIndex={raisingOrders > 0 ? 0 : undefined}
           onClick={(e) => {
             e.stopPropagation()
-            onRaisingOrders?.()
+            if (raisingOrders > 0) onRaisingOrders?.()
           }}
           onKeyDown={(e) => {
+            if (raisingOrders <= 0) return
             if (e.key === "Enter" || e.key === " ") {
               e.preventDefault()
               e.stopPropagation()
@@ -280,10 +285,10 @@ export default function EasyRequestCard({
             px: 1,
             py: 0.75,
             borderRadius: 1.5,
-            bgcolor: raisingAvailable ? "#d1fae5" : raisingOrders > 0 ? "#fef3c7" : "#f8fafc",
+            bgcolor: raisingAvailable ? "#d1fae5" : raisingPendingCollect ? "#fef3c7" : "#f8fafc",
             minWidth: 0,
-            cursor: "pointer",
-            "&:hover": { filter: "brightness(0.97)" },
+            cursor: raisingOrders > 0 ? "pointer" : "default",
+            "&:hover": raisingOrders > 0 ? { filter: "brightness(0.97)" } : undefined,
           }}
         >
           <Typography variant="caption" fontWeight={700} color="text.secondary" display="block">
@@ -293,11 +298,16 @@ export default function EasyRequestCard({
             fontWeight={800}
             fontSize="1.05rem"
             lineHeight={1.15}
-            color={raisingAvailable ? "#047857" : raisingOrders > 0 ? "#b45309" : "text.secondary"}
+            color={raisingAvailable ? "#047857" : raisingPendingCollect ? "#b45309" : "text.secondary"}
           >
-            {raisingAvailable ? fmt(raising, 2) : raisingOrders > 0 ? "0" : "—"}
+            {raisingAvailable ? fmt(raising, 2) : raisingPendingCollect ? "0" : "—"}
             <Typography component="span" variant="caption" color="text.secondary"> pkt</Typography>
           </Typography>
+          {raisingPendingCollect ? (
+            <Typography variant="caption" fontWeight={700} color="#b45309">
+              not collected
+            </Typography>
+          ) : null}
         </Box>
       </Stack>
 

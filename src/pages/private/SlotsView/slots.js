@@ -16,7 +16,7 @@ import {
   getSubtypeAvailable,
   getUtilizationPct,
   isSubtypeOverbooked,
-  openSlotManageTab
+  openSlotManageTab,
 } from "./slotMetrics"
 
 const getStatusInfo = (percentage, availablePlants, overbooked) => {
@@ -304,7 +304,9 @@ const SlotAccordionView = ({ plantId, year }) => {
                 const bookedPercentage = getUtilizationPct(bookedPlants, totalCapacity)
                 const isOverbooked = isSubtypeOverbooked(subtype)
                 const statusInfo = getStatusInfo(bookedPercentage, availablePlants, isOverbooked)
-
+                const totalActualPlants = Number(subtype?.totalActualPlants) || 0
+                const totalExpectedMortality = Number(subtype?.totalExpectedMortality) || 0
+                const totalActualReady = Number(subtype?.totalActualReadyPlants) || 0
                 return (
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     <div className="lg:col-span-2">
@@ -369,6 +371,36 @@ const SlotAccordionView = ({ plantId, year }) => {
                                   <Eye className="w-5 h-5 text-blue-600" />
                                 </IconButton>
                               </Tooltip>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
+                            <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200">
+                              <p className="text-[10px] font-semibold uppercase text-emerald-800">
+                                Sellable
+                              </p>
+                              <p className="text-lg font-bold text-emerald-900 tabular-nums">
+                                {totalActualPlants.toLocaleString()}
+                              </p>
+                              <p className="text-[10px] text-emerald-700">90% actual only</p>
+                            </div>
+                            <div className="p-3 rounded-xl bg-rose-50 border border-rose-200">
+                              <p className="text-[10px] font-semibold uppercase text-rose-700">
+                                Exp. mortality
+                              </p>
+                              <p className="text-lg font-bold text-rose-800 tabular-nums">
+                                {totalExpectedMortality.toLocaleString()}
+                              </p>
+                              <p className="text-[10px] text-rose-600">10% lagwad reserve</p>
+                            </div>
+                            <div className="p-3 rounded-xl bg-sky-50 border border-sky-200">
+                              <p className="text-[10px] font-semibold uppercase text-sky-700">
+                                Actual ready
+                              </p>
+                              <p className="text-lg font-bold text-sky-800 tabular-nums">
+                                {totalActualReady.toLocaleString()}
+                              </p>
+                              <p className="text-[10px] text-sky-600">dispatch −</p>
                             </div>
                           </div>
 
