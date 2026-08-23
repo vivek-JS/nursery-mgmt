@@ -370,6 +370,23 @@ function AdminStatsPage() {
     setDrawerOpen(true)
   }
 
+  /** Booked chip → date-wise counts for the range, built from the already-loaded daily rows. */
+  const openBookedSummary = useCallback(() => {
+    const rows = (tab === TAB_DUE ? dueDays : days) || []
+    if (!rows.length) return
+    setDrawerFilter({
+      scope: "summary",
+      mode: "booking",
+      bucket: "booking",
+      rangeStart,
+      rangeEnd,
+      summaryRows: rows,
+      ...drawerRangeFlags,
+      dueOnly: tab === TAB_DUE || dueOnly,
+    })
+    setDrawerOpen(true)
+  }, [tab, dueDays, days, rangeStart, rangeEnd, drawerRangeFlags, dueOnly])
+
   const openDueSummary = () => {
     setDrawerFilter({
       scope: "due",
@@ -653,6 +670,7 @@ function AdminStatsPage() {
             label: "Booked",
             orders: salesTotals.booking.orders,
             plants: salesTotals.booking.plants,
+            onClick: openBookedSummary,
           },
           {
             label: dueOnly ? "Delivery (due only)" : "Delivery",
@@ -674,6 +692,7 @@ function AdminStatsPage() {
             label: "Booked",
             orders: dealerTotals.booking.orders,
             plants: dealerTotals.booking.plants,
+            onClick: openBookedSummary,
           },
           {
             label: dueOnly ? "Delivery (due only)" : "Delivery",
@@ -690,7 +709,12 @@ function AdminStatsPage() {
     const rangeDeliveryPlants = totals.delivery?.total?.plants ?? 0
     return appendDueChip(
       [
-        { label: "Booked", orders: totals.booking.orders, plants: totals.booking.plants },
+        {
+          label: "Booked",
+          orders: totals.booking.orders,
+          plants: totals.booking.plants,
+          onClick: openBookedSummary,
+        },
         {
           label: dueOnly ? "Delivery (due only)" : "Delivery",
           orders: totals.delivery.total.orders,
@@ -718,6 +742,7 @@ function AdminStatsPage() {
     dealerMis?.dueSummary,
     dueMis,
     dueTotals,
+    openBookedSummary,
   ])
 
   if (!isAdmin && userData) {
@@ -1186,7 +1211,12 @@ function AdminStatsPage() {
           />
         )}
 
-        <MisOrderDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} filter={drawerFilter} />
+        <MisOrderDrawer
+          open={drawerOpen}
+          onClose={() => setDrawerOpen(false)}
+          filter={drawerFilter}
+          onSelectDate={(date, payload) => openDailyCell(date, payload)}
+        />
 
         <MisGuideJoyride
           run={joyrideRun}

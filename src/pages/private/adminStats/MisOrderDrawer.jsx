@@ -14,6 +14,11 @@ import {
   Divider,
   Tabs,
   Tab,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
 } from "@mui/material"
 import CloseIcon from "@mui/icons-material/Close"
 import moment from "moment"
@@ -179,8 +184,44 @@ function tabCountLabel(summaryPart) {
   return ` (${Number(orders).toLocaleString()})`
 }
 
-export default function MisOrderDrawer({ open, onClose, filter }) {
-  const splitTabs = shouldSplitPastDueTabs(filter)
+/** Metric a summary row reports for the drawer's bucket. Mirrors getMetricForColumn. */
+function summaryRowMetric(row, bucket) {
+  if (bucket === "booking") return row?.booking
+  if (bucket === "deliveryTotal") return row?.delivery?.total
+  return row?.delivery?.[bucket] ?? null
+}
+
+/** Date-wise rows + a total, derived from the daily MIS rows already loaded by the page. */
+function buildSummaryRows(filter) {
+  const bucket = filter?.bucket || "booking"
+  const rows = (filter?.summaryRows || [])
+    .map((row) => {
+      const metric = summaryRowMetric(row, bucket)
+      return {
+        date: row?.date,
+        label: row?.label,
+        isPastDue: row?.date === "past-due",
+        orders: Number(metric?.orders) || 0,
+        plants: Number(metric?.plants) || 0,
+      }
+    })
+    .filter((row) => row.date)
+  const total = rows.reduce(
+    (acc, row) => ({ orders: acc.orders + row.orders, plants: acc.plants + row.plants }),
+    { orders: 0, plants: 0 }
+  )
+  return { rows, total }
+}
+
+function summaryDateLabel(row) {
+  if (row.isPastDue) return row.label || "Past due"
+  const d = moment(row.date, "YYYY-MM-DD")
+  return d.isValid() ? d.format("DD MMM · ddd") : row.date
+}
+
+export default function MisOrderDrawer({ open, onClose, filter, onSelectDate }) {
+  const isSummary = filter?.scope === "summary"
+  const splitTabs = !isSummary && shouldSplitPastDueTabs(filter)
   const [drawerTab, setDrawerTab] = useState(TAB_REGULAR)
   const [loading, setLoading] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -202,8 +243,17 @@ export default function MisOrderDrawer({ open, onClose, filter }) {
     drawerTab: TAB_REGULAR,
   })
 
+  const summary = isSummary ? buildSummaryRows(filter) : null
+
   const title = (() => {
     if (!filter) return ""
+    if (isSummary) {
+      const label = BUCKET_LABELS[filter.bucket] || filter.bucket || "Booked"
+      if (filter.rangeStart && filter.rangeEnd) {
+        return `${label} · ${moment(filter.rangeStart).format("DD MMM")} – ${moment(filter.rangeEnd).format("DD MMM YYYY")}`
+      }
+      return label
+    }
     const parts = []
     if (
       (filter.scope === "variety" || filter.scope === "sales" || filter.scope === "dealer") &&
@@ -232,7 +282,7 @@ export default function MisOrderDrawer({ open, onClose, filter }) {
 
   const fetchPage = useCallback(
     async (pageNum, { append = false, tab = drawerTab } = {}) => {
-      if (!filter || filter.bucket === "unique") {
+      if (!filter || filter.bucket === "unique" || filter.scope === "summary") {
         setOrders([])
         setApiTotal(null)
         setHasMore(false)
@@ -362,6 +412,9 @@ export default function MisOrderDrawer({ open, onClose, filter }) {
   }, [open, hasMore, tryLoadMore, orders.length])
 
   const countLabel = (() => {
+    if (isSummary) {
+      return `${summary.total.orders.toLocaleString()} orders · ${summary.total.plants.toLocaleString()} plants`
+    }
     if (loading && !orders.length) return null
     const shown = orders.length
     if (apiTotal != null) {
@@ -377,7 +430,12 @@ export default function MisOrderDrawer({ open, onClose, filter }) {
   })()
 
   const showEmptyMessage =
-    !loading && !loadingMore && !error && filter?.bucket !== "unique" && orders.length === 0
+    !isSummary &&
+    !loading &&
+    !loadingMore &&
+    !error &&
+    filter?.bucket !== "unique" &&
+    orders.length === 0
 
   const dueSummary = filter?.dueSummary
   const regularTabLabel = `In range${tabCountLabel(dueSummary?.inRange)}`
@@ -450,7 +508,72 @@ export default function MisOrderDrawer({ open, onClose, filter }) {
           </Alert>
         )}
 
-        {filter?.bucket === "unique" && (
+        {isSummary && (
+          <>
+            {summary.rows.length === 0 ? (
+              <Typography color="text.secondary" variant="body2" py={2}>
+                No days in this range.
+              </Typography>
+            ) : (
+              <Table size="small" sx={{ bgcolor: "#fff", borderRadius: 2, overflow: "hidden" }}>
+                <TableHead>
+                  <TableRow sx={{ bgcolor: "#e8f5e9" }}>
+                    <TableCell sx={{ fontWeight: 700, fontSize: 12 }}>Date</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 700, fontSize: 12 }}>
+                      Orders
+                    </TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 700, fontSize: 12 }}>
+                      Plants
+                    </TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {summary.rows.map((row) => (
+                    <TableRow
+                      key={row.date}
+                      hover
+                      onClick={() =>
+                        onSelectDate?.(row.date, {
+                          mode: filter.mode || "booking",
+                          bucket: filter.bucket || "booking",
+                        })
+                      }
+                      sx={{
+                        cursor: onSelectDate ? "pointer" : "default",
+                        "& td": { fontSize: 12, py: 0.75 },
+                      }}>
+                      <TableCell sx={{ color: row.isPastDue ? "#e65100" : undefined }}>
+                        {summaryDateLabel(row)}
+                      </TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 700 }}>
+                        {row.orders.toLocaleString()}
+                      </TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 700, color: "success.dark" }}>
+                        {row.plants.toLocaleString()}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  <TableRow sx={{ bgcolor: "#1b5e20" }}>
+                    <TableCell sx={{ color: "#fff", fontWeight: 700, fontSize: 12 }}>TOTAL</TableCell>
+                    <TableCell align="right" sx={{ color: "#fff", fontWeight: 800, fontSize: 12 }}>
+                      {summary.total.orders.toLocaleString()}
+                    </TableCell>
+                    <TableCell align="right" sx={{ color: "#fff", fontWeight: 800, fontSize: 12 }}>
+                      {summary.total.plants.toLocaleString()}
+                    </TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            )}
+            {onSelectDate && summary.rows.length > 0 && (
+              <Typography variant="caption" color="text.secondary" display="block" pt={1.5}>
+                Tap a date to see that day&apos;s orders.
+              </Typography>
+            )}
+          </>
+        )}
+
+        {!isSummary && filter?.bucket === "unique" && (
           <Alert severity="info" sx={{ mb: 2 }}>
             Unique orders combine booking and delivery for that day. Open another cell to see order lists.
           </Alert>

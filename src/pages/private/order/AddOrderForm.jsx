@@ -2512,8 +2512,15 @@ const AddOrderForm = ({
       return false
     }
 
-    // Validate image requirement for non-Cash payments (except NEFT/RTGS)
-    if (newPayment.paidAmount && newPayment.modeOfPayment && newPayment.modeOfPayment !== "Cash" && newPayment.modeOfPayment !== "NEFT/RTGS") {
+    // Validate image requirement for non-Cash payments (except NEFT/RTGS and Cheque)
+    if (
+      newPayment.paidAmount &&
+      newPayment.modeOfPayment &&
+      newPayment.modeOfPayment !== "Cash" &&
+      newPayment.modeOfPayment !== "NEFT/RTGS" &&
+      newPayment.modeOfPayment !== "Cheque" &&
+      newPayment.modeOfPayment !== "Discount"
+    ) {
       if (!newPayment.receiptPhoto || newPayment.receiptPhoto.length === 0) {
         Toast.error(`Payment image is mandatory for ${newPayment.modeOfPayment} payments`)
         return false
@@ -2713,6 +2720,8 @@ const AddOrderForm = ({
           rate: parseFloat(formData?.rate) || 0,
           paymentStatus: "not paid",
           orderStatus: defaultOrderStatusOnPlace(isInstantOrder, user),
+          // Tells the backend this order is dispatched on purpose without a vehicle
+          ...(isInstantOrder ? { instantDispatch: true } : {}),
           plantName: formData?.plant || "",
           plantSubtype: formData?.subtype || "",
           bookingSlot: slotId, // Auto-detected slot ID from order date
@@ -2806,6 +2815,8 @@ const AddOrderForm = ({
             )
           })(),
           orderStatus: defaultOrderStatusOnPlace(isInstantOrder, user),
+          // Tells the backend this order is dispatched on purpose without a vehicle
+          ...(isInstantOrder ? { instantDispatch: true } : {}),
           plantName: instantMulti ? firstLine.plantName : formData?.plant || "",
           plantSubtype: instantMulti ? firstLine.plantSubtype : formData?.subtype || "",
           bookingSlot: instantMulti ? firstLine.bookingSlot : slotId,
@@ -5206,10 +5217,10 @@ const AddOrderForm = ({
                       </Typography>
                       <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1.5 }}>
                         {newPayment.modeOfPayment &&
-                        !["Cash", "NEFT/RTGS", "Wallet"].includes(newPayment.modeOfPayment) &&
+                        !["Cash", "NEFT/RTGS", "Cheque", "Wallet"].includes(newPayment.modeOfPayment) &&
                         !newPayment.isWalletPayment
                           ? `Required for ${newPayment.modeOfPayment}. `
-                          : "Optional for Cash & NEFT/RTGS. "}
+                          : "Optional for Cash, Cheque & NEFT/RTGS. "}
                         Upload first — we scan the receipt to fill payee, amount, date, and UTR when possible.
                       </Typography>
                       <Box sx={{ width: "fit-content", maxWidth: "100%", mb: 2 }}>
@@ -5243,10 +5254,11 @@ const AddOrderForm = ({
                         {newPayment.modeOfPayment &&
                           newPayment.modeOfPayment !== "Cash" &&
                           newPayment.modeOfPayment !== "NEFT/RTGS" &&
+                          newPayment.modeOfPayment !== "Cheque" &&
                           !newPayment.isWalletPayment && (
                           <Typography variant="caption" color="error" sx={{ ml: 2, display: "inline-block" }}>
-                            {newPayment.modeOfPayment === "UPI" || newPayment.modeOfPayment === "Cheque"
-                              ? "Receipt photo is mandatory for UPI and Cheque."
+                            {newPayment.modeOfPayment === "UPI"
+                              ? "Receipt photo is mandatory for UPI."
                               : `Payment image is mandatory for ${newPayment.modeOfPayment} payments`}
                           </Typography>
                         )}

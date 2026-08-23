@@ -3095,8 +3095,15 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
       return
     }
 
-    // Validate image requirement for non-Cash payments (except NEFT/RTGS)
-    if (newPayment.paidAmount && newPayment.modeOfPayment && newPayment.modeOfPayment !== "Cash" && newPayment.modeOfPayment !== "NEFT/RTGS") {
+    // Validate image requirement for non-Cash payments (except NEFT/RTGS and Cheque)
+    if (
+      newPayment.paidAmount &&
+      newPayment.modeOfPayment &&
+      newPayment.modeOfPayment !== "Cash" &&
+      newPayment.modeOfPayment !== "NEFT/RTGS" &&
+      newPayment.modeOfPayment !== "Cheque" &&
+      newPayment.modeOfPayment !== "Discount"
+    ) {
       if (!newPayment.receiptPhoto || newPayment.receiptPhoto.length === 0) {
         Toast.error(`Payment image is mandatory for ${newPayment.modeOfPayment} payments`)
         return

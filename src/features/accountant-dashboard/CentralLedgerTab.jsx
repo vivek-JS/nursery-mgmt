@@ -20,7 +20,8 @@ const ACCOUNT_OPTIONS = [
   { value: "CASH", label: "Cash" },
   { value: "BANK_ICICI", label: "Bank (ICICI)" },
   { value: "CUSTOMER_ADVANCE", label: "Customer advance (transfers)" },
-  { value: "PAYMENT_CLEARING", label: "Payment clearing (transfers)" }
+  { value: "PAYMENT_CLEARING", label: "Payment clearing (transfers)" },
+  { value: "SALES_DISCOUNT", label: "Sales discount — plants" }
 ]
 
 export function CentralLedgerTab({

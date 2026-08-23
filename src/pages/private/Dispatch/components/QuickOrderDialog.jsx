@@ -508,6 +508,13 @@ const QuickOrderDialog = ({
   const handleSubmit = async () => {
     if (!validate()) return
 
+    // A quick order only exists to ride an active dispatch. Without one it would become a
+    // dispatched order with no vehicle behind it.
+    if (!dispatchId) {
+      Toast.error("No dispatch selected — a quick order must be added to a vehicle.")
+      return
+    }
+
     const slotId = getSlotIdForDate(form.deliveryDate)
     if (!slotId) {
       Toast.error("No booking slot found for the selected delivery date.")
@@ -536,7 +543,9 @@ const QuickOrderDialog = ({
         orderDate: form.deliveryDate instanceof Date ? form.deliveryDate.toISOString() : form.deliveryDate,
         deliveryDate: form.deliveryDate instanceof Date ? form.deliveryDate.toISOString() : form.deliveryDate,
         orderBookingDate: new Date().toISOString(),
-        orderStatus: "DISPATCHED",
+        // Created ready-to-dispatch; the add-to-dispatch call below flips it to DISPATCHED
+        // once the order is actually on the vehicle.
+        orderStatus: "READY_FOR_DISPATCH",
         paymentStatus: "not paid",
         orderPaymentStatus: "PENDING",
         // salesPerson is required by the backend validator
@@ -564,35 +573,39 @@ const QuickOrderDialog = ({
 
       if (!newOrderId) {
         console.error("Could not extract order ID from response:", JSON.stringify(createResponse?.data))
-        Toast.error("Order may have been created but could not be linked — order ID missing in response.")
-        onSuccess?.()
-        onClose()
-        return
+        throw new Error(
+          "Order was created but the server did not return its ID, so it could not be added to the vehicle. Find it in Orders and add it to the dispatch manually."
+        )
       }
 
-      if (newOrderId && dispatchId) {
-        try {
-          const qty = parseInt(form.noOfPlants) || 0
-          const linkInstance = NetworkManager(API.DISPATCHED.ADD_ORDER_TO_DISPATCH)
-          await linkInstance.request(
-            {
-              orderId: newOrderId,
-              dispatchQuantity: qty,
-              cavityId: form.cavityId,
-              shadeId: form.shadeId,
-            },
-            [dispatchId]
-          )
-        } catch (linkErr) {
-          console.error("Failed to link order to dispatch:", linkErr)
-          Toast.error("Order created but could not be linked to the dispatch.")
-          onSuccess?.()
-          onClose()
-          return
-        }
+      const qty = parseInt(form.noOfPlants) || 0
+      const linkInstance = NetworkManager(API.DISPATCHED.ADD_ORDER_TO_DISPATCH)
+      const linkResponse = await linkInstance.request(
+        {
+          orderId: newOrderId,
+          dispatchQuantity: qty,
+          cavityId: form.cavityId,
+          shadeId: form.shadeId,
+        },
+        [dispatchId]
+      )
+
+      if (linkResponse?.error) {
+        throw new Error(linkResponse.error)
       }
 
-      Toast.success("Quick order placed and added to dispatch!")
+      const linkedOrder = linkResponse?.data?.linkedOrder
+      if (!linkedOrder?.currentDispatchId) {
+        throw new Error(
+          `Order #${newOrderId} was created but the server did not confirm it was added to the vehicle. Add it to the dispatch manually before dispatching.`
+        )
+      }
+
+      Toast.success(
+        linkedOrder.vehicleName
+          ? `Quick order placed and added to ${linkedOrder.vehicleName}!`
+          : "Quick order placed and added to dispatch!"
+      )
       onSuccess?.()
       onClose()
     } catch (err) {

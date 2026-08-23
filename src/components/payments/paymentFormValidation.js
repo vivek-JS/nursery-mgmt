@@ -1,4 +1,4 @@
-import { paymentTxnOrUtrTrimmed } from "./paymentFormDefaults"
+import { isDiscountDraft, paymentNeedsReceipt, paymentTxnOrUtrTrimmed } from "./paymentFormDefaults"
 
 export function validatePaymentDrafts(drafts, { balanceDue, walletAvailable, allowWallet }) {
   const errors = []
@@ -19,14 +19,10 @@ export function validatePaymentDrafts(drafts, { balanceDue, walletAvailable, all
       errors.push(`Row ${row}: select payment mode`)
     }
     const mode = d.isWalletPayment ? "Wallet" : d.modeOfPayment
-    if (
-      !d.isWalletPayment &&
-      mode &&
-      mode !== "Cash" &&
-      mode !== "NEFT/RTGS" &&
-      mode !== "UPI" &&
-      !(d.receiptPhoto?.length)
-    ) {
+    if (isDiscountDraft(d) && !String(d.remark || "").trim()) {
+      errors.push(`Row ${row}: remark required for Discount`)
+    }
+    if (paymentNeedsReceipt(d) && !d.receiptPhoto?.length) {
       errors.push(`Row ${row}: receipt required for ${mode}`)
     }
     if (mode === "UPI" && !d.isWalletPayment && !paymentTxnOrUtrTrimmed(d)) {

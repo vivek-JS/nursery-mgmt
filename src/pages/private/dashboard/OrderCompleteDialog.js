@@ -4,7 +4,7 @@ import { API, NetworkManager } from "network/core"
 import { Toast } from "helpers/toasts/toastHelper"
 import { useHasPaymentAccess, useUserData } from "utils/roleUtils"
 import CompactPaymentForm from "components/payments/CompactPaymentForm"
-import { defaultPaymentDraft, draftToApiPayload, paymentTxnOrUtrTrimmed } from "components/payments/paymentFormDefaults"
+import { defaultPaymentDraft, draftToApiPayload, paymentNeedsReceipt, paymentTxnOrUtrTrimmed } from "components/payments/paymentFormDefaults"
 import PaymentTransferDialog from "components/Modals/PaymentTransferDialog"
 import { transferableFarmerPlantPayments } from "features/accountant-dashboard/farmerPlantPaymentTransfer.utils"
 import ReplaceOrderDialog from "./ReplaceOrderDialog"
@@ -16,8 +16,87 @@ import {
   mergeUpiOcrIntoPaymentState,
   buildRemarkWithReceiptPayee
 } from "utils/upiReceiptOcr"
+import { normalizeOrderFor } from "utils/orderCustomerDisplay"
 
 const round2 = (n) => Math.round(Number(n || 0) * 100) / 100
+
+const FREIGHT_PAID_BY_OPTIONS = [
+  { value: "FARMER", label: "Farmer" },
+  { value: "COMPANY", label: "Company" },
+  { value: "TRANSPORTER", label: "Transporter" },
+  { value: "DEALER", label: "Dealer" },
+]
+
+const emptyFreightDraft = () => ({
+  totalAmount: "0",
+  farmerSharePercent: "100",
+  farmerShareAmount: "0",
+  companyShareAmount: "0",
+  paidBy: "FARMER",
+  transporterName: "",
+  vehicleNumber: "",
+  remark: "",
+})
+
+const freightDraftFromOrder = (order) => {
+  const existing = order?.details?.freight ?? order?.freight
+  if (existing && typeof existing === "object" && (existing.totalAmount != null || existing.farmerShareAmount != null)) {
+    const farmer = existing.farmerShareAmount ?? existing.freightCharges ?? 0
+    const total = existing.totalAmount ?? farmer
+    return {
+      totalAmount: String(total ?? "0"),
+      farmerSharePercent: String(existing.farmerSharePercent ?? 100),
+      farmerShareAmount: String(farmer ?? "0"),
+      companyShareAmount: String(existing.companyShareAmount ?? 0),
+      paidBy: existing.paidBy || "FARMER",
+      transporterName: existing.transporterName || "",
+      vehicleNumber: existing.vehicleNumber || "",
+      remark: existing.remark || "",
+    }
+  }
+  const fc = order?.details?.freightCharges ?? order?.freightCharges
+  const amt = fc != null && fc !== "" ? String(fc) : "0"
+  return {
+    ...emptyFreightDraft(),
+    totalAmount: amt,
+    farmerShareAmount: amt,
+  }
+}
+
+const existingDiscountTotal = (order) => {
+  const payments = Array.isArray(order?.details?.payment)
+    ? order.details.payment
+    : Array.isArray(order?.payment)
+      ? order.payment
+      : []
+  return payments.reduce((sum, p) => {
+    if (p?.isDiscount === true || p?.modeOfPayment === "Discount") {
+      return sum + (Number(p.paidAmount) || 0)
+    }
+    return sum
+  }, 0)
+}
+
+const applyFreightField = (prev, field, value) => {
+  const next = { ...prev, [field]: value }
+  const total = Math.max(0, Number(next.totalAmount) || 0)
+  if (field === "totalAmount" || field === "farmerSharePercent") {
+    const pct = Math.min(100, Math.max(0, Number(next.farmerSharePercent) || 0))
+    const farmer = round2(total * (pct / 100))
+    next.farmerShareAmount = String(farmer)
+    next.companyShareAmount = String(round2(total - farmer))
+  } else if (field === "farmerShareAmount") {
+    const farmer = Math.max(0, Number(value) || 0)
+    next.companyShareAmount = String(round2(Math.max(0, total - farmer)))
+    next.farmerSharePercent = total > 0 ? String(round2((farmer / total) * 100)) : "0"
+  } else if (field === "companyShareAmount") {
+    const company = Math.max(0, Number(value) || 0)
+    const farmer = round2(Math.max(0, total - company))
+    next.farmerShareAmount = String(farmer)
+    next.farmerSharePercent = total > 0 ? String(round2((farmer / total) * 100)) : "0"
+  }
+  return next
+}
 
 /** Human-readable order # from list row, API doc, or short id fallback. */
 const displayOrderNumber = (order) => {
@@ -36,6 +115,14 @@ const displayFarmerName = (order) =>
   order?.details?.farmer?.name ||
   order?.farmer?.name ||
   "—"
+
+/** Beneficiary name, only when the order was booked for someone other than the account holder. */
+const displayBookedForName = (order) => {
+  const orderFor = normalizeOrderFor(order?.orderFor ?? order?.details?.orderFor)
+  const name = String(orderFor?.name ?? "").trim()
+  if (!name) return ""
+  return name === displayFarmerName(order) ? "" : name
+}
 
 const displayPlantLabel = (order) => {
   if (order?.plantDetails?.name) return String(order.plantDetails.name)
@@ -211,7 +298,8 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
   const [expandedRows, setExpandedRows] = useState(new Set())
   const [returnReasons, setReturnReasons] = useState({})
   const [batchNumbers, setBatchNumbers] = useState({})
-  const [freightChargesByOrder, setFreightChargesByOrder] = useState({})
+  const [freightByOrder, setFreightByOrder] = useState({})
+  const [discountByOrder, setDiscountByOrder] = useState({})
   const [editOrderTarget, setEditOrderTarget] = useState(null)
   const [showAddOrderDialog, setShowAddOrderDialog] = useState(false)
   const [showQuickOrderDialog, setShowQuickOrderDialog] = useState(false)
@@ -286,6 +374,7 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
     const initialPay = {}
     const initialBatch = {}
     const initialFreight = {}
+    const initialDiscount = {}
     const initialExpectedNursery = {}
     localDispatch.orderIds.forEach((order) => {
       const k = rowKey(order)
@@ -299,8 +388,8 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
       const fromOrder = bn != null && bn !== "" ? String(bn) : ""
       const fromShed = batchNumbersFromShedLoaded(shedBatchesForOrder(localDispatch, order))
       initialBatch[k] = fromOrder || fromShed
-      const fc = order.details?.freightCharges ?? order.freightCharges
-      initialFreight[k] = fc != null && fc !== "" ? String(fc) : "0"
+      initialFreight[k] = freightDraftFromOrder(order)
+      initialDiscount[k] = String(existingDiscountTotal(order) || "0")
       const savedN =
         order.details?.expectedNursery != null || order.expectedNursery != null
           ? String(order.details?.expectedNursery ?? order.expectedNursery).trim().toUpperCase()
@@ -311,7 +400,8 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
     setAdditionalPlantInputs(initialAdditional)
     setPaymentDraftByOrder(initialPay)
     setBatchNumbers(initialBatch)
-    setFreightChargesByOrder(initialFreight)
+    setFreightByOrder(initialFreight)
+    setDiscountByOrder(initialDiscount)
     setExpectedNurseryByOrder(initialExpectedNursery)
     setReturnedPlants({})
     setDamagedPlants({})
@@ -335,8 +425,15 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
     setBatchNumbers((prev) => ({ ...prev, [k]: value }))
   }
 
-  const handleFreightChargesChange = (k, value) => {
-    setFreightChargesByOrder((prev) => ({ ...prev, [k]: value }))
+  const handleFreightFieldChange = (k, field, value) => {
+    setFreightByOrder((prev) => ({
+      ...prev,
+      [k]: applyFreightField(prev[k] || emptyFreightDraft(), field, value),
+    }))
+  }
+
+  const handleDiscountChange = (k, value) => {
+    setDiscountByOrder((prev) => ({ ...prev, [k]: value }))
   }
 
   const handleExpectedNurseryChange = (k, value) => {
@@ -496,9 +593,10 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
     orderActions,
     paymentDraftByOrder,
     batchNumbersByOrderKey = {},
-    freightChargesByOrderKey = {},
+    freightByOrderKey = {},
     expectedNurseryByOrderKey = {},
-    nurserySitesList = []
+    nurserySitesList = [],
+    discountByOrderKey = {}
   ) => {
     if (!dispatchData?.orderIds) throw new Error("Invalid dispatch data")
     const orderUpdates = []
@@ -573,18 +671,11 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
           throw new Error(`Row ${row}: select payment mode (order #${orderLabel})`)
         }
         const mode = draft.isWalletPayment ? "Wallet" : draft.modeOfPayment
-        const needsReceiptScreenshot =
-          !draft.isWalletPayment &&
-          mode &&
-          mode !== "Cash" &&
-          mode !== "NEFT/RTGS" &&
-          mode !== "UPI"
-        if (needsReceiptScreenshot && !(draft.receiptPhoto && draft.receiptPhoto.length > 0)) {
-          throw new Error(
-            mode === "Cheque"
-              ? `Row ${row}: receipt required for Cheque (order #${orderLabel})`
-              : `Row ${row}: receipt required for ${mode} (order #${orderLabel})`
-          )
+        if (mode === "Discount" && !String(draft.remark || "").trim()) {
+          throw new Error(`Row ${row}: remark required for Discount (order #${orderLabel})`)
+        }
+        if (paymentNeedsReceipt(draft) && !(draft.receiptPhoto && draft.receiptPhoto.length > 0)) {
+          throw new Error(`Row ${row}: receipt required for ${mode} (order #${orderLabel})`)
         }
         if (mode === "UPI" && !draft.isWalletPayment && !paymentTxnOrUtrTrimmed(draft)) {
           throw new Error(`Row ${row}: UTR required for UPI (order #${orderLabel})`)
@@ -602,8 +693,28 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
           utrNumber: payload.utrNumber,
           transactionId: payload.transactionId || payload.utrNumber,
           chequeNumber: payload.chequeNumber,
+          isDiscount: payload.isDiscount,
         })
       })
+
+      const enteredDiscount = Math.max(0, Number(discountByOrderKey[k]) || 0)
+      const alreadyDiscounted = existingDiscountTotal(order)
+      const draftDiscount = newPayments
+        .filter((p) => p.isDiscount || p.modeOfPayment === "Discount")
+        .reduce((sum, p) => sum + (Number(p.paidAmount) || 0), 0)
+      const discountDelta = round2(enteredDiscount - alreadyDiscounted - draftDiscount)
+      if (discountDelta > 0.001) {
+        newPayments.push({
+          paidAmount: discountDelta,
+          paymentStatus: "PENDING",
+          paymentDate: new Date(),
+          modeOfPayment: "Discount",
+          isDiscount: true,
+          isWalletPayment: false,
+          remark: "Delivery complete discount",
+          receiptPhoto: [],
+        })
+      }
 
       const nurseryCode =
         String(expectedNurseryByOrderKey[k] ?? "").trim().toUpperCase() ||
@@ -620,7 +731,19 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
             : "",
         expectedNursery: nurseryCode,
         additionalPlants: additionalPlantCount,
-        freightCharges: Math.max(0, Number(freightChargesByOrderKey[k]) || 0),
+        freight: (() => {
+          const draft = freightByOrderKey[k] || emptyFreightDraft()
+          return {
+            totalAmount: Math.max(0, Number(draft.totalAmount) || 0),
+            farmerSharePercent: Math.min(100, Math.max(0, Number(draft.farmerSharePercent) || 0)),
+            farmerShareAmount: Math.max(0, Number(draft.farmerShareAmount) || 0),
+            companyShareAmount: Math.max(0, Number(draft.companyShareAmount) || 0),
+            paidBy: draft.paidBy || "FARMER",
+            transporterName: draft.transporterName || "",
+            vehicleNumber: draft.vehicleNumber || "",
+            remark: draft.remark || "",
+          }
+        })(),
         basePlants,
         totalPlants,
         actions: {
@@ -649,9 +772,10 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
           orderActions,
           paymentDraftByOrder,
           batchNumbers,
-          freightChargesByOrder,
+          freightByOrder,
           expectedNurseryByOrder,
-          nurserySites
+          nurserySites,
+          discountByOrder
         )
       }
       if (tripData.kmRun !== "" || tripData.rent !== "" || tripData.otherCharges !== "" || tripData.remark) {
@@ -797,13 +921,17 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
 
                 const payments = getOrderPayments(order)
                 const collected = sumCollectedPayments(payments)
-                const freightAmount = Math.max(0, Number(freightChargesByOrder[k]) || 0)
+                const freightDraft = freightByOrder[k] || emptyFreightDraft()
+                const freightAmount = Math.max(0, Number(freightDraft.farmerShareAmount) || 0)
+                const discountAmount = Math.max(0, Number(discountByOrder[k]) || 0)
+                const alreadyDiscounted = existingDiscountTotal(order)
+                const pendingDiscountDelta = Math.max(0, round2(discountAmount - alreadyDiscounted))
                 const grossOrderValue = round2(rate * totalPlants + freightAmount)
                 const returnCreditDelta = round2(returnedQuantity * rate)
                 const damagedCreditDelta = round2(damagedQuantity * rate)
                 const dispatchCreditsThisSubmit = round2(returnCreditDelta + damagedCreditDelta)
                 const estimatedAfterSubmit = round2(
-                  grossOrderValue - collected - dispatchCreditsThisSubmit
+                  grossOrderValue - collected - dispatchCreditsThisSubmit - pendingDiscountDelta
                 )
 
                 const payDrafts = getPaymentDraftsForOrder(k)
@@ -812,10 +940,13 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
 
                 const orderNoLabel = displayOrderNumber(order)
                 const farmerLabel = displayFarmerName(order)
+                const bookedForLabel = displayBookedForName(order)
                 const plantLabel = displayPlantLabel(order)
                 const contactLabel = displayContact(order)
                 const villageLabel = displayVillage(order)
-                const headerTitle = `${orderNoLabel} · ${farmerLabel}`
+                const headerTitle = bookedForLabel
+                  ? `${orderNoLabel} · Booked by ${farmerLabel} · Booked for ${bookedForLabel}`
+                  : `${orderNoLabel} · ${farmerLabel}`
 
                 return (
                   <div
@@ -834,6 +965,13 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
                             title={headerTitle}>
                             {farmerLabel}
                           </span>
+                          {bookedForLabel && (
+                            <span
+                              className="min-w-0 truncate rounded border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-[10px] font-semibold text-sky-800"
+                              title={`Booked by ${farmerLabel} · Booked for ${bookedForLabel}`}>
+                              For {bookedForLabel}
+                            </span>
+                          )}
                           {(order?.isFieldReassignment || order?.details?.isFieldReassignment) && (
                             <span
                               className="shrink-0 rounded-full border border-amber-300 bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800"
@@ -1018,15 +1156,115 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
                             />
                           </div>
                           <div className="min-w-0">
-                            <label className="text-[11px] font-medium text-gray-600">Freight (₹)</label>
+                            <label className="text-[11px] font-medium text-gray-600">Discount (₹)</label>
                             <input
                               type="number"
                               min="0"
                               step="0.01"
-                              className="mt-0.5 w-full rounded border border-gray-200 px-2 py-1 text-xs"
+                              className="mt-0.5 w-full rounded border border-violet-200 bg-violet-50/60 px-2 py-1 text-xs"
                               placeholder="0"
-                              value={freightChargesByOrder[k] != null ? freightChargesByOrder[k] : "0"}
-                              onChange={(e) => handleFreightChargesChange(k, e.target.value)}
+                              value={discountByOrder[k] != null ? discountByOrder[k] : "0"}
+                              onChange={(e) => handleDiscountChange(k, e.target.value)}
+                            />
+                            <p className="mt-0.5 text-[10px] text-violet-800">
+                              Accountant must approve. Only the farmer share of freight is billed.
+                            </p>
+                          </div>
+                        </div>
+                        <div className="rounded-md border border-amber-100 bg-amber-50/70 p-2">
+                          <p className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-amber-900/90">
+                            Freight
+                          </p>
+                          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                            <div className="min-w-0">
+                              <label className="text-[10px] font-medium text-gray-600">Total ₹</label>
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                className="mt-0.5 w-full rounded border border-gray-200 px-2 py-1 text-xs"
+                                value={freightDraft.totalAmount}
+                                onChange={(e) => handleFreightFieldChange(k, "totalAmount", e.target.value)}
+                              />
+                            </div>
+                            <div className="min-w-0">
+                              <label className="text-[10px] font-medium text-gray-600">Farmer %</label>
+                              <input
+                                type="number"
+                                min="0"
+                                max="100"
+                                step="1"
+                                className="mt-0.5 w-full rounded border border-gray-200 px-2 py-1 text-xs"
+                                value={freightDraft.farmerSharePercent}
+                                onChange={(e) => handleFreightFieldChange(k, "farmerSharePercent", e.target.value)}
+                              />
+                            </div>
+                            <div className="min-w-0">
+                              <label className="text-[10px] font-medium text-gray-600">Farmer ₹</label>
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                className="mt-0.5 w-full rounded border border-gray-200 px-2 py-1 text-xs"
+                                value={freightDraft.farmerShareAmount}
+                                onChange={(e) => handleFreightFieldChange(k, "farmerShareAmount", e.target.value)}
+                              />
+                            </div>
+                            <div className="min-w-0">
+                              <label className="text-[10px] font-medium text-gray-600">Company ₹</label>
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                className="mt-0.5 w-full rounded border border-gray-200 px-2 py-1 text-xs"
+                                value={freightDraft.companyShareAmount}
+                                onChange={(e) => handleFreightFieldChange(k, "companyShareAmount", e.target.value)}
+                              />
+                            </div>
+                          </div>
+                          <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                            <div className="min-w-0">
+                              <label className="text-[10px] font-medium text-gray-600">Paid by</label>
+                              <select
+                                className="mt-0.5 w-full rounded border border-gray-200 bg-white px-2 py-1 text-xs"
+                                value={freightDraft.paidBy}
+                                onChange={(e) => handleFreightFieldChange(k, "paidBy", e.target.value)}>
+                                {FREIGHT_PAID_BY_OPTIONS.map((opt) => (
+                                  <option key={opt.value} value={opt.value}>
+                                    {opt.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <div className="min-w-0">
+                              <label className="text-[10px] font-medium text-gray-600">Transporter</label>
+                              <input
+                                type="text"
+                                className="mt-0.5 w-full rounded border border-gray-200 px-2 py-1 text-xs"
+                                placeholder="Name"
+                                value={freightDraft.transporterName}
+                                onChange={(e) => handleFreightFieldChange(k, "transporterName", e.target.value)}
+                              />
+                            </div>
+                            <div className="min-w-0">
+                              <label className="text-[10px] font-medium text-gray-600">Vehicle</label>
+                              <input
+                                type="text"
+                                className="mt-0.5 w-full rounded border border-gray-200 px-2 py-1 text-xs"
+                                placeholder="Number"
+                                value={freightDraft.vehicleNumber}
+                                onChange={(e) => handleFreightFieldChange(k, "vehicleNumber", e.target.value)}
+                              />
+                            </div>
+                          </div>
+                          <div className="mt-2">
+                            <label className="text-[10px] font-medium text-gray-600">Freight note</label>
+                            <input
+                              type="text"
+                              className="mt-0.5 w-full rounded border border-gray-200 px-2 py-1 text-xs"
+                              placeholder="e.g. 50-50 split"
+                              value={freightDraft.remark}
+                              onChange={(e) => handleFreightFieldChange(k, "remark", e.target.value)}
                             />
                           </div>
                         </div>
@@ -1092,6 +1330,23 @@ const OrderCompleteDialog = ({ open, onClose, dispatchData, onSuccess }) => {
                             <dt>Paid (collected)</dt>
                             <dd>₹{collected.toLocaleString()}</dd>
                           </div>
+                          {discountAmount > 0 && (
+                            <div className="flex justify-between gap-1 leading-tight text-violet-900">
+                              <dt>Discount</dt>
+                              <dd>
+                                −₹{discountAmount.toLocaleString()}
+                                {pendingDiscountDelta > 0 ? (
+                                  <span className="block text-end font-normal text-[10px] opacity-90">
+                                    +₹{pendingDiscountDelta.toLocaleString()} pending approval
+                                  </span>
+                                ) : (
+                                  <span className="block text-end font-normal text-[10px] opacity-90">
+                                    already on order
+                                  </span>
+                                )}
+                              </dd>
+                            </div>
+                          )}
                           <div className="flex justify-between gap-1 leading-tight text-green-800">
                             <dt>Return credit</dt>
                             <dd>

@@ -36,9 +36,9 @@ import {
   resolveTrayLabelById,
 } from "utils/dispatchOrderCavityUtils"
 import OrderCavitySelect from "./OrderCavitySelect"
-import { useIsDispatchManager } from "utils/roleUtils"
+import { useUserData } from "utils/roleUtils"
 import {
-  DISPATCH_MANAGER_EXTRA_QTY,
+  dispatchExtraQtyForUser,
   getMaxDispatchQty,
   orderRemainingForDispatch,
 } from "utils/dispatchManagerExtra"
@@ -368,7 +368,10 @@ const DispatchForm = ({
 }) => {
   const theme = useTheme()
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"))
-  const isDispatchManager = useIsDispatchManager()
+  const currentUser = useUserData()
+  const dispatchExtraQty = dispatchExtraQtyForUser(currentUser)
+  /** Dispatch quantity already persisted per order on this dispatch, keyed by order row key. */
+  const savedDispatchQtyRef = useRef(new Map())
   const [formData, setFormData] = useState({
     name: "",
     driverName: "",
@@ -504,6 +507,7 @@ const DispatchForm = ({
     setOrderQuantities(qtyMap)
     orderQuantitiesRef.current = qtyMap
     setOrderShedLoadedMap(shedMap)
+    savedDispatchQtyRef.current = new Map(qtyMap)
 
     const oidRows = Array.isArray(dispatchDoc.orderIds) ? dispatchDoc.orderIds : []
     const exView = oidRows
@@ -877,9 +881,9 @@ const DispatchForm = ({
           )
         }
       } else {
-        const maxAllowed = getMaxDispatchQty(remainingQty, isDispatchManager, {
+        const maxAllowed = getMaxDispatchQty(remainingQty, dispatchExtraQty, {
           isEditMode: mode === "view" && isEditing,
-          currentDispatchQty: dispatchQty,
+          savedDispatchQty: savedDispatchQtyRef.current.get(orderId) ?? 0,
         })
         if (dispatchQty > maxAllowed) {
           const zeroRemainingHint =
@@ -887,7 +891,7 @@ const DispatchForm = ({
               ? " — this order has 0 plants remaining (may already be fully dispatched)"
               : ""
           throw new Error(
-            `Dispatch quantity (${dispatchQty}) exceeds allowed quantity (${maxAllowed}) for order #${order.order}${zeroRemainingHint}${isDispatchManager ? ` (+${DISPATCH_MANAGER_EXTRA_QTY} dispatch manager allowance)` : ""}`
+            `Dispatch quantity (${dispatchQty}) exceeds allowed quantity (${maxAllowed}) for order #${order.order}${zeroRemainingHint}${dispatchExtraQty > 0 ? ` (+${dispatchExtraQty} extra-plant allowance)` : ""}`
           )
         }
       }
@@ -1980,9 +1984,9 @@ const DispatchForm = ({
             const isPartialDispatch = dispatchQty < remainingQty
             const minDispatchQty =
               isViewMode && isEditing ? orderShedLoadedMap.get(rk) ?? 0 : 0
-            const maxDispatchQty = getMaxDispatchQty(remainingQty, isDispatchManager, {
+            const maxDispatchQty = getMaxDispatchQty(remainingQty, dispatchExtraQty, {
               isEditMode: isViewMode && isEditing,
-              currentDispatchQty: dispatchQty,
+              savedDispatchQty: savedDispatchQtyRef.current.get(rk) ?? 0,
             })
             const baselineQty =
               initialViewSnapshotRef.current?.orderQuantities?.get(rk)
@@ -2174,9 +2178,9 @@ const DispatchForm = ({
                             </button>
                           )}
                         </div>
-                        {isDispatchManager && !isViewMode && (
+                        {dispatchExtraQty > 0 && !isViewMode && (
                           <p className="text-xs text-violet-700 mt-1">
-                            Dispatch manager: up to +{DISPATCH_MANAGER_EXTRA_QTY.toLocaleString("en-IN")} extra plants per order (slot may go negative).
+                            Up to +{dispatchExtraQty.toLocaleString("en-IN")} extra plants per order (slot may go negative).
                           </p>
                         )}
                         {minDispatchQty > 0 && (

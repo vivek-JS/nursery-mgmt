@@ -1,5 +1,5 @@
 import React from "react"
-import { PAYMENT_MODES, paymentTxnOrUtrTrimmed } from "./paymentFormDefaults"
+import { PAYMENT_MODES, isDiscountDraft, paymentTxnOrUtrTrimmed } from "./paymentFormDefaults"
 
 function Field({ label, children, className = "" }) {
   return (
@@ -27,7 +27,8 @@ export default function CompactPaymentRow({
   const inputCls =
     "w-full min-w-0 rounded border border-gray-300 bg-white px-2 py-1.5 text-sm focus:border-brand-500 focus:ring-1 focus:ring-brand-500"
   const mode = draft.isWalletPayment ? "Wallet" : draft.modeOfPayment
-  const bankEnabled = mode === "Cheque" || mode === "NEFT/RTGS"
+  const isDiscount = isDiscountDraft(draft)
+  const bankEnabled = !isDiscount && (mode === "Cheque" || mode === "NEFT/RTGS")
 
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-2 shadow-sm">
@@ -71,11 +72,11 @@ export default function CompactPaymentRow({
       </div>
 
       <div className="grid grid-cols-2 gap-2 md:grid-cols-12">
-        <Field label="Receipt or screenshot" className="md:col-span-2">
+        <Field label={isDiscount ? "Receipt (not needed)" : "Receipt or screenshot"} className="md:col-span-2">
           <div className="flex min-h-[34px] flex-wrap items-center gap-1">
             <label
               className={`inline-flex cursor-pointer items-center rounded border border-gray-300 bg-white px-2 py-1 text-[10px] font-semibold text-gray-700 hover:bg-gray-50 ${
-                receiptBusy || ocrBusy ? "pointer-events-none opacity-50" : ""
+                receiptBusy || ocrBusy || isDiscount ? "pointer-events-none opacity-50" : ""
               }`}>
               {receiptBusy ? "Uploading…" : ocrBusy ? "Scanning…" : "Upload receipt or screenshot"}
               <input
@@ -139,7 +140,12 @@ export default function CompactPaymentRow({
           <select
             value={draft.isWalletPayment ? "" : draft.modeOfPayment}
             disabled={draft.isWalletPayment}
-            onChange={(e) => onChange({ modeOfPayment: e.target.value })}
+            onChange={(e) =>
+              onChange({
+                modeOfPayment: e.target.value,
+                ...(e.target.value === "Discount" ? { isWalletPayment: false } : {}),
+              })
+            }
             className={inputCls}>
             <option value="">{draft.isWalletPayment ? "Wallet" : "Mode"}</option>
             {PAYMENT_MODES.map((m) => (
@@ -166,7 +172,7 @@ export default function CompactPaymentRow({
           <input
             type="text"
             value={draft.utrNumber || draft.transactionId || ""}
-            disabled={draft.isWalletPayment || mode === "Cash"}
+            disabled={draft.isWalletPayment || isDiscount || mode === "Cash"}
             onChange={(e) => onChange({ utrNumber: e.target.value, transactionId: e.target.value })}
             className={inputCls}
             placeholder={mode === "UPI" ? "UTR required" : "Optional"}
@@ -188,11 +194,14 @@ export default function CompactPaymentRow({
             value={draft.remark}
             onChange={(e) => onChange({ remark: e.target.value })}
             className={inputCls}
-            placeholder="Optional"
+            placeholder={isDiscount ? "Required — reason for discount" : "Optional"}
           />
         </Field>
       </div>
 
+      {isDiscount && !String(draft.remark || "").trim() && (
+        <p className="mt-1 text-[10px] text-red-600">Remark required for Discount</p>
+      )}
       {mode === "UPI" && !draft.isWalletPayment && !paymentTxnOrUtrTrimmed(draft) && (
         <p className="mt-1 text-[10px] text-red-600">UTR required for UPI</p>
       )}
