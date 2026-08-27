@@ -2,30 +2,35 @@ import { useCallback, useEffect, useState } from "react";
 import {
   fetchDispatchBatches,
   fetchLocations,
+  fetchSecondaryLocations,
   fetchTrays,
 } from "../utils/pipelineApi";
 
 export function usePipelineMasterData() {
   const [batches, setBatches] = useState([]);
   const [locations, setLocations] = useState([]);
+  const [secondaryLocations, setSecondaryLocations] = useState([]);
   const [trays, setTrays] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [batchList, locs, trayList] = await Promise.all([
+      const [batchList, locs, secondaryLocs, trayList] = await Promise.all([
         fetchDispatchBatches(),
         fetchLocations(),
+        fetchSecondaryLocations(),
         fetchTrays(),
       ]);
       setBatches(Array.isArray(batchList) ? batchList : []);
       setLocations(locs);
+      setSecondaryLocations(secondaryLocs);
       setTrays(trayList);
     } catch (e) {
       console.error(e);
       setBatches([]);
       setLocations([]);
+      setSecondaryLocations([]);
       setTrays([]);
     } finally {
       setLoading(false);
@@ -36,5 +41,5 @@ export function usePipelineMasterData() {
     refresh();
   }, [refresh]);
 
-  return { batches, locations, trays, loading, refreshMaster: refresh };
+  return { batches, locations, secondaryLocations, trays, loading, refreshMaster: refresh };
 }

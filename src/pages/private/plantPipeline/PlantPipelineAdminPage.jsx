@@ -51,7 +51,8 @@ export default function PlantPipelineAdminPage() {
   const [tab, setTab] = useState(TAB_LAB);
   const [selectedBatchId, setSelectedBatchId] = useState("");
 
-  const { batches, locations, trays, loading: masterLoading } = usePipelineMasterData();
+  const { batches, locations, secondaryLocations, trays, loading: masterLoading } =
+    usePipelineMasterData();
   const {
     batchDoc,
     batchOptions,
@@ -174,7 +175,7 @@ export default function PlantPipelineAdminPage() {
                   <SecondarySection
                     batchId={selectedBatchId}
                     batchDoc={batchDoc}
-                    locations={locations}
+                    locations={secondaryLocations}
                     trays={trays}
                     onRefresh={refresh}
                   />

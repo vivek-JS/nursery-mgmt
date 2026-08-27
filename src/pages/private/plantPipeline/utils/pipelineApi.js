@@ -40,10 +40,19 @@ export async function fetchDispatchBatches() {
   return [];
 }
 
+function shadeLocationOption(shade) {
+  const name = String(shade?.name ?? "").trim();
+  const num = String(shade?.number ?? "").trim();
+  const label = name && num ? `${name} (${num})` : name || num;
+  const value = label || String(shade?._id ?? shade?.id ?? "");
+  if (!value) return null;
+  return { value, label: label || value };
+}
+
 export async function fetchLocations() {
   const [pollyRes, shadeRes] = await Promise.all([
-    request(API.POLLY_HOUSE.GET_HOUSES, {}, {}),
-    request(API.SHADE.GET_SHADES, {}, {}),
+    request(API.POLLY_HOUSE.GET_HOUSES, {}, { page: 1, limit: 500, status: "true" }),
+    request(API.SHADE.GET_SHADES, {}, { status: "true" }),
   ]);
   const polly = unpackData(pollyRes);
   const shade = unpackData(shadeRes);
@@ -52,12 +61,35 @@ export async function fetchLocations() {
   const opts = [];
   const seen = new Set();
   for (const p of [...pollyList, ...shadeList]) {
-    const val = String(p._id ?? p.id ?? p.name ?? "");
+    if (p?.isActive === false) continue;
+    const fromShade = p?.number != null ? shadeLocationOption(p) : null;
+    const val = fromShade?.value ?? String(p._id ?? p.id ?? p.name ?? "");
+    const label = fromShade?.label ?? p.name ?? p.label ?? val;
     if (!val || seen.has(val)) continue;
     seen.add(val);
-    opts.push({ value: val, label: p.name ?? p.label ?? val });
+    opts.push({ value: val, label });
   }
   return opts;
+}
+
+/** Secondary lagwad / shed ops — shaded locations only (excludes primary pollyhouses). */
+export async function fetchSecondaryLocations() {
+  const shadeRes = await request(API.SHADE.GET_SHADES, {}, {
+    status: "true",
+    excludePrimary: "true",
+  });
+  const shade = unpackData(shadeRes);
+  const shadeList = Array.isArray(shade) ? shade : shade?.data ?? [];
+  const opts = [];
+  const seen = new Set();
+  for (const s of shadeList) {
+    if (s?.isActive === false || s?.is_primary === true) continue;
+    const opt = shadeLocationOption(s);
+    if (!opt || seen.has(opt.value)) continue;
+    seen.add(opt.value);
+    opts.push(opt);
+  }
+  return opts.sort((a, b) => a.label.localeCompare(b.label));
 }
 
 export async function fetchTrays() {
