@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react"
-import { Grid, Button, Box, Badge, Tabs, Tab } from "@mui/material"
+import { Grid, Button, Box, Badge, Tabs, Tab, Alert, IconButton } from "@mui/material"
 import { makeStyles } from "tss-react/mui"
-import { Add as AddIcon, Phone as PhoneIcon, Backup as BackupIcon } from "@mui/icons-material"
+import { Add as AddIcon, Phone as PhoneIcon, Backup as BackupIcon, Close as CloseIcon } from "@mui/icons-material"
 import { useNavigate, useLocation } from "react-router-dom"
 import { useSelector } from "react-redux"
 import FarmerOrdersTable from "./FarmerOrdersTable"
@@ -43,6 +43,7 @@ function Dashboard() {
   const [isAddOrderOpen, setIsAddOrderOpen] = useState(false)
   const [orderPrefill, setOrderPrefill] = useState(null)
   const [copyOrderPrefill, setCopyOrderPrefill] = useState(null)
+  const [ordersSlotFilter, setOrdersSlotFilter] = useState(null)
   const [isFarmerPhoneModalOpen, setIsFarmerPhoneModalOpen] = useState(false)
   const { count: invalidPhoneCount, refetch: refetchInvalidPhoneCount } = useInvalidPhoneFarmers()
 
@@ -98,6 +99,26 @@ function Dashboard() {
       initialStartDay: row.startDay,
     })
   }, [openAddOrder])
+
+  const handleViewOrdersFromStock = useCallback((row) => {
+    setOrdersSlotFilter({
+      slotId: row.slotId,
+      plantId: row.plantId,
+      subtypeId: row.subtypeId,
+      monthName: row.month,
+      startDay: row.startDay,
+      endDay: row.endDay,
+      plantName: row.plantName,
+      subtypeName: row.subtypeName,
+      remainingToDispatch: row.remainingToDispatch,
+    })
+    setMainTab(TAB_BOOKING)
+    sessionStorage.setItem(DASHBOARD_TAB_KEY, "booking")
+  }, [])
+
+  const clearOrdersSlotFilter = useCallback(() => {
+    setOrdersSlotFilter(null)
+  }, [])
 
   useEffect(() => {
     const fromStorage = readAndClearStockPrefill()
@@ -229,21 +250,54 @@ function Dashboard() {
           {!isAgriWorkspace ? (
             <Tabs value={mainTab} onChange={handleMainTabChange} sx={{ mt: 1 }}>
               <Tab label="Booking & Dispatch" sx={{ textTransform: "none", fontWeight: 600 }} />
-              <Tab label="Available Stock" sx={{ textTransform: "none", fontWeight: 600 }} />
+              <Tab label="Stock & Lagwad" sx={{ textTransform: "none", fontWeight: 600 }} />
             </Tabs>
           ) : null}
         </Box>
         {headerActions}
       </Box>
 
+      {mainTab === TAB_BOOKING && ordersSlotFilter ? (
+        <Alert
+          severity="info"
+          sx={{ mb: 2, alignItems: "center" }}
+          action={
+            <IconButton size="small" aria-label="Clear slot filter" onClick={clearOrdersSlotFilter}>
+              <CloseIcon fontSize="small" />
+            </IconButton>
+          }>
+          Showing orders for{" "}
+          <strong>
+            {ordersSlotFilter.plantName} · {ordersSlotFilter.subtypeName} ·{" "}
+            {ordersSlotFilter.startDay}–{ordersSlotFilter.endDay}
+          </strong>
+          {ordersSlotFilter.remainingToDispatch > 0
+            ? ` · ${Number(ordersSlotFilter.remainingToDispatch).toLocaleString("en-IN")} plants to dispatch`
+            : ""}
+        </Alert>
+      ) : null}
+
       {mainTab === TAB_BOOKING ? (
         <FarmerOrdersTable
+          slotId={ordersSlotFilter?.slotId}
+          monthName={ordersSlotFilter?.monthName}
+          startDay={ordersSlotFilter?.startDay}
+          endDay={ordersSlotFilter?.endDay}
+          plantId={ordersSlotFilter?.plantId}
+          subtypeId={ordersSlotFilter?.subtypeId}
+          slotOrderFilter="all_active"
+          expectedPlantsTotal={ordersSlotFilter?.remainingToDispatch ?? null}
           onCopyOrder={handleCopyOrderFromTable}
           registerOpenAgriOrder={registerOpenAgriOrder}
         />
       ) : null}
       {mainTab === TAB_STOCK ? (
-        <AvailableStockView variant="dashboard" onBookSlot={handleBookFromStock} showBookAction />
+        <AvailableStockView
+          variant="dashboard"
+          onBookSlot={handleBookFromStock}
+          onViewOrders={handleViewOrdersFromStock}
+          showBookAction
+        />
       ) : null}
 
       {!isAgriWorkspace ? (

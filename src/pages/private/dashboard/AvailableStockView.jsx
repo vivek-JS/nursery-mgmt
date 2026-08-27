@@ -40,8 +40,13 @@ import ViewListIcon from "@mui/icons-material/ViewList"
 import ViewModuleIcon from "@mui/icons-material/ViewModule"
 import EventIcon from "@mui/icons-material/Event"
 import LocalFloristOutlinedIcon from "@mui/icons-material/LocalFloristOutlined"
+import WarehouseOutlinedIcon from "@mui/icons-material/WarehouseOutlined"
+import ExpandMoreOutlinedIcon from "@mui/icons-material/ExpandMoreOutlined"
+import ListAltOutlinedIcon from "@mui/icons-material/ListAltOutlined"
+import Inventory2OutlinedIcon from "@mui/icons-material/Inventory2Outlined"
 import { API, NetworkManager } from "network/core"
 import useDebounce from "hooks/useDebounce"
+import StockLagwadBreakdown from "./components/StockLagwadBreakdown"
 import {
   fmt,
   formatSlotPeriod,
@@ -84,6 +89,82 @@ const palette = {
   zeroBg: "#f5f5f5",
   zeroBorder: "#d4d4d4",
   zeroText: "#737373",
+  shedBg: "#eff6ff",
+  shedBorder: "#93c5fd",
+  shedText: "#1d4ed8",
+  readyBg: "#ecfeff",
+  readyBorder: "#67e8f9",
+  readyText: "#0e7490",
+}
+
+function MetricPill({ label, value, tone = "default", icon: Icon }) {
+  const tones = {
+    default: { bg: palette.card, border: palette.border, text: palette.text },
+    available: { bg: palette.availableBg, border: palette.availableBorder, text: palette.availableText },
+    shed: { bg: palette.shedBg, border: palette.shedBorder, text: palette.shedText },
+    ready: { bg: palette.readyBg, border: palette.readyBorder, text: palette.readyText },
+    orders: { bg: "#fff7ed", border: "#fdba74", text: "#c2410c" },
+  }
+  const t = tones[tone] || tones.default
+  return (
+    <Box
+      sx={{
+        flex: "1 1 140px",
+        minWidth: 130,
+        px: 1.75,
+        py: 1.25,
+        borderRadius: 2.5,
+        bgcolor: t.bg,
+        border: `1px solid ${t.border}`,
+      }}>
+      <Stack direction="row" alignItems="center" spacing={0.75} mb={0.5}>
+        {Icon ? <Icon sx={{ fontSize: 16, color: t.text }} /> : null}
+        <Typography variant="caption" fontWeight={700} sx={{ color: t.text, textTransform: "uppercase", letterSpacing: 0.6 }}>
+          {label}
+        </Typography>
+      </Stack>
+      <Typography variant="h6" fontWeight={900} sx={{ color: t.text, fontVariantNumeric: "tabular-nums", lineHeight: 1.1 }}>
+        {fmt(value)}
+      </Typography>
+    </Box>
+  )
+}
+
+function StockKpiStrip({ rows, summary }) {
+  const totals = useMemo(() => {
+    if (summary && typeof summary === "object") {
+      return {
+        slotAvailable: summary.available ?? 0,
+        actualAvailable: summary.actualAvailable ?? 0,
+        inShed: summary.shedAvailableInShed ?? 0,
+        ready: summary.actualReadyPlants ?? 0,
+        toDispatch: summary.remainingToDispatch ?? 0,
+        batches: summary.linkedBatchCount ?? 0,
+      }
+    }
+    return rows.reduce(
+      (acc, r) => ({
+        slotAvailable: acc.slotAvailable + (r.availablePlants || 0),
+        actualAvailable: acc.actualAvailable + (r.actualAvailable || 0),
+        inShed: acc.inShed + (r.shedAvailableInShed || 0),
+        ready: acc.ready + (r.actualReadyPlants || 0),
+        toDispatch: acc.toDispatch + (r.remainingToDispatch || 0),
+        batches: acc.batches + (r.linkedBatchCount || 0),
+      }),
+      { slotAvailable: 0, actualAvailable: 0, inShed: 0, ready: 0, toDispatch: 0, batches: 0 }
+    )
+  }, [rows, summary])
+
+  return (
+    <Stack direction="row" flexWrap="wrap" gap={1.25} sx={{ mb: 2 }}>
+      <MetricPill label="Slot open" value={totals.slotAvailable} tone="available" icon={LocalFloristOutlinedIcon} />
+      <MetricPill label="Actual avail" value={totals.actualAvailable} tone="available" icon={LocalFloristOutlinedIcon} />
+      <MetricPill label="In shed" value={totals.inShed} tone="shed" icon={WarehouseOutlinedIcon} />
+      <MetricPill label="Ready dispatch" value={totals.ready} tone="ready" icon={EventIcon} />
+      <MetricPill label="Orders to go" value={totals.toDispatch} tone="orders" icon={ListAltOutlinedIcon} />
+      <MetricPill label="Batch lines" value={totals.batches} tone="default" icon={Inventory2OutlinedIcon} />
+    </Stack>
+  )
 }
 
 /** Highlighted available plants count (positive / zero / negative) */
@@ -239,24 +320,30 @@ function SlotCard({ row, showBook, onBook }) {
           </Box>
         </Stack>
 
-        <Box
-          sx={{
-            textAlign: "center",
-            py: 1.5,
-            px: 1,
-            mb: 1.5,
-            borderRadius: 2.5,
-            bgcolor: alpha(palette.availableBg, 0.7),
-            border: `1px dashed ${palette.availableBorder}`,
-          }}>
-          <Typography
-            variant="caption"
-            fontWeight={700}
-            sx={{ color: palette.availableText, textTransform: "uppercase", letterSpacing: 0.8, mb: 0.75, display: "block" }}>
-            Available
-          </Typography>
-          <AvailableHighlight value={row.availablePlants} size="lg" />
-        </Box>
+        <Stack spacing={0.75} sx={{ mb: 1.5 }}>
+          <Stack direction="row" justifyContent="space-between" alignItems="center">
+            <Typography variant="caption" fontWeight={700} color={palette.muted}>
+              Slot open
+            </Typography>
+            <AvailableHighlight value={row.availablePlants} />
+          </Stack>
+          {(row.actualAvailable > 0 || row.shedAvailableInShed > 0) && (
+            <Stack direction="row" flexWrap="wrap" gap={0.5}>
+              {row.actualAvailable != null ? (
+                <Chip size="small" label={`Actual ${fmt(row.actualAvailable)}`} sx={{ fontWeight: 700, bgcolor: palette.availableBg, color: palette.availableText }} />
+              ) : null}
+              {row.shedAvailableInShed > 0 ? (
+                <Chip size="small" label={`Shed ${fmt(row.shedAvailableInShed)}`} sx={{ fontWeight: 700, bgcolor: palette.shedBg, color: palette.shedText }} />
+              ) : null}
+              {row.remainingToDispatch > 0 ? (
+                <Chip size="small" label={`${fmt(row.remainingToDispatch)} to dispatch`} sx={{ fontWeight: 700, bgcolor: "#fff7ed", color: "#c2410c" }} />
+              ) : null}
+              {row.linkedBatchCount > 0 ? (
+                <Chip size="small" label={`${row.linkedBatchCount} batches`} variant="outlined" sx={{ fontWeight: 600 }} />
+              ) : null}
+            </Stack>
+          )}
+        </Stack>
 
         <Stack
           direction="row"
@@ -299,13 +386,26 @@ function SlotCard({ row, showBook, onBook }) {
   )
 }
 
-function SlotCardGrid({ rows, showBook, onBook }) {
+function SlotCardGrid({ rows, showBook, onBook, onViewOrders }) {
   return (
     <Box sx={{ p: 2 }}>
       <Grid container spacing={2}>
         {rows.map((row) => (
           <Grid item xs={12} sm={6} md={4} lg={3} key={row.slotId}>
-            <SlotCard row={row} showBook={showBook} onBook={onBook} />
+            <Stack spacing={1}>
+              <SlotCard row={row} showBook={showBook} onBook={onBook} />
+              {onViewOrders ? (
+                <Button
+                  fullWidth
+                  size="small"
+                  variant="outlined"
+                  startIcon={<ListAltOutlinedIcon />}
+                  onClick={() => onViewOrders(row)}
+                  sx={{ textTransform: "none", fontWeight: 700, borderRadius: 2 }}>
+                  View orders ({fmt(row.remainingToDispatch)} to dispatch)
+                </Button>
+              ) : null}
+            </Stack>
           </Grid>
         ))}
       </Grid>
@@ -313,108 +413,169 @@ function SlotCardGrid({ rows, showBook, onBook }) {
   )
 }
 
-function SlotTable({ rows, showBook, onBook }) {
+function SlotTable({
+  rows,
+  showBook,
+  onBook,
+  onViewOrders,
+  expandedLagwad,
+  onToggleLagwad,
+}) {
   return (
     <TableContainer>
-      <Table size="small" sx={{ minWidth: 640 }}>
+      <Table size="small" sx={{ minWidth: 960 }}>
         <TableHead>
           <TableRow
             sx={{
               "& th": {
                 fontWeight: 700,
-                fontSize: 12,
+                fontSize: 11,
                 color: palette.muted,
                 textTransform: "uppercase",
                 letterSpacing: "0.04em",
                 bgcolor: "#fafcfa",
                 borderBottom: `2px solid ${palette.border}`,
                 py: 1.25,
+                whiteSpace: "nowrap",
               },
             }}>
-            <TableCell width="22%">Plant</TableCell>
-            <TableCell width="20%">Subtype</TableCell>
-            <TableCell width="32%">Delivery</TableCell>
-            <TableCell
-              width="14%"
-              align="right"
-              sx={{
-                bgcolor: palette.availableBg,
-                color: palette.availableText,
-                borderBottom: `2px solid ${palette.availableBorder} !important`,
-              }}>
-              Available
+            <TableCell width={36} padding="checkbox" />
+            <TableCell>Plant / Variety</TableCell>
+            <TableCell>Delivery</TableCell>
+            <TableCell align="right">Slot open</TableCell>
+            <TableCell align="right">Booked</TableCell>
+            <TableCell align="right">To dispatch</TableCell>
+            <TableCell align="right" sx={{ bgcolor: alpha(palette.availableBg, 0.5) }}>
+              Actual avail
             </TableCell>
-            {showBook ? <TableCell width="12%" align="center" /> : null}
+            <TableCell align="right" sx={{ bgcolor: alpha(palette.shedBg, 0.5) }}>
+              In shed
+            </TableCell>
+            <TableCell align="right">Ready</TableCell>
+            <TableCell align="center">Batch</TableCell>
+            {showBook || onViewOrders ? <TableCell align="center">Actions</TableCell> : null}
           </TableRow>
         </TableHead>
         <TableBody>
           {rows.map((row) => {
             const accent = plantAccentFor(row.plantName)
             const isCombined = row._combined
-            const canBook = (row.availablePlants ?? 0) > 0
+            const lagwadOpen = expandedLagwad?.has(row.slotId)
+            const hasLagwad = (row.shedLineCount || row.linkedBatchCount || row.shedAvailableInShed) > 0
             return (
-              <TableRow
-                key={row.slotId}
-                hover
-                sx={{
-                  "&:last-child td": { borderBottom: 0 },
-                  "&:hover": { bgcolor: palette.rowHover },
-                  bgcolor: isCombined
-                    ? alpha(palette.availableBg, 0.35)
-                    : (row.availablePlants ?? 0) < 0
-                      ? alpha(palette.negativeBg, 0.5)
-                      : undefined,
-                }}>
-                <TableCell sx={{ fontWeight: 600, color: accent, fontSize: 14 }}>{row.plantName}</TableCell>
-                <TableCell sx={{ color: palette.muted, fontSize: 14 }}>
-                  {row.subtypeName}
-                  {isCombined ? (
-                    <Typography variant="caption" display="block" color={palette.muted}>
-                      {row._slotCount} slots combined
-                    </Typography>
-                  ) : null}
-                </TableCell>
-                <TableCell sx={{ fontSize: 14 }}>
-                  {isCombined
-                    ? row._rangeLabel || formatSlotPeriod(row.startDay, row.endDay)
-                    : formatSlotPeriod(row.startDay, row.endDay)}
-                </TableCell>
-                <TableCell
-                  align="right"
+              <React.Fragment key={row.slotId}>
+                <TableRow
+                  hover
                   sx={{
-                    bgcolor: alpha(palette.availableBg, 0.65),
-                    borderLeft: `1px solid ${alpha(palette.availableBorder, 0.5)}`,
+                    "&:last-child td": { borderBottom: lagwadOpen ? 0 : undefined },
+                    "&:hover": { bgcolor: palette.rowHover },
+                    bgcolor: isCombined
+                      ? alpha(palette.availableBg, 0.35)
+                      : (row.availablePlants ?? 0) < 0
+                        ? alpha(palette.negativeBg, 0.5)
+                        : undefined,
                   }}>
-                  <AvailableHighlight value={row.availablePlants} />
-                </TableCell>
-                {showBook ? (
-                  <TableCell align="center" padding="checkbox">
-                    {isCombined ? (
-                      <Typography variant="caption" color={palette.muted}>
-                        See slots below
-                      </Typography>
-                    ) : (
-                      <Button
+                  <TableCell padding="checkbox">
+                    {!isCombined && hasLagwad ? (
+                      <IconButton
                         size="small"
-                        variant="contained"
-                        disableElevation
-                        startIcon={<AddShoppingCartIcon sx={{ fontSize: 16 }} />}
-                        onClick={() => onBook?.(row)}
+                        onClick={() => onToggleLagwad?.(row.slotId)}
                         sx={{
-                          textTransform: "none",
-                          fontWeight: 600,
-                          fontSize: 12,
-                          borderRadius: 2,
-                          bgcolor: palette.accent,
-                          boxShadow: "none",
-                          "&:hover": { bgcolor: palette.accentHover, boxShadow: "none" },
+                          transform: lagwadOpen ? "rotate(180deg)" : "none",
+                          transition: "transform 0.2s",
                         }}>
-                        Book
-                      </Button>
+                        <ExpandMoreOutlinedIcon fontSize="small" />
+                      </IconButton>
+                    ) : null}
+                  </TableCell>
+                  <TableCell sx={{ fontSize: 13 }}>
+                    <Typography component="span" fontWeight={700} color={accent} display="block">
+                      {row.plantName}
+                    </Typography>
+                    <Typography component="span" variant="body2" color={palette.muted} fontWeight={600}>
+                      {row.subtypeName}
+                      {isCombined ? ` · ${row._slotCount} slots` : ""}
+                    </Typography>
+                  </TableCell>
+                  <TableCell sx={{ fontSize: 13 }}>
+                    {isCombined
+                      ? row._rangeLabel || formatSlotPeriod(row.startDay, row.endDay)
+                      : formatSlotPeriod(row.startDay, row.endDay)}
+                  </TableCell>
+                  <TableCell align="right">
+                    <AvailableHighlight value={row.availablePlants} />
+                  </TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 700, fontSize: 13 }}>
+                    {fmt(row.totalBookedPlants ?? row.bookedPlants)}
+                  </TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 700, fontSize: 13, color: row.remainingToDispatch > 0 ? "#c2410c" : palette.muted }}>
+                    {fmt(row.remainingToDispatch)}
+                  </TableCell>
+                  <TableCell align="right" sx={{ bgcolor: alpha(palette.availableBg, 0.45) }}>
+                    <Typography fontWeight={800} fontSize={13} color={palette.availableText}>
+                      {fmt(row.actualAvailable)}
+                    </Typography>
+                    <Typography variant="caption" color={palette.muted}>
+                      act {fmt(row.actualPlants)}
+                    </Typography>
+                  </TableCell>
+                  <TableCell align="right" sx={{ bgcolor: alpha(palette.shedBg, 0.45), fontWeight: 800, fontSize: 13, color: palette.shedText }}>
+                    {fmt(row.shedAvailableInShed)}
+                  </TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 800, fontSize: 13, color: palette.readyText }}>
+                    {fmt(row.actualReadyPlants)}
+                  </TableCell>
+                  <TableCell align="center">
+                    {row.linkedBatchCount > 0 ? (
+                      <Chip size="small" label={row.linkedBatchCount} sx={{ fontWeight: 800, minWidth: 32 }} />
+                    ) : (
+                      "—"
                     )}
                   </TableCell>
+                  {showBook || onViewOrders ? (
+                    <TableCell align="center" padding="checkbox">
+                      <Stack direction="row" spacing={0.5} justifyContent="center" flexWrap="wrap">
+                        {onViewOrders && !isCombined ? (
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            startIcon={<ListAltOutlinedIcon sx={{ fontSize: 14 }} />}
+                            onClick={() => onViewOrders(row)}
+                            sx={{ textTransform: "none", fontWeight: 600, fontSize: 11, borderRadius: 2 }}>
+                            Orders
+                          </Button>
+                        ) : null}
+                        {showBook && !isCombined ? (
+                          <Button
+                            size="small"
+                            variant="contained"
+                            disableElevation
+                            startIcon={<AddShoppingCartIcon sx={{ fontSize: 16 }} />}
+                            onClick={() => onBook?.(row)}
+                            sx={{
+                              textTransform: "none",
+                              fontWeight: 600,
+                              fontSize: 11,
+                              borderRadius: 2,
+                              bgcolor: palette.accent,
+                              boxShadow: "none",
+                              "&:hover": { bgcolor: palette.accentHover, boxShadow: "none" },
+                            }}>
+                            Book
+                          </Button>
+                        ) : null}
+                      </Stack>
+                    </TableCell>
+                  ) : null}
+                </TableRow>
+                {!isCombined ? (
+                  <TableRow>
+                    <TableCell colSpan={showBook || onViewOrders ? 11 : 10} sx={{ p: 0, border: 0 }}>
+                      <StockLagwadBreakdown slotId={row.slotId} open={lagwadOpen} />
+                    </TableCell>
+                  </TableRow>
                 ) : null}
-              </TableRow>
+              </React.Fragment>
             )
           })}
         </TableBody>
@@ -470,9 +631,19 @@ function MonthSections({
   viewMode,
   showBookAction,
   onBookSlot,
+  onViewOrders,
+  expandedLagwad,
+  onToggleLagwad,
   expandAll,
   collapseAll,
 }) {
+  const tableProps = {
+    showBook: showBookAction,
+    onBook: onBookSlot,
+    onViewOrders,
+    expandedLagwad,
+    onToggleLagwad,
+  }
   const SectionBody = viewMode === "cards" ? SlotCardGrid : SlotTable
 
   return (
@@ -529,7 +700,7 @@ function MonthSections({
               </Stack>
             </AccordionSummary>
             <AccordionDetails sx={{ p: 0, borderTop: `1px solid ${palette.border}` }}>
-              <SectionBody rows={section.rows} showBook={showBookAction} onBook={onBookSlot} />
+              <SectionBody rows={section.rows} {...tableProps} />
             </AccordionDetails>
           </Accordion>
         )
@@ -540,6 +711,7 @@ function MonthSections({
 
 export default function AvailableStockView({
   onBookSlot,
+  onViewOrders,
   variant = "dashboard",
   refreshKey = 0,
   showBookAction = true,
@@ -560,6 +732,8 @@ export default function AvailableStockView({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [rows, setRows] = useState([])
+  const [summary, setSummary] = useState(null)
+  const [expandedLagwad, setExpandedLagwad] = useState(() => new Set())
 
   const debouncedSearch = useDebounce(search, 300)
 
@@ -639,14 +813,24 @@ export default function AvailableStockView({
       }
 
       const seen = new Set()
-      setRows(
-        allRows.filter((r) => {
-          const id = r.slotId || `${r.plantId}-${r.subtypeId}-${r.startDay}`
-          if (seen.has(id)) return false
-          seen.add(id)
-          return true
+      const merged = allRows.filter((r) => {
+        const id = r.slotId || `${r.plantId}-${r.subtypeId}-${r.startDay}`
+        if (seen.has(id)) return false
+        seen.add(id)
+        return true
+      })
+      setRows(merged)
+      setSummary(null)
+      if (merged.length > 0) {
+        setSummary({
+          available: merged.reduce((s, r) => s + (r.availablePlants || 0), 0),
+          actualAvailable: merged.reduce((s, r) => s + (r.actualAvailable || 0), 0),
+          shedAvailableInShed: merged.reduce((s, r) => s + (r.shedAvailableInShed || 0), 0),
+          actualReadyPlants: merged.reduce((s, r) => s + (r.actualReadyPlants || 0), 0),
+          remainingToDispatch: merged.reduce((s, r) => s + (r.remainingToDispatch || 0), 0),
+          linkedBatchCount: merged.reduce((s, r) => s + (r.linkedBatchCount || 0), 0),
         })
-      )
+      }
     } catch (err) {
       console.error("Availability overview:", err)
       setError("Could not load slots. Please try again.")
@@ -710,6 +894,15 @@ export default function AvailableStockView({
 
   const expandAll = () => setExpanded(sections.map((s) => s.id))
   const collapseAll = () => setExpanded([])
+
+  const toggleLagwad = useCallback((slotId) => {
+    setExpandedLagwad((prev) => {
+      const next = new Set(prev)
+      if (next.has(slotId)) next.delete(slotId)
+      else next.add(slotId)
+      return next
+    })
+  }, [])
 
   const applyDefaultMonths = () => {
     const defaults = getNextThreeCalendarMonths()
@@ -777,13 +970,13 @@ export default function AvailableStockView({
               <CalendarMonthOutlinedIcon sx={{ color: palette.accent }} />
             </Box>
             <Typography variant="h5" fontWeight={800} color={palette.text}>
-              Slot availability
+              Stock & lagwad
             </Typography>
           </Stack>
           <Typography variant="body2" color={palette.muted} sx={{ mt: 0.5, pl: 6 }}>
             {selectedPlant
-              ? `${selectedPlant.name} · ${monthLabel || "pick months below"}`
-              : "Choose a plant — shows May, June, July style months (next 3)"}
+              ? `${selectedPlant.name} · slot open, actual available, shed-wise batch lagwad · ${monthLabel || "pick months"}`
+              : "Choose a plant — slot booking capacity plus shed lagwad & batch breakdown"}
           </Typography>
         </Box>
         {selectedPlantId && !loading && !error && totalSlots > 0 && (
@@ -1049,6 +1242,7 @@ export default function AvailableStockView({
         </Box>
       ) : (
         <>
+          <StockKpiStrip rows={filteredRows} summary={summary} />
           {monthKeysActive && selectedMonthKeys.length > 0 && (
             <MonthsCombinedSection
               rows={filteredRows}
@@ -1063,7 +1257,12 @@ export default function AvailableStockView({
           )}
           {viewMode === "cards" && sections.length === 1 ? (
             <Box sx={{ bgcolor: palette.card, borderRadius: 2.5, border: `1px solid ${palette.border}`, overflow: "hidden" }}>
-              <SlotCardGrid rows={sections[0].rows} showBook={showBookAction} onBook={onBookSlot} />
+              <SlotCardGrid
+                rows={sections[0].rows}
+                showBook={showBookAction}
+                onBook={onBookSlot}
+                onViewOrders={onViewOrders}
+              />
             </Box>
           ) : (
             <MonthSections
@@ -1073,6 +1272,9 @@ export default function AvailableStockView({
           viewMode={viewMode}
           showBookAction={showBookAction}
           onBookSlot={onBookSlot}
+          onViewOrders={onViewOrders}
+          expandedLagwad={expandedLagwad}
+          onToggleLagwad={toggleLagwad}
           expandAll={expandAll}
           collapseAll={collapseAll}
             />

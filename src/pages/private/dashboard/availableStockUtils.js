@@ -131,6 +131,8 @@ export const SORT_OPTIONS = [
   { value: "subtype-desc", label: "Subtype Z → A" },
   { value: "available-desc", label: "Most available" },
   { value: "available-asc", label: "Least available" },
+  { value: "actual-desc", label: "Most actual available" },
+  { value: "shed-desc", label: "Most in shed" },
 ]
 
 export function sortStockRowsBy(rows, sortKey = "date-asc") {
@@ -184,6 +186,18 @@ export function sortStockRowsBy(rows, sortKey = "date-asc") {
       return list.sort(
         (a, b) =>
           (a.availablePlants || 0) - (b.availablePlants || 0) ||
+          cmpDate(a, b)
+      )
+    case "actual-desc":
+      return list.sort(
+        (a, b) =>
+          (b.actualAvailable || 0) - (a.actualAvailable || 0) ||
+          cmpDate(a, b)
+      )
+    case "shed-desc":
+      return list.sort(
+        (a, b) =>
+          (b.shedAvailableInShed || 0) - (a.shedAvailableInShed || 0) ||
           cmpDate(a, b)
       )
     case "date-asc":
@@ -566,8 +580,14 @@ export function stockRowsToCsv(rows) {
     "Month",
     "Start",
     "End",
-    "Available",
+    "Slot Available",
     "Booked",
+    "To Dispatch",
+    "Actual Plants",
+    "Actual Available",
+    "In Shed",
+    "Ready",
+    "Batches",
     "Capacity",
     "Utilization %",
     "Status",
@@ -580,7 +600,13 @@ export function stockRowsToCsv(rows) {
       formatSlotDate(r.startDay),
       formatSlotDate(r.endDay),
       r.availablePlants,
-      r.bookedPlants,
+      r.totalBookedPlants ?? r.bookedPlants,
+      r.remainingToDispatch,
+      r.actualPlants,
+      r.actualAvailable,
+      r.shedAvailableInShed,
+      r.actualReadyPlants,
+      r.linkedBatchCount,
       r.totalPlants,
       r.utilizationPct,
       r.status,

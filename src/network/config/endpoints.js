@@ -1177,6 +1177,11 @@ export const API = {
       "laboutward/secondary/farmer-dispatch/pickup-batch-suggestions",
       HTTP_METHODS.GET
     ),
+    GET_SECONDARY_DISPATCH_LEDGER_LINES: new APIRouter(
+      "laboutward/secondary/dispatch-ledger/lines",
+      HTTP_METHODS.GET,
+      OFFLINE.PROFILE
+    ),
   },
   POLLY_HOUSE: {
     CREATE_HOUSE: new APIRouter("pollyhouse/create", HTTP_METHODS.POST),
