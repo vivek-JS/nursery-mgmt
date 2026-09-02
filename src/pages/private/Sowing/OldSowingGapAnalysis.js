@@ -1428,11 +1428,19 @@ const OldSowingGapAnalysis = () => {
   const handleExcessiveSowingSuccess = async (data) => {
     await fetchTodaySowingCards();
     await fetchPendingRequests();
-    
+
+    const reqNum = data?.requestNumber || data?.request?.requestNumber || "N/A";
+    const pkts = Number(data?.packetsRequested ?? data?.request?.packetsRequested ?? 0);
+    const cf =
+      Number(data?.tentativePlantsPerPacket ?? data?.conversionFactor ?? 0) || 1000;
+    const plants =
+      data?.slot?.totalPlants ??
+      (pkts > 0 ? Math.round(pkts * cf) : 0);
+
     setAlertDialog({
       open: true,
       title: "Success",
-      message: `Excessive sowing request created successfully!\n\nRequest Number: ${data.request?.requestNumber || 'N/A'}\nExpected Plants: ${data.slot?.totalPlants || 0}`,
+      message: `Excess packet request created.\n\nRequest: ${reqNum}\nPackets: ${pkts}\nExpected plants: ${plants}\n\nNext: issue stock → sow in progress → complete sow.`,
     });
   };
 
