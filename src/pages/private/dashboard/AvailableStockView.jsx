@@ -47,6 +47,7 @@ import Inventory2OutlinedIcon from "@mui/icons-material/Inventory2Outlined"
 import { API, NetworkManager } from "network/core"
 import useDebounce from "hooks/useDebounce"
 import StockLagwadBreakdown from "./components/StockLagwadBreakdown"
+import SlotReadySoldPanel, { SlotReadySoldTrigger } from "./components/SlotReadySoldPanel"
 import {
   fmt,
   formatSlotPeriod,
@@ -282,7 +283,8 @@ function SubtypeChip({ label, active, onClick }) {
   )
 }
 
-function SlotCard({ row, showBook, onBook }) {
+function SlotCard({ row, showBook, onBook, expandedLagwad, onToggleLagwad }) {
+  const soldOpen = expandedLagwad?.has(row.slotId)
   const accent = plantAccentFor(row.plantName)
 
   return (
@@ -341,6 +343,9 @@ function SlotCard({ row, showBook, onBook }) {
               {row.linkedBatchCount > 0 ? (
                 <Chip size="small" label={`${row.linkedBatchCount} batches`} variant="outlined" sx={{ fontWeight: 600 }} />
               ) : null}
+              {row.actualReadyPlants != null ? (
+                <Chip size="small" label={`Ready ${fmt(row.actualReadyPlants)}`} sx={{ fontWeight: 700, bgcolor: palette.readyBg, color: palette.readyText }} />
+              ) : null}
             </Stack>
           )}
         </Stack>
@@ -361,6 +366,26 @@ function SlotCard({ row, showBook, onBook }) {
             {formatSlotPeriod(row.startDay, row.endDay)}
           </Typography>
         </Stack>
+
+        <Box sx={{ mb: 1.5 }}>
+          <SlotReadySoldTrigger
+            slotId={row.slotId}
+            open={soldOpen}
+            onToggle={onToggleLagwad}
+            actualReadyNow={row.actualReadyPlants ?? 0}
+          />
+        </Box>
+
+        {soldOpen ? (
+          <Box sx={{ mb: 1.5, mx: -2, borderTop: `1px solid ${palette.border}` }}>
+            <SlotReadySoldPanel
+              slotId={row.slotId}
+              open={soldOpen}
+              actualReadyNow={row.actualReadyPlants ?? 0}
+            />
+            <StockLagwadBreakdown slotId={row.slotId} open={soldOpen} hideLedger />
+          </Box>
+        ) : null}
 
         {showBook ? (
           <Button
@@ -386,14 +411,20 @@ function SlotCard({ row, showBook, onBook }) {
   )
 }
 
-function SlotCardGrid({ rows, showBook, onBook, onViewOrders }) {
+function SlotCardGrid({ rows, showBook, onBook, onViewOrders, expandedLagwad, onToggleLagwad }) {
   return (
     <Box sx={{ p: 2 }}>
       <Grid container spacing={2}>
         {rows.map((row) => (
           <Grid item xs={12} sm={6} md={4} lg={3} key={row.slotId}>
             <Stack spacing={1}>
-              <SlotCard row={row} showBook={showBook} onBook={onBook} />
+              <SlotCard
+                row={row}
+                showBook={showBook}
+                onBook={onBook}
+                expandedLagwad={expandedLagwad}
+                onToggleLagwad={onToggleLagwad}
+              />
               {onViewOrders ? (
                 <Button
                   fullWidth
@@ -451,7 +482,9 @@ function SlotTable({
             <TableCell align="right" sx={{ bgcolor: alpha(palette.shedBg, 0.5) }}>
               In shed
             </TableCell>
-            <TableCell align="right">Ready</TableCell>
+            <TableCell align="right" sx={{ minWidth: 120 }}>
+              Ready / Sold
+            </TableCell>
             <TableCell align="center">Batch</TableCell>
             {showBook || onViewOrders ? <TableCell align="center">Actions</TableCell> : null}
           </TableRow>
@@ -461,7 +494,7 @@ function SlotTable({
             const accent = plantAccentFor(row.plantName)
             const isCombined = row._combined
             const lagwadOpen = expandedLagwad?.has(row.slotId)
-            const hasLagwad = (row.shedLineCount || row.linkedBatchCount || row.shedAvailableInShed) > 0
+            const hasDetail = !isCombined
             return (
               <React.Fragment key={row.slotId}>
                 <TableRow
@@ -476,10 +509,11 @@ function SlotTable({
                         : undefined,
                   }}>
                   <TableCell padding="checkbox">
-                    {!isCombined && hasLagwad ? (
+                    {hasDetail ? (
                       <IconButton
                         size="small"
                         onClick={() => onToggleLagwad?.(row.slotId)}
+                        aria-label={lagwadOpen ? "Hide sold orders" : "Show sold orders"}
                         sx={{
                           transform: lagwadOpen ? "rotate(180deg)" : "none",
                           transition: "transform 0.2s",
@@ -522,8 +556,16 @@ function SlotTable({
                   <TableCell align="right" sx={{ bgcolor: alpha(palette.shedBg, 0.45), fontWeight: 800, fontSize: 13, color: palette.shedText }}>
                     {fmt(row.shedAvailableInShed)}
                   </TableCell>
-                  <TableCell align="right" sx={{ fontWeight: 800, fontSize: 13, color: palette.readyText }}>
-                    {fmt(row.actualReadyPlants)}
+                  <TableCell align="right" sx={{ minWidth: 120, verticalAlign: "top", py: 1 }}>
+                    <Typography fontWeight={800} fontSize={13} color={palette.readyText} textAlign="right">
+                      {fmt(row.actualReadyPlants)}
+                    </Typography>
+                    <SlotReadySoldTrigger
+                      slotId={row.slotId}
+                      open={lagwadOpen}
+                      onToggle={onToggleLagwad}
+                      actualReadyNow={row.actualReadyPlants ?? 0}
+                    />
                   </TableCell>
                   <TableCell align="center">
                     {row.linkedBatchCount > 0 ? (
@@ -571,7 +613,12 @@ function SlotTable({
                 {!isCombined ? (
                   <TableRow>
                     <TableCell colSpan={showBook || onViewOrders ? 11 : 10} sx={{ p: 0, border: 0 }}>
-                      <StockLagwadBreakdown slotId={row.slotId} open={lagwadOpen} />
+                      <SlotReadySoldPanel
+                        slotId={row.slotId}
+                        open={lagwadOpen}
+                        actualReadyNow={row.actualReadyPlants ?? 0}
+                      />
+                      <StockLagwadBreakdown slotId={row.slotId} open={lagwadOpen} hideLedger />
                     </TableCell>
                   </TableRow>
                 ) : null}
@@ -1262,6 +1309,8 @@ export default function AvailableStockView({
                 showBook={showBookAction}
                 onBook={onBookSlot}
                 onViewOrders={onViewOrders}
+                expandedLagwad={expandedLagwad}
+                onToggleLagwad={toggleLagwad}
               />
             </Box>
           ) : (

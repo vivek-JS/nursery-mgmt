@@ -12,8 +12,15 @@ import {
   CircularProgress,
 } from "@mui/material"
 import { ArrowRightLeft, Info } from "lucide-react"
+import RemoveShoppingCartOutlinedIcon from "@mui/icons-material/RemoveShoppingCartOutlined"
 import { API, NetworkManager } from "network/core"
 import { Toast } from "helpers/toasts/toastHelper"
+import {
+  SlotReadySoldBox,
+  SlotReadySoldContent,
+} from "../dashboard/components/SlotReadySoldPanel"
+import SlotActualReadyBreakdownModal from "./SlotActualReadyBreakdownModal"
+import RollActualReadyModal from "./RollActualReadyModal"
 import {
   getActualReadyPlants,
   getExpectedMortality,
@@ -32,6 +39,7 @@ const SlotLagwadMetrics = ({
   variant = "card",
   onOpenActual,
   onSlotChanged,
+  onOpenRollHistory,
   className = "",
 }) => {
   const actualPlants = Number(slot?.actualPlants) || 0
@@ -42,6 +50,9 @@ const SlotLagwadMetrics = ({
   const [transferOpen, setTransferOpen] = useState(false)
   const [transferQty, setTransferQty] = useState("")
   const [transferring, setTransferring] = useState(false)
+  const [soldOpen, setSoldOpen] = useState(false)
+  const [readyBreakdownOpen, setReadyBreakdownOpen] = useState(false)
+  const [rollReadyOpen, setRollReadyOpen] = useState(false)
 
   const [sowAnchor, setSowAnchor] = useState(null)
   const [sowLoading, setSowLoading] = useState(false)
@@ -54,6 +65,11 @@ const SlotLagwadMetrics = ({
   const openActual = (e) => {
     e?.stopPropagation?.()
     onOpenActual?.(slot)
+  }
+
+  const openReadyBreakdown = (e) => {
+    e?.stopPropagation?.()
+    setReadyBreakdownOpen(true)
   }
 
   const openTransfer = (e) => {
@@ -142,8 +158,8 @@ const SlotLagwadMetrics = ({
   const cells = [
     {
       key: "sellable",
-      label: "Sellable",
-      sub: "90% actual",
+      label: "Sowed",
+      sub: "90% sellable",
       value: actualPlants,
       className: "bg-emerald-50 border-emerald-200 hover:bg-emerald-100",
       valueClass: "text-emerald-900",
@@ -172,12 +188,23 @@ const SlotLagwadMetrics = ({
     {
       key: "ready",
       label: "Actual ready",
-      sub: "calendar / manual",
+      sub:
+        (Number(slot?.rolledInActualReadyPlants) || 0) > 0
+          ? "tap → batch / history"
+          : "tap → batch & shed",
       value: actualReady,
-      className: "bg-sky-50 border-sky-200",
+      className: "bg-sky-50 border-sky-200 hover:bg-sky-100 cursor-pointer",
       valueClass: "text-sky-800",
-      title: "Calendar-ready or manually marked sellable — vehicle load subtracts here",
-      clickable: false,
+      title: "Actual ready on slot — click for batch-wise and shed-wise breakdown",
+      clickable: true,
+      onClick: (e) => {
+        if (e?.shiftKey && onOpenRollHistory) {
+          e.stopPropagation?.()
+          onOpenRollHistory()
+          return
+        }
+        openReadyBreakdown(e)
+      },
     },
   ]
 
@@ -247,6 +274,75 @@ const SlotLagwadMetrics = ({
           )
         })}
       </div>
+
+      {variant !== "card" && slot?._id ? (
+        <SlotReadySoldBox
+          slotId={slot._id}
+          actualReadyNow={actualReady}
+          onOpen={() => setSoldOpen(true)}
+        />
+      ) : null}
+
+      {variant !== "card" && slot?.isCurrentDateSlot ? (
+        <Button
+          fullWidth
+          size="small"
+          variant="outlined"
+          color="info"
+          onClick={(e) => {
+            e.stopPropagation()
+            setRollReadyOpen(true)
+          }}
+          sx={{ mt: 1, textTransform: "none", fontSize: "0.7rem", py: 0.5, fontWeight: 700 }}>
+          Roll actual ready from expired slots
+        </Button>
+      ) : null}
+
+      <SlotActualReadyBreakdownModal
+        open={readyBreakdownOpen}
+        onClose={() => setReadyBreakdownOpen(false)}
+        slot={slot}
+      />
+
+      <RollActualReadyModal
+        open={rollReadyOpen}
+        onClose={() => setRollReadyOpen(false)}
+        slot={slot}
+        onSuccess={onSlotChanged}
+      />
+
+      <Dialog
+        open={soldOpen}
+        onClose={() => setSoldOpen(false)}
+        onClick={(e) => e.stopPropagation()}
+        maxWidth="md"
+        fullWidth
+        PaperProps={{ sx: { borderRadius: 3, overflow: "hidden" } }}>
+        <DialogTitle
+          sx={{
+            bgcolor: "#fffbeb",
+            borderBottom: "1px solid #fcd34d",
+            py: 1.5,
+            display: "flex",
+            alignItems: "center",
+            gap: 1,
+          }}>
+          <RemoveShoppingCartOutlinedIcon sx={{ color: "#b45309" }} />
+          <span className="text-base font-bold text-amber-900">Actual ready sold</span>
+        </DialogTitle>
+        <DialogContent sx={{ p: 0 }}>
+          <SlotReadySoldContent
+            slotId={slot._id}
+            open={soldOpen}
+            actualReadyNow={actualReady}
+          />
+        </DialogContent>
+        <DialogActions sx={{ px: 2, py: 1.5, bgcolor: "#fffbeb", borderTop: "1px solid #fde68a" }}>
+          <Button onClick={() => setSoldOpen(false)} variant="contained" sx={{ bgcolor: "#b45309", "&:hover": { bgcolor: "#92400e" } }}>
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Popover
         open={Boolean(sowAnchor)}

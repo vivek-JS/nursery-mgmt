@@ -896,6 +896,11 @@ export const API = {
       HTTP_METHODS.POST,
       OFFLINE.PROFILE
     ),
+    GET_SLOT_READY_ROLL_LOG: new APIRouter(
+      "/slots/:slotId/ready-roll-log",
+      HTTP_METHODS.GET,
+      OFFLINE.PROFILE
+    ),
     BULK_UPDATE_STOCK_ENTRY: new APIRouter(
       "/slots/stock-entry/bulk",
       HTTP_METHODS.PUT,
@@ -1150,6 +1155,10 @@ export const API = {
     ),
     SECONDARY_BATCH_LAGWAD: new APIRouter(
       "laboutward/secondary/:batchId/batch-lagwad",
+      HTTP_METHODS.POST
+    ),
+    SECONDARY_DIRECT_LAGWAD: new APIRouter(
+      "laboutward/secondary/:batchId/direct-lagwad",
       HTTP_METHODS.POST
     ),
     SECONDARY_VEHICLE_LOAD_PREVIEW: new APIRouter(

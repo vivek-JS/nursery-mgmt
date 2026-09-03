@@ -54,6 +54,8 @@ const RollExpiredAvailableModal = ({ open, onClose, slot, onSuccess }) => {
             availableQty: String(s.availablePlants || 0),
             rollActual: false,
             actualQty: String(Math.min(s.actualPlants || 0, s.availablePlants || 0)),
+            rollReady: (s.actualReadyPlants || 0) > 0,
+            readyQty: String(s.actualReadyPlants || 0),
           }))
         )
       } else {
@@ -68,12 +70,14 @@ const RollExpiredAvailableModal = ({ open, onClose, slot, onSuccess }) => {
   const totals = useMemo(() => {
     let avail = 0
     let actual = 0
+    let ready = 0
     for (const r of rows) {
       if (!r.selected) continue
       avail += Number(r.availableQty) || 0
       if (r.rollActual) actual += Number(r.actualQty) || 0
+      if (r.rollReady) ready += Number(r.readyQty) || 0
     }
-    return { avail, actual }
+    return { avail, actual, ready }
   }, [rows])
 
   const toggleRow = (slotId) => {
@@ -93,8 +97,9 @@ const RollExpiredAvailableModal = ({ open, onClose, slot, onSuccess }) => {
         sourceSlotId: r.slotId,
         availableQty: Math.floor(Number(r.availableQty) || 0),
         actualQty: r.rollActual ? Math.floor(Number(r.actualQty) || 0) : 0,
+        readyQty: r.rollReady ? Math.floor(Number(r.readyQty) || 0) : 0,
       }))
-      .filter((t) => t.availableQty > 0 || t.actualQty > 0)
+      .filter((t) => t.availableQty > 0 || t.actualQty > 0 || t.readyQty > 0)
 
     if (transfers.length === 0) {
       Toast.error("Select at least one expired slot")
@@ -169,6 +174,9 @@ const RollExpiredAvailableModal = ({ open, onClose, slot, onSuccess }) => {
                 <TableCell align="right">Actual</TableCell>
                 <TableCell align="center">Also actual</TableCell>
                 <TableCell align="right">Actual qty</TableCell>
+                <TableCell align="right">Ready</TableCell>
+                <TableCell align="center">Roll ready</TableCell>
+                <TableCell align="right">Ready qty</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -221,19 +229,48 @@ const RollExpiredAvailableModal = ({ open, onClose, slot, onSuccess }) => {
                       inputProps={{ min: 0, max: r.actualPlants }}
                     />
                   </TableCell>
+                  <TableCell align="right">{r.actualReadyPlants?.toLocaleString() ?? "0"}</TableCell>
+                  <TableCell align="center">
+                    <Checkbox
+                      checked={r.rollReady}
+                      disabled={!r.selected || !(r.actualReadyPlants > 0)}
+                      onChange={(e) =>
+                        updateRow(r.slotId, {
+                          rollReady: e.target.checked,
+                          readyQty: String(r.actualReadyPlants || 0),
+                        })
+                      }
+                    />
+                  </TableCell>
+                  <TableCell align="right" sx={{ width: 100 }}>
+                    <TextField
+                      size="small"
+                      type="number"
+                      value={r.readyQty}
+                      disabled={!r.selected || !r.rollReady}
+                      onChange={(e) => updateRow(r.slotId, { readyQty: e.target.value })}
+                      inputProps={{ min: 0, max: r.actualReadyPlants }}
+                    />
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
         )}
 
-        {totals.avail > 0 || totals.actual > 0 ? (
+        {totals.avail > 0 || totals.actual > 0 || totals.ready > 0 ? (
           <Typography variant="body2" className="mt-3 text-gray-700">
             Rolling in: <strong>{totals.avail.toLocaleString()}</strong> available
             {totals.actual > 0 && (
               <>
                 {" "}
                 + <strong>{totals.actual.toLocaleString()}</strong> actual
+              </>
+            )}
+            {totals.ready > 0 && (
+              <>
+                {" "}
+                + <strong>{totals.ready.toLocaleString()}</strong> actual ready
               </>
             )}
           </Typography>

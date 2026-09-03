@@ -1,4 +1,4 @@
-import React from "react"
+import React, { useState } from "react"
 import moment from "moment"
 import {
   Calendar,
@@ -11,20 +11,17 @@ import {
   Sprout,
   ArrowRightLeft,
   Package,
+  ChevronDown,
 } from "lucide-react"
-import { Switch, Tooltip, IconButton, Button, Card, CardContent } from "@mui/material"
-import SlotBufferPanel from "./SlotBufferPanel"
+import { Switch, Tooltip, IconButton, Button, Card, CardContent, Collapse } from "@mui/material"
 import SlotCardMetrics from "./SlotCardMetrics"
-import SlotBookingCoverPanel from "./SlotBookingCoverPanel"
-import SlotQueuePanel from "./SlotQueuePanel"
-import SlotDispatchedPanel from "./SlotDispatchedPanel"
+import RollActualReadyModal from "./RollActualReadyModal"
 import ActiveSlotHighlight from "./ActiveSlotHighlight"
 import {
   getSellableCapacity,
   getTotalCapacity,
   getUtilizationPct,
   getBookedPlants,
-  getSowingGap,
   isSlotOverbooked,
   getEffectiveBufferPct,
   slotHasMixedRolledAndNativeOrders,
@@ -46,7 +43,6 @@ const SlotCard = ({
   onTrail,
   onEdit,
   onBuffer,
-  onReleaseBuffer,
   onSowing,
   onTransfer,
   onStockHistory,
@@ -55,6 +51,9 @@ const SlotCard = ({
   onDelete,
 }) => {
   const { startDay, endDay, status, _id, isManual } = slot || {}
+  const [showExtra, setShowExtra] = useState(false)
+  const [rollReadyOpen, setRollReadyOpen] = useState(false)
+
   const start = moment(startDay, "DD-MM-YYYY").format("MMM D")
   const end = moment(endDay, "DD-MM-YYYY").format("MMM D")
   const yearLbl = moment(startDay, "DD-MM-YYYY").format("YYYY")
@@ -62,12 +61,12 @@ const SlotCard = ({
   const effectiveTotalCapacity = getSellableCapacity(slot)
   const bookedPlants = getBookedPlants(slot)
   const totalCapacity = getTotalCapacity(slot)
-  const sowingGap = getSowingGap(slot)
   const slotBookedPercentage = getUtilizationPct(bookedPlants, effectiveTotalCapacity)
   const slotStatusColor = getStatusColor(slotBookedPercentage, getBookedPlants(slot))
   const slotIsOverbooked = isSlotOverbooked(slot)
   const mixedRolledAndNative = slotHasMixedRolledAndNativeOrders(slot)
   const hasPendingPastDue = slotHasPendingPastDueOnSubtype(slot)
+
   return (
     <Card
       className={`transition-all duration-200 hover:shadow-lg rounded-xl border ${
@@ -164,23 +163,6 @@ const SlotCard = ({
           </div>
         </div>
 
-        <div className="mb-2.5" onClick={(e) => e.stopPropagation()}>
-          <div className="flex justify-between items-center mb-1">
-            <span className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">
-              Util {slotBookedPercentage}%
-            </span>
-            <span className="text-[10px] text-gray-500">Cap {totalCapacity.toLocaleString()}</span>
-          </div>
-          <div className="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
-            <div
-              className={`h-1.5 rounded-full transition-all ${slotStatusColor.bg} ${
-                slotIsOverbooked ? "animate-pulse" : ""
-              }`}
-              style={{ width: `${Math.min(slotBookedPercentage, 100)}%` }}
-            />
-          </div>
-        </div>
-
         <SlotCardMetrics
           slot={slot}
           monthName={monthName}
@@ -189,78 +171,25 @@ const SlotCard = ({
           onSlotChanged={onSlotChanged}
         />
 
-        <SlotBookingCoverPanel
-          slot={slot}
-          monthName={monthName}
-          onOpenOrders={onOpenOrders}
-        />
-
-        <SlotQueuePanel slot={slot} monthName={monthName} onOpenOrders={onOpenOrders} />
-
-        <SlotDispatchedPanel
-          slot={slot}
-          monthName={monthName}
-          onOpenOrders={onOpenOrders}
-        />
-
-        {((slot.pastDueRolledInPlants ?? 0) > 0 || (slot.pastDuePendingOnSlot ?? 0) > 0) && (
+        {(slot.pastDuePendingOnSlot ?? 0) > 0 && (
           <div className="border-t border-gray-200 pt-2 mt-1 mb-2" onClick={(e) => e.stopPropagation()}>
-            <p className="text-[10px] font-semibold text-amber-800 uppercase tracking-wide mb-1.5">
-              Past due
-            </p>
-            <div className="grid grid-cols-2 gap-1.5">
-              {(slot.pastDueRolledInPlants ?? 0) > 0 && (
-                <button
-                  type="button"
-                  className="rounded-lg border px-2 py-1.5 text-left bg-amber-50 border-amber-200 hover:bg-amber-100"
-                  onClick={(e) => onOpenPastDue(e, slot, monthName, "pastDueRolled")}>
-                  <p className="text-[10px] text-gray-500">Rolled in (past due)</p>
-                  <p className="text-sm font-bold text-amber-800 tabular-nums">
-                    {(slot.pastDueRolledInPlants ?? 0).toLocaleString()}
-                  </p>
-                </button>
-              )}
-              {(slot.pastDuePendingOnSlot ?? 0) > 0 && (
-                <button
-                  type="button"
-                  className="rounded-lg border px-2 py-1.5 text-left bg-orange-50 border-orange-200 hover:bg-orange-100"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onPendingRoll(slot)
-                  }}>
-                  <p className="text-[10px] text-gray-500">Pending roll</p>
-                  <p className="text-sm font-bold text-orange-800">
-                    {(slot.pastDuePendingOrders ?? 0).toLocaleString()}
-                  </p>
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-
-        {((slot.dispatchedFromOtherSlots ?? 0) > 0 || (slot.releasedForEarlyDispatch ?? 0) > 0) && (
-          <div className="flex flex-wrap gap-2 mb-2 text-[10px]" onClick={(e) => e.stopPropagation()}>
-            {(slot.dispatchedFromOtherSlots ?? 0) > 0 && (
-              <button
-                type="button"
-                className="rounded border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-sky-800 hover:bg-sky-100"
-                onClick={(e) => onOpenOrders(e, slot, monthName, "crossSlotEarlyIn")}>
-                Early dispatch: <strong>{(slot.dispatchedFromOtherSlots ?? 0).toLocaleString()}</strong>
-              </button>
-            )}
-            {(slot.releasedForEarlyDispatch ?? 0) > 0 && (
-              <button
-                type="button"
-                className="rounded border border-violet-200 bg-violet-50 px-1.5 py-0.5 text-violet-800 hover:bg-violet-100"
-                onClick={(e) => onOpenOrders(e, slot, monthName, "crossSlotReleased")}>
-                Released: <strong>{(slot.releasedForEarlyDispatch ?? 0).toLocaleString()}</strong>
-              </button>
-            )}
+            <button
+              type="button"
+              className="w-full rounded-lg border px-2 py-1.5 text-left bg-orange-50 border-orange-200 hover:bg-orange-100"
+              onClick={(e) => {
+                e.stopPropagation()
+                onPendingRoll(slot)
+              }}>
+              <p className="text-[10px] text-gray-500">Past due — pending roll</p>
+              <p className="text-sm font-bold text-orange-800">
+                {(slot.pastDuePendingOrders ?? 0).toLocaleString()} orders
+              </p>
+            </button>
           </div>
         )}
 
         {slot?.isCurrentDateSlot && canRollExpired && (
-          <div className="mb-2" onClick={(e) => e.stopPropagation()}>
+          <div className="mb-2 space-y-1" onClick={(e) => e.stopPropagation()}>
             <Button
               size="small"
               variant="outlined"
@@ -268,29 +197,81 @@ const SlotCard = ({
               fullWidth
               onClick={() => onRollExpiredAvailable(slot)}
               sx={{ textTransform: "none", fontSize: "0.7rem", py: 0.5 }}>
-              {slot.status === false
-                ? "Roll expired available (slot Off)"
-                : "Roll expired available"}
+              Roll expired available
+            </Button>
+            <Button
+              size="small"
+              variant="outlined"
+              color="info"
+              fullWidth
+              onClick={() => setRollReadyOpen(true)}
+              sx={{ textTransform: "none", fontSize: "0.7rem", py: 0.5 }}>
+              Roll actual ready from expired
             </Button>
           </div>
         )}
 
-        <SlotBufferPanel
+        <RollActualReadyModal
+          open={rollReadyOpen}
+          onClose={() => setRollReadyOpen(false)}
           slot={slot}
-          onEditBuffer={onBuffer}
-          onReleaseBuffer={onReleaseBuffer}
-          onStopPropagation={(e) => e.stopPropagation()}
+          onSuccess={onSlotChanged}
         />
 
-        {sowingGap !== 0 && (
-          <div className="text-[10px] text-gray-500 mb-2">
-            Sowing gap{" "}
-            <strong className={sowingGap > 0 ? "text-orange-600" : "text-gray-700"}>
-              {sowingGap > 0 ? "+" : ""}
-              {sowingGap.toLocaleString()}
-            </strong>
+        <Button
+          fullWidth
+          size="small"
+          variant="text"
+          onClick={(e) => {
+            e.stopPropagation()
+            setShowExtra((v) => !v)
+          }}
+          endIcon={
+            <ChevronDown className={`h-4 w-4 transition-transform ${showExtra ? "rotate-180" : ""}`} />
+          }
+          sx={{ textTransform: "none", fontSize: "0.65rem", fontWeight: 600, color: "#94a3b8", mb: 0.5 }}>
+          {showExtra ? "Hide util & extras" : "Util & extras"}
+        </Button>
+
+        <Collapse in={showExtra}>
+          <div className="mb-2.5" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-1">
+              <span className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">
+                Util {slotBookedPercentage}%
+              </span>
+              <span className="text-[10px] text-gray-500">Cap {totalCapacity.toLocaleString()}</span>
+            </div>
+            <div className="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
+              <div
+                className={`h-1.5 rounded-full transition-all ${slotStatusColor.bg} ${
+                  slotIsOverbooked ? "animate-pulse" : ""
+                }`}
+                style={{ width: `${Math.min(slotBookedPercentage, 100)}%` }}
+              />
+            </div>
           </div>
-        )}
+
+          {((slot.dispatchedFromOtherSlots ?? 0) > 0 || (slot.releasedForEarlyDispatch ?? 0) > 0) && (
+            <div className="flex flex-wrap gap-2 mb-2 text-[10px]" onClick={(e) => e.stopPropagation()}>
+              {(slot.dispatchedFromOtherSlots ?? 0) > 0 && (
+                <button
+                  type="button"
+                  className="rounded border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-sky-800 hover:bg-sky-100"
+                  onClick={(e) => onOpenOrders(e, slot, monthName, "crossSlotEarlyIn")}>
+                  Early dispatch: <strong>{(slot.dispatchedFromOtherSlots ?? 0).toLocaleString()}</strong>
+                </button>
+              )}
+              {(slot.releasedForEarlyDispatch ?? 0) > 0 && (
+                <button
+                  type="button"
+                  className="rounded border border-violet-200 bg-violet-50 px-1.5 py-0.5 text-violet-800 hover:bg-violet-100"
+                  onClick={(e) => onOpenOrders(e, slot, monthName, "crossSlotReleased")}>
+                  Released: <strong>{(slot.releasedForEarlyDispatch ?? 0).toLocaleString()}</strong>
+                </button>
+              )}
+            </div>
+          )}
+        </Collapse>
 
         <div
           className="flex items-center justify-between pt-2 border-t border-gray-100"

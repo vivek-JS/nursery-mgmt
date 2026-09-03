@@ -37,7 +37,7 @@ const palette = {
 /**
  * Lazy-loaded shed × batch lagwad drill-down for a booking slot row.
  */
-export default function StockLagwadBreakdown({ slotId, open }) {
+export default function StockLagwadBreakdown({ slotId, open, hideLedger = false }) {
   const [loading, setLoading] = useState(false)
   const [data, setData] = useState(null)
   const [ledgerItems, setLedgerItems] = useState([])
@@ -50,18 +50,25 @@ export default function StockLagwadBreakdown({ slotId, open }) {
     setError(null)
     try {
       const breakdownReq = NetworkManager(API.slots.GET_SLOT_SECONDARY_SHED_BREAKDOWN)
-      const ledgerReq = NetworkManager(API.PLANT_OUTWARD.GET_SECONDARY_DISPATCH_LEDGER_LINES)
-      const [breakdownRes, ledgerRes] = await Promise.all([
-        breakdownReq.request({}, [slotId]),
-        ledgerReq.request({}, {
-          linkedBookingSlotId: slotId,
-          action: "LOAD",
-          limit: 200,
-        }),
-      ])
-      setData(breakdownRes?.data?.data ?? breakdownRes?.data ?? breakdownRes)
-      const ledgerPayload = ledgerRes?.data?.data ?? ledgerRes?.data ?? ledgerRes
-      setLedgerItems(Array.isArray(ledgerPayload?.items) ? ledgerPayload.items : [])
+      const requests = [breakdownReq.request({}, [slotId])]
+      if (!hideLedger) {
+        const ledgerReq = NetworkManager(API.PLANT_OUTWARD.GET_SECONDARY_DISPATCH_LEDGER_LINES)
+        requests.push(
+          ledgerReq.request({}, {
+            linkedBookingSlotId: slotId,
+            action: "LOAD",
+            limit: 200,
+          })
+        )
+      }
+      const results = await Promise.all(requests)
+      setData(results[0]?.data?.data ?? results[0]?.data ?? results[0])
+      if (!hideLedger && results[1]) {
+        const ledgerPayload = results[1]?.data?.data ?? results[1]?.data ?? results[1]
+        setLedgerItems(Array.isArray(ledgerPayload?.items) ? ledgerPayload.items : [])
+      } else {
+        setLedgerItems([])
+      }
     } catch (e) {
       console.error(e)
       setError("Could not load shed breakdown")
@@ -70,7 +77,7 @@ export default function StockLagwadBreakdown({ slotId, open }) {
     } finally {
       setLoading(false)
     }
-  }, [slotId])
+  }, [slotId, hideLedger])
 
   useEffect(() => {
     if (!open || !slotId) {
@@ -153,6 +160,10 @@ export default function StockLagwadBreakdown({ slotId, open }) {
 
   const summary = data?.summary || {}
 
+  if (hideLedger && !loading && !error && !shedGroups.length) {
+    return null
+  }
+
   return (
     <Collapse in={open}>
       <Box
@@ -173,7 +184,7 @@ export default function StockLagwadBreakdown({ slotId, open }) {
           <Typography variant="body2" color="error">
             {error}
           </Typography>
-        ) : !shedGroups.length && !ledgerByBatch.length ? (
+        ) : !shedGroups.length && (!hideLedger ? !ledgerByBatch.length : true) ? (
           <Typography variant="body2" color={palette.muted}>
             No secondary lagwad lines linked to this slot yet.
           </Typography>
@@ -192,7 +203,7 @@ export default function StockLagwadBreakdown({ slotId, open }) {
                 label={`${fmt(summary.linkedBatchCount ?? data?.batches?.length ?? 0)} batches`}
                 sx={{ fontWeight: 700 }}
               />
-              {ledgerByBatch.length ? (
+              {!hideLedger && ledgerByBatch.length ? (
                 <Chip
                   size="small"
                   icon={<RemoveShoppingCartOutlinedIcon />}
@@ -210,7 +221,7 @@ export default function StockLagwadBreakdown({ slotId, open }) {
               ) : null}
             </Stack>
 
-            {ledgerByBatch.length ? (
+            {!hideLedger && ledgerByBatch.length ? (
               <Box
                 sx={{
                   mb: 2,
