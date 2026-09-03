@@ -105,12 +105,13 @@ export function useSlotReadySold(slotId, enabled = true) {
   }
 }
 
-/** Dispatched qty for a shed line — inward id, then batch+shed, then batch total. */
+/** Dispatched qty for a shed line — match by inward id or batch+shed only (no batch-wide fallback). */
 export function dispatchedQtyForLine(
   ln,
   dispatchedByInwardId,
   dispatchedByBatchShed,
-  dispatchedByBatchNumber
+  _dispatchedByBatchNumber,
+  { allowBatchFallback = false } = {}
 ) {
   const inwardId = ln?.secondaryInwardId ? String(ln.secondaryInwardId) : null
   if (inwardId && dispatchedByInwardId?.has(inwardId)) {
@@ -122,5 +123,8 @@ export function dispatchedQtyForLine(
   if (dispatchedByBatchShed?.has(shedKey) && dispatchedByBatchShed.get(shedKey) > 0) {
     return dispatchedByBatchShed.get(shedKey)
   }
-  return dispatchedByBatchNumber?.get(batch) || 0
+  if (allowBatchFallback && _dispatchedByBatchNumber?.has(batch)) {
+    return _dispatchedByBatchNumber.get(batch) || 0
+  }
+  return 0
 }

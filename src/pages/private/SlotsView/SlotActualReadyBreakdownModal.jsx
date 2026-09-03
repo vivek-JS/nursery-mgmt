@@ -19,6 +19,7 @@ import {
   Stack,
   TextField,
 } from "@mui/material"
+import { alpha } from "@mui/material/styles"
 import { API, NetworkManager } from "network/core"
 import { Toast } from "helpers/toasts/toastHelper"
 import { getActualReadyPlants } from "./slotMetrics"
@@ -195,6 +196,35 @@ const SlotActualReadyBreakdownModal = ({
       .filter((b) => b.lines.length > 0)
       .sort((a, b) => b.totalReady - a.totalReady)
   }, [data])
+
+  const batchWiseMerged = useMemo(() => {
+    const map = new Map()
+    for (const b of batchRows) {
+      map.set(String(b.batchNumber), { ...b, dispatchOrders: [], dispatchedPlants: 0 })
+    }
+    for (const d of soldByBatch) {
+      const key = String(d.batchNumber || "—")
+      if (!map.has(key)) {
+        map.set(key, {
+          batchNumber: key,
+          lines: [],
+          totalReady: 0,
+          readyQty: 0,
+          notReadyQty: 0,
+          dispatchOnly: true,
+          dispatchOrders: [],
+          dispatchedPlants: 0,
+        })
+      }
+      const row = map.get(key)
+      row.dispatchOrders = d.orders || []
+      row.dispatchedPlants = Number(d.dispatchedPlants) || 0
+    }
+    return [...map.values()].sort((a, b) => {
+      const score = (r) => (Number(r.dispatchedPlants) || 0) + (Number(r.totalReady) || 0)
+      return score(b) - score(a)
+    })
+  }, [batchRows, soldByBatch])
 
   const sowingEntries = useMemo(() => {
     return [...allLines].sort((a, b) => {
@@ -485,12 +515,22 @@ const SlotActualReadyBreakdownModal = ({
               </Box>
             ) : tab === 1 ? (
               <Box sx={{ p: 2 }}>
-                {!batchRows.length ? (
+                {soldLoading ? (
+                  <Stack alignItems="center" py={4}>
+                    <CircularProgress size={28} sx={{ color: "#b45309" }} />
+                  </Stack>
+                ) : !batchWiseMerged.length ? (
                   <Typography variant="body2" color="text.secondary">
-                    No shed lines synced to this slot yet.
+                    No shed lines or batch dispatch on this slot yet.
                   </Typography>
                 ) : (
-                  batchRows.map((batch) => (
+                  batchWiseMerged.map((batch) => {
+                    const batchDispatched =
+                      Number(batch.dispatchedPlants) ||
+                      dispatchedByBatchNumber.get(batch.batchNumber) ||
+                      0
+                    const netReady = Math.max(0, (batch.readyQty || 0) - batchDispatched)
+                    return (
                     <Box
                       key={batch.batchNumber}
                       sx={{ mb: 2, borderRadius: 2, border: "1px solid #e2e8f0", overflow: "hidden" }}>
@@ -498,27 +538,45 @@ const SlotActualReadyBreakdownModal = ({
                         direction="row"
                         alignItems="center"
                         justifyContent="space-between"
+                        flexWrap="wrap"
+                        gap={0.5}
                         sx={{ px: 1.5, py: 1, bgcolor: "#f0fdfa", borderBottom: "1px solid #e2e8f0" }}>
                         <Box>
                           <Typography variant="body2" fontWeight={800}>
                             {batch.batchNumber}
                           </Typography>
                           <Stack direction="row" gap={0.5} flexWrap="wrap" sx={{ mt: 0.5 }}>
-                            <Chip size="small" label={`Ready ${fmt(batch.readyQty)}`} color="success" variant="outlined" sx={{ height: 20, fontSize: 10 }} />
-                            {batch.notReadyQty > 0 ? (
-                              <Chip size="small" label={`Not ready ${fmt(batch.notReadyQty)}`} color="warning" variant="outlined" sx={{ height: 20, fontSize: 10 }} />
-                            ) : null}
+                            {!batch.dispatchOnly ? (
+                              <>
+                                <Chip size="small" label={`Ready ${fmt(batch.readyQty)}`} color="success" variant="outlined" sx={{ height: 20, fontSize: 10 }} />
+                                {batch.notReadyQty > 0 ? (
+                                  <Chip size="small" label={`Not ready ${fmt(batch.notReadyQty)}`} color="warning" variant="outlined" sx={{ height: 20, fontSize: 10 }} />
+                                ) : null}
+                                <Chip size="small" label={`Shed ${fmt(batch.totalReady)}`} sx={{ height: 20, fontSize: 10, bgcolor: "#ecfeff", color: "#0e7490" }} />
+                              </>
+                            ) : (
+                              <Chip size="small" label="Dispatch only (no shed sync)" variant="outlined" sx={{ height: 20, fontSize: 10 }} />
+                            )}
                           </Stack>
                         </Box>
-                        <Chip size="small" label={`Total ${fmt(batch.totalReady)}`} sx={{ fontWeight: 800, bgcolor: "#ecfeff", color: "#0e7490" }} />
-                        {(dispatchedByBatchNumber.get(batch.batchNumber) || 0) > 0 ? (
-                          <Chip
-                            size="small"
-                            label={`−${fmt(dispatchedByBatchNumber.get(batch.batchNumber))} dispatched`}
-                            sx={{ fontWeight: 800, bgcolor: "#fffbeb", color: "#b45309", ml: 0.5 }}
-                          />
-                        ) : null}
+                        <Stack direction="row" gap={0.5} flexWrap="wrap">
+                          {batchDispatched > 0 ? (
+                            <Chip
+                              size="small"
+                              label={`−${fmt(batchDispatched)} order dispatch`}
+                              sx={{ fontWeight: 800, bgcolor: "#fffbeb", color: "#b45309" }}
+                            />
+                          ) : null}
+                          {!batch.dispatchOnly && batch.readyQty > 0 ? (
+                            <Chip
+                              size="small"
+                              label={`Net ready ${fmt(netReady)}`}
+                              sx={{ fontWeight: 800, bgcolor: "#ecfdf5", color: "#059669" }}
+                            />
+                          ) : null}
+                        </Stack>
                       </Stack>
+                      {batch.lines.length > 0 ? (
                       <Table size="small">
                         <TableHead>
                           <TableRow>
@@ -568,8 +626,56 @@ const SlotActualReadyBreakdownModal = ({
                           })}
                         </TableBody>
                       </Table>
+                      ) : null}
+                      {batch.dispatchOrders?.length > 0 ? (
+                        <Box sx={{ borderTop: batch.lines.length ? "1px solid #fde68a" : "none", bgcolor: "#fffbeb" }}>
+                          <Typography
+                            variant="caption"
+                            fontWeight={800}
+                            sx={{ px: 1.5, py: 0.75, display: "block", color: "#b45309" }}>
+                            Order dispatch (batch minus · order-linked)
+                          </Typography>
+                          <Table size="small">
+                            <TableHead>
+                              <TableRow>
+                                <TableCell sx={{ fontWeight: 700, fontSize: 11 }}>Order</TableCell>
+                                <TableCell sx={{ fontWeight: 700, fontSize: 11 }}>Farmer</TableCell>
+                                <TableCell sx={{ fontWeight: 700, fontSize: 11 }}>Shed</TableCell>
+                                <TableCell sx={{ fontWeight: 700, fontSize: 11 }}>Status</TableCell>
+                                <TableCell align="right" sx={{ fontWeight: 700, fontSize: 11, color: "#b45309" }}>
+                                  Minus
+                                </TableCell>
+                              </TableRow>
+                            </TableHead>
+                            <TableBody>
+                              {batch.dispatchOrders.map((o) => (
+                                <TableRow key={o.orderMongoId || `${o.orderNumber}-${o.createdAt}`} hover>
+                                  <TableCell sx={{ fontSize: 12, fontWeight: 800 }}>
+                                    {o.orderNumber ? `#${o.orderNumber}` : "—"}
+                                  </TableCell>
+                                  <TableCell sx={{ fontSize: 12 }}>{o.farmerName || "—"}</TableCell>
+                                  <TableCell sx={{ fontSize: 12 }}>{o.pollyhouse || "—"}</TableCell>
+                                  <TableCell sx={{ fontSize: 12 }}>{o.orderStatus || "—"}</TableCell>
+                                  <TableCell align="right" sx={{ fontSize: 12, fontWeight: 800, color: "#b45309", tabularNums: true }}>
+                                    −{fmt(o.ledgerPlants ?? 0)}
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                              <TableRow sx={{ bgcolor: alpha("#fcd34d", 0.2) }}>
+                                <TableCell colSpan={4} sx={{ fontSize: 12, fontWeight: 800 }}>
+                                  Batch total minus
+                                </TableCell>
+                                <TableCell align="right" sx={{ fontSize: 12, fontWeight: 900, color: "#b45309", tabularNums: true }}>
+                                  −{fmt(batchDispatched)}
+                                </TableCell>
+                              </TableRow>
+                            </TableBody>
+                          </Table>
+                        </Box>
+                      ) : null}
                     </Box>
-                  ))
+                    )
+                  })
                 )}
               </Box>
             ) : tab === 2 ? (
