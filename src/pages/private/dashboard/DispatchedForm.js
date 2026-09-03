@@ -47,6 +47,10 @@ import OrderDispatchGiftLines from "../Dispatch/components/OrderDispatchGiftLine
 import { useDispatchOrderGifts } from "../Dispatch/components/useDispatchOrderGifts"
 import { syncDispatchOrderGiftLines } from "utils/dispatchOrderGifts"
 import { formatSplitAttributionLineage } from "./orderEditUtils"
+import {
+  buildDispatchOrderQuantityMaps,
+  resolveDispatchQtyForOrder,
+} from "utils/dispatchFormQuantityUtils"
 
 const cavityKey = (v) => (v != null && v !== "" ? String(v) : "")
 
@@ -486,24 +490,8 @@ const DispatchForm = ({
       vehicleRemark: dispatchDoc.vehicleRemark || "",
     })
 
-    const qtyMap = new Map()
-    const shedMap = new Map()
-    const details = Array.isArray(dispatchDoc.orderDispatchDetails)
-      ? dispatchDoc.orderDispatchDetails
-      : []
-    details.forEach((row) => {
-      if (row?.orderId != null) {
-        qtyMap.set(String(row.orderId), Number(row.dispatchQuantity || 0))
-        shedMap.set(String(row.orderId), Number(row.shedLoadedQuantity) || 0)
-      }
-    })
-    if (qtyMap.size === 0) {
-      getSelectedOrdersArray().forEach((order) => {
-        const rk = orderRowKey(order)
-        const q = Number(order.quantity || 0)
-        if (rk) qtyMap.set(rk, q)
-      })
-    }
+    const ordersForQty = getSelectedOrdersArray()
+    const { qtyMap, shedMap } = buildDispatchOrderQuantityMaps(dispatchDoc, ordersForQty)
     setOrderQuantities(qtyMap)
     orderQuantitiesRef.current = qtyMap
     setOrderShedLoadedMap(shedMap)
@@ -866,7 +854,11 @@ const DispatchForm = ({
     // Validate order quantities
     for (const order of selectedOrdersArray) {
       const orderId = orderRowKey(order)
-      const dispatchQty = orderQuantities.get(orderId) || 0
+      const dispatchQty = resolveDispatchQtyForOrder(
+        order,
+        orderQuantities,
+        savedDispatchQtyRef.current
+      )
       const orderTotal = Number(order.quantity) || 0
       const remainingQty = orderRemainingForDispatch(order)
 
@@ -968,7 +960,11 @@ const DispatchForm = ({
     const orderDispatchDetails = selectedOrdersArray.map(order => {
       const orderId = getOrderId(order)
       const rowKey = orderRowKey(order)
-      const dispatchQty = orderQuantities.get(rowKey) || 0
+      const dispatchQty = resolveDispatchQtyForOrder(
+        order,
+        orderQuantities,
+        savedDispatchQtyRef.current
+      )
       const remainingQty = orderRemainingForDispatch(order)
       const plantForOrder = plantsByOrder.get(rowKey)
       
@@ -1203,7 +1199,11 @@ const DispatchForm = ({
           }
 
           // Calculate dispatched quantity for this cavity
-          const dispatchQty = orderQuantities.get(rowKey) || 0
+          const dispatchQty = resolveDispatchQtyForOrder(
+            order,
+            orderQuantities,
+            savedDispatchQtyRef.current
+          )
           const currentQty = cavityQuantities.get(cavityId) || 0
           cavityQuantities.set(cavityId, currentQty + dispatchQty)
         }
@@ -1977,10 +1977,11 @@ const DispatchForm = ({
             const orderId = rk || getOrderId(order)
             const totalQty = order.quantity || 0
             const remainingQty = orderRemainingForDispatch(order)
-            const dispatchQty =
-              orderQuantities.get(rk) !== undefined
-                ? orderQuantities.get(rk)
-                : remainingQty
+            const dispatchQty = resolveDispatchQtyForOrder(
+              order,
+              orderQuantities,
+              savedDispatchQtyRef.current
+            )
             const isPartialDispatch = dispatchQty < remainingQty
             const minDispatchQty =
               isViewMode && isEditing ? orderShedLoadedMap.get(rk) ?? 0 : 0
@@ -2394,7 +2395,11 @@ const DispatchForm = ({
                           <h4 className="text-sm font-medium text-gray-700">By order</h4>
                           {(plant.orders || []).map((order) => {
                             const rk = orderRowKey(order)
-                            const dispatchQty = orderQuantities.get(rk) || 0
+                            const dispatchQty = resolveDispatchQtyForOrder(
+                              order,
+                              orderQuantities,
+                              savedDispatchQtyRef.current
+                            )
                             const cKey = getOrderCavityKey(order)
                             const tray = cavities.find((t) => getId(t) === cKey)
                             const cavitySize = Number(tray?.cavity) || 0
@@ -2441,7 +2446,14 @@ const DispatchForm = ({
         {isViewMode && !isEditing && (
           <Button
             onClick={() => {
-              setEditOrdersMap(selectedOrders ? new Map(selectedOrders) : new Map())
+              const base = selectedOrders ? new Map(selectedOrders) : new Map()
+              const { qtyMap } = buildDispatchOrderQuantityMaps(dispatchData, [
+                ...base.values(),
+              ])
+              setEditOrdersMap(base)
+              setOrderQuantities(qtyMap)
+              orderQuantitiesRef.current = qtyMap
+              savedDispatchQtyRef.current = new Map(qtyMap)
               setIsEditing(true)
             }}
             variant="contained"
