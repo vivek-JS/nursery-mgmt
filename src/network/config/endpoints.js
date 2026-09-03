@@ -901,6 +901,11 @@ export const API = {
       HTTP_METHODS.GET,
       OFFLINE.PROFILE
     ),
+    GET_SLOT_ORDER_DISPATCH_BY_BATCH: new APIRouter(
+      "/slots/:slotId/order-dispatch-by-batch",
+      HTTP_METHODS.GET,
+      OFFLINE.PROFILE
+    ),
     BULK_UPDATE_STOCK_ENTRY: new APIRouter(
       "/slots/stock-entry/bulk",
       HTTP_METHODS.PUT,
