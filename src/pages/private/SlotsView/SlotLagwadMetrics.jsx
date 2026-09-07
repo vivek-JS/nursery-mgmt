@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react"
+import React, { useState } from "react"
 import moment from "moment"
 import {
   Tooltip,
@@ -14,13 +14,6 @@ import {
 import { ArrowRightLeft, Info } from "lucide-react"
 import { API, NetworkManager } from "network/core"
 import { Toast } from "helpers/toasts/toastHelper"
-import {
-  SlotReadySoldBox,
-} from "../dashboard/components/SlotReadySoldPanel"
-import SlotActualReadyBreakdownModal from "./SlotActualReadyBreakdownModal"
-import RollActualReadyModal from "./RollActualReadyModal"
-import { summaryFromBreakdownPayload } from "./expectedReadyInSlot"
-import { useSlotReadySold } from "./useSlotReadySold"
 import {
   getActualReadyPlants,
   getExpectedMortality,
@@ -39,31 +32,16 @@ const SlotLagwadMetrics = ({
   variant = "card",
   onOpenActual,
   onSlotChanged,
-  onOpenRollHistory,
   className = "",
 }) => {
   const actualPlants = Number(slot?.actualPlants) || 0
   const mortality = getExpectedMortality(slot)
   const actualReady = getActualReadyPlants(slot)
-  const { soldTotal, loading: soldLoading } = useSlotReadySold(slot?._id, Boolean(slot?._id))
-  const [expectedReady, setExpectedReady] = useState({
-    total: 0,
-    calendarReady: 0,
-    awaitingMark: 0,
-  })
-  const hasLagwad =
-    actualPlants > 0 ||
-    mortality > 0 ||
-    actualReady > 0 ||
-    expectedReady.total > 0 ||
-    expectedReady.awaitingMark > 0
+  const hasLagwad = actualPlants > 0 || mortality > 0 || actualReady > 0
 
   const [transferOpen, setTransferOpen] = useState(false)
   const [transferQty, setTransferQty] = useState("")
   const [transferring, setTransferring] = useState(false)
-  const [readyBreakdownOpen, setReadyBreakdownOpen] = useState(false)
-  const [readyBreakdownTab, setReadyBreakdownTab] = useState(0)
-  const [rollReadyOpen, setRollReadyOpen] = useState(false)
 
   const [sowAnchor, setSowAnchor] = useState(null)
   const [sowLoading, setSowLoading] = useState(false)
@@ -76,59 +54,6 @@ const SlotLagwadMetrics = ({
   const openActual = (e) => {
     e?.stopPropagation?.()
     onOpenActual?.(slot)
-  }
-
-  const openReadyBreakdown = (e, tab = 0) => {
-    e?.stopPropagation?.()
-    setReadyBreakdownTab(tab)
-    setReadyBreakdownOpen(true)
-  }
-
-  const openExpectedReady = (e) => openReadyBreakdown(e, 0)
-
-  useEffect(() => {
-    if (!slot?._id) {
-      setExpectedReady({ total: 0, calendarReady: 0, awaitingMark: 0 })
-      return
-    }
-    let cancelled = false
-    ;(async () => {
-      try {
-        const inst = NetworkManager(API.slots.GET_SLOT_SECONDARY_SHED_BREAKDOWN)
-        const res = await inst.request({}, [slot._id])
-        const payload = res?.data?.data ?? res?.data ?? res
-        if (cancelled) return
-        const s = summaryFromBreakdownPayload(payload, slot)
-        setExpectedReady({
-          total: s.total,
-          calendarReady: s.calendarReady,
-          awaitingMark: s.awaitingMark,
-        })
-      } catch {
-        if (!cancelled) setExpectedReady({ total: 0, calendarReady: 0, awaitingMark: 0 })
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [slot?._id, slot?.startDay, slot?.endDay])
-
-  const refreshExpectedReady = async () => {
-    if (!slot?._id) return
-    try {
-      const inst = NetworkManager(API.slots.GET_SLOT_SECONDARY_SHED_BREAKDOWN)
-      const res = await inst.request({}, [slot._id])
-      const payload = res?.data?.data ?? res?.data ?? res
-      const s = summaryFromBreakdownPayload(payload, slot)
-      setExpectedReady({
-        total: s.total,
-        calendarReady: s.calendarReady,
-        awaitingMark: s.awaitingMark,
-      })
-    } catch {
-      /* ignore */
-    }
-    onSlotChanged?.()
   }
 
   const openTransfer = (e) => {
@@ -214,13 +139,11 @@ const SlotLagwadMetrics = ({
     }
   }
 
-  const expReadyCombined = actualReady + expectedReady.awaitingMark
-
   const cells = [
     {
       key: "sellable",
-      label: "Sowed",
-      sub: "90% sellable",
+      label: "Sellable",
+      sub: "90% actual",
       value: actualPlants,
       className: "bg-emerald-50 border-emerald-200 hover:bg-emerald-100",
       valueClass: "text-emerald-900",
@@ -249,44 +172,12 @@ const SlotLagwadMetrics = ({
     {
       key: "ready",
       label: "Actual ready",
-      sub:
-        soldTotal > 0
-          ? `−${fmt(soldTotal)} sold · tap detail`
-          : (Number(slot?.rolledInActualReadyPlants) || 0) > 0
-            ? "tap → batch / history"
-            : "tap → batch & shed",
+      sub: "calendar / manual",
       value: actualReady,
-      className: "bg-sky-50 border-sky-200 hover:bg-sky-100 cursor-pointer",
+      className: "bg-sky-50 border-sky-200",
       valueClass: "text-sky-800",
-      title:
-        soldTotal > 0
-          ? `Actual ready ${fmt(actualReady)} · ${fmt(soldTotal)} sold via dispatch orders — click for breakdown`
-          : "Actual ready on slot — click for batch-wise and shed-wise breakdown",
-      clickable: true,
-      onClick: (e) => {
-        if (e?.shiftKey && onOpenRollHistory) {
-          e.stopPropagation?.()
-          onOpenRollHistory()
-          return
-        }
-        openReadyBreakdown(e, 0)
-      },
-    },
-    {
-      key: "expectedReady",
-      label: "Exp. ready",
-      sub:
-        expectedReady.awaitingMark > 0 || expectedReady.total > 0
-          ? `${fmt(actualReady)} actual + ${fmt(expectedReady.awaitingMark)} await`
-          : expectedReady.calendarReady > 0
-            ? `${fmt(actualReady)} actual · window ready`
-            : "actual + window await",
-      value: expReadyCombined,
-      className: "bg-violet-50 border-violet-200 hover:bg-violet-100 cursor-pointer",
-      valueClass: "text-violet-900",
-      title: `Total ready pipeline: actual ready ${fmt(actualReady)} plus ${fmt(expectedReady.awaitingMark)} still awaiting in this delivery window`,
-      clickable: true,
-      onClick: openExpectedReady,
+      title: "Calendar-ready or manually marked sellable — vehicle load subtracts here",
+      clickable: false,
     },
   ]
 
@@ -308,8 +199,8 @@ const SlotLagwadMetrics = ({
       <div
         className={
           variant === "detail"
-            ? "grid grid-cols-2 sm:grid-cols-4 gap-2"
-            : "grid grid-cols-2 gap-1"
+            ? "grid grid-cols-1 sm:grid-cols-3 gap-2"
+            : "grid grid-cols-3 gap-1"
         }>
         {cells.map((c) => {
           const inner = (
@@ -356,66 +247,6 @@ const SlotLagwadMetrics = ({
           )
         })}
       </div>
-
-      {variant === "card" && slot?._id && soldTotal > 0 ? (
-        <button
-          type="button"
-          className="mt-1 w-full rounded-lg border-2 border-amber-300 bg-amber-50 px-2 py-1 text-left hover:bg-amber-100 transition-colors"
-          onClick={(e) => {
-            e.stopPropagation()
-            setReadyBreakdownTab(4)
-            setReadyBreakdownOpen(true)
-          }}>
-          <div className="flex items-center justify-between gap-1">
-            <span className="text-[10px] font-bold uppercase text-amber-800">Ready sold</span>
-            <span className="text-sm font-black tabular-nums text-amber-900">
-              {soldLoading ? "…" : `−${fmt(soldTotal)}`}
-            </span>
-          </div>
-          <p className="text-[10px] text-amber-700/80">Orders subtracted · tap for batch detail</p>
-        </button>
-      ) : null}
-
-      {variant !== "card" && slot?._id ? (
-        <SlotReadySoldBox
-          slotId={slot._id}
-          actualReadyNow={actualReady}
-          onOpen={() => {
-            setReadyBreakdownTab(4)
-            setReadyBreakdownOpen(true)
-          }}
-        />
-      ) : null}
-
-      {variant !== "card" && slot?.isCurrentDateSlot ? (
-        <Button
-          fullWidth
-          size="small"
-          variant="outlined"
-          color="info"
-          onClick={(e) => {
-            e.stopPropagation()
-            setRollReadyOpen(true)
-          }}
-          sx={{ mt: 1, textTransform: "none", fontSize: "0.7rem", py: 0.5, fontWeight: 700 }}>
-          Roll actual ready from expired slots
-        </Button>
-      ) : null}
-
-      <SlotActualReadyBreakdownModal
-        open={readyBreakdownOpen}
-        onClose={() => setReadyBreakdownOpen(false)}
-        slot={slot}
-        initialTab={readyBreakdownTab}
-        onMarkedReady={refreshExpectedReady}
-      />
-
-      <RollActualReadyModal
-        open={rollReadyOpen}
-        onClose={() => setRollReadyOpen(false)}
-        slot={slot}
-        onSuccess={onSlotChanged}
-      />
 
       <Popover
         open={Boolean(sowAnchor)}
