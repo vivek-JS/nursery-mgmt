@@ -49,7 +49,10 @@ import { syncDispatchOrderGiftLines } from "utils/dispatchOrderGifts"
 import { formatSplitAttributionLineage } from "./orderEditUtils"
 import {
   buildDispatchOrderQuantityMaps,
+  orderRowKeyFromOrder,
+  repairDispatchOrderQuantities,
   resolveDispatchQtyForOrder,
+  withDispatchPlantFallback,
 } from "utils/dispatchFormQuantityUtils"
 
 const cavityKey = (v) => (v != null && v !== "" ? String(v) : "")
@@ -243,15 +246,19 @@ const QTY_STEP = 1000
 
 /** Office dispatch: crates from order cavity + dispatch qty — no shed/pickup UI. */
 const syncPlantsWithAutoTargets = (plants, qtyMap, cavities, getId) =>
-  (plants || []).map((plant) => {
-    const orders = plant.orders || []
+  (plants || [])
+    .map((plant) => {
+    const orders = (plant.orders || []).filter((order) => {
+      const rk = orderRowKeyFromOrder(order)
+      return rk && Number(qtyMap.get(rk) || 0) > 0
+    })
     const byCavity = new Map()
     let plantQty = 0
 
     for (const order of orders) {
-      const oid = String(order.details?.orderid || order.details?.orderId || "")
-      if (!oid) continue
-      const dispatchQty = Number(qtyMap.get(oid) || 0)
+      const rk = orderRowKeyFromOrder(order)
+      if (!rk) continue
+      const dispatchQty = Number(qtyMap.get(rk) || 0)
       if (dispatchQty <= 0) continue
       plantQty += dispatchQty
       const cKey = getOrderCavityKey(order)
@@ -279,8 +286,9 @@ const syncPlantsWithAutoTargets = (plants, qtyMap, cavities, getId) =>
       crates: buildDisplayCrateLines(g.qty, g.cavitySize, g.numberPerCrate),
     }))
 
-    return { ...plant, quantity: plantQty, cavityGroups }
+    return { ...plant, orders, quantity: plantQty, cavityGroups }
   })
+    .filter((plant) => plant.quantity > 0 && (plant.cavityGroups || []).length > 0)
 
 const totalCratesOnPlant = (plant) =>
   (plant.cavityGroups || []).reduce(
@@ -416,6 +424,8 @@ const DispatchForm = ({
   const [orderShedLoadedMap, setOrderShedLoadedMap] = useState(new Map())
   const orderQuantitiesRef = useRef(new Map())
   const initialViewSnapshotRef = useRef(null)
+  /** Avoid re-init create form when parent passes a new Map ref for the same orders. */
+  const createInitKeyRef = useRef("")
   const getId = (obj) => String(obj?._id || obj?.id || "")
   const getOrderId = (order) =>
     order?.details?.orderid || order?.details?.orderId || order?._id || order?.id || ""
@@ -507,7 +517,15 @@ const DispatchForm = ({
     initialViewSnapshotRef.current = {
       formData: JSON.parse(JSON.stringify(nextForm)),
       orderQuantities: new Map(qtyMap),
-      expectedNursery: exNorm
+      expectedNursery: exNorm,
+      fleetAssignment: {
+        ownerId: getId(dispatchDoc.ownerId) || "",
+        driverId: getId(dispatchDoc.driverId) || "",
+        vehicleId: getId(dispatchDoc.vehicleId) || "",
+        routeNotes: dispatchDoc.routeNotes || "",
+        driverRemark: dispatchDoc.driverRemark || "",
+        vehicleRemark: dispatchDoc.vehicleRemark || "",
+      },
     }
 
     const initialExpandedState = plantsWithOrders?.reduce((acc, plant) => {
@@ -643,11 +661,14 @@ const DispatchForm = ({
         }))
         return {
           ...prev,
-          plants: syncPlantsWithAutoTargets(
-            updatedPlants,
-            orderQuantitiesRef.current,
-            cavities,
-            getId
+          plants: withDispatchPlantFallback(
+            syncPlantsWithAutoTargets(
+              updatedPlants,
+              orderQuantitiesRef.current,
+              cavities,
+              getId
+            ),
+            updatedPlants
           ),
         }
       })
@@ -780,29 +801,39 @@ const DispatchForm = ({
     }
 
     let mounted = true
-    const loadLinkedAgriGuard = async () => {
-      try {
-        setLinkedAgriCheckLoading(true)
-        const instance = NetworkManager(API.INVENTORY.GET_DISPATCH_LOAD_STATUS)
-        const response = await instance.request({ orderIds })
-        const blockedBy = Array.isArray(response?.data?.data?.blockedBy)
-          ? response.data.data.blockedBy
-          : []
-        if (mounted) {
-          setLinkedAgriBlockedBy(blockedBy)
+    const CHUNK = 25
+    const timer = window.setTimeout(() => {
+      const loadLinkedAgriGuard = async () => {
+        try {
+          setLinkedAgriCheckLoading(true)
+          const instance = NetworkManager(API.INVENTORY.GET_DISPATCH_LOAD_STATUS)
+          const blockedBy = []
+          for (let i = 0; i < orderIds.length; i += CHUNK) {
+            if (!mounted) return
+            const slice = orderIds.slice(i, i + CHUNK)
+            const response = await instance.request({ orderIds: slice })
+            const part = Array.isArray(response?.data?.data?.blockedBy)
+              ? response.data.data.blockedBy
+              : []
+            blockedBy.push(...part)
+          }
+          if (mounted) {
+            setLinkedAgriBlockedBy(blockedBy)
+          }
+        } catch (error) {
+          if (mounted) {
+            setLinkedAgriBlockedBy([])
+          }
+        } finally {
+          if (mounted) setLinkedAgriCheckLoading(false)
         }
-      } catch (error) {
-        if (mounted) {
-          setLinkedAgriBlockedBy([])
-        }
-      } finally {
-        if (mounted) setLinkedAgriCheckLoading(false)
       }
-    }
+      void loadLinkedAgriGuard()
+    }, 200)
 
-    loadLinkedAgriGuard()
     return () => {
       mounted = false
+      window.clearTimeout(timer)
     }
   }, [open, mode, selectedOrders, isEditing, editOrdersMap])
 
@@ -834,20 +865,31 @@ const DispatchForm = ({
   const validateForm = () => {
     setError("")
 
+    const selectedOrdersArray = getSelectedOrdersArray()
+    if (selectedOrdersArray.length > 0) {
+      const repaired = repairDispatchOrderQuantities(
+        dispatchData || { orderDispatchDetails: [] },
+        selectedOrdersArray,
+        orderQuantitiesRef.current,
+        savedDispatchQtyRef.current
+      )
+      orderQuantitiesRef.current = repaired
+      setOrderQuantities(repaired)
+    }
+
     if (mode !== "view" && !fleetAssignment.ownerId) {
       throw new Error("Please select an owner")
     }
 
-    const selectedOrdersArray = getSelectedOrdersArray()
     // Removing every order deletes the dispatch — no plant/driver validation needed.
     if (mode === "view" && selectedOrdersArray.length === 0) {
       return true
     }
 
-    if (!formData.driverName) {
+    if (!formData.driverName && !fleetAssignment.driverId) {
       throw new Error("Please select a driver")
     }
-    if (!formData.vehicleName) {
+    if (!formData.vehicleName && !fleetAssignment.vehicleId) {
       throw new Error("Please select a vehicle")
     }
 
@@ -856,7 +898,7 @@ const DispatchForm = ({
       const orderId = orderRowKey(order)
       const dispatchQty = resolveDispatchQtyForOrder(
         order,
-        orderQuantities,
+        orderQuantitiesRef.current,
         savedDispatchQtyRef.current
       )
       const orderTotal = Number(order.quantity) || 0
@@ -889,7 +931,19 @@ const DispatchForm = ({
       }
     }
 
-    if (!formData.plants?.length) {
+    const plantsToValidate = withDispatchPlantFallback(
+      syncPlantsWithAutoTargets(
+        formData.plants,
+        orderQuantitiesRef.current,
+        cavities,
+        getId
+      ),
+      formData.plants
+    )
+
+    // Edit: allow driver/vehicle/details save even when plants cannot re-sync from API shape.
+    if (!plantsToValidate.length) {
+      if (mode === "view") return true
       throw new Error("No plants on this dispatch.")
     }
 
@@ -901,7 +955,7 @@ const DispatchForm = ({
       }
     }
 
-    formData.plants.forEach((plant) => {
+    plantsToValidate.forEach((plant) => {
       if (!plant.quantity || plant.quantity <= 0) {
         throw new Error(`Plant quantity must be greater than 0 for ${plant.name}`)
       }
@@ -919,7 +973,16 @@ const DispatchForm = ({
   const transformDispatchData = (formData, selectedOrders) => {
     const selectedOrdersArray = getSelectedOrdersArray()
     const orderIds = selectedOrdersArray.map((order) => getOrderId(order))
-    
+    const syncedPlants = withDispatchPlantFallback(
+      syncPlantsWithAutoTargets(
+        formData.plants,
+        orderQuantitiesRef.current,
+        cavities,
+        getId
+      ),
+      formData.plants
+    )
+
     let selectedDriver = fleetAssignment.driverId
       ? fleetDrivers.find((d) => getId(d) === fleetAssignment.driverId)
       : null
@@ -947,7 +1010,7 @@ const DispatchForm = ({
     
     // Map plants to their orders to group crate information
     const plantsByOrder = new Map()
-    formData.plants?.forEach(plant => {
+    syncedPlants?.forEach(plant => {
       plant.orders?.forEach(order => {
         const k = orderRowKey(order)
         if (k && !plantsByOrder.has(k)) {
@@ -962,7 +1025,7 @@ const DispatchForm = ({
       const rowKey = orderRowKey(order)
       const dispatchQty = resolveDispatchQtyForOrder(
         order,
-        orderQuantities,
+        orderQuantitiesRef.current,
         savedDispatchQtyRef.current
       )
       const remainingQty = orderRemainingForDispatch(order)
@@ -1003,7 +1066,7 @@ const DispatchForm = ({
       }
     })
     
-    const plantsDetails = formData.plants?.map((plant) => {
+    const plantsDetails = syncedPlants?.map((plant) => {
       const firstOrder = plant.orders?.[0]?.details
 
       // Transform cavity groups into the expected API format
@@ -1522,7 +1585,7 @@ const DispatchForm = ({
     if (newQuantity === "" || newQuantity === undefined || newQuantity === null) {
       setOrderQuantities((prev) => {
         const updated = new Map(prev)
-        updated.set(chKey, 0)
+        updated.delete(chKey)
         orderQuantitiesRef.current = updated
         return updated
       })
@@ -1597,6 +1660,7 @@ const DispatchForm = ({
     nextQty.delete(rowKey)
     orderQuantitiesRef.current = nextQty
     setOrderQuantities(nextQty)
+    savedDispatchQtyRef.current.delete(rowKey)
     setFormData((prev) => {
       const nextPlants = (prev.plants || [])
         .map((p) => ({
@@ -1613,7 +1677,10 @@ const DispatchForm = ({
           }, 0)
           return { ...p, quantity: q }
         })
-      const synced = syncPlantsWithAutoTargets(nextPlants, nextQty, cavities, getId)
+      const synced = withDispatchPlantFallback(
+        syncPlantsWithAutoTargets(nextPlants, nextQty, cavities, getId),
+        nextPlants
+      )
       return { ...prev, plants: synced }
     })
   }
@@ -1624,20 +1691,23 @@ const DispatchForm = ({
   }, [])
 
   useEffect(() => {
-    if (!open || !cavities?.length) return
+    if (!open || !cavities?.length || isEditing) return
     setFormData((prev) => {
       if (!prev.plants?.length) return prev
       return {
         ...prev,
-        plants: syncPlantsWithAutoTargets(
-          prev.plants,
-          orderQuantitiesRef.current,
-          cavities,
-          getId
+        plants: withDispatchPlantFallback(
+          syncPlantsWithAutoTargets(
+            prev.plants,
+            orderQuantitiesRef.current,
+            cavities,
+            getId
+          ),
+          prev.plants
         ),
       }
     })
-  }, [cavities, open, orderQuantities])
+  }, [cavities, open, orderQuantities, isEditing])
 
   useEffect(() => {
     if (!open) return undefined
@@ -1670,6 +1740,7 @@ const DispatchForm = ({
       setFleetAssignment(emptyFleetAssignment())
       setFleetDrivers([])
       setFleetVehicles([])
+      createInitKeyRef.current = ""
     }
   }, [open])
 
@@ -1725,25 +1796,33 @@ const DispatchForm = ({
       if (cancelled) return
       setFleetDrivers(drivers)
       setFleetVehicles(vehicles)
-      const d = fleetAssignment.driverId
-        ? drivers.find((x) => getId(x) === fleetAssignment.driverId)
-        : null
-      const v = fleetAssignment.vehicleId
-        ? vehicles.find((x) => getId(x) === fleetAssignment.vehicleId)
-        : null
-      setFormData((prev) => ({
-        ...prev,
-        driverName: d ? formatFleetDriverLabel(d) : prev.driverName,
-        vehicleName: v?.name || prev.vehicleName,
-      }))
     })()
     return () => {
       cancelled = true
     }
+  }, [fleetAssignment.ownerId])
+
+  /** Sync display names when driver/vehicle pickers change — do not reload fleet or plants. */
+  useEffect(() => {
+    if (!open) return
+    const d = fleetAssignment.driverId
+      ? fleetDrivers.find((x) => getId(x) === fleetAssignment.driverId)
+      : null
+    const v = fleetAssignment.vehicleId
+      ? fleetVehicles.find((x) => getId(x) === fleetAssignment.vehicleId)
+      : null
+    if (!d && !v) return
+    setFormData((prev) => ({
+      ...prev,
+      ...(d ? { driverName: formatFleetDriverLabel(d) } : {}),
+      ...(v?.name ? { vehicleName: v.name } : {}),
+    }))
   }, [
-    fleetAssignment.ownerId,
+    open,
     fleetAssignment.driverId,
     fleetAssignment.vehicleId,
+    fleetDrivers,
+    fleetVehicles,
   ])
 
   // Keep ref in sync with state
@@ -1759,22 +1838,31 @@ const DispatchForm = ({
     }
   }, [open])
 
+  const createOrderIdsKey = useMemo(() => {
+    if (!selectedOrders?.size) return ""
+    return [...selectedOrders.keys()].sort().join(",")
+  }, [selectedOrders])
+
   useEffect(() => {
-    if (mode === "view" && dispatchData) {
+    if (mode === "view" && dispatchData && !isEditing) {
       applyDispatchDataToForm(dispatchData)
-    } else if (selectedOrders?.size > 0) {
+      return
+    }
+    if (mode !== "view" && createOrderIdsKey && open) {
+      if (createInitKeyRef.current === createOrderIdsKey && createOrdersMap?.size) {
+        return
+      }
+      createInitKeyRef.current = createOrderIdsKey
+
       setCreateOrdersMap(new Map(selectedOrders))
       const selectedOrdersArray = Array.from(selectedOrders.values()).filter((order) =>
         Boolean(orderRowKey(order))
       )
-      
-      // Initialize order quantities with full order quantity or remaining quantity
-      const initialQuantities = new Map()
-      selectedOrdersArray.forEach(order => {
-        const rk = orderRowKey(order)
-        const availableQty = orderRemainingForDispatch(order)
-        initialQuantities.set(rk, availableQty)
-      })
+
+      const { qtyMap: initialQuantities } = buildDispatchOrderQuantityMaps(
+        { orderDispatchDetails: [] },
+        selectedOrdersArray
+      )
       setOrderQuantities(initialQuantities)
       orderQuantitiesRef.current = initialQuantities
       
@@ -1784,7 +1872,6 @@ const DispatchForm = ({
         const key = `${plantId}_${plantSubtypeId}`
         const rk = orderRowKey(order)
 
-        // Get the dispatch quantity for this order (from state or default to full quantity)
         const dispatchQty = initialQuantities.get(rk) || order.quantity || 0
 
         if (!acc[key]) {
@@ -1792,7 +1879,6 @@ const DispatchForm = ({
             id: plantId,
             name: order.plantType,
             quantity: dispatchQty,
-            // Initialize with empty cavity groups - user must add cavities manually
             cavityGroups: [],
             orders: []
           }
@@ -1806,8 +1892,6 @@ const DispatchForm = ({
 
       setFormData((prev) => ({
         ...prev,
-        driverName: "",
-        vehicleName: "",
         plants: syncPlantsWithAutoTargets(
           Object.values(plantGroups),
           initialQuantities,
@@ -1827,7 +1911,18 @@ const DispatchForm = ({
         .find((x) => x != null && String(x).trim() !== "")
       setExpectedNursery(exCreate ? String(exCreate).trim().toUpperCase() : "RB")
     }
-  }, [mode, dispatchData, selectedOrders?.size])
+  }, [mode, dispatchData, open, isEditing, createOrderIdsKey, cavities, selectedOrders, createOrdersMap?.size])
+
+  useEffect(() => {
+    if (!open || mode !== "view" || !dispatchData || isEditing) return
+    const orders = getSelectedOrdersArray()
+    if (!orders.length) return
+    const { qtyMap, shedMap } = buildDispatchOrderQuantityMaps(dispatchData, orders)
+    setOrderQuantities(qtyMap)
+    orderQuantitiesRef.current = qtyMap
+    setOrderShedLoadedMap(shedMap)
+    savedDispatchQtyRef.current = new Map(qtyMap)
+  }, [open, mode, isEditing, dispatchData?._id, selectedOrders?.size])
 
   const handleCancelEdit = () => {
     const snap = initialViewSnapshotRef.current
@@ -1847,7 +1942,20 @@ const DispatchForm = ({
     setIsEditing(false)
     setEditOrdersMap(null)
     setError("")
-    setFleetAssignment(emptyFleetAssignment())
+    if (snap?.fleetAssignment) {
+      setFleetAssignment({ ...emptyFleetAssignment(), ...snap.fleetAssignment })
+    } else if (dispatchData) {
+      setFleetAssignment({
+        ownerId: getId(dispatchData.ownerId) || "",
+        driverId: getId(dispatchData.driverId) || "",
+        vehicleId: getId(dispatchData.vehicleId) || "",
+        routeNotes: dispatchData.routeNotes || "",
+        driverRemark: dispatchData.driverRemark || "",
+        vehicleRemark: dispatchData.vehicleRemark || "",
+      })
+    } else {
+      setFleetAssignment(emptyFleetAssignment())
+    }
     setFleetDrivers([])
     setFleetVehicles([])
   }
@@ -1861,9 +1969,32 @@ const DispatchForm = ({
     setError("")
     try {
       validateForm()
+      const selectedOrdersArray = getSelectedOrdersArray()
+      if (selectedOrdersArray.length === 0) {
+        const transportId = dispatchData?.transportId
+        if (!transportId) {
+          throw new Error(
+            "All orders removed — cannot save. Transport id missing; use Cancel and delete transport from the list."
+          )
+        }
+        const delInst = NetworkManager(API.DISPATCHED.DELETE_TRANSPORT)
+        await delInst.request({}, [transportId])
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("dispatchCreated"))
+        }
+        onDispatchSuccess?.({ deleted: true })
+        setIsEditing(false)
+        setEditOrdersMap(null)
+        onClose()
+        return
+      }
       const payload = transformDispatchData(formData, selectedOrders)
       if (!payload.driverMobile && dispatchData?.driverMobile) {
         payload.driverMobile = dispatchData.driverMobile
+      }
+      // Empty [] would wipe server plantsDetails — omit so driver-only edits keep plants.
+      if (!Array.isArray(payload.plantsDetails) || payload.plantsDetails.length === 0) {
+        delete payload.plantsDetails
       }
       const instance = NetworkManager(API.DISPATCHED.UPDATE_DISPATCH)
       await instance.request(payload, [dispatchData._id])

@@ -27,7 +27,8 @@ import {
 } from "./dispatchVehiclesUtils";
 
 const PAGE_SIZE = 20;
-const DEFAULT_DATE_PRESET = "last7";
+/** Default to Today so first paint is small + fast (was last7). */
+const DEFAULT_DATE_PRESET = "today";
 
 export default function DispatchedVehiclesPage() {
   const initialRange = resolveDatePresetRange(DEFAULT_DATE_PRESET);
@@ -44,48 +45,12 @@ export default function DispatchedVehiclesPage() {
   const [viewMode, setViewMode] = useState("table");
   const [pdfBusyId, setPdfBusyId] = useState(null);
   const pageRef = useRef(1);
+  const loadMoreInFlightRef = useRef(false);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search.trim()), 350);
     return () => clearTimeout(t);
   }, [search]);
-
-  const enrichAgriLoad = useCallback(async (rows = []) => {
-    const allOrderIds = [];
-    for (const dispatch of rows) {
-      for (const entry of dispatch.orderIds || []) {
-        if (entry == null) continue;
-        const id =
-          typeof entry === "object"
-            ? entry._id ?? entry.id ?? entry.details?.orderid
-            : entry;
-        if (id) allOrderIds.push(String(id));
-      }
-    }
-    const unique = [...new Set(allOrderIds)];
-    if (!unique.length) return rows.map((d) => ({ ...d, agriLoadBlocked: false, agriLoadBlockedBy: [] }));
-
-    try {
-      const inst = NetworkManager(API.INVENTORY.GET_DISPATCH_LOAD_STATUS);
-      const response = await inst.request({ orderIds: unique });
-      const blockedBy = Array.isArray(response?.data?.data?.blockedBy)
-        ? response.data.data.blockedBy
-        : [];
-      return rows.map((dispatch) => {
-        const ids = (dispatch.orderIds || [])
-          .map((e) =>
-            typeof e === "object" ? String(e._id ?? e.id ?? e.details?.orderid ?? "") : String(e)
-          )
-          .filter(Boolean);
-        const hit = blockedBy.filter((row) =>
-          ids.includes(String(row?.linkedNurseryOrderId ?? row?.nurseryOrderId ?? ""))
-        );
-        return { ...dispatch, agriLoadBlocked: hit.length > 0, agriLoadBlockedBy: hit };
-      });
-    } catch {
-      return rows.map((d) => ({ ...d, agriLoadBlocked: false, agriLoadBlockedBy: [] }));
-    }
-  }, []);
 
   const loadPage = useCallback(
     async (page) => {
@@ -130,19 +95,21 @@ export default function DispatchedVehiclesPage() {
 
   const refreshList = useCallback(async () => {
     setLoading(true);
+    setHasMore(true);
     try {
       pageRef.current = 1;
+      // List API already attaches agriLoadBlocked / agriLoadBlockedBy — no second bulk status call.
       const { rows, curPage, more } = await loadPage(1);
       pageRef.current = curPage;
       setHasMore(more);
-      setDispatches(await enrichAgriLoad(rows));
+      setDispatches(rows);
     } catch (err) {
       console.error(err);
       Toast.error("Failed to load dispatches");
     } finally {
       setLoading(false);
     }
-  }, [enrichAgriLoad, loadPage]);
+  }, [loadPage]);
 
   const patchPdfFields = useCallback((dispatchId, patch) => {
     setDispatches((prev) =>
@@ -202,24 +169,25 @@ export default function DispatchedVehiclesPage() {
   );
 
   const loadMore = useCallback(async () => {
-    if (!hasMore || loadingMore) return;
+    if (!hasMore || loadingMore || loadMoreInFlightRef.current || loading) return;
+    loadMoreInFlightRef.current = true;
     setLoadingMore(true);
     try {
       const next = pageRef.current + 1;
       const { rows, curPage, more } = await loadPage(next);
       pageRef.current = curPage;
       setHasMore(more);
-      const enriched = await enrichAgriLoad(rows);
       setDispatches((prev) => {
         const seen = new Set(prev.map((d) => String(d._id)));
-        return [...prev, ...enriched.filter((d) => !seen.has(String(d._id)))];
+        return [...prev, ...rows.filter((d) => !seen.has(String(d._id)))];
       });
     } catch (err) {
       console.error(err);
     } finally {
+      loadMoreInFlightRef.current = false;
       setLoadingMore(false);
     }
-  }, [enrichAgriLoad, hasMore, loadPage, loadingMore]);
+  }, [hasMore, loadPage, loading, loadingMore]);
 
   useEffect(() => {
     void refreshList();
@@ -352,7 +320,12 @@ export default function DispatchedVehiclesPage() {
             onCompleteOrder={dialogs.openCompleteOrder}
             onDeleteDispatch={dialogs.deleteDispatch}
           />
-          <LoadMoreButton hasMore={hasMore} loadingMore={loadingMore} onLoadMore={loadMore} />
+          <InfiniteScrollSentinel
+            hasMore={hasMore}
+            loadingMore={loadingMore}
+            disabled={loading}
+            onLoadMore={loadMore}
+          />
         </>
       ) : loading ? (
         <div className="flex justify-center py-16">
@@ -390,7 +363,12 @@ export default function DispatchedVehiclesPage() {
               </div>
             </section>
           ))}
-          <LoadMoreButton hasMore={hasMore} loadingMore={loadingMore} onLoadMore={loadMore} />
+          <InfiniteScrollSentinel
+            hasMore={hasMore}
+            loadingMore={loadingMore}
+            disabled={loading}
+            onLoadMore={loadMore}
+          />
         </div>
       )}
 
@@ -485,18 +463,41 @@ function ViewToggle({ active, onChange }) {
   );
 }
 
-function LoadMoreButton({ hasMore, loadingMore, onLoadMore }) {
-  if (!hasMore) return null;
+function InfiniteScrollSentinel({ hasMore, loadingMore, disabled = false, onLoadMore }) {
+  const sentinelRef = useRef(null);
+
+  useEffect(() => {
+    if (!hasMore || disabled) return undefined;
+    const el = sentinelRef.current;
+    if (!el) return undefined;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          void onLoadMore?.();
+        }
+      },
+      { root: null, rootMargin: "280px 0px", threshold: 0 }
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [disabled, hasMore, onLoadMore]);
+
+  if (!hasMore && !loadingMore) {
+    return (
+      <p className="py-3 text-center text-xs text-gray-400">End of list</p>
+    );
+  }
+
   return (
-    <div className="flex justify-center pt-2">
-      <button
-        type="button"
-        disabled={loadingMore}
-        onClick={() => void onLoadMore()}
-        className="px-5 py-2 text-sm font-medium border border-gray-300 rounded-lg bg-white hover:bg-gray-50 disabled:opacity-50"
-      >
-        {loadingMore ? "Loading…" : "Load more vehicles"}
-      </button>
+    <div ref={sentinelRef} className="flex justify-center py-4" aria-hidden={!loadingMore}>
+      {loadingMore ? (
+        <div className="inline-flex items-center gap-2 text-sm text-gray-500">
+          <div className="h-5 w-5 animate-spin rounded-full border-2 border-green-600 border-t-transparent" />
+          Loading more vehicles…
+        </div>
+      ) : (
+        <span className="h-1 w-1" />
+      )}
     </div>
   );
 }

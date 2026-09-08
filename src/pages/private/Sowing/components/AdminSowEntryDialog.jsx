@@ -17,6 +17,26 @@ import {
 import { NetworkManager, API } from "network/core"
 import { Toast } from "helpers/toasts/toastHelper"
 
+function todayYmd() {
+  const d = new Date()
+  const yyyy = d.getFullYear()
+  const mm = String(d.getMonth() + 1).padStart(2, "0")
+  const dd = String(d.getDate()).padStart(2, "0")
+  return `${yyyy}-${mm}-${dd}`
+}
+
+/** Ready date label from YYYY-MM-DD sow date + days (local noon, same as BE). */
+function readyDateHint(sowYmd, readyDays) {
+  const days = Math.max(0, Number(readyDays) || 0)
+  const m = String(sowYmd || "").trim().match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (!m || days < 1) return null
+  const d = new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10), 12, 0, 0, 0)
+  d.setDate(d.getDate() + days)
+  const dd = String(d.getDate()).padStart(2, "0")
+  const mm = String(d.getMonth() + 1).padStart(2, "0")
+  return `${dd}-${mm}-${d.getFullYear()}`
+}
+
 function companyPacketCap(req) {
   const fromCompany = Number(req?.packetsFromCompany) || 0
   if (fromCompany > 0) return fromCompany
@@ -49,6 +69,7 @@ function houseOption(row, group) {
  */
 export default function AdminSowEntryDialog({ open, request, card, onClose, onSuccess }) {
   const [plants, setPlants] = useState("")
+  const [sowDate, setSowDate] = useState(todayYmd)
   const [packetsUsed, setPacketsUsed] = useState("")
   const [packetsReturned, setPacketsReturned] = useState("")
   const [shedName, setShedName] = useState("")
@@ -86,6 +107,10 @@ export default function AdminSowEntryDialog({ open, request, card, onClose, onSu
   const readyDaysNum = Math.max(0, Number(plantReadyDays) || 0)
   const defaultReady =
     Number(card?.plantReadyDays) || Number(req?.plantReadyDays) || 0
+  const readyHint = useMemo(
+    () => readyDateHint(sowDate, readyDaysNum),
+    [sowDate, readyDaysNum]
+  )
 
   const pollyOpts = shedOptions.filter((o) => o.group === "pollyhouse")
   const shadeOpts = shedOptions.filter((o) => o.group === "shed")
@@ -93,6 +118,7 @@ export default function AdminSowEntryDialog({ open, request, card, onClose, onSu
   useEffect(() => {
     if (!open || !req) return
     setPlants(expectedPlants > 0 ? String(expectedPlants) : "")
+    setSowDate(todayYmd())
     setPacketsUsed(issuedOpen > 0 ? String(issuedOpen) : "")
     setPacketsReturned("")
     setShedName("")
@@ -148,6 +174,7 @@ export default function AdminSowEntryDialog({ open, request, card, onClose, onSu
   const packetsOver = usedPlusReturned - issuedOpen > 0.001
   const canSubmit =
     Boolean(shedName.trim()) &&
+    Boolean(String(sowDate || "").trim()) &&
     readyDaysNum >= 1 &&
     (plantsNum > 0 || (canReturn && returnedNum > 0)) &&
     !packetsOver &&
@@ -155,7 +182,7 @@ export default function AdminSowEntryDialog({ open, request, card, onClose, onSu
 
   const handleSubmit = async () => {
     if (!canSubmit) {
-      Toast.error("Select pollyhouse/shed, plant ready days, and plants / packets")
+      Toast.error("Select sow date, pollyhouse/shed, plant ready days, and plants / packets")
       return
     }
     if (packetsOver) {
@@ -172,6 +199,7 @@ export default function AdminSowEntryDialog({ open, request, card, onClose, onSu
         laboursLadies: Number(ladies) || 0,
         laboursGents: Number(gents) || 0,
         notes: notes.trim(),
+        sowDate: String(sowDate).trim(),
         plantReadyDays: readyDaysNum,
         completeSowing: willClose,
       }
@@ -227,8 +255,8 @@ export default function AdminSowEntryDialog({ open, request, card, onClose, onSu
           </Stack>
 
           <Alert severity="info" sx={{ py: 0.5 }}>
-            Ready date = sow day + plant ready days. If used + returned is less than issued,
-            the request stays open with leftover packets.
+            Ready date = sow date + plant ready days (maps to calendar slot). If used + returned
+            is less than issued, the request stays open with leftover packets.
           </Alert>
 
           <TextField
@@ -241,13 +269,27 @@ export default function AdminSowEntryDialog({ open, request, card, onClose, onSu
           />
 
           <TextField
+            label="Sow date *"
+            type="date"
+            value={sowDate}
+            onChange={(e) => setSowDate(e.target.value)}
+            fullWidth
+            InputLabelProps={{ shrink: true }}
+            helperText="Defaults to today — change if sowing was on another day"
+          />
+
+          <TextField
             label="Plant ready days *"
             type="number"
             value={plantReadyDays}
             onChange={(e) => setPlantReadyDays(e.target.value)}
             fullWidth
             inputProps={{ min: 1 }}
-            helperText="Ready date = sow day + days (maps to calendar slot)"
+            helperText={
+              readyHint
+                ? `Ready date · ${readyHint} (sow + ${readyDaysNum}d)`
+                : "Ready date = sow date + days (maps to calendar slot)"
+            }
           />
 
           <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
