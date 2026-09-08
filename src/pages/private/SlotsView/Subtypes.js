@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react"
+import { useSearchParams } from "react-router-dom"
 import {
   Calendar,
   Activity,
@@ -11,6 +12,8 @@ import {
   Sprout,
   Send,
   Package,
+  MapPin,
+  Users,
 } from "lucide-react"
 import {
   TextField as Input,
@@ -34,7 +37,8 @@ import {
   ListItemText,
   ListItemIcon,
   Typography,
-  Divider
+  Divider,
+  Tooltip,
 } from "@mui/material"
 import { API, NetworkManager } from "network/core"
 import { PageLoader } from "components"
@@ -48,6 +52,8 @@ import SlotActualBreakdownModal from "./SlotActualBreakdownModal"
 import SlotCard from "./SlotCard"
 import SlotDetailModal from "./SlotDetailModal"
 import MonthOverviewPanel from "./MonthOverviewPanel"
+import SubtypeVillageStatsModal, { VILLAGE_STATS_TAB } from "./SubtypeVillageStatsModal"
+import MonthVillageOrdersDrawer from "./MonthVillageOrdersDrawer"
 import { MONTH_ORDER, getDefaultMonthTabIndex } from "./slotMonthUtils"
 import { canRunPastDueRollover } from "./pastDueRolloverUi"
 import { getBufferStatusMeta } from "./bufferUi"
@@ -55,6 +61,8 @@ import moment from "moment"
 import { useSelector } from "react-redux"
 import {
   getAvailablePlants,
+  getDisplayAvailablePlants,
+  getRolledInPlantsOnCurrentSlot,
   parseSlotNumber,
   getBookedPlants,
   getTotalCapacity,
@@ -63,10 +71,13 @@ import {
 } from "./slotMetrics"
 
 const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
+  const [searchParams] = useSearchParams()
+  const monthFromUrl = searchParams.get("month")
   const userData = useSelector((state) => state?.userData?.userData)
   const appUser = useSelector((state) => state?.app?.user)
   const [selectedMonth, setSelectedMonth] = useState(0)
   const [slotsByMonth, setSlotsByMonth] = useState({})
+  const [sowingAllowed, setSowingAllowed] = useState(false)
   const [editValue, setEditValue] = useState("")
   const [loading, setLoading] = useState(false)
   const [detailModalOpen, setDetailModalOpen] = useState(false)
@@ -117,6 +128,14 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
   const [pastDueRollModal, setPastDueRollModal] = useState(null)
   const [rollExpiredModal, setRollExpiredModal] = useState(null)
   const [actualBreakdownSlot, setActualBreakdownSlot] = useState(null)
+  const [villageStatsOpen, setVillageStatsOpen] = useState(false)
+  const [villageStatsInitialTab, setVillageStatsInitialTab] = useState(VILLAGE_STATS_TAB.REMAINING)
+  const [villageOrdersDrawer, setVillageOrdersDrawer] = useState(null)
+
+  const openVillageStats = (tab = VILLAGE_STATS_TAB.REMAINING) => {
+    setVillageStatsInitialTab(tab)
+    setVillageStatsOpen(true)
+  }
 
   const canRollPastDue = canRunPastDueRollover(userData, appUser)
 
@@ -143,11 +162,24 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
       const instance = NetworkManager(API.slots.GET_PLANTS_SLOTS)
       const response = await instance.request({}, { plantId, subtypeId: plantSubId, year })
 
-      const slots = response?.data?.slots[0]?.slots || []
+      const payload = response?.data ?? response ?? {}
+      const slotGroups = payload?.slots || []
+      const slots = slotGroups[0]?.slots || []
+      setSowingAllowed(
+        Boolean(
+          payload?.sowingAllowed ??
+            slotGroups[0]?.sowingAllowed ??
+            slotGroups.some((group) => group?.sowingAllowed)
+        )
+      )
       const groupedSlots = groupSlotsByMonth(slots)
       setSlotsByMonth(groupedSlots)
       const months = monthOrder.filter((month) => groupedSlots[month])
-      setSelectedMonth(getDefaultMonthTabIndex(months, groupedSlots))
+      const urlMonthIdx =
+        monthFromUrl && months.includes(monthFromUrl) ? months.indexOf(monthFromUrl) : -1
+      setSelectedMonth(
+        urlMonthIdx >= 0 ? urlMonthIdx : getDefaultMonthTabIndex(months, groupedSlots)
+      )
     } catch (error) {
       console.error("Error fetching plants:", error)
     }
@@ -238,10 +270,12 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
 
   const startEditing = (e, slot) => {
     e.stopPropagation()
-    const available = getAvailablePlants(slot)
+    const displayAvailable = getDisplayAvailablePlants(slot)
+    const rolledInPlants = getRolledInPlantsOnCurrentSlot(slot)
     setEditingSlotData({
-      currentAvailable: available,
-      slotId: slot._id
+      currentAvailable: displayAvailable,
+      rolledInPlants,
+      slotId: slot._id,
     })
     setEditAmount("")
     setOperationType("add")
@@ -291,7 +325,7 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
   const handleSaveEdit = async () => {
     if (!editingSlotData) return
 
-    const currentVal = parseSlotNumber(editingSlotData.currentAvailable, 0)
+    const currentDisplay = parseSlotNumber(editingSlotData.currentAvailable, 0)
     const amountToChange = parseInt(editAmount, 10) || 0
 
     if (amountToChange <= 0) {
@@ -299,8 +333,10 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
       return
     }
 
-    const newAvailable =
-      operationType === "add" ? currentVal + amountToChange : currentVal - amountToChange
+    const newDisplay =
+      operationType === "add" ? currentDisplay + amountToChange : currentDisplay - amountToChange
+    const rolledIn = parseSlotNumber(editingSlotData.rolledInPlants, 0)
+    const newAvailable = newDisplay + rolledIn
 
     const payload = { availablePlants: newAvailable }
 
@@ -310,7 +346,7 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
 
       if (response?.code === 200 || response?.data?.success) {
         Toast.success(
-          `Available: ${currentVal.toLocaleString()} → ${newAvailable.toLocaleString()}`
+          `Available for booking: ${currentDisplay.toLocaleString()} → ${newDisplay.toLocaleString()}`
         )
       } else {
         Toast.error(response?.data?.message || "Failed to update available plants")
@@ -338,7 +374,7 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
     slots.forEach((slot) => {
       totalPlants += getTotalCapacity(slot)
       totalBookedPlants += getBookedPlants(slot)
-      totalAvailablePlants += getAvailablePlants(slot)
+      totalAvailablePlants += getDisplayAvailablePlants(slot)
       totalPrimarySowed += slot.primarySowed ?? 0
       totalDispatchedPlants += slot.totalDispatchedPlants ?? 0
       totalRemainingToDispatch += slot.remainingToDispatch ?? 0
@@ -593,6 +629,33 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
 
   const availableMonths = monthOrder.filter((month) => slotsByMonth[month])
 
+  const openVillageOrders = (row) => {
+    if (!row?.village) return
+    const isDispatched = row?.mode === "dispatched"
+    setVillageOrdersDrawer({
+      village: row.village,
+      salesPersonName: null,
+      orderIds: Array.isArray(row.orderIds) ? row.orderIds : [],
+      plantsTotal: row.plants,
+      orderCount: row.orders,
+      monthName: availableMonths[selectedMonth],
+      mode: isDispatched ? "dispatched" : "remaining",
+    })
+  }
+
+  const openSalesOrders = (row) => {
+    if (!row?.salesPersonName) return
+    setVillageOrdersDrawer({
+      village: null,
+      salesPersonName: row.salesPersonName,
+      orderIds: Array.isArray(row.orderIds) ? row.orderIds : [],
+      plantsTotal: row.plants,
+      orderCount: row.orders,
+      monthName: availableMonths[selectedMonth],
+      mode: "remaining",
+    })
+  }
+
   if (loading) return <PageLoader />
 
   // Compact Edit Available Plants dialog
@@ -604,14 +667,19 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
       fullWidth
       PaperProps={{ sx: { borderRadius: "12px" } }}>
       <DialogTitle sx={{ pb: 1, fontWeight: 700, fontSize: "1.1rem" }}>
-        Edit Available Plants
+        Edit available for booking
       </DialogTitle>
       <DialogContent>
         <div className="mb-4 rounded-lg bg-slate-50 px-3 py-2 text-center">
-          <p className="text-xs text-slate-500">Current available</p>
+          <p className="text-xs text-slate-500">Available for booking</p>
           <p className="text-2xl font-bold tabular-nums text-slate-900">
             {parseSlotNumber(editingSlotData?.currentAvailable, 0).toLocaleString()}
           </p>
+          {(editingSlotData?.rolledInPlants || 0) > 0 ? (
+            <p className="text-[10px] text-slate-500 mt-1">
+              + {(editingSlotData.rolledInPlants || 0).toLocaleString()} rolled-in on slot (stored in DB)
+            </p>
+          ) : null}
         </div>
 
         <div className="mb-3 flex gap-2">
@@ -666,7 +734,7 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
 
         {editAmount && (
           <p className="mt-2 text-sm font-medium text-slate-700">
-            New available:{" "}
+            New available for booking:{" "}
             {(operationType === "add"
               ? parseSlotNumber(editingSlotData?.currentAvailable, 0) +
                 (parseInt(editAmount, 10) || 0)
@@ -677,7 +745,7 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
         )}
 
         <p className="mt-2 text-xs text-slate-500">
-          Saves absolute available (PUT). Example: −8,000 + 8,000 → 0. Cap = available + booked.
+          Matches the Available tile on the slot card. Cap = available for booking + booked.
         </p>
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2 }}>
@@ -908,6 +976,7 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
       <SlotDetailModal
         open={detailModalOpen}
         slot={selectedSlot}
+        sowingAllowed={sowingAllowed}
         pastDueExpandKey={pastDueExpandKey}
         onExpandKey={setPastDueExpandKey}
         canRollPastDue={canRollPastDue}
@@ -1526,10 +1595,50 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
             <div className="space-y-4">
               {/* Month Summary */}
               <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-xl font-bold text-gray-900">
-                    {availableMonths[selectedMonth]} Overview
-                  </h3>
+                <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-xl font-bold text-gray-900">
+                      {availableMonths[selectedMonth]} Overview
+                    </h3>
+                    <Tooltip title="Top 5 villages still to dispatch — native vs rollover" arrow placement="top">
+                      <Button
+                        size="small"
+                        variant="contained"
+                        onClick={() => openVillageStats(VILLAGE_STATS_TAB.REMAINING)}
+                        startIcon={<MapPin className="w-3.5 h-3.5" />}
+                        sx={{
+                          textTransform: "none",
+                          fontSize: "0.8rem",
+                          fontWeight: 600,
+                          py: 0.5,
+                          px: 1.5,
+                          bgcolor: "#7c3aed",
+                          boxShadow: "0 1px 3px rgba(124,58,237,0.35)",
+                          "&:hover": { bgcolor: "#6d28d9" },
+                        }}>
+                        Villages
+                      </Button>
+                    </Tooltip>
+                    <Tooltip title="Top 5 sales persons by plants to dispatch this month" arrow placement="top">
+                      <Button
+                        size="small"
+                        variant="contained"
+                        onClick={() => openVillageStats(VILLAGE_STATS_TAB.SALES)}
+                        startIcon={<Users className="w-3.5 h-3.5" />}
+                        sx={{
+                          textTransform: "none",
+                          fontSize: "0.8rem",
+                          fontWeight: 600,
+                          py: 0.5,
+                          px: 1.5,
+                          bgcolor: "#0891b2",
+                          boxShadow: "0 1px 3px rgba(8,145,178,0.35)",
+                          "&:hover": { bgcolor: "#0e7490" },
+                        }}>
+                        Sales
+                      </Button>
+                    </Tooltip>
+                  </div>
                   <div className="text-sm text-gray-600">
                     {slotsByMonth[availableMonths[selectedMonth]].length} slots total
                   </div>
@@ -1554,6 +1663,7 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                       bookedPercentage={bookedPercentage}
                       isOverbooked={isOverbooked}
                       statusColor={statusColor}
+                      sowingAllowed={sowingAllowed}
                     />
                   )
                 })()}
@@ -1566,6 +1676,7 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                     key={slot._id}
                     slot={slot}
                     monthName={availableMonths[selectedMonth]}
+                    sowingAllowed={sowingAllowed}
                     getStatusColor={getStatusColor}
                     canRollExpired={canRollPastDue}
                     onOpenDetails={openSlotDetails}
@@ -1638,6 +1749,7 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
         pendingSlotId={slotOrdersDrawer?.pendingSlotId}
         plantId={plantId}
         subtypeId={plantSubId}
+        sowingAllowed={sowingAllowed}
         canRollPastDue={canRollPastDue}
         onOpenPendingRoll={openPendingRollModal}
         onPastDueRolled={fetchPlantsSlots}
@@ -1671,6 +1783,33 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
         onClose={() => setActualBreakdownSlot(null)}
         slotRow={actualBreakdownSlot}
         onSlotChanged={fetchPlantsSlots}
+      />
+
+      <SubtypeVillageStatsModal
+        open={villageStatsOpen}
+        onClose={() => setVillageStatsOpen(false)}
+        initialTab={villageStatsInitialTab}
+        plantId={plantId}
+        year={year}
+        month={availableMonths[selectedMonth]}
+        subtype={{ subtypeId: plantSubId }}
+        onSelectVillage={openVillageOrders}
+        onSelectSales={openSalesOrders}
+      />
+
+      <MonthVillageOrdersDrawer
+        open={Boolean(villageOrdersDrawer)}
+        onClose={() => setVillageOrdersDrawer(null)}
+        village={villageOrdersDrawer?.village}
+        salesPersonName={villageOrdersDrawer?.salesPersonName}
+        monthName={villageOrdersDrawer?.monthName}
+        year={year}
+        plantId={plantId}
+        subtypeId={plantSubId}
+        orderIds={villageOrdersDrawer?.orderIds}
+        plantsTotal={villageOrdersDrawer?.plantsTotal}
+        orderCount={villageOrdersDrawer?.orderCount}
+        mode={villageOrdersDrawer?.mode}
       />
     </div>
   )

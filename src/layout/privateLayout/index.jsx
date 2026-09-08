@@ -267,6 +267,8 @@ export default function PrivateLayout(props) {
       p.startsWith("/u/sowing/") ||
       p === "/u/sowing-gap-analysis" ||
       p.startsWith("/u/sowing-gap-analysis/") ||
+      p === "/u/lagwad-analysis" ||
+      p.startsWith("/u/lagwad-analysis/") ||
       p === "/u/slots" ||
       p.startsWith("/u/slots/") ||
       p === "/u/admin-stats" ||
@@ -288,7 +290,11 @@ export default function PrivateLayout(props) {
       p === "/u/delivery-report" ||
       p.startsWith("/u/delivery-report/") ||
       p === "/u/admin-direct-sow" ||
-      p.startsWith("/u/admin-direct-sow/")
+      p.startsWith("/u/admin-direct-sow/") ||
+      p === "/u/rewards-admin" ||
+      p.startsWith("/u/rewards-admin/") ||
+      p === AGRI_HUB_PATH ||
+      p.startsWith(`${AGRI_HUB_PATH}/`)
 
     if (!allowed) {
       console.log(`[PrivateLayout] OFFICEADMIN user accessing ${p}, redirecting to /u/dashboard`)
@@ -353,6 +359,7 @@ export default function PrivateLayout(props) {
         "Plants and Products",
         "Sowing Management",
         "Sowing Gap Analysis",
+        "Lagwad Analysis",
         "Direct Sow Portal",
         "Slots Managment",
         "Admin Stats",
@@ -372,6 +379,7 @@ export default function PrivateLayout(props) {
         "/u/plants",
         "/u/sowing",
         "/u/sowing-gap-analysis",
+        "/u/lagwad-analysis",
         "/u/admin-direct-sow",
         "/u/slots",
         "/u/admin-stats",

@@ -177,6 +177,7 @@ export default function PlantPipelineAdminPage() {
                     batchDoc={batchDoc}
                     locations={secondaryLocations}
                     trays={trays}
+                    dispatchBatches={batches}
                     onRefresh={refresh}
                   />
                 )}

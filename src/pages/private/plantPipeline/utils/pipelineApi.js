@@ -170,6 +170,20 @@ export async function submitSecondaryLagwad(batchId, body) {
   await request(API.PLANT_OUTWARD.SECONDARY_BATCH_LAGWAD, body, { pathParams: [batchId] });
 }
 
+export async function submitSecondaryDirectLagwad(batchId, body) {
+  const res = await request(API.PLANT_OUTWARD.SECONDARY_DIRECT_LAGWAD, body, {
+    pathParams: [batchId],
+  });
+  const data = unpackData(res);
+  return data && typeof data === "object" ? data : res?.data ?? {};
+}
+
+export async function createDispatchBatch(body) {
+  const res = await request(API.BATCH.CREATE_BATCH, body, {});
+  const data = unpackData(res);
+  return data && typeof data === "object" ? data : res?.data ?? {};
+}
+
 export async function patchSecondaryReadinessBypass(batchId, secondaryInwardId, reason) {
   await request(
     API.PLANT_OUTWARD.SECONDARY_INWARD_READINESS_BYPASS,
@@ -264,20 +278,29 @@ export async function fetchVehicleLoadedLines(dispatchId) {
   return unpackData(res) ?? {};
 }
 
+function mapPlantCmsRows(list) {
+  const plants = Array.isArray(list) ? list : list?.data ?? [];
+  return plants.map((p) => ({
+    plantId: String(p._id ?? p.id),
+    name: p.name ?? "Plant",
+    sowingAllowed: Boolean(p.sowingAllowed),
+    subtypes: (p.subtypes || []).map((st) => ({
+      subtypeId: String(st._id ?? st.id),
+      name: st.name ?? "Subtype",
+      plantReadyDays: Number(st.plantReadyDays ?? st.secondaryPlantReadyDays) || 0,
+    })),
+  }));
+}
+
 export async function fetchSowingAllowedPlants() {
   const res = await request(API.plantCms.GET_PLANTS, {}, {});
-  const list = unpackData(res);
-  const plants = Array.isArray(list) ? list : list?.data ?? [];
-  return plants
-    .filter((p) => p?.sowingAllowed)
-    .map((p) => ({
-      plantId: String(p._id ?? p.id),
-      name: p.name ?? "Plant",
-      subtypes: (p.subtypes || []).map((st) => ({
-        subtypeId: String(st._id ?? st.id),
-        name: st.name ?? "Subtype",
-      })),
-    }));
+  return mapPlantCmsRows(unpackData(res)).filter((p) => p.sowingAllowed);
+}
+
+/** All CMS plants — secondary lagwad includes Banana (direct, not lab sowing). */
+export async function fetchLagwadPlants() {
+  const res = await request(API.plantCms.GET_PLANTS, {}, {});
+  return mapPlantCmsRows(unpackData(res));
 }
 
 export { apiErrText };

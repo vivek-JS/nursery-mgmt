@@ -1,10 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "react-router-dom"
 import { Tooltip } from "@mui/material"
-import { ChevronDown, ExternalLink, Leaf, RefreshCw, ScrollText } from "lucide-react"
+import { ChevronDown, ExternalLink, Leaf, Plus, RefreshCw, ScrollText } from "lucide-react"
 import { API, NetworkManager } from "network/core"
 import RollExpiredAvailableModal from "../SlotsView/RollExpiredAvailableModal"
 import { openSlotManageTab } from "../SlotsView/slotMetrics"
+import SecondaryDirectLagwadWizard from "../plantPipeline/dialogs/SecondaryDirectLagwadWizard"
+import { useLagwadMasterData } from "../plantPipeline/hooks/useLagwadMasterData"
+import { refId } from "../plantPipeline/utils/lagwadWizardHelpers"
 import LagwadCharts from "./LagwadCharts"
 import LagwadFilterBar from "./LagwadFilterBar"
 import LagwadLinesTable from "./LagwadLinesTable"
@@ -18,14 +21,6 @@ import useLagwadAnalysis from "./useLagwadAnalysis"
 import "./lagwadAnalysis.css"
 
 const YEARS = ["2025", "2026", "2027"]
-
-const CURRENT_MONTH = new Date().toLocaleString("en-US", { month: "long" })
-
-const parseList = (value) =>
-  (value || "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean)
 
 const SkeletonTile = () => <div className="lag-skeleton h-24 rounded-xl border border-slate-200" />
 
@@ -111,8 +106,7 @@ const PoolsExplainer = () => (
 )
 
 /**
- * Lagwad analysis: pick a plant subtype, then any set of months and slot windows, and read
- * one combined picture of physical stock versus what farmers are still owed.
+ * Lagwad analysis: pick plant + subtype + year — full year data, paginated entry list.
  */
 const LagwadAnalysis = () => {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -122,26 +116,29 @@ const LagwadAnalysis = () => {
   const [plantId, setPlantId] = useState(searchParams.get("plantId") || "")
   const [subtypeId, setSubtypeId] = useState(searchParams.get("subtypeId") || "")
   const [year, setYear] = useState(searchParams.get("year") || String(new Date().getFullYear()))
-  const [selectedMonths, setSelectedMonths] = useState(parseList(searchParams.get("months")))
-  const [selectedSlotIds, setSelectedSlotIds] = useState(parseList(searchParams.get("slotIds")))
-  const [monthsTouched, setMonthsTouched] = useState(
-    parseList(searchParams.get("months")).length > 0
-  )
 
   const [openSection, setOpenSection] = useState(null)
   const [monthDetail, setMonthDetail] = useState(null)
   const [rollLedger, setRollLedger] = useState({ open: false, slot: null })
   const [mortalitySlot, setMortalitySlot] = useState(null)
   const [rollExpiredSlot, setRollExpiredSlot] = useState(null)
+  const [lagwadOpen, setLagwadOpen] = useState(false)
+
+  const hasSelection = Boolean(plantId && subtypeId)
+  const { dispatchBatches, locations, trays } = useLagwadMasterData(hasSelection)
+
+  const initialBatchId = useMemo(() => {
+    if (!plantId || !subtypeId) return ""
+    const match = dispatchBatches.find(
+      (b) => refId(b.plantCmsId) === plantId && refId(b.plantSubtypeId) === subtypeId
+    )
+    return match ? refId(match._id ?? match.id) : ""
+  }, [dispatchBatches, plantId, subtypeId])
 
   const { data, loading, error, refetch } = useLagwadAnalysis({
     plantId,
     subtypeId,
     year,
-    months: selectedMonths,
-    slotIds: selectedSlotIds,
-    // The very first call only feeds the month picker, before a month is chosen.
-    metaOnly: selectedMonths.length === 0 && !monthsTouched
   })
 
   useEffect(() => {
@@ -149,10 +146,8 @@ const LagwadAnalysis = () => {
     if (plantId) params.plantId = plantId
     if (subtypeId) params.subtypeId = subtypeId
     if (year) params.year = year
-    if (selectedMonths.length) params.months = selectedMonths.join(",")
-    if (selectedSlotIds.length) params.slotIds = selectedSlotIds.join(",")
     setSearchParams(params, { replace: true })
-  }, [plantId, subtypeId, year, selectedMonths, selectedSlotIds, setSearchParams])
+  }, [plantId, subtypeId, year, setSearchParams])
 
   useEffect(() => {
     let cancelled = false
@@ -208,49 +203,6 @@ const LagwadAnalysis = () => {
     }
   }, [plantId, year])
 
-  const availableMonths = data?.meta?.availableMonths || []
-
-  // Default to the month that holds today, so the page opens on the window being dispatched.
-  useEffect(() => {
-    if (monthsTouched || availableMonths.length === 0) return
-    const current = availableMonths.find((m) => m.hasCurrentSlot)
-    const named = availableMonths.find((m) => m.month === CURRENT_MONTH)
-    const pick = current || named || availableMonths[0]
-    if (pick) setSelectedMonths([pick.month])
-  }, [availableMonths, monthsTouched])
-
-  const monthSlots = useMemo(() => {
-    const months = selectedMonths.length
-      ? availableMonths.filter((m) => selectedMonths.includes(m.month))
-      : availableMonths
-    return months.flatMap((m) => m.slots || [])
-  }, [availableMonths, selectedMonths])
-
-  // A slot selection only makes sense inside the chosen months.
-  useEffect(() => {
-    if (selectedSlotIds.length === 0) return
-    const valid = new Set(monthSlots.map((s) => s._id))
-    const next = selectedSlotIds.filter((id) => valid.has(id))
-    if (next.length !== selectedSlotIds.length) setSelectedSlotIds(next)
-  }, [monthSlots, selectedSlotIds])
-
-  const toggleMonth = useCallback((month) => {
-    setMonthsTouched(true)
-    setSelectedMonths((prev) =>
-      prev.includes(month) ? prev.filter((m) => m !== month) : [...prev, month]
-    )
-  }, [])
-
-  const toggleSlot = useCallback(
-    (slotId) => {
-      setSelectedSlotIds((prev) => {
-        if (prev.length === 0) return monthSlots.filter((s) => s._id !== slotId).map((s) => s._id)
-        return prev.includes(slotId) ? prev.filter((id) => id !== slotId) : [...prev, slotId]
-      })
-    },
-    [monthSlots]
-  )
-
   const slots = data?.slots || []
   const totals = data?.totals
   const rolls = data?.rolls || []
@@ -269,7 +221,6 @@ const LagwadAnalysis = () => {
     [monthRollups]
   )
 
-  const hasSelection = Boolean(plantId && subtypeId)
   const showEmpty = hasSelection && !loading && slots.length === 0
 
   return (
@@ -325,6 +276,14 @@ const LagwadAnalysis = () => {
                 </Tooltip>
               )}
               {hasSelection && (
+                <Tooltip title="Record secondary lagwad (direct sowing)" arrow slotProps={tooltipSlotProps}>
+                  <button type="button" onClick={() => setLagwadOpen(true)} className={headerButton}>
+                    <Plus className="h-3.5 w-3.5" />
+                    Record lagwad
+                  </button>
+                </Tooltip>
+              )}
+              {hasSelection && (
                 <Tooltip
                   title="Open slot management for this subtype"
                   arrow
@@ -354,34 +313,9 @@ const LagwadAnalysis = () => {
           onPlantChange={(v) => {
             setPlantId(v)
             setSubtypeId("")
-            setSelectedSlotIds([])
           }}
-          onSubtypeChange={(v) => {
-            setSubtypeId(v)
-            setSelectedSlotIds([])
-          }}
-          onYearChange={(v) => {
-            setYear(v)
-            setSelectedSlotIds([])
-            setSelectedMonths([])
-            setMonthsTouched(false)
-          }}
-          availableMonths={availableMonths}
-          selectedMonths={selectedMonths}
-          onToggleMonth={toggleMonth}
-          onSelectAllMonths={() => {
-            setMonthsTouched(true)
-            setSelectedMonths(availableMonths.map((m) => m.month))
-          }}
-          onClearMonths={() => {
-            setMonthsTouched(true)
-            setSelectedMonths([])
-          }}
-          slots={monthSlots}
-          selectedSlotIds={selectedSlotIds}
-          onToggleSlot={toggleSlot}
-          onSelectAllSlots={() => setSelectedSlotIds([])}
-          onClearSlots={() => setSelectedSlotIds([])}
+          onSubtypeChange={setSubtypeId}
+          onYearChange={setYear}
           loading={loading}
           onRefresh={refetch}
         />
@@ -393,7 +327,7 @@ const LagwadAnalysis = () => {
               Pick a plant and subtype to start
             </p>
             <p className="mt-1 text-xs text-slate-500">
-              Then choose one or more months, and narrow to specific slot windows if you need to.
+              Full-year lagwad and slot totals load automatically for that subtype.
             </p>
           </div>
         )}
@@ -418,11 +352,9 @@ const LagwadAnalysis = () => {
 
         {showEmpty && (
           <div className="lag-rise rounded-2xl border border-dashed border-slate-300 bg-white p-12 text-center">
-            <p className="text-sm font-semibold text-slate-700">
-              No slot windows in the current selection
-            </p>
+            <p className="text-sm font-semibold text-slate-700">No slots for this subtype and year</p>
             <p className="mt-1 text-xs text-slate-500">
-              Select a different month, or clear the slot filter to include every window.
+              Try another year or confirm slot windows exist for this plant.
             </p>
           </div>
         )}
@@ -431,9 +363,8 @@ const LagwadAnalysis = () => {
           <>
             <div>
               <p className={`mb-2 ${sectionLabel}`}>
-                Selection totals ·{" "}
-                {selectedMonths.length ? selectedMonths.join(", ") : "whole year"} · {slots.length}{" "}
-                slot{slots.length === 1 ? "" : "s"}
+                Year totals · {context?.year || year} · {slots.length} slot
+                {slots.length === 1 ? "" : "s"}
               </p>
               <LagwadTotalsStrip totals={totals} />
             </div>
@@ -475,14 +406,9 @@ const LagwadAnalysis = () => {
               )}
             </div>
 
-            <Section
-              label={`Lagwad entries · ${totals.lineCount} line${
-                totals.lineCount === 1 ? "" : "s"
-              }`}
-              open={openSection === "lines"}
-              onToggle={() => setOpenSection(openSection === "lines" ? null : "lines")}>
+            <div>
               <LagwadLinesTable lines={data.lines} slotLabelById={slotLabelById} />
-            </Section>
+            </div>
 
             <Section
               label="How the three pools work"
@@ -521,6 +447,18 @@ const LagwadAnalysis = () => {
         open={Boolean(rollExpiredSlot)}
         slot={rollExpiredSlot}
         onClose={() => setRollExpiredSlot(null)}
+        onSuccess={refetch}
+      />
+
+      <SecondaryDirectLagwadWizard
+        open={lagwadOpen}
+        onClose={() => setLagwadOpen(false)}
+        initialPlantId={plantId}
+        initialSubtypeId={subtypeId}
+        initialBatchId={initialBatchId}
+        locations={locations}
+        trays={trays}
+        dispatchBatches={dispatchBatches}
         onSuccess={refetch}
       />
     </div>

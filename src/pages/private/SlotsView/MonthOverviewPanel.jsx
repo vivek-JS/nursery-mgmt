@@ -3,134 +3,146 @@ import { Tooltip } from "@mui/material"
 
 const fmt = (n) => (Number(n) || 0).toLocaleString()
 
-const tileClass = "p-3 rounded-lg min-w-0"
+const tileClass = "p-3 rounded-xl min-w-0 border"
 
-const MonthOverviewPanel = ({ summary, isOverbooked }) => {
+const SplitFootnote = ({ native, rolled, nativeLabel = "Native", rolledLabel = "Rollover" }) => (
+  <p className="text-[10px] leading-snug mt-1 tabular-nums">
+    <span className="font-semibold text-slate-600">{nativeLabel}</span>{" "}
+    <span className="text-slate-800">{fmt(native)}</span>
+    <span className="mx-1 text-slate-300">·</span>
+    <span className="font-semibold text-slate-600">{rolledLabel}</span>{" "}
+    <span className="text-slate-800">{fmt(rolled)}</span>
+  </p>
+)
+
+const MonthOverviewPanel = ({ summary, isOverbooked, sowingAllowed = false }) => {
   const {
     totalAvailablePlants,
-    totalRealAvailablePlants,
-    hasDualAvailable,
-    totalActualPlants,
-    totalActualRemaining,
-    totalActualAvailable,
-    totalQueueAvailable,
-    totalActualReadyPlants,
-    totalShedReadyInShed,
-    totalExpectedMortality,
-    actualGapPlants,
-    actualGapPct,
-    actualSurplusPlants,
-    totalRolledInAvailable,
+    totalExcessAvailableForBooking,
+    totalSowingGapPlants,
+    totalExpectedInSlots,
+    totalDeliveryThisMonth,
+    totalDeliveryNative,
+    totalDeliveryRolled,
+    totalRemainingToDispatch,
+    totalRemainingNative,
+    totalRemainingRolled,
+    totalAllDispatchedPlants,
+    totalDispatchedNative,
+    totalDispatchedRolled,
+    totalDispatchedOther,
   } = summary
 
-  const hasSurplus = actualSurplusPlants > 0
-  const hasGap = actualGapPlants > 0
-  const gapColor = hasSurplus ? "text-teal-700" : hasGap ? "text-orange-700" : "text-green-700"
-  const gapBg = hasSurplus ? "bg-teal-50" : hasGap ? "bg-orange-50" : "bg-green-50"
-  const gapPctLabel =
-    totalActualPlants <= 0 && totalActualRemaining <= 0
-      ? "—"
-      : hasSurplus
-      ? "0%"
-      : `${actualGapPct}%`
+  const dispatchedRollover =
+    totalDispatchedRolled + Math.max(0, (totalDispatchedOther || 0) - (totalDispatchedRolled || 0))
+
+  const deliveryCrossCheck = (totalRemainingToDispatch || 0) + (totalAllDispatchedPlants || 0)
 
   return (
-    <div className="space-y-4">
-      <div>
-        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-          Lagwad physical (month total)
-        </p>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 rounded-xl border border-slate-200 bg-gradient-to-r from-teal-50/80 to-sky-50/50 p-3">
-          <Tooltip title="Sellable lagwad on slots = 90% actual only (excludes mortality reserve)" arrow>
-            <div className={`${tileClass} bg-emerald-50/90`}>
-              <p className="text-[10px] text-gray-500 uppercase">Sellable</p>
-              <p className="text-lg font-bold tabular-nums text-emerald-900">
-                {fmt(totalActualPlants)}
+    <div
+      className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 ${
+        sowingAllowed ? "xl:grid-cols-6" : "xl:grid-cols-5"
+      } gap-3`}>
+      {sowingAllowed ? (
+        <>
+          <Tooltip
+            title="Saleable excess after gross order cover on each slot this month"
+            arrow>
+            <div className={`${tileClass} bg-green-50 border-green-200`}>
+              <p className="text-[10px] font-semibold uppercase text-green-800">Excess available</p>
+              <p className="text-xl font-bold tabular-nums text-green-900">
+                {fmt(totalExcessAvailableForBooking)}
               </p>
-              <p className="text-[10px] text-emerald-700">90% actual</p>
+              <p className="text-[10px] text-green-700">Open for new bookings (sowing-allowed)</p>
             </div>
           </Tooltip>
-          <Tooltip title="10% lagwad reserve — not sellable until transferred to ready" arrow>
-            <div className={`${tileClass} bg-rose-50/90`}>
-              <p className="text-[10px] text-gray-500 uppercase">Exp. mortality</p>
-              <p className="text-lg font-bold tabular-nums text-rose-800">
-                {fmt(totalExpectedMortality)}
-              </p>
-            </div>
-          </Tooltip>
-          <Tooltip title="Calendar-ready or manually marked — vehicle load subtracts here" arrow>
-            <div className={`${tileClass} bg-sky-50/90`}>
-              <p className="text-[10px] text-gray-500 uppercase">Actual ready</p>
-              <p className="text-lg font-bold tabular-nums text-sky-800">
-                {fmt(totalActualReadyPlants)}
-              </p>
-              {totalShedReadyInShed > totalActualReadyPlants && (
-                <p className="text-[10px] text-sky-600">in shed {fmt(totalShedReadyInShed)}</p>
-              )}
-              <p className="text-[10px] text-sky-600">calendar / manual</p>
-            </div>
-          </Tooltip>
-        </div>
-      </div>
-
-      <div>
-        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-          Booking & order queue (month total)
-        </p>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 rounded-xl border border-slate-200 bg-gradient-to-r from-slate-50 to-amber-50/40 p-3">
-          <Tooltip title="Sellable remaining = actual plants minus already dispatched" arrow>
-            <div className={`${tileClass} ${isOverbooked ? "bg-red-50" : "bg-emerald-50/80"}`}>
-              <p className="text-[10px] text-gray-500 uppercase">Available</p>
+          <Tooltip title="Booked orders on delivery windows still needing sow this month" arrow>
+            <div
+              className={`${tileClass} ${
+                (totalSowingGapPlants || 0) > 0
+                  ? "bg-orange-50 border-orange-200"
+                  : "bg-gray-50 border-gray-200"
+              }`}>
+              <p className="text-[10px] font-semibold uppercase text-orange-800">Sowing gap</p>
               <p
-                className={`text-lg font-bold tabular-nums ${
-                  isOverbooked ? "text-red-600" : "text-emerald-700"
+                className={`text-xl font-bold tabular-nums ${
+                  (totalSowingGapPlants || 0) > 0 ? "text-orange-900" : "text-gray-800"
                 }`}>
-                {fmt(totalActualAvailable)}
+                {fmt(totalSowingGapPlants)}
               </p>
-              <p className="text-[10px] text-emerald-700">actual − dispatched</p>
-              {hasDualAvailable && (
-                <p className="text-[10px] text-lime-700">real {fmt(totalRealAvailablePlants)}</p>
-              )}
+              <p className="text-[10px] text-orange-700">Orders not sown yet</p>
             </div>
           </Tooltip>
-          <Tooltip title="Sum of dispatch queue (native + rolled) across all slots this month" arrow>
-            <div className={`${tileClass} bg-amber-50/80`}>
-              <p className="text-[10px] text-gray-500 uppercase">Queue rem.</p>
-              <p className="text-lg font-bold tabular-nums text-amber-800">
-                {fmt(totalActualRemaining)}
-              </p>
-            </div>
-          </Tooltip>
-          <Tooltip title="Actual minus dispatch queue — 0 when nearby booked days cover this slot" arrow>
-            <div className={`${tileClass} bg-teal-50/60`}>
-              <p className="text-[10px] text-gray-500 uppercase">Queue avail.</p>
-              <p className="text-lg font-bold tabular-nums text-teal-800">
-                {fmt(totalQueueAvailable)}
-              </p>
-            </div>
-          </Tooltip>
-          <div className={`${tileClass} ${gapBg}`}>
-            <p className="text-[10px] text-gray-500 uppercase">{hasSurplus ? "Surplus" : "Gap"}</p>
-            <p className={`text-lg font-bold tabular-nums ${gapColor}`}>
-              {hasSurplus ? fmt(actualSurplusPlants) : fmt(actualGapPlants)}
+        </>
+      ) : (
+        <Tooltip title="Sum of Available for booking on each slot this month — new orders can take this many plants" arrow>
+          <div className={`${tileClass} ${isOverbooked ? "bg-red-50 border-red-200" : "bg-green-50 border-green-200"}`}>
+            <p className="text-[10px] font-semibold uppercase text-green-800">Available for booking</p>
+            <p
+              className={`text-xl font-bold tabular-nums ${
+                isOverbooked ? "text-red-700" : "text-green-900"
+              }`}>
+              {fmt(totalAvailablePlants)}
             </p>
+            <p className="text-[10px] text-green-700">Open for new bookings this month</p>
           </div>
-          <div className={`${tileClass} ${gapBg}`}>
-            <p className="text-[10px] text-gray-500 uppercase">Gap %</p>
-            <p className={`text-lg font-bold tabular-nums ${gapColor}`}>{gapPctLabel}</p>
-          </div>
-          {totalRolledInAvailable > 0 && (
-            <Tooltip title="Capacity rolled from expired slots onto today's window" arrow>
-              <div className={`${tileClass} bg-violet-50`}>
-                <p className="text-[10px] text-gray-500 uppercase">Rolled cap.</p>
-                <p className="text-lg font-bold tabular-nums text-violet-800">
-                  {fmt(totalRolledInAvailable)}
-                </p>
-              </div>
-            </Tooltip>
-          )}
+        </Tooltip>
+      )}
+
+      <Tooltip title="Lagwad synced in slot windows this month" arrow>
+        <div className={`${tileClass} bg-violet-50 border-violet-200`}>
+          <p className="text-[10px] font-semibold uppercase text-violet-800">Expected in month</p>
+          <p className="text-xl font-bold tabular-nums text-violet-900">
+            {fmt(totalExpectedInSlots)}
+          </p>
+          <p className="text-[10px] text-violet-700">Lagwad synced in slot windows</p>
         </div>
-      </div>
+      </Tooltip>
+
+      <Tooltip
+        title={`Plants booked for delivery this month = Remaining dispatch (${fmt(totalRemainingToDispatch)}) + Dispatched (${fmt(totalAllDispatchedPlants)}). Native = delivery-window orders; Rollover = past-due rolled-in + cross-slot loads.`}
+        arrow>
+        <div className={`${tileClass} bg-blue-50 border-blue-200`}>
+          <p className="text-[10px] font-semibold uppercase text-blue-800">Delivery this month</p>
+          <p className="text-xl font-bold tabular-nums text-blue-900">
+            {fmt(totalDeliveryThisMonth ?? deliveryCrossCheck)}
+          </p>
+          <SplitFootnote
+            native={totalDeliveryNative}
+            rolled={totalDeliveryRolled}
+            rolledLabel="Rollover & other"
+          />
+          <p className="text-[10px] text-blue-600 mt-0.5">= Remaining + Dispatched</p>
+        </div>
+      </Tooltip>
+
+      <Tooltip
+        title="Pre-dispatch queue across all slots — native delivery window plus past-due rolled-in orders"
+        arrow>
+        <div className={`${tileClass} bg-amber-50 border-amber-200`}>
+          <p className="text-[10px] font-semibold uppercase text-amber-800">Remaining dispatch</p>
+          <p className="text-xl font-bold tabular-nums text-amber-900">
+            {fmt(totalRemainingToDispatch)}
+          </p>
+          <SplitFootnote native={totalRemainingNative} rolled={totalRemainingRolled} />
+        </div>
+      </Tooltip>
+
+      <Tooltip
+        title="Dispatched & completed plants this month — native delivery-window orders plus rollover / cross-slot loads"
+        arrow>
+        <div className={`${tileClass} bg-slate-50 border-slate-200`}>
+          <p className="text-[10px] font-semibold uppercase text-slate-700">Dispatched this month</p>
+          <p className="text-xl font-bold tabular-nums text-slate-900">
+            {fmt(totalAllDispatchedPlants)}
+          </p>
+          <SplitFootnote
+            native={totalDispatchedNative}
+            rolled={dispatchedRollover}
+            rolledLabel="Rollover & other"
+          />
+        </div>
+      </Tooltip>
     </div>
   )
 }

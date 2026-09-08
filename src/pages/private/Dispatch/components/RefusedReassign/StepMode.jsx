@@ -10,6 +10,9 @@ const StepMode = ({ mode, onSelect, vehiclePlants }) => (
         (Plants on vehicle: {vehiclePlants})
       </span>
     </p>
+    <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+      Original farmer kept some plants? Close this and type <span className="font-semibold">Returned to nursery</span> on Complete delivery. Leftover stays delivered to him. Use this stepper only if plants went to other farmers, or the vehicle came back unused.
+    </div>
     <div className="grid gap-2.5">
       {REASSIGN_MODES.map((opt) => {
         const active = mode === opt.id

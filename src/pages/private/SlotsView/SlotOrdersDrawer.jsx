@@ -16,15 +16,16 @@ import {
   getAvailablePlants,
   getDisplayAvailablePlants,
   getBookedPlants,
-  getSellableCapacity,
   getTotalCapacity,
   getDisplayBufferAmount,
   getEffectiveBufferPct,
   getSlotStatPlantsTotal,
-  getAvailableMinusRolledIn,
   getRolledInPlantsOnCurrentSlot,
   slotShowDualAvailableCards,
+  getDisplaySowingGap,
+  getSowedForOtherDeliveryPlants,
 } from "./slotMetrics"
+import { resolveSowingGapSections, resolveSowedForOtherDeliverySections } from "./sowingGapSections"
 
 export const SLOT_ORDER_FILTERS = {
   ALL_ACTIVE: "all_active",
@@ -41,8 +42,8 @@ export const SLOT_ORDER_FILTERS = {
 export const SLOT_STAT_ORDER_VIEWS = {
   available: {
     kind: "capacity",
-    title: "Available plants",
-    subtitle: "Sellable capacity remaining on this slot",
+    title: "Available for booking",
+    subtitle: "Stored booking headroom on this slot — same value you edit on the card",
     accent: "#059669"
   },
   booked: {
@@ -137,6 +138,26 @@ export const SLOT_STAT_ORDER_VIEWS = {
     title: "Released (cross-slot)",
     subtitle: "Originally booked on this slot — moved to another slot for dispatch",
     accent: "#7c3aed"
+  },
+  sowingFromOtherSlot: {
+    kind: "sowingOther",
+    title: "Sowing on other slot",
+    subtitle:
+      "Delivery on this window — sowing was completed on another slot's ready date",
+    accent: "#0284c7"
+  },
+  sowedForOtherDelivery: {
+    kind: "sowedOtherDelivery",
+    title: "Other sowing",
+    subtitle:
+      "Plants sowed on this ready slot for orders booked on other delivery dates",
+    accent: "#7c3aed"
+  },
+  sowingGap: {
+    kind: "sowingGap",
+    title: "Sowing gap & order cover",
+    subtitle: "Uncovered orders and orders covered by ready date (date-wise)",
+    accent: "#ea580c"
   }
 }
 
@@ -208,7 +229,25 @@ const toneStyles = {
   amber: { border: "border-amber-200", bg: "bg-amber-50", chip: "bg-amber-100 text-amber-900" },
   violet: { border: "border-violet-200", bg: "bg-violet-50", chip: "bg-violet-100 text-violet-900" },
   orange: { border: "border-orange-200", bg: "bg-orange-50", chip: "bg-orange-100 text-orange-900" },
-  sky: { border: "border-sky-200", bg: "bg-sky-50", chip: "bg-sky-100 text-sky-900" }
+  sky: { border: "border-sky-200", bg: "bg-sky-50", chip: "bg-sky-100 text-sky-900" },
+  teal: { border: "border-teal-200", bg: "bg-teal-50", chip: "bg-teal-100 text-teal-900" }
+}
+
+function resolveSowingFromOtherSections(slot) {
+  const d = slot?.sowingFromOtherSlotDetail
+  if (!d?.orders?.length) return []
+  return [
+    {
+      id: "sowingFromOther",
+      label: "Sowing on other slot",
+      subtitle: "Orders on this delivery window — sowing completed on another ready slot",
+      orders: d.orders,
+      orderCount: d.orderCount,
+      plants: d.plants,
+      tone: "teal",
+      showSowingHint: true,
+    },
+  ]
 }
 
 function resolveCrossSlotSections(slot, statKey) {
@@ -239,14 +278,14 @@ function resolveCrossSlotSections(slot, statKey) {
   ]
 }
 
-function PastDueOrdersPanel({ sections }) {
+function PastDueOrdersPanel({ sections, emptyMessage = "No orders in this view." }) {
   const navigate = useNavigate()
 
   if (!sections.length) {
     return (
       <Box sx={{ p: 3 }}>
         <Typography variant="body2" color="text.secondary">
-          No past-due orders in this view.
+          {emptyMessage}
         </Typography>
       </Box>
     )
@@ -287,7 +326,15 @@ function PastDueOrdersPanel({ sections }) {
                 </span>
               </div>
               <ul className="divide-y divide-black/5">
-                {sec.orders.map((row) => (
+                {sec.plantsOnly ? (
+                  <li className="px-3 py-2.5 bg-white/60 text-sm text-gray-700">
+                    {(sec.plants ?? 0).toLocaleString()} plants covered from this ready date
+                    {sec.subtitle ? (
+                      <p className="text-xs text-gray-500 mt-0.5">{sec.subtitle}</p>
+                    ) : null}
+                  </li>
+                ) : (
+                  sec.orders.map((row) => (
                   <li
                     key={row._id}
                     className="flex items-center gap-2 px-3 py-2.5 bg-white/60 hover:bg-white transition-colors">
@@ -301,6 +348,12 @@ function PastDueOrdersPanel({ sections }) {
                       ) : null}
                       {sec.showSlotHint && row.toSlotLabel ? (
                         <p className="text-[10px] text-violet-700">To {row.toSlotLabel}</p>
+                      ) : null}
+                      {sec.showSowingHint && row.fromSlotLabel ? (
+                        <p className="text-[10px] text-teal-700">Sowed on {row.fromSlotLabel}</p>
+                      ) : null}
+                      {sec.showSowingHint && row.requestNumber ? (
+                        <p className="text-[10px] text-gray-500">{row.requestNumber}</p>
                       ) : null}
                     </div>
                     <p className="text-sm font-semibold text-gray-800 tabular-nums shrink-0">
@@ -316,7 +369,8 @@ function PastDueOrdersPanel({ sections }) {
                       <ExternalLink className="w-4 h-4" />
                     </button>
                   </li>
-                ))}
+                  ))
+                )}
               </ul>
             </div>
           )
@@ -327,47 +381,49 @@ function PastDueOrdersPanel({ sections }) {
 }
 
 const SlotAvailableSummary = ({ slot }) => {
-  const storedAvailable = getAvailablePlants(slot)
-  const available = getDisplayAvailablePlants(slot)
-  const availMinusRolled = getAvailableMinusRolledIn(slot)
+  const bookingAvailable = getAvailablePlants(slot)
+  const displayAvailable = getDisplayAvailablePlants(slot)
   const rolledHere = getRolledInPlantsOnCurrentSlot(slot)
   const showDual = slotShowDualAvailableCards(slot)
   const booked = getBookedPlants(slot)
-  const total = getTotalCapacity(slot)
-  const sellable = getSellableCapacity(slot)
+  const capacity = getTotalCapacity(slot)
   const buffer = getDisplayBufferAmount(slot)
   const bufferPct = getEffectiveBufferPct(slot)
 
+  const heroAvailable = showDual ? displayAvailable : bookingAvailable
+
   const rows = [
-    ...(showDual
+    {
+      label: "Available",
+      value: bookingAvailable,
+      color: bookingAvailable < 0 ? "text-red-700" : "text-emerald-700",
+    },
+    ...(showDual && displayAvailable !== bookingAvailable
       ? [
           {
-            label: "Real available",
-            value: availMinusRolled,
-            color: availMinusRolled < 0 ? "text-red-700" : "text-emerald-700"
+            label: "Native available",
+            value: displayAvailable,
+            color: displayAvailable < 0 ? "text-red-700" : "text-lime-800",
+            hint: `${rolledHere.toLocaleString()} rolled-in on this slot`,
           },
-          {
-            label: "Stored (incl. rolled)",
-            value: storedAvailable,
-            color: storedAvailable < 0 ? "text-red-700" : "text-gray-800",
-            hint: `${rolledHere.toLocaleString()} plants rolled-in on slot`
-          }
         ]
-      : [
-          {
-            label: "Available",
-            value: available,
-            color: available < 0 ? "text-red-700" : "text-emerald-700"
-          }
-        ]),
+      : []),
     { label: "Booked", value: booked, color: "text-blue-700" },
-    { label: "Capacity", value: total, color: "text-indigo-700" },
-    { label: "Sellable", value: sellable, color: "text-indigo-600" },
     {
-      label: buffer > 0 ? "Buffer (stored)" : `Buffer (${bufferPct}%)`,
-      value: buffer,
-      color: "text-purple-700"
-    }
+      label: "Capacity",
+      value: capacity,
+      color: "text-indigo-700",
+      hint: "Available + booked",
+    },
+    ...(buffer > 0
+      ? [
+          {
+            label: bufferPct > 0 ? `Buffer (${bufferPct}%)` : "Buffer",
+            value: buffer,
+            color: "text-purple-700",
+          },
+        ]
+      : []),
   ]
 
   return (
@@ -376,17 +432,17 @@ const SlotAvailableSummary = ({ slot }) => {
         variant="h4"
         sx={{
           fontWeight: 800,
-          color: available < 0 ? "error.main" : "success.dark",
+          color: heroAvailable < 0 ? "error.main" : "success.dark",
           mb: 0.5,
-          fontSize: { xs: "1.75rem", sm: "2rem" }
+          fontSize: { xs: "1.75rem", sm: "2rem" },
         }}>
-        {available.toLocaleString()}
+        {heroAvailable.toLocaleString()}
         <Typography component="span" variant="body1" sx={{ ml: 1, fontWeight: 600, color: "text.secondary" }}>
-          plants available
+          for booking
         </Typography>
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2.5 }}>
-        Capacity = available + booked. Buffer reduces sellable headroom.
+        Stored on the slot — edit with the pencil icon on the card. Capacity is available + booked.
       </Typography>
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
         {rows.map((row, i) => (
@@ -412,6 +468,7 @@ const SlotOrdersDrawer = ({
   pendingSlotId,
   plantId,
   subtypeId,
+  sowingAllowed = false,
   canRollPastDue = false,
   onOpenPendingRoll,
 }) => {
@@ -421,7 +478,11 @@ const SlotOrdersDrawer = ({
   const end = slot ? moment(slot.endDay, "DD-MM-YYYY").format("MMM D") : ""
   const yearLabel = slot ? moment(slot.startDay, "DD-MM-YYYY").format("YYYY") : ""
 
-  const cardPlantsTotal = slot ? getSlotStatPlantsTotal(slot, statKey) : 0
+  const cardPlantsTotal = slot
+    ? statKey === "sowingGap"
+      ? getDisplaySowingGap(slot, sowingAllowed)
+      : getSlotStatPlantsTotal(slot, statKey)
+    : 0
 
   const pastDueSections = useMemo(
     () => (slot && view.kind === "pastDue" ? resolvePastDueSections(slot, statKey, pendingSlotId) : []),
@@ -433,8 +494,52 @@ const SlotOrdersDrawer = ({
     [slot, statKey, view.kind]
   )
 
+  const sowingOtherSections = useMemo(
+    () => (slot && view.kind === "sowingOther" ? resolveSowingFromOtherSections(slot) : []),
+    [slot, view.kind]
+  )
+
+  const sowingGapSections = useMemo(
+    () => (slot && view.kind === "sowingGap" ? resolveSowingGapSections(slot) : []),
+    [slot, view.kind]
+  )
+
+  const sowedOtherDeliverySections = useMemo(
+    () =>
+      slot && view.kind === "sowedOtherDelivery"
+        ? resolveSowedForOtherDeliverySections(slot)
+        : [],
+    [slot, view.kind]
+  )
+
   const headerCounts = useMemo(() => {
     if (!slot || view.kind === "capacity" || view.kind === "orders") return null
+    if (view.kind === "sowedOtherDelivery") {
+      return {
+        orders: sowedOtherDeliverySections.reduce(
+          (sum, sec) => sum + (sec.orderCount ?? sec.orders?.length ?? 0),
+          0
+        ),
+        plants: getSowedForOtherDeliveryPlants(slot),
+      }
+    }
+    if (view.kind === "sowingGap") {
+      const detail = slot.sowingGapDetail
+      const uncovered = detail?.uncovered?.orderCount ?? 0
+      const covered = detail?.coveredTotal?.orderCount ?? 0
+      return {
+        orders: uncovered + covered,
+        plants:
+          (detail?.uncovered?.plants ?? 0) + (detail?.coveredTotal?.plants ?? 0),
+      }
+    }
+    if (view.kind === "sowingOther") {
+      const bucket = slot.sowingFromOtherSlotDetail
+      return {
+        orders: bucket?.orderCount ?? 0,
+        plants: bucket?.plants ?? 0,
+      }
+    }
     if (view.kind === "crossSlot") {
       const bucket =
         statKey === "crossSlotEarlyIn"
@@ -466,7 +571,7 @@ const SlotOrdersDrawer = ({
       }
     }
     return null
-  }, [slot, statKey, pendingSlotId, view.kind, pastDueSections])
+  }, [slot, statKey, pendingSlotId, view.kind, pastDueSections, sowedOtherDeliverySections])
 
   if (!slot) return null
 
@@ -537,7 +642,7 @@ const SlotOrdersDrawer = ({
         </Box>
 
         <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, mt: 1.5 }}>
-          {headerCounts && (view.kind === "pastDue" || view.kind === "crossSlot") ? (
+          {headerCounts && (view.kind === "pastDue" || view.kind === "crossSlot" || view.kind === "sowingOther" || view.kind === "sowingGap" || view.kind === "sowedOtherDelivery") ? (
             <>
               <Chip
                 size="small"
@@ -599,6 +704,18 @@ const SlotOrdersDrawer = ({
           <PastDueOrdersPanel sections={pastDueSections} />
         ) : view.kind === "crossSlot" ? (
           <PastDueOrdersPanel sections={crossSlotSections} />
+        ) : view.kind === "sowingOther" ? (
+          <PastDueOrdersPanel sections={sowingOtherSections} />
+        ) : view.kind === "sowingGap" ? (
+          <PastDueOrdersPanel
+            sections={sowingGapSections}
+            emptyMessage="No sowing gap or order cover on this delivery window."
+          />
+        ) : view.kind === "sowedOtherDelivery" ? (
+          <PastDueOrdersPanel
+            sections={sowedOtherDeliverySections}
+            emptyMessage="No sowing reserved for other delivery dates on this ready slot."
+          />
         ) : (
           <Box
             sx={{

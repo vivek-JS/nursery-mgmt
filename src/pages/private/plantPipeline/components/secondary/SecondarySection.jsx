@@ -16,7 +16,7 @@ import {
 import AddIcon from "@mui/icons-material/Add";
 import ParkIcon from "@mui/icons-material/Park";
 import { Toast } from "helpers/toasts/toastHelper";
-import SecondaryLagwadDialog from "../../dialogs/SecondaryLagwadDialog";
+import SecondaryDirectLagwadWizard from "../../dialogs/SecondaryDirectLagwadWizard";
 import PipelineSectionCard from "../PipelineSectionCard";
 import PipelineEmptyState from "../PipelineEmptyState";
 import PipelineFormDialog from "../PipelineFormDialog";
@@ -283,6 +283,7 @@ export default function SecondarySection({
   batchDoc,
   locations,
   trays,
+  dispatchBatches,
   onRefresh,
 }) {
   const [lagwadOpen, setLagwadOpen] = useState(false);
@@ -316,13 +317,14 @@ export default function SecondarySection({
       <PipelineSectionCard
         stage={STAGES.secondary}
         title="Secondary lagwad"
-        subtitle="FIFO sowing from acknowledged primary outward stock"
+        subtitle="Standalone sowing — no primary accept required"
         actionLabel="Add lagwad"
         actionIcon={AddIcon}
         onAction={() => setLagwadOpen(true)}
       >
         <Typography variant="body2" color="text.secondary">
-          Enter R1/R2/R3 split, cavity, polyhouse and labour — one session per size group (R3 separate from R1/R2).
+          Record R1/R2/R3 split, cavity, shed and labour. Uses direct lagwad — does not consume primary
+          outward stock.
         </Typography>
       </PipelineSectionCard>
 
@@ -339,12 +341,13 @@ export default function SecondarySection({
         />
       </PipelineSectionCard>
 
-      <SecondaryLagwadDialog
+      <SecondaryDirectLagwadWizard
         open={lagwadOpen}
         onClose={() => setLagwadOpen(false)}
-        batchId={batchId}
+        initialBatchId={batchId}
         locations={locations}
         trays={trays}
+        dispatchBatches={dispatchBatches}
         onSuccess={onRefresh}
       />
     </Box>

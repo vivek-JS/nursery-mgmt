@@ -128,3 +128,35 @@ export function dispatchedQtyForLine(
   }
   return 0
 }
+
+const lineReadyQty = (ln) => Math.max(0, Number(ln?.ready ?? ln?.qty) || 0)
+
+/**
+ * Line dispatch minus: exact ledger match first, else proportional share of batch order-dispatch total.
+ */
+export function dispatchedQtyForLineWithBatchShare(
+  ln,
+  batchSiblings,
+  dispatchedByInwardId,
+  dispatchedByBatchShed,
+  dispatchedByBatchNumber
+) {
+  const exact = dispatchedQtyForLine(
+    ln,
+    dispatchedByInwardId,
+    dispatchedByBatchShed,
+    dispatchedByBatchNumber
+  )
+  if (exact > 0) return exact
+
+  const batch = ln?.batchNumber || "—"
+  const batchDisp = Number(dispatchedByBatchNumber?.get(batch)) || 0
+  if (batchDisp <= 0) return 0
+
+  const siblings = Array.isArray(batchSiblings) && batchSiblings.length ? batchSiblings : [ln]
+  const totalReady = siblings.reduce((s, row) => s + lineReadyQty(row), 0)
+  const myReady = lineReadyQty(ln)
+  if (totalReady <= 0 || myReady <= 0) return 0
+
+  return Math.round((myReady / totalReady) * batchDisp)
+}

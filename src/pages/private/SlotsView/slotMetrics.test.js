@@ -8,6 +8,14 @@ import {
   getExpectedMortality,
   getLagwadGrossPlants,
   rollupMonthSlotMetrics,
+  getGrossOrderCoveredPlants,
+  getExcessAvailableForBooking,
+  getDisplaySowingGap,
+  getSowingGapPlants,
+  getBookedUncoveredPlants,
+  getSowedForOtherDeliveryPlants,
+  getSowingFromOtherSlotPlants,
+  hasSowingFromOtherSlot,
 } from "./slotMetrics";
 import moment from "moment";
 import { getDefaultMonthTabIndex } from "./slotMonthUtils";
@@ -102,6 +110,89 @@ describe("rollupMonthSlotMetrics", () => {
     expect(rollup.actualGapPlants).toBe(0);
     expect(rollup.actualSurplusPlants).toBe(250);
     expect(rollup.totalBookedPlants).toBe(280);
+  });
+});
+
+describe("sowing-allowed slot metrics", () => {
+  it("getExcessAvailableForBooking subtracts gross order cover from available", () => {
+    const slot = {
+      availablePlants: 103204,
+      availablePlantsMaterialized: true,
+      sowingBatches: [{ orderCoveredPlants: 33000, excessPlants: 15510 }],
+    };
+    expect(getGrossOrderCoveredPlants(slot)).toBe(33000);
+    expect(getExcessAvailableForBooking(slot)).toBe(70204);
+  });
+
+  it("prefers API excessAvailableForBooking when present", () => {
+    expect(getExcessAvailableForBooking({ excessAvailableForBooking: 50000 })).toBe(50000);
+  });
+
+  it("getSowingGapPlants mirrors bookedUncoveredPlants", () => {
+    const covered = {
+      totalBookedPlants: 33000,
+      bookedCoveredPlants: 33000,
+      bookedUncoveredPlants: 0,
+    };
+    expect(getSowingGapPlants(covered)).toBe(0);
+    expect(getBookedUncoveredPlants(covered)).toBe(0);
+
+    const gap = {
+      totalBookedPlants: 10000,
+      bookedCoveredPlants: 0,
+      bookedUncoveredPlants: 10000,
+    };
+    expect(getSowingGapPlants(gap)).toBe(10000);
+  });
+
+  it("getDisplaySowingGap prefers API bookedUncovered over booked-primarySowed", () => {
+    expect(
+      getDisplaySowingGap(
+        { totalBookedPlants: 33000, primarySowed: 0, bookedUncoveredPlants: 0 },
+        false
+      )
+    ).toBe(0)
+    expect(getDisplaySowingGap({ totalBookedPlants: 10000, primarySowed: 3000 }, false)).toBe(7000)
+    expect(getDisplaySowingGap({ sowingGapPlants: 5000 }, true)).toBe(5000)
+  })
+
+  it("getSowedForOtherDeliveryPlants uses gross cover when no local booked", () => {
+    expect(
+      getSowedForOtherDeliveryPlants({
+        totalBookedPlants: 0,
+        sowingBatches: [{ orderCoveredPlants: 33000 }],
+      })
+    ).toBe(33000)
+  })
+
+  it("getSowingFromOtherSlotPlants falls back when API field missing", () => {
+    expect(
+      getSowingFromOtherSlotPlants({
+        totalBookedPlants: 33000,
+        bookedCoveredPlants: 33000,
+        bookedUncoveredPlants: 0,
+        grossOrderCoveredPlants: 0,
+      })
+    ).toBe(33000)
+  })
+
+  it("rollupMonthSlotMetrics sums excess and sowing gap", () => {
+    const rollup = rollupMonthSlotMetrics([
+      {
+        availablePlants: 103204,
+        availablePlantsMaterialized: true,
+        sowingBatches: [{ orderCoveredPlants: 33000 }],
+        bookedUncoveredPlants: 0,
+      },
+      {
+        availablePlants: 0,
+        totalBookedPlants: 33000,
+        bookedCoveredPlants: 33000,
+        bookedUncoveredPlants: 0,
+      },
+    ]);
+    expect(rollup.totalExcessAvailableForBooking).toBe(70204);
+    expect(rollup.totalSowingGapPlants).toBe(0);
   });
 });
 

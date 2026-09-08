@@ -6,9 +6,9 @@ import {
   Package,
   BarChart3,
   Eye,
-  AlertTriangle
+  AlertTriangle,
 } from "lucide-react"
-import { Tabs, Tab, Card, CardContent, IconButton, Tooltip } from "@mui/material"
+import { Card, CardContent, IconButton, Tooltip } from "@mui/material"
 import { API, NetworkManager } from "network/core"
 import {
   getTotalCapacity,
@@ -74,7 +74,7 @@ const getStatusInfo = (percentage, availablePlants, overbooked) => {
 const SlotAccordionView = ({ plantId, year }) => {
   const [selectedSubtype, setSelectedSubtype] = useState(0)
   const [loading, setLoading] = useState(false)
-  const [months, setMonths] = useState([])
+  const [months, setMonths] = useState({})
 
   useEffect(() => {
     setSelectedSubtype(0)
@@ -214,84 +214,81 @@ const SlotAccordionView = ({ plantId, year }) => {
     openSlotManageTab(plantId, subtype?.subtypeId, year)
   }
 
+  const renderSubtypePicker = () => {
+    const subtypes = months?.subtypes || []
+    if (subtypes.length === 0) return null
+
+    return (
+      <div className="border-b border-slate-200 bg-white p-3">
+        <p className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+          Varieties ({subtypes.length})
+        </p>
+        <div className="grid max-h-[240px] grid-cols-2 gap-2 overflow-x-hidden overflow-y-auto sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+          {subtypes.map((subtype, index) => {
+            const totalCapacity = getTotalCapacity(subtype)
+            const bookedPlants = getBookedPlants(subtype)
+            const bookedPercentage = getUtilizationPct(bookedPlants, totalCapacity)
+            const isOverbooked = isSubtypeOverbooked(subtype)
+            const isSelected = selectedSubtype === index
+
+            return (
+              <button
+                key={subtype?.subtypeId ?? index}
+                type="button"
+                onClick={() => setSelectedSubtype(index)}
+                title={subtype?.subtypeName}
+                className={`min-w-0 rounded-lg border px-2.5 py-2 text-left transition-all ${
+                  isSelected
+                    ? isOverbooked
+                      ? "border-red-400 bg-red-50 ring-2 ring-red-200"
+                      : "border-blue-400 bg-blue-50 ring-2 ring-blue-200"
+                    : "border-slate-200 bg-slate-50 hover:border-slate-300 hover:bg-white"
+                }`}>
+                <div className="flex min-w-0 items-center gap-1">
+                  <Leaf
+                    className={`h-3 w-3 shrink-0 ${
+                      isOverbooked ? "text-red-500" : "text-green-500"
+                    }`}
+                  />
+                  <span className="truncate text-xs font-semibold text-slate-900">
+                    {subtype?.subtypeName}
+                  </span>
+                  {isOverbooked && (
+                    <AlertTriangle className="h-3 w-3 shrink-0 text-red-500" />
+                  )}
+                </div>
+                <div className="mt-1 flex items-center justify-between gap-1 text-[10px] tabular-nums text-slate-600">
+                  <span>{totalCapacity.toLocaleString()}</span>
+                  <span
+                    className={`font-bold ${
+                      isOverbooked
+                        ? "text-red-600"
+                        : bookedPercentage > 70
+                        ? "text-orange-600"
+                        : "text-green-600"
+                    }`}>
+                    {bookedPercentage}%
+                  </span>
+                </div>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <div className="p-6">
+    <div className="min-w-0 max-w-full overflow-hidden p-4">
       {loading ? (
         <div className="flex flex-col items-center justify-center py-16">
           <div className="w-16 h-16 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mb-4"></div>
           <p className="text-gray-600 font-medium">Loading subtype data...</p>
         </div>
       ) : (
-        <div className="space-y-6">
-          <div className="bg-white rounded-2xl shadow-md overflow-hidden">
-            <Tabs
-              value={selectedSubtype}
-              onChange={(e, newValue) => setSelectedSubtype(newValue)}
-              variant="scrollable"
-              scrollButtons="auto"
-              sx={{
-                borderBottom: 1,
-                borderColor: "divider",
-                "& .MuiTab-root": {
-                  textTransform: "none",
-                  fontWeight: 600,
-                  fontSize: "0.95rem",
-                  minHeight: "80px",
-                  padding: "20px 28px"
-                },
-                "& .Mui-selected": {
-                  color: "#2563eb",
-                  backgroundColor: "#eff6ff"
-                },
-                "& .MuiTabs-indicator": {
-                  height: 3,
-                  borderRadius: "3px 3px 0 0",
-                  backgroundColor: "#2563eb"
-                }
-              }}>
-              {months?.subtypes?.map((subtype) => {
-                const totalCapacity = getTotalCapacity(subtype)
-                const bookedPlants = getBookedPlants(subtype)
-                const availablePlants = getSubtypeAvailable(subtype)
-                const bookedPercentage = getUtilizationPct(bookedPlants, totalCapacity)
-                const isOverbooked = isSubtypeOverbooked(subtype)
-
-                return (
-                  <Tab
-                    key={subtype?.subtypeId}
-                    label={
-                      <div className="flex flex-col items-start w-full">
-                        <div className="flex items-center gap-2 mb-1">
-                          <Leaf
-                            className={`w-4 h-4 ${isOverbooked ? "text-red-500" : "text-green-500"}`}
-                          />
-                          <span className="font-semibold">{subtype?.subtypeName}</span>
-                          {isOverbooked && (
-                            <AlertTriangle className="w-4 h-4 text-red-500 animate-pulse" />
-                          )}
-                        </div>
-                        <div className="flex items-center gap-4 text-xs text-gray-600">
-                          <span className="flex items-center gap-1">
-                            <div className="w-2 h-2 bg-indigo-500 rounded-full"></div>
-                            {totalCapacity.toLocaleString()} total
-                          </span>
-                          <span
-                            className={`font-semibold ${
-                              isOverbooked
-                                ? "text-red-600"
-                                : bookedPercentage > 70
-                                ? "text-orange-600"
-                                : "text-green-600"
-                            }`}>
-                            {bookedPercentage}% used
-                          </span>
-                        </div>
-                      </div>
-                    }
-                  />
-                )
-              })}
-            </Tabs>
+        <div className="space-y-4">
+          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-md">
+            {renderSubtypePicker()}
           </div>
 
           {months?.subtypes?.[selectedSubtype] && (
@@ -304,9 +301,8 @@ const SlotAccordionView = ({ plantId, year }) => {
                 const bookedPercentage = getUtilizationPct(bookedPlants, totalCapacity)
                 const isOverbooked = isSubtypeOverbooked(subtype)
                 const statusInfo = getStatusInfo(bookedPercentage, availablePlants, isOverbooked)
-                const totalActualPlants = Number(subtype?.totalActualPlants) || 0
-                const totalExpectedMortality = Number(subtype?.totalExpectedMortality) || 0
-                const totalActualReady = Number(subtype?.totalActualReadyPlants) || 0
+                const totalExpectedInSlots = Number(subtype?.totalExpectedInSlots) || 0
+                const totalRemainingDispatch = Number(subtype?.totalRemainingToDispatch) || 0
                 return (
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     <div className="lg:col-span-2">
@@ -375,42 +371,42 @@ const SlotAccordionView = ({ plantId, year }) => {
                           </div>
 
                           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
-                            <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200">
-                              <p className="text-[10px] font-semibold uppercase text-emerald-800">
-                                Sellable
+                            <div className="p-3 rounded-xl bg-green-50 border border-green-200">
+                              <p className="text-[10px] font-semibold uppercase text-green-800">
+                                Available for booking
                               </p>
-                              <p className="text-lg font-bold text-emerald-900 tabular-nums">
-                                {totalActualPlants.toLocaleString()}
+                              <p className="text-lg font-bold text-green-900 tabular-nums">
+                                {availablePlants.toLocaleString()}
                               </p>
-                              <p className="text-[10px] text-emerald-700">90% actual only</p>
+                              <p className="text-[10px] text-green-700">Open for new bookings</p>
                             </div>
-                            <div className="p-3 rounded-xl bg-rose-50 border border-rose-200">
-                              <p className="text-[10px] font-semibold uppercase text-rose-700">
-                                Exp. mortality
+                            <div className="p-3 rounded-xl bg-violet-50 border border-violet-200">
+                              <p className="text-[10px] font-semibold uppercase text-violet-800">
+                                Expected in slots
                               </p>
-                              <p className="text-lg font-bold text-rose-800 tabular-nums">
-                                {totalExpectedMortality.toLocaleString()}
+                              <p className="text-lg font-bold text-violet-900 tabular-nums">
+                                {totalExpectedInSlots.toLocaleString()}
                               </p>
-                              <p className="text-[10px] text-rose-600">10% lagwad reserve</p>
+                              <p className="text-[10px] text-violet-700">Lagwad synced in slot windows</p>
                             </div>
-                            <div className="p-3 rounded-xl bg-sky-50 border border-sky-200">
-                              <p className="text-[10px] font-semibold uppercase text-sky-700">
-                                Actual ready
+                            <div className="p-3 rounded-xl bg-amber-50 border border-amber-200">
+                              <p className="text-[10px] font-semibold uppercase text-amber-800">
+                                Remaining dispatch
                               </p>
-                              <p className="text-lg font-bold text-sky-800 tabular-nums">
-                                {totalActualReady.toLocaleString()}
+                              <p className="text-lg font-bold text-amber-900 tabular-nums">
+                                {totalRemainingDispatch.toLocaleString()}
                               </p>
-                              <p className="text-[10px] text-sky-600">dispatch −</p>
+                              <p className="text-[10px] text-amber-700">Orders still to dispatch</p>
                             </div>
                           </div>
 
                           <div className="grid grid-cols-3 gap-4 mb-5">
                             <StatCard
                               icon={Package}
-                              label="Available"
+                              label="Available for booking"
                               value={availablePlants}
                               color="green"
-                              subtitle={isOverbooked ? "Overbooked" : "Ready"}
+                              subtitle={isOverbooked ? "Overbooked" : "Open for bookings"}
                               isNegative={isOverbooked}
                             />
                             <StatCard
@@ -516,32 +512,21 @@ const SlotAccordionView = ({ plantId, year }) => {
                               </div>
                             </div>
 
-                            <div className="p-4 bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl">
-                              <div className="text-xs text-blue-700 uppercase tracking-wide mb-1">
-                                Booked
+                            <div className="p-4 bg-gradient-to-br from-violet-50 to-violet-100 rounded-xl">
+                              <div className="text-xs text-violet-700 uppercase tracking-wide mb-1">
+                                Expected in slots
                               </div>
-                              <div className="font-bold text-blue-700 text-lg">
-                                {bookedPlants.toLocaleString()}
+                              <div className="font-bold text-violet-900 text-lg">
+                                {totalExpectedInSlots.toLocaleString()}
                               </div>
                             </div>
 
-                            <div
-                              className={`p-4 bg-gradient-to-br rounded-xl ${
-                                isOverbooked
-                                  ? "from-red-50 to-red-100"
-                                  : "from-indigo-50 to-indigo-100"
-                              }`}>
-                              <div
-                                className={`text-xs uppercase tracking-wide mb-1 ${
-                                  isOverbooked ? "text-red-700" : "text-indigo-700"
-                                }`}>
-                                Rate
+                            <div className="p-4 bg-gradient-to-br from-amber-50 to-amber-100 rounded-xl">
+                              <div className="text-xs text-amber-800 uppercase tracking-wide mb-1">
+                                Remaining dispatch
                               </div>
-                              <div className="flex items-center justify-between">
-                                <span className={`font-bold text-lg ${statusInfo.textColor}`}>
-                                  {bookedPercentage}%
-                                </span>
-                                {isOverbooked && <AlertTriangle className="w-5 h-5 text-red-600" />}
+                              <div className="font-bold text-amber-900 text-lg">
+                                {totalRemainingDispatch.toLocaleString()}
                               </div>
                             </div>
                           </div>

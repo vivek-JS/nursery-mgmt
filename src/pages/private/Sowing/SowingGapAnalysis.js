@@ -8,6 +8,7 @@ import CompletedSowingEntries from "./components/CompletedSowingEntries"
 import SlotStockBoard from "./components/excess-allocation/SlotStockBoard"
 import PendingSowingOrdersPanel from "./components/PendingSowingOrdersPanel"
 import SowingPageTabs from "./components/SowingPageTabs"
+import SowingGapOverviewPanel from "./components/SowingGapOverviewPanel"
 import { SowHorizonProvider } from "./components/SowHorizonContext"
 
 export default function SowingGapAnalysis() {
@@ -52,6 +53,8 @@ export default function SowingGapAnalysis() {
           </IconButton>
         </Box>
       </Box>
+
+      <SowingGapOverviewPanel refreshToken={refreshToken} />
 
       <SowingPageTabs
         tab={tab}

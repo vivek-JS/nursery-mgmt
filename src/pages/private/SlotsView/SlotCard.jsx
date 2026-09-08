@@ -1,4 +1,4 @@
-import React from "react"
+import React, { useState } from "react"
 import moment from "moment"
 import {
   Calendar,
@@ -11,11 +11,13 @@ import {
   Sprout,
   ArrowRightLeft,
   Package,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react"
 import { Switch, Tooltip, IconButton, Button, Card, CardContent } from "@mui/material"
 import SlotBufferPanel from "./SlotBufferPanel"
 import SlotCardMetrics from "./SlotCardMetrics"
-import SlotBookingCoverPanel from "./SlotBookingCoverPanel"
+import SlotSowingGapPanel from "./SlotSowingGapPanel"
 import SlotQueuePanel from "./SlotQueuePanel"
 import SlotDispatchedPanel from "./SlotDispatchedPanel"
 import ActiveSlotHighlight from "./ActiveSlotHighlight"
@@ -24,11 +26,11 @@ import {
   getTotalCapacity,
   getUtilizationPct,
   getBookedPlants,
-  getSowingGap,
   isSlotOverbooked,
   getEffectiveBufferPct,
   slotHasMixedRolledAndNativeOrders,
   slotHasPendingPastDueOnSubtype,
+  getOrderReservedPlants,
 } from "./slotMetrics"
 
 const SlotCard = ({
@@ -53,6 +55,7 @@ const SlotCard = ({
   onSalesmen,
   onToggleStatus,
   onDelete,
+  sowingAllowed = false,
 }) => {
   const { startDay, endDay, status, _id, isManual } = slot || {}
   const start = moment(startDay, "DD-MM-YYYY").format("MMM D")
@@ -62,12 +65,17 @@ const SlotCard = ({
   const effectiveTotalCapacity = getSellableCapacity(slot)
   const bookedPlants = getBookedPlants(slot)
   const totalCapacity = getTotalCapacity(slot)
-  const sowingGap = getSowingGap(slot)
   const slotBookedPercentage = getUtilizationPct(bookedPlants, effectiveTotalCapacity)
   const slotStatusColor = getStatusColor(slotBookedPercentage, getBookedPlants(slot))
   const slotIsOverbooked = isSlotOverbooked(slot)
   const mixedRolledAndNative = slotHasMixedRolledAndNativeOrders(slot)
   const hasPendingPastDue = slotHasPendingPastDueOnSubtype(slot)
+  const [showDetails, setShowDetails] = useState(false)
+
+  const toggleDetails = (e) => {
+    e?.stopPropagation?.()
+    setShowDetails((v) => !v)
+  }
   return (
     <Card
       className={`transition-all duration-200 hover:shadow-lg rounded-xl border ${
@@ -164,22 +172,24 @@ const SlotCard = ({
           </div>
         </div>
 
-        <div className="mb-2.5" onClick={(e) => e.stopPropagation()}>
-          <div className="flex justify-between items-center mb-1">
-            <span className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">
-              Util {slotBookedPercentage}%
-            </span>
-            <span className="text-[10px] text-gray-500">Cap {totalCapacity.toLocaleString()}</span>
+        {showDetails && (
+          <div className="mb-2.5" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-1">
+              <span className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">
+                Util {slotBookedPercentage}%
+              </span>
+              <span className="text-[10px] text-gray-500">Cap {totalCapacity.toLocaleString()}</span>
+            </div>
+            <div className="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
+              <div
+                className={`h-1.5 rounded-full transition-all ${slotStatusColor.bg} ${
+                  slotIsOverbooked ? "animate-pulse" : ""
+                }`}
+                style={{ width: `${Math.min(slotBookedPercentage, 100)}%` }}
+              />
+            </div>
           </div>
-          <div className="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
-            <div
-              className={`h-1.5 rounded-full transition-all ${slotStatusColor.bg} ${
-                slotIsOverbooked ? "animate-pulse" : ""
-              }`}
-              style={{ width: `${Math.min(slotBookedPercentage, 100)}%` }}
-            />
-          </div>
-        </div>
+        )}
 
         <SlotCardMetrics
           slot={slot}
@@ -187,23 +197,65 @@ const SlotCard = ({
           onOpenOrders={onOpenOrders}
           onOpenActual={onOpenActual}
           onSlotChanged={onSlotChanged}
+          compact
+          sowingAllowed={sowingAllowed}
         />
 
-        <SlotBookingCoverPanel
-          slot={slot}
-          monthName={monthName}
-          onOpenOrders={onOpenOrders}
-        />
+        <div className="mt-2 mb-1" onClick={(e) => e.stopPropagation()}>
+          <Button
+            size="small"
+            variant="text"
+            fullWidth
+            onClick={toggleDetails}
+            endIcon={
+              showDetails ? (
+                <ChevronUp className="w-3.5 h-3.5" />
+              ) : (
+                <ChevronDown className="w-3.5 h-3.5" />
+              )
+            }
+            sx={{
+              textTransform: "none",
+              fontSize: "0.7rem",
+              fontWeight: 700,
+              color: "#64748b",
+              py: 0.25,
+              "&:hover": { bgcolor: "rgba(0,0,0,0.04)" },
+            }}>
+            {showDetails ? "Less detail" : "More detail"}
+          </Button>
+        </div>
 
-        <SlotQueuePanel slot={slot} monthName={monthName} onOpenOrders={onOpenOrders} />
+        {showDetails && (
+          <>
+            <SlotSowingGapPanel
+              slot={slot}
+              monthName={monthName}
+              variant="card"
+              sowingAllowed={sowingAllowed}
+              onOpenOrders={onOpenOrders}
+            />
 
-        <SlotDispatchedPanel
-          slot={slot}
-          monthName={monthName}
-          onOpenOrders={onOpenOrders}
-        />
+            <SlotQueuePanel slot={slot} monthName={monthName} onOpenOrders={onOpenOrders} />
 
-        {((slot.pastDueRolledInPlants ?? 0) > 0 || (slot.pastDuePendingOnSlot ?? 0) > 0) && (
+            <SlotDispatchedPanel
+              slot={slot}
+              monthName={monthName}
+              onOpenOrders={onOpenOrders}
+            />
+
+            {sowingAllowed && getOrderReservedPlants(slot) > 0 && (
+              <p className="text-[10px] text-slate-600 mt-2 tabular-nums">
+                Reserved for covered orders (lagwad 90%):{" "}
+                <span className="font-bold text-slate-800">
+                  {getOrderReservedPlants(slot).toLocaleString()}
+                </span>
+              </p>
+            )}
+          </>
+        )}
+
+        {showDetails && ((slot.pastDueRolledInPlants ?? 0) > 0 || (slot.pastDuePendingOnSlot ?? 0) > 0) && (
           <div className="border-t border-gray-200 pt-2 mt-1 mb-2" onClick={(e) => e.stopPropagation()}>
             <p className="text-[10px] font-semibold text-amber-800 uppercase tracking-wide mb-1.5">
               Past due
@@ -238,7 +290,7 @@ const SlotCard = ({
           </div>
         )}
 
-        {((slot.dispatchedFromOtherSlots ?? 0) > 0 || (slot.releasedForEarlyDispatch ?? 0) > 0) && (
+        {showDetails && ((slot.dispatchedFromOtherSlots ?? 0) > 0 || (slot.releasedForEarlyDispatch ?? 0) > 0) && (
           <div className="flex flex-wrap gap-2 mb-2 text-[10px]" onClick={(e) => e.stopPropagation()}>
             {(slot.dispatchedFromOtherSlots ?? 0) > 0 && (
               <button
@@ -259,7 +311,7 @@ const SlotCard = ({
           </div>
         )}
 
-        {slot?.isCurrentDateSlot && canRollExpired && (
+        {showDetails && slot?.isCurrentDateSlot && canRollExpired && (
           <div className="mb-2" onClick={(e) => e.stopPropagation()}>
             <Button
               size="small"
@@ -275,21 +327,13 @@ const SlotCard = ({
           </div>
         )}
 
-        <SlotBufferPanel
-          slot={slot}
-          onEditBuffer={onBuffer}
-          onReleaseBuffer={onReleaseBuffer}
-          onStopPropagation={(e) => e.stopPropagation()}
-        />
-
-        {sowingGap !== 0 && (
-          <div className="text-[10px] text-gray-500 mb-2">
-            Sowing gap{" "}
-            <strong className={sowingGap > 0 ? "text-orange-600" : "text-gray-700"}>
-              {sowingGap > 0 ? "+" : ""}
-              {sowingGap.toLocaleString()}
-            </strong>
-          </div>
+        {showDetails && (
+          <SlotBufferPanel
+            slot={slot}
+            onEditBuffer={onBuffer}
+            onReleaseBuffer={onReleaseBuffer}
+            onStopPropagation={(e) => e.stopPropagation()}
+          />
         )}
 
         <div

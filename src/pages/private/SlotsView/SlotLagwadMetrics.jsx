@@ -1,4 +1,4 @@
-import React, { useState } from "react"
+import React, { useEffect, useState } from "react"
 import moment from "moment"
 import {
   Tooltip,
@@ -14,6 +14,9 @@ import {
 import { ArrowRightLeft, Info } from "lucide-react"
 import { API, NetworkManager } from "network/core"
 import { Toast } from "helpers/toasts/toastHelper"
+import SlotActualReadyBreakdownModal from "./SlotActualReadyBreakdownModal"
+import { summaryFromBreakdownPayload } from "./expectedReadyInSlot"
+import { useSlotReadySold } from "./useSlotReadySold"
 import {
   getActualReadyPlants,
   getExpectedMortality,
@@ -25,23 +28,40 @@ const tileBase =
   "rounded-lg border text-left transition-all min-w-0"
 
 /**
- * Lagwad-derived slot fields: 90% actual, 10% mortality, ready (dispatch subtracts ready).
+ * Lagwad-derived slot fields: 90% sellable, 10% mortality, dispatch ready (synced minus order dispatch).
  */
 const SlotLagwadMetrics = ({
   slot,
   variant = "card",
+  compact = false,
   onOpenActual,
   onSlotChanged,
   className = "",
 }) => {
   const actualPlants = Number(slot?.actualPlants) || 0
   const mortality = getExpectedMortality(slot)
-  const actualReady = getActualReadyPlants(slot)
-  const hasLagwad = actualPlants > 0 || mortality > 0 || actualReady > 0
+  const syncedReady = getActualReadyPlants(slot)
+  const { soldTotal, loading: soldLoading } = useSlotReadySold(slot?._id, Boolean(slot?._id))
+  const dispatchReady = Math.max(0, syncedReady - soldTotal)
+
+  const [expectedReady, setExpectedReady] = useState({
+    total: 0,
+    calendarReady: 0,
+    awaitingMark: 0,
+  })
+  const hasLagwad =
+    actualPlants > 0 ||
+    mortality > 0 ||
+    syncedReady > 0 ||
+    dispatchReady > 0 ||
+    expectedReady.total > 0 ||
+    expectedReady.awaitingMark > 0
 
   const [transferOpen, setTransferOpen] = useState(false)
   const [transferQty, setTransferQty] = useState("")
   const [transferring, setTransferring] = useState(false)
+  const [readyBreakdownOpen, setReadyBreakdownOpen] = useState(false)
+  const [readyBreakdownTab, setReadyBreakdownTab] = useState(0)
 
   const [sowAnchor, setSowAnchor] = useState(null)
   const [sowLoading, setSowLoading] = useState(false)
@@ -54,6 +74,57 @@ const SlotLagwadMetrics = ({
   const openActual = (e) => {
     e?.stopPropagation?.()
     onOpenActual?.(slot)
+  }
+
+  const openReadyBreakdown = (e, tab = 0) => {
+    e?.stopPropagation?.()
+    setReadyBreakdownTab(tab)
+    setReadyBreakdownOpen(true)
+  }
+
+  useEffect(() => {
+    if (!slot?._id) {
+      setExpectedReady({ total: 0, calendarReady: 0, awaitingMark: 0 })
+      return
+    }
+    let cancelled = false
+    ;(async () => {
+      try {
+        const inst = NetworkManager(API.slots.GET_SLOT_SECONDARY_SHED_BREAKDOWN)
+        const res = await inst.request({}, [slot._id])
+        const payload = res?.data?.data ?? res?.data ?? res
+        if (cancelled) return
+        const s = summaryFromBreakdownPayload(payload, slot)
+        setExpectedReady({
+          total: s.total,
+          calendarReady: s.calendarReady,
+          awaitingMark: s.awaitingMark,
+        })
+      } catch {
+        if (!cancelled) setExpectedReady({ total: 0, calendarReady: 0, awaitingMark: 0 })
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [slot?._id, slot?.startDay, slot?.endDay])
+
+  const refreshExpectedReady = async () => {
+    if (!slot?._id) return
+    try {
+      const inst = NetworkManager(API.slots.GET_SLOT_SECONDARY_SHED_BREAKDOWN)
+      const res = await inst.request({}, [slot._id])
+      const payload = res?.data?.data ?? res?.data ?? res
+      const s = summaryFromBreakdownPayload(payload, slot)
+      setExpectedReady({
+        total: s.total,
+        calendarReady: s.calendarReady,
+        awaitingMark: s.awaitingMark,
+      })
+    } catch {
+      /* ignore */
+    }
+    onSlotChanged?.()
   }
 
   const openTransfer = (e) => {
@@ -139,47 +210,116 @@ const SlotLagwadMetrics = ({
     }
   }
 
-  const cells = [
-    {
-      key: "sellable",
-      label: "Sellable",
-      sub: "90% actual",
-      value: actualPlants,
-      className: "bg-emerald-50 border-emerald-200 hover:bg-emerald-100",
-      valueClass: "text-emerald-900",
-      title: "Sellable lagwad on slot = 90% actual plants only (excludes 10% mortality reserve)",
-      clickable: Boolean(onOpenActual),
-      onClick: openActual,
-      showSowInfo: actualPlants > 0,
-    },
-    {
-      key: "mortality",
-      label: "Exp. mort.",
-      sub: mortality > 0 ? "tap → transfer" : "10% reserve",
-      value: mortality,
-      className:
-        mortality > 0
-          ? "bg-rose-50 border-rose-200 hover:bg-rose-100 cursor-pointer"
-          : "bg-rose-50 border-rose-200",
-      valueClass: "text-rose-800",
-      title:
-        mortality > 0
-          ? "Transfer expected mortality → actual ready"
-          : "10% lagwad expected mortality reserve",
-      clickable: mortality > 0 && Boolean(onSlotChanged),
-      onClick: openTransfer,
-    },
-    {
-      key: "ready",
-      label: "Actual ready",
-      sub: "calendar / manual",
-      value: actualReady,
-      className: "bg-sky-50 border-sky-200",
-      valueClass: "text-sky-800",
-      title: "Calendar-ready or manually marked sellable — vehicle load subtracts here",
-      clickable: false,
-    },
-  ]
+  const expReadyCombined = syncedReady + expectedReady.awaitingMark
+  const actualReadySub =
+    soldTotal > 0
+      ? `${fmt(syncedReady)} synced · −${fmt(soldTotal)} dispatch`
+      : syncedReady > 0
+        ? "tap → breakdown"
+        : "calendar / manual"
+  const expReadySub =
+    expectedReady.awaitingMark > 0
+      ? `${fmt(syncedReady)} actual + ${fmt(expectedReady.awaitingMark)} await`
+      : expectedReady.total > 0
+        ? `${fmt(expectedReady.calendarReady)} in window`
+        : "awaiting in window"
+
+  const cells = compact
+    ? [
+        {
+          key: "sow",
+          label: "Sow",
+          sub: "90% sellable",
+          value: actualPlants,
+          className: "bg-teal-50 border-teal-200 hover:bg-teal-100",
+          valueClass: "text-teal-900",
+          title: "Sellable lagwad sowed on slot = 90% actual plants",
+          clickable: Boolean(onOpenActual),
+          onClick: openActual,
+          showSowInfo: actualPlants > 0,
+        },
+        {
+          key: "ready",
+          label: "Ready",
+          sub: soldLoading && soldTotal === 0 ? "…" : actualReadySub,
+          value: dispatchReady,
+          className: "bg-sky-50 border-sky-200 hover:bg-sky-100 cursor-pointer",
+          valueClass: "text-sky-800",
+          title:
+            soldTotal > 0
+              ? `Ready ${fmt(dispatchReady)} = synced ${fmt(syncedReady)} minus ${fmt(soldTotal)} order dispatch`
+              : "Synced plants ready for dispatch — click for batch breakdown",
+          clickable: true,
+          onClick: (e) => openReadyBreakdown(e, 0),
+        },
+        {
+          key: "expected",
+          label: "Expected",
+          sub: expReadySub,
+          value: expReadyCombined,
+          className: "bg-violet-50 border-violet-200 hover:bg-violet-100 cursor-pointer",
+          valueClass: "text-violet-900",
+          title: `Expected ready: actual ${fmt(syncedReady)} plus ${fmt(expectedReady.awaitingMark)} still awaiting in this delivery window`,
+          clickable: true,
+          onClick: (e) => openReadyBreakdown(e, 0),
+        },
+      ]
+    : [
+        {
+          key: "sellable",
+          label: "Sellable",
+          sub: "90% actual",
+          value: actualPlants,
+          className: "bg-teal-50 border-teal-200 hover:bg-teal-100",
+          valueClass: "text-teal-900",
+          title: "Sellable lagwad on slot = 90% actual plants only (excludes 10% mortality reserve)",
+          clickable: Boolean(onOpenActual),
+          onClick: openActual,
+          showSowInfo: actualPlants > 0,
+        },
+        {
+          key: "mortality",
+          label: "Exp. mort.",
+          sub: mortality > 0 ? "tap → transfer" : "10% reserve",
+          value: mortality,
+          className:
+            mortality > 0
+              ? "bg-rose-50 border-rose-200 hover:bg-rose-100 cursor-pointer"
+              : "bg-rose-50 border-rose-200",
+          valueClass: "text-rose-800",
+          title:
+            mortality > 0
+              ? "Transfer expected mortality → actual ready"
+              : "10% lagwad expected mortality reserve",
+          clickable: mortality > 0 && Boolean(onSlotChanged),
+          onClick: openTransfer,
+        },
+        {
+          key: "actualReady",
+          label: "Actual ready",
+          sub: soldLoading && soldTotal === 0 ? "…" : actualReadySub,
+          value: dispatchReady,
+          className: "bg-sky-50 border-sky-200 hover:bg-sky-100 cursor-pointer",
+          valueClass: "text-sky-800",
+          title:
+            soldTotal > 0
+              ? `Actual ready ${fmt(dispatchReady)} = synced ${fmt(syncedReady)} minus ${fmt(soldTotal)} order dispatch`
+              : "Synced plants ready for dispatch — click for batch breakdown",
+          clickable: true,
+          onClick: (e) => openReadyBreakdown(e, 0),
+        },
+        {
+          key: "expReady",
+          label: "Exp. ready",
+          sub: expReadySub,
+          value: expReadyCombined,
+          className: "bg-violet-50 border-violet-200 hover:bg-violet-100 cursor-pointer",
+          valueClass: "text-violet-900",
+          title: `Expected ready pipeline: actual ${fmt(syncedReady)} plus ${fmt(expectedReady.awaitingMark)} still awaiting in this delivery window`,
+          clickable: true,
+          onClick: (e) => openReadyBreakdown(e, 0),
+        },
+      ]
 
   return (
     <div className={className} onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
@@ -198,9 +338,11 @@ const SlotLagwadMetrics = ({
       )}
       <div
         className={
-          variant === "detail"
-            ? "grid grid-cols-1 sm:grid-cols-3 gap-2"
-            : "grid grid-cols-3 gap-1"
+          compact
+            ? "grid grid-cols-3 gap-1"
+            : variant === "detail"
+              ? "grid grid-cols-2 md:grid-cols-4 gap-2"
+              : "grid grid-cols-2 gap-1"
         }>
         {cells.map((c) => {
           const inner = (
@@ -247,6 +389,14 @@ const SlotLagwadMetrics = ({
           )
         })}
       </div>
+
+      <SlotActualReadyBreakdownModal
+        open={readyBreakdownOpen}
+        onClose={() => setReadyBreakdownOpen(false)}
+        slot={slot}
+        initialTab={readyBreakdownTab}
+        onMarkedReady={refreshExpectedReady}
+      />
 
       <Popover
         open={Boolean(sowAnchor)}

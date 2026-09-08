@@ -443,8 +443,10 @@ const ParentAccordion = () => {
                         </tr>
                         {isExpanded && (
                           <tr key={`${rowKey}-detail`} className="bg-slate-50">
-                            <td colSpan={7} className="border-t border-slate-100 p-0">
-                              <SlotAccordionView plantId={section?.plantId} year={selectedYear} />
+                            <td colSpan={7} className="max-w-0 border-t border-slate-100 p-0">
+                              <div className="min-w-0 max-w-full overflow-hidden">
+                                <SlotAccordionView plantId={section?.plantId} year={selectedYear} />
+                              </div>
                             </td>
                           </tr>
                         )}

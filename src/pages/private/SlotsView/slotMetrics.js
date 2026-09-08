@@ -136,12 +136,61 @@ export const getSowingGap = (slot) => {
   return booked - primarySowed
 }
 
+/** Whether this plant/subtype uses sowing-allowed slot metrics. */
+export const isSlotSowingAllowed = (slot, sowingAllowed = false) =>
+  Boolean(sowingAllowed || slot?.sowingAllowed)
+
+/** Gap value for slot card tile (non-negative for sowing-allowed API field). */
+export const getDisplaySowingGap = (slot, sowingAllowed = false) => {
+  const detailUncovered = slot?.sowingGapDetail?.uncovered?.plants
+  if (detailUncovered != null && Number.isFinite(Number(detailUncovered))) {
+    return Math.max(0, Number(detailUncovered))
+  }
+  if (slot?.sowingGapPlants != null && Number.isFinite(Number(slot.sowingGapPlants))) {
+    return Math.max(0, Number(slot.sowingGapPlants))
+  }
+  if (slot?.bookedUncoveredPlants != null && Number.isFinite(Number(slot.bookedUncoveredPlants))) {
+    return Math.max(0, Number(slot.bookedUncoveredPlants))
+  }
+  if (isSlotSowingAllowed(slot, sowingAllowed)) return getSowingGapPlants(slot)
+  return Math.max(0, getSowingGap(slot))
+}
+
+/** Plants sowed on this ready slot for orders on other delivery windows. */
+export const getSowedForOtherDeliveryPlants = (slot) => {
+  if (
+    slot?.sowedForOtherDeliveryPlants != null &&
+    Number.isFinite(Number(slot.sowedForOtherDeliveryPlants))
+  ) {
+    return Math.max(0, Number(slot.sowedForOtherDeliveryPlants))
+  }
+  const gross = getGrossOrderCoveredPlants(slot)
+  const booked = getBookedPlants(slot)
+  if (booked === 0 && gross > 0) return gross
+  return Math.max(0, gross - Math.min(gross, booked))
+}
+
+export const hasSowingCoverDetail = (slot) => {
+  const detail = slot?.sowingGapDetail
+  if (detail) {
+    return (
+      (detail.coveredByReadyDate?.length ?? 0) > 0 ||
+      (detail.coveredTotal?.orderCount ?? 0) > 0 ||
+      getSowingFromOtherSlotPlants(slot) > 0
+    )
+  }
+  if (getSowingFromOtherSlotPlants(slot) > 0) return true
+  const booked = getBookedPlants(slot)
+  const covered = getBookedCoveredPlants(slot)
+  return booked > 0 && covered >= booked && getDisplaySowingGap(slot, true) === 0
+}
+
 export const isSlotOverbooked = (slot) => getAvailablePlants(slot) < 0
 
-/** Subtype-level rollup: sum available + booked across slots when present, else API totals. */
+/** Subtype-level rollup: sum display available (for booking) across slots. */
 export const getSubtypeAvailable = (subtype) => {
   if (Array.isArray(subtype?.slots) && subtype.slots.length > 0) {
-    return subtype.slots.reduce((sum, slot) => sum + getAvailablePlants(slot), 0)
+    return subtype.slots.reduce((sum, slot) => sum + getDisplayAvailablePlants(slot), 0)
   }
   const total = Number(subtype?.totalPlants) || 0
   const booked = getBookedPlants(subtype)
@@ -168,6 +217,10 @@ export const getRealAvailablePlants = (slot) => getAvailablePlants(slot)
 /** Stored available minus rolled-in plants on this slot (real avail − rolled). */
 export const getAvailableMinusRolledIn = (slot) =>
   getAvailablePlants(slot) - getRolledInPlantsOnCurrentSlot(slot)
+
+/** Plants open for new bookings — never negative (matches slot card Available tile). */
+export const getBookingAvailablePlants = (slot) =>
+  Math.max(0, getDisplayAvailablePlants(slot))
 
 /** Card / pill primary available — real headroom when rolled-in sits on this slot. */
 export const getDisplayAvailablePlants = (slot) => {
@@ -283,6 +336,73 @@ export const getBookedUncoveredPlants = (slot) => {
   return Math.max(0, getBookedPlants(slot) - getBookedCoveredPlants(slot))
 }
 
+/** Gross plants covered for farmer orders (sum of sowing batch orderCoveredPlants). */
+export const getGrossOrderCoveredPlants = (slot) => {
+  if (
+    slot?.grossOrderCoveredPlants != null &&
+    Number.isFinite(Number(slot.grossOrderCoveredPlants))
+  ) {
+    return Math.max(0, Number(slot.grossOrderCoveredPlants))
+  }
+  return getSowingEntries(slot).reduce(
+    (sum, batch) => sum + Math.max(0, Number(batch?.orderCoveredPlants) || 0),
+    0
+  )
+}
+
+/** Saleable excess after gross order cover (sowing-allowed plants). */
+export const getExcessAvailableForBooking = (slot) => {
+  if (
+    slot?.excessAvailableForBooking != null &&
+    Number.isFinite(Number(slot.excessAvailableForBooking))
+  ) {
+    return Math.max(0, Number(slot.excessAvailableForBooking))
+  }
+  return Math.max(0, getAvailablePlants(slot) - getGrossOrderCoveredPlants(slot))
+}
+
+/** Orders on this delivery window still needing sow. */
+export const getSowingGapPlants = (slot) => {
+  if (slot?.sowingGapPlants != null && Number.isFinite(Number(slot.sowingGapPlants))) {
+    return Math.max(0, Number(slot.sowingGapPlants))
+  }
+  return getBookedUncoveredPlants(slot)
+}
+
+/** Orders on this delivery window sowed on another slot's ready window. */
+export const getSowingFromOtherSlotPlants = (slot) => {
+  const direct = Math.max(0, Number(slot?.sowingFromOtherSlotPlants) || 0)
+  if (direct > 0) return direct
+
+  const detailPlants = Math.max(0, Number(slot?.sowingFromOtherSlotDetail?.plants) || 0)
+  if (detailPlants > 0) return detailPlants
+
+  const gapDetail = slot?.sowingGapDetail
+  if ((gapDetail?.coveredTotal?.plants ?? 0) > 0) {
+    const localGross = getGrossOrderCoveredPlants(slot)
+    const fromOther = Math.max(0, (gapDetail.coveredTotal.plants || 0) - localGross)
+    if (fromOther > 0) return fromOther
+  }
+
+  const booked = getBookedPlants(slot)
+  const covered = getBookedCoveredPlants(slot)
+  const localGross = getGrossOrderCoveredPlants(slot)
+  if (booked > 0 && getDisplaySowingGap(slot, true) === 0) {
+    return Math.max(0, Math.min(booked, covered - localGross))
+  }
+
+  return 0
+}
+
+export const getSowingFromOtherSlotOrders = (slot) =>
+  Math.max(0, Number(slot?.sowingFromOtherSlotOrders) || 0)
+
+export const hasSowingFromOtherSlot = (slot) => getSowingFromOtherSlotPlants(slot) > 0
+
+/** Plants reserved for covered orders (90% lagwad on ready slot). */
+export const getOrderReservedPlants = (slot) =>
+  Math.max(0, Number(slot?.orderReservedPlants) || 0)
+
 export const getSowingEntries = (slot) =>
   Array.isArray(slot?.sowingEntries)
     ? slot.sowingEntries
@@ -355,6 +475,7 @@ export const rollupMonthSlotMetrics = (slots) => {
   let totalPrimarySowed = 0
   let totalDispatchedPlants = 0
   let totalDispatchedNative = 0
+  let totalDispatchedRolled = 0
   let totalDispatchedOther = 0
   let totalAllDispatchedPlants = 0
   let totalRemainingToDispatch = 0
@@ -373,18 +494,23 @@ export const rollupMonthSlotMetrics = (slots) => {
   let totalQueueAvailable = 0
   let totalBookedCoveredPlants = 0
   let totalBookedUncoveredPlants = 0
+  let totalExpectedInSlots = 0
+  let totalExcessAvailableForBooking = 0
+  let totalSowingGapPlants = 0
 
   for (const slot of list) {
     totalPlants += getTotalCapacity(slot)
     totalBookedPlants += getBookedPlants(slot)
     const storedAvail = getAvailablePlants(slot)
-    totalAvailablePlants += storedAvail
+    const displayAvail = getDisplayAvailablePlants(slot)
+    totalAvailablePlants += displayAvail
     const dual = slotShowDualAvailableCards(slot)
     if (dual) hasDualAvailable = true
     totalRealAvailablePlants += dual ? getAvailableMinusRolledIn(slot) : storedAvail
     totalPrimarySowed += Number(slot?.primarySowed) || 0
     totalDispatchedPlants += getDispatchedNativePlants(slot)
     totalDispatchedNative += getDispatchedNativePlants(slot)
+    totalDispatchedRolled += getDispatchedRolledInPlants(slot)
     totalDispatchedOther += getDispatchedOtherPlants(slot)
     totalAllDispatchedPlants += getTotalAllDispatchedPlants(slot)
     totalRemainingToDispatch += Number(slot?.remainingToDispatch) || 0
@@ -402,6 +528,9 @@ export const rollupMonthSlotMetrics = (slots) => {
     totalRolledInAvailable += getRolledInAvailablePlants(slot)
     totalBookedCoveredPlants += getBookedCoveredPlants(slot)
     totalBookedUncoveredPlants += getBookedUncoveredPlants(slot)
+    totalExpectedInSlots += Number(slot?.shedSyncedPlants) || 0
+    totalExcessAvailableForBooking += getExcessAvailableForBooking(slot)
+    totalSowingGapPlants += getSowingGapPlants(slot)
   }
 
   const gapRaw = totalActualRemaining - totalActualPlants
@@ -415,15 +544,24 @@ export const rollupMonthSlotMetrics = (slots) => {
       : Math.round((actualGapPlants / totalActualPlants) * 100)
   const sowingGap = totalBookedPlants - totalPrimarySowed
 
+  /** Delivery cohort = still to dispatch + already dispatched (cross-checks month cards). */
+  const totalDeliveryThisMonth = totalRemainingToDispatch + totalAllDispatchedPlants
+  const totalDeliveryNative = totalRemainingNative + totalDispatchedNative
+  const totalDeliveryRolled = totalRemainingRolled + totalDispatchedOther
+
   return {
     totalPlants,
     totalBookedPlants,
+    totalDeliveryThisMonth,
+    totalDeliveryNative,
+    totalDeliveryRolled,
     totalAvailablePlants,
     totalRealAvailablePlants,
     hasDualAvailable,
     totalPrimarySowed,
     totalDispatchedPlants,
     totalDispatchedNative,
+    totalDispatchedRolled,
     totalDispatchedOther,
     totalAllDispatchedPlants,
     totalRemainingToDispatch,
@@ -444,6 +582,9 @@ export const rollupMonthSlotMetrics = (slots) => {
     totalRolledInAvailable,
     totalBookedCoveredPlants,
     totalBookedUncoveredPlants,
+    totalExpectedInSlots,
+    totalExcessAvailableForBooking,
+    totalSowingGapPlants,
     sowingGap,
   }
 }
@@ -453,7 +594,7 @@ export const getSlotStatPlantsTotal = (slot, statKey) => {
   if (!slot) return 0
   switch (statKey) {
     case "available":
-      return getAvailablePlants(slot)
+      return getDisplayAvailablePlants(slot)
     case "booked":
       return getBookedPlants(slot)
     case "dispatched":
@@ -475,14 +616,22 @@ export const getSlotStatPlantsTotal = (slot, statKey) => {
       return Number(slot?.crossSlotDetail?.earlyDispatchIn?.plants) || 0
     case "crossSlotReleased":
       return Number(slot?.crossSlotDetail?.releasedOut?.plants) || 0
+    case "sowingFromOtherSlot":
+      return getSowingFromOtherSlotPlants(slot)
+    case "sowedForOtherDelivery":
+      return getSowedForOtherDeliveryPlants(slot)
+    case "sowingGap":
+      return getDisplaySowingGap(slot, Boolean(slot?.sowingAllowed))
     default:
       return 0
   }
 }
 
-export const openSlotManageTab = (plantId, subtypeId, year) => {
+export const openSlotManageTab = (plantId, subtypeId, year, month) => {
   if (!plantId || !subtypeId) return
   const y = year || new Date().getFullYear()
-  const url = `${window.location.origin}/u/slots/${plantId}/${subtypeId}?year=${y}`
+  const params = new URLSearchParams({ year: String(y) })
+  if (month) params.set("month", month)
+  const url = `${window.location.origin}/u/slots/${plantId}/${subtypeId}?${params.toString()}`
   window.open(url, "_blank", "noopener,noreferrer")
 }

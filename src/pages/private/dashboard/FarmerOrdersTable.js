@@ -2241,12 +2241,23 @@ const FarmerOrdersTable = ({
   slotOrderFilter: slotOrderFilterProp,
   /** Expected plant total from slot card — shown in slot embed header for parity check */
   expectedPlantsTotal = null,
+  /** When set, list is restricted to these order ids (month village drill-down). */
+  orderIdsFilter = null,
   /** Opens Add Order with copied plant/slot/qty (not farmer name or payment). Falls back to session event. */
   onCopyOrder = null,
   /** Parent Orders page opens Ram Agri Input add-order modal (header Add Order). */
   registerOpenAgriOrder = null,
 }) => {
   const slotOrderFilter = resolveSlotOrderFilter(initialViewMode, slotOrderFilterProp)
+  const orderIdsCsv = React.useMemo(() => {
+    if (!orderIdsFilter) return ""
+    if (Array.isArray(orderIdsFilter)) {
+      return orderIdsFilter.map((id) => String(id).trim()).filter(Boolean).join(",")
+    }
+    return String(orderIdsFilter).trim()
+  }, [orderIdsFilter])
+  const isOrderIdsList = Boolean(orderIdsCsv)
+  const isCompactEmbed = Boolean(slotId || isOrderIdsList)
   const [searchTerm, setSearchTerm] = useState("")
   const [expandedRows, setExpandedRows] = useState(new Set())
   const [editingRows, setEditingRows] = useState(new Set())
@@ -2780,14 +2791,14 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
   const [orderDateRangeBy, setOrderDateRangeBy] = useState("booking")
   const [viewType, setViewType] = useState("table") // "table" or "grid"
   const ordersListMaxHeight = useMemo(
-    () => (slotId ? 680 : Math.floor((typeof window !== "undefined" ? window.innerHeight : 800) * 0.58)),
-    [slotId]
+    () => (isCompactEmbed ? 680 : Math.floor((typeof window !== "undefined" ? window.innerHeight : 800) * 0.58)),
+    [isCompactEmbed]
   )
   const ordersListHeight = useFillViewportHeight(ordersTableViewportRef, {
-    minHeight: slotId ? 320 : 360,
-    bottomGap: slotId ? 8 : 20,
+    minHeight: isCompactEmbed ? 320 : 360,
+    bottomGap: isCompactEmbed ? 8 : 20,
     maxHeight: ordersListMaxHeight,
-    remeasureKey: `${slotId}|${viewMode}|${viewType}|${showAgriSalesOrders}`,
+    remeasureKey: `${slotId}|${orderIdsCsv}|${viewMode}|${viewType}|${showAgriSalesOrders}`,
   })
   const [selectedRows, setSelectedRows] = useState(new Map())
   const [whatsappCampaigns, setWhatsappCampaigns] = useState([])
@@ -4641,6 +4652,7 @@ const [subtypesLoading, setSubtypesLoading] = useState(false)
     slotPlantId,
     slotSubtypeId,
     slotOrderFilter,
+    orderIdsCsv,
   ])
 
   useEffect(() => {
@@ -6071,7 +6083,6 @@ const mapSlotForUi = (slotData) => {
             const end = moment(endDay, "DD-MM-YYYY").format("D")
             const monthYear = moment(startDay, "DD-MM-YYYY").format("MMMM, YYYY")
 
-            // Calculate available plants (can be negative for sowing-allowed plants)
             const available = availablePlants !== undefined ? availablePlants : totalPlants - (totalBookedPlants || 0)
 
             return {
@@ -6692,7 +6703,7 @@ const mapSlotForUi = (slotData) => {
       return null
     }
 
-    // Use appropriate endpoint based on slotId for regular orders
+    // Use appropriate endpoint based on slotId / order id list for regular orders
     const instance = slotId
       ? NetworkManager(API.ORDER.GET_ORDERS_SLOTS)
       : NetworkManager(API.ORDER.GET_ORDERS)
@@ -6722,7 +6733,28 @@ const mapSlotForUi = (slotData) => {
     let nextPageAvailable = false
 
     try {
-      if (slotId) {
+      if (orderIdsCsv) {
+        const emps = await NetworkManager(API.ORDER.GET_ORDERS).request(
+          {},
+          {
+            orderIds: orderIdsCsv,
+            page: 1,
+            limit: DASHBOARD_ORDERS_PAGE_SIZE,
+            plantTotals: true,
+            search: debouncedSearchTerm?.trim() || undefined,
+          },
+          { signal }
+        )
+        ordersData = emps?.data?.data?.data || []
+        const currentPage = Number(emps?.data?.data?.currentPage || 1)
+        const totalPages = Number(emps?.data?.data?.totalPages || 1)
+        nextPageAvailable = currentPage < totalPages
+        const env = emps?.data?.data
+        const t = env && typeof env.total === "number" ? env.total : null
+        const tp =
+          env && typeof env.totalPlantsSum === "number" ? env.totalPlantsSum : null
+        setOrdersListEnvelope({ total: t, totalPlantsSum: tp })
+      } else if (slotId) {
         const slotParams = buildSlotOrderListParams({
           slotId,
           monthName,
@@ -6804,7 +6836,7 @@ const mapSlotForUi = (slotData) => {
 
   const loadMoreOrders = async () => {
     if (loading || loadingMoreOrders || !hasMoreOrders || showAgriSalesOrders) return
-    if (viewMode === "dispatch_process" && !slotId) return
+    if (viewMode === "dispatch_process" && !slotId && !orderIdsCsv) return
 
     loadMoreOrdersAbortRef.current?.abort()
     const moreAbort = new AbortController()
@@ -6813,10 +6845,14 @@ const mapSlotForUi = (slotData) => {
 
     setLoadingMoreOrders(true)
     try {
-      const instance = slotId
-        ? NetworkManager(API.ORDER.GET_ORDERS_SLOTS)
-        : NetworkManager(API.ORDER.GET_ORDERS)
-      const params = slotId
+      const params = orderIdsCsv
+        ? {
+            orderIds: orderIdsCsv,
+            page: ordersPage + 1,
+            limit: DASHBOARD_ORDERS_PAGE_SIZE,
+            search: debouncedSearchTerm?.trim() || undefined,
+          }
+        : slotId
         ? buildSlotOrderListParams({
             slotId,
             monthName,
@@ -6849,6 +6885,11 @@ const mapSlotForUi = (slotData) => {
             needsDispatchFilter: needsDispatchPreset,
             filterExpectedNursery,
           })
+
+      const instance =
+        slotId && !orderIdsCsv
+          ? NetworkManager(API.ORDER.GET_ORDERS_SLOTS)
+          : NetworkManager(API.ORDER.GET_ORDERS)
 
       const res = await instance.request({}, params, { signal })
       const nextOrders = mapRegularOrdersForUi(res?.data?.data?.data || [])
@@ -6987,8 +7028,16 @@ const mapSlotForUi = (slotData) => {
 
       // For agri sales orders, skip slot validation (they don't use slots)
       if (!isAgriSalesOrder) {
+        const isSowingAllowedOrder =
+          Boolean(row?.details?.sowingAllowed) ||
+          plants.some(
+            (p) =>
+              String(p.value || p.id || "") === String(row?.details?.plantID || "") &&
+              p.sowingAllowed
+          )
+
         // Validate slot capacity if booking slot is being changed (only for regular orders)
-        if (dataToSend.bookingSlot && dataToSend.quantity) {
+        if (!isSowingAllowedOrder && dataToSend.bookingSlot && dataToSend.quantity) {
           const selectedSlot = slots.find((slot) => slot.value === dataToSend.bookingSlot)
           if (selectedSlot) {
             const requestedQuantity = Number(dataToSend.quantity)
@@ -7038,7 +7087,7 @@ const mapSlotForUi = (slotData) => {
           }
 
           // If quantity is being increased, check slot capacity
-          if (newQuantity > currentQuantity) {
+          if (!isSowingAllowedOrder && newQuantity > currentQuantity) {
             const slotId = dataToSend.bookingSlot || row?.details?.bookingSlot?.slotId
             if (slotId) {
               const selectedSlot = slots.find((slot) => slot.value === slotId)
@@ -7662,7 +7711,7 @@ const mapSlotForUi = (slotData) => {
   }
 
   return (
-    <div className={`w-full min-w-0 ${slotId ? "p-2 bg-white" : "p-4 bg-gray-50 overflow-x-hidden"}`}>
+    <div className={`w-full min-w-0 ${isCompactEmbed ? "p-2 bg-white" : "p-4 bg-gray-50 overflow-x-hidden"}`}>
       {showPageLoader && <PageLoader />}
       {patchLoading && orders.length > 0 && (
         <div className="fixed top-0 left-0 right-0 z-[120] pointer-events-none">
@@ -7671,8 +7720,8 @@ const mapSlotForUi = (slotData) => {
       )}
 
       {/* Header Controls */}
-      <div className={slotId ? "mb-2 space-y-2" : "mb-6 space-y-4"}>
-        {slotId ? (
+      <div className={isCompactEmbed ? "mb-2 space-y-2" : "mb-6 space-y-4"}>
+        {isCompactEmbed ? (
           <div className="flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-white p-2">
             <div className="relative min-w-[min(100%,10rem)] flex-1">
               <Search

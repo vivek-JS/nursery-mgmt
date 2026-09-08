@@ -178,6 +178,9 @@ const RefusedReassignDialog = ({ open, onClose, dispatchData, onSuccess }) => {
           <div>
             <h2 className="text-base font-semibold text-gray-900">Reassign refused delivery</h2>
             <p className="text-xs text-gray-500">{STEP_TITLES[step]}</p>
+            <p className="mt-0.5 text-[11px] text-amber-800">
+              For other farmers only. Same farmer kept some plants? Cancel and type Returned on Complete delivery.
+            </p>
           </div>
           <button
             type="button"
