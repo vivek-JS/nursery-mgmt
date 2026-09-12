@@ -562,7 +562,10 @@ const SowingRequestDialog = ({ open, onClose, request, onSuccess }) => {
               </Typography>
             </Box>
 
-            <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 2 }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
+              Company warehouse batches
+            </Typography>
+            <Typography variant="caption" color="text.secondary" display="block" mb={1}>
               Allocate Biotech batches (must equal {splitQtys.bio.toFixed(2)} {request.unitName})
             </Typography>
 

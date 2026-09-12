@@ -143,14 +143,12 @@ export default function RequestPacketsDialog({
     setIntakeIds(scopedRaisingIntakes.map((intake) => intake._id).filter(Boolean))
     setAttachedIntakes(scopedRaisingIntakes)
     applyDistribution(keys, "stockFirst")
-  }, [
-    open,
-    initialPackings,
-    selectable,
-    planRaising,
-    companyPlantsTarget,
-    scopedRaisingIntakes,
-  ])
+  }, [open, card?.plantId, card?.subtypeId, selectedOrderIds.join("|")])
+
+  useEffect(() => {
+    if (!open || selectedKeys.length === 0) return
+    applyDistribution(selectedKeys, "stockFirst")
+  }, [companyPlantsTarget])
 
   const togglePacking = (key) => {
     setSelectedKeys((prev) => {
@@ -608,7 +606,16 @@ export default function RequestPacketsDialog({
                               expiryDate: intake.expiryDate,
                             },
                           ]
-                    return batches.map((batch, index) => (
+                    return batches.map((batch, index) => {
+                      const attached =
+                        Number(batch.packets ?? intake.packetsReceived) || 0
+                      const available =
+                        Number(
+                          batch.packetsRemaining ??
+                            intake.packetsRemaining ??
+                            attached
+                        ) || 0
+                      return (
                       <Box
                         key={`${intake._id || intake.intakeNumber}-${batch._id || index}`}
                         sx={{
@@ -624,13 +631,17 @@ export default function RequestPacketsDialog({
                         </Typography>
                         <Typography variant="caption" color="text.secondary">
                           {" "}
-                          · {fmt(batch.packets, 2)} pkt
+                          · attached {fmt(attached, 2)} pkt
+                          {Math.abs(available - attached) > 0.01
+                            ? ` · available ${fmt(available, 2)} pkt`
+                            : ""}
                           {batch.expiryDate
                             ? ` · expiry ${new Date(batch.expiryDate).toLocaleDateString("en-IN")}`
                             : ""}
                         </Typography>
                       </Box>
-                    ))
+                      )
+                    })
                   })}
                 </Stack>
               )}
