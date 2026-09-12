@@ -4,6 +4,7 @@ import { ArrowLeft, CheckCircle, FileText, Package, Truck, Image as ImageIcon } 
 import { API, NetworkManager } from '../../../network/core';
 import { formatDisplayDate } from '../../../utils/dateUtils';
 import { formatDecimal, formatCurrency } from '../../../utils/numberUtils';
+import { inventoryLineProductName } from './utils/inventoryLineName';
 
 const GRNDetails = () => {
   const navigate = useNavigate();
@@ -218,7 +219,7 @@ const GRNDetails = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-3">
                   <div className="md:col-span-2">
                     <p className="text-sm text-gray-500 mb-1">Product</p>
-                    <p className="font-semibold text-gray-800 text-lg">{item.product?.name || 'N/A'}</p>
+                    <p className="font-semibold text-gray-800 text-lg">{inventoryLineProductName(item)}</p>
                     {item.product?.code && (
                       <p className="text-xs text-gray-500">Code: {item.product.code}</p>
                     )}

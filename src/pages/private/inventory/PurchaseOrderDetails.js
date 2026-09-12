@@ -5,6 +5,7 @@ import { API, NetworkManager } from '../../../network/core';
 import { formatDisplayDate } from '../../../utils/dateUtils';
 import { formatDecimal, formatCurrency } from '../../../utils/numberUtils';
 import { openPurchaseOrderWhatsApp } from './utils/poWhatsAppShare';
+import { inventoryLineProductName } from './utils/inventoryLineName';
 import MoneyLedgerAddPaymentDialog from './components/money-ledger/MoneyLedgerAddPaymentDialog';
 
 const PurchaseOrderDetails = () => {
@@ -534,7 +535,7 @@ const PurchaseOrderDetails = () => {
                 <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                   <div className="md:col-span-2">
                     <p className="text-sm text-gray-500">Product</p>
-                    <p className="font-semibold text-gray-800">{item.product?.name || 'N/A'}</p>
+                    <p className="font-semibold text-gray-800">{inventoryLineProductName(item)}</p>
                   </div>
                   <div>
                     <p className="text-sm text-gray-500">Ordered</p>
