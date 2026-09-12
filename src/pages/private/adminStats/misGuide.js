@@ -40,7 +40,7 @@ export const MIS_COLUMN_GUIDE_EN = {
   },
   dispatched: {
     title: "Out / Dispatched",
-    body: "Dispatched on this day (IST) from status change / event date. If the same order is also Done that day, it counts only under Done — not here.",
+    body: "Dispatched or Completed in this window (IST event date). Same order is counted once — if both Out and Done happened, it stays in Out and is not added again.",
   },
   vehicleDispatched: {
     title: "Vehicle / Out with dispatch",
@@ -116,7 +116,7 @@ export const MIS_COLUMN_GUIDE_HI = {
   },
   dispatched: {
     title: "Out",
-    body: "Is din dispatch hua (IST). Agar usi din Done bhi hai to sirf Done column — Out mein double count nahi.",
+    body: "Is range mein Dispatched ya Completed (IST). Ek order ek baar — Out aur Done dono ho to sirf Out, dobara add nahi.",
   },
   vehicleDispatched: {
     title: "Vehicle",

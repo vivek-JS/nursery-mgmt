@@ -39,7 +39,6 @@ function dispatchPct(row) {
   const booked = row.booking?.plants || 0
   const out =
     (row.delivery?.dispatched?.plants || 0) +
-    (row.delivery?.completed?.plants || 0) +
     (row.delivery?.dispatchProcess?.plants || 0)
   if (booked <= 0) return 0
   return Math.min(100, Math.round((out / booked) * 100))
