@@ -20,6 +20,7 @@ import {
 import CloseIcon from "@mui/icons-material/Close"
 import { NetworkManager, API } from "network/core"
 import SeedPlanChip from "./SeedPlanChip"
+import RaisingIntakeModal from "./RaisingIntakeModal"
 import { useSowHorizon } from "./SowHorizonContext"
 
 function isRaisingCollected(o) {
@@ -155,6 +156,7 @@ export default function OrderWiseDrawer({
   card,
   onRequestPackets,
   onUseCompanySeed,
+  onSeedCollected,
   raisingOnly = false,
 }) {
   const { sowHorizonDays } = useSowHorizon()
@@ -163,6 +165,8 @@ export default function OrderWiseDrawer({
   const [selected, setSelected] = useState([])
   const [confirmCompanyOpen, setConfirmCompanyOpen] = useState(false)
   const [converting, setConverting] = useState(false)
+  const [collectRow, setCollectRow] = useState(null)
+  const [reloadKey, setReloadKey] = useState(0)
 
   useEffect(() => {
     if (!open || !card) return
@@ -203,9 +207,13 @@ export default function OrderWiseDrawer({
     return () => {
       cancelled = true
     }
-  }, [open, card, raisingOnly, sowHorizonDays])
+  }, [open, card, raisingOnly, sowHorizonDays, reloadKey])
 
   const openRows = rows.filter((o) => !isSelectionLocked(o))
+  const visibleRaisingInHand = rows.reduce(
+    (sum, row) => sum + (Number(row.raisingInHandPackets) || 0),
+    0
+  )
   const toggle = (id) => {
     const row = rows.find((o) => String(o.orderId) === id)
     if (!row || isSelectionLocked(row)) return
@@ -274,8 +282,8 @@ export default function OrderWiseDrawer({
                 card?.totalGap ||
                 0}{" "}
               plants (no buffer)
-              {Number(card?.raisingInHandPackets) > 0
-                ? ` · ${card.raisingInHandPackets} pkt in hand`
+              {visibleRaisingInHand > 0
+                ? ` · ${visibleRaisingInHand} pkt in hand`
                 : " · none in hand"}
             </>
           ) : (
@@ -416,6 +424,21 @@ export default function OrderWiseDrawer({
                             sx={{ bgcolor: "#fff8e1", height: 22 }}
                           />
                         )}
+                        {raisingStatus?.key === "unlinked" && !o.alreadyRequested && (
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            onClick={() => setCollectRow(o)}
+                            sx={{
+                              minHeight: 22,
+                              py: 0,
+                              textTransform: "none",
+                              fontWeight: 800,
+                            }}
+                          >
+                            Collect seed
+                          </Button>
+                        )}
                       </Box>
                     </Box>
                   </Stack>
@@ -488,6 +511,25 @@ export default function OrderWiseDrawer({
           </Button>
         </DialogActions>
       </Dialog>
+      <RaisingIntakeModal
+        open={Boolean(collectRow)}
+        onClose={() => setCollectRow(null)}
+        plantId={card?.plantId}
+        subtypeId={card?.subtypeId}
+        orderId={collectRow?.orderId}
+        farmerName={collectRow?.farmerName}
+        defaultPackets={
+          collectRow?.sowingPlan?.raisingSeedPackets ||
+          collectRow?.suggestedPackets ||
+          1
+        }
+        slotIds={collectRow?.bookingSlot ? [collectRow.bookingSlot] : []}
+        onCreated={(intake) => {
+          setCollectRow(null)
+          setReloadKey((value) => value + 1)
+          onSeedCollected?.(intake)
+        }}
+      />
     </Drawer>
   )
 }

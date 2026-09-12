@@ -760,6 +760,7 @@ export default function EasyRequestPanel({
         onUseCompanySeed={(orderRows, orderIds) =>
           useCompanySeedForOrders(drawerCard, orderRows, orderIds)
         }
+        onSeedCollected={() => load(true)}
         onRequestPackets={(orderRows, selectedOrderIds) => {
           const packs = packingsOf(drawerCard).filter((p) => !p.pendingRequest && !p.activeRequest)
           openRequest(drawerCard, packs, orderRows, selectedOrderIds)
