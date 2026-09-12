@@ -2,7 +2,6 @@ import React from 'react';
 import { Trash2, Info } from 'lucide-react';
 import RamAgriPoLineFields from '../RamAgriPoLineFields';
 import BiotechPoLineFields from '../BiotechPoLineFields';
-import PoReadyPlantsCell from './PoReadyPlantsCell';
 import {
   inputClass,
   requiresSecondaryUnit,
@@ -16,18 +15,9 @@ export default function PoLineRow({
   units,
   ramAgriCrops,
   biotechPlants = [],
-  productSlots,
-  loadingSlots,
-  isSuperAdmin,
-  isAgriMode = false,
   autoGRN,
-  plants,
-  subtypes,
-  loadingSubtypes,
   updateOrderItem,
   removeOrderItem,
-  loadSubtypes,
-  setSubtypes,
 }) {
   const product = products.find(
     (p) => String(p._id) === String(item.productId || '')
@@ -44,12 +34,6 @@ export default function PoLineRow({
       : units.find((u) => u._id === product.secondaryUnit)
     : null;
   const needsSecondary = primaryUnit && requiresSecondaryUnit(primaryUnit);
-  const hasPlantLink = product && product.plantId && product.subtypeId;
-  const slots = productSlots[item.productId] || [];
-  const slotsLoading = loadingSlots[item.productId];
-  const isPlantCat = product && String(product.category || '').toLowerCase() === 'plants';
-  const showAdminColumns = isSuperAdmin && !isAgriMode;
-
   return (
     <tr className="group hover:bg-emerald-50/30 transition-colors align-top">
       <td className="px-3 py-2.5 sticky left-0 bg-white group-hover:bg-emerald-50/40 z-[1] border-r border-slate-100 min-w-[240px]">
@@ -125,66 +109,11 @@ export default function PoLineRow({
           step="0.01"
           value={item.rate}
           onChange={(e) => updateOrderItem(index, 'rate', parseFloat(e.target.value) || 0)}
-          required={isAgriMode || item.isRamAgriProduct || item.isBiotechProduct}
+          required={item.isRamAgriProduct || item.isBiotechProduct}
           className={inputClass}
           placeholder="Rate"
         />
       </td>
-
-      {showAdminColumns ? (
-        <>
-          <td className="px-3 py-2.5 min-w-[160px]">
-            {!hasPlantLink ? (
-              <span className="text-[11px] text-slate-400">Not plant-linked</span>
-            ) : slotsLoading ? (
-              <span className="text-[11px] text-slate-500">Loading slots…</span>
-            ) : slots.length === 0 ? (
-              <span className="text-[11px] text-slate-400">No slots</span>
-            ) : (
-              <select
-                value={item.slotId || ''}
-                onChange={(e) => updateOrderItem(index, 'slotId', e.target.value)}
-                className={inputClass}
-              >
-                <option value="">Slot (optional)</option>
-                {slots.map((s) => (
-                  <option key={s.value} value={s.value}>
-                    {s.label}
-                  </option>
-                ))}
-              </select>
-            )}
-          </td>
-          <td className="px-3 py-2.5 min-w-[130px]">
-            {isPlantCat && item.slotId ? (
-              <input
-                type="text"
-                value={item.productName || ''}
-                onChange={(e) => updateOrderItem(index, 'productName', e.target.value)}
-                placeholder="e.g. Ghatude"
-                className={inputClass}
-              />
-            ) : (
-              <span className="text-[11px] text-slate-400">
-                {isPlantCat ? 'Pick slot first' : '—'}
-              </span>
-            )}
-          </td>
-          <td className="px-3 py-2.5">
-            <PoReadyPlantsCell
-              item={item}
-              index={index}
-              product={product}
-              plants={plants}
-              subtypes={subtypes}
-              loadingSubtypes={loadingSubtypes}
-              updateOrderItem={updateOrderItem}
-              loadSubtypes={loadSubtypes}
-              setSubtypes={setSubtypes}
-            />
-          </td>
-        </>
-      ) : null}
 
       {autoGRN ? (
         <td className="px-3 py-2.5 min-w-[120px]">
@@ -192,7 +121,8 @@ export default function PoLineRow({
             type="text"
             value={item.batchNumber || ''}
             onChange={(e) => updateOrderItem(index, 'batchNumber', e.target.value)}
-            placeholder="Auto if empty"
+            placeholder="Batch / lot"
+            required
             className={inputClass}
           />
         </td>

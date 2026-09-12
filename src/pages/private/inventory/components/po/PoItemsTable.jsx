@@ -1,5 +1,5 @@
 import React from 'react';
-import { Package, Plus, Sprout } from 'lucide-react';
+import { Package, Plus, Save, Sprout } from 'lucide-react';
 import PoLineRow from './PoLineRow';
 import { formatCurrency, formatDecimal } from '../../../../../utils/numberUtils';
 const PO_RAM_AGRI_TYPES = ['seed', 'chemical'];
@@ -10,32 +10,22 @@ export default function PoItemsTable({
   units,
   ramAgriCrops,
   biotechPlants = [],
-  productSlots,
-  loadingSlots,
-  isSuperAdmin,
-  isAgriMode = false,
   ramAgriProductType = 'seed',
   setRamAgriProductType,
   getRamAgriProductTypeRadioLabel,
   autoGRN,
-  plants,
-  subtypes,
-  loadingSubtypes,
   searchTerm,
   setSearchTerm,
   updateOrderItem,
   removeOrderItem,
   addOrderItem,
   addRamAgriOrderItem,
-  loadSubtypes,
-  setSubtypes,
   totalAmount,
+  loading,
+  isEditMode,
 }) {
   const th =
     'px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-slate-500 whitespace-nowrap';
-  // Ready-plants admin columns always available to super admin (any workspace)
-  const showAdminColumns = Boolean(isSuperAdmin);
-
   return (
     <div className="flex-1 min-h-0 flex flex-col bg-white">
       <div className="shrink-0 flex flex-wrap items-center gap-2 px-3 py-2.5 border-b border-slate-200 bg-slate-50/80">
@@ -103,14 +93,7 @@ export default function PoItemsTable({
                 <th className={th}>Qty *</th>
                 <th className={th}>Sec qty</th>
                 <th className={th}>Rate *</th>
-                {showAdminColumns ? (
-                  <>
-                    <th className={th}>Slot</th>
-                    <th className={th}>Product name</th>
-                    <th className={th}>Ready plants</th>
-                  </>
-                ) : null}
-                {autoGRN ? <th className={th}>Batch / lot</th> : null}
+                {autoGRN ? <th className={th}>Batch / lot *</th> : null}
                 <th className={th}>
                   Expiry <span className="text-rose-500">*</span>
                 </th>
@@ -128,18 +111,9 @@ export default function PoItemsTable({
                   units={units}
                   ramAgriCrops={ramAgriCrops}
                   biotechPlants={biotechPlants}
-                  productSlots={productSlots}
-                  loadingSlots={loadingSlots}
-                  isSuperAdmin={isSuperAdmin}
-                  isAgriMode={false}
                   autoGRN={autoGRN}
-                  plants={plants}
-                  subtypes={subtypes}
-                  loadingSubtypes={loadingSubtypes}
                   updateOrderItem={updateOrderItem}
                   removeOrderItem={removeOrderItem}
-                  loadSubtypes={loadSubtypes}
-                  setSubtypes={setSubtypes}
                 />
               ))}
             </tbody>
@@ -150,9 +124,8 @@ export default function PoItemsTable({
       <div className="shrink-0 flex items-center justify-between gap-3 px-4 py-2.5 border-t border-slate-200 bg-slate-50">
         <p className="text-xs text-slate-500">
           {orderItems.length} line{orderItems.length === 1 ? '' : 's'}
-          {showAdminColumns ? ' · Slot / ready-plants columns (super admin)' : ''}
         </p>
-        <div className="text-right">
+        <div className="ml-auto text-right">
           <div className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">
             Total
           </div>
@@ -160,6 +133,18 @@ export default function PoItemsTable({
             {formatCurrency(formatDecimal(totalAmount) || 0)}
           </div>
         </div>
+        <button
+          type="submit"
+          disabled={loading || orderItems.length === 0}
+          className="inline-flex items-center gap-2 px-5 py-2 text-sm font-semibold rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg"
+        >
+          {loading ? (
+            <span className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
+          ) : (
+            <Save className="w-4 h-4" />
+          )}
+          {loading ? 'Saving…' : isEditMode ? 'Update PO' : 'Create PO'}
+        </button>
       </div>
     </div>
   );

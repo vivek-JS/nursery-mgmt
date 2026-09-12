@@ -4,7 +4,6 @@ import { ArrowLeft, Save } from 'lucide-react';
 import 'react-datepicker/dist/react-datepicker.css';
 import { API, NetworkManager } from '../../../network/core';
 import { useIsSuperAdmin, useUserData } from '../../../utils/roleUtils';
-import { useWorkspace } from '../../../workspace/WorkspaceContext';
 import { canPurchaseOrderAutoAccept } from '../../../workspace/agriAccess';
 import {
   getRamAgriProductTypeRadioLabel,
@@ -14,13 +13,11 @@ import PoSupplierPanel from './components/po/PoSupplierPanel';
 import PoItemsTable from './components/po/PoItemsTable';
 import {
   emptyOrderItem,
-  isReadyPlantsCategory,
   buildBiotechLinkedProductIndex,
   resolveBiotechMasterFromProductId,
 } from './components/po/poFormUtils';
 import {
   buildPoItemPayloads,
-  validateReadyPlantsItems,
   validateExpiryDates,
 } from './components/po/poSubmitHelpers';
 
@@ -31,8 +28,6 @@ const PurchaseOrderForm = () => {
   const isSuperAdmin = useIsSuperAdmin();
   const user = useUserData();
   const canPoAutoAccept = canPurchaseOrderAutoAccept(user);
-  const { isAgriMode } = useWorkspace();
-
   const [loading, setLoading] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
   const [units, setUnits] = useState([]);
@@ -452,24 +447,10 @@ const PurchaseOrderForm = () => {
       if (field === 'productId') {
         const product = biotechProductIndex.get(String(value));
         if (product) {
-          if (isReadyPlantsCategory(product.category)) {
-            updated[index].isReadyPlantsProduct = true;
-            const plantId =
-              typeof product.plantId === 'object' ? product.plantId?._id : product.plantId;
-            updated[index].plantId = plantId || '';
-            updated[index].subtypeId = product.subtypeId || '';
-            updated[index].displayTitle = product.name || '';
-          }
-          if (product.plantId && product.subtypeId) {
-            fetchSlotsForProduct(value, product);
-          } else {
-            updated[index].slotId = '';
-            updated[index].productName = '';
-          }
-        } else {
-          updated[index].slotId = '';
-          updated[index].productName = '';
+          updated[index].isReadyPlantsProduct = false;
         }
+        updated[index].slotId = '';
+        updated[index].productName = '';
       }
 
       if (field === 'slotId' && !value) updated[index].productName = '';
@@ -562,12 +543,12 @@ const PurchaseOrderForm = () => {
       return;
     }
 
-    if (isSuperAdmin) {
-      const readyErr = validateReadyPlantsItems(orderItems, productsForPo);
-      if (readyErr) {
-        alert(readyErr);
-        return;
-      }
+    if (
+      formData.autoGRN &&
+      orderItems.some((item) => !String(item.batchNumber || '').trim())
+    ) {
+      alert('Batch / lot number is required on every line');
+      return;
     }
 
     try {
@@ -726,26 +707,19 @@ const PurchaseOrderForm = () => {
           units={units}
           ramAgriCrops={filteredRamAgriCrops}
           biotechPlants={filteredBiotechPlants}
-          productSlots={productSlots}
-          loadingSlots={loadingSlots}
-          isSuperAdmin={isSuperAdmin}
-          isAgriMode={isAgriMode}
           ramAgriProductType={ramAgriProductType}
           setRamAgriProductType={setRamAgriProductType}
           getRamAgriProductTypeRadioLabel={getRamAgriProductTypeRadioLabel}
           autoGRN={formData.autoGRN}
-          plants={plants}
-          subtypes={subtypes}
-          loadingSubtypes={loadingSubtypes}
           searchTerm={searchTerm}
           setSearchTerm={setSearchTerm}
           updateOrderItem={updateOrderItem}
           removeOrderItem={removeOrderItem}
           addOrderItem={addOrderItem}
           addRamAgriOrderItem={addRamAgriOrderItem}
-          loadSubtypes={loadSubtypes}
-          setSubtypes={setSubtypes}
           totalAmount={getTotalAmount()}
+          loading={loading}
+          isEditMode={isEditMode}
         />
       </form>
     </div>

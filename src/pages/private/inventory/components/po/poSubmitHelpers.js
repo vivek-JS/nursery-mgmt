@@ -21,7 +21,6 @@ export function buildPoItemPayloads({
   biotechProductsById,
   units = [],
   autoGRN,
-  isSuperAdmin,
 }) {
   return orderItems.map((item) => {
     if (item.isRamAgriProduct) {
@@ -78,30 +77,6 @@ export function buildPoItemPayloads({
       discount: 0,
       expiryDate: item.expiryDate || null,
     };
-
-    if (isSuperAdmin) {
-      if (item.slotId) itemData.slotId = item.slotId;
-      if (item.productName) itemData.productName = item.productName;
-      if (item.isReadyPlantsProduct) {
-        const autoCat = isReadyPlantsCategory(product.category);
-        itemData.isReadyPlantsProduct = true;
-        if (autoCat) {
-          const plantId =
-            typeof product.plantId === 'object' ? product.plantId._id : product.plantId;
-          itemData.plantId = plantId || item.plantId;
-          itemData.subtypeId = product.subtypeId || item.subtypeId;
-          itemData.displayTitle = product.name || item.displayTitle;
-        } else {
-          itemData.plantId = item.plantId;
-          itemData.subtypeId = item.subtypeId;
-          itemData.displayTitle = item.displayTitle;
-        }
-        itemData.dateRange = {
-          startDate: item.dateRange.startDate,
-          endDate: item.dateRange.endDate,
-        };
-      }
-    }
 
     if (autoGRN) {
       itemData.batchNumber = item.batchNumber || '';
