@@ -4,6 +4,7 @@ import { ExternalLink, Sprout } from "lucide-react"
 import {
   getDisplaySowingGap,
   hasSowingCoverDetail,
+  isSlotSowingAllowed,
 } from "./slotMetrics"
 import { resolveSowingGapSections, sowingGapToneStyles } from "./sowingGapSections"
 
@@ -15,10 +16,12 @@ const SlotSowingGapPanel = ({
   sowingAllowed = false,
 }) => {
   const navigate = useNavigate()
+  const allowed = isSlotSowingAllowed(slot, sowingAllowed)
   const gap = getDisplaySowingGap(slot, sowingAllowed)
   const sections = useMemo(() => resolveSowingGapSections(slot), [slot])
   const hasDetail = hasSowingCoverDetail(slot) || gap > 0 || sections.length > 0
 
+  if (!allowed) return null
   if (!hasDetail && gap === 0) return null
 
   const labelSize = variant === "detail" ? "text-sm" : "text-[10px]"

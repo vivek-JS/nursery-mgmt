@@ -215,6 +215,7 @@ const SlotDetailModal = ({
         <div className="border-t border-gray-200 my-5" role="separator" />
         <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Other metrics</p>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          {sowingAllowed ? (
           <Card className="cursor-pointer hover:shadow-md border-orange-200" onClick={() => onOpenOrdersDrawer({ slot, monthName: slot.monthName, statKey: "sowingGap" })}>
             <CardContent className="p-4">
               <p className="text-sm text-gray-600">Sowing gap</p>
@@ -224,6 +225,7 @@ const SlotDetailModal = ({
               <p className="text-[10px] text-orange-700 mt-1">Tap for order cover by date</p>
             </CardContent>
           </Card>
+          ) : null}
           <Card>
             <CardContent className="p-4">
               <p className="text-sm text-gray-600">Booking Rate</p>

@@ -159,7 +159,6 @@ const SlotCardMetrics = ({
             title: "Plants open for new bookings on this slot",
             onClick: (e) => open(e, "available"),
           },
-          sowingGapCell,
           bookedCell,
           {
             key: "remaining",
@@ -186,7 +185,6 @@ const SlotCardMetrics = ({
             title: "Plants open for new bookings on this slot",
             onClick: (e) => open(e, "available"),
           },
-          sowingGapCell,
           bookedCell,
           {
             key: "dispatched",
