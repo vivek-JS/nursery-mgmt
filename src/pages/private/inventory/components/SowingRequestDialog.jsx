@@ -65,25 +65,11 @@ const SowingRequestDialog = ({ open, onClose, request, onSuccess }) => {
     if (inventorySource === 'BIOTECH') {
       return { bio: company, agri: 0 };
     }
-    if (inventorySource === 'RAM_AGRI') {
-      return { bio: 0, agri: company };
-    }
-    const bio = Number(packetsFromBiotech);
-    const agri = Number(packetsFromRamAgri);
-    return {
-      bio: Number.isFinite(bio) ? bio : 0,
-      agri: Number.isFinite(agri) ? agri : 0,
-    };
-  }, [inventorySource, packetsFromBiotech, packetsFromRamAgri, companyQty]);
+    return { bio: 0, agri: company };
+  }, [inventorySource, companyQty]);
 
   const needBiotech = splitQtys.bio > 0.01;
   const needAgri = splitQtys.agri > 0.01;
-
-  const bothSplitOk =
-    inventorySource !== 'BOTH' ||
-    (splitQtys.bio > 0.01 &&
-      splitQtys.agri > 0.01 &&
-      Math.abs(splitQtys.bio + splitQtys.agri - companyQty) < 0.01);
 
   const calculateTotalAvailable = () => {
     if (!request || batches.length === 0) return 0;
@@ -105,11 +91,7 @@ const SowingRequestDialog = ({ open, onClose, request, onSuccess }) => {
     if (!request || batches.length === 0) return;
 
     const targetBio =
-      inventorySource === 'BIOTECH'
-        ? getCompanyIssuePackets()
-        : inventorySource === 'BOTH'
-          ? Number(packetsFromBiotech) || 0
-          : 0;
+      inventorySource === 'BIOTECH' ? getCompanyIssuePackets() : 0;
 
     if (targetBio < 0.01) {
       setAllocations({});
@@ -176,7 +158,7 @@ const SowingRequestDialog = ({ open, onClose, request, onSuccess }) => {
     if (Object.keys(newExpiryDates).length > 0) {
       setExpiryDates((prev) => ({ ...prev, ...newExpiryDates }));
     }
-  }, [request, batches, inventorySource, packetsFromBiotech]);
+  }, [request, batches, inventorySource]);
 
   useEffect(() => {
     if (open && request) {
@@ -192,7 +174,11 @@ const SowingRequestDialog = ({ open, onClose, request, onSuccess }) => {
       setExpiryDates({});
       setError(null);
       autoFilledRef.current = false;
-      setInventorySource('BIOTECH');
+      const preferredSource =
+        request?.inventoryAvailability?.preferredSource === 'RAM_AGRI'
+          ? 'RAM_AGRI'
+          : 'BIOTECH';
+      setInventorySource(preferredSource);
       const company = (() => {
         if (
           request?.packetsFromCompany != null &&
@@ -203,8 +189,8 @@ const SowingRequestDialog = ({ open, onClose, request, onSuccess }) => {
         if (request?.seedSource === 'RAISING') return 0;
         return request?.packetsRequested || request?.packetsNeeded || 0;
       })();
-      setPacketsFromBiotech(String(company));
-      setPacketsFromRamAgri('');
+      setPacketsFromBiotech(preferredSource === 'BIOTECH' ? String(company) : '0');
+      setPacketsFromRamAgri(preferredSource === 'RAM_AGRI' ? String(company) : '0');
     }
   }, [open, request]);
 
@@ -233,7 +219,7 @@ const SowingRequestDialog = ({ open, onClose, request, onSuccess }) => {
       }, 50);
       return () => clearTimeout(t);
     }
-  }, [inventorySource, packetsFromBiotech]);
+  }, [inventorySource]);
 
   const handleAllocationChange = (batchId, value) => {
     const numValue = parseFloat(value) || 0;
@@ -309,13 +295,6 @@ const SowingRequestDialog = ({ open, onClose, request, onSuccess }) => {
       } finally {
         setSubmitting(false);
       }
-      return;
-    }
-
-    if (!bothSplitOk) {
-      setError(
-        `For Both, Biotech + Ram Agri packets must equal company qty (${companyQty.toFixed(2)}) and both must be > 0.`
-      );
       return;
     }
 
@@ -419,11 +398,11 @@ const SowingRequestDialog = ({ open, onClose, request, onSuccess }) => {
   const agriOk = !needAgri || agriAvail + 0.01 >= splitQtys.agri;
   const isValid = raisingOnly
     ? true
-    : bothSplitOk && bioAllocOk && agriOk && (needBiotech || needAgri);
+    : bioAllocOk && agriOk && (needBiotech || needAgri);
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
-      <DialogTitle>
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogTitle sx={{ py: 1.5 }}>
         <Box display="flex" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}>
           <Typography variant="h6" sx={{ fontWeight: 700 }}>
             Sowing Request: {request.requestNumber}
@@ -443,40 +422,53 @@ const SowingRequestDialog = ({ open, onClose, request, onSuccess }) => {
           </Box>
         </Box>
       </DialogTitle>
-      <DialogContent>
-        <Box mb={3}>
-          <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-            Plant & Subtype
-          </Typography>
-          <Typography variant="body1" sx={{ fontWeight: 600 }}>
-            {request.plantName} - {request.subtypeName}
-          </Typography>
+      <DialogContent sx={{ pt: 1.5 }}>
+        <Box
+          sx={{
+            display: 'grid',
+            gridTemplateColumns: { xs: '1fr', sm: '1.5fr 1fr 1fr' },
+            gap: 1,
+            mb: 1.5,
+          }}
+        >
+          {[
+            {
+              label: 'Plant & subtype',
+              value: `${request.plantName} · ${request.subtypeName}`,
+            },
+            {
+              label: 'Packets needed',
+              value: `${packetsNeeded.toFixed(2)} ${request.unitName}`,
+            },
+            {
+              label: 'Company issue',
+              value: `${companyQty.toFixed(2)} ${request.unitName}`,
+            },
+          ].map((item) => (
+            <Box
+              key={item.label}
+              sx={{
+                px: 1.5,
+                py: 1,
+                border: '1px solid #e2e8f0',
+                borderRadius: 1.5,
+                bgcolor: '#f8fafc',
+              }}
+            >
+              <Typography variant="caption" color="text.secondary">
+                {item.label}
+              </Typography>
+              <Typography variant="body2" fontWeight={800}>
+                {item.value}
+              </Typography>
+            </Box>
+          ))}
         </Box>
-
-        <Box mb={2}>
-          <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-            Packets Needed
-          </Typography>
-          <Typography variant="h6" sx={{ fontWeight: 700, color: '#f57c00' }}>
-            {packetsNeeded.toFixed(2)} {request.unitName}
-          </Typography>
-        </Box>
-
-        <Box mb={2}>
-          <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-            Issue from warehouse (company)
-          </Typography>
-          <Typography variant="h6" sx={{ fontWeight: 700, color: '#1976d2' }}>
-            {companyQty.toFixed(2)} {request.unitName}
-          </Typography>
-          <Typography variant="caption" color="text.secondary" display="block">
-            Total requested {totalRequested.toFixed(2)}
-            {raisingPkts > 0
-              ? ` · raising ${raisingPkts.toFixed(2)} (already collected — not from warehouse)`
-              : ''}
-            {request.seedSource ? ` · ${request.seedSource}` : ''}
-          </Typography>
-        </Box>
+        <Typography variant="caption" color="text.secondary" display="block" mb={1.5}>
+          Total {totalRequested.toFixed(2)}
+          {raisingPkts > 0 ? ` · customer seed ${raisingPkts.toFixed(2)}` : ''}
+          {request.seedSource ? ` · ${request.seedSource}` : ''}
+        </Typography>
 
         {raisingOnly && (
           <Alert severity="info" sx={{ mb: 2 }}>
@@ -488,15 +480,9 @@ const SowingRequestDialog = ({ open, onClose, request, onSuccess }) => {
           <SowingIssueInventorySourcePanel
             inventorySource={inventorySource}
             companyQty={companyQty}
-            packetsFromBiotech={packetsFromBiotech}
-            packetsFromRamAgri={packetsFromRamAgri}
-            onPacketsFromBiotech={setPacketsFromBiotech}
-            onPacketsFromRamAgri={setPacketsFromRamAgri}
             biotechAvail={biotechAvail}
             agriAvail={agriAvail}
             avail={avail}
-            bothSplitOk={bothSplitOk}
-            splitQtys={splitQtys}
             onSourceChange={(e) => {
               const next = e.target.value;
               setInventorySource(next);
@@ -504,15 +490,43 @@ const SowingRequestDialog = ({ open, onClose, request, onSuccess }) => {
               if (next === 'BIOTECH') {
                 setPacketsFromBiotech(String(companyQty));
                 setPacketsFromRamAgri('0');
-              } else if (next === 'RAM_AGRI') {
+              } else {
                 setPacketsFromBiotech('0');
                 setPacketsFromRamAgri(String(companyQty));
-              } else {
-                setPacketsFromBiotech('');
-                setPacketsFromRamAgri('');
               }
             }}
           />
+        )}
+
+        {request.raisingIntakes?.length > 0 && (
+          <Box mb={1.5} p={1.25} sx={{ border: '1px solid #dbeafe', borderRadius: 1.5 }}>
+            <Typography variant="subtitle2" fontWeight={800} mb={0.75}>
+              Customer seed batches
+            </Typography>
+            <Box display="flex" gap={0.75} flexWrap="wrap">
+              {request.raisingIntakes.flatMap((intake) => {
+                const intakeBatches = intake.batches?.length
+                  ? intake.batches
+                  : [{
+                      batchNumber: intake.batchNumber,
+                      packets: intake.packetsReceived,
+                      expiryDate: intake.expiryDate,
+                    }];
+                return intakeBatches.map((batch, index) => (
+                  <Chip
+                    key={`${intake._id}-${batch._id || index}`}
+                    size="small"
+                    variant="outlined"
+                    label={`${batch.batchNumber || 'Batch'} · ${Number(batch.packets || 0).toFixed(2)} pkt${
+                      batch.expiryDate
+                        ? ` · exp ${formatDisplayDate(batch.expiryDate)}`
+                        : ''
+                    }`}
+                  />
+                ));
+              })}
+            </Box>
+          </Box>
         )}
 
         {getExcessPackets() > 0 && (

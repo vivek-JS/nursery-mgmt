@@ -1,138 +1,137 @@
 import React from 'react';
 import {
-  Box,
-  Typography,
-  TextField,
   Alert,
+  Box,
+  FormControl,
+  FormControlLabel,
+  FormLabel,
   Radio,
   RadioGroup,
-  FormControlLabel,
-  FormControl,
-  FormLabel,
+  Typography,
 } from '@mui/material';
 
-/**
- * Issue-dialog inventory pool picker: Biotech | Ram Agri | Both (+ qty split).
- */
 export default function SowingIssueInventorySourcePanel({
   inventorySource,
   onSourceChange,
   companyQty,
-  packetsFromBiotech,
-  packetsFromRamAgri,
-  onPacketsFromBiotech,
-  onPacketsFromRamAgri,
   biotechAvail,
   agriAvail,
   avail,
-  bothSplitOk,
-  splitQtys,
 }) {
-  const showBiotech = inventorySource === 'BIOTECH' || inventorySource === 'BOTH';
-  const showAgri = inventorySource === 'RAM_AGRI' || inventorySource === 'BOTH';
-
-  const biotechLinked =
-    (avail?.biotech || [])
-      .map((l) => l.displayName || l.productId?.name)
-      .filter(Boolean) || [];
-  const agriLinked = (avail?.ramAgri || []).map((l) => l.displayName).filter(Boolean) || [];
+  const biotechLinked = (avail?.biotech || [])
+    .map((link) => link.displayName || link.productId?.name)
+    .filter(Boolean);
+  const agriLinked = (avail?.ramAgri || [])
+    .map((link) => link.displayName)
+    .filter(Boolean);
+  const sourceOptions = [
+    {
+      value: 'BIOTECH',
+      label: 'Biotech warehouse',
+      available: biotechAvail,
+      linked: biotechLinked,
+    },
+    {
+      value: 'RAM_AGRI',
+      label: 'Ram Agri Input',
+      available: agriAvail,
+      linked: agriLinked,
+    },
+  ];
 
   return (
-    <Box mb={3} p={2} sx={{ bgcolor: '#f5f5f5', borderRadius: 1 }}>
+    <Box
+      mb={1.5}
+      p={1.25}
+      sx={{
+        bgcolor: '#f8fafc',
+        borderRadius: 1.5,
+        border: '1px solid #e2e8f0',
+      }}
+    >
       <FormControl component="fieldset" fullWidth>
-        <FormLabel component="legend" sx={{ fontWeight: 700, mb: 1, color: 'text.primary' }}>
+        <FormLabel
+          component="legend"
+          sx={{ fontWeight: 800, mb: 0.75, color: 'text.primary', fontSize: 13 }}
+        >
           Inventory source
         </FormLabel>
         <RadioGroup
           row
+          sx={{ gap: 1 }}
           value={inventorySource}
-          onChange={(e, value) => {
-            // MUI RadioGroup provides the selected value as the 2nd argument.
-            // Normalize it into the event shape our parent handler expects.
-            onSourceChange?.({ target: { value } });
-          }}
+          onChange={(event, value) =>
+            onSourceChange?.({ target: { value } })
+          }
         >
-          <FormControlLabel value="BIOTECH" control={<Radio size="small" />} label="Biotech warehouse" />
-          <FormControlLabel value="RAM_AGRI" control={<Radio size="small" />} label="Ram Agri Input" />
-          <FormControlLabel value="BOTH" control={<Radio size="small" />} label="Both" />
+          {sourceOptions.map((option) => {
+            const selected = inventorySource === option.value;
+            return (
+              <FormControlLabel
+                key={option.value}
+                value={option.value}
+                control={<Radio size="small" />}
+                sx={{
+                  m: 0,
+                  flex: '1 1 220px',
+                  alignItems: 'flex-start',
+                  border: '1px solid',
+                  borderColor: selected ? 'primary.main' : '#e2e8f0',
+                  borderRadius: 1.25,
+                  px: 1,
+                  py: 0.5,
+                  bgcolor: selected ? '#eff6ff' : '#fff',
+                }}
+                label={
+                  <Box>
+                    <Typography variant="body2" fontWeight={800}>
+                      {option.label}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {option.available.toFixed(2)} pkt available
+                      {option.linked.length
+                        ? ` · ${option.linked.join(', ')}`
+                        : ''}
+                    </Typography>
+                  </Box>
+                }
+              />
+            );
+          })}
         </RadioGroup>
       </FormControl>
 
-      <Box display="flex" gap={2} flexWrap="wrap" mt={1.5}>
-        {showBiotech && (
-          <Typography variant="body2" color="text.secondary">
-            Biotech available: <strong>{biotechAvail.toFixed(2)}</strong>
-          </Typography>
-        )}
-        {showAgri && (
-          <Typography variant="body2" color="text.secondary">
-            Ram Agri available: <strong>{agriAvail.toFixed(2)}</strong>
-          </Typography>
-        )}
-      </Box>
-
-      {(inventorySource === 'BIOTECH' ||
-        inventorySource === 'RAM_AGRI' ||
-        inventorySource === 'BOTH') &&
-        (biotechLinked.length > 0 || agriLinked.length > 0) && (
-        <Typography variant="caption" color="text.secondary" display="block" mt={0.5}>
-          Linked:{' '}
-          {inventorySource === 'BIOTECH' && (biotechLinked.join(', ') || '—')}
-          {inventorySource === 'RAM_AGRI' && (agriLinked.join(', ') || '—')}
-          {inventorySource === 'BOTH' && (
-            <>
-              {(biotechLinked.join(', ') || '—') + ' · '}
-              {agriLinked.join(', ') || '—'}
-            </>
-          )}
-        </Typography>
-      )}
-
-      {inventorySource === 'BOTH' && (
-        <Box display="flex" gap={2} flexWrap="wrap" mt={2}>
-          <TextField
-            label="Packets from Biotech"
-            type="number"
-            size="small"
-            value={packetsFromBiotech}
-            onChange={(e) => onPacketsFromBiotech(e.target.value)}
-            inputProps={{ min: 0, step: 0.01 }}
-            sx={{ width: 180 }}
-          />
-          <TextField
-            label="Packets from Ram Agri"
-            type="number"
-            size="small"
-            value={packetsFromRamAgri}
-            onChange={(e) => onPacketsFromRamAgri(e.target.value)}
-            inputProps={{ min: 0, step: 0.01 }}
-            sx={{ width: 180 }}
-          />
-          <Typography
-            variant="body2"
-            sx={{
-              alignSelf: 'center',
-              color: bothSplitOk ? 'success.main' : 'error.main',
-              fontWeight: 600,
-            }}
-          >
-            Sum {(splitQtys.bio + splitQtys.agri).toFixed(2)} / {companyQty.toFixed(2)}
-          </Typography>
-        </Box>
-      )}
-
-      {inventorySource === 'BOTH' && (
-        <Alert severity="info" sx={{ mt: 1.5 }}>
-          Ram Agri share creates an internal PO (Ram Agri → Ram Biotech) on approve; Biotech share
-          issues from warehouse batches.
-        </Alert>
-      )}
-
       {inventorySource === 'RAM_AGRI' && (
-        <Alert severity="info" sx={{ mt: 1.5 }}>
-          Approving this request creates an internal PO for {companyQty.toFixed(2)} packets
-          (Ram Agri → Ram Biotech), then issues from the transferred Biotech batch.
-        </Alert>
+        <>
+          {avail?.ramAgriBatches?.length > 0 && (
+            <Box mt={1}>
+              <Typography variant="caption" fontWeight={800}>
+                Ram Agri batches
+              </Typography>
+              <Box display="flex" gap={0.5} flexWrap="wrap" mt={0.5}>
+                {avail.ramAgriBatches.map((batch) => (
+                  <Typography
+                    key={batch._id}
+                    variant="caption"
+                    sx={{
+                      px: 0.75,
+                      py: 0.25,
+                      bgcolor: '#fff',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: 1,
+                    }}
+                  >
+                    {batch.batchNumber} ·{' '}
+                    {Number(batch.remainingQuantity || 0).toFixed(2)} pkt
+                  </Typography>
+                ))}
+              </Box>
+            </Box>
+          )}
+          <Alert severity="info" sx={{ mt: 1, py: 0 }}>
+            {companyQty.toFixed(2)} packets will issue from Ram Agri Input.
+          </Alert>
+        </>
       )}
     </Box>
   );

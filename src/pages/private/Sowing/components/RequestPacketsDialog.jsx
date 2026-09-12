@@ -61,6 +61,7 @@ export default function RequestPacketsDialog({
   const [raisingPkts, setRaisingPkts] = useState("0")
   const [notes, setNotes] = useState("")
   const [intakeIds, setIntakeIds] = useState([])
+  const [attachedIntakes, setAttachedIntakes] = useState([])
   const [showRaising, setShowRaising] = useState(false)
   const [saving, setSaving] = useState(false)
 
@@ -78,6 +79,17 @@ export default function RequestPacketsDialog({
     [card, orderRows, selectedOrderIds]
   )
   const selectedRows = requestScope.selectedRows
+  const scopedRaisingIntakes = useMemo(
+    () =>
+      selectedRows.flatMap((row) =>
+        (row.raisingIntakes || []).map((intake) => ({
+          ...intake,
+          orderId: row.orderId,
+          farmerName: row.farmerName,
+        }))
+      ),
+    [selectedRows]
+  )
   const gapMetrics = useMemo(
     () =>
       computeRequestPlantsGap({
@@ -128,9 +140,17 @@ export default function RequestPacketsDialog({
     setRaisingPkts(String(Number((planRaising || 0).toFixed(2))))
     setExcessPkts("0")
     setNotes("")
-    setIntakeIds([])
+    setIntakeIds(scopedRaisingIntakes.map((intake) => intake._id).filter(Boolean))
+    setAttachedIntakes(scopedRaisingIntakes)
     applyDistribution(keys, "stockFirst")
-  }, [open, initialPackings, selectable, planRaising, companyPlantsTarget])
+  }, [
+    open,
+    initialPackings,
+    selectable,
+    planRaising,
+    companyPlantsTarget,
+    scopedRaisingIntakes,
+  ])
 
   const togglePacking = (key) => {
     setSelectedKeys((prev) => {
@@ -548,31 +568,73 @@ export default function RequestPacketsDialog({
               </Stack>
             </Box>
 
-            <TextField
-              label="Customer seed packets"
-              type="number"
-              size="small"
-              fullWidth
-              value={raisingPkts}
-              onChange={(e) => setRaisingPkts(e.target.value)}
-              onBlur={() => applyDistribution(selectedKeys, "stockFirst")}
-              inputProps={{ min: 0, step: 0.01 }}
-              helperText="Applied to plant cover using first packing conversion"
-            />
-
-            <Button
-              variant="outlined"
-              size="small"
-              onClick={() => setShowRaising(true)}
-              sx={{ alignSelf: "flex-start", textTransform: "none" }}
-            >
-              Add customer seed (photo + batch)
-            </Button>
-            {intakeIds.length > 0 && (
-              <Alert severity="info" variant="outlined" sx={{ py: 0 }}>
-                {intakeIds.length} customer seed batch(es) attached
-              </Alert>
-            )}
+            <Box>
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+                <TextField
+                  label="Customer seed packets"
+                  type="number"
+                  size="small"
+                  fullWidth
+                  value={raisingPkts}
+                  disabled
+                  helperText="Calculated from collected customer-seed batches"
+                />
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={() => setShowRaising(true)}
+                  sx={{
+                    minWidth: 190,
+                    height: 40,
+                    textTransform: "none",
+                    fontWeight: 700,
+                  }}
+                >
+                  Add customer seed
+                </Button>
+              </Stack>
+              {attachedIntakes.length > 0 && (
+                <Stack spacing={0.75} mt={1}>
+                  {attachedIntakes.map((intake) => {
+                    const batches =
+                      intake.batches?.length > 0
+                        ? intake.batches
+                        : [
+                            {
+                              batchNumber: intake.batchNumber,
+                              packets:
+                                intake.packetsRemaining ??
+                                intake.packetsReceived,
+                              expiryDate: intake.expiryDate,
+                            },
+                          ]
+                    return batches.map((batch, index) => (
+                      <Box
+                        key={`${intake._id || intake.intakeNumber}-${batch._id || index}`}
+                        sx={{
+                          px: 1.25,
+                          py: 0.75,
+                          border: neutral.border,
+                          borderRadius: 1,
+                          bgcolor: "#f8fafc",
+                        }}
+                      >
+                        <Typography variant="caption" fontWeight={700}>
+                          {batch.batchNumber || "Customer seed batch"}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {" "}
+                          · {fmt(batch.packets, 2)} pkt
+                          {batch.expiryDate
+                            ? ` · expiry ${new Date(batch.expiryDate).toLocaleDateString("en-IN")}`
+                            : ""}
+                        </Typography>
+                      </Box>
+                    ))
+                  })}
+                </Stack>
+              )}
+            </Box>
 
             {gapLeft > 1 && (
               <Alert severity="warning" variant="outlined" sx={{ py: 0 }}>
@@ -625,10 +687,21 @@ export default function RequestPacketsDialog({
         defaultPackets={raising || 1}
         slotIds={requestScope.slotIds}
         onCreated={(intake) => {
-          setIntakeIds((prev) => [...prev, intake._id])
-          if (!(raising > 0)) {
-            setRaisingPkts(String(intake.packetsReceived))
-          }
+          setIntakeIds((prev) => [...new Set([...prev, intake._id])])
+          setAttachedIntakes((prev) => {
+            const next = [
+              ...prev.filter((row) => String(row._id) !== String(intake._id)),
+              intake,
+            ]
+            const packets = next.reduce(
+              (sum, row) =>
+                sum +
+                (Number(row.packetsRemaining ?? row.packetsReceived) || 0),
+              0
+            )
+            setRaisingPkts(String(Number(packets.toFixed(2))))
+            return next
+          })
         }}
       />
     </>
