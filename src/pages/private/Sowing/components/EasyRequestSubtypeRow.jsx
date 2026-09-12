@@ -177,8 +177,13 @@ export default function EasyRequestSubtypeRow({
           </Typography>
         </Typography>
         {m.raisingOrders > 0 ? (
-          <Typography variant="caption" fontWeight={700} color="#065f46" sx={{ textDecoration: "underline" }}>
-            {m.raisingOrders} collected · click
+          <Typography
+            variant="caption"
+            fontWeight={700}
+            color={m.raisingPendingCount > 0 ? "#b45309" : "#065f46"}
+            sx={{ textDecoration: "underline" }}
+          >
+            {m.raisingOrdersCollected}/{m.raisingOrdersPlanned} collected · click
           </Typography>
         ) : m.raisingPendingCollect ? (
           <Typography variant="caption" fontWeight={700} color="#b45309">

@@ -1340,6 +1340,7 @@ export const API = {
     GET_ISSUED_SOWING_QUEUE: new APIRouter("/sowing/request/issued-queue", HTTP_METHODS.GET, OFFLINE.PROFILE),
     CREATE_RAISING_INTAKE: new APIRouter("/sowing/raising/intake", HTTP_METHODS.POST, OFFLINE.PROFILE),
     UPDATE_RAISING_INTAKE: new APIRouter("/sowing/raising/intake/:id", HTTP_METHODS.PATCH, OFFLINE.PROFILE),
+    USE_COMPANY_SEED_FOR_ORDERS: new APIRouter("/sowing/raising/use-company-seed", HTTP_METHODS.PATCH, OFFLINE.PROFILE),
     GET_RAISING_AVAILABLE: new APIRouter("/sowing/raising/available", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_RAISING_PENDING_ORDERS: new APIRouter("/sowing/raising/pending-orders", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_RAISING_BY_ORDER: new APIRouter("/sowing/raising/by-order/:orderId", HTTP_METHODS.GET, OFFLINE.PROFILE),

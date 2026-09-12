@@ -98,7 +98,9 @@ export default function RequestPacketsDialog({
       if (!collected) return s
       return s + (Number(o.raisingInHandPackets) || 0)
     }, 0)
-    if (inHandFromOrders > 0) return inHandFromOrders
+    // When explicit orders are supplied, never borrow raising stock from
+    // unselected orders via the card-level aggregate.
+    if (sourceRows.length > 0) return inHandFromOrders
     return (
       Number(card?.raisingInHandPackets) ||
       Number(card?.orderSeedSummary?.raisingInHandPackets) ||

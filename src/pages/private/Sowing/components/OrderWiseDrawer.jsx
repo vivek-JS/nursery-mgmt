@@ -11,6 +11,11 @@ import {
   Chip,
   Checkbox,
   FormControlLabel,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Alert,
 } from "@mui/material"
 import CloseIcon from "@mui/icons-material/Close"
 import { NetworkManager, API } from "network/core"
@@ -32,6 +37,52 @@ function isRaisingOrder(o, collectedOnly = false) {
   if (!planned) return false
   if (collectedOnly) return isRaisingCollected(o)
   return true
+}
+
+function isRaisingLinked(o) {
+  return Boolean(
+    o?.sowingPlan?.raisingIntakeId ||
+      (Array.isArray(o?.raisingIntakes) && o.raisingIntakes.length > 0)
+  )
+}
+
+function raisingRowStatus(o) {
+  if (!isRaisingOrder(o)) return null
+  const packets = Number(o?.raisingInHandPackets) || 0
+  const linked = isRaisingLinked(o)
+  const collected = isRaisingCollected(o)
+  if (packets > 0) {
+    return {
+      key: "ready",
+      label: `Collected · ${packets} pkt available`,
+      bgcolor: "#ecfdf5",
+      borderColor: "#6ee7b7",
+      chipBg: "#d1fae5",
+      chipColor: "#047857",
+    }
+  }
+  if (linked || collected) {
+    return {
+      key: "empty",
+      label: "Collected · no packets remaining",
+      bgcolor: "#fff1f2",
+      borderColor: "#fda4af",
+      chipBg: "#ffe4e6",
+      chipColor: "#be123c",
+    }
+  }
+  return {
+    key: "unlinked",
+    label: "Seed not linked · not collected",
+    bgcolor: "#fffbeb",
+    borderColor: "#fcd34d",
+    chipBg: "#fef3c7",
+    chipColor: "#b45309",
+  }
+}
+
+function isSelectionLocked(o) {
+  return Boolean(o?.alreadyRequested || raisingRowStatus(o)?.key === "empty")
 }
 
 function fmtDelivery(d) {
@@ -103,12 +154,15 @@ export default function OrderWiseDrawer({
   onClose,
   card,
   onRequestPackets,
+  onUseCompanySeed,
   raisingOnly = false,
 }) {
   const { sowHorizonDays } = useSowHorizon()
   const [loading, setLoading] = useState(false)
   const [rows, setRows] = useState([])
   const [selected, setSelected] = useState([])
+  const [confirmCompanyOpen, setConfirmCompanyOpen] = useState(false)
+  const [converting, setConverting] = useState(false)
 
   useEffect(() => {
     if (!open || !card) return
@@ -129,14 +183,15 @@ export default function OrderWiseDrawer({
         })
         if (!cancelled) {
           const data = res?.data?.data || []
-          const filtered = raisingOnly ? data.filter((o) => isRaisingOrder(o, true)) : data
+          const filtered = raisingOnly ? data.filter((o) => isRaisingOrder(o)) : data
           setRows(filtered)
-          // Only pre-select orders that are not already on an active request
+          // Exclude active requests and collected intakes with no seed remaining.
           setSelected(
             filtered
-              .filter((o) => !o.alreadyRequested)
+              .filter((o) => !isSelectionLocked(o))
               .map((o) => String(o.orderId))
           )
+          setConfirmCompanyOpen(false)
         }
       } catch {
         if (!cancelled) setRows([])
@@ -150,13 +205,47 @@ export default function OrderWiseDrawer({
     }
   }, [open, card, raisingOnly, sowHorizonDays])
 
-  const openRows = rows.filter((o) => !o.alreadyRequested)
+  const openRows = rows.filter((o) => !isSelectionLocked(o))
   const toggle = (id) => {
     const row = rows.find((o) => String(o.orderId) === id)
-    if (row?.alreadyRequested) return
+    if (!row || isSelectionLocked(row)) return
     setSelected((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     )
+  }
+
+  const selectedRows = rows.filter((o) =>
+    selected.includes(String(o.orderId))
+  )
+  const companyFallbackRows = selectedRows.filter(
+    (o) =>
+      isRaisingOrder(o) &&
+      !isRaisingCollected(o) &&
+      !isRaisingLinked(o)
+  )
+
+  const requestSelected = () => {
+    if (companyFallbackRows.length > 0) {
+      setConfirmCompanyOpen(true)
+      return
+    }
+    onRequestPackets?.(rows, selected)
+  }
+
+  const confirmCompanySeed = async () => {
+    try {
+      setConverting(true)
+      const updatedRows = await onUseCompanySeed?.(
+        rows,
+        companyFallbackRows.map((o) => String(o.orderId))
+      )
+      setConfirmCompanyOpen(false)
+      onRequestPackets?.(updatedRows || rows, selected)
+    } catch {
+      // Parent displays the API error; keep this confirmation open for retry/cancel.
+    } finally {
+      setConverting(false)
+    }
   }
 
   return (
@@ -165,7 +254,7 @@ export default function OrderWiseDrawer({
         <Stack direction="row" alignItems="center" justifyContent="space-between" mb={1}>
           <Box>
             <Typography variant="h6" fontWeight={700}>
-              {raisingOnly ? "Collected farmer seed" : "Orders"}
+              {raisingOnly ? "Farmer seed orders" : "Orders"}
             </Typography>
             <Typography variant="body2" color="text.secondary">
               {card?.plantName} · {card?.subtypeName}
@@ -179,7 +268,7 @@ export default function OrderWiseDrawer({
         <Typography variant="body2" sx={{ mb: 1.5 }}>
           {raisingOnly ? (
             <>
-              Collected farmer seed · gap{" "}
+              Farmer seed orders · gap{" "}
               {Number(card?.totalPlantsToSowRaw) ||
                 card?.totalPlantsToSowWithBuffer ||
                 card?.totalGap ||
@@ -205,14 +294,15 @@ export default function OrderWiseDrawer({
         ) : rows.length === 0 ? (
           <Typography color="text.secondary">
               {raisingOnly
-              ? "No collected farmer seed for this plant / subtype."
+              ? "No eligible farmer-seed orders for this plant / subtype."
               : "No active orders for these slots."}
           </Typography>
         ) : (
           <Stack spacing={1.25} sx={{ flex: 1, overflow: "auto", pb: 2 }}>
             {rows.map((o) => {
               const id = String(o.orderId)
-              const locked = Boolean(o.alreadyRequested)
+              const raisingStatus = raisingRowStatus(o)
+              const locked = isSelectionLocked(o)
               return (
                 <Box
                   key={id}
@@ -220,12 +310,14 @@ export default function OrderWiseDrawer({
                     p: 1.5,
                     borderRadius: 2,
                     border: "1px solid",
-                    borderColor: locked ? "#e5e7eb" : "#e6ebf1",
+                    borderColor: locked
+                      ? raisingStatus?.borderColor || "#e5e7eb"
+                      : raisingStatus?.borderColor || "#e6ebf1",
                     bgcolor: locked
-                      ? "#f9fafb"
+                      ? raisingStatus?.bgcolor || "#f9fafb"
                       : selected.includes(id)
-                        ? "#f0f7ff"
-                        : "#fff",
+                        ? raisingStatus?.bgcolor || "#f0f7ff"
+                        : raisingStatus?.bgcolor || "#fff",
                     opacity: locked ? 0.85 : 1,
                   }}
                 >
@@ -293,6 +385,18 @@ export default function OrderWiseDrawer({
                           }
                           collected={isRaisingCollected(o)}
                         />
+                        {raisingStatus && (
+                          <Chip
+                            size="small"
+                            label={raisingStatus.label}
+                            sx={{
+                              height: 22,
+                              fontWeight: 800,
+                              bgcolor: raisingStatus.chipBg,
+                              color: raisingStatus.chipColor,
+                            }}
+                          />
+                        )}
                         {locked && (
                           <Chip
                             size="small"
@@ -345,13 +449,45 @@ export default function OrderWiseDrawer({
             fullWidth
             variant="contained"
             disabled={!selected.length}
-            onClick={() => onRequestPackets?.(rows, selected)}
+            onClick={requestSelected}
             sx={{ mt: 1 }}
           >
             Request packets ({selected.length})
           </Button>
         </Box>
       </Box>
+      <Dialog
+        open={confirmCompanyOpen}
+        onClose={converting ? undefined : () => setConfirmCompanyOpen(false)}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Company seed confirmation</DialogTitle>
+        <DialogContent>
+          <Alert severity="warning" sx={{ mt: 0.5 }}>
+            शेतकऱ्याचे रायझिंग बियाणे आलेले नाही. कंपनीचे बियाणे वापरायचे का?
+          </Alert>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5 }}>
+            {companyFallbackRows.length} selected order(s) will be permanently
+            changed from farmer seed to company seed.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => setConfirmCompanyOpen(false)}
+            disabled={converting}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={confirmCompanySeed}
+            disabled={converting || !onUseCompanySeed}
+          >
+            {converting ? "Changing…" : "Use company seed"}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Drawer>
   )
 }

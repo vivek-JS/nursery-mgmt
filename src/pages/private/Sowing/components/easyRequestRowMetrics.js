@@ -24,8 +24,12 @@ export function getEasyRequestRowMetrics(card) {
       ? Number(card.raisingCollectedOrderCount)
       : Number(summary.raisingCollectedOrderCount) || 0
   const raisingAvailable = raising > 0
-  const raisingOrders = raisingOrdersCollected
-  const raisingPendingCollect = raisingOrdersPlanned > 0 && raising <= 0
+  const raisingOrders = raisingOrdersPlanned
+  const raisingPendingCount = Math.max(
+    0,
+    raisingOrdersPlanned - raisingOrdersCollected
+  )
+  const raisingPendingCollect = raisingPendingCount > 0
   const isRaisingPlan =
     raisingOrdersPlanned > 0 || raising > 0 || Number(summary.raisingPackets) > 0
   const availPlants = Number(card.availablePlants) || 0
@@ -102,6 +106,8 @@ export function getEasyRequestRowMetrics(card) {
     raising,
     raisingOrders,
     raisingOrdersPlanned,
+    raisingOrdersCollected,
+    raisingPendingCount,
     raisingAvailable,
     raisingPendingCollect,
     isRaisingPlan,

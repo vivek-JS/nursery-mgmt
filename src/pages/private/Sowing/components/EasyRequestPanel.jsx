@@ -191,6 +191,66 @@ export default function EasyRequestPanel({
     })
   }
 
+  const useCompanySeedForOrders = useCallback(
+    async (card, orderRows, orderIds) => {
+      try {
+        const instance = NetworkManager(
+          API.sowing.USE_COMPANY_SEED_FOR_ORDERS
+        )
+        const res = await instance.request({
+          plantId: card.plantId,
+          subtypeId: card.subtypeId,
+          orderIds,
+        })
+        if (!res?.data?.success) {
+          throw new Error(
+            res?.data?.message || "Failed to switch orders to company seed"
+          )
+        }
+
+        const convertedIds = new Set(
+          (res.data.data?.converted || []).map((row) => String(row.orderId))
+        )
+        const updatedRows = orderRows.map((row) =>
+          convertedIds.has(String(row.orderId))
+            ? {
+                ...row,
+                sowingPlan: {
+                  ...(row.sowingPlan || {}),
+                  seedSource: "COMPANY",
+                  companySeedPackets: 0,
+                  raisingSeedPackets: 0,
+                  raisingIntakeCollected: false,
+                  raisingIntakeId: null,
+                },
+                raisingCollected: false,
+                raisingInHandPackets: 0,
+                raisingIntakes: [],
+              }
+            : row
+        )
+        Toast.success(
+          `${convertedIds.size} order(s) switched to company seed`
+        )
+        await load(true)
+        return updatedRows
+      } catch (e) {
+        const details = e?.response?.data?.details
+        const detailText = Array.isArray(details)
+          ? details.map((item) => item.reason).filter(Boolean).join(", ")
+          : ""
+        Toast.error(
+          detailText ||
+            e?.response?.data?.message ||
+            e?.message ||
+            "Failed to switch orders to company seed"
+        )
+        throw e
+      }
+    },
+    [load]
+  )
+
   const plantsNeeded =
     summary?.totalPlantsNeeded ??
     cards.reduce((s, c) => s + (c.totalPlantsToSowWithBuffer || c.totalGap || 0), 0)
@@ -697,6 +757,9 @@ export default function EasyRequestPanel({
         }}
         card={drawerCard}
         raisingOnly={drawerRaisingOnly}
+        onUseCompanySeed={(orderRows, orderIds) =>
+          useCompanySeedForOrders(drawerCard, orderRows, orderIds)
+        }
         onRequestPackets={(orderRows, selectedOrderIds) => {
           const packs = packingsOf(drawerCard).filter((p) => !p.pendingRequest && !p.activeRequest)
           openRequest(drawerCard, packs, orderRows, selectedOrderIds)

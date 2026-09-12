@@ -35,6 +35,7 @@ export default function EasyRequestCard({
     raising,
     raisingOrders,
     raisingOrdersPlanned,
+    raisingOrdersCollected,
     raisingAvailable,
     raisingPendingCollect,
     isRaisingPlan,
@@ -125,7 +126,11 @@ export default function EasyRequestCard({
         ) : isRaisingPlan ? (
           <Chip
             size="small"
-            label={raisingAvailable ? `${raisingOrders} raising · in hand` : `${raisingOrdersPlanned} raising · not collected`}
+            label={
+              raisingAvailable
+                ? `${raisingOrdersCollected}/${raisingOrdersPlanned} raising · collected`
+                : `${raisingOrdersPlanned} raising · not collected`
+            }
             sx={{ height: 22, fontSize: "0.62rem", fontWeight: 800, bgcolor: raisingAvailable ? "#10b981" : "#f59e0b", color: "#fff", maxWidth: 160 }}
           />
         ) : null}
@@ -198,7 +203,7 @@ export default function EasyRequestCard({
         >
           <Typography fontSize="0.75rem" fontWeight={700} color={raisingAvailable ? "#065f46" : "#92400e"}>
             {raisingAvailable
-              ? `Raising collected: ${raisingOrders} · ${fmt(raising, 2)} pkt`
+              ? `Raising collected: ${raisingOrdersCollected}/${raisingOrdersPlanned} · ${fmt(raising, 2)} pkt`
               : `Farmer seed planned: ${raisingOrdersPlanned} · not collected`}
             {raisingOrders > 0 ? (
               <Typography component="span" fontSize="0.68rem" fontWeight={800} sx={{ ml: 0.75, textDecoration: "underline" }}>
