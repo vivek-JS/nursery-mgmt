@@ -127,6 +127,58 @@ export function applyBufferToPlants(basePlants, bufferPct) {
   return Math.round(base * (1 + pct / 100))
 }
 
+/** Build a request scope from explicit drawer selections, or fall back to the full card. */
+export function buildSelectedOrderRequestScope(
+  card,
+  orderRows = [],
+  selectedOrderIds = []
+) {
+  const openRows = (orderRows || []).filter((row) => !row?.alreadyRequested)
+  const selectedSet = new Set((selectedOrderIds || []).map(String))
+  const selectedRows = selectedSet.size
+    ? openRows.filter((row) => selectedSet.has(String(row.orderId)))
+    : openRows
+
+  if (!(orderRows || []).length) {
+    return {
+      selectedRows: [],
+      linkedOrderIds: [...selectedSet],
+      slotIds: (card?.slotIds || card?.slots || [])
+        .map((slot) =>
+          typeof slot === "object" ? slot?._id || slot?.slotId : slot
+        )
+        .filter(Boolean),
+      gapCard: card,
+      rawPlants: sumRawGapFromCard(card),
+    }
+  }
+
+  const rawPlants = selectedRows.reduce(
+    (sum, row) => sum + (Number(row?.numberOfPlants) || 0),
+    0
+  )
+  const bufferedPlants = applyBufferToPlants(
+    rawPlants,
+    Number(card?.sowingBuffer) || 0
+  )
+  const slotIds = [
+    ...new Set(selectedRows.map((row) => String(row?.bookingSlot || "")).filter(Boolean)),
+  ]
+
+  return {
+    selectedRows,
+    linkedOrderIds: selectedRows.map((row) => String(row.orderId)),
+    slotIds,
+    rawPlants,
+    gapCard: {
+      ...card,
+      totalPlantsToSowRaw: rawPlants,
+      totalPlantsToSowWithBuffer: bufferedPlants,
+      totalGap: bufferedPlants,
+    },
+  }
+}
+
 /**
  * Request gap for packet dialog: raising portion has no buffer; company portion keeps buffer.
  */

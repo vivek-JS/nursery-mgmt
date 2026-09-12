@@ -23,6 +23,7 @@ import { Toast } from "helpers/toasts/toastHelper"
 import SeedPlanChip from "./SeedPlanChip"
 import RaisingIntakeModal from "./RaisingIntakeModal"
 import {
+  buildSelectedOrderRequestScope,
   computeRequestPlantsGap,
   distributePackets,
   fmt,
@@ -71,24 +72,26 @@ export default function RequestPacketsDialog({
   const firstCfSelected =
     plantsPerPacket(selectedPackings[0]) || plantsPerPacket(card) || 1
   const raisingNum = parseFloat(raisingPkts) || 0
+  const requestScope = useMemo(
+    () =>
+      buildSelectedOrderRequestScope(card, orderRows, selectedOrderIds),
+    [card, orderRows, selectedOrderIds]
+  )
+  const selectedRows = requestScope.selectedRows
   const gapMetrics = useMemo(
     () =>
       computeRequestPlantsGap({
-        card,
+        card: requestScope.gapCard,
         raisingPackets: raisingNum,
         conversionFactor: firstCfSelected,
       }),
-    [card, raisingNum, firstCfSelected]
+    [requestScope.gapCard, raisingNum, firstCfSelected]
   )
   const plantsGap = gapMetrics.requestGap
   const companyPlantsTarget = gapMetrics.companyBuffered
 
   const planRaising = useMemo(() => {
-    const rows = orderRows.filter(
-      (o) => !selectedOrderIds.length || selectedOrderIds.includes(String(o.orderId))
-    )
-    const sourceRows = rows.length ? rows : orderRows
-    const inHandFromOrders = sourceRows.reduce((s, o) => {
+    const inHandFromOrders = selectedRows.reduce((s, o) => {
       const collected = Boolean(
         o?.raisingCollected ||
           o?.sowingPlan?.raisingIntakeCollected ||
@@ -100,13 +103,13 @@ export default function RequestPacketsDialog({
     }, 0)
     // When explicit orders are supplied, never borrow raising stock from
     // unselected orders via the card-level aggregate.
-    if (sourceRows.length > 0) return inHandFromOrders
+    if (orderRows.length > 0) return inHandFromOrders
     return (
       Number(card?.raisingInHandPackets) ||
       Number(card?.orderSeedSummary?.raisingInHandPackets) ||
       0
     )
-  }, [orderRows, selectedOrderIds, card])
+  }, [orderRows, selectedRows, card])
 
   const applyDistribution = (keys, mode = "stockFirst") => {
     const packs = selectable.filter((p) => keys.includes(packKey(p)))
@@ -218,22 +221,7 @@ export default function RequestPacketsDialog({
 
     try {
       setSaving(true)
-      const slotIds = (card.slotIds || card.slots || [])
-        .map((s) => (typeof s === "object" ? s._id || s.slotId : s))
-        .filter(Boolean)
-      const openOrderIds = orderRows
-        .filter((o) => !o.alreadyRequested)
-        .map((o) => String(o.orderId))
-      const linkedOrderIds =
-        selectedOrderIds.length > 0
-          ? selectedOrderIds.filter((id) =>
-              openOrderIds.length
-                ? openOrderIds.includes(String(id))
-                : true
-            )
-          : openOrderIds
-
-      if (orderRows.length > 0 && linkedOrderIds.length === 0) {
+      if (orderRows.length > 0 && requestScope.linkedOrderIds.length === 0) {
         Toast.error(
           "All selected orders were already requested. Cannot request again for the same order."
         )
@@ -273,8 +261,8 @@ export default function RequestPacketsDialog({
           packetsFromRaising: line.raise,
           seedSource: source,
           raisingIntakeIds: line.raise > 0 ? intakeIds : [],
-          linkedOrderIds,
-          slotIds,
+          linkedOrderIds: requestScope.linkedOrderIds,
+          slotIds: requestScope.slotIds,
           notes: noteParts.join(" · "),
         }
         if (line.packing.productId) body.productId = line.packing.productId
@@ -632,14 +620,10 @@ export default function RequestPacketsDialog({
         onClose={() => setShowRaising(false)}
         plantId={card?.plantId}
         subtypeId={card?.subtypeId}
-        orderId={selectedOrderIds[0]}
-        farmerName={
-          orderRows.find((o) => String(o.orderId) === String(selectedOrderIds[0]))?.farmerName
-        }
+        orderId={selectedRows[0]?.orderId}
+        farmerName={selectedRows[0]?.farmerName}
         defaultPackets={raising || 1}
-        slotIds={(card?.slotIds || card?.slots || [])
-          .map((s) => (typeof s === "object" ? s._id || s.slotId : s))
-          .filter(Boolean)}
+        slotIds={requestScope.slotIds}
         onCreated={(intake) => {
           setIntakeIds((prev) => [...prev, intake._id])
           if (!(raising > 0)) {
