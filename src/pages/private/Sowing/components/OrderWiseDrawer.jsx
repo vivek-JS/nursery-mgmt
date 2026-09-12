@@ -405,7 +405,7 @@ export default function OrderWiseDrawer({
                             }}
                           />
                         )}
-                        {locked && (
+                        {o.alreadyRequested && (
                           <Chip
                             size="small"
                             label={`Already requested · ${o.existingRequestNumber || "—"}`}
