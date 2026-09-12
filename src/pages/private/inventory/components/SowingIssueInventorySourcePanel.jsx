@@ -26,8 +26,6 @@ export default function SowingIssueInventorySourcePanel({
   biotechAvail,
   agriAvail,
   avail,
-  fillMode = 'fifo',
-  onFillModeChange,
   agriAllocations = {},
   onAgriAllocationChange,
 }) {
@@ -52,8 +50,8 @@ export default function SowingIssueInventorySourcePanel({
     },
   ];
   const agriBatches = useMemo(
-    () => sortBatchesByExpiry(avail?.ramAgriBatches || [], fillMode),
-    [avail?.ramAgriBatches, fillMode]
+    () => sortBatchesByExpiry(avail?.ramAgriBatches || [], 'fifo'),
+    [avail?.ramAgriBatches]
   );
   const agriAllocated = agriBatches.reduce(
     (sum, batch) => sum + (Number(agriAllocations[String(batch._id)]) || 0),
@@ -121,53 +119,6 @@ export default function SowingIssueInventorySourcePanel({
           })}
         </RadioGroup>
       </FormControl>
-
-      <FormControl component="fieldset" fullWidth sx={{ mt: 1.25 }}>
-        <FormLabel
-          component="legend"
-          sx={{ fontWeight: 800, mb: 0.5, color: 'text.primary', fontSize: 13 }}
-        >
-          Fill batches
-        </FormLabel>
-        <RadioGroup
-          row
-          sx={{ gap: 1 }}
-          value={fillMode}
-          onChange={(event, value) => onFillModeChange?.(value)}
-        >
-          <FormControlLabel
-            value="fifo"
-            control={<Radio size="small" />}
-            label={
-              <Box>
-                <Typography variant="body2" fontWeight={700}>
-                  Nearest expiry first
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  FIFO — earliest expiry fills the request
-                </Typography>
-              </Box>
-            }
-          />
-          <FormControlLabel
-            value="latest"
-            control={<Radio size="small" />}
-            label={
-              <Box>
-                <Typography variant="body2" fontWeight={700}>
-                  Latest expiry first
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  Farthest expiry fills first
-                </Typography>
-              </Box>
-            }
-          />
-        </RadioGroup>
-      </FormControl>
-      <Typography variant="caption" color="text.secondary" display="block" mt={0.5}>
-        Requested packets auto-fill in this order. You can still change any batch qty.
-      </Typography>
 
       {inventorySource === 'RAM_AGRI' && (
         <>

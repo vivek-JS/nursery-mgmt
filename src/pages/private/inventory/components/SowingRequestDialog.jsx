@@ -36,7 +36,6 @@ const SowingRequestDialog = ({ open, onClose, request, onSuccess }) => {
   const [inventorySource, setInventorySource] = useState('BIOTECH');
   const [packetsFromBiotech, setPacketsFromBiotech] = useState('');
   const [packetsFromRamAgri, setPacketsFromRamAgri] = useState('');
-  const [fillMode, setFillMode] = useState('fifo');
   const [agriAllocations, setAgriAllocations] = useState({});
 
   const avail = request?.inventoryAvailability;
@@ -117,7 +116,7 @@ const SowingRequestDialog = ({ open, onClose, request, onSuccess }) => {
     const primaryUnitId = request?.primaryUnit?._id?.toString();
     const secondaryUnitId = request?.secondaryUnit?._id?.toString();
 
-    const sortedBatches = sortBatchesByExpiry(batches, fillMode);
+    const sortedBatches = sortBatchesByExpiry(batches, 'fifo');
 
     for (let i = 0; i < sortedBatches.length && remainingToAllocate > 0.01; i++) {
       const batch = sortedBatches[i];
@@ -159,7 +158,7 @@ const SowingRequestDialog = ({ open, onClose, request, onSuccess }) => {
     if (Object.keys(newExpiryDates).length > 0) {
       setExpiryDates((prev) => ({ ...prev, ...newExpiryDates }));
     }
-  }, [request, batches, inventorySource, fillMode]);
+  }, [request, batches, inventorySource]);
 
   useEffect(() => {
     if (open && request) {
@@ -175,7 +174,6 @@ const SowingRequestDialog = ({ open, onClose, request, onSuccess }) => {
       setAgriAllocations({});
       setExpiryDates({});
       setError(null);
-      setFillMode('fifo');
       autoFilledRef.current = false;
       const preferredSource =
         request?.inventoryAvailability?.preferredSource === 'RAM_AGRI'
@@ -220,7 +218,7 @@ const SowingRequestDialog = ({ open, onClose, request, onSuccess }) => {
     }
     const filled = {};
     let remaining = targetAgri;
-    for (const batch of sortBatchesByExpiry(agriBatches, fillMode)) {
+    for (const batch of sortBatchesByExpiry(agriBatches, 'fifo')) {
       if (remaining <= 0.01) break;
       const available = Number(batch.remainingQuantity) || 0;
       if (available <= 0) continue;
@@ -231,10 +229,10 @@ const SowingRequestDialog = ({ open, onClose, request, onSuccess }) => {
       }
     }
     setAgriAllocations(filled);
-  }, [avail, inventorySource, fillMode, request]);
+  }, [avail, inventorySource, request]);
 
   useEffect(() => {
-    // Re-autofill when pool / fill order changes
+    // Re-autofill when inventory pool changes
     if (!open || !request) return;
     autoFilledRef.current = false;
     if (inventorySource === 'RAM_AGRI') {
@@ -250,7 +248,7 @@ const SowingRequestDialog = ({ open, onClose, request, onSuccess }) => {
       }, 50);
       return () => clearTimeout(t);
     }
-  }, [inventorySource, fillMode]);
+  }, [inventorySource]);
 
   const handleAgriAllocationChange = (batchId, value) => {
     const numValue = parseFloat(value) || 0;
@@ -432,7 +430,6 @@ const SowingRequestDialog = ({ open, onClose, request, onSuccess }) => {
         {
           batchAllocations,
           ramAgriBatchAllocations,
-          expiryOrder: fillMode,
           notes: `Issued from sowing request ${request.requestNumber} [${inventorySource}]`,
           purpose: 'production',
           inventorySource,
@@ -563,8 +560,6 @@ const SowingRequestDialog = ({ open, onClose, request, onSuccess }) => {
             biotechAvail={biotechAvail}
             agriAvail={agriAvail}
             avail={avail}
-            fillMode={fillMode}
-            onFillModeChange={setFillMode}
             agriAllocations={agriAllocations}
             onAgriAllocationChange={handleAgriAllocationChange}
             onSourceChange={(e) => {
@@ -639,7 +634,7 @@ const SowingRequestDialog = ({ open, onClose, request, onSuccess }) => {
                 onClick={autoFillAllocations}
                 disabled={batches.length === 0}
               >
-                {fillMode === 'latest' ? 'Fill latest expiry' : 'Fill nearest expiry'} ({splitQtys.bio.toFixed(2)})
+                Auto-Fill Biotech qty ({splitQtys.bio.toFixed(2)})
               </Button>
               <Typography variant="caption" color="text.secondary">
                 Biotech batches available: {calculateTotalAvailable().toFixed(2)} {request.unitName}
@@ -665,7 +660,7 @@ const SowingRequestDialog = ({ open, onClose, request, onSuccess }) => {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {sortBatchesByExpiry(batches, fillMode).map((batch) => {
+                  {sortBatchesByExpiry(batches, 'fifo').map((batch) => {
                     const allocated = allocations[batch._id] || 0;
                     const batchUnitId = batch.unit?._id?.toString();
                     const secondaryUnitId = request?.secondaryUnit?._id?.toString();
@@ -745,7 +740,7 @@ const SowingRequestDialog = ({ open, onClose, request, onSuccess }) => {
               </Box>
               {needAgri && (
                 <Typography variant="caption" color="text.secondary" display="block" mt={1}>
-                  Ram Agri share: {splitQtys.agri.toFixed(2)} ({fillMode === 'latest' ? 'latest expiry first' : 'nearest expiry first'})
+                  Ram Agri share: {splitQtys.agri.toFixed(2)}
                 </Typography>
               )}
               {excessPackets > 0 && (
