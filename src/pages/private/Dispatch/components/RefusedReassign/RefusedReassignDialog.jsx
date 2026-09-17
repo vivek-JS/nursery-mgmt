@@ -30,6 +30,7 @@ const RefusedReassignDialog = ({ open, onClose, dispatchData, onSuccess }) => {
   const [rows, setRows] = useState({})
   const [farmers, setFarmers] = useState([])
   const [submitting, setSubmitting] = useState(false)
+  const [completeAfterReassign, setCompleteAfterReassign] = useState(true)
 
   useEffect(() => {
     if (!open) {
@@ -38,6 +39,7 @@ const RefusedReassignDialog = ({ open, onClose, dispatchData, onSuccess }) => {
       setRows({})
       setFarmers([])
       setSubmitting(false)
+      setCompleteAfterReassign(true)
     }
   }, [open])
 
@@ -158,7 +160,7 @@ const RefusedReassignDialog = ({ open, onClose, dispatchData, onSuccess }) => {
       )
       if (res?.data?.status === "Success" || res?.data?.status) {
         Toast.success(res?.data?.message || "Reassignment complete")
-        onSuccess?.()
+        onSuccess?.({ completeAfterReassign })
         onClose?.()
       } else {
         Toast.error(res?.data?.message || "Could not complete reassignment")
@@ -211,15 +213,29 @@ const RefusedReassignDialog = ({ open, onClose, dispatchData, onSuccess }) => {
             />
           )}
           {step === 4 && (
-            <StepReview
-              mode={mode}
-              orders={orders}
-              rows={rows}
-              farmers={farmers}
-              vehiclePlants={vehiclePlants}
-              totalReturned={totalReturned}
-              totalReassigned={totalReassigned}
-            />
+            <>
+              <StepReview
+                mode={mode}
+                orders={orders}
+                rows={rows}
+                farmers={farmers}
+                vehiclePlants={vehiclePlants}
+                totalReturned={totalReturned}
+                totalReassigned={totalReassigned}
+              />
+              <label className="mt-4 flex cursor-pointer items-start gap-2 rounded-lg border border-green-200 bg-green-50/80 px-3 py-2 text-sm text-green-950">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 rounded border-green-400 text-green-600 focus:ring-green-500"
+                  checked={completeAfterReassign}
+                  onChange={(e) => setCompleteAfterReassign(e.target.checked)}
+                />
+                <span>
+                  After reassign, return to <strong>Complete delivery</strong> so you can finish
+                  transport (batch/shed, payments, mark complete).
+                </span>
+              </label>
+            </>
           )}
         </div>
 
