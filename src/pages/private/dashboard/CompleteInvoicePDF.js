@@ -115,6 +115,12 @@ const CompleteInvoicePDF = ({ open, onClose, dispatchData }) => {
         ? plantLines.reduce((s, l) => s + l.qty, 0)
         : dispatchedQty || 0
 
+    const completeBatch = order?.deliveryCompleteBatch || order?.details?.deliveryCompleteBatch
+    const batchLabel =
+      String(completeBatch?.batchNumber ?? order?.batchNumber ?? order?.details?.batchNumber ?? "").trim() ||
+      "—"
+    const shedLabel = String(completeBatch?.pollyhouse ?? "").trim()
+
     const infoRows = [
       ["चालक", dispatchData.driverName, "वाहन", dispatchData.vehicleName],
       [
@@ -130,6 +136,12 @@ const CompleteInvoicePDF = ({ open, onClose, dispatchData }) => {
         orderNum || "—",
       ],
       ["रोप", plantName, "डिस्पॅच", totalQty],
+      [
+        "बॅच",
+        batchLabel,
+        shedLabel ? "शेड" : "—",
+        shedLabel || "—",
+      ],
     ]
 
     return (
