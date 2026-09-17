@@ -740,7 +740,7 @@ const SowingRequestDialog = ({ open, onClose, request, onSuccess }) => {
               </Box>
               {needAgri && (
                 <Typography variant="caption" color="text.secondary" display="block" mt={1}>
-                  Ram Agri share: {splitQtys.agri.toFixed(2)}
+                  Ram Agri share: {splitQtys.agri.toFixed(2)} packets
                 </Typography>
               )}
               {excessPackets > 0 && (

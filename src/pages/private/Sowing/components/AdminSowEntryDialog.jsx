@@ -13,6 +13,7 @@ import {
   Alert,
   CircularProgress,
   Chip,
+  Box,
 } from "@mui/material"
 import { NetworkManager, API } from "network/core"
 import { Toast } from "helpers/toasts/toastHelper"
@@ -44,6 +45,14 @@ function companyPacketCap(req) {
   return Number(req?.packetsRequested) || Number(req?.packetsIssued) || 0
 }
 
+function raisingPacketCap(req) {
+  return Math.max(0, Number(req?.packetsFromRaising) || 0)
+}
+
+function leftoverOf(open, used, returned) {
+  return Math.max(0, Number((open - used - returned).toFixed(2)))
+}
+
 function parsePagedList(res) {
   const body = res?.data
   const nested = body?.data?.data
@@ -63,15 +72,114 @@ function houseOption(row, group) {
   return { value, label, group }
 }
 
+function PacketPoolCard({
+  title,
+  hint,
+  accent,
+  openPkts,
+  used,
+  onUsed,
+  returned,
+  onReturned,
+  canReturn,
+}) {
+  const usedNum = Number(used) || 0
+  const returnedNum = canReturn ? Number(returned) || 0 : 0
+  const leftover = leftoverOf(openPkts, usedNum, returnedNum)
+  const over = usedNum + returnedNum - openPkts > 0.001
+
+  return (
+    <Box
+      sx={{
+        p: 1.5,
+        borderRadius: 2,
+        border: "1.5px solid",
+        borderColor: accent.border,
+        bgcolor: accent.bg,
+      }}
+    >
+      <Stack direction="row" justifyContent="space-between" alignItems="center" mb={1} gap={1}>
+        <Box minWidth={0}>
+          <Typography fontWeight={800} fontSize="0.82rem" color={accent.title}>
+            {title}
+          </Typography>
+          <Typography fontSize="0.7rem" fontWeight={600} color="text.secondary">
+            {hint}
+          </Typography>
+        </Box>
+        <Chip
+          size="small"
+          label={`${openPkts} pkt open`}
+          sx={{
+            height: 22,
+            fontSize: "0.62rem",
+            fontWeight: 800,
+            bgcolor: accent.chip,
+            color: "#fff",
+          }}
+        />
+      </Stack>
+      <Stack direction={{ xs: "column", sm: "row" }} spacing={1.25}>
+        <TextField
+          label="Packets used *"
+          type="number"
+          value={used}
+          onChange={(e) => onUsed(e.target.value)}
+          fullWidth
+          size="small"
+          inputProps={{ min: 0, max: openPkts }}
+          helperText={`Open ${openPkts} pkt`}
+        />
+        {canReturn ? (
+          <TextField
+            label="Packets returned"
+            type="number"
+            value={returned}
+            onChange={(e) => onReturned(e.target.value)}
+            fullWidth
+            size="small"
+            inputProps={{ min: 0, max: openPkts }}
+            helperText={`Max ${openPkts}`}
+          />
+        ) : (
+          <TextField
+            label="Packets returned"
+            value="—"
+            fullWidth
+            size="small"
+            disabled
+            helperText="No return on this pool"
+          />
+        )}
+      </Stack>
+      {over ? (
+        <Alert severity="error" sx={{ mt: 1, py: 0.25 }}>
+          Used + returned cannot exceed {openPkts} pkt still open.
+        </Alert>
+      ) : leftover > 0.001 ? (
+        <Alert severity="warning" sx={{ mt: 1, py: 0.25 }}>
+          {leftover} pkt stay on this request — it will not close from this pool.
+        </Alert>
+      ) : (
+        <Alert severity="success" sx={{ mt: 1, py: 0.25 }}>
+          Used + returned matches open — this pool is settled.
+        </Alert>
+      )}
+    </Box>
+  )
+}
+
 /**
  * Office / Super Admin sow entry — completes an issued sowing request (same complete-sow API as shed).
- * Request stays issued when used + returned < packets still open.
+ * Request stays issued when company + raising used + returned < packets still open.
  */
 export default function AdminSowEntryDialog({ open, request, card, onClose, onSuccess }) {
   const [plants, setPlants] = useState("")
   const [sowDate, setSowDate] = useState(todayYmd)
   const [packetsUsed, setPacketsUsed] = useState("")
   const [packetsReturned, setPacketsReturned] = useState("")
+  const [raisingUsed, setRaisingUsed] = useState("")
+  const [raisingReturned, setRaisingReturned] = useState("")
   const [shedName, setShedName] = useState("")
   const [shedOptions, setShedOptions] = useState([])
   const [shedsLoading, setShedsLoading] = useState(false)
@@ -87,23 +195,39 @@ export default function AdminSowEntryDialog({ open, request, card, onClose, onSu
     const pkts = Number(req?.packetsRequested) || 0
     return Math.round(pkts * cf) || Number(card?.totalPlantsInProgress) || 0
   }, [req, cf, card])
-  const returnable = companyPacketCap(req)
-  const canReturn = returnable > 0
-  const issuedOpen = useMemo(() => {
+  const companyCap = companyPacketCap(req)
+  const raisingCap = raisingPacketCap(req)
+  const hasCompany = companyCap > 0
+  const hasRaising = raisingCap > 0
+  const companyOpen = useMemo(() => {
     const issued =
       Number(req?.packetsIssued) ||
-      returnable ||
-      Number(req?.packetsRequested) ||
+      companyCap ||
       0
     const alreadyUsed = Number(req?.packetsUsed) || 0
     const alreadyReturned = Number(req?.packetsReturned) || 0
-    return Math.max(0, issued - alreadyUsed - alreadyReturned)
-  }, [req, returnable])
+    return Math.max(0, Number((issued - alreadyUsed - alreadyReturned).toFixed(2)))
+  }, [req, companyCap])
+  const raisingOpen = useMemo(() => {
+    const alreadyUsed = Number(req?.raisingPacketsUsed) || 0
+    const alreadyReturned = Number(req?.raisingPacketsReturned) || 0
+    return Math.max(0, Number((raisingCap - alreadyUsed - alreadyReturned).toFixed(2)))
+  }, [req, raisingCap])
+
   const plantsNum = Number(plants) || 0
   const usedNum = Number(packetsUsed) || 0
   const returnedNum = Number(packetsReturned) || 0
-  const leftoverPkts = Math.max(0, Number((issuedOpen - usedNum - (canReturn ? returnedNum : 0)).toFixed(2)))
+  const raisingUsedNum = Number(raisingUsed) || 0
+  const raisingReturnedNum = Number(raisingReturned) || 0
+  const leftoverCompany = hasCompany ? leftoverOf(companyOpen, usedNum, returnedNum) : 0
+  const leftoverRaising = hasRaising
+    ? leftoverOf(raisingOpen, raisingUsedNum, raisingReturnedNum)
+    : 0
+  const leftoverPkts = leftoverCompany + leftoverRaising
   const willClose = leftoverPkts <= 0.001
+  const companyOver = hasCompany && usedNum + returnedNum - companyOpen > 0.001
+  const raisingOver = hasRaising && raisingUsedNum + raisingReturnedNum - raisingOpen > 0.001
+  const packetsOver = companyOver || raisingOver
   const readyDaysNum = Math.max(0, Number(plantReadyDays) || 0)
   const defaultReady =
     Number(card?.plantReadyDays) || Number(req?.plantReadyDays) || 0
@@ -119,14 +243,16 @@ export default function AdminSowEntryDialog({ open, request, card, onClose, onSu
     if (!open || !req) return
     setPlants(expectedPlants > 0 ? String(expectedPlants) : "")
     setSowDate(todayYmd())
-    setPacketsUsed(issuedOpen > 0 ? String(issuedOpen) : "")
+    setPacketsUsed(hasCompany && companyOpen > 0 ? String(companyOpen) : "")
     setPacketsReturned("")
+    setRaisingUsed(hasRaising && raisingOpen > 0 ? String(raisingOpen) : "")
+    setRaisingReturned("")
     setShedName("")
     setLadies("")
     setGents("")
     setNotes("")
     setPlantReadyDays(defaultReady > 0 ? String(defaultReady) : "")
-  }, [open, req?._id, expectedPlants, issuedOpen, defaultReady])
+  }, [open, req?._id, expectedPlants, companyOpen, raisingOpen, hasCompany, hasRaising, defaultReady])
 
   useEffect(() => {
     if (!open) return
@@ -170,31 +296,36 @@ export default function AdminSowEntryDialog({ open, request, card, onClose, onSu
 
   if (!open || !req?._id) return null
 
-  const usedPlusReturned = usedNum + (canReturn ? returnedNum : 0)
-  const packetsOver = usedPlusReturned - issuedOpen > 0.001
+  const companyTouched = hasCompany && (usedNum > 0 || returnedNum > 0)
+  const raisingTouched = hasRaising && (raisingUsedNum > 0 || raisingReturnedNum > 0)
   const canSubmit =
     Boolean(shedName.trim()) &&
     Boolean(String(sowDate || "").trim()) &&
     readyDaysNum >= 1 &&
-    (plantsNum > 0 || (canReturn && returnedNum > 0)) &&
-    !packetsOver &&
-    (issuedOpen <= 0 || usedPlusReturned > 0 || plantsNum > 0)
+    (plantsNum > 0 || companyTouched || raisingTouched) &&
+    !packetsOver
 
   const handleSubmit = async () => {
     if (!canSubmit) {
       Toast.error("Select sow date, pollyhouse/shed, plant ready days, and plants / packets")
       return
     }
-    if (packetsOver) {
-      Toast.error(`Used + returned cannot exceed ${issuedOpen} pkt still issued`)
+    if (companyOver) {
+      Toast.error(`Company used + returned cannot exceed ${companyOpen} pkt still issued`)
+      return
+    }
+    if (raisingOver) {
+      Toast.error(`Raising used + returned cannot exceed ${raisingOpen} pkt still open`)
       return
     }
     setSaving(true)
     try {
       const payload = {
         plantsSowed: plantsNum,
-        packetsUsed: usedNum,
-        packetsToReturn: canReturn ? returnedNum : 0,
+        packetsUsed: hasCompany ? usedNum : 0,
+        packetsToReturn: hasCompany ? returnedNum : 0,
+        raisingPacketsUsed: hasRaising ? raisingUsedNum : 0,
+        raisingPacketsToReturn: hasRaising ? raisingReturnedNum : 0,
         shedName: shedName.trim(),
         laboursLadies: Number(ladies) || 0,
         laboursGents: Number(gents) || 0,
@@ -228,8 +359,20 @@ export default function AdminSowEntryDialog({ open, request, card, onClose, onSu
   }
 
   return (
-    <Dialog open={open} onClose={saving ? undefined : onClose} fullWidth maxWidth="sm">
-      <DialogTitle sx={{ fontWeight: 800, pb: 0.5 }}>
+    <Dialog
+      open={open}
+      onClose={saving ? undefined : onClose}
+      fullWidth
+      maxWidth="sm"
+      PaperProps={{
+        sx: {
+          borderRadius: 3,
+          border: "1.5px solid #93c5fd",
+          boxShadow: "0 12px 36px rgba(37,99,235,0.16)",
+        },
+      }}
+    >
+      <DialogTitle sx={{ fontWeight: 800, pb: 0.5, bgcolor: "#eff6ff" }}>
         Enter sow
         <Typography variant="body2" color="text.secondary" fontWeight={500}>
           {card?.plantName || req.plantName} · {card?.subtypeName || req.subtypeName}
@@ -237,27 +380,45 @@ export default function AdminSowEntryDialog({ open, request, card, onClose, onSu
           {req.requestNumber}
         </Typography>
       </DialogTitle>
-      <DialogContent>
+      <DialogContent sx={{ bgcolor: "#f8fafc" }}>
         <Stack spacing={1.75} mt={1}>
+          <Box
+            sx={{
+              px: 1.25,
+              py: 1,
+              borderRadius: 2,
+              bgcolor: "#dbeafe",
+              border: "1px solid #93c5fd",
+            }}
+          >
+            <Typography fontSize="0.78rem" fontWeight={800} color="#1d4ed8">
+              Stock issued — enter used and return for each seed pool
+            </Typography>
+            <Typography fontSize="0.7rem" fontWeight={600} color="text.secondary">
+              Ready date = sow date + plant ready days. Leftover packets keep the request open.
+            </Typography>
+          </Box>
+
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
             <Chip size="small" label={`Expected ~${expectedPlants} plants`} />
-            <Chip
-              size="small"
-              label={`${issuedOpen} pkt still issued`}
-              color="primary"
-              variant="outlined"
-            />
-            {canReturn ? (
-              <Chip size="small" label={`Company cap ${returnable} pkt`} variant="outlined" />
-            ) : (
-              <Chip size="small" label="Raising / no return" variant="outlined" />
-            )}
+            {hasCompany ? (
+              <Chip
+                size="small"
+                label={`Company ${companyOpen} pkt`}
+                sx={{ bgcolor: "#2563eb", color: "#fff", fontWeight: 700 }}
+              />
+            ) : null}
+            {hasRaising ? (
+              <Chip
+                size="small"
+                label={`Raising ${raisingOpen} pkt`}
+                sx={{ bgcolor: "#16a34a", color: "#fff", fontWeight: 700 }}
+              />
+            ) : null}
+            {!hasCompany && !hasRaising ? (
+              <Chip size="small" label="No packets open" variant="outlined" />
+            ) : null}
           </Stack>
-
-          <Alert severity="info" sx={{ py: 0.5 }}>
-            Ready date = sow date + plant ready days (maps to calendar slot). If used + returned
-            is less than issued, the request stays open with leftover packets.
-          </Alert>
 
           <TextField
             label="Plants sowed *"
@@ -292,46 +453,54 @@ export default function AdminSowEntryDialog({ open, request, card, onClose, onSu
             }
           />
 
-          <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
-            <TextField
-              label="Packets used *"
-              type="number"
-              value={packetsUsed}
-              onChange={(e) => setPacketsUsed(e.target.value)}
-              fullWidth
-              inputProps={{ min: 0, max: issuedOpen }}
-              helperText={`Open ${issuedOpen} pkt`}
+          {hasCompany && companyOpen > 0 ? (
+            <PacketPoolCard
+              title="Company seed"
+              hint="Warehouse / Ram Agri issue — return unused bags"
+              accent={{
+                bg: "#eff6ff",
+                border: "#93c5fd",
+                title: "#1d4ed8",
+                chip: "#2563eb",
+              }}
+              openPkts={companyOpen}
+              used={packetsUsed}
+              onUsed={setPacketsUsed}
+              returned={packetsReturned}
+              onReturned={setPacketsReturned}
+              canReturn
             />
-            {canReturn && (
-              <TextField
-                label="Packets returned"
-                type="number"
-                value={packetsReturned}
-                onChange={(e) => setPacketsReturned(e.target.value)}
-                fullWidth
-                inputProps={{ min: 0, max: issuedOpen }}
-                helperText={`Max ${issuedOpen}`}
-              />
-            )}
-          </Stack>
-
-          {issuedOpen > 0 ? (
-            leftoverPkts > 0.001 ? (
-              <Alert severity="warning" sx={{ py: 0.5 }}>
-                Used {usedNum} + returned {canReturn ? returnedNum : 0} = {usedPlusReturned} of{" "}
-                {issuedOpen} issued. <strong>{leftoverPkts} pkt stay on this request</strong> — it
-                will not close.
-              </Alert>
-            ) : (
-              <Alert severity="success" sx={{ py: 0.5 }}>
-                Used + returned matches issued — request will close.
-              </Alert>
-            )
           ) : null}
 
-          {packetsOver ? (
-            <Alert severity="error" sx={{ py: 0.5 }}>
-              Used + returned cannot be more than {issuedOpen} pkt still issued.
+          {hasRaising && raisingOpen > 0 ? (
+            <PacketPoolCard
+              title="Raising seed"
+              hint="Customer seed — used vs returned to intake"
+              accent={{
+                bg: "#f0fdf4",
+                border: "#86efac",
+                title: "#166534",
+                chip: "#16a34a",
+              }}
+              openPkts={raisingOpen}
+              used={raisingUsed}
+              onUsed={setRaisingUsed}
+              returned={raisingReturned}
+              onReturned={setRaisingReturned}
+              canReturn
+            />
+          ) : null}
+
+          {leftoverPkts > 0.001 ? (
+            <Alert severity="warning" sx={{ py: 0.5 }}>
+              {leftoverCompany > 0.001 ? `${leftoverCompany} company pkt` : null}
+              {leftoverCompany > 0.001 && leftoverRaising > 0.001 ? " + " : null}
+              {leftoverRaising > 0.001 ? `${leftoverRaising} raising pkt` : null}
+              {" stay on this request — it will not close."}
+            </Alert>
+          ) : hasCompany || hasRaising ? (
+            <Alert severity="success" sx={{ py: 0.5 }}>
+              Company and raising pools match issued — request will close.
             </Alert>
           ) : null}
 
@@ -409,7 +578,7 @@ export default function AdminSowEntryDialog({ open, request, card, onClose, onSu
           )}
         </Stack>
       </DialogContent>
-      <DialogActions sx={{ px: 3, pb: 2 }}>
+      <DialogActions sx={{ px: 3, pb: 2, bgcolor: "#eff6ff" }}>
         <Button onClick={onClose} disabled={saving}>
           Cancel
         </Button>

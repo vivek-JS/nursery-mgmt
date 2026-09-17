@@ -248,6 +248,10 @@ export const API = {
     GET_PRODUCT_AGRI_LINK: new APIRouter("/inventory/products/:id/agri-link", HTTP_METHODS.GET),
     PATCH_PRODUCT_AGRI_LINK: new APIRouter("/inventory/products/:id/agri-link", HTTP_METHODS.PATCH),
     GET_PRODUCT_STOCK_LEDGER: new APIRouter("/inventory/products/:id/stock-ledger", HTTP_METHODS.GET),
+    POST_PRODUCT_MANUAL_STOCK: new APIRouter(
+      "/inventory/products/:id/manual-stock",
+      HTTP_METHODS.POST
+    ),
 
     // Categories
     GET_ALL_CATEGORIES: new APIRouter("/inventory/categories", HTTP_METHODS.GET),
@@ -888,6 +892,11 @@ export const API = {
     ),
     RUN_PAST_DUE_ROLLOVER: new APIRouter(
       "/slots/past-due-rollover/run",
+      HTTP_METHODS.POST,
+      OFFLINE.PROFILE
+    ),
+    RUN_SLOT_END_NIGHTLY: new APIRouter(
+      "/slots/slot-end-nightly/run",
       HTTP_METHODS.POST,
       OFFLINE.PROFILE
     ),

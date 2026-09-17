@@ -82,6 +82,17 @@ export function groupDispatchesByDate(dispatches = []) {
   return [...map.values()].sort((a, b) => b.dateKey.localeCompare(a.dateKey));
 }
 
+import { orderPlantSubtypeNames, orderPlantIds } from "utils/orderPlantResolve";
+
+export { orderPlantSubtypeNames, orderPlantIds };
+
+export function formatPlantSubtypeBoldLabel(plant, subtype) {
+  if (plant && subtype) return { plant, subtype, combined: `${plant} · ${subtype}` };
+  if (plant) return { plant, subtype: "", combined: plant };
+  if (subtype) return { plant: "", subtype, combined: subtype };
+  return { plant: "", subtype: "", combined: "—" };
+}
+
 /** Summarize dispatch row for table display. */
 export function summarizeDispatchRow(dispatch) {
   const orders = Array.isArray(dispatch?.orderIds) ? dispatch.orderIds : [];
@@ -90,6 +101,7 @@ export function summarizeDispatchRow(dispatch) {
   let paidTotal = 0;
   const farmerNames = [];
   const orderRows = [];
+  const plantLabels = new Set();
 
   for (const entry of orders) {
     const det = entry?.details || {};
@@ -107,9 +119,15 @@ export function summarizeDispatchRow(dispatch) {
     plantTotal += qty;
     amountTotal += lineTotal;
     paidTotal += paid;
+    const { plant, subtype } = orderPlantSubtypeNames(entry);
+    const plantFmt = formatPlantSubtypeBoldLabel(plant, subtype);
+    if (plantFmt.combined !== "—") plantLabels.add(plantFmt.combined);
     orderRows.push({
       orderId: entry?.order ?? entry?.orderId ?? det?.orderid ?? "—",
       farmerName: name,
+      plantName: plantFmt.plant,
+      plantSubtype: plantFmt.subtype,
+      plantLabel: plantFmt.combined,
       village: farmer?.village || "",
       quantity: qty,
       rate,
@@ -139,6 +157,7 @@ export function summarizeDispatchRow(dispatch) {
     status: dispatch?.transportStatus || dispatch?.dispatchStatus || "PENDING",
     orderCount: orders.length,
     plantTotal,
+    plantSummary: [...plantLabels],
     amountTotal,
     paidTotal,
     dueTotal: Math.max(0, amountTotal - paidTotal),
@@ -192,10 +211,15 @@ export function normalizeDispatchSearchHit(entry, dispatch) {
   const farmer = det.farmer || entry?.farmer || {};
   const qty = Number(entry?.quantity ?? entry?.numberOfPlants ?? 0);
   const rate = Number(entry?.rate ?? det?.rate ?? 0);
+  const { plant, subtype } = orderPlantSubtypeNames(entry);
+  const plantFmt = formatPlantSubtypeBoldLabel(plant, subtype);
   return {
     orderMongoId: String(entry._id ?? det.orderid ?? ""),
     orderId: entry?.order ?? entry?.orderId ?? "—",
     farmerName: entry?.farmerName || farmer?.name || "—",
+    plantName: plantFmt.plant,
+    plantSubtype: plantFmt.subtype,
+    plantLabel: plantFmt.combined,
     farmerMobile: entry?.contact || farmer?.mobileNumber || "",
     dispatchId: String(dispatch?._id || ""),
     transportId: dispatch?.transportId ?? "—",

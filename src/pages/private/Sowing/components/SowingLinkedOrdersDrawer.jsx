@@ -209,6 +209,18 @@ export default function SowingLinkedOrdersDrawer({
                   {o.numberOfPlants} plants
                   {o.suggestedPackets != null ? ` · ~${o.suggestedPackets} pkt` : ""}
                 </Typography>
+                {(o.bookingDate || o.orderBookingDate || o.createdAt) && (
+                  <Typography variant="caption" fontWeight={700} display="block" sx={{ mt: 0.25 }}>
+                    Booking:{" "}
+                    {new Date(
+                      o.bookingDate || o.orderBookingDate || o.createdAt
+                    ).toLocaleDateString("en-IN", {
+                      day: "2-digit",
+                      month: "short",
+                      year: "numeric",
+                    })}
+                  </Typography>
+                )}
                 {(o.deliveryDate || o.sowByDate) && (
                   <Typography variant="caption" fontWeight={700} display="block" sx={{ mt: 0.25 }}>
                     {o.deliveryDate

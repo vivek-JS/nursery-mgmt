@@ -9,7 +9,8 @@ export const REASSIGN_MODES = [
   {
     id: "SOME",
     title: "Gaditle kahi rope dusrya shetkaryanna utarli",
-    subtitle: "Some plants given to other farmers, the rest returned to nursery",
+    subtitle:
+      "Original farmer may keep some (e.g. 2000), rest to other farmers (800) and/or returned to nursery",
   },
   {
     id: "RETURNED",
@@ -65,3 +66,50 @@ export const onVehicleQty = (order) => {
 }
 
 export const round2 = (n) => Math.round(Number(n || 0) * 100) / 100
+
+/** UI disposition → API disposition string */
+export const dispositionToApi = (uiValue) => {
+  const d = String(uiValue || "TEMP").toUpperCase()
+  if (d === "KEEP") return "KEEP"
+  if (d === "DISPATCH" || d === "COMPLETE" || d === "DELIVERED") return "DISPATCHED"
+  if (d === "CANCEL_COMPLETE" || d === "CANCEL_FINAL") return "CANCELLED"
+  return "TEMPORARY_CANCELLED"
+}
+
+export const dispositionLabel = (uiValue) => {
+  const d = String(uiValue || "TEMP").toUpperCase()
+  if (d === "KEEP") return "Accepted (resend)"
+  if (d === "DISPATCH" || d === "COMPLETE" || d === "DELIVERED") return "Complete (delivered)"
+  if (d === "CANCEL_COMPLETE" || d === "CANCEL_FINAL") return "Cancel complete (no resend)"
+  return "Temporary cancelled"
+}
+
+/** Plants the original farmer kept on this trip (explicit keptQty, or full on vehicle if Complete). */
+export const keptQtyForRow = (order, row = {}) => {
+  const onV = onVehicleQty(order)
+  const ret = Math.max(0, Number(row.returnedQty) || 0)
+  const maxKept = Math.max(0, onV - ret)
+  const ui = String(row.disposition || "TEMP").toUpperCase()
+  const explicit = Math.max(0, Number(row.keptQty) || 0)
+  if (ui === "DISPATCH" || ui === "COMPLETE" || ui === "DELIVERED") {
+    if (explicit > 0) return Math.min(explicit, maxKept)
+    return maxKept
+  }
+  return Math.min(explicit, maxKept)
+}
+
+export const toOtherFarmersQtyForRow = (order, row = {}) => {
+  const onV = onVehicleQty(order)
+  const ret = Math.max(0, Number(row.returnedQty) || 0)
+  const kept = keptQtyForRow(order, row)
+  return Math.max(0, onV - ret - kept)
+}
+
+export const plantsKeptByOriginal = (orders, rows) =>
+  (orders || []).reduce((sum, order) => {
+    const id = orderMongoId(order)
+    return sum + keptQtyForRow(order, rows[id] || {})
+  }, 0)
+
+/** @deprecated use plantsKeptByOriginal */
+export const plantsDispatchedToOriginal = plantsKeptByOriginal

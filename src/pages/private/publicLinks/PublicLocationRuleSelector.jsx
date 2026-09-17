@@ -1,90 +1,101 @@
-import React, { useEffect, useState } from "react"
+import React, { useEffect, useMemo, useState } from "react"
 import {
+  Autocomplete,
   Box,
-  TextField,
   Checkbox,
-  FormControlLabel,
   Chip,
-  Typography,
-  Divider
+  Divider,
+  FormControlLabel,
+  InputAdornment,
+  Tab,
+  Tabs,
+  TextField,
+  Typography
 } from "@mui/material"
+import SearchRoundedIcon from "@mui/icons-material/SearchRounded"
+import PlaceOutlinedIcon from "@mui/icons-material/PlaceOutlined"
 import { API, NetworkManager } from "network/core"
 
-const PublicLocationRuleSelector = ({ rule, onChange }) => {
-  const [states, setStates] = useState([])
+const C = {
+  primary: "#1B7A4E",
+  primarySoft: "#E8F5EE",
+  ink: "#163027",
+  muted: "#5B6B63",
+  line: "#D7E3DB",
+  surface: "#F7FBF8"
+}
+
+const emptyRuleForState = (state) => ({
+  stateCode: state.code,
+  stateName: state.name,
+  districts: [],
+  talukas: [],
+  villages: []
+})
+
+const StateRulePanel = ({ rule, onChange }) => {
   const [districts, setDistricts] = useState([])
   const [talukas, setTalukas] = useState([])
-  const [villages, setVillages] = useState([])
   const [villagesByTaluka, setVillagesByTaluka] = useState({})
   const [districtQuery, setDistrictQuery] = useState("")
   const [talukaQuery, setTalukaQuery] = useState("")
   const [villageQuery, setVillageQuery] = useState("")
+  const [loadingDistricts, setLoadingDistricts] = useState(false)
+  const [loadingTalukas, setLoadingTalukas] = useState(false)
 
-  // Load all states once
-  useEffect(() => {
-    const loadStates = async () => {
-      try {
-        const instance = NetworkManager(API.LOCATION.GET_STATES_ONLY)
-        const response = await instance.request()
-        if (response?.data?.status === "success" && Array.isArray(response.data.data)) {
-          setStates(response.data.data.map((s) => ({ id: s.id, name: s.name, code: s.code })))
-        } else {
-          setStates([])
-        }
-      } catch (err) {
-        console.error("Failed to load states for public link selector", err)
-        setStates([])
-      }
-    }
-    loadStates()
-  }, [])
+  const updateRule = (patch) => {
+    onChange({
+      ...rule,
+      ...patch
+    })
+  }
 
-  // When state changes, load districts
   useEffect(() => {
-    const state = states.find((s) => s.code === rule.stateCode)
-    if (state) {
-    const loadDistricts = async () => {
-        try {
-          const instance = NetworkManager(API.LOCATION.GET_CASCADING_LOCATION)
-          const response = await instance.request({ state: state.name })
-          const apiDistricts = response?.data?.data?.districts || []
-          setDistricts(
-            apiDistricts.map((d) => ({
-              id: d.id,
-              name: d.name,
-              code: d.code
-            }))
-          )
-        } catch (err) {
-          console.error("Failed to load districts for state", state.name, err)
-          setDistricts([])
-        }
-      }
-      loadDistricts()
-    } else {
+    if (!rule.stateName) {
       setDistricts([])
       setTalukas([])
-      setVillages([])
       setVillagesByTaluka({})
+      return
     }
-  }, [rule.stateCode, states])
+
+    const loadDistricts = async () => {
+      setLoadingDistricts(true)
+      try {
+        const instance = NetworkManager(API.LOCATION.GET_CASCADING_LOCATION)
+        const response = await instance.request({ state: rule.stateName })
+        const apiDistricts = response?.data?.data?.districts || []
+        setDistricts(
+          apiDistricts.map((d) => ({
+            id: d.id,
+            name: d.name,
+            code: d.code
+          }))
+        )
+      } catch (err) {
+        console.error("Failed to load districts for state", rule.stateName, err)
+        setDistricts([])
+      } finally {
+        setLoadingDistricts(false)
+      }
+    }
+    loadDistricts()
+  }, [rule.stateCode, rule.stateName])
 
   useEffect(() => {
-    const state = states.find((s) => s.code === rule.stateCode)
-    if (!state || !rule.districts || rule.districts.length === 0) {
+    if (!rule.stateName || !rule.districts || rule.districts.length === 0) {
       setTalukas([])
-      setVillages([])
       setVillagesByTaluka({})
       return
     }
 
     const loadTalukas = async () => {
+      setLoadingTalukas(true)
       try {
         const allTalukas = []
         for (const d of rule.districts) {
           const instance = NetworkManager(API.LOCATION.GET_CASCADING_LOCATION)
           const response = await instance.request({
-            state: state.name,
+            state: rule.stateName,
             district: d.districtName
           })
           const apiTalukas = response?.data?.data?.talukas || []
@@ -95,7 +106,8 @@ const PublicLocationRuleSelector = ({ rule, onChange }) => {
                 name: t.name,
                 code: t.code,
                 districtId: d.districtId,
-                districtName: d.districtName
+                districtName: d.districtName,
+                districtCode: d.districtCode
               })
             }
           })
@@ -105,51 +117,47 @@ const PublicLocationRuleSelector = ({ rule, onChange }) => {
         console.error("Failed to load talukas for selected districts", err)
         setTalukas([])
       } finally {
-        setVillages([])
+        setLoadingTalukas(false)
         setVillagesByTaluka({})
       }
     }
     loadTalukas()
-  }, [rule.districts])
+  }, [rule.districts, rule.stateName])
 
   useEffect(() => {
-    const state = states.find((s) => s.code === rule.stateCode)
-    if (!state || !rule.talukas || rule.talukas.length === 0 || !rule.districts || rule.districts.length === 0) {
-      setVillages([])
+    if (
+      !rule.stateName ||
+      !rule.talukas ||
+      rule.talukas.length === 0 ||
+      !rule.districts ||
+      rule.districts.length === 0
+    ) {
       setVillagesByTaluka({})
       return
     }
 
     const loadVillages = async () => {
       try {
-        const allVillages = []
         const map = {}
 
         for (const t of rule.talukas) {
-          // Use districtName stored with taluka (should be set when taluka is selected)
           let districtName = t.districtName
-          
-          // Fallback: find district by matching districtId or use first selected district
+
           if (!districtName && rule.districts && rule.districts.length > 0) {
             if (t.districtId) {
-              const matchedDistrict = rule.districts.find(d => d.districtId === t.districtId)
+              const matchedDistrict = rule.districts.find((d) => d.districtId === t.districtId)
               districtName = matchedDistrict?.districtName
             }
-            
-            // Last resort: use first district (works for single district scenarios)
             if (!districtName) {
               districtName = rule.districts[0]?.districtName
             }
           }
 
-          if (!districtName) {
-            console.warn(`No district name found for taluka ${t.talukaName}, skipping village fetch`)
-            continue
-          }
+          if (!districtName) continue
 
           const instance = NetworkManager(API.LOCATION.GET_CASCADING_LOCATION)
           const response = await instance.request({
-            state: state.name,
+            state: rule.stateName,
             district: districtName,
             taluka: t.talukaName
           })
@@ -158,15 +166,11 @@ const PublicLocationRuleSelector = ({ rule, onChange }) => {
           const list = []
           apiVillages.forEach((v) => {
             if (!list.find((existing) => existing.id === v.id)) {
-              const item = {
+              list.push({
                 id: v.id,
                 name: v.name,
                 code: v.code
-              }
-              list.push(item)
-              if (!allVillages.find((existing) => existing.id === v.id)) {
-                allVillages.push(item)
-              }
+              })
             }
           })
 
@@ -174,10 +178,8 @@ const PublicLocationRuleSelector = ({ rule, onChange }) => {
           map[talukaKey] = list
         }
 
-        setVillages(allVillages)
         setVillagesByTaluka(map)
 
-        // Selecting a taluka means all its villages are included on the public link
         const nextVillages = []
         const seen = new Set()
         for (const t of rule.talukas) {
@@ -215,340 +217,238 @@ const PublicLocationRuleSelector = ({ rule, onChange }) => {
         }
       } catch (err) {
         console.error("Failed to load villages for selected talukas", err)
-        setVillages([])
         setVillagesByTaluka({})
       }
     }
     loadVillages()
-  }, [rule.talukas, rule.districts, rule.stateCode, states])
+  }, [rule.talukas, rule.districts, rule.stateCode, rule.stateName])
 
-  const updateRule = (patch) => {
-    onChange({
-      ...rule,
-      ...patch
-    })
-  }
-
-  const selectedState = states.find((s) => s.code === rule.stateCode) || null
+  const filteredDistricts = districts.filter((d) =>
+    d.name.toLowerCase().includes(districtQuery.toLowerCase())
+  )
+  const filteredTalukas = talukas.filter((t) =>
+    t.name.toLowerCase().includes(talukaQuery.toLowerCase())
+  )
 
   return (
-    <Box display="flex" flexDirection="column" gap={1.5}>
-      {/* State (single) */}
-      <TextField
-        select
-        size="small"
-        label="State"
-        value={rule.stateCode}
-        onChange={(e) => {
-          const code = e.target.value
-          const selected = states.find((s) => s.code === code)
-          if (!selected) {
-            updateRule({
-              stateCode: "",
-              stateName: "",
-              districts: [],
-              talukas: [],
-              villages: []
-            })
-            setDistricts([])
-            setTalukas([])
-            setVillages([])
+    <Box display="flex" flexDirection="column" gap={2}>
+      <LocationPicker
+        title="Districts"
+        hint={
+          loadingDistricts
+            ? "Loading districts..."
+            : `${rule.districts?.length || 0} of ${districts.length} selected`
+        }
+        query={districtQuery}
+        onQueryChange={setDistrictQuery}
+        disabled={!districts.length}
+        allSelected={!!districts.length && rule.districts?.length === districts.length}
+        onToggleAll={(isChecked) => {
+          if (!isChecked) {
+            updateRule({ districts: [], talukas: [], villages: [] })
             return
           }
           updateRule({
-            stateCode: selected.code,
-            stateName: selected.name,
-            districts: [],
+            districts: districts.map((d) => ({
+              districtId: d.id,
+              districtCode: d.code,
+              districtName: d.name
+            })),
             talukas: [],
             villages: []
           })
         }}
-        SelectProps={{ native: true }}
-      >
-        <option value="">Select state</option>
-        {states.map((s) => (
-          <option key={s.id} value={s.code}>
-            {s.name}
-          </option>
-        ))}
-      </TextField>
-
-      {/* Districts (multi with checkboxes) */}
-      <Box>
-        <Box display="flex" alignItems="center" justifyContent="space-between">
-          <Typography variant="caption" sx={{ fontWeight: 600, color: "#374151" }}>
-            Districts
-          </Typography>
-          <FormControlLabel
-            control={
-              <Checkbox
-                size="small"
-                disabled={!districts.length}
-                checked={
-                  !!districts.length &&
-                  rule.districts?.length === districts.length
-                }
-                onChange={(e) => {
-                  const isChecked = e.target.checked
-                  if (!isChecked) {
-                    updateRule({ districts: [], talukas: [], villages: [] })
-                    return
-                  }
-                  const all = districts.map((d) => ({
-                    districtId: d.id,
-                    districtCode: d.code,
-                    districtName: d.name
-                  }))
-                  updateRule({ districts: all, talukas: [], villages: [] })
-                }}
-              />
-            }
-            label="Select all"
-            sx={{
-              "& .MuiFormControlLabel-label": { fontSize: "10px" },
-              ml: 0
-            }}
-          />
-        </Box>
-        <TextField
-          size="small"
-          fullWidth
-          placeholder="Search districts..."
-          value={districtQuery}
-          onChange={(e) => setDistrictQuery(e.target.value)}
-          sx={{ mt: 0.5, mb: 0.5 }}
-        />
-        <Box
-          sx={{
-            maxHeight: 180,
-            overflowY: "auto",
-            border: "1px solid #e5e7eb",
-            borderRadius: 1,
-            p: 0.5,
-            display: "grid",
-            gridTemplateColumns: "repeat(2,minmax(0,1fr))",
-            gap: 0.25,
-            backgroundColor: "#fafafa"
-          }}>
-          {districts
-            .filter((d) => d.name.toLowerCase().includes(districtQuery.toLowerCase()))
-            .map((d) => {
-              const checked = rule.districts?.some((rd) => rd.districtId === d.id)
-              return (
-                <FormControlLabel
-                  key={d.id}
-                  control={
-                    <Checkbox
-                      size="small"
-                      checked={checked}
-                      onChange={(e) => {
-                        const isChecked = e.target.checked
-                        let next = rule.districts || []
-                        if (isChecked) {
-                          next = [
-                            ...next,
-                            {
-                              districtId: d.id,
-                              districtCode: d.code,
-                              districtName: d.name
-                            }
-                          ]
-                        } else {
-                          next = next.filter((rd) => rd.districtId !== d.id)
+        selectedChips={(rule.districts || []).map((d) => ({
+          key: d.districtId || d.districtCode,
+          label: d.districtName,
+          onDelete: () =>
+            updateRule({
+              districts: (rule.districts || []).filter((rd) => rd.districtId !== d.districtId),
+              talukas: [],
+              villages: []
+            })
+        }))}>
+        {filteredDistricts.map((d) => {
+          const checked = rule.districts?.some((rd) => rd.districtId === d.id)
+          return (
+            <FormControlLabel
+              key={d.id}
+              control={
+                <Checkbox
+                  size="small"
+                  checked={checked}
+                  sx={{ color: C.line, "&.Mui-checked": { color: C.primary } }}
+                  onChange={(e) => {
+                    const isChecked = e.target.checked
+                    let next = rule.districts || []
+                    if (isChecked) {
+                      next = [
+                        ...next,
+                        {
+                          districtId: d.id,
+                          districtCode: d.code,
+                          districtName: d.name
                         }
-                        updateRule({
-                          districts: next,
-                          talukas: [],
-                          villages: []
-                        })
-                      }}
-                    />
-                  }
-                  label={d.name}
-                  sx={{ "& .MuiFormControlLabel-label": { fontSize: "11px" } }}
+                      ]
+                    } else {
+                      next = next.filter((rd) => rd.districtId !== d.id)
+                    }
+                    updateRule({
+                      districts: next,
+                      talukas: [],
+                      villages: []
+                    })
+                  }}
                 />
-              )
-            })}
-        </Box>
-        {rule.districts && rule.districts.length > 0 && (
-          <Box sx={{ mt: 0.5, display: "flex", flexWrap: "wrap", gap: 0.5 }}>
-            {rule.districts.map((d) => (
-              <Chip
-                key={d.districtId || d.districtCode}
-                size="small"
-                label={d.districtName}
-                onDelete={() =>
-                  updateRule({
-                    districts: (rule.districts || []).filter(
-                      (rd) => rd.districtId !== d.districtId
-                    ),
-                    talukas: [],
-                    villages: []
-                  })
-                }
-              />
-            ))}
-          </Box>
-        )}
-      </Box>
-
-      {/* Talukas (multi with checkboxes) */}
-      <Box>
-        <Box display="flex" alignItems="center" justifyContent="space-between">
-          <Typography variant="caption" sx={{ fontWeight: 600, color: "#374151" }}>
-            Talukas
+              }
+              label={d.name}
+              sx={{ "& .MuiFormControlLabel-label": { fontSize: 12, color: C.ink } }}
+            />
+          )
+        })}
+        {!loadingDistricts && !filteredDistricts.length && (
+          <Typography sx={{ fontSize: 12, color: C.muted, gridColumn: "1 / -1", py: 1 }}>
+            No districts match this search.
           </Typography>
-          <FormControlLabel
-            control={
-              <Checkbox
-                size="small"
-                disabled={!talukas.length || !rule.districts || !rule.districts.length}
-                checked={
-                  !!talukas.length &&
-                  rule.talukas?.length === talukas.length
-                }
-                onChange={(e) => {
-                  const isChecked = e.target.checked
-                  if (!isChecked) {
-                    updateRule({ talukas: [], villages: [] })
-                    return
-                  }
-                  const all = talukas.map((t) => ({
-                    talukaId: t.id,
-                    talukaCode: t.code,
-                    talukaName: t.name,
-                    districtId: t.districtId,
-                    districtName: t.districtName
-                  }))
-                  updateRule({ talukas: all, villages: [] })
-                }}
-              />
-            }
-            label="Select all"
-            sx={{
-              "& .MuiFormControlLabel-label": { fontSize: "10px" },
-              ml: 0
-            }}
-          />
-        </Box>
-        <TextField
-          size="small"
-          fullWidth
-          placeholder="Search talukas..."
-          value={talukaQuery}
-          onChange={(e) => setTalukaQuery(e.target.value)}
-          sx={{ mt: 0.5, mb: 0.5 }}
-          disabled={!rule.districts || rule.districts.length === 0}
-        />
-        <Box
-          sx={{
-            maxHeight: 180,
-            overflowY: "auto",
-            border: "1px solid #e5e7eb",
-            borderRadius: 1,
-            p: 0.5,
-            display: "grid",
-            gridTemplateColumns: "repeat(2,minmax(0,1fr))",
-            gap: 0.25,
-            backgroundColor: "#fafafa",
-            opacity: !rule.districts || rule.districts.length === 0 ? 0.6 : 1
-          }}>
-          {talukas
-            .filter((t) => t.name.toLowerCase().includes(talukaQuery.toLowerCase()))
-            .map((t) => {
-              const checked = rule.talukas?.some(
-                (rt) => rt.talukaCode === t.code || rt.talukaId === t.id
-              )
-              return (
-                <FormControlLabel
-                  key={t.id || t.code}
-                  control={
-                    <Checkbox
-                      size="small"
-                      checked={checked}
-                      onChange={(e) => {
-                        const isChecked = e.target.checked
-                        let next = rule.talukas || []
-                        if (isChecked) {
-                          next = [
-                            ...next,
-                            {
-                              talukaId: t.id,
-                              talukaCode: t.code,
-                              talukaName: t.name,
-                              districtId: t.districtId,
-                              districtName: t.districtName
-                            }
-                          ]
-                        } else {
-                          next = next.filter(
-                            (rt) => rt.talukaCode !== t.code && rt.talukaId !== t.id
-                          )
-                        }
-                        updateRule({
-                          talukas: next,
-                          villages: []
-                        })
-                      }}
-                    />
-                  }
-                  label={t.name}
-                  sx={{ "& .MuiFormControlLabel-label": { fontSize: "11px" } }}
-                />
-              )
-            })}
-        </Box>
-        {rule.talukas && rule.talukas.length > 0 && (
-          <Box sx={{ mt: 0.5, display: "flex", flexWrap: "wrap", gap: 0.5 }}>
-            {rule.talukas.map((t) => (
-              <Chip
-                key={t.talukaCode || t.talukaId}
-                size="small"
-                label={t.talukaName}
-                onDelete={() =>
-                  updateRule({
-                    talukas: (rule.talukas || []).filter(
-                      (rt) =>
-                        (rt.talukaCode || rt.talukaId) !==
-                        (t.talukaCode || t.talukaId)
-                    ),
-                    villages: []
-                  })
-                }
-              />
-            ))}
-          </Box>
         )}
-      </Box>
+      </LocationPicker>
 
-      {/* Villages (multi with checkboxes, taluka-wise) */}
+      <LocationPicker
+        title="Talukas"
+        hint={
+          !rule.districts?.length
+            ? "Select districts first"
+            : loadingTalukas
+              ? "Loading talukas..."
+              : `${rule.talukas?.length || 0} of ${talukas.length} selected`
+        }
+        query={talukaQuery}
+        onQueryChange={setTalukaQuery}
+        disabled={!rule.districts?.length || !talukas.length}
+        allSelected={!!talukas.length && rule.talukas?.length === talukas.length}
+        onToggleAll={(isChecked) => {
+          if (!isChecked) {
+            updateRule({ talukas: [], villages: [] })
+            return
+          }
+          updateRule({
+            talukas: talukas.map((t) => ({
+              talukaId: t.id,
+              talukaCode: t.code,
+              talukaName: t.name,
+              districtId: t.districtId,
+              districtName: t.districtName,
+              districtCode: t.districtCode
+            })),
+            villages: []
+          })
+        }}
+        selectedChips={(rule.talukas || []).map((t) => ({
+          key: t.talukaCode || t.talukaId,
+          label: t.talukaName,
+          onDelete: () =>
+            updateRule({
+              talukas: (rule.talukas || []).filter(
+                (rt) => (rt.talukaCode || rt.talukaId) !== (t.talukaCode || t.talukaId)
+              ),
+              villages: []
+            })
+        }))}>
+        {filteredTalukas.map((t) => {
+          const checked = rule.talukas?.some(
+            (rt) => rt.talukaCode === t.code || rt.talukaId === t.id
+          )
+          return (
+            <FormControlLabel
+              key={t.id || t.code}
+              control={
+                <Checkbox
+                  size="small"
+                  checked={checked}
+                  sx={{ color: C.line, "&.Mui-checked": { color: C.primary } }}
+                  onChange={(e) => {
+                    const isChecked = e.target.checked
+                    let next = rule.talukas || []
+                    if (isChecked) {
+                      next = [
+                        ...next,
+                        {
+                          talukaId: t.id,
+                          talukaCode: t.code,
+                          talukaName: t.name,
+                          districtId: t.districtId,
+                          districtName: t.districtName,
+                          districtCode: t.districtCode
+                        }
+                      ]
+                    } else {
+                      next = next.filter((rt) => rt.talukaCode !== t.code && rt.talukaId !== t.id)
+                    }
+                    updateRule({
+                      talukas: next,
+                      villages: []
+                    })
+                  }}
+                />
+              }
+              label={
+                <span>
+                  {t.name}
+                  {t.districtName ? (
+                    <span style={{ color: C.muted, marginLeft: 4 }}>({t.districtName})</span>
+                  ) : null}
+                </span>
+              }
+              sx={{ "& .MuiFormControlLabel-label": { fontSize: 12, color: C.ink } }}
+            />
+          )
+        })}
+        {!loadingTalukas && rule.districts?.length > 0 && !filteredTalukas.length && (
+          <Typography sx={{ fontSize: 12, color: C.muted, gridColumn: "1 / -1", py: 1 }}>
+            No talukas match this search.
+          </Typography>
+        )}
+      </LocationPicker>
+
       <Box>
-        <Typography variant="caption" sx={{ fontWeight: 600, color: "#374151" }}>
-          Villages (Taluka wise)
-        </Typography>
+        <Box display="flex" alignItems="center" justifyContent="space-between" mb={0.75}>
+          <Typography sx={{ fontSize: 12, fontWeight: 700, color: C.ink }}>
+            Villages
+          </Typography>
+          <Typography sx={{ fontSize: 11, color: C.muted }}>
+            {!rule.talukas?.length
+              ? "Select talukas to include their villages"
+              : `${rule.villages?.length || 0} villages included`}
+          </Typography>
+        </Box>
         <TextField
           size="small"
           fullWidth
           placeholder="Search villages..."
           value={villageQuery}
           onChange={(e) => setVillageQuery(e.target.value)}
-          sx={{ mt: 0.5, mb: 0.5 }}
-          disabled={!rule.talukas || rule.talukas.length === 0}
+          disabled={!rule.talukas?.length}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <SearchRoundedIcon sx={{ fontSize: 16, color: C.muted }} />
+              </InputAdornment>
+            )
+          }}
+          sx={searchFieldSx}
         />
         <Box
           sx={{
-            maxHeight: 220,
+            mt: 1,
+            maxHeight: 230,
             overflowY: "auto",
-            border: "1px solid #e5e7eb",
-            borderRadius: 1,
-            p: 0.5,
-            backgroundColor: "#fafafa",
-            opacity: !rule.talukas || rule.talukas.length === 0 ? 0.6 : 1,
-            display: "flex",
-            flexDirection: "column",
-            gap: 0.5
+            border: `1px solid ${C.line}`,
+            borderRadius: 2,
+            p: 1,
+            backgroundColor: C.surface,
+            opacity: !rule.talukas?.length ? 0.55 : 1
           }}>
-          {rule.talukas?.map((t) => {
+          {rule.talukas?.map((t, talukaIndex) => {
             const talukaKey = t.talukaCode || t.talukaId || t.talukaName
             const list = (villagesByTaluka[talukaKey] || []).filter((v) =>
               v.name.toLowerCase().includes(villageQuery.toLowerCase())
@@ -568,195 +468,520 @@ const PublicLocationRuleSelector = ({ rule, onChange }) => {
 
             return (
               <Box key={talukaKey}>
-                {/* Divider between talukas */}
-                {rule.talukas?.indexOf(t) > 0 && (
-                  <Divider sx={{ my: 0.5, borderColor: "#e5e7eb" }} />
-                )}
+                {talukaIndex > 0 && <Divider sx={{ my: 1, borderColor: C.line }} />}
                 <Box
                   sx={{
-                    border: "1px solid #e5e7eb",
-                    borderRadius: 1,
-                    p: 0.5,
-                    backgroundColor: "#fefefe"
+                    border: `1px solid ${C.line}`,
+                    borderRadius: 1.5,
+                    p: 1,
+                    backgroundColor: "#fff"
                   }}>
-                <Box
-                  sx={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    mb: 0.25
-                  }}>
-                  <Typography
-                    variant="caption"
-                    sx={{ fontWeight: 600, color: "#111827", fontSize: "11px" }}>
-                    {t.talukaName} {t.districtName ? `(${t.districtName})` : ""} — {list.length} villages
-                  </Typography>
-                  <FormControlLabel
-                    control={
-                      <Checkbox
-                        size="small"
-                        disabled={!list.length}
-                        checked={allSelectedInTaluka}
-                        onChange={(e) => {
-                          const isChecked = e.target.checked
-                          let next = rule.villages || []
-                          if (!isChecked) {
-                            next = next.filter(
-                              (rv) =>
-                                rv.talukaCode !== t.talukaCode &&
-                                rv.talukaId !== t.talukaId
-                            )
-                          } else {
-                            const toAdd = list.filter(
-                              (v) =>
-                                !next.some(
-                                  (rv) =>
-                                    (rv.villageId === v.id ||
-                                      String(rv.villageName || "").toLowerCase() ===
-                                        v.name.toLowerCase()) &&
-                                    (rv.talukaCode === t.talukaCode ||
-                                      rv.talukaId === t.talukaId ||
-                                      !rv.talukaCode)
-                                )
-                            )
-                            next = [
-                              ...next,
-                              ...toAdd.map((v) => ({
-                                talukaId: t.talukaId,
-                                talukaCode: t.talukaCode,
-                                districtCode:
-                                  t.districtCode ||
-                                  rule.districts?.find((d) => d.districtId === t.districtId)
-                                    ?.districtCode,
-                                villageId: v.id,
-                                villageName: v.name,
-                                villageCode: v.code
-                              }))
-                            ]
-                          }
-                          updateRule({ villages: next })
-                        }}
-                      />
-                    }
-                    label="Select all"
-                    sx={{
-                      "& .MuiFormControlLabel-label": { fontSize: "10px" },
-                      ml: 0
-                    }}
-                  />
-                </Box>
-
-                <Box
-                  sx={{
-                    display: "grid",
-                    gridTemplateColumns: "repeat(2,minmax(0,1fr))",
-                    gap: 0.25
-                  }}>
-                  {list.map((v) => {
-                    const checked = (rule.villages || []).some(
-                      (rv) =>
-                        (rv.villageId === v.id ||
-                          String(rv.villageName || "").toLowerCase() ===
-                            v.name.toLowerCase()) &&
-                        (rv.talukaCode === t.talukaCode ||
-                          rv.talukaId === t.talukaId ||
-                          !rv.talukaCode)
-                    )
-                    return (
-                      <FormControlLabel
-                        key={v.id || v.code || v.name}
-                        control={
-                          <Checkbox
-                            size="small"
-                            checked={checked}
-                            onChange={(e) => {
-                              const isChecked = e.target.checked
-                              let next = rule.villages || []
-                              if (isChecked) {
-                                if (
+                  <Box display="flex" alignItems="center" justifyContent="space-between" mb={0.5}>
+                    <Typography sx={{ fontSize: 11, fontWeight: 700, color: C.ink }}>
+                      {t.talukaName}
+                      {t.districtName ? ` · ${t.districtName}` : ""} — {list.length}
+                    </Typography>
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          size="small"
+                          disabled={!list.length}
+                          checked={allSelectedInTaluka}
+                          sx={{ color: C.line, "&.Mui-checked": { color: C.primary } }}
+                          onChange={(e) => {
+                            const isChecked = e.target.checked
+                            let next = rule.villages || []
+                            if (!isChecked) {
+                              next = next.filter(
+                                (rv) =>
+                                  rv.talukaCode !== t.talukaCode && rv.talukaId !== t.talukaId
+                              )
+                            } else {
+                              const toAdd = list.filter(
+                                (v) =>
                                   !next.some(
                                     (rv) =>
                                       (rv.villageId === v.id ||
                                         String(rv.villageName || "").toLowerCase() ===
                                           v.name.toLowerCase()) &&
                                       (rv.talukaCode === t.talukaCode ||
-                                        rv.talukaId === t.talukaId)
-                                  )
-                                ) {
-                                  next = [
-                                    ...next,
-                                    {
-                                      talukaId: t.talukaId,
-                                      talukaCode: t.talukaCode,
-                                      districtCode:
-                                        t.districtCode ||
-                                        rule.districts?.find((d) => d.districtId === t.districtId)
-                                          ?.districtCode,
-                                      villageId: v.id,
-                                      villageName: v.name,
-                                      villageCode: v.code
-                                    }
-                                  ]
-                                }
-                              } else {
-                                next = next.filter(
-                                  (rv) =>
-                                    !(
-                                      (rv.villageId === v.id ||
-                                        String(rv.villageName || "").toLowerCase() ===
-                                          v.name.toLowerCase()) &&
-                                      (rv.talukaCode === t.talukaCode ||
                                         rv.talukaId === t.talukaId ||
                                         !rv.talukaCode)
+                                  )
+                              )
+                              next = [
+                                ...next,
+                                ...toAdd.map((v) => ({
+                                  talukaId: t.talukaId,
+                                  talukaCode: t.talukaCode,
+                                  districtCode:
+                                    t.districtCode ||
+                                    rule.districts?.find((d) => d.districtId === t.districtId)
+                                      ?.districtCode,
+                                  villageId: v.id,
+                                  villageName: v.name,
+                                  villageCode: v.code
+                                }))
+                              ]
+                            }
+                            updateRule({ villages: next })
+                          }}
+                        />
+                      }
+                      label="All"
+                      sx={{
+                        m: 0,
+                        "& .MuiFormControlLabel-label": { fontSize: 10, color: C.muted }
+                      }}
+                    />
+                  </Box>
+                  <Box
+                    sx={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                      gap: 0.25
+                    }}>
+                    {list.map((v) => {
+                      const checked = (rule.villages || []).some(
+                        (rv) =>
+                          (rv.villageId === v.id ||
+                            String(rv.villageName || "").toLowerCase() ===
+                              v.name.toLowerCase()) &&
+                          (rv.talukaCode === t.talukaCode ||
+                            rv.talukaId === t.talukaId ||
+                            !rv.talukaCode)
+                      )
+                      return (
+                        <FormControlLabel
+                          key={v.id || v.code || v.name}
+                          control={
+                            <Checkbox
+                              size="small"
+                              checked={checked}
+                              sx={{ color: C.line, "&.Mui-checked": { color: C.primary } }}
+                              onChange={(e) => {
+                                const isChecked = e.target.checked
+                                let next = rule.villages || []
+                                if (isChecked) {
+                                  if (
+                                    !next.some(
+                                      (rv) =>
+                                        (rv.villageId === v.id ||
+                                          String(rv.villageName || "").toLowerCase() ===
+                                            v.name.toLowerCase()) &&
+                                        (rv.talukaCode === t.talukaCode ||
+                                          rv.talukaId === t.talukaId)
                                     )
-                                )
-                              }
-                              updateRule({ villages: next })
-                            }}
-                          />
-                        }
-                        label={v.name}
-                        sx={{ "& .MuiFormControlLabel-label": { fontSize: "11px" } }}
-                      />
-                    )
-                  })}
-                  {!list.length && (
-                    <Typography
-                      variant="caption"
-                      sx={{ fontSize: "10px", color: "#9ca3af", gridColumn: "1 / -1" }}>
-                      No villages found for this taluka (or filtered out).
-                    </Typography>
-                  )}
-                </Box>
+                                  ) {
+                                    next = [
+                                      ...next,
+                                      {
+                                        talukaId: t.talukaId,
+                                        talukaCode: t.talukaCode,
+                                        districtCode:
+                                          t.districtCode ||
+                                          rule.districts?.find(
+                                            (d) => d.districtId === t.districtId
+                                          )?.districtCode,
+                                        villageId: v.id,
+                                        villageName: v.name,
+                                        villageCode: v.code
+                                      }
+                                    ]
+                                  }
+                                } else {
+                                  next = next.filter(
+                                    (rv) =>
+                                      !(
+                                        (rv.villageId === v.id ||
+                                          String(rv.villageName || "").toLowerCase() ===
+                                            v.name.toLowerCase()) &&
+                                        (rv.talukaCode === t.talukaCode ||
+                                          rv.talukaId === t.talukaId ||
+                                          !rv.talukaCode)
+                                      )
+                                  )
+                                }
+                                updateRule({ villages: next })
+                              }}
+                            />
+                          }
+                          label={v.name}
+                          sx={{ "& .MuiFormControlLabel-label": { fontSize: 11, color: C.ink } }}
+                        />
+                      )
+                    })}
+                    {!list.length && (
+                      <Typography
+                        sx={{
+                          fontSize: 11,
+                          color: C.muted,
+                          gridColumn: "1 / -1",
+                          py: 0.5
+                        }}>
+                        No villages found for this taluka.
+                      </Typography>
+                    )}
+                  </Box>
                 </Box>
               </Box>
             )
           })}
         </Box>
-
-        {rule.villages && rule.villages.length > 0 && (
-          <Box sx={{ mt: 0.5, display: "flex", flexWrap: "wrap", gap: 0.5 }}>
-            {rule.villages.map((v) => (
-              <Chip
-                key={v.villageId || v.villageName}
-                size="small"
-                label={v.villageName}
-                onDelete={() =>
-                  updateRule({
-                    villages: (rule.villages || []).filter(
-                      (rv) => rv.villageId !== v.villageId
-                    )
-                  })
-                }
-              />
-            ))}
-          </Box>
-        )}
       </Box>
     </Box>
   )
 }
 
+const searchFieldSx = {
+  "& .MuiOutlinedInput-root": {
+    backgroundColor: "#fff",
+    borderRadius: 2,
+    fontSize: 13,
+    "& fieldset": { borderColor: C.line },
+    "&:hover fieldset": { borderColor: C.primary },
+    "&.Mui-focused fieldset": { borderColor: C.primary }
+  }
+}
+
+const LocationPicker = ({
+  title,
+  hint,
+  query,
+  onQueryChange,
+  disabled,
+  allSelected,
+  onToggleAll,
+  selectedChips,
+  children
+}) => (
+  <Box>
+    <Box display="flex" alignItems="center" justifyContent="space-between" mb={0.75}>
+      <Typography sx={{ fontSize: 12, fontWeight: 700, color: C.ink }}>{title}</Typography>
+      <Box display="flex" alignItems="center" gap={1}>
+        <Typography sx={{ fontSize: 11, color: C.muted }}>{hint}</Typography>
+        <FormControlLabel
+          control={
+            <Checkbox
+              size="small"
+              disabled={disabled}
+              checked={allSelected}
+              sx={{ color: C.line, "&.Mui-checked": { color: C.primary } }}
+              onChange={(e) => onToggleAll(e.target.checked)}
+            />
+          }
+          label="All"
+          sx={{
+            m: 0,
+            "& .MuiFormControlLabel-label": { fontSize: 10, color: C.muted }
+          }}
+        />
+      </Box>
+    </Box>
+    <TextField
+      size="small"
+      fullWidth
+      placeholder={`Search ${title.toLowerCase()}...`}
+      value={query}
+      onChange={(e) => onQueryChange(e.target.value)}
+      disabled={disabled}
+      InputProps={{
+        startAdornment: (
+          <InputAdornment position="start">
+            <SearchRoundedIcon sx={{ fontSize: 16, color: C.muted }} />
+          </InputAdornment>
+        )
+      }}
+      sx={searchFieldSx}
+    />
+    <Box
+      sx={{
+        mt: 1,
+        maxHeight: 168,
+        overflowY: "auto",
+        border: `1px solid ${C.line}`,
+        borderRadius: 2,
+        p: 1,
+        display: "grid",
+        gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+        gap: 0.25,
+        backgroundColor: C.surface,
+        opacity: disabled ? 0.55 : 1
+      }}>
+      {children}
+    </Box>
+    {selectedChips?.length > 0 && (
+      <Box sx={{ mt: 1, display: "flex", flexWrap: "wrap", gap: 0.5 }}>
+        {selectedChips.slice(0, 10).map((chip) => (
+          <Chip
+            key={chip.key}
+            size="small"
+            label={chip.label}
+            onDelete={chip.onDelete}
+            sx={{
+              height: 22,
+              backgroundColor: C.primarySoft,
+              color: C.primary,
+              fontWeight: 600,
+              "& .MuiChip-deleteIcon": { color: C.primary, fontSize: 14 }
+            }}
+          />
+        ))}
+        {selectedChips.length > 10 && (
+          <Chip
+            size="small"
+            label={`+${selectedChips.length - 10} more`}
+            sx={{ height: 22, backgroundColor: "#EEF2F0", color: C.muted, fontWeight: 600 }}
+          />
+        )}
+      </Box>
+    )}
+  </Box>
+)
+
+const PublicLocationRuleSelector = ({ rules = [], onChange }) => {
+  const [states, setStates] = useState([])
+  const [activeStateCode, setActiveStateCode] = useState(rules[0]?.stateCode || "")
+
+  useEffect(() => {
+    const loadStates = async () => {
+      try {
+        const instance = NetworkManager(API.LOCATION.GET_STATES_ONLY)
+        const response = await instance.request()
+        if (response?.data?.status === "success" && Array.isArray(response.data.data)) {
+          setStates(response.data.data.map((s) => ({ id: s.id, name: s.name, code: s.code })))
+        } else {
+          setStates([])
+        }
+      } catch (err) {
+        console.error("Failed to load states for public link selector", err)
+        setStates([])
+      }
+    }
+    loadStates()
+  }, [])
+
+  useEffect(() => {
+    if (!rules.length) {
+      setActiveStateCode("")
+      return
+    }
+    if (!rules.some((rule) => rule.stateCode === activeStateCode)) {
+      setActiveStateCode(rules[0].stateCode)
+    }
+  }, [rules, activeStateCode])
+
+  const selectedStates = useMemo(
+    () =>
+      rules
+        .map((rule) => states.find((s) => s.code === rule.stateCode))
+        .filter(Boolean)
+        .concat(
+          rules
+            .filter((rule) => rule.stateCode && !states.find((s) => s.code === rule.stateCode))
+            .map((rule) => ({
+              id: rule.stateCode,
+              code: rule.stateCode,
+              name: rule.stateName || rule.stateCode
+            }))
+        ),
+    [rules, states]
+  )
+
+  const handleStatesChange = (_, nextStates) => {
+    const existingByCode = Object.fromEntries(
+      (rules || []).map((rule) => [rule.stateCode, rule])
+    )
+    const nextRules = nextStates.map((state) => existingByCode[state.code] || emptyRuleForState(state))
+    const added = nextStates.find((state) => !rules.some((rule) => rule.stateCode === state.code))
+    onChange(nextRules)
+    if (added) {
+      setActiveStateCode(added.code)
+    } else if (!nextRules.some((rule) => rule.stateCode === activeStateCode)) {
+      setActiveStateCode(nextRules[0]?.stateCode || "")
+    }
+  }
+
+  const handleRuleUpdate = (stateCode, updatedRule) => {
+    onChange(rules.map((rule) => (rule.stateCode === stateCode ? updatedRule : rule)))
+  }
+
+  const summary = rules.reduce(
+    (acc, rule) => {
+      acc.districts += rule.districts?.length || 0
+      acc.talukas += rule.talukas?.length || 0
+      acc.villages += rule.villages?.length || 0
+      return acc
+    },
+    { districts: 0, talukas: 0, villages: 0 }
+  )
+
+  return (
+    <Box>
+      <Autocomplete
+        multiple
+        options={states}
+        value={selectedStates}
+        disableCloseOnSelect
+        isOptionEqualToValue={(option, value) => option.code === value.code}
+        getOptionLabel={(option) => option.name || ""}
+        onChange={handleStatesChange}
+        renderTags={(value, getTagProps) =>
+          value.map((option, index) => (
+            <Chip
+              {...getTagProps({ index })}
+              key={option.code}
+              size="small"
+              label={option.name}
+              sx={{
+                backgroundColor: C.primarySoft,
+                color: C.primary,
+                fontWeight: 700,
+                "& .MuiChip-deleteIcon": { color: C.primary }
+              }}
+            />
+          ))
+        }
+        renderOption={(props, option, { selected }) => {
+          const { key, ...optionProps } = props
+          return (
+            <li key={key || option.code} {...optionProps}>
+              <Checkbox
+                size="small"
+                checked={selected}
+                sx={{ mr: 1, color: C.line, "&.Mui-checked": { color: C.primary } }}
+              />
+              {option.name}
+            </li>
+          )
+        }}
+        renderInput={(params) => (
+          <TextField
+            {...params}
+            placeholder={selectedStates.length ? "Add another state..." : "Search and select states..."}
+            InputProps={{
+              ...params.InputProps,
+              startAdornment: (
+                <>
+                  <InputAdornment position="start" sx={{ ml: 0.5 }}>
+                    <PlaceOutlinedIcon sx={{ fontSize: 18, color: C.primary }} />
+                  </InputAdornment>
+                  {params.InputProps.startAdornment}
+                </>
+              )
+            }}
+          />
+        )}
+        sx={{
+          "& .MuiOutlinedInput-root": {
+            backgroundColor: "#fff",
+            borderRadius: 2,
+            minHeight: 48,
+            alignItems: "center",
+            "& fieldset": { borderColor: C.line },
+            "&:hover fieldset": { borderColor: C.primary },
+            "&.Mui-focused fieldset": { borderColor: C.primary, borderWidth: 1.5 }
+          }
+        }}
+      />
+
+      {rules.length > 0 && (
+        <Box
+          sx={{
+            mt: 1.5,
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 1
+          }}>
+          {[
+            `${rules.length} state${rules.length === 1 ? "" : "s"}`,
+            `${summary.districts} district${summary.districts === 1 ? "" : "s"}`,
+            `${summary.talukas} taluka${summary.talukas === 1 ? "" : "s"}`,
+            `${summary.villages} village${summary.villages === 1 ? "" : "s"}`
+          ].map((label) => (
+            <Chip
+              key={label}
+              size="small"
+              label={label}
+              sx={{
+                height: 24,
+                backgroundColor: "#fff",
+                border: `1px solid ${C.line}`,
+                color: C.ink,
+                fontWeight: 600
+              }}
+            />
+          ))}
+        </Box>
+      )}
+
+      {rules.length === 0 ? (
+        <Box
+          sx={{
+            mt: 2,
+            border: `1px dashed ${C.line}`,
+            borderRadius: 2,
+            backgroundColor: C.surface,
+            py: 4,
+            px: 2,
+            textAlign: "center"
+          }}>
+          <PlaceOutlinedIcon sx={{ fontSize: 28, color: C.primary, mb: 0.5 }} />
+          <Typography sx={{ fontSize: 13, fontWeight: 700, color: C.ink }}>
+            Select one or more states
+          </Typography>
+          <Typography sx={{ fontSize: 12, color: C.muted, mt: 0.5 }}>
+            Farmers on this public link will only see locations from the states you add here.
+          </Typography>
+        </Box>
+      ) : (
+        <Box sx={{ mt: 2 }}>
+          {rules.length > 1 && (
+            <Tabs
+              value={activeStateCode}
+              onChange={(_, value) => setActiveStateCode(value)}
+              variant="scrollable"
+              scrollButtons="auto"
+              sx={{
+                minHeight: 36,
+                mb: 1.5,
+                "& .MuiTab-root": {
+                  minHeight: 36,
+                  textTransform: "none",
+                  fontWeight: 700,
+                  fontSize: 13,
+                  color: C.muted
+                },
+                "& .Mui-selected": { color: `${C.primary} !important` },
+                "& .MuiTabs-indicator": { backgroundColor: C.primary, height: 3, borderRadius: 2 }
+              }}>
+              {rules.map((rule) => (
+                <Tab
+                  key={rule.stateCode}
+                  value={rule.stateCode}
+                  label={`${rule.stateName || rule.stateCode} (${rule.districts?.length || 0})`}
+                />
+              ))}
+            </Tabs>
+          )}
+
+          {rules.map((rule) => (
+            <Box key={rule.stateCode} hidden={rule.stateCode !== activeStateCode}>
+              {rules.length === 1 && (
+                <Typography sx={{ fontSize: 13, fontWeight: 700, color: C.ink, mb: 1.25 }}>
+                  {rule.stateName}
+                </Typography>
+              )}
+              <StateRulePanel
+                rule={rule}
+                onChange={(updated) => handleRuleUpdate(rule.stateCode, updated)}
+              />
+            </Box>
+          ))}
+        </Box>
+      )}
+    </Box>
+  )
+}
+
 export default PublicLocationRuleSelector
-
-

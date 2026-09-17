@@ -1,4 +1,5 @@
 import moment from "moment";
+import { normalizeDispatchOrderPlantFields } from "utils/orderPlantResolve";
 
 export function parseDispatchFromGetByIdResponse(res) {
   const raw = res?.data?.data ?? res?.data;
@@ -42,11 +43,14 @@ export function mergeDispatchWithFreshDetail(listRow, freshDetail) {
       f.freightCharges != null && f.freightCharges !== ""
         ? Math.max(0, Number(f.freightCharges) || 0)
         : null;
-    return {
+    const merged = {
       ...o,
       ...(dcVal ? { deliveryChallanInvoiceNumber: dcVal } : {}),
       ...(offVal ? { officialDeliveryChallanNumber: offVal } : {}),
       ...(freightVal != null ? { freightCharges: freightVal } : {}),
+      ...(f.plantName != null ? { plantName: f.plantName } : {}),
+      ...(f.plantSubtype != null ? { plantSubtype: f.plantSubtype } : {}),
+      ...(f.plantLineItems != null ? { plantLineItems: f.plantLineItems } : {}),
       details: {
         ...(o.details || {}),
         ...(dcVal ? { deliveryChallanInvoiceNumber: dcVal } : {}),
@@ -56,6 +60,7 @@ export function mergeDispatchWithFreshDetail(listRow, freshDetail) {
         ...(freightVal != null ? { freightCharges: freightVal } : {}),
       },
     };
+    return normalizeDispatchOrderPlantFields(merged);
   });
   return {
     ...listRow,

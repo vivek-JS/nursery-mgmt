@@ -86,8 +86,17 @@ function isSelectionLocked(o) {
   return Boolean(o?.alreadyRequested || raisingRowStatus(o)?.key === "empty")
 }
 
+function bookingDateRaw(o) {
+  return o?.bookingDate ?? o?.orderBookingDate ?? o?.createdAt ?? null
+}
+
 function fmtDelivery(d) {
-  if (!d) return null
+  if (d == null || d === "") return null
+  if (typeof d === "number" && Number.isFinite(d)) {
+    d = new Date(d)
+  } else if (typeof d === "object" && d.$date) {
+    d = d.$date
+  }
   // DD-MM-YYYY from API (sowByDate)
   const dmy = String(d).match(/^(\d{2})-(\d{2})-(\d{4})$/)
   if (dmy) {
@@ -348,6 +357,9 @@ export default function OrderWiseDrawer({
                         {o.numberOfPlants} plants · suggest {o.suggestedPackets} pkt
                       </Typography>
                       <Typography variant="caption" fontWeight={700} display="block" sx={{ mt: 0.25 }}>
+                        Booking: {fmtDelivery(bookingDateRaw(o)) || "—"}
+                      </Typography>
+                      <Typography variant="caption" fontWeight={700} display="block" sx={{ mt: 0.15 }}>
                         Delivery:{" "}
                         {fmtDelivery(o.deliveryDate) || o.slotStartDay || "—"}
                       </Typography>

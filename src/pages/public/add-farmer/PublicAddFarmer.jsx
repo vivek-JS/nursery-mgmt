@@ -79,12 +79,28 @@ const PublicAddFarmer = () => {
       )
     : []
 
+  const talukaMatchesDistrict = (taluka) => {
+    if (!form.districtCode && !form.districtName) return true
+    if (taluka.districtCode && form.districtCode) {
+      return taluka.districtCode === form.districtCode
+    }
+    if (taluka.districtName && form.districtName) {
+      return String(taluka.districtName).toLowerCase() === String(form.districtName).toLowerCase()
+    }
+    if (taluka.districtId && availableDistricts.some((d) => d.districtId === taluka.districtId)) {
+      const matched = availableDistricts.find((d) => d.districtId === taluka.districtId)
+      return matched?.districtCode === form.districtCode
+    }
+    return true
+  }
+
   const availableTalukas = config?.locationRules
     ? Array.from(
         new Map(
           config.locationRules
             .filter((r) => r.stateCode === form.stateCode)
             .flatMap((r) => r.talukas || [])
+            .filter(talukaMatchesDistrict)
             .map((t) => [t.talukaCode, t])
         ).values()
       )

@@ -1,16 +1,57 @@
 import React, { useEffect, useMemo, useState } from "react"
-import { Dialog, DialogTitle, DialogContent, DialogActions } from "@mui/material"
+import {
+  Box,
+  Chip,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  IconButton,
+  Switch,
+  TextField,
+  Typography
+} from "@mui/material"
+import AddRoundedIcon from "@mui/icons-material/AddRounded"
+import CloseRoundedIcon from "@mui/icons-material/CloseRounded"
+import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded"
+import EditOutlinedIcon from "@mui/icons-material/EditOutlined"
+import LinkRoundedIcon from "@mui/icons-material/LinkRounded"
+import PlaceOutlinedIcon from "@mui/icons-material/PlaceOutlined"
 import { API, NetworkManager } from "network/core"
 import { Toast } from "helpers/toasts/toastHelper"
 import PublicLocationRuleSelector from "./PublicLocationRuleSelector"
 
-const emptyRule = {
-  stateCode: "",
-  stateName: "",
-  districts: [],
-  talukas: [],
-  villages: []
+const C = {
+  primary: "#1B7A4E",
+  primarySoft: "#E8F5EE",
+  ink: "#163027",
+  muted: "#5B6B63",
+  line: "#D7E3DB",
+  surface: "#F7FBF8",
+  page: "#F3F7F5"
 }
+
+const slugify = (value) =>
+  String(value || "")
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+
+const emptyForm = () => ({
+  name: "",
+  slug: "",
+  description: "",
+  isActive: true,
+  locationRules: []
+})
+
+const isCompleteRule = (rule) =>
+  Boolean(
+    rule?.stateCode &&
+      rule?.stateName &&
+      rule?.districts?.length &&
+      rule?.talukas?.length
+  )
 
 const PublicFarmerLinks = () => {
   const [links, setLinks] = useState([])
@@ -20,23 +61,13 @@ const PublicFarmerLinks = () => {
   const [expandedId, setExpandedId] = useState(null)
   const [linkLeads, setLinkLeads] = useState({})
   const [linkLeadsLoading, setLinkLeadsLoading] = useState({})
-  const [form, setForm] = useState({
-    name: "",
-    slug: "",
-    description: "",
-    isActive: true,
-    locationRules: [JSON.parse(JSON.stringify(emptyRule))]
-  })
+  const [slugTouched, setSlugTouched] = useState(false)
+  const [form, setForm] = useState(emptyForm)
 
   const resetForm = () => {
-    setForm({
-      name: "",
-      slug: "",
-      description: "",
-      isActive: true,
-      locationRules: [JSON.parse(JSON.stringify(emptyRule))]
-    })
+    setForm(emptyForm())
     setEditingLink(null)
+    setSlugTouched(false)
   }
 
   const loadLinks = async () => {
@@ -56,92 +87,42 @@ const PublicFarmerLinks = () => {
 
   useEffect(() => {
     loadLinks()
-    // Open the create-link dialog once when page loads
     setDialogOpen(true)
   }, [])
 
   const handleBasicChange = (field, value) => {
-    setForm((prev) => ({
-      ...prev,
-      [field]: value
-    }))
-  }
-
-  const handleRuleUpdate = (index, updatedRule) => {
     setForm((prev) => {
-      const next = [...prev.locationRules]
-      next[index] = updatedRule
-      return {
-        ...prev,
-        locationRules: next
+      const next = { ...prev, [field]: value }
+      if (field === "name" && !slugTouched) {
+        next.slug = slugify(value)
       }
+      return next
     })
   }
 
-  const handleRuleChange = (index, field, value) => {
-    setForm((prev) => {
-      const nextRules = prev.locationRules.map((rule, idx) =>
-        idx === index
-          ? {
-              ...rule,
-              [field]: value
-            }
-          : rule
-      )
-      return {
-        ...prev,
-        locationRules: nextRules
-      }
-    })
-  }
-
-  const handleArrayFieldChange = (index, field, updater) => {
-    setForm((prev) => {
-      const nextRules = prev.locationRules.map((rule, idx) =>
-        idx === index
-          ? {
-              ...rule,
-              [field]: updater(rule[field] || [])
-            }
-          : rule
-      )
-      return {
-        ...prev,
-        locationRules: nextRules
-      }
-    })
-  }
-
-  const addRule = () => {
-    setForm((prev) => ({
-      ...prev,
-      locationRules: [...prev.locationRules, JSON.parse(JSON.stringify(emptyRule))]
-    }))
-  }
-
-  const removeRule = (index) => {
-    setForm((prev) => {
-      const nextRules = prev.locationRules.filter((_, idx) => idx !== index)
-      return {
-        ...prev,
-        locationRules: nextRules.length > 0 ? nextRules : [JSON.parse(JSON.stringify(emptyRule))]
-      }
-    })
+  const openCreate = () => {
+    resetForm()
+    setDialogOpen(true)
   }
 
   const handleEdit = (link) => {
     setEditingLink(link)
+    setSlugTouched(true)
     setForm({
       name: link.name || "",
       slug: link.slug || "",
       description: link.description || "",
       isActive: link.isActive !== false,
-      locationRules:
-        Array.isArray(link.locationRules) && link.locationRules.length > 0
-          ? link.locationRules
-          : [JSON.parse(JSON.stringify(emptyRule))]
+      locationRules: Array.isArray(link.locationRules)
+        ? link.locationRules.filter((rule) => rule.stateCode)
+        : []
     })
     setDialogOpen(true)
+  }
+
+  const closeDialog = () => {
+    setDialogOpen(false)
+    resetForm()
   }
 
   const loadLeadsForLink = async (linkId) => {
@@ -166,24 +147,26 @@ const PublicFarmerLinks = () => {
       return
     }
 
-    const rule = form.locationRules?.[0] || emptyRule
-    if (
-      !rule.stateCode ||
-      !rule.stateName ||
-      !rule.districts ||
-      rule.districts.length === 0 ||
-      !rule.talukas ||
-      rule.talukas.length === 0 ||
-      !rule.villages ||
-      rule.villages.length === 0
-    ) {
-      Toast.error("Please select state, at least one district, taluka and village")
+    const validRules = (form.locationRules || []).filter(isCompleteRule)
+    if (validRules.length === 0) {
+      Toast.error("Select at least one state with district and taluka")
+      return
+    }
+
+    const incomplete = (form.locationRules || []).filter((rule) => !isCompleteRule(rule))
+    if (incomplete.length > 0) {
+      Toast.error(
+        `Finish location setup for ${incomplete
+          .map((rule) => rule.stateName || "selected state")
+          .join(", ")}`
+      )
       return
     }
 
     const payload = {
       ...form,
-      locationRules: [rule]
+      slug: slugify(form.slug),
+      locationRules: validRules
     }
 
     try {
@@ -197,8 +180,7 @@ const PublicFarmerLinks = () => {
         await instance.request(payload)
         Toast.success("Public link created")
       }
-      setDialogOpen(false)
-      resetForm()
+      closeDialog()
       await loadLinks()
     } catch (e) {
       console.error("Failed to save public link", e)
@@ -211,369 +193,455 @@ const PublicFarmerLinks = () => {
 
   const publicUrlBase = useMemo(() => {
     if (typeof window === "undefined") return ""
-    const origin = window.location.origin
-    // With BrowserRouter, use clean URLs without hash
-    return `${origin}/public/add-farmer`
+    return `${window.location.origin}/public/add-farmer`
   }, [])
+
+  const fieldSx = {
+    "& .MuiOutlinedInput-root": {
+      backgroundColor: "#fff",
+      borderRadius: 2,
+      fontSize: 14,
+      "& fieldset": { borderColor: C.line },
+      "&:hover fieldset": { borderColor: C.primary },
+      "&.Mui-focused fieldset": { borderColor: C.primary }
+    },
+    "& .MuiInputLabel-root.Mui-focused": { color: C.primary }
+  }
 
   return (
     <>
-      <div className="p-3 md:p-4 lg:p-6 w-full flex justify-center">
-        <div className="w-full max-w-4xl">
-          {/* Header */}
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h1 className="text-xl font-semibold text-gray-800">Public Farmer Links</h1>
-              <p className="text-sm text-gray-500">
-                Create mobile-friendly public links for farmer lead collection with restricted
-                locations.
-              </p>
-            </div>
+      <Box sx={{ p: { xs: 2, md: 3 }, minHeight: "100%", backgroundColor: C.page }}>
+        <Box sx={{ maxWidth: 880, mx: "auto" }}>
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: { xs: "stretch", sm: "center" },
+              justifyContent: "space-between",
+              flexDirection: { xs: "column", sm: "row" },
+              gap: 2,
+              mb: 3
+            }}>
+            <Box>
+              <Typography sx={{ fontSize: 22, fontWeight: 800, color: C.ink, letterSpacing: -0.3 }}>
+                Public Farmer Links
+              </Typography>
+              <Typography sx={{ fontSize: 13, color: C.muted, mt: 0.5, maxWidth: 520 }}>
+                Share a mobile form that only accepts farmers from the states, districts and
+                talukas you allow.
+              </Typography>
+            </Box>
             <button
               type="button"
-              onClick={() => {
-                resetForm()
-                setDialogOpen(true)
-              }}
-              className="inline-flex items-center px-3 py-2 rounded-md bg-blue-600 text-white text-sm font-medium shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
-              + New Link
+              onClick={openCreate}
+              className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-white text-sm font-semibold shadow-sm"
+              style={{ backgroundColor: C.primary }}>
+              <AddRoundedIcon sx={{ fontSize: 18 }} />
+              New Link
             </button>
-          </div>
+          </Box>
 
-          {/* List */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-            <div className="px-4 py-2 border-b border-gray-200 flex items-center justify-between">
-              <span className="text-sm font-medium text-gray-700">
-                {loading ? "Loading links..." : `Total Links: ${links.length}`}
-              </span>
-            </div>
-            <div className="divide-y divide-gray-100">
-              {links.map((link) => (
-                <div
-                  key={link._id}
-                  className="px-4 py-3 flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium text-gray-800">{link.name}</span>
-                      <span
-                        className={`text-xs px-2 py-0.5 rounded-full ${
-                          link.isActive ? "bg-green-50 text-green-700" : "bg-gray-100 text-gray-500"
-                        }`}>
-                        {link.isActive ? "ACTIVE" : "INACTIVE"}
-                      </span>
-                    </div>
-                    <div className="text-xs text-gray-500 mt-1 flex flex-wrap gap-x-4 gap-y-1">
-                      <span>
-                        <span className="font-semibold text-gray-700">{link.leadCount ?? 0}</span>
+          <Box
+            sx={{
+              backgroundColor: "#fff",
+              borderRadius: 3,
+              border: `1px solid ${C.line}`,
+              overflow: "hidden",
+              boxShadow: "0 10px 30px rgba(22, 48, 39, 0.04)"
+            }}>
+            <Box
+              sx={{
+                px: 2.5,
+                py: 1.5,
+                borderBottom: `1px solid ${C.line}`,
+                backgroundColor: C.surface,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between"
+              }}>
+              <Typography sx={{ fontSize: 13, fontWeight: 700, color: C.ink }}>
+                {loading ? "Loading links..." : `${links.length} campaign link${links.length === 1 ? "" : "s"}`}
+              </Typography>
+            </Box>
+
+            <Box>
+              {links.map((link) => {
+                const rules = Array.isArray(link.locationRules) ? link.locationRules : []
+                return (
+                  <Box
+                    key={link._id}
+                    sx={{
+                      px: 2.5,
+                      py: 2,
+                      borderBottom: `1px solid ${C.line}`,
+                      display: "flex",
+                      flexDirection: { xs: "column", md: "row" },
+                      gap: 1.5,
+                      justifyContent: "space-between"
+                    }}>
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+                        <Typography sx={{ fontSize: 15, fontWeight: 700, color: C.ink }}>
+                          {link.name}
+                        </Typography>
+                        <Chip
+                          size="small"
+                          label={link.isActive ? "Active" : "Inactive"}
+                          sx={{
+                            height: 22,
+                            fontWeight: 700,
+                            backgroundColor: link.isActive ? C.primarySoft : "#F3F4F6",
+                            color: link.isActive ? C.primary : C.muted
+                          }}
+                        />
+                      </Box>
+                      <Typography sx={{ fontSize: 12, color: C.muted, mt: 0.5 }}>
+                        <strong style={{ color: C.ink }}>{link.leadCount ?? 0}</strong> farmers
                         {" · "}
                         <span className="font-mono">{link.slug}</span>
-                      </span>
-                      <span>
-                        Rules: {Array.isArray(link.locationRules) ? link.locationRules.length : 0}
-                      </span>
-                    </div>
-                    <div className="text-xs text-blue-600 mt-1">
-                      Public URL:{" "}
-                      <span className="font-mono break-all">
+                      </Typography>
+                      <Box sx={{ mt: 1, display: "flex", flexWrap: "wrap", gap: 0.6 }}>
+                        {rules.length === 0 ? (
+                          <Chip
+                            size="small"
+                            icon={<PlaceOutlinedIcon sx={{ fontSize: "14px !important" }} />}
+                            label="No locations"
+                            sx={{ height: 24, backgroundColor: C.surface, color: C.muted }}
+                          />
+                        ) : (
+                          rules.map((rule) => (
+                            <Chip
+                              key={rule.stateCode}
+                              size="small"
+                              icon={<PlaceOutlinedIcon sx={{ fontSize: "14px !important" }} />}
+                              label={`${rule.stateName || rule.stateCode} · ${rule.districts?.length || 0} dist · ${rule.talukas?.length || 0} tal`}
+                              sx={{
+                                height: 24,
+                                backgroundColor: C.primarySoft,
+                                color: C.primary,
+                                fontWeight: 600
+                              }}
+                            />
+                          ))
+                        )}
+                      </Box>
+                      <Typography sx={{ fontSize: 12, color: C.primary, mt: 1, wordBreak: "break-all" }}>
                         {publicUrlBase}/{link.slug}
-                      </span>
-                    </div>
+                      </Typography>
 
-                    {/* Accordion details */}
-                    {(() => {
-                      const primaryRule =
-                        Array.isArray(link.locationRules) && link.locationRules.length > 0
-                          ? link.locationRules[0]
-                          : null
-                      if (!primaryRule) return null
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setExpandedId((prev) => {
+                            const nextId = prev === link._id ? null : link._id
+                            if (nextId && !linkLeads[nextId]) {
+                              loadLeadsForLink(nextId)
+                            }
+                            return nextId
+                          })
+                        }}
+                        className="mt-2 text-xs font-semibold underline"
+                        style={{ color: C.primary }}>
+                        {expandedId === link._id ? "Hide details" : "View details & farmers"}
+                      </button>
 
-                      const district = primaryRule.districts?.[0]
-                      const taluka = primaryRule.talukas?.[0]
-                      const village = primaryRule.villages?.[0]
+                      {expandedId === link._id && (
+                        <Box
+                          sx={{
+                            mt: 1.25,
+                            borderRadius: 2,
+                            backgroundColor: C.surface,
+                            border: `1px solid ${C.line}`,
+                            p: 1.5
+                          }}>
+                          {rules.map((rule) => (
+                            <Box key={rule.stateCode} sx={{ mb: 1.25 }}>
+                              <Typography sx={{ fontSize: 12, fontWeight: 800, color: C.ink }}>
+                                {rule.stateName || rule.stateCode}
+                              </Typography>
+                              <Typography sx={{ fontSize: 11, color: C.muted, mt: 0.25 }}>
+                                Districts:{" "}
+                                {(rule.districts || []).map((d) => d.districtName).join(", ") || "—"}
+                              </Typography>
+                              <Typography sx={{ fontSize: 11, color: C.muted }}>
+                                Talukas:{" "}
+                                {(rule.talukas || []).map((t) => t.talukaName).join(", ") || "—"}
+                              </Typography>
+                            </Box>
+                          ))}
 
-                      return (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setExpandedId((prev) => {
-                                const nextId = prev === link._id ? null : link._id
-                                if (nextId && !linkLeads[nextId]) {
-                                  loadLeadsForLink(nextId)
-                                }
-                                return nextId
-                              })
-                            }}
-                            className="mt-2 text-[11px] text-blue-600 hover:text-blue-800 underline">
-                            {expandedId === link._id
-                              ? "Hide details"
-                              : "View details & farmers"}
-                          </button>
-                          {expandedId === link._id && (
-                            <div className="mt-2 rounded-md bg-gray-50 border border-gray-200 p-2 text-[11px] text-gray-700 space-y-2">
-                              <div>
-                                <span className="font-semibold">State:</span>{" "}
-                                {primaryRule.stateName || primaryRule.stateCode || "-"}
-                              </div>
-                              <div>
-                                <span className="font-semibold">District:</span>{" "}
-                                {district?.districtName || district?.districtCode || "-"}
-                              </div>
-                              <div>
-                                <span className="font-semibold">Taluka:</span>{" "}
-                                {taluka?.talukaName || taluka?.talukaCode || "-"}
-                              </div>
-                              <div>
-                                <span className="font-semibold">Village:</span>{" "}
-                                {village?.villageName || "-"}
-                              </div>
+                          <Box sx={{ pt: 1, borderTop: `1px solid ${C.line}` }}>
+                            <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
+                              <Typography sx={{ fontSize: 12, fontWeight: 800, color: C.ink }}>
+                                Farmers from this link
+                              </Typography>
+                              {linkLeadsLoading[link._id] && (
+                                <Typography sx={{ fontSize: 11, color: C.muted }}>
+                                  Loading...
+                                </Typography>
+                              )}
+                            </Box>
+                            {Array.isArray(linkLeads[link._id]) && linkLeads[link._id].length > 0 ? (
+                              <Box
+                                sx={{
+                                  maxHeight: 180,
+                                  overflowY: "auto",
+                                  border: `1px solid ${C.line}`,
+                                  borderRadius: 1.5,
+                                  backgroundColor: "#fff"
+                                }}>
+                                <table className="min-w-full text-xs">
+                                  <thead style={{ backgroundColor: C.surface }}>
+                                    <tr>
+                                      <th className="px-2 py-1.5 text-left font-semibold">Name</th>
+                                      <th className="px-2 py-1.5 text-left font-semibold">Mobile</th>
+                                      <th className="px-2 py-1.5 text-left font-semibold">
+                                        Location
+                                      </th>
+                                      <th className="px-2 py-1.5 text-left font-semibold">
+                                        Created
+                                      </th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {linkLeads[link._id].map((lead) => (
+                                      <tr key={lead._id} className="border-t border-gray-100">
+                                        <td className="px-2 py-1.5">{lead.name || "-"}</td>
+                                        <td className="px-2 py-1.5">{lead.mobileNumber || "-"}</td>
+                                        <td className="px-2 py-1.5">
+                                          {[
+                                            lead.villageName,
+                                            lead.talukaName,
+                                            lead.districtName,
+                                            lead.stateName
+                                          ]
+                                            .filter(Boolean)
+                                            .join(", ")}
+                                        </td>
+                                        <td className="px-2 py-1.5">
+                                          {lead.createdAt
+                                            ? new Date(lead.createdAt).toLocaleDateString()
+                                            : "-"}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </Box>
+                            ) : !linkLeadsLoading[link._id] ? (
+                              <Typography sx={{ fontSize: 12, color: C.muted }}>
+                                No farmers submitted from this link yet.
+                              </Typography>
+                            ) : null}
+                          </Box>
+                        </Box>
+                      )}
+                    </Box>
 
-                              <div className="mt-2 pt-2 border-t border-gray-200">
-                                <div className="flex items-center justify-between mb-1">
-                                  <span className="font-semibold text-gray-800">
-                                    Farmers from this link
-                                  </span>
-                                  {linkLeadsLoading[link._id] && (
-                                    <span className="text-[11px] text-gray-400">
-                                      Loading...
-                                    </span>
-                                  )}
-                                </div>
-                                {Array.isArray(linkLeads[link._id]) &&
-                                linkLeads[link._id].length > 0 ? (
-                                  <div className="max-h-40 overflow-y-auto border border-gray-200 rounded-md bg-white">
-                                    <table className="min-w-full text-[11px]">
-                                      <thead className="bg-gray-50">
-                                        <tr>
-                                          <th className="px-2 py-1 text-left font-semibold text-gray-700">
-                                            Name
-                                          </th>
-                                          <th className="px-2 py-1 text-left font-semibold text-gray-700">
-                                            Mobile
-                                          </th>
-                                          <th className="px-2 py-1 text-left font-semibold text-gray-700">
-                                            Location
-                                          </th>
-                                          <th className="px-2 py-1 text-left font-semibold text-gray-700">
-                                            Created
-                                          </th>
-                                        </tr>
-                                      </thead>
-                                      <tbody>
-                                        {linkLeads[link._id].map((lead) => (
-                                          <tr key={lead._id} className="border-t border-gray-100">
-                                            <td className="px-2 py-1">
-                                              {lead.name || "-"}
-                                            </td>
-                                            <td className="px-2 py-1">
-                                              {lead.mobileNumber || "-"}
-                                            </td>
-                                            <td className="px-2 py-1">
-                                              {[
-                                                lead.villageName,
-                                                lead.talukaName,
-                                                lead.districtName
-                                              ]
-                                                .filter(Boolean)
-                                                .join(", ")}
-                                            </td>
-                                            <td className="px-2 py-1">
-                                              {lead.createdAt
-                                                ? new Date(lead.createdAt).toLocaleDateString()
-                                                : "-"}
-                                            </td>
-                                          </tr>
-                                        ))}
-                                      </tbody>
-                                    </table>
-                                  </div>
-                                ) : !linkLeadsLoading[link._id] ? (
-                                  <div className="text-[11px] text-gray-500">
-                                    No farmers submitted from this link yet.
-                                  </div>
-                                ) : null}
-                              </div>
-                            </div>
-                          )}
-                        </>
-                      )
-                    })()}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleEdit(link)}
-                      className="px-3 py-1.5 text-xs rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50">
-                      Edit
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const url = `${publicUrlBase}/${link.slug}`
-                        navigator.clipboard
-                          .writeText(url)
-                          .then(() => Toast.success("Public URL copied"))
-                          .catch(() => Toast.error("Failed to copy URL"))
-                      }}
-                      className="px-3 py-1.5 text-xs rounded-md border border-blue-500 text-blue-600 hover:bg-blue-50">
-                      Copy URL
-                    </button>
-                  </div>
-                </div>
-              ))}
+                    <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
+                      <button
+                        type="button"
+                        onClick={() => handleEdit(link)}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg border"
+                        style={{ borderColor: C.line, color: C.ink }}>
+                        <EditOutlinedIcon sx={{ fontSize: 14 }} />
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const url = `${publicUrlBase}/${link.slug}`
+                          navigator.clipboard
+                            .writeText(url)
+                            .then(() => Toast.success("Public URL copied"))
+                            .catch(() => Toast.error("Failed to copy URL"))
+                        }}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg"
+                        style={{ backgroundColor: C.primarySoft, color: C.primary }}>
+                        <ContentCopyRoundedIcon sx={{ fontSize: 14 }} />
+                        Copy URL
+                      </button>
+                    </Box>
+                  </Box>
+                )
+              })}
+
               {!loading && links.length === 0 && (
-                <div className="px-4 py-6 text-center text-sm text-gray-500">
-                  No public farmer links created yet. Click &quot;New Link&quot; to create one.
-                </div>
+                <Box sx={{ px: 3, py: 7, textAlign: "center" }}>
+                  <LinkRoundedIcon sx={{ fontSize: 32, color: C.primary, mb: 1 }} />
+                  <Typography sx={{ fontSize: 15, fontWeight: 700, color: C.ink }}>
+                    No public farmer links yet
+                  </Typography>
+                  <Typography sx={{ fontSize: 13, color: C.muted, mt: 0.5 }}>
+                    The create popup is open — add a name and the states this campaign should cover.
+                  </Typography>
+                </Box>
               )}
-            </div>
-          </div>
-        </div>
-      </div>
+            </Box>
+          </Box>
+        </Box>
+      </Box>
 
-      {/* Modal (MUI Dialog) */}
       <Dialog
         open={dialogOpen}
         onClose={(_, reason) => {
           if (reason === "backdropClick" || reason === "escapeKeyDown") return
-          setDialogOpen(false)
-          resetForm()
+          closeDialog()
         }}
-        maxWidth="lg"
+        maxWidth="md"
         fullWidth
         PaperProps={{
           sx: {
-            width: { xs: "100%", md: "60vw" },
-            borderRadius: 3,
-            maxHeight: "90vh"
+            width: { xs: "100%", md: "720px" },
+            borderRadius: 4,
+            maxHeight: "92vh",
+            overflow: "hidden"
           }
         }}>
-        <DialogTitle
+        <Box
           sx={{
-            px: 2.5,
-            py: 1.5,
-            borderBottom: "1px solid #e5e7eb",
+            px: 3,
+            py: 2.25,
+            background: "linear-gradient(135deg, #1B7A4E 0%, #2E9B68 55%, #3CB47A 100%)",
+            color: "#fff",
             display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between"
+            alignItems: "flex-start",
+            justifyContent: "space-between",
+            gap: 2
           }}>
-          <span className="text-sm font-semibold text-gray-800">
-            {editingLink ? "Edit Public Farmer Link" : "New Public Farmer Link"}
-          </span>
+          <Box>
+            <Typography sx={{ fontSize: 18, fontWeight: 800, letterSpacing: -0.2 }}>
+              {editingLink ? "Edit public farmer link" : "New public farmer link"}
+            </Typography>
+            <Typography sx={{ fontSize: 12, opacity: 0.88, mt: 0.4 }}>
+              Choose multiple states, then pick districts and talukas farmers can submit from.
+            </Typography>
+          </Box>
+          <IconButton
+            onClick={closeDialog}
+            sx={{
+              color: "#fff",
+              backgroundColor: "rgba(255,255,255,0.12)",
+              "&:hover": { backgroundColor: "rgba(255,255,255,0.22)" }
+            }}>
+            <CloseRoundedIcon />
+          </IconButton>
+        </Box>
+
+        <DialogContent sx={{ px: 3, py: 2.5, backgroundColor: "#FCFEFC" }}>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <Box
+              sx={{
+                p: 2,
+                borderRadius: 3,
+                border: `1px solid ${C.line}`,
+                backgroundColor: "#fff"
+              }}>
+              <Typography sx={{ fontSize: 12, fontWeight: 800, color: C.ink, mb: 1.5 }}>
+                Link details
+              </Typography>
+              <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, gap: 1.5 }}>
+                <TextField
+                  size="small"
+                  label="Link name"
+                  value={form.name}
+                  onChange={(e) => handleBasicChange("name", e.target.value)}
+                  placeholder="Maharashtra + Gujarat leads"
+                  sx={fieldSx}
+                />
+                <TextField
+                  size="small"
+                  label="Slug"
+                  value={form.slug}
+                  onChange={(e) => {
+                    setSlugTouched(true)
+                    handleBasicChange("slug", e.target.value)
+                  }}
+                  placeholder="mh-gj-leads"
+                  sx={fieldSx}
+                />
+              </Box>
+              <TextField
+                size="small"
+                label="Description (optional)"
+                value={form.description}
+                onChange={(e) => handleBasicChange("description", e.target.value)}
+                placeholder="Internal note for this campaign"
+                multiline
+                minRows={2}
+                sx={{ ...fieldSx, mt: 1.5 }}
+                fullWidth
+              />
+              <Box sx={{ mt: 1, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <Typography sx={{ fontSize: 13, color: C.ink, fontWeight: 600 }}>
+                  Public form is active
+                </Typography>
+                <Switch
+                  checked={form.isActive}
+                  onChange={(e) => handleBasicChange("isActive", e.target.checked)}
+                  sx={{
+                    "& .MuiSwitch-switchBase.Mui-checked": { color: C.primary },
+                    "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track": {
+                      backgroundColor: C.primary
+                    }
+                  }}
+                />
+              </Box>
+            </Box>
+
+            <Box
+              sx={{
+                p: 2,
+                borderRadius: 3,
+                border: `1px solid ${C.line}`,
+                backgroundColor: "#fff"
+              }}>
+              <Typography sx={{ fontSize: 12, fontWeight: 800, color: C.ink }}>
+                Allowed locations
+              </Typography>
+              <Typography sx={{ fontSize: 12, color: C.muted, mb: 1.5 }}>
+                Add every state this campaign should cover. Districts and talukas are chosen per
+                state.
+              </Typography>
+              <PublicLocationRuleSelector
+                rules={form.locationRules}
+                onChange={(locationRules) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    locationRules
+                  }))
+                }
+              />
+            </Box>
+          </form>
+        </DialogContent>
+
+        <DialogActions
+          sx={{
+            px: 3,
+            py: 2,
+            borderTop: `1px solid ${C.line}`,
+            backgroundColor: "#fff",
+            gap: 1
+          }}>
           <button
             type="button"
-            onClick={() => {
-              setDialogOpen(false)
-              resetForm()
-            }}
-            className="text-gray-400 hover:text-gray-600 text-lg leading-none">
-            ×
+            onClick={closeDialog}
+            className="px-4 py-2 text-sm font-semibold rounded-xl border"
+            style={{ borderColor: C.line, color: C.ink }}>
+            Cancel
           </button>
-        </DialogTitle>
-
-        <DialogContent dividers sx={{ px: 2.5, py: 2 }}>
-          <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">Link Name</label>
-                  <input
-                    type="text"
-                    value={form.name}
-                    onChange={(e) => handleBasicChange("name", e.target.value)}
-                    placeholder="MH Nashik Taluka Lead Campaign"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">Slug</label>
-                  <input
-                    type="text"
-                    value={form.slug}
-                    onChange={(e) => handleBasicChange("slug", e.target.value)}
-                    placeholder="mh-nashik-leads"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">
-                  Description (optional)
-                </label>
-                <textarea
-                  rows={2}
-                  value={form.description}
-                  onChange={(e) => handleBasicChange("description", e.target.value)}
-                  placeholder="Internal description for this campaign"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                />
-              </div>
-
-              <div className="flex items-center gap-2">
-                <label className="inline-flex items-center gap-2 text-xs text-gray-700">
-                  <input
-                    type="checkbox"
-                    checked={form.isActive}
-                    onChange={(e) => handleBasicChange("isActive", e.target.checked)}
-                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                  />
-                  Active (public form accessible)
-                </label>
-              </div>
-
-              {/* Location rule */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-gray-700">Location Rule</span>
-                  <span className="text-[11px] text-gray-500">
-                    One state / multiple districts / multiple talukas / multiple villages
-                  </span>
-                </div>
-                {form.locationRules.map((rule, index) => (
-                  <div
-                    key={index}
-                    className="border border-gray-200 rounded-md p-3 bg-gray-50">
-                    <PublicLocationRuleSelector
-                      rule={rule}
-                      onChange={(updated) => handleRuleUpdate(index, updated)}
-                    />
-                  </div>
-                ))}
-              </div>
-            </form>
-          </DialogContent>
-
-          <DialogActions
-            sx={{
-              px: 2.5,
-              py: 1.5,
-              borderTop: "1px solid #e5e7eb",
-              display: "flex",
-              justifyContent: "flex-end",
-              gap: 1
-            }}>
-            <button
-              type="button"
-              onClick={() => {
-                setDialogOpen(false)
-                resetForm()
-              }}
-              className="px-3 py-1.5 text-xs rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50">
-              Cancel
-            </button>
-            <button
-              type="submit"
-              onClick={handleSubmit}
-              disabled={loading}
-              className="px-3 py-1.5 text-xs rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60">
-              {loading ? "Saving..." : "Save Link"}
-            </button>
-          </DialogActions>
-        </Dialog>
+          <button
+            type="submit"
+            onClick={handleSubmit}
+            disabled={loading}
+            className="px-4 py-2 text-sm font-semibold rounded-xl text-white disabled:opacity-60"
+            style={{ backgroundColor: C.primary }}>
+            {loading ? "Saving..." : editingLink ? "Save changes" : "Create link"}
+          </button>
+        </DialogActions>
+      </Dialog>
     </>
   )
 }
 
 export default PublicFarmerLinks
-
-

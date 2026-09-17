@@ -58,6 +58,8 @@ const SlotDetailModal = ({
   onSlotChanged,
   onOpenPendingRoll,
   onOpenRollExpired,
+  onOpenReadyRollHistory,
+  onRunSlotEndNightly,
   sowingAllowed = false,
 }) => {
   if (!slot) return null
@@ -179,14 +181,6 @@ const SlotDetailModal = ({
           onOpenOrders={openOrders}
         />
 
-        {slot.isCurrentDateSlot && canRollPastDue && (
-          <Button variant="outlined" color="secondary" size="small" className="mb-4" onClick={() => onOpenRollExpired(slot)} sx={{ textTransform: "none" }}>
-            {slot.status === false
-              ? "Roll expired available (slot Off)"
-              : "Roll expired available"}
-          </Button>
-        )}
-
         {((slot.pastDueRolledInPlants ?? 0) > 0 || (slot.pastDuePendingOnSlot ?? 0) > 0) && (
           <>
             <div className="border-t border-gray-200 my-5" role="separator" />
@@ -244,11 +238,15 @@ const SlotDetailModal = ({
         {slot.isCurrentDateSlot && slot.pastDueDetail ? (
           <PastDueSlotBreakdown
             detail={slot.pastDueDetail}
+            slot={slot}
             slotLabel={`${start} – ${end}, ${year}`}
             expandKey={pastDueExpandKey}
             onExpandKey={onExpandKey}
             canRoll={canRollPastDue}
             onOpenPendingRoll={() => onOpenPendingRoll(slot)}
+            onOpenRollExpired={onOpenRollExpired}
+            onOpenReadyRollHistory={onOpenReadyRollHistory}
+            onRunSlotEndNightly={onRunSlotEndNightly}
           />
         ) : null}
 

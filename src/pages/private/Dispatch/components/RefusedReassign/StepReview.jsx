@@ -4,10 +4,22 @@ import {
   orderMongoId,
   orderDisplayNumber,
   orderFarmerName,
+  dispositionLabel,
+  keptQtyForRow,
+  toOtherFarmersQtyForRow,
   round2,
 } from "./reassignHelpers"
 
-const StepReview = ({ mode, orders, rows, farmers, vehiclePlants, totalReturned, totalReassigned }) => {
+const StepReview = ({
+  mode,
+  orders,
+  rows,
+  farmers,
+  vehiclePlants,
+  totalReturned,
+  totalReassigned,
+  totalToOriginalFarmer = 0,
+}) => {
   const modeMeta = REASSIGN_MODES.find((m) => m.id === mode)
   const orderById = (id) => orders.find((o) => orderMongoId(o) === id)
 
@@ -32,8 +44,12 @@ const StepReview = ({ mode, orders, rows, farmers, vehiclePlants, totalReturned,
                   #{orderDisplayNumber(o)} · {orderFarmerName(o)}
                 </span>
                 <span className="shrink-0 font-medium">
-                  {row.disposition === "KEEP" ? "Accepted (resend)" : "Temp cancelled"}
+                  {dispositionLabel(row.disposition)}
+                  {keptQtyForRow(o, row) > 0 ? ` · kept ${keptQtyForRow(o, row)}` : ""}
                   {row.returnedQty > 0 ? ` · ${row.returnedQty} returned` : ""}
+                  {toOtherFarmersQtyForRow(o, row) > 0
+                    ? ` · ${toOtherFarmersQtyForRow(o, row)} to others`
+                    : ""}
                 </span>
               </li>
             )
@@ -68,10 +84,14 @@ const StepReview = ({ mode, orders, rows, farmers, vehiclePlants, totalReturned,
         </div>
       )}
 
-      <div className="grid grid-cols-3 gap-2 rounded-lg border border-gray-200 bg-gray-50 p-3 text-center text-xs">
+      <div className="grid grid-cols-2 gap-2 rounded-lg border border-gray-200 bg-gray-50 p-3 text-center text-xs sm:grid-cols-4">
         <div>
           <p className="text-gray-500">On vehicle</p>
           <p className="text-base font-semibold text-gray-900">{vehiclePlants}</p>
+        </div>
+        <div>
+          <p className="text-gray-500">Kept</p>
+          <p className="text-base font-semibold text-blue-700">{totalToOriginalFarmer}</p>
         </div>
         <div>
           <p className="text-gray-500">Reassigned</p>

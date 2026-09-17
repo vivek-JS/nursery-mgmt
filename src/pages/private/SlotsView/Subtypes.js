@@ -48,6 +48,7 @@ import TransferPlantsModal from "./TransferPlantsModal"
 import SlotOrdersDrawer from "./SlotOrdersDrawer"
 import PastDueRollModal from "./PastDueRollModal"
 import RollExpiredAvailableModal from "./RollExpiredAvailableModal"
+import SlotReadyRollHistoryModal from "./SlotReadyRollHistoryModal"
 import SlotActualBreakdownModal from "./SlotActualBreakdownModal"
 import SlotCard from "./SlotCard"
 import SlotDetailModal from "./SlotDetailModal"
@@ -127,6 +128,7 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
   const [slotOrdersDrawer, setSlotOrdersDrawer] = useState(null)
   const [pastDueRollModal, setPastDueRollModal] = useState(null)
   const [rollExpiredModal, setRollExpiredModal] = useState(null)
+  const [readyRollHistorySlot, setReadyRollHistorySlot] = useState(null)
   const [actualBreakdownSlot, setActualBreakdownSlot] = useState(null)
   const [villageStatsOpen, setVillageStatsOpen] = useState(false)
   const [villageStatsInitialTab, setVillageStatsInitialTab] = useState(VILLAGE_STATS_TAB.REMAINING)
@@ -138,6 +140,51 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
   }
 
   const canRollPastDue = canRunPastDueRollover(userData, appUser)
+
+  const handleRunSlotEndNightly = async ({ dryRun = false } = {}) => {
+    if (!canRollPastDue) {
+      Toast.error("You do not have permission to run slot-end automation")
+      return
+    }
+    try {
+      const instance = NetworkManager(API.slots.RUN_SLOT_END_NIGHTLY)
+      const response = await instance.request({
+        plantId,
+        subtypeId: plantSubId,
+        dryRun,
+      })
+      const ok = response?.data?.success !== false && response?.code !== 500
+      const payload = response?.data?.data ?? response?.data ?? response
+      if (!ok && !payload?.pastDueOrders) {
+        Toast.error(response?.data?.message || response?.message || "Slot-end run failed")
+        return
+      }
+      const orders = payload?.pastDueOrders
+      const cap = payload?.expiredCapacityRoll
+      const lag = payload?.calendarReadyRelocate
+      const errCount = payload?.errors?.length ?? 0
+      if (dryRun) {
+        const wouldMove = orders?.ordersMoved ?? orders?.ordersToMove ?? 0
+        Toast.info(
+          `Dry run: would move ${wouldMove} order(s)${errCount ? ` · ${errCount} error(s)` : ""}`
+        )
+      } else {
+        const moved = orders?.ordersMoved ?? 0
+        const slotsRolled = cap?.slotsRolled ?? 0
+        const relocated = lag?.relocated ?? 0
+        Toast.success(
+          `Slot-end: ${moved} orders moved · ${slotsRolled} capacity roll(s) · ${relocated} lagwad line(s)${
+            errCount ? ` · ${errCount} error(s)` : ""
+          }`
+        )
+      }
+      fetchPlantsSlots()
+      setPastDueExpandKey(null)
+    } catch (err) {
+      console.error("Slot-end nightly:", err)
+      Toast.error(err?.response?.data?.message || err?.message || "Slot-end run failed")
+    }
+  }
 
   const openPendingRollModal = (slot) => {
     if (!slot?.pastDueDetail) return
@@ -994,6 +1041,8 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
         onSlotChanged={fetchPlantsSlots}
         onOpenPendingRoll={openPendingRollModal}
         onOpenRollExpired={setRollExpiredModal}
+        onOpenReadyRollHistory={setReadyRollHistorySlot}
+        onRunSlotEndNightly={handleRunSlotEndNightly}
       />
       <SalesmenRestrictionModal />
 
@@ -1776,6 +1825,12 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
         onClose={() => setRollExpiredModal(null)}
         slot={rollExpiredModal}
         onSuccess={fetchPlantsSlots}
+      />
+
+      <SlotReadyRollHistoryModal
+        open={Boolean(readyRollHistorySlot)}
+        onClose={() => setReadyRollHistorySlot(null)}
+        slot={readyRollHistorySlot}
       />
 
       <SlotActualBreakdownModal

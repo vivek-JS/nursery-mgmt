@@ -94,6 +94,9 @@ export default function PastDueRollModal({
         <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
           Today&apos;s slot: {slotLabel}
         </Typography>
+        <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
+          Capacity roll is separate — use past-due breakdown actions or wait for nightly cron.
+        </Typography>
       </DialogTitle>
       <DialogContent dividers>
         <p className="text-sm text-gray-600 mb-4">

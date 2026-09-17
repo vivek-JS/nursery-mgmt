@@ -4,7 +4,7 @@ import RamAgriVarietyStockLedgerModal from './components/RamAgriVarietyStockLedg
 import RamAgriOutstandingPanel from './components/RamAgriOutstandingPanel';
 import RamAgriDailyClosingStockTab from './components/RamAgriDailyClosingStockTab';
 import RamAgriDirectStockUpdateModal from './components/RamAgriDirectStockUpdateModal';
-import { isRamAgriMaster } from '../../../workspace/agriAccess';
+import { canDirectRamAgriStockUpdate } from '../../../workspace/agriAccess';
 import {
   Package,
   DollarSign,
@@ -107,13 +107,7 @@ const RamAgriSalesDashboard = () => {
   ].some((x) => x === userJobUpper || x === userRoleUpper);
   const isRamAgriSalesRep =
     userJobUpper === "RAM_AGRI_SALES" || userRoleUpper === "RAM_AGRI_SALES";
-  const isSuperAdmin =
-    userJobUpper === "SUPER_ADMIN" ||
-    userRoleUpper === "SUPER_ADMIN" ||
-    userJobUpper === "SUPERADMIN" ||
-    userRoleUpper === "SUPERADMIN";
-  const isRamAgriMasterUser = isRamAgriMaster(user);
-  const canDirectStockUpdate = isSuperAdmin || isRamAgriMasterUser;
+  const canDirectStockUpdate = canDirectRamAgriStockUpdate(user);
   const canManageDailyClosingStock = canDirectStockUpdate;
 
   const [outstandingLimitSummary, setOutstandingLimitSummary] = useState(null);
@@ -1112,7 +1106,7 @@ const RamAgriSalesDashboard = () => {
       return (
         <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-6">
           <p className="text-sm text-yellow-900 font-medium">
-            Only Ram Agri Master or Super Admin can directly update Ram Agri stock.
+            You do not have permission to directly update stock.
           </p>
         </div>
       );

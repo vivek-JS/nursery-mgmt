@@ -297,6 +297,18 @@ export default function DispatchedVehiclesPage() {
                 <div className="flex items-center gap-1 text-xs text-gray-800">
                   <User size={12} /> {hit.farmerName}
                 </div>
+                {hit.plantLabel && hit.plantLabel !== "—" ? (
+                  <p className="text-xs text-gray-900 mt-0.5">
+                    {hit.plantName ? <span className="font-bold">{hit.plantName}</span> : null}
+                    {hit.plantName && hit.plantSubtype ? (
+                      <span className="text-gray-500 font-normal"> · </span>
+                    ) : null}
+                    {hit.plantSubtype ? <span className="font-bold">{hit.plantSubtype}</span> : null}
+                    {!hit.plantName && !hit.plantSubtype ? (
+                      <span className="font-bold">{hit.plantLabel}</span>
+                    ) : null}
+                  </p>
+                ) : null}
                 <p className="text-xs font-semibold text-blue-700 mt-1">
                   {hit.quantity.toLocaleString()} plants · ₹{hit.amount.toLocaleString()}
                 </p>

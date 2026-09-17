@@ -98,16 +98,17 @@ export function useDispatchVehicleDialogs({ onRefresh }) {
   );
 
   const openCompleteOrder = useCallback(
-    (dispatch) => {
+    async (dispatch) => {
       if (dialogBusy) return;
-      const incomplete = (dispatch.orderIds || []).filter((order) => {
-        const dispatchDetail = dispatch.orderDispatchDetails?.find(
+      const merged = await fetchFresh(dispatch);
+      const incomplete = (merged.orderIds || []).filter((order) => {
+        const dispatchDetail = merged.orderDispatchDetails?.find(
           (detail) => detail.orderId?.toString() === order._id?.toString()
         );
         const dispatchedQty =
           dispatchDetail?.dispatchQuantity ||
-          (dispatch.plantsDetails?.reduce((sum, plant) => sum + (plant.quantity || 0), 0) /
-            Math.max(1, dispatch.orderIds?.length || 1)) ||
+          (merged.plantsDetails?.reduce((sum, plant) => sum + (plant.quantity || 0), 0) /
+            Math.max(1, merged.orderIds?.length || 1)) ||
           0;
         const dispatchedAmount = dispatchedQty * (order.rate || 0);
         const totalPaid = order["Paid Amt"] || 0;
@@ -116,13 +117,13 @@ export function useDispatchVehicleDialogs({ onRefresh }) {
       if (incomplete.length > 0) {
         const errorMessage = incomplete
           .map((order) => {
-            const dispatchDetail = dispatch.orderDispatchDetails?.find(
+            const dispatchDetail = merged.orderDispatchDetails?.find(
               (detail) => detail.orderId?.toString() === order._id?.toString()
             );
             const dispatchedQty =
               dispatchDetail?.dispatchQuantity ||
-              (dispatch.plantsDetails?.reduce((sum, plant) => sum + (plant.quantity || 0), 0) /
-                Math.max(1, dispatch.orderIds?.length || 1)) ||
+              (merged.plantsDetails?.reduce((sum, plant) => sum + (plant.quantity || 0), 0) /
+                Math.max(1, merged.orderIds?.length || 1)) ||
               0;
             const dispatchedAmount = dispatchedQty * (order.rate || 0);
             return `Order #${order.order} - ${order.farmerName}: ₹${order["Paid Amt"] || 0} paid, ₹${dispatchedAmount} required`;
@@ -131,10 +132,10 @@ export function useDispatchVehicleDialogs({ onRefresh }) {
         Toast.error(`Cannot complete — pending payments:\n${errorMessage}`);
         return;
       }
-      setSelectedDispatch(dispatch);
+      setSelectedDispatch(merged);
       setIsOrderCompleteOpen(true);
     },
-    [dialogBusy]
+    [dialogBusy, fetchFresh]
   );
 
   const deleteDispatch = useCallback(

@@ -6,7 +6,13 @@ import StepMode from "./StepMode"
 import StepOriginalOrders from "./StepOriginalOrders"
 import StepNewFarmers from "./StepNewFarmers"
 import StepReview from "./StepReview"
-import { orderMongoId, onVehicleQty } from "./reassignHelpers"
+import {
+  orderMongoId,
+  onVehicleQty,
+  dispositionToApi,
+  plantsKeptByOriginal,
+  keptQtyForRow,
+} from "./reassignHelpers"
 
 const STEP_TITLES = {
   1: "Step 1 · Kay zale?",
@@ -51,6 +57,7 @@ const RefusedReassignDialog = ({ open, onClose, dispatchData, onSuccess }) => {
       nextRows[id] = {
         disposition: "TEMP",
         returnedQty: m === "RETURNED" ? onVehicleQty(o) : 0,
+        keptQty: 0,
       }
     })
     setRows(nextRows)
@@ -64,22 +71,46 @@ const RefusedReassignDialog = ({ open, onClose, dispatchData, onSuccess }) => {
     () => farmers.reduce((s, f) => s + Math.max(0, Number(f?.numberOfPlants) || 0), 0),
     [farmers]
   )
-  const remainingToAssign = Math.max(0, vehiclePlants - totalReturned - totalReassigned)
+  const totalToOriginalFarmer = useMemo(
+    () => plantsKeptByOriginal(orders, rows),
+    [orders, rows]
+  )
+  const plantsNeedingNewFarmers = Math.max(
+    0,
+    vehiclePlants - totalReturned - totalToOriginalFarmer
+  )
+  const remainingToAssign = Math.max(0, plantsNeedingNewFarmers - totalReassigned)
 
   if (!open) return null
 
   const isReturned = mode === "RETURNED"
-  const nextStep = () => setStep((s) => (s === 2 && isReturned ? 4 : s + 1))
-  const prevStep = () => setStep((s) => (s === 4 && isReturned ? 2 : s - 1))
+  const skipNewFarmersStep = isReturned || plantsNeedingNewFarmers === 0
+  const nextStep = () =>
+    setStep((s) => {
+      if (s === 2 && skipNewFarmersStep) return 4
+      return s + 1
+    })
+  const prevStep = () =>
+    setStep((s) => {
+      if (s === 4 && skipNewFarmersStep) return 2
+      return s - 1
+    })
 
   const canProceed = () => {
     if (step === 1) return Boolean(mode)
     if (step === 2) {
-      if (isReturned) return true
-      // ensure we don't return more than on-vehicle handled by inputs; require something to assign
-      return vehiclePlants - totalReturned > 0
+      for (const o of orders) {
+        const id = orderMongoId(o)
+        const row = rows[id] || {}
+        const onV = onVehicleQty(o)
+        const ret = Math.max(0, Number(row.returnedQty) || 0)
+        const kept = keptQtyForRow(o, row)
+        if (ret + kept > onV) return false
+      }
+      return true
     }
     if (step === 3) {
+      if (plantsNeedingNewFarmers === 0) return true
       if (!farmers.length) return false
       return farmers.every(
         (f) =>
@@ -117,9 +148,11 @@ const RefusedReassignDialog = ({ open, onClose, dispatchData, onSuccess }) => {
 
   const handleSubmit = async () => {
     try {
-      if (totalReassigned + totalReturned !== vehiclePlants) {
+      const accounted =
+        totalReassigned + totalReturned + totalToOriginalFarmer
+      if (accounted !== vehiclePlants) {
         Toast.error(
-          `Plants must add up to ${vehiclePlants} on the vehicle (now ${totalReassigned + totalReturned}).`
+          `Plants must add up to ${vehiclePlants} on the vehicle (kept ${totalToOriginalFarmer} + returned ${totalReturned} + other farmers ${totalReassigned} = ${accounted}).`
         )
         return
       }
@@ -127,11 +160,13 @@ const RefusedReassignDialog = ({ open, onClose, dispatchData, onSuccess }) => {
 
       const originalOrders = orders.map((o) => {
         const id = orderMongoId(o)
-        const row = rows[id] || { disposition: "TEMP", returnedQty: 0 }
+        const row = rows[id] || { disposition: "TEMP", returnedQty: 0, keptQty: 0 }
+        const kept = keptQtyForRow(o, row)
         return {
           orderId: id,
-          disposition: row.disposition === "KEEP" ? "KEEP" : "TEMPORARY_CANCELLED",
+          disposition: dispositionToApi(row.disposition),
           returnedQty: Math.max(0, Number(row.returnedQty) || 0),
+          keptQty: kept,
         }
       })
 
@@ -222,6 +257,7 @@ const RefusedReassignDialog = ({ open, onClose, dispatchData, onSuccess }) => {
                 vehiclePlants={vehiclePlants}
                 totalReturned={totalReturned}
                 totalReassigned={totalReassigned}
+                totalToOriginalFarmer={totalToOriginalFarmer}
               />
               <label className="mt-4 flex cursor-pointer items-start gap-2 rounded-lg border border-green-200 bg-green-50/80 px-3 py-2 text-sm text-green-950">
                 <input
@@ -260,7 +296,10 @@ const RefusedReassignDialog = ({ open, onClose, dispatchData, onSuccess }) => {
             <button
               type="button"
               onClick={handleSubmit}
-              disabled={submitting || totalReassigned + totalReturned !== vehiclePlants}
+              disabled={
+                submitting ||
+                totalReassigned + totalReturned + totalToOriginalFarmer !== vehiclePlants
+              }
               className="inline-flex items-center gap-1 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50">
               {submitting ? "Processing…" : "Confirm reassignment"}
             </button>

@@ -18,6 +18,7 @@ import {
   Layers3,
   Gift,
   FileText,
+  Save,
 } from "lucide-react";
 import RamAgriBatchModal from "./RamAgriBatchModal";
 import {
@@ -94,6 +95,9 @@ export default function RamAgriStockView({
   onExportCsv,
   onShareCrop,
   onOpenLedger,
+  canDirectStockUpdate = false,
+  onDirectStockUpdate,
+  savingStockKey = null,
 }) {
   const [cropFilter, setCropFilter] = useState("all");
   const [search, setSearch] = useState("");
@@ -495,6 +499,27 @@ export default function RamAgriStockView({
                       <td className="px-4 py-3">{statusBadge(status)}</td>
                       <td className="sticky right-0 z-10 bg-white px-4 py-3 text-right shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)] group-hover:bg-brand-50/40">
                         <div className="inline-flex flex-wrap items-center justify-end gap-1">
+                          {canDirectStockUpdate && onDirectStockUpdate ? (
+                            <button
+                              type="button"
+                              disabled={savingStockKey === rowKey}
+                              onClick={() =>
+                                onDirectStockUpdate({
+                                  cropId: row.cropId,
+                                  varietyId: row.varietyId,
+                                  cropName: row.cropName,
+                                  varietyName: row.varietyName,
+                                  currentStock: row.currentStock,
+                                  primaryUnit: row.primaryUnit,
+                                })
+                              }
+                              className="inline-flex items-center gap-1 rounded-lg border border-emerald-300 bg-emerald-600 px-2 py-1 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+                              title="Direct stock update"
+                            >
+                              <Save className={`h-3.5 w-3.5 ${savingStockKey === rowKey ? "animate-pulse" : ""}`} />
+                              Update stock
+                            </button>
+                          ) : null}
                           {onOpenLedger ? (
                             <button
                               type="button"

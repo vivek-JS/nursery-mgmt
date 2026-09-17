@@ -148,8 +148,30 @@ export default function DispatchedVehiclesTable({
                           </span>
                         </td>
                         <td className="px-3 py-2.5 text-right font-medium">{row.orderCount}</td>
-                        <td className="px-3 py-2.5 text-right font-semibold text-gray-900">
-                          {row.plantTotal.toLocaleString()}
+                        <td className="px-3 py-2.5 text-right">
+                          <div className="font-semibold text-gray-900">
+                            {row.plantTotal.toLocaleString()}
+                          </div>
+                          {row.plantSummary?.length ? (
+                            <div className="mt-0.5 text-[10px] leading-snug max-w-[140px] sm:ml-auto">
+                              {row.plantSummary.slice(0, 2).map((label) => {
+                                const parts = label.split(" · ");
+                                return (
+                                  <div key={label}>
+                                    <PlantSubtypeBold
+                                      plantName={parts[0]}
+                                      plantSubtype={parts.length > 1 ? parts.slice(1).join(" · ") : ""}
+                                    />
+                                  </div>
+                                );
+                              })}
+                              {row.plantSummary.length > 2 ? (
+                                <span className="text-gray-500 font-normal">
+                                  +{row.plantSummary.length - 2} more
+                                </span>
+                              ) : null}
+                            </div>
+                          ) : null}
                         </td>
                         <td className="px-3 py-2.5 text-right">
                           <span className={row.dueTotal > 0 ? "text-amber-700 font-semibold" : "text-green-700"}>
@@ -364,6 +386,7 @@ function ExpandedDispatchDetail({ row, dispatch, onOpenForm, onCompleteOrder }) 
             <tr>
               <th className="px-2 py-2 text-left">Order #</th>
               <th className="px-2 py-2 text-left">Farmer</th>
+              <th className="px-2 py-2 text-left">Plant / subtype</th>
               <th className="px-2 py-2 text-left">Village</th>
               <th className="px-2 py-2 text-right">Qty</th>
               <th className="px-2 py-2 text-right">Rate</th>
@@ -377,6 +400,9 @@ function ExpandedDispatchDetail({ row, dispatch, onOpenForm, onCompleteOrder }) 
               <tr key={i} className="border-t border-gray-100 hover:bg-green-50/40">
                 <td className="px-2 py-1.5 font-semibold">{o.orderId}</td>
                 <td className="px-2 py-1.5">{o.farmerName}</td>
+                <td className="px-2 py-1.5">
+                  <PlantSubtypeBold plantName={o.plantName} plantSubtype={o.plantSubtype} fallback={o.plantLabel} />
+                </td>
                 <td className="px-2 py-1.5">{o.village || "—"}</td>
                 <td className="px-2 py-1.5 text-right">{o.quantity.toLocaleString()}</td>
                 <td className="px-2 py-1.5 text-right">₹{o.rate}</td>
@@ -398,6 +424,35 @@ function StatPill({ label, value, good = false, warn = false }) {
       <p className="text-[10px] uppercase tracking-wide text-gray-500">{label}</p>
       <p className={`font-bold ${good ? "text-green-700" : warn ? "text-amber-700" : "text-gray-900"}`}>{value}</p>
     </div>
+  );
+}
+
+function PlantSubtypeBold({ plantName, plantSubtype, fallback = "—" }) {
+  const p = String(plantName || "").trim();
+  const s = String(plantSubtype || "").trim();
+  if (!p && !s) {
+    const fb = String(fallback || "—").trim();
+    if (fb && fb !== "—") {
+      const parts = fb.split(" · ");
+      if (parts.length >= 2) {
+        return (
+          <span className="text-gray-900">
+            <span className="font-bold">{parts[0]}</span>
+            <span className="text-gray-500 font-normal"> · </span>
+            <span className="font-bold">{parts.slice(1).join(" · ")}</span>
+          </span>
+        );
+      }
+      return <span className="font-bold text-gray-900">{fb}</span>;
+    }
+    return <span className="text-gray-400">—</span>;
+  }
+  return (
+    <span className="text-gray-900">
+      {p ? <span className="font-bold">{p}</span> : null}
+      {p && s ? <span className="text-gray-500 font-normal"> · </span> : null}
+      {s ? <span className="font-bold">{s}</span> : null}
+    </span>
   );
 }
 

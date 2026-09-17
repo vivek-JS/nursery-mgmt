@@ -40,9 +40,18 @@ function resolveOrderFreightCharges(order) {
   )
 }
 
-function getCollectedPayments(order) {
-  const rows = Array.isArray(order?.payment) ? order.payment : Array.isArray(order?.details?.payment) ? order.details.payment : []
-  return rows.filter((p) => p?.paymentStatus === "COLLECTED")
+function getOrderPaymentRows(order) {
+  return Array.isArray(order?.payment)
+    ? order.payment
+    : Array.isArray(order?.details?.payment)
+      ? order.details.payment
+      : []
+}
+
+function getInvoicePayments(order) {
+  return getOrderPaymentRows(order).filter(
+    (p) => p?.paymentStatus === "COLLECTED" || p?.paymentStatus === "PENDING"
+  )
 }
 
 const CompleteInvoicePDF = ({ open, onClose, dispatchData }) => {
@@ -91,8 +100,8 @@ const CompleteInvoicePDF = ({ open, onClose, dispatchData }) => {
     const returnedAmount = returned * rate
     const damagedAmount = damaged * rate
 
-    const collectedPayments = getCollectedPayments(order)
-    const totalPaid = collectedPayments.reduce((sum, p) => sum + Number(p?.paidAmount || 0), 0)
+    const invoicePayments = getInvoicePayments(order)
+    const totalPaid = invoicePayments.reduce((sum, p) => sum + Number(p?.paidAmount || 0), 0)
     const netDue = Math.max(0, gross - returnedAmount - damagedAmount - totalPaid)
 
     const rawPlantName = order?.plantType?.name || order?.plantName?.name || "—"
@@ -217,7 +226,7 @@ const CompleteInvoicePDF = ({ open, onClose, dispatchData }) => {
                   display: "grid",
                   gridTemplateColumns: "22mm 1fr 22mm 1fr",
                   background: "#fff",
-                  borderBottom: i < 3 ? `1px solid ${BORDER}` : "none",
+                  borderBottom: i < infoRows.length - 1 ? `1px solid ${BORDER}` : "none",
                 }}
               >
                 {[l1, v1, l2, v2].map((txt, j) => (
@@ -336,7 +345,11 @@ const CompleteInvoicePDF = ({ open, onClose, dispatchData }) => {
           </div>
 
           <div style={{ borderRadius: "1.5mm", overflow: "hidden", border: `1px solid ${BORDER}` }}>
-            <div style={sectionHeader}>पेमेंट (Collected)</div>
+            <div style={sectionHeader}>
+              {dispatchData?.__completePreview
+                ? "पेमेंट (Preview — incl. pending on form)"
+                : "पेमेंट (Collected + submitted)"}
+            </div>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr style={{ background: "#fff" }}>
@@ -357,7 +370,7 @@ const CompleteInvoicePDF = ({ open, onClose, dispatchData }) => {
                 </tr>
               </thead>
               <tbody>
-                {collectedPayments.length === 0 ? (
+                {invoicePayments.length === 0 ? (
                   <tr>
                     <td
                       colSpan={3}
@@ -366,15 +379,17 @@ const CompleteInvoicePDF = ({ open, onClose, dispatchData }) => {
                         border: "none",
                       }}
                     >
-                      कोणतेही collected पेमेंट नाही
+                      कोणतेही पेमेंट नाही
                     </td>
                   </tr>
                 ) : (
-                  collectedPayments.map((p, idx) => (
+                  invoicePayments.map((p, idx) => (
                     <tr key={idx} style={{ background: "#fff" }}>
                       {[
                         p?.paymentDate ? new Date(p.paymentDate).toLocaleDateString("mr-IN") : "N/A",
-                        p?.modeOfPayment || "N/A",
+                        `${p?.modeOfPayment || "N/A"}${
+                          p?.paymentStatus === "PENDING" ? " (pending)" : ""
+                        }`,
                         `₹${Number(p?.paidAmount || 0).toLocaleString()}`,
                       ].map((value, i) => (
                         <td
@@ -385,7 +400,7 @@ const CompleteInvoicePDF = ({ open, onClose, dispatchData }) => {
                             border: "none",
                             borderLeft: i > 0 ? `1px solid ${BORDER}` : "none",
                             borderBottom:
-                              idx < collectedPayments.length - 1 ? `1px solid ${BORDER}` : "none",
+                              idx < invoicePayments.length - 1 ? `1px solid ${BORDER}` : "none",
                           }}
                         >
                           {value}
@@ -443,6 +458,7 @@ const CompleteInvoicePDF = ({ open, onClose, dispatchData }) => {
             <div className="text-base font-semibold text-gray-900">Complete Invoice</div>
             <div className="text-xs text-gray-500">
               Transport {dispatchData.transportId || "—"} • includes damaged + payment details
+              {dispatchData.__completePreview ? " • DRAFT preview" : ""}
             </div>
           </div>
           <button onClick={onClose} className="text-gray-500 hover:text-gray-700">

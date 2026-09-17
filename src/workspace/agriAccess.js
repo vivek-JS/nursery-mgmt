@@ -93,6 +93,34 @@ export function isRamAgriInputAdmin(user) {
   return j === JOB_RAM_AGRI_INPUT_ADMIN || r === JOB_RAM_AGRI_INPUT_ADMIN
 }
 
+export function isOfficeAdminUser(user) {
+  const j = normalizeJob({ jobTitle: user?.jobTitle })
+  const r = normalizeJob({ jobTitle: user?.role })
+  return j === "OFFICE_ADMIN" || j === "OFFICEADMIN" || r === "OFFICE_ADMIN" || r === "OFFICEADMIN"
+}
+
+/** Direct stock update on Ram Agri / Biotech seed inventory. */
+export function canDirectRamAgriStockUpdate(user) {
+  if (
+    isSuperAdminUser(user) ||
+    isRamAgriMaster(user) ||
+    isRamAgriInputAdmin(user) ||
+    isOfficeAdminUser(user) ||
+    isRamAgriSalesOfficeManager(user)
+  ) {
+    return true
+  }
+  const j = normalizeJob({ jobTitle: user?.jobTitle })
+  const r = normalizeJob({ jobTitle: user?.role })
+  const titles = new Set([j, r])
+  if (titles.has("ADMIN")) return true
+  // Legacy / display job titles (e.g. "Ram Agri Input Manager")
+  const combined = `${j} ${r}`
+  if (combined.includes("RAM_AGRI_INPUT") && combined.includes("MANAGER")) return true
+  if (combined.includes("RAM AGRI INPUT") && combined.includes("MANAGER")) return true
+  return false
+}
+
 export function isRamAgriSalesManager(user) {
   const j = normalizeJob({ jobTitle: user?.jobTitle })
   const r = normalizeJob({ jobTitle: user?.role })
