@@ -8,6 +8,8 @@ const EMPTY = {
   rolledInOnOtherSlots: { orderCount: 0, plants: 0, orders: [] },
   pendingBySlot: [],
   pendingTotal: { orderCount: 0, plants: 0 },
+  pendingLagwadBySlot: [],
+  pendingLagwadTotal: { slotCount: 0, actualPlants: 0, readyPlants: 0 },
   rolledInCapacity: { availablePlants: 0, readyPlants: 0 },
 }
 
@@ -169,8 +171,10 @@ export default function PastDueSlotBreakdown({
   expandKey,
   onExpandKey,
   onOpenPendingRoll,
+  onOpenPendingLagwadRoll,
   onOpenRollExpired,
   onOpenReadyRollHistory,
+  onOpenRolledLagwad,
   onRunSlotEndNightly,
   canRoll = false,
 }) {
@@ -191,6 +195,14 @@ export default function PastDueSlotBreakdown({
   const hasPending = (d.pendingBySlot?.length ?? 0) > 0
   const pendingOrders = d.pendingTotal?.orderCount ?? 0
   const pendingPlants = d.pendingTotal?.plants ?? 0
+  const pendingLagwadSlots = d.pendingLagwadBySlot || []
+  const pendingLagwadTotal = d.pendingLagwadTotal || {
+    slotCount: 0,
+    actualPlants: 0,
+    readyPlants: 0,
+  }
+  const pendingLagwadPlants = pendingLagwadTotal.readyPlants ?? 0
+  const hasPendingLagwad = pendingLagwadSlots.length > 0 && pendingLagwadPlants > 0
 
   const rolledInAvail =
     Number(slot?.rolledInAvailablePlants ?? d.rolledInCapacity?.availablePlants) || 0
@@ -204,6 +216,7 @@ export default function PastDueSlotBreakdown({
     (hasRolledCurrent ||
       hasRolledOther ||
       hasPending ||
+      hasPendingLagwad ||
       hasRolledCapacity ||
       canRoll)
 
@@ -298,6 +311,14 @@ export default function PastDueSlotBreakdown({
               Pending roll: {pendingOrders} · {pendingPlants.toLocaleString()} plants
             </span>
           )}
+          {hasPendingLagwad && (
+            <span className="rounded-md border border-teal-300 bg-teal-100/80 px-2 py-1 text-teal-950 font-medium tabular-nums">
+              Pending ready lagwad: {(pendingLagwadTotal.readyPlants ?? 0).toLocaleString()}
+              {(pendingLagwadTotal.sowRecordPlants ?? 0) > 0
+                ? ` · sow on expired (not rolled): ${(pendingLagwadTotal.sowRecordPlants ?? 0).toLocaleString()}`
+                : ""}
+            </span>
+          )}
         </div>
       </div>
 
@@ -317,13 +338,13 @@ export default function PastDueSlotBreakdown({
             {readyRollTotal > 0 ? (
               <span className="text-[10px] text-gray-600">Log total: {readyRollTotal.toLocaleString()}</span>
             ) : null}
-            {(rolledInReady > 0 || readyRollTotal > 0) && onOpenReadyRollHistory ? (
+            {(onOpenRolledLagwad || rolledInReady > 0 || readyRollTotal > 0) && onOpenRolledLagwad ? (
               <button
                 type="button"
-                onClick={() => onOpenReadyRollHistory(slot)}
+                onClick={() => onOpenRolledLagwad(slot)}
                 className="inline-flex items-center gap-1 text-xs font-semibold text-teal-800 hover:underline">
                 <History className="w-3.5 h-3.5" />
-                Batch / shed history
+                Batch − order check & rolled lagwad
               </button>
             ) : null}
           </div>
@@ -332,6 +353,15 @@ export default function PastDueSlotBreakdown({
 
       {canRoll ? (
         <div className="mb-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={nightlyRunning}
+            onClick={() => onOpenPendingLagwadRoll?.()}
+            className="rounded-lg border border-teal-600 bg-teal-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-teal-700 disabled:opacity-50">
+            {hasPendingLagwad
+              ? `Roll lagwad sellable (${pendingLagwadPlants.toLocaleString()})`
+              : "Roll lagwad sellable"}
+          </button>
           {hasPending ? (
             <button
               type="button"
@@ -346,7 +376,7 @@ export default function PastDueSlotBreakdown({
             disabled={nightlyRunning}
             onClick={() => onOpenRollExpired?.(slot)}
             className="rounded-lg border border-sky-400 bg-sky-100 px-3 py-1.5 text-xs font-bold text-sky-950 hover:bg-sky-200 disabled:opacity-50">
-            Roll capacity
+            Roll available
           </button>
           {onRunSlotEndNightly ? (
             <>
@@ -436,6 +466,41 @@ export default function PastDueSlotBreakdown({
               <OrderTable orders={d.rolledInOnOtherSlots.orders} emptyLabel="No orders" />
             )}
           </>
+        )}
+
+        {hasPendingLagwad && (
+          <button
+            type="button"
+            onClick={() => onOpenPendingLagwadRoll?.()}
+            className="w-full text-left rounded-lg border border-teal-300 bg-teal-50 px-4 py-3 transition hover:bg-teal-100/90 ring-offset-1 focus:outline-none focus:ring-2 focus:ring-teal-400">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <RotateCcw className="w-4 h-4 shrink-0 text-teal-800" />
+                <div className="min-w-0">
+                  <p className="font-semibold text-gray-900 text-sm">Pending lagwad roll</p>
+                  <p className="text-xs text-gray-600">
+                    {pendingLagwadSlots.length} expired window
+                    {pendingLagwadSlots.length === 1 ? "" : "s"} — actual + ready sellable
+                  </p>
+                </div>
+              </div>
+              <div className="text-right shrink-0 tabular-nums">
+                <p className="text-sm font-bold text-teal-900">
+                  {(pendingLagwadTotal.actualPlants ?? 0).toLocaleString()}
+                </p>
+                <p className="text-[10px] text-gray-500 uppercase tracking-wide">actual</p>
+                <p className="text-sm font-semibold text-teal-800 mt-0.5">
+                  {(pendingLagwadTotal.readyPlants ?? 0).toLocaleString()}
+                </p>
+                <p className="text-[10px] text-gray-500 uppercase tracking-wide">ready</p>
+              </div>
+            </div>
+            {canRoll ? (
+              <p className="text-[10px] font-semibold text-teal-800 mt-2 uppercase tracking-wide">
+                Click to open lagwad roll popup
+              </p>
+            ) : null}
+          </button>
         )}
 
         {hasPending && (

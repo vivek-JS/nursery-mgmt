@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from "react"
-import moment from "moment"
 import {
   Tooltip,
   Dialog,
@@ -8,10 +7,8 @@ import {
   DialogActions,
   Button,
   TextField,
-  Popover,
-  CircularProgress,
 } from "@mui/material"
-import { ArrowRightLeft, Info } from "lucide-react"
+import { ArrowRightLeft } from "lucide-react"
 import { API, NetworkManager } from "network/core"
 import { Toast } from "helpers/toasts/toastHelper"
 import SlotActualReadyBreakdownModal from "./SlotActualReadyBreakdownModal"
@@ -20,12 +17,17 @@ import { useSlotReadySold } from "./useSlotReadySold"
 import {
   getActualReadyPlants,
   getExpectedMortality,
+  isSlotExpiredByEndDay,
+  isSlotSowingAllowed,
+  slotHasRolledLagwadOnCurrent,
 } from "./slotMetrics"
+import { isSlotFutureWindow } from "./lagwadWindowDays"
+import MetricDefinitionIcon from "./MetricDefinitionIcon"
 
 const fmt = (n) => (Number(n) || 0).toLocaleString()
 
 const tileBase =
-  "rounded-lg border text-left transition-all min-w-0"
+  "relative rounded-lg border text-left transition-all min-w-0"
 
 /**
  * Lagwad-derived slot fields: 90% sellable, 10% mortality, dispatch ready (synced minus order dispatch).
@@ -36,12 +38,21 @@ const SlotLagwadMetrics = ({
   compact = false,
   onOpenActual,
   onSlotChanged,
+  onOpenRolledLagwad,
+  sowingAllowed = false,
   className = "",
 }) => {
+  const lagwadSowingMode = isSlotSowingAllowed(slot, sowingAllowed)
   const actualPlants = Number(slot?.actualPlants) || 0
   const mortality = getExpectedMortality(slot)
-  const syncedReady = getActualReadyPlants(slot)
-  const { soldTotal, loading: soldLoading } = useSlotReadySold(slot?._id, Boolean(slot?._id))
+  /** Stored on slot (often pipeline for banana); may exceed shed calendar-ready today. */
+  const storedReadyOnSlot = getActualReadyPlants(slot)
+  const shedCalendarReady = Math.max(0, Number(slot?.shedRollupReadyPlants) || 0)
+  const syncedReady = storedReadyOnSlot
+  const { soldTotal, orderCount, loading: soldLoading } = useSlotReadySold(
+    slot?._id,
+    Boolean(slot?._id)
+  )
   const dispatchReady = Math.max(0, syncedReady - soldTotal)
 
   const [expectedReady, setExpectedReady] = useState({
@@ -49,6 +60,42 @@ const SlotLagwadMetrics = ({
     calendarReady: 0,
     awaitingMark: 0,
   })
+
+  /** Expected-in-window pipeline (gross vs after order dispatch on this slot). */
+  const forSellExpected = expectedReady.total
+  const canSellExpected = Math.max(0, forSellExpected - soldTotal)
+
+  const expiredNotCurrent =
+    !slot?.isCurrentDateSlot && isSlotExpiredByEndDay(slot)
+  const isFutureSlot = isSlotFutureWindow(slot)
+  const isDispatchWindow =
+    Boolean(slot?.isCurrentDateSlot) && !expiredNotCurrent && !isFutureSlot
+
+  /**
+   * Papaya/sowing: sow + ready + awaiting are separate pools (sum).
+   * Banana / no sowing: same pipeline often mirrored on actual+ready — use max, not triple count.
+   */
+  const forSellLagwad = lagwadSowingMode
+    ? actualPlants + syncedReady + (expectedReady.awaitingMark || 0)
+    : isFutureSlot
+      ? Math.max(actualPlants, forSellExpected)
+      : Math.max(actualPlants, syncedReady, forSellExpected)
+
+  /** Can dispatch/sell lagwad only on today's open window. */
+  const canSellLagwad = isDispatchWindow ? dispatchReady : 0
+
+  /** Future windows: only shed lines past expected ready date count as "ready" today. */
+  const pipelineReadyToday = Math.max(shedCalendarReady, expectedReady.calendarReady || 0)
+  const readyTileValue = isDispatchWindow
+    ? dispatchReady
+    : isFutureSlot
+      ? pipelineReadyToday
+      : syncedReady
+  const expTileValue = lagwadSowingMode
+    ? canSellExpected
+    : expectedReady.awaitingMark > 0
+      ? expectedReady.awaitingMark
+      : forSellExpected
   const hasLagwad =
     actualPlants > 0 ||
     mortality > 0 ||
@@ -63,13 +110,9 @@ const SlotLagwadMetrics = ({
   const [readyBreakdownOpen, setReadyBreakdownOpen] = useState(false)
   const [readyBreakdownTab, setReadyBreakdownTab] = useState(0)
 
-  const [sowAnchor, setSowAnchor] = useState(null)
-  const [sowLoading, setSowLoading] = useState(false)
-  const [sowEntries, setSowEntries] = useState([])
-
   const labelSize = variant === "detail" ? "text-xs" : "text-[10px]"
   const valueSize = variant === "detail" ? "text-xl" : "text-sm"
-  const pad = variant === "detail" ? "px-3 py-2" : "px-2 py-1.5"
+  const pad = variant === "detail" ? "pl-3 pr-6 py-2" : "pl-2 pr-5 py-1.5"
 
   const openActual = (e) => {
     e?.stopPropagation?.()
@@ -133,56 +176,6 @@ const SlotLagwadMetrics = ({
     setTransferOpen(true)
   }
 
-  const loadSowEntries = async () => {
-    if (!slot?._id) return
-    setSowLoading(true)
-    try {
-      const inst = NetworkManager(API.slots.GET_SLOT_SECONDARY_SHED_BREAKDOWN)
-      const response = await inst.request({}, [slot._id])
-      const payload = response?.data?.data ?? response?.data ?? response
-      const batches = payload?.batches || []
-      const lines = []
-      for (const batch of batches) {
-        for (const ln of batch.lines || []) {
-          const dateIso = ln.secondaryInwardDate || ln.lagwadDate || null
-          lines.push({
-            dateIso,
-            label:
-              ln.lagwadLabel ||
-              (dateIso && moment(dateIso).isValid()
-                ? moment(dateIso).format("DD MMM YYYY")
-                : "—"),
-            batchNumber: batch.batchNumber ?? batch.batchId,
-            plants:
-              Number(ln.onSlotPlants ?? ln.slotStockSyncedPlants ?? ln.availableQuantity) || 0,
-            pollyhouse: ln.pollyhouse || "",
-            size: ln.size || "",
-          })
-        }
-      }
-      lines.sort((a, b) => {
-        const ta = a.dateIso ? moment(a.dateIso).valueOf() : 0
-        const tb = b.dateIso ? moment(b.dateIso).valueOf() : 0
-        return tb - ta
-      })
-      setSowEntries(lines)
-    } catch (e) {
-      console.error(e)
-      Toast.error("Failed to load lagwad entries")
-      setSowEntries([])
-    } finally {
-      setSowLoading(false)
-    }
-  }
-
-  const openSowPopover = (e) => {
-    e?.stopPropagation?.()
-    setSowAnchor(e.currentTarget)
-    void loadSowEntries()
-  }
-
-  const closeSowPopover = () => setSowAnchor(null)
-
   const submitTransfer = async (qtyOverride) => {
     if (!slot?._id) return
     const max = mortality
@@ -210,39 +203,63 @@ const SlotLagwadMetrics = ({
     }
   }
 
-  const expReadyCombined = syncedReady + expectedReady.awaitingMark
-  const actualReadySub =
-    soldTotal > 0
-      ? `${fmt(syncedReady)} synced · −${fmt(soldTotal)} dispatch`
-      : syncedReady > 0
-        ? "tap → breakdown"
-        : "calendar / manual"
+  const showRolledLagwadPill =
+    Boolean(slot?.isCurrentDateSlot) && slotHasRolledLagwadOnCurrent(slot) && onOpenRolledLagwad
+
+  const readyLabel = lagwadSowingMode
+    ? "Ready"
+    : isFutureSlot
+      ? "Calendar ready"
+      : "Actual ready"
+
+  const actualReadySub = isFutureSlot
+    ? storedReadyOnSlot > pipelineReadyToday
+      ? `today ${fmt(pipelineReadyToday)} · slot stores ${fmt(storedReadyOnSlot)}`
+      : pipelineReadyToday > 0
+        ? "ready date reached in shed"
+        : "0 until ready date in window"
+    : !isDispatchWindow && syncedReady > 0
+      ? "not today's slot"
+      : soldTotal > 0
+        ? `${fmt(syncedReady)} − ${fmt(soldTotal)} orders = ${fmt(dispatchReady)}`
+        : syncedReady > 0
+          ? "tap → batch − order check"
+          : "calendar / manual"
   const expReadySub =
-    expectedReady.awaitingMark > 0
-      ? `${fmt(syncedReady)} actual + ${fmt(expectedReady.awaitingMark)} await`
-      : expectedReady.total > 0
-        ? `${fmt(expectedReady.calendarReady)} in window`
-        : "awaiting in window"
+    soldTotal > 0 && forSellExpected > 0
+      ? `for sell ${fmt(forSellExpected)} − ${fmt(soldTotal)} orders`
+      : expectedReady.awaitingMark > 0
+        ? `${fmt(expectedReady.awaitingMark)} await mark`
+        : forSellExpected > 0
+          ? "in delivery window"
+          : "awaiting in window"
+
+  const sowLabel = lagwadSowingMode ? "Sow" : "Actual"
+  const sowSub = lagwadSowingMode ? "90% sellable" : "on slot (no sow %)"
+  const sowTitle = lagwadSowingMode
+    ? "Sellable lagwad sowed on slot = 90% actual plants"
+    : "Physical / booked actual on slot (banana-style — not 90% sow split)"
 
   const cells = compact
     ? [
         {
           key: "sow",
-          label: "Sow",
-          sub: "90% sellable",
+          definitionKey: lagwadSowingMode ? "lagwadSow" : "lagwadActual",
+          label: sowLabel,
+          sub: sowSub,
           value: actualPlants,
           className: "bg-teal-50 border-teal-200 hover:bg-teal-100",
           valueClass: "text-teal-900",
-          title: "Sellable lagwad sowed on slot = 90% actual plants",
+          title: sowTitle,
           clickable: Boolean(onOpenActual),
           onClick: openActual,
-          showSowInfo: actualPlants > 0,
         },
         {
           key: "ready",
-          label: "Ready",
-          sub: soldLoading && soldTotal === 0 ? "…" : actualReadySub,
-          value: dispatchReady,
+          definitionKey: "lagwadReady",
+          label: readyLabel,
+          sub: soldLoading && soldTotal === 0 && isDispatchWindow ? "…" : actualReadySub,
+          value: readyTileValue,
           className: "bg-sky-50 border-sky-200 hover:bg-sky-100 cursor-pointer",
           valueClass: "text-sky-800",
           title:
@@ -254,12 +271,13 @@ const SlotLagwadMetrics = ({
         },
         {
           key: "expected",
-          label: "Expected",
-          sub: expReadySub,
-          value: expReadyCombined,
+          definitionKey: "lagwadExpected",
+          label: "Exp. ready",
+          sub: isFutureSlot ? "in window · await mark" : expReadySub,
+          value: expTileValue,
           className: "bg-violet-50 border-violet-200 hover:bg-violet-100 cursor-pointer",
           valueClass: "text-violet-900",
-          title: `Expected ready: actual ${fmt(syncedReady)} plus ${fmt(expectedReady.awaitingMark)} still awaiting in this delivery window`,
+          title: `Expected in window: for sell ${fmt(forSellExpected)} − order dispatch ${fmt(soldTotal)} = can sell ${fmt(canSellExpected)}`,
           clickable: true,
           onClick: (e) => openReadyBreakdown(e, 0),
         },
@@ -267,20 +285,21 @@ const SlotLagwadMetrics = ({
     : [
         {
           key: "sellable",
-          label: "Sellable",
-          sub: "90% actual",
+          definitionKey: lagwadSowingMode ? "lagwadSow" : "lagwadActual",
+          label: lagwadSowingMode ? "Sellable" : "Actual",
+          sub: lagwadSowingMode ? "90% actual" : "on slot",
           value: actualPlants,
           className: "bg-teal-50 border-teal-200 hover:bg-teal-100",
           valueClass: "text-teal-900",
-          title: "Sellable lagwad on slot = 90% actual plants only (excludes 10% mortality reserve)",
+          title: sowTitle,
           clickable: Boolean(onOpenActual),
           onClick: openActual,
-          showSowInfo: actualPlants > 0,
         },
         {
           key: "mortality",
+          definitionKey: "lagwadMortality",
           label: "Exp. mort.",
-          sub: mortality > 0 ? "tap → transfer" : "10% reserve",
+          sub: mortality > 0 ? "tap → transfer" : lagwadSowingMode ? "10% reserve" : "—",
           value: mortality,
           className:
             mortality > 0
@@ -296,26 +315,32 @@ const SlotLagwadMetrics = ({
         },
         {
           key: "actualReady",
-          label: "Actual ready",
+          definitionKey: "lagwadReady",
+          label: readyLabel,
           sub: soldLoading && soldTotal === 0 ? "…" : actualReadySub,
-          value: dispatchReady,
+          value: readyTileValue,
           className: "bg-sky-50 border-sky-200 hover:bg-sky-100 cursor-pointer",
           valueClass: "text-sky-800",
           title:
-            soldTotal > 0
+            soldTotal > 0 && isDispatchWindow
               ? `Actual ready ${fmt(dispatchReady)} = synced ${fmt(syncedReady)} minus ${fmt(soldTotal)} order dispatch`
-              : "Synced plants ready for dispatch — click for batch breakdown",
+              : isFutureSlot
+                ? storedReadyOnSlot > pipelineReadyToday
+                  ? `Calendar ready today ${fmt(pipelineReadyToday)}. Slot actualReadyPlants ${fmt(storedReadyOnSlot)} is pipeline/booking — not dispatch-ready until the delivery window is active.`
+                  : "Plants in shed whose expected ready date has passed — click for batch breakdown"
+                : "Synced plants ready — click for batch breakdown",
           clickable: true,
           onClick: (e) => openReadyBreakdown(e, 0),
         },
         {
           key: "expReady",
+          definitionKey: "lagwadExpected",
           label: "Exp. ready",
-          sub: expReadySub,
-          value: expReadyCombined,
+          sub: isFutureSlot ? "expected in window" : expReadySub,
+          value: expTileValue,
           className: "bg-violet-50 border-violet-200 hover:bg-violet-100 cursor-pointer",
           valueClass: "text-violet-900",
-          title: `Expected ready pipeline: actual ${fmt(syncedReady)} plus ${fmt(expectedReady.awaitingMark)} still awaiting in this delivery window`,
+          title: `Expected in window: for sell ${fmt(forSellExpected)} − order dispatch ${fmt(soldTotal)} = can sell ${fmt(canSellExpected)}`,
           clickable: true,
           onClick: (e) => openReadyBreakdown(e, 0),
         },
@@ -324,17 +349,91 @@ const SlotLagwadMetrics = ({
   return (
     <div className={className} onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
       {variant === "detail" && (
-        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2 flex items-center gap-1">
+        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2 flex items-center gap-1 flex-wrap">
           Lagwad physical
           {mortality > 0 && onSlotChanged && (
             <span className="text-rose-600 normal-case font-normal text-[10px]">
               · mortality can transfer to ready
             </span>
           )}
+          {showRolledLagwadPill ? (
+            <button
+              type="button"
+              className="normal-case font-bold text-[10px] text-teal-800 underline-offset-2 hover:underline ml-auto"
+              onClick={(e) => {
+                e.stopPropagation()
+                onOpenRolledLagwad(slot)
+              }}>
+              Rolled lagwad →
+            </button>
+          ) : null}
         </p>
+      )}
+      {expiredNotCurrent && (actualPlants > 0 || syncedReady > 0) && (
+        <p
+          className={`${labelSize} text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-2 py-1 mb-2`}>
+          {syncedReady > 0
+            ? `Ready ${fmt(syncedReady)} on this expired window — not sellable here. Roll lagwad to today's slot.`
+            : "Lagwad not sellable here — roll to today's slot"}
+        </p>
+      )}
+      {variant === "card" && showRolledLagwadPill && (
+        <button
+          type="button"
+          className="text-[10px] font-bold text-teal-800 mb-1 hover:underline"
+          onClick={(e) => {
+            e.stopPropagation()
+            onOpenRolledLagwad(slot)
+          }}>
+          Rolled lagwad ({fmt(slot?.rolledInActualReadyPlants ?? 0)} ready in)
+        </button>
       )}
       {!hasLagwad && variant === "card" && (
         <p className={`${labelSize} text-slate-400 mb-1`}>Lagwad: no stock on slot</p>
+      )}
+      {isFutureSlot && (forSellLagwad > 0 || forSellExpected > 0) && (
+        <p
+          className={`${labelSize} text-indigo-900 bg-indigo-50 border border-indigo-200 rounded-md px-2 py-1 mb-2`}>
+          Future window — lagwad here is <strong>expected / pipeline</strong> (orders booked).{" "}
+          <strong>Can sell = 0</strong> until this delivery window is active (today inside dates).
+        </p>
+      )}
+      {(forSellLagwad > 0 || canSellLagwad > 0 || forSellExpected > 0) && (
+        <div
+          className={`mb-2 rounded-lg border border-slate-200 bg-slate-50/90 px-2 py-1.5 ${variant === "detail" ? "text-sm" : ""}`}>
+          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+            <div className="tabular-nums">
+              <span className={`${labelSize} font-bold text-slate-600 uppercase`}>
+                {lagwadSowingMode ? "For sell " : "Lagwad pool "}
+              </span>
+              <span className={`${valueSize} font-extrabold text-slate-900`}>{fmt(forSellLagwad)}</span>
+            </div>
+            <div className="tabular-nums">
+              <span className={`${labelSize} font-bold text-emerald-800 uppercase`}>Can sell </span>
+              <span className={`${valueSize} font-extrabold text-emerald-900`}>
+                {isDispatchWindow ? fmt(canSellLagwad) : "0"}
+              </span>
+            </div>
+          </div>
+          <p className={`${labelSize} text-slate-500 leading-snug mt-0.5`}>
+            {lagwadSowingMode
+              ? "For sell = sow + synced + expected awaiting"
+              : "Lagwad pool = max(actual, synced, expected in window) — not triple-counted"}
+            {isDispatchWindow ? " · Can sell = ready − orders" : " · Can sell only on today's slot"}
+            {soldTotal > 0 && isDispatchWindow
+              ? ` (${fmt(soldTotal)} on ${orderCount || "?"} orders)`
+              : ""}
+            {forSellExpected > 0 ? (
+              <>
+                {" "}
+                · Exp. in window: {fmt(forSellExpected)}
+                {lagwadSowingMode && isDispatchWindow
+                  ? `, can ${fmt(canSellExpected)} after orders`
+                  : ""}
+              </>
+            ) : null}
+          </p>
+        </div>
       )}
       <div
         className={
@@ -352,15 +451,7 @@ const SlotLagwadMetrics = ({
                   <ArrowRightLeft className="w-2.5 h-2.5 text-rose-500" />
                 )}
                 {c.label}
-                {c.showSowInfo && (
-                  <button
-                    type="button"
-                    className="inline-flex p-0 leading-none text-teal-600 hover:text-teal-800"
-                    aria-label="Lagwad sow entries"
-                    onClick={openSowPopover}>
-                    <Info className="w-2.5 h-2.5" />
-                  </button>
-                )}
+                <MetricDefinitionIcon definitionKey={c.definitionKey} />
               </p>
               {c.sub && (
                 <p className={`${labelSize} text-gray-400 leading-tight`}>{c.sub}</p>
@@ -397,49 +488,6 @@ const SlotLagwadMetrics = ({
         initialTab={readyBreakdownTab}
         onMarkedReady={refreshExpectedReady}
       />
-
-      <Popover
-        open={Boolean(sowAnchor)}
-        anchorEl={sowAnchor}
-        onClose={closeSowPopover}
-        anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
-        transformOrigin={{ vertical: "top", horizontal: "left" }}
-        onClick={(e) => e.stopPropagation()}
-        slotProps={{ paper: { className: "max-w-xs w-72" } }}>
-        <div className="px-3 py-2 border-b border-slate-100">
-          <p className="text-xs font-semibold text-slate-800">Lagwad entries</p>
-          <p className="text-[10px] text-slate-500">Newest first</p>
-        </div>
-        <div className="max-h-56 overflow-y-auto px-3 py-2">
-          {sowLoading ? (
-            <div className="flex justify-center py-4">
-              <CircularProgress size={22} />
-            </div>
-          ) : sowEntries.length === 0 ? (
-            <p className="text-xs text-slate-500 py-2">No lagwad lines on this slot.</p>
-          ) : (
-            <ul className="space-y-2">
-              {sowEntries.map((entry, idx) => (
-                <li
-                  key={`${entry.batchNumber}-${entry.label}-${idx}`}
-                  className="text-xs border-b border-slate-100 pb-2 last:border-0 last:pb-0">
-                  <div className="flex justify-between gap-2 font-semibold text-slate-800">
-                    <span>{entry.label}</span>
-                    <span className="tabular-nums text-teal-700">
-                      {fmt(entry.plants)}
-                    </span>
-                  </div>
-                  <p className="text-[10px] text-slate-500 mt-0.5">
-                    Batch {entry.batchNumber}
-                    {entry.pollyhouse ? ` · ${entry.pollyhouse}` : ""}
-                    {entry.size ? ` · ${entry.size}` : ""}
-                  </p>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      </Popover>
 
       <Dialog
         open={transferOpen}

@@ -39,6 +39,8 @@ import {
   getDisplaySowingGap,
   isSlotOverbooked,
   getEffectiveBufferPct,
+  getPendingLagwadPlantsTotal,
+  slotHasRolledLagwadOnCurrent,
 } from "./slotMetrics"
 
 const SlotDetailModal = ({
@@ -57,8 +59,9 @@ const SlotDetailModal = ({
   onOpenActual,
   onSlotChanged,
   onOpenPendingRoll,
+  onOpenPendingLagwadRoll,
   onOpenRollExpired,
-  onOpenReadyRollHistory,
+  onOpenRolledLagwad,
   onRunSlotEndNightly,
   sowingAllowed = false,
 }) => {
@@ -147,6 +150,72 @@ const SlotDetailModal = ({
       </div>
 
       <Box sx={{ flex: 1, overflow: "auto", minHeight: 0, p: 3 }}>
+        {canRollPastDue && slot.isCurrentDateSlot && onOpenPendingLagwadRoll ? (
+          <div className="mb-3 rounded-xl border border-teal-400 bg-teal-50 px-4 py-3 flex flex-wrap items-center gap-3">
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-bold text-teal-950">Roll ready lagwad (sow stays on old window)</p>
+              <p className="text-xs text-teal-900/85">
+                Moves synced ready only. Sow (90% actual) remains on the expired slot as delayed record.
+                {getPendingLagwadPlantsTotal(slot) > 0
+                  ? ` Pending: ${getPendingLagwadPlantsTotal(slot).toLocaleString()} plants.`
+                  : " No pending lagwad on expired windows right now."}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2 shrink-0">
+              <Button
+                variant="contained"
+                size="small"
+                onClick={() => onOpenPendingLagwadRoll(slot)}
+                sx={{
+                  textTransform: "none",
+                  fontWeight: 700,
+                  bgcolor: "#0d9488",
+                  "&:hover": { bgcolor: "#0f766e" },
+                }}>
+                Roll lagwad sellable
+              </Button>
+              {slotHasRolledLagwadOnCurrent(slot) && onOpenRolledLagwad ? (
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={() => onOpenRolledLagwad(slot)}
+                  sx={{ textTransform: "none", fontWeight: 700, borderColor: "#0d9488", color: "#0f766e" }}>
+                  View rolled lagwad
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+        {canRollPastDue && slot.isCurrentDateSlot && onOpenRollExpired ? (
+          <div className="mb-4 rounded-xl border border-sky-300 bg-sky-50 px-4 py-3 flex flex-wrap items-center gap-3">
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-bold text-sky-950">Roll booking available from expired slots</p>
+              <p className="text-xs text-sky-900/80">
+                Moves <strong>availablePlants</strong> (booking capacity). Use teal lagwad roll for physical stock.
+              </p>
+            </div>
+            <Button
+              variant="contained"
+              color="secondary"
+              size="small"
+              onClick={() => onOpenRollExpired(slot)}
+              sx={{ textTransform: "none", fontWeight: 700, flexShrink: 0 }}>
+              Roll available
+            </Button>
+          </div>
+        ) : canRollPastDue && !slot.isCurrentDateSlot ? (
+          <p className="mb-4 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+            <strong>Roll available</strong> is only on today&apos;s delivery window. Open the slot
+            marked &quot;Today&apos;s slot&quot; on the calendar (today must fall inside its start–end
+            dates).
+          </p>
+        ) : !canRollPastDue ? (
+          <p className="mb-4 text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+            Roll available requires <strong>Super Admin</strong> or <strong>Office Admin</strong>{" "}
+            (your role cannot run expired-slot rolls).
+          </p>
+        ) : null}
+
         <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Slot stats</p>
         <SlotCardMetrics
           slot={slot}
@@ -156,6 +225,7 @@ const SlotDetailModal = ({
           onOpenOrders={openOrders}
           onOpenActual={onOpenActual}
           onSlotChanged={onSlotChanged}
+          onOpenRolledLagwad={onOpenRolledLagwad}
         />
 
         <Divider sx={{ my: 2 }} />
@@ -235,7 +305,7 @@ const SlotDetailModal = ({
           </Card>
         </div>
 
-        {slot.isCurrentDateSlot && slot.pastDueDetail ? (
+        {slot.isCurrentDateSlot && (canRollPastDue || slot.pastDueDetail) ? (
           <PastDueSlotBreakdown
             detail={slot.pastDueDetail}
             slot={slot}
@@ -244,8 +314,9 @@ const SlotDetailModal = ({
             onExpandKey={onExpandKey}
             canRoll={canRollPastDue}
             onOpenPendingRoll={() => onOpenPendingRoll(slot)}
+            onOpenPendingLagwadRoll={() => onOpenPendingLagwadRoll?.(slot)}
             onOpenRollExpired={onOpenRollExpired}
-            onOpenReadyRollHistory={onOpenReadyRollHistory}
+            onOpenRolledLagwad={onOpenRolledLagwad}
             onRunSlotEndNightly={onRunSlotEndNightly}
           />
         ) : null}

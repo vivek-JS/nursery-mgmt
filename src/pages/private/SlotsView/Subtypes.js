@@ -47,8 +47,9 @@ import SlotTrailModal from "components/Modals/SlotTrailModal"
 import TransferPlantsModal from "./TransferPlantsModal"
 import SlotOrdersDrawer from "./SlotOrdersDrawer"
 import PastDueRollModal from "./PastDueRollModal"
+import RollLagwadSellableModal from "./RollLagwadSellableModal"
+import RolledLagwadSellableModal from "./RolledLagwadSellableModal"
 import RollExpiredAvailableModal from "./RollExpiredAvailableModal"
-import SlotReadyRollHistoryModal from "./SlotReadyRollHistoryModal"
 import SlotActualBreakdownModal from "./SlotActualBreakdownModal"
 import SlotCard from "./SlotCard"
 import SlotDetailModal from "./SlotDetailModal"
@@ -127,8 +128,9 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
 
   const [slotOrdersDrawer, setSlotOrdersDrawer] = useState(null)
   const [pastDueRollModal, setPastDueRollModal] = useState(null)
+  const [lagwadRollModal, setLagwadRollModal] = useState(null)
   const [rollExpiredModal, setRollExpiredModal] = useState(null)
-  const [readyRollHistorySlot, setReadyRollHistorySlot] = useState(null)
+  const [rolledLagwadSlot, setRolledLagwadSlot] = useState(null)
   const [actualBreakdownSlot, setActualBreakdownSlot] = useState(null)
   const [villageStatsOpen, setVillageStatsOpen] = useState(false)
   const [villageStatsInitialTab, setVillageStatsInitialTab] = useState(VILLAGE_STATS_TAB.REMAINING)
@@ -186,14 +188,26 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
     }
   }
 
-  const openPendingRollModal = (slot) => {
-    if (!slot?.pastDueDetail) return
+  const slotLabelFor = (slot) => {
     const startLbl = moment(slot.startDay, "DD-MM-YYYY").format("MMM D")
     const endLbl = moment(slot.endDay, "DD-MM-YYYY").format("MMM D")
     const yrLbl = moment(slot.startDay, "DD-MM-YYYY").format("YYYY")
+    return `${startLbl} – ${endLbl}, ${yrLbl}`
+  }
+
+  const openPendingRollModal = (slot) => {
+    if (!slot?.pastDueDetail) return
     setPastDueRollModal({
       slot,
-      slotLabel: `${startLbl} – ${endLbl}, ${yrLbl}`,
+      slotLabel: slotLabelFor(slot),
+    })
+  }
+
+  const openPendingLagwadRollModal = (slot) => {
+    if (!slot?.isCurrentDateSlot) return
+    setLagwadRollModal({
+      slot,
+      slotLabel: slotLabelFor(slot),
     })
   }
 
@@ -1040,8 +1054,9 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
         onOpenActual={setActualBreakdownSlot}
         onSlotChanged={fetchPlantsSlots}
         onOpenPendingRoll={openPendingRollModal}
+        onOpenPendingLagwadRoll={openPendingLagwadRollModal}
         onOpenRollExpired={setRollExpiredModal}
-        onOpenReadyRollHistory={setReadyRollHistorySlot}
+        onOpenRolledLagwad={setRolledLagwadSlot}
         onRunSlotEndNightly={handleRunSlotEndNightly}
       />
       <SalesmenRestrictionModal />
@@ -1734,7 +1749,9 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
                     onOpenActual={setActualBreakdownSlot}
                     onSlotChanged={fetchPlantsSlots}
                     onPendingRoll={openPendingRollModal}
+                    onPendingLagwadRoll={openPendingLagwadRollModal}
                     onRollExpiredAvailable={setRollExpiredModal}
+                    onRolledLagwad={setRolledLagwadSlot}
                     onTrail={(e, s) => openSlotTrail(e, s, "all")}
                     onEdit={startEditing}
                     onBuffer={openBufferModal}
@@ -1820,6 +1837,23 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
         }}
       />
 
+      <RollLagwadSellableModal
+        open={Boolean(lagwadRollModal)}
+        onClose={() => setLagwadRollModal(null)}
+        detail={lagwadRollModal?.slot?.pastDueDetail}
+        slotLabel={lagwadRollModal?.slotLabel || ""}
+        verifySlot={lagwadRollModal?.slot}
+        plantId={plantId}
+        subtypeId={plantSubId}
+        canRoll={canRollPastDue}
+        onRolled={() => {
+          fetchPlantsSlots()
+          if (selectedSlot?._id === lagwadRollModal?.slot?._id) {
+            setPastDueExpandKey(null)
+          }
+        }}
+      />
+
       <RollExpiredAvailableModal
         open={Boolean(rollExpiredModal)}
         onClose={() => setRollExpiredModal(null)}
@@ -1827,10 +1861,10 @@ const Subtypes = ({ plantId, plantSubId, year = 2025 }) => {
         onSuccess={fetchPlantsSlots}
       />
 
-      <SlotReadyRollHistoryModal
-        open={Boolean(readyRollHistorySlot)}
-        onClose={() => setReadyRollHistorySlot(null)}
-        slot={readyRollHistorySlot}
+      <RolledLagwadSellableModal
+        open={Boolean(rolledLagwadSlot)}
+        onClose={() => setRolledLagwadSlot(null)}
+        slot={rolledLagwadSlot}
       />
 
       <SlotActualBreakdownModal

@@ -13,9 +13,10 @@ import {
 } from "./slotMetrics"
 import SlotLagwadMetrics from "./SlotLagwadMetrics"
 import SlotSowingCrossTiles from "./SlotSowingCrossTiles"
+import MetricDefinitionIcon from "./MetricDefinitionIcon"
 
 const statPillClass =
-  "rounded-lg border px-2 py-1.5 text-left transition-all hover:shadow-md hover:-translate-y-0.5 cursor-pointer w-full"
+  "relative rounded-lg border px-2 py-1.5 pr-5 text-left transition-all hover:shadow-md hover:-translate-y-0.5 cursor-pointer w-full"
 
 const SlotCardMetrics = ({
   slot,
@@ -23,6 +24,7 @@ const SlotCardMetrics = ({
   onOpenOrders,
   onOpenActual,
   onSlotChanged,
+  onOpenRolledLagwad,
   variant = "card",
   compact = false,
   sowingAllowed = false,
@@ -50,6 +52,7 @@ const SlotCardMetrics = ({
 
   const bookedCell = {
     key: "booked",
+    definitionKey: "slotBooked",
     label: "Booked",
     sub: "excl. rolled",
     value: booked,
@@ -69,6 +72,7 @@ const SlotCardMetrics = ({
 
   const sowingGapCell = {
     key: "sowingGap",
+    definitionKey: "slotSowingGap",
     label: "Sowing gap",
     sub:
       sowingGap > 0
@@ -104,109 +108,65 @@ const SlotCardMetrics = ({
     onClick: openSowingGap,
   }
 
-  const orderCells = allowed
-    ? compact
-      ? [
-          {
-            key: "excessAvail",
-            label: "Excess avail",
-            sub: "for booking",
-            value: excessAvail,
-            className: "bg-emerald-50 border-emerald-200 hover:bg-emerald-100",
-            valueClass: "text-emerald-700",
-            title: "Saleable plants after gross order cover (sowing-allowed)",
-            onClick: (e) => open(e, "available"),
-          },
-          sowingGapCell,
-          bookedCell,
-        ]
-      : [
-          {
-            key: "excessAvail",
-            label: "Excess avail",
-            sub: "for booking",
-            value: excessAvail,
-            className: "bg-emerald-50 border-emerald-200 hover:bg-emerald-100",
-            valueClass: "text-emerald-700",
-            title: "Saleable plants after gross order cover (sowing-allowed)",
-            onClick: (e) => open(e, "available"),
-          },
-          sowingGapCell,
-          bookedCell,
-          {
-            key: "remaining",
-            label: "Delivery to dispatch",
-            sub: "queue left",
-            value: toDispatch,
-            className: "bg-amber-50 border-amber-200 hover:bg-amber-100",
-            valueClass: "text-amber-900",
-            title: "Orders still waiting to dispatch from this slot",
-            onClick: (e) => open(e, "remaining"),
-          },
-        ]
-    : compact
-      ? [
-          {
-            key: "available",
-            label: "Available",
-            sub: "for booking",
-            value: bookingAvail,
-            className:
-              bookingAvail < 0
-                ? "bg-red-50 border-red-200 hover:bg-red-100"
-                : "bg-emerald-50 border-emerald-200 hover:bg-emerald-100",
-            valueClass: bookingAvail < 0 ? "text-red-700" : "text-emerald-700",
-            title: "Plants open for new bookings on this slot",
-            onClick: (e) => open(e, "available"),
-          },
-          bookedCell,
-          {
-            key: "remaining",
-            label: "Delivery to dispatch",
-            sub: "queue left",
-            value: toDispatch,
-            className: "bg-amber-50 border-amber-200 hover:bg-amber-100",
-            valueClass: "text-amber-900",
-            title: "Orders still waiting to dispatch from this slot",
-            onClick: (e) => open(e, "remaining"),
-          },
-        ]
-      : [
-          {
-            key: "available",
-            label: "Available",
-            sub: "for booking",
-            value: bookingAvail,
-            className:
-              bookingAvail < 0
-                ? "bg-red-50 border-red-200 hover:bg-red-100"
-                : "bg-emerald-50 border-emerald-200 hover:bg-emerald-100",
-            valueClass: bookingAvail < 0 ? "text-red-700" : "text-emerald-700",
-            title: "Plants open for new bookings on this slot",
-            onClick: (e) => open(e, "available"),
-          },
-          bookedCell,
-          {
-            key: "dispatched",
-            label: "Dispatched",
-            sub: "orders loaded",
-            value: dispatched,
-            className: "bg-violet-50 border-violet-200 hover:bg-violet-100",
-            valueClass: "text-violet-800",
-            title: "Plants already dispatched on orders for this slot",
-            onClick: (e) => open(e, "dispatched"),
-          },
-          {
-            key: "remaining",
-            label: "Delivery to dispatch",
-            sub: "queue left",
-            value: toDispatch,
-            className: "bg-amber-50 border-amber-200 hover:bg-amber-100",
-            valueClass: "text-amber-900",
-            title: "Orders still waiting to dispatch from this slot",
-            onClick: (e) => open(e, "remaining"),
-          },
-        ]
+  const canBookCell = allowed
+    ? {
+        key: "excessAvail",
+        definitionKey: "slotExcess",
+        label: "Can book",
+        sub: "after orders",
+        value: excessAvail,
+        className: "bg-emerald-50 border-emerald-200 hover:bg-emerald-100",
+        valueClass: "text-emerald-700",
+        title: "Saleable plants after gross order cover (sowing-allowed)",
+        onClick: (e) => open(e, "available"),
+      }
+    : {
+        key: "available",
+        definitionKey: "slotAvailable",
+        label: "Can book",
+        sub: "this slot",
+        value: bookingAvail,
+        className:
+          bookingAvail < 0
+            ? "bg-red-50 border-red-200 hover:bg-red-100"
+            : "bg-emerald-50 border-emerald-200 hover:bg-emerald-100",
+        valueClass: bookingAvail < 0 ? "text-red-700" : "text-emerald-700",
+        title: "Plants open for new bookings on this slot",
+        onClick: (e) => open(e, "available"),
+      }
+
+  const remainingCell = {
+    key: "remaining",
+    definitionKey: "slotRemaining",
+    label: "Delivery to dispatch",
+    sub: "queue left",
+    value: toDispatch,
+    className: "bg-amber-50 border-amber-200 hover:bg-amber-100",
+    valueClass: "text-amber-900",
+    title: "Orders still waiting to dispatch from this slot",
+    onClick: (e) => open(e, "remaining"),
+  }
+
+  const dispatchedCell = {
+    key: "dispatched",
+    definitionKey: "slotDispatched",
+    label: "Dispatched",
+    sub: "orders loaded",
+    value: dispatched,
+    className: "bg-violet-50 border-violet-200 hover:bg-violet-100",
+    valueClass: "text-violet-800",
+    title: "Plants already dispatched on orders for this slot",
+    onClick: (e) => open(e, "dispatched"),
+  }
+
+  // Can book, gap beside it, then Booked, then the rest.
+  const orderCells = [
+    canBookCell,
+    ...(allowed ? [sowingGapCell] : []),
+    bookedCell,
+    ...(!allowed && !compact ? [dispatchedCell] : []),
+    remainingCell,
+  ]
 
   return (
     <div onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
@@ -217,7 +177,10 @@ const SlotCardMetrics = ({
               type="button"
               className={`${statPillClass} ${c.className}`}
               onClick={c.onClick}>
-              <p className={`${labelSize} text-gray-500 leading-tight`}>{c.label}</p>
+              <p className={`${labelSize} text-gray-500 leading-tight flex items-center gap-0.5`}>
+                {c.label}
+                <MetricDefinitionIcon definitionKey={c.definitionKey} />
+              </p>
               {c.sub ? (
                 <p className={`${labelSize} text-gray-400 leading-tight`}>{c.sub}</p>
               ) : null}
@@ -246,8 +209,10 @@ const SlotCardMetrics = ({
         slot={slot}
         variant={variant}
         compact={compact}
+        sowingAllowed={sowingAllowed}
         onOpenActual={onOpenActual}
         onSlotChanged={onSlotChanged}
+        onOpenRolledLagwad={onOpenRolledLagwad}
       />
     </div>
   )

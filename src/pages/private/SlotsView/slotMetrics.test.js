@@ -16,6 +16,7 @@ import {
   getSowedForOtherDeliveryPlants,
   getSowingFromOtherSlotPlants,
   hasSowingFromOtherSlot,
+  isSlotSowingAllowed,
 } from "./slotMetrics";
 import moment from "moment";
 import { getDefaultMonthTabIndex } from "./slotMonthUtils";
@@ -114,6 +115,12 @@ describe("rollupMonthSlotMetrics", () => {
 });
 
 describe("sowing-allowed slot metrics", () => {
+  it("isSlotSowingAllowed follows the plant flag, not slot.sowingAllowed", () => {
+    expect(isSlotSowingAllowed({ sowingAllowed: true }, false)).toBe(false)
+    expect(isSlotSowingAllowed({ sowingAllowed: false }, true)).toBe(true)
+    expect(isSlotSowingAllowed({ sowingAllowed: true })).toBe(false)
+  })
+
   it("getExcessAvailableForBooking subtracts gross order cover from available", () => {
     const slot = {
       availablePlants: 103204,

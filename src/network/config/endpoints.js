@@ -910,6 +910,16 @@ export const API = {
       HTTP_METHODS.POST,
       OFFLINE.PROFILE
     ),
+    POST_ROLL_EXPIRED_LAGWAD_ALL: new APIRouter(
+      "/slots/roll-expired-lagwad/roll-all",
+      HTTP_METHODS.POST,
+      OFFLINE.PROFILE
+    ),
+    GET_ROLLED_LAGWAD_SUMMARY: new APIRouter(
+      "/slots/:slotId/rolled-lagwad-summary",
+      HTTP_METHODS.GET,
+      OFFLINE.PROFILE
+    ),
     GET_SLOT_READY_ROLL_LOG: new APIRouter(
       "/slots/:slotId/ready-roll-log",
       HTTP_METHODS.GET,

@@ -31,6 +31,8 @@ import {
   slotHasMixedRolledAndNativeOrders,
   slotHasPendingPastDueOnSubtype,
   getOrderReservedPlants,
+  getPendingLagwadPlantsTotal,
+  slotHasRolledLagwadOnCurrent,
 } from "./slotMetrics"
 
 const SlotCard = ({
@@ -43,7 +45,9 @@ const SlotCard = ({
   onOpenActual,
   onSlotChanged,
   onPendingRoll,
+  onPendingLagwadRoll,
   onRollExpiredAvailable,
+  onRolledLagwad,
   canRollExpired,
   onTrail,
   onEdit,
@@ -197,6 +201,7 @@ const SlotCard = ({
           onOpenOrders={onOpenOrders}
           onOpenActual={onOpenActual}
           onSlotChanged={onSlotChanged}
+          onOpenRolledLagwad={onRolledLagwad}
           compact
           sowingAllowed={sowingAllowed}
         />
@@ -311,19 +316,56 @@ const SlotCard = ({
           </div>
         )}
 
-        {showDetails && slot?.isCurrentDateSlot && canRollExpired && (
-          <div className="mb-2" onClick={(e) => e.stopPropagation()}>
+        {slot?.isCurrentDateSlot && canRollExpired && (
+          <div className="mb-2 mt-1 space-y-1" onClick={(e) => e.stopPropagation()}>
             <Button
               size="small"
-              variant="outlined"
+              variant="contained"
+              sx={{
+                textTransform: "none",
+                fontSize: "0.72rem",
+                fontWeight: 700,
+                py: 0.65,
+                width: "100%",
+                bgcolor: "#0d9488",
+                "&:hover": { bgcolor: "#0f766e" },
+              }}
+              onClick={() => onPendingLagwadRoll?.(slot)}>
+              {getPendingLagwadPlantsTotal(slot) > 0
+                ? `Roll lagwad sellable (${getPendingLagwadPlantsTotal(slot).toLocaleString()})`
+                : "Roll lagwad sellable"}
+            </Button>
+            {slotHasRolledLagwadOnCurrent(slot) && onRolledLagwad ? (
+              <Button
+                size="small"
+                variant="outlined"
+                fullWidth
+                onClick={() => onRolledLagwad(slot)}
+                sx={{
+                  textTransform: "none",
+                  fontSize: "0.68rem",
+                  fontWeight: 700,
+                  py: 0.5,
+                  borderColor: "#0d9488",
+                  color: "#0f766e",
+                }}>
+                View rolled lagwad
+              </Button>
+            ) : null}
+            <Button
+              size="small"
+              variant="contained"
               color="secondary"
               fullWidth
               onClick={() => onRollExpiredAvailable(slot)}
-              sx={{ textTransform: "none", fontSize: "0.7rem", py: 0.5 }}>
+              sx={{ textTransform: "none", fontSize: "0.72rem", fontWeight: 700, py: 0.65 }}>
               {slot.status === false
-                ? "Roll expired available (slot Off)"
-                : "Roll expired available"}
+                ? "Roll available (booking capacity)"
+                : "Roll available (booking capacity)"}
             </Button>
+            <p className="text-[9px] text-slate-500 leading-tight px-0.5">
+              Teal = 90% actual + ready from expired windows. Purple = booking available only.
+            </p>
           </div>
         )}
 

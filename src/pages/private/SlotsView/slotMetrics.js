@@ -136,9 +136,12 @@ export const getSowingGap = (slot) => {
   return booked - primarySowed
 }
 
-/** Whether this plant/subtype uses sowing-allowed slot metrics. */
-export const isSlotSowingAllowed = (slot, sowingAllowed = false) =>
-  Boolean(sowingAllowed || slot?.sowingAllowed)
+/**
+ * Whether this plant/subtype uses sowing-allowed slot metrics.
+ * The boolean from the slots page is the source of truth. A slot's own
+ * sowingAllowed flag must not override a sowing-not-allowed plant.
+ */
+export const isSlotSowingAllowed = (_slot, sowingAllowed = false) => Boolean(sowingAllowed)
 
 /** Gap value for slot card tile (non-negative for sowing-allowed API field). */
 export const getDisplaySowingGap = (slot, sowingAllowed = false) => {
@@ -242,6 +245,32 @@ export const slotHasMixedRolledAndNativeOrders = (slot) =>
 
 export const slotHasPendingPastDueOnSubtype = (slot) =>
   Boolean(slot?.isCurrentDateSlot) && (Number(slot?.pastDuePendingOnSlot) || 0) > 0
+
+/** Delivery window ended before asOf (endDay DD-MM-YYYY). */
+export const isSlotExpiredByEndDay = (slot, asOf = new Date()) => {
+  const endDay = slot?.endDay
+  if (!endDay || typeof endDay !== "string") return false
+  const parts = endDay.split("-").map(Number)
+  if (parts.length !== 3) return false
+  const [d, m, y] = parts
+  if (!d || !m || !y) return false
+  const end = new Date(y, m - 1, d, 23, 59, 59, 999)
+  return asOf.getTime() > end.getTime()
+}
+
+export const getPendingLagwadPlantsTotal = (slot) => {
+  const t = slot?.pastDueDetail?.pendingLagwadTotal
+  if (!t) return 0
+  return Number(t.readyPlants) || 0
+}
+
+export const slotHasPendingLagwadSellable = (slot) =>
+  Boolean(slot?.isCurrentDateSlot) && getPendingLagwadPlantsTotal(slot) > 0
+
+export const slotHasRolledLagwadOnCurrent = (slot) =>
+  Boolean(slot?.isCurrentDateSlot) &&
+  ((Number(slot?.rolledInActualReadyPlants) || 0) > 0 ||
+    (Number(slot?.readyRollSummary?.totalRolledReady) || 0) > 0)
 
 export const slotShowDualAvailableCards = (slot) =>
   Boolean(slot?.isCurrentDateSlot) && getRolledInPlantsOnCurrentSlot(slot) > 0
