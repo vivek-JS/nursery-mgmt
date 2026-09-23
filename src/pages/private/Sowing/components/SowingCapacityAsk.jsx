@@ -15,86 +15,138 @@ import SendRoundedIcon from "@mui/icons-material/SendRounded"
 import { NetworkManager, API } from "network/core"
 import { fmt } from "../capacitySheetUtils"
 
-const ACTION_STYLE = {
-  book: { label: "Can book", color: "#6ee7b7", bg: "rgba(16, 185, 129, 0.16)" },
-  wait: { label: "Hold", color: "#fcd34d", bg: "rgba(245, 158, 11, 0.16)" },
-  sow_first: { label: "Sow first", color: "#fda4af", bg: "rgba(244, 63, 94, 0.16)" },
+const PROMPTS = ["Only what we can book", "Only what to sow", "Hold list"]
+
+function lanePlants(plants, action) {
+  return (plants || [])
+    .map((plant) => {
+      const subtypes = (plant.subtypes || []).filter((row) => row.action === action)
+      if (plant.action !== action && !subtypes.length) return null
+      const canBook =
+        plant.action === action
+          ? plant.canBook
+          : subtypes.reduce((sum, row) => sum + (Number(row.canBook) || 0), 0)
+      return { ...plant, canBook, subtypes }
+    })
+    .filter(Boolean)
 }
 
-const PROMPTS = ["Which plants can we book?", "What should we sow first?", "Break it down by subtype"]
-
-function ActionChip({ action }) {
-  const style = ACTION_STYLE[action] || ACTION_STYLE.wait
+function PlantRow({ plant, tone }) {
   return (
-    <Box
-      component="span"
-      sx={{
-        px: 0.9,
-        py: 0.15,
-        borderRadius: 999,
-        bgcolor: style.bg,
-        color: style.color,
-        fontSize: 11,
-        fontWeight: 800,
-        letterSpacing: 0.2,
-        whiteSpace: "nowrap",
-      }}
-    >
-      {style.label}
+    <Box sx={{ py: 0.85, "& + &": { borderTop: "1px solid rgba(255,255,255,0.06)" } }}>
+      <Stack direction="row" justifyContent="space-between" alignItems="baseline" spacing={1}>
+        <Typography fontWeight={800} fontSize={14} color="#f8fafc">
+          {plant.plant}
+        </Typography>
+        <Typography fontWeight={800} fontSize={14} color={tone}>
+          {fmt(plant.canBook)}
+        </Typography>
+      </Stack>
+      <Typography fontSize={11} color="#94a3b8">
+        Gap {fmt(plant.gap)} · Booked {fmt(plant.booked)} · Sowed {fmt(plant.sowed)}
+      </Typography>
+      {plant.subtypes?.length ? (
+        <Stack direction="row" flexWrap="wrap" useFlexGap spacing={0.5} mt={0.7}>
+          {plant.subtypes.map((row) => (
+            <Box
+              key={row.name}
+              sx={{
+                px: 0.85,
+                py: 0.28,
+                borderRadius: 999,
+                bgcolor: "rgba(255,255,255,0.06)",
+                border: "1px solid rgba(255,255,255,0.08)",
+              }}
+            >
+              <Typography fontSize={11} color="#e2e8f0">
+                {row.name} · {fmt(row.canBook)}
+              </Typography>
+            </Box>
+          ))}
+        </Stack>
+      ) : null}
     </Box>
   )
 }
 
-function NumbersLine({ row }) {
+function Lane({ title, hint, plants, accent, wash }) {
+  if (!plants.length) return null
   return (
-    <Typography fontSize={12} color="#94a3b8">
-      Can book {fmt(row.canBook)} · Gap {fmt(row.gap)} · Booked {fmt(row.booked)} · Sowed {fmt(row.sowed)}
-    </Typography>
+    <Box sx={{ mt: 1.15, borderRadius: 2.5, px: 1.25, py: 1, background: wash, border: `1px solid ${accent}33` }}>
+      <Stack direction="row" justifyContent="space-between" alignItems="center">
+        <Typography fontSize={11} fontWeight={800} letterSpacing={1.2} color={accent}>
+          {title}
+        </Typography>
+        <Typography fontSize={11} fontWeight={800} color={accent}>
+          {plants.length}
+        </Typography>
+      </Stack>
+      <Typography fontSize={12} color="#cbd5e1" mt={0.25}>
+        {hint}
+      </Typography>
+      {plants.map((plant) => (
+        <PlantRow key={plant.plant} plant={plant} tone={accent} />
+      ))}
+    </Box>
   )
 }
 
-function PlantList({ plants }) {
-  if (!plants?.length) return null
+function SheetBrief({ advice }) {
+  const plants = advice?.plants || []
+  const good = lanePlants(plants, "book")
+  const bad = lanePlants(plants, "sow_first")
+  const hold = lanePlants(plants, "wait")
+  const total = Math.max(good.length + bad.length + hold.length, 1)
+  const headline =
+    good.length && bad.length
+      ? `${good.length} good to book. ${bad.length} need sowing first.`
+      : good.length
+        ? `${good.length} good to book in this window.`
+        : bad.length
+          ? `${bad.length} need sowing before more bookings.`
+          : advice?.summary
   return (
-    <Stack spacing={0.75} mt={1.25}>
-      {plants.map((plant) => (
-        <Box
-          key={plant.plant}
-          sx={{
-            borderRadius: 2,
-            p: 1.1,
-            bgcolor: "rgba(255,255,255,0.04)",
-            border: "1px solid rgba(148,163,184,0.14)",
-          }}
-        >
-          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1} mb={0.25}>
-            <Typography fontWeight={800} fontSize={13.5} color="#f8fafc">
-              {plant.plant}
-            </Typography>
-            <ActionChip action={plant.action} />
-          </Stack>
-          <NumbersLine row={plant} />
-          <Typography fontSize={12.5} color="#cbd5e1" mt={0.4} lineHeight={1.45}>
-            {plant.note}
-          </Typography>
-          {plant.subtypes?.length ? (
-            <Stack spacing={0.7} mt={1} sx={{ pl: 1.1, borderLeft: "2px solid rgba(56,189,248,0.35)" }}>
-              {plant.subtypes.map((row) => (
-                <Box key={row.name}>
-                  <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
-                    <Typography fontSize={12.5} fontWeight={700} color="#e2e8f0">
-                      {row.name}
-                    </Typography>
-                    <ActionChip action={row.action} />
-                  </Stack>
-                  <NumbersLine row={row} />
-                </Box>
-              ))}
-            </Stack>
-          ) : null}
-        </Box>
-      ))}
-    </Stack>
+    <Box>
+      <Typography fontSize={16} fontWeight={800} color="#f8fafc" lineHeight={1.35}>
+        {headline}
+      </Typography>
+      <Box sx={{ display: "flex", height: 7, borderRadius: 99, overflow: "hidden", mt: 1.15, bgcolor: "rgba(255,255,255,0.06)" }}>
+        <Box sx={{ width: `${(good.length / total) * 100}%`, bgcolor: "#34d399" }} />
+        <Box sx={{ width: `${(hold.length / total) * 100}%`, bgcolor: "#fbbf24" }} />
+        <Box sx={{ width: `${(bad.length / total) * 100}%`, bgcolor: "#fb7185" }} />
+      </Box>
+      <Lane
+        title="GOOD"
+        hint="Spare sowed plants. These can be booked."
+        plants={good}
+        accent="#6ee7b7"
+        wash="linear-gradient(180deg, rgba(16,185,129,0.18), rgba(16,185,129,0.05))"
+      />
+      <Lane
+        title="NEEDS SOWING"
+        hint="Gap is ahead of excess. Sow these before booking."
+        plants={bad}
+        accent="#fda4af"
+        wash="linear-gradient(180deg, rgba(244,63,94,0.18), rgba(244,63,94,0.05))"
+      />
+      <Lane
+        title="HOLD"
+        hint="Nothing spare yet, or it is safer to wait."
+        plants={hold}
+        accent="#fcd34d"
+        wash="linear-gradient(180deg, rgba(245,158,11,0.14), rgba(245,158,11,0.04))"
+      />
+      {advice?.downside ? (
+        <Typography fontSize={12.5} color="#fecdd3" mt={1.25} lineHeight={1.45}>
+          {advice.downside}
+        </Typography>
+      ) : null}
+      {advice?.weatherNote ? (
+        <Typography fontSize={11.5} color="#94a3b8" mt={0.8} lineHeight={1.45}>
+          {advice.weatherNote}
+        </Typography>
+      ) : null}
+    </Box>
   )
 }
 
@@ -131,6 +183,9 @@ export default function SowingCapacityAsk({ from, to }) {
   const [messages, setMessages] = useState([])
   const threadRef = useRef(null)
   const inputRef = useRef(null)
+  const introKey = useRef("")
+  const messagesRef = useRef(messages)
+  messagesRef.current = messages
 
   useEffect(() => {
     if (!open || districts.length) return undefined
@@ -153,8 +208,68 @@ export default function SowingCapacityAsk({ from, to }) {
   }, [open, districts.length])
 
   useEffect(() => {
-    if (threadRef.current) threadRef.current.scrollTop = threadRef.current.scrollHeight
+    if (!threadRef.current) return
+    const onlyIntro = messages.length === 1 && messages[0]?.intro
+    threadRef.current.scrollTop = onlyIntro ? 0 : threadRef.current.scrollHeight
   }, [messages, loading, open])
+
+  useEffect(() => {
+    if (!open) return undefined
+    const key = `${from}|${to}|${district}`
+    if (introKey.current === key) return undefined
+    const hasChat = messagesRef.current.some((row) => !row.intro)
+    if (hasChat && introKey.current) return undefined
+    let cancelled = false
+    const id = `intro-${key}`
+    setMessages([{ id, intro: true, question: "", result: null, error: "", pending: true }])
+    setLoading(true)
+    ;(async () => {
+      try {
+        const instance = NetworkManager(API.sowing.ASK_CAPACITY)
+        const response = await instance.request({
+          district: district || undefined,
+          from,
+          to,
+          question: "Open with our full Maharashtra sheet. What is good to book, and what needs sowing, plant by plant and subtype by subtype?",
+        })
+        if (cancelled) return
+        if (response?.data?.success) {
+          introKey.current = key
+          setMessages([{ id, intro: true, question: "", result: response.data, error: "", pending: false }])
+        } else {
+          setMessages([
+            {
+              id,
+              intro: true,
+              question: "",
+              result: null,
+              error: response?.data?.message || "Could not read the sheet",
+              pending: false,
+            },
+          ])
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setMessages([
+            {
+              id,
+              intro: true,
+              question: "",
+              result: null,
+              error: err?.response?.data?.message || err?.message || "Could not read the sheet",
+              pending: false,
+            },
+          ])
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+      setLoading(false)
+    }
+  }, [open, from, to, district])
 
   useEffect(() => {
     if (open) inputRef.current?.focus()
@@ -294,122 +409,93 @@ export default function SowingCapacityAsk({ from, to }) {
               "&::-webkit-scrollbar-thumb": { bgcolor: "rgba(148,163,184,0.35)", borderRadius: 99 },
             }}
           >
-            {!messages.length ? (
-              <Stack spacing={1.25} alignItems="flex-start" sx={{ mt: 2 }}>
-                <Box
-                  sx={{
-                    maxWidth: "92%",
-                    px: 1.5,
-                    py: 1.25,
-                    borderRadius: "6px 18px 18px 18px",
-                    bgcolor: "rgba(255,255,255,0.05)",
-                    border: "1px solid rgba(148,163,184,0.14)",
-                  }}
-                >
-                  <Typography fontSize={13.5} color="#e2e8f0" lineHeight={1.5}>
-                    Ask about this date range. I answer from our can book, gap, booked, and sowed, plant by plant and subtype by subtype.
-                  </Typography>
-                </Box>
-                <Stack direction="row" flexWrap="wrap" useFlexGap spacing={0.75}>
-                  {PROMPTS.map((prompt) => (
-                    <Box
-                      key={prompt}
-                      component="button"
-                      type="button"
-                      onClick={() => ask(prompt)}
-                      sx={{
-                        border: "1px solid rgba(125,211,252,0.35)",
-                        bgcolor: "rgba(34,211,238,0.08)",
-                        color: "#a5f3fc",
-                        borderRadius: 999,
-                        px: 1.25,
-                        py: 0.55,
-                        fontSize: 12,
-                        fontWeight: 700,
-                        cursor: "pointer",
-                        fontFamily: "inherit",
-                        "&:hover": { bgcolor: "rgba(34,211,238,0.16)" },
-                      }}
-                    >
-                      {prompt}
-                    </Box>
-                  ))}
-                </Stack>
-              </Stack>
-            ) : null}
-
             <Stack spacing={1.35}>
               {messages.map((message) => {
                 const advice = message.result?.advice
-                const counts = advice?.counts
                 return (
                   <Box key={message.id}>
-                    <Stack direction="row" justifyContent="flex-end">
-                      <Box
-                        sx={{
-                          maxWidth: "86%",
-                          px: 1.4,
-                          py: 1,
-                          borderRadius: "18px 18px 6px 18px",
-                          background: "linear-gradient(135deg, #0891b2, #4f46e5)",
-                          color: "#fff",
-                        }}
-                      >
-                        <Typography fontSize={13.5} lineHeight={1.45}>
-                          {message.question}
-                        </Typography>
-                      </Box>
-                    </Stack>
-                    <Stack direction="row" justifyContent="flex-start" mt={1.1}>
-                      <Box
-                        sx={{
-                          maxWidth: "100%",
-                          width: "100%",
-                          px: 1.35,
-                          py: 1.15,
-                          borderRadius: "6px 18px 18px 18px",
-                          bgcolor: "rgba(255,255,255,0.045)",
-                          border: "1px solid rgba(148,163,184,0.16)",
-                        }}
-                      >
-                        {message.pending ? <TypingDots /> : null}
-                        {message.error ? (
-                          <Typography fontSize={13} color="#fda4af">
-                            {message.error}
+                    {message.intro ? null : (
+                      <Stack direction="row" justifyContent="flex-end">
+                        <Box
+                          sx={{
+                            maxWidth: "86%",
+                            px: 1.4,
+                            py: 1,
+                            borderRadius: "18px 18px 6px 18px",
+                            background: "linear-gradient(135deg, #0891b2, #4f46e5)",
+                            color: "#fff",
+                          }}
+                        >
+                          <Typography fontSize={13.5} lineHeight={1.45}>
+                            {message.question}
                           </Typography>
-                        ) : null}
-                        {advice ? (
-                          <>
-                            {counts ? (
-                              <Typography fontSize={11.5} fontWeight={800} color="#67e8f9" mb={0.6}>
-                                {counts.sow_first || 0} sow first · {counts.book || 0} can book · {counts.wait || 0} hold
-                              </Typography>
-                            ) : null}
-                            <Typography fontSize={13.5} color="#f1f5f9" lineHeight={1.5}>
-                              {advice.summary}
-                            </Typography>
-                            <Typography fontSize={12.5} color="#fda4af" mt={0.7} lineHeight={1.45}>
-                              {advice.downside}
-                            </Typography>
-                            <PlantList plants={advice.plants} />
-                            {advice.weatherNote ? (
-                              <Typography fontSize={11.5} color="#94a3b8" mt={1.1}>
-                                {advice.weatherNote}
-                              </Typography>
-                            ) : null}
-                            {advice.mandiNote ? (
-                              <Typography fontSize={11.5} color="#94a3b8" mt={0.4}>
-                                {advice.mandiNote}
-                              </Typography>
-                            ) : null}
-                          </>
-                        ) : null}
-                      </Box>
-                    </Stack>
+                        </Box>
+                      </Stack>
+                    )}
+                    <Box
+                      sx={{
+                        mt: message.intro ? 0 : 1.1,
+                        px: message.intro ? 0.2 : 1.35,
+                        py: message.intro ? 0.2 : 1.15,
+                        borderRadius: message.intro ? 0 : "6px 18px 18px 18px",
+                        bgcolor: message.intro ? "transparent" : "rgba(255,255,255,0.045)",
+                        border: message.intro ? "none" : "1px solid rgba(148,163,184,0.16)",
+                      }}
+                    >
+                      {message.pending ? (
+                        <Box
+                          sx={{
+                            px: 1.4,
+                            py: 1.2,
+                            borderRadius: "6px 18px 18px 18px",
+                            bgcolor: "rgba(255,255,255,0.05)",
+                            border: "1px solid rgba(148,163,184,0.16)",
+                          }}
+                        >
+                          <Typography fontSize={12} color="#94a3b8" mb={0.8}>
+                            Reading our sheet
+                          </Typography>
+                          <TypingDots />
+                        </Box>
+                      ) : null}
+                      {message.error ? (
+                        <Typography fontSize={13} color="#fda4af">
+                          {message.error}
+                        </Typography>
+                      ) : null}
+                      {advice ? <SheetBrief advice={advice} /> : null}
+                    </Box>
                   </Box>
                 )
               })}
             </Stack>
+            {messages.some((row) => row.intro && row.result) && !loading ? (
+              <Stack direction="row" flexWrap="wrap" useFlexGap spacing={0.75} mt={1.5}>
+                {PROMPTS.map((prompt) => (
+                  <Box
+                    key={prompt}
+                    component="button"
+                    type="button"
+                    onClick={() => ask(prompt)}
+                    sx={{
+                      border: "1px solid rgba(125,211,252,0.35)",
+                      bgcolor: "rgba(34,211,238,0.08)",
+                      color: "#a5f3fc",
+                      borderRadius: 999,
+                      px: 1.25,
+                      py: 0.55,
+                      fontSize: 12,
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                      "&:hover": { bgcolor: "rgba(34,211,238,0.16)" },
+                    }}
+                  >
+                    {prompt}
+                  </Box>
+                ))}
+              </Stack>
+            ) : null}
           </Box>
 
           <Box sx={{ p: 1.25, pt: 0.75, borderTop: "1px solid rgba(148,163,184,0.12)" }}>
