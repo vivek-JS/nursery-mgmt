@@ -100,8 +100,8 @@ export default function SowingCapacityDrawer({ slotId, onClose }) {
           <>
             <Chip size="small" label={status.label} sx={{ mt: 1.5, fontWeight: 800, bgcolor: status.bg, color: status.color }} />
             <Stack direction="row" flexWrap="wrap" gap={1.5} mt={2}>
-              <Stat label="Gap" value={slot.gap} color="#c2410c" />
               <Stat label="Can book" value={slot.canBook} color="#047857" />
+              <Stat label="Gap" value={slot.gap} color="#c2410c" />
               <Stat label="Booked" value={slot.booked} />
               <Stat label="Sowed" value={slot.sowed} color="#059669" />
             </Stack>

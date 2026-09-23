@@ -42,8 +42,8 @@ const PRESETS = [
 const SHEET_COLUMNS = [
   { key: "plant", label: "Plant & subtype", align: "left", type: "text" },
   { key: "delivery", label: "Date range", align: "left", type: "date" },
-  { key: "gap", label: "Gap", align: "right", type: "number" },
   { key: "canBook", label: "Can book", align: "right", type: "number" },
+  { key: "gap", label: "Gap", align: "right", type: "number" },
   { key: "booked", label: "Booked", align: "right", type: "number" },
   { key: "sowed", label: "Sowed", align: "right", type: "number" },
   { key: "status", label: "Status", align: "left", type: "text" },
@@ -51,8 +51,8 @@ const SHEET_COLUMNS = [
 
 const SLOT_COLUMNS = [
   { key: "delivery", label: "Date range", align: "left", type: "date" },
-  { key: "gap", label: "Gap", align: "right", type: "number" },
   { key: "canBook", label: "Can book", align: "right", type: "number" },
+  { key: "gap", label: "Gap", align: "right", type: "number" },
   { key: "booked", label: "Booked", align: "right", type: "number" },
   { key: "sowed", label: "Sowed", align: "right", type: "number" },
   { key: "status", label: "Status", align: "left", type: "text" },
@@ -218,11 +218,11 @@ function SlotTable({ slots, onOpen }) {
             sx={{ cursor: "pointer", bgcolor: index % 2 ? "#f8fafc" : "#fff" }}
           >
             <TableCell sx={{ ...excelCell, fontWeight: 700 }}>{formatShortRange(slot.startDay, slot.endDay)}</TableCell>
-            <TableCell align="right" sx={{ ...excelCell, ...numberColor("gap", slot.gap) }}>
-              {hasAmount(slot.gap) ? fmt(slot.gap) : ""}
-            </TableCell>
             <TableCell align="right" sx={{ ...excelCell, ...numberColor("canBook", slot.canBook) }}>
               {hasAmount(slot.canBook) ? fmt(slot.canBook) : ""}
+            </TableCell>
+            <TableCell align="right" sx={{ ...excelCell, ...numberColor("gap", slot.gap) }}>
+              {hasAmount(slot.gap) ? fmt(slot.gap) : ""}
             </TableCell>
             <TableCell align="right" sx={{ ...excelCell, ...numberColor("booked", slot.booked) }}>{hasAmount(slot.booked) ? fmt(slot.booked) : ""}</TableCell>
             <TableCell align="right" sx={{ ...excelCell, ...numberColor("sowed", slot.sowed) }}>
@@ -250,8 +250,8 @@ function downloadCsv(rows, from, to) {
     "Subtype",
     "Delivery from",
     "Delivery to",
-    "Gap",
     "Can book",
+    "Gap",
     "Booked",
     "Sowed",
     "Status",
@@ -265,8 +265,8 @@ function downloadCsv(rows, from, to) {
         row.subtypeName,
         row.deliveryFrom,
         row.deliveryTo,
-        row.gap,
         row.canBook,
+        row.gap,
         row.booked,
         row.sowed,
         meta.label,
@@ -506,8 +506,8 @@ export default function SowingCapacitySheet() {
             </Typography>
           </Typography>
           <Stack direction="row" spacing={1.5}>
-            <Legend swatch={NUM_COLOR.gap} label="Gap" />
             <Legend swatch={NUM_COLOR.canBook} label="Can book" />
+            <Legend swatch={NUM_COLOR.gap} label="Gap" />
           </Stack>
         </Stack>
 
@@ -563,11 +563,11 @@ export default function SowingCapacitySheet() {
                         </Stack>
                       </TableCell>
                       <TableCell sx={{ ...excelCell, color: "#475569" }}>{formatShortRange(row.deliveryFrom, row.deliveryTo)}</TableCell>
-                      <TableCell align="right" sx={{ ...excelCell, ...numberColor("gap", row.gap) }}>
-                        <MetricButton onClick={openSlot}>{hasAmount(row.gap) ? fmt(row.gap) : ""}</MetricButton>
-                      </TableCell>
                       <TableCell align="right" sx={{ ...excelCell, ...numberColor("canBook", row.canBook) }}>
                         <MetricButton onClick={openSlot}>{hasAmount(row.canBook) ? fmt(row.canBook) : ""}</MetricButton>
+                      </TableCell>
+                      <TableCell align="right" sx={{ ...excelCell, ...numberColor("gap", row.gap) }}>
+                        <MetricButton onClick={openSlot}>{hasAmount(row.gap) ? fmt(row.gap) : ""}</MetricButton>
                       </TableCell>
                       <TableCell align="right" sx={{ ...excelCell, ...numberColor("booked", row.booked) }}>
                         <MetricButton onClick={openSlot}>{hasAmount(row.booked) ? fmt(row.booked) : ""}</MetricButton>
@@ -610,8 +610,8 @@ export default function SowingCapacitySheet() {
                   Delivery window: <b>{formatShortRange(from, to)}</b>
                 </Typography>
                 <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
-                  {hasAmount(visibleTotals.gap) ? <FooterStat label="Gap" value={fmt(visibleTotals.gap)} color="#c2410c" /> : null}
                   {hasAmount(visibleTotals.canBook) ? <FooterStat label="Can book" value={fmt(visibleTotals.canBook)} color="#047857" /> : null}
+                  {hasAmount(visibleTotals.gap) ? <FooterStat label="Gap" value={fmt(visibleTotals.gap)} color="#c2410c" /> : null}
                   {hasAmount(visibleTotals.booked) ? <FooterStat label="Booked" value={fmt(visibleTotals.booked)} /> : null}
                   {hasAmount(visibleTotals.sowed) ? <FooterStat label="Sowed" value={fmt(visibleTotals.sowed)} color="#059669" /> : null}
                 </Stack>
