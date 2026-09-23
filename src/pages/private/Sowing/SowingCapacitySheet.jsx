@@ -9,6 +9,11 @@ import {
   IconButton,
   InputAdornment,
   Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
   TextField,
   Typography,
 } from "@mui/material"
@@ -20,11 +25,9 @@ import { NetworkManager, API } from "network/core"
 import SowingCapacityDrawer from "./components/SowingCapacityDrawer"
 import {
   fmt,
-  formatLongDay,
   formatShortRange,
   rangeForPreset,
   seedPlanDetail,
-  slotCardTone,
   STATUS_STYLE,
   ymd,
 } from "./capacitySheetUtils"
@@ -84,8 +87,12 @@ function MetricButton({ children, onClick, sx }) {
   )
 }
 
+function hasAmount(value) {
+  return Number(value) > 0
+}
+
 function GapValue({ value }) {
-  if (!Number(value)) return <Typography fontWeight={700}>0</Typography>
+  if (!hasAmount(value)) return null
   return (
     <Box
       sx={{
@@ -106,7 +113,7 @@ function GapValue({ value }) {
 }
 
 function PillValue({ value, color, bg, border, prefix = "" }) {
-  if (!Number(value)) return <Typography fontWeight={700}>0</Typography>
+  if (!hasAmount(value)) return null
   return (
     <Box
       sx={{
@@ -127,78 +134,63 @@ function PillValue({ value, color, bg, border, prefix = "" }) {
   )
 }
 
-function SlotCard({ slot, onOpen }) {
-  const tone = slotCardTone(slot)
-  const coveredPct = slot.booked > 0 ? Math.round((slot.sowed / slot.booked) * 100) : 0
+function rowHasNumbers(row) {
   return (
-    <Box
-      onClick={() => onOpen(slot.slotId)}
-      sx={{
-        flex: "1 1 240px",
-        minWidth: 230,
-        maxWidth: 320,
-        p: 1.5,
-        borderRadius: 2,
-        border: `1px solid ${tone.border}`,
-        bgcolor: "#fff",
-        cursor: "pointer",
-        "&:hover": { boxShadow: "0 4px 14px rgba(15,23,42,0.06)" },
-      }}
-    >
-      <Stack direction="row" justifyContent="space-between" alignItems="center" mb={1.25} spacing={1}>
-        <Typography fontWeight={800} fontSize={14}>
-          {formatLongDay(slot.startDay)}
-          {slot.startDay !== slot.endDay ? ` to ${formatLongDay(slot.endDay)}` : ""}
-        </Typography>
-        <Chip
-          size="small"
-          label={tone.badge}
-          sx={{
-            height: 22,
-            fontSize: 10,
-            fontWeight: 800,
-            letterSpacing: 0.3,
-            bgcolor: tone.badgeBg,
-            color: tone.badgeColor,
-          }}
-        />
-      </Stack>
-      <CardLine label="Booked" value={fmt(slot.booked)} />
-      <CardLine
-        label="Sowed"
-        value={slot.booked > 0 ? `${fmt(slot.sowed)} (${coveredPct}%)` : fmt(slot.sowed)}
-        valueColor="#15803d"
-      />
-      <CardLine
-        label={slot.gap > 0 ? "Gap to Sow" : "Gap"}
-        value={slot.gap > 0 ? `-${fmt(slot.gap)}` : "0"}
-        valueColor={slot.gap > 0 ? "#c2410c" : "#0f172a"}
-        strong={slot.gap > 0}
-      />
-      <CardLine
-        label={slot.excess > 0 ? "Excess Ready" : "Saleable Excess"}
-        value={slot.excess > 0 ? `+${fmt(slot.excess)}` : "0"}
-        valueColor={slot.excess > 0 ? "#1d4ed8" : "#0f172a"}
-      />
-      <CardLine
-        label="Can Book Now"
-        value={slot.canBook > 0 ? `+${fmt(slot.canBook)}` : "0"}
-        valueColor={slot.canBook > 0 ? "#15803d" : "#0f172a"}
-      />
-    </Box>
+    hasAmount(row?.booked) ||
+    hasAmount(row?.sowed) ||
+    hasAmount(row?.gap) ||
+    hasAmount(row?.excess) ||
+    hasAmount(row?.canBook)
   )
 }
 
-function CardLine({ label, value, valueColor = "#0f172a", strong = false }) {
+function SlotTable({ slots, onOpen }) {
+  const visible = (slots || []).filter(rowHasNumbers)
+  if (!visible.length) return null
   return (
-    <Stack direction="row" justifyContent="space-between" spacing={2} sx={{ py: 0.35 }}>
-      <Typography variant="body2" color="text.secondary">
-        {label}:
-      </Typography>
-      <Typography variant="body2" fontWeight={strong ? 800 : 700} color={valueColor}>
-        {value}
-      </Typography>
-    </Stack>
+    <Table size="small" sx={{ bgcolor: "#fff", border: "1px solid #e2e8f0", borderRadius: 1 }}>
+      <TableHead>
+        <TableRow sx={{ bgcolor: "#f8fafc" }}>
+          {["Delivery", "Booked", "Sowed", "Gap", "Excess", "Can book", "Status"].map((label) => (
+            <TableCell
+              key={label}
+              align={label === "Delivery" || label === "Status" ? "left" : "right"}
+              sx={{ fontWeight: 800, color: "#64748b", fontSize: 12, borderBottom: "1px solid #e2e8f0" }}
+            >
+              {label}
+            </TableCell>
+          ))}
+        </TableRow>
+      </TableHead>
+      <TableBody>
+        {visible.map((slot) => (
+          <TableRow
+            key={slot.slotId}
+            hover
+            onClick={() => onOpen(slot.slotId)}
+            sx={{ cursor: "pointer" }}
+          >
+            <TableCell sx={{ fontWeight: 700 }}>{formatShortRange(slot.startDay, slot.endDay)}</TableCell>
+            <TableCell align="right">{hasAmount(slot.booked) ? fmt(slot.booked) : ""}</TableCell>
+            <TableCell align="right" sx={{ color: "#15803d", fontWeight: 700 }}>
+              {hasAmount(slot.sowed) ? fmt(slot.sowed) : ""}
+            </TableCell>
+            <TableCell align="right" sx={{ color: "#c2410c", fontWeight: 800 }}>
+              {hasAmount(slot.gap) ? fmt(slot.gap) : ""}
+            </TableCell>
+            <TableCell align="right" sx={{ color: "#1d4ed8", fontWeight: 800 }}>
+              {hasAmount(slot.excess) ? `+${fmt(slot.excess)}` : ""}
+            </TableCell>
+            <TableCell align="right" sx={{ color: "#15803d", fontWeight: 800 }}>
+              {hasAmount(slot.canBook) ? fmt(slot.canBook) : ""}
+            </TableCell>
+            <TableCell>
+              <StatusChip status={slot.status} />
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
   )
 }
 
@@ -313,6 +305,7 @@ export default function SowingCapacitySheet() {
           plantId: plant.plantId,
           plantName: plant.plantName,
         }))
+        .filter(rowHasNumbers)
     )
   }, [plants, search])
 
@@ -535,8 +528,8 @@ export default function SowingCapacitySheet() {
                     <Typography fontSize={13} fontWeight={600}>
                       {formatShortRange(row.deliveryFrom, row.deliveryTo)}
                     </Typography>
-                    <MetricButton onClick={openSlot}>{fmt(row.booked)}</MetricButton>
-                    <MetricButton onClick={openSlot}>{fmt(row.sowed)}</MetricButton>
+                    <MetricButton onClick={openSlot}>{hasAmount(row.booked) ? fmt(row.booked) : ""}</MetricButton>
+                    <MetricButton onClick={openSlot}>{hasAmount(row.sowed) ? fmt(row.sowed) : ""}</MetricButton>
                     <Box display="flex" justifyContent="flex-end">
                       <MetricButton onClick={openSlot} sx={{ color: "inherit" }}>
                         <GapValue value={row.gap} />
@@ -565,20 +558,8 @@ export default function SowingCapacitySheet() {
                     </IconButton>
                   </Box>
                   <Collapse in={open}>
-                    <Box sx={{ mx: 2, mb: 1.5, p: 1.5, border: "1px solid #e2e8f0", borderRadius: 2, bgcolor: "#f8fafc" }}>
-                      <Stack direction="row" justifyContent="space-between" alignItems="center" mb={1.25}>
-                        <Typography variant="caption" fontWeight={800} letterSpacing={0.4} color="text.secondary">
-                          Date-wise sowing breakdown · {row.plantName} - {row.subtypeName}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary" fontWeight={700}>
-                          {(row.slots || []).length} slots
-                        </Typography>
-                      </Stack>
-                      <Stack direction="row" spacing={1.25} sx={{ overflowX: "auto", pb: 0.5 }}>
-                        {(row.slots || []).map((slot) => (
-                          <SlotCard key={slot.slotId} slot={slot} onOpen={setSlotId} />
-                        ))}
-                      </Stack>
+                    <Box sx={{ mx: 2, mb: 1.5 }}>
+                      <SlotTable slots={row.slots} onOpen={setSlotId} />
                     </Box>
                   </Collapse>
                 </Box>
@@ -600,11 +581,11 @@ export default function SowingCapacitySheet() {
                   Delivery window: <b>{formatShortRange(from, to)}</b>
                 </Typography>
                 <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
-                  <FooterStat label="Booked" value={fmt(visibleTotals.booked)} />
-                  <FooterStat label="Sowed" value={fmt(visibleTotals.sowed)} />
-                  <FooterStat label="Gap" value={fmt(visibleTotals.gap)} color="#c2410c" />
-                  <FooterStat label="Excess" value={signed(visibleTotals.excess)} color="#1d4ed8" />
-                  <FooterStat label="Can Book" value={signed(visibleTotals.canBook)} color="#15803d" />
+                  {hasAmount(visibleTotals.booked) ? <FooterStat label="Booked" value={fmt(visibleTotals.booked)} /> : null}
+                  {hasAmount(visibleTotals.sowed) ? <FooterStat label="Sowed" value={fmt(visibleTotals.sowed)} /> : null}
+                  {hasAmount(visibleTotals.gap) ? <FooterStat label="Gap" value={fmt(visibleTotals.gap)} color="#c2410c" /> : null}
+                  {hasAmount(visibleTotals.excess) ? <FooterStat label="Excess" value={signed(visibleTotals.excess)} color="#1d4ed8" /> : null}
+                  {hasAmount(visibleTotals.canBook) ? <FooterStat label="Can Book" value={signed(visibleTotals.canBook)} color="#15803d" /> : null}
                 </Stack>
               </Stack>
             ) : null}
