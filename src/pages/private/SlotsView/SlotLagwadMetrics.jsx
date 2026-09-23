@@ -23,6 +23,7 @@ import {
 } from "./slotMetrics"
 import { isSlotFutureWindow } from "./lagwadWindowDays"
 import MetricDefinitionIcon from "./MetricDefinitionIcon"
+import { SLOT_METRIC_DEFINITIONS as D } from "./slotMetricDefinitions"
 
 const fmt = (n) => (Number(n) || 0).toLocaleString()
 
@@ -207,10 +208,10 @@ const SlotLagwadMetrics = ({
     Boolean(slot?.isCurrentDateSlot) && slotHasRolledLagwadOnCurrent(slot) && onOpenRolledLagwad
 
   const readyLabel = lagwadSowingMode
-    ? "Ready"
+    ? D.lagwadReady.label
     : isFutureSlot
-      ? "Calendar ready"
-      : "Actual ready"
+      ? "कॅलेंडर तयार"
+      : "प्रत्यक्ष तयार"
 
   const actualReadySub = isFutureSlot
     ? storedReadyOnSlot > pipelineReadyToday
@@ -234,11 +235,9 @@ const SlotLagwadMetrics = ({
           ? "in delivery window"
           : "awaiting in window"
 
-  const sowLabel = lagwadSowingMode ? "Sow" : "Actual"
-  const sowSub = lagwadSowingMode ? "90% sellable" : "on slot (no sow %)"
-  const sowTitle = lagwadSowingMode
-    ? "Sellable lagwad sowed on slot = 90% actual plants"
-    : "Physical / booked actual on slot (banana-style — not 90% sow split)"
+  const sowLabel = lagwadSowingMode ? D.lagwadSow.label : D.lagwadActual.label
+  const sowSub = lagwadSowingMode ? "९०% विक्रीयोग्य" : "स्लॉटवर, पेरणी % नाही"
+  const sowTitle = lagwadSowingMode ? D.lagwadSow.mr : D.lagwadActual.mr
 
   const cells = compact
     ? [
@@ -262,22 +261,19 @@ const SlotLagwadMetrics = ({
           value: readyTileValue,
           className: "bg-sky-50 border-sky-200 hover:bg-sky-100 cursor-pointer",
           valueClass: "text-sky-800",
-          title:
-            soldTotal > 0
-              ? `Ready ${fmt(dispatchReady)} = synced ${fmt(syncedReady)} minus ${fmt(soldTotal)} order dispatch`
-              : "Synced plants ready for dispatch — click for batch breakdown",
+          title: D.lagwadReady.mr,
           clickable: true,
           onClick: (e) => openReadyBreakdown(e, 0),
         },
         {
           key: "expected",
           definitionKey: "lagwadExpected",
-          label: "Exp. ready",
+          label: D.lagwadExpected.label,
           sub: isFutureSlot ? "in window · await mark" : expReadySub,
           value: expTileValue,
           className: "bg-violet-50 border-violet-200 hover:bg-violet-100 cursor-pointer",
           valueClass: "text-violet-900",
-          title: `Expected in window: for sell ${fmt(forSellExpected)} − order dispatch ${fmt(soldTotal)} = can sell ${fmt(canSellExpected)}`,
+          title: D.lagwadExpected.mr,
           clickable: true,
           onClick: (e) => openReadyBreakdown(e, 0),
         },
@@ -286,8 +282,8 @@ const SlotLagwadMetrics = ({
         {
           key: "sellable",
           definitionKey: lagwadSowingMode ? "lagwadSow" : "lagwadActual",
-          label: lagwadSowingMode ? "Sellable" : "Actual",
-          sub: lagwadSowingMode ? "90% actual" : "on slot",
+          label: lagwadSowingMode ? "विक्रीयोग्य" : D.lagwadActual.label,
+          sub: lagwadSowingMode ? "९०% प्रत्यक्ष" : "स्लॉटवर",
           value: actualPlants,
           className: "bg-teal-50 border-teal-200 hover:bg-teal-100",
           valueClass: "text-teal-900",
@@ -298,18 +294,15 @@ const SlotLagwadMetrics = ({
         {
           key: "mortality",
           definitionKey: "lagwadMortality",
-          label: "Exp. mort.",
-          sub: mortality > 0 ? "tap → transfer" : lagwadSowingMode ? "10% reserve" : "—",
+          label: D.lagwadMortality.label,
+          sub: mortality > 0 ? "टॅप → हलवा" : lagwadSowingMode ? "१०% राखीव" : "—",
           value: mortality,
           className:
             mortality > 0
               ? "bg-rose-50 border-rose-200 hover:bg-rose-100 cursor-pointer"
               : "bg-rose-50 border-rose-200",
           valueClass: "text-rose-800",
-          title:
-            mortality > 0
-              ? "Transfer expected mortality → actual ready"
-              : "10% lagwad expected mortality reserve",
+          title: D.lagwadMortality.mr,
           clickable: mortality > 0 && Boolean(onSlotChanged),
           onClick: openTransfer,
         },
@@ -321,26 +314,19 @@ const SlotLagwadMetrics = ({
           value: readyTileValue,
           className: "bg-sky-50 border-sky-200 hover:bg-sky-100 cursor-pointer",
           valueClass: "text-sky-800",
-          title:
-            soldTotal > 0 && isDispatchWindow
-              ? `Actual ready ${fmt(dispatchReady)} = synced ${fmt(syncedReady)} minus ${fmt(soldTotal)} order dispatch`
-              : isFutureSlot
-                ? storedReadyOnSlot > pipelineReadyToday
-                  ? `Calendar ready today ${fmt(pipelineReadyToday)}. Slot actualReadyPlants ${fmt(storedReadyOnSlot)} is pipeline/booking — not dispatch-ready until the delivery window is active.`
-                  : "Plants in shed whose expected ready date has passed — click for batch breakdown"
-                : "Synced plants ready — click for batch breakdown",
+          title: D.lagwadReady.mr,
           clickable: true,
           onClick: (e) => openReadyBreakdown(e, 0),
         },
         {
           key: "expReady",
           definitionKey: "lagwadExpected",
-          label: "Exp. ready",
+          label: D.lagwadExpected.label,
           sub: isFutureSlot ? "expected in window" : expReadySub,
           value: expTileValue,
           className: "bg-violet-50 border-violet-200 hover:bg-violet-100 cursor-pointer",
           valueClass: "text-violet-900",
-          title: `Expected in window: for sell ${fmt(forSellExpected)} − order dispatch ${fmt(soldTotal)} = can sell ${fmt(canSellExpected)}`,
+          title: D.lagwadExpected.mr,
           clickable: true,
           onClick: (e) => openReadyBreakdown(e, 0),
         },

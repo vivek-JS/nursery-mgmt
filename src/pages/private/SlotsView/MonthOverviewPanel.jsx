@@ -1,12 +1,13 @@
 import React from "react"
 import { Tooltip } from "@mui/material"
 import MetricDefinitionIcon from "./MetricDefinitionIcon"
+import { SLOT_METRIC_DEFINITIONS as D } from "./slotMetricDefinitions"
 
 const fmt = (n) => (Number(n) || 0).toLocaleString()
 
 const tileClass = "relative p-3 pr-6 rounded-xl min-w-0 border"
 
-const SplitFootnote = ({ native, rolled, nativeLabel = "Native", rolledLabel = "Rollover" }) => (
+const SplitFootnote = ({ native, rolled, nativeLabel = "नेटिव्ह", rolledLabel = "रोलओव्हर" }) => (
   <p className="text-[10px] leading-snug mt-1 tabular-nums">
     <span className="font-semibold text-slate-600">{nativeLabel}</span>{" "}
     <span className="text-slate-800">{fmt(native)}</span>
@@ -46,21 +47,19 @@ const MonthOverviewPanel = ({ summary, isOverbooked, sowingAllowed = false }) =>
       } gap-3`}>
       {sowingAllowed ? (
         <>
-          <Tooltip
-            title="Saleable excess after gross order cover on each slot this month"
-            arrow>
+          <Tooltip title={D.monthExcess.mr} arrow>
             <div className={`${tileClass} bg-green-50 border-green-200`}>
               <div className="flex items-center gap-0.5">
-                <p className="text-[10px] font-semibold uppercase text-green-800">Excess available</p>
+                <p className="text-[10px] font-semibold text-green-800">{D.monthExcess.label}</p>
                 <MetricDefinitionIcon definitionKey="monthExcess" />
               </div>
               <p className="text-xl font-bold tabular-nums text-green-900">
                 {fmt(totalExcessAvailableForBooking)}
               </p>
-              <p className="text-[10px] text-green-700">Open for new bookings (sowing-allowed)</p>
+              <p className="text-[10px] text-green-700">नवीन बुकिंगसाठी (पेरणी परवानगी)</p>
             </div>
           </Tooltip>
-          <Tooltip title="Booked orders on delivery windows still needing sow this month" arrow>
+          <Tooltip title={D.monthSowingGap.mr} arrow>
             <div
               className={`${tileClass} ${
                 (totalSowingGapPlants || 0) > 0
@@ -68,7 +67,7 @@ const MonthOverviewPanel = ({ summary, isOverbooked, sowingAllowed = false }) =>
                   : "bg-gray-50 border-gray-200"
               }`}>
               <div className="flex items-center gap-0.5">
-                <p className="text-[10px] font-semibold uppercase text-orange-800">Sowing gap</p>
+                <p className="text-[10px] font-semibold text-orange-800">{D.monthSowingGap.label}</p>
                 <MetricDefinitionIcon definitionKey="monthSowingGap" />
               </div>
               <p
@@ -77,15 +76,15 @@ const MonthOverviewPanel = ({ summary, isOverbooked, sowingAllowed = false }) =>
                 }`}>
                 {fmt(totalSowingGapPlants)}
               </p>
-              <p className="text-[10px] text-orange-700">Orders not sown yet</p>
+              <p className="text-[10px] text-orange-700">ऑर्डरची पेरणी बाकी</p>
             </div>
           </Tooltip>
         </>
       ) : (
-        <Tooltip title="Sum of Available for booking on each slot this month — new orders can take this many plants" arrow>
+        <Tooltip title={D.monthAvailable.mr} arrow>
           <div className={`${tileClass} ${isOverbooked ? "bg-red-50 border-red-200" : "bg-green-50 border-green-200"}`}>
             <div className="flex items-center gap-0.5">
-              <p className="text-[10px] font-semibold uppercase text-green-800">Available for booking</p>
+              <p className="text-[10px] font-semibold text-green-800">{D.monthAvailable.label}</p>
               <MetricDefinitionIcon definitionKey="monthAvailable" />
             </div>
             <p
@@ -94,30 +93,28 @@ const MonthOverviewPanel = ({ summary, isOverbooked, sowingAllowed = false }) =>
               }`}>
               {fmt(totalAvailablePlants)}
             </p>
-            <p className="text-[10px] text-green-700">Open for new bookings this month</p>
+            <p className="text-[10px] text-green-700">या महिन्यात नवीन बुकिंग</p>
           </div>
         </Tooltip>
       )}
 
-      <Tooltip title="Lagwad synced in slot windows this month" arrow>
+      <Tooltip title={D.monthExpected.mr} arrow>
         <div className={`${tileClass} bg-violet-50 border-violet-200`}>
           <div className="flex items-center gap-0.5">
-            <p className="text-[10px] font-semibold uppercase text-violet-800">Expected in month</p>
+            <p className="text-[10px] font-semibold text-violet-800">{D.monthExpected.label}</p>
             <MetricDefinitionIcon definitionKey="monthExpected" />
           </div>
           <p className="text-xl font-bold tabular-nums text-violet-900">
             {fmt(totalExpectedInSlots)}
           </p>
-          <p className="text-[10px] text-violet-700">Lagwad synced in slot windows</p>
+          <p className="text-[10px] text-violet-700">स्लॉट तारखेत नोंदलेली लागवड</p>
         </div>
       </Tooltip>
 
-      <Tooltip
-        title={`Plants booked for delivery this month = Remaining dispatch (${fmt(totalRemainingToDispatch)}) + Dispatched (${fmt(totalAllDispatchedPlants)}). Native = delivery-window orders; Rollover = past-due rolled-in + cross-slot loads.`}
-        arrow>
+      <Tooltip title={D.monthDelivery.mr} arrow>
         <div className={`${tileClass} bg-blue-50 border-blue-200`}>
           <div className="flex items-center gap-0.5">
-            <p className="text-[10px] font-semibold uppercase text-blue-800">Delivery this month</p>
+            <p className="text-[10px] font-semibold text-blue-800">{D.monthDelivery.label}</p>
             <MetricDefinitionIcon definitionKey="monthDelivery" />
           </div>
           <p className="text-xl font-bold tabular-nums text-blue-900">
@@ -126,18 +123,16 @@ const MonthOverviewPanel = ({ summary, isOverbooked, sowingAllowed = false }) =>
           <SplitFootnote
             native={totalDeliveryNative}
             rolled={totalDeliveryRolled}
-            rolledLabel="Rollover & other"
+            rolledLabel="रोलओव्हर आणि इतर"
           />
-          <p className="text-[10px] text-blue-600 mt-0.5">= Remaining + Dispatched</p>
+          <p className="text-[10px] text-blue-600 mt-0.5">= उरलेले + डिस्पॅच</p>
         </div>
       </Tooltip>
 
-      <Tooltip
-        title="Pre-dispatch queue across all slots — native delivery window plus past-due rolled-in orders"
-        arrow>
+      <Tooltip title={D.monthRemaining.mr} arrow>
         <div className={`${tileClass} bg-amber-50 border-amber-200`}>
           <div className="flex items-center gap-0.5">
-            <p className="text-[10px] font-semibold uppercase text-amber-800">Remaining dispatch</p>
+            <p className="text-[10px] font-semibold text-amber-800">{D.monthRemaining.label}</p>
             <MetricDefinitionIcon definitionKey="monthRemaining" />
           </div>
           <p className="text-xl font-bold tabular-nums text-amber-900">
@@ -147,12 +142,10 @@ const MonthOverviewPanel = ({ summary, isOverbooked, sowingAllowed = false }) =>
         </div>
       </Tooltip>
 
-      <Tooltip
-        title="Dispatched & completed plants this month — native delivery-window orders plus rollover / cross-slot loads"
-        arrow>
+      <Tooltip title={D.monthDispatched.mr} arrow>
         <div className={`${tileClass} bg-slate-50 border-slate-200`}>
           <div className="flex items-center gap-0.5">
-            <p className="text-[10px] font-semibold uppercase text-slate-700">Dispatched this month</p>
+            <p className="text-[10px] font-semibold text-slate-700">{D.monthDispatched.label}</p>
             <MetricDefinitionIcon definitionKey="monthDispatched" />
           </div>
           <p className="text-xl font-bold tabular-nums text-slate-900">
@@ -161,7 +154,7 @@ const MonthOverviewPanel = ({ summary, isOverbooked, sowingAllowed = false }) =>
           <SplitFootnote
             native={totalDispatchedNative}
             rolled={dispatchedRollover}
-            rolledLabel="Rollover & other"
+            rolledLabel="रोलओव्हर आणि इतर"
           />
         </div>
       </Tooltip>

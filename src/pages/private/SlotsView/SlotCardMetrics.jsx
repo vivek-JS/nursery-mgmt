@@ -14,6 +14,7 @@ import {
 import SlotLagwadMetrics from "./SlotLagwadMetrics"
 import SlotSowingCrossTiles from "./SlotSowingCrossTiles"
 import MetricDefinitionIcon from "./MetricDefinitionIcon"
+import { SLOT_METRIC_DEFINITIONS as D } from "./slotMetricDefinitions"
 
 const statPillClass =
   "relative rounded-lg border px-2 py-1.5 pr-5 text-left transition-all hover:shadow-md hover:-translate-y-0.5 cursor-pointer w-full"
@@ -53,12 +54,12 @@ const SlotCardMetrics = ({
   const bookedCell = {
     key: "booked",
     definitionKey: "slotBooked",
-    label: "Booked",
-    sub: "excl. rolled",
+    label: D.slotBooked.label,
+    sub: "रोल वगळून",
     value: booked,
     className: "bg-blue-50 border-blue-200 hover:bg-blue-100",
     valueClass: "text-blue-700",
-    title: "Booked plants on this delivery window",
+    title: D.slotBooked.mr,
     onClick: (e) => open(e, "booked"),
   }
 
@@ -73,15 +74,15 @@ const SlotCardMetrics = ({
   const sowingGapCell = {
     key: "sowingGap",
     definitionKey: "slotSowingGap",
-    label: "Sowing gap",
+    label: D.slotSowingGap.label,
     sub:
       sowingGap > 0
-        ? "need sow"
+        ? "पेरणी बाकी"
         : hasSowingFromOtherSlot(slot)
-          ? "sowed elsewhere"
+          ? "दुसरीकडे पेरले"
           : hasCoverDetail
-            ? "covered here"
-            : "need sow",
+            ? "येथे पूर्ण"
+            : "पेरणी बाकी",
     value: sowingGap,
     className:
       sowingGap > 0
@@ -99,12 +100,7 @@ const SlotCardMetrics = ({
           : hasCoverDetail
             ? "text-teal-800"
             : "text-gray-700",
-    title:
-      sowingGap > 0
-        ? "Orders still needing sow — click for date-wise cover breakdown"
-        : hasSowingFromOtherSlot(slot)
-          ? "Gap 0 — sowing done on another slot. Click to see orders."
-          : "Sowing gap — click for order cover breakdown",
+    title: D.slotSowingGap.mr,
     onClick: openSowingGap,
   }
 
@@ -112,50 +108,50 @@ const SlotCardMetrics = ({
     ? {
         key: "excessAvail",
         definitionKey: "slotExcess",
-        label: "Can book",
-        sub: "after orders",
+        label: D.slotExcess.label,
+        sub: "ऑर्डरनंतर",
         value: excessAvail,
         className: "bg-emerald-50 border-emerald-200 hover:bg-emerald-100",
         valueClass: "text-emerald-700",
-        title: "Saleable plants after gross order cover (sowing-allowed)",
+        title: D.slotExcess.mr,
         onClick: (e) => open(e, "available"),
       }
     : {
         key: "available",
         definitionKey: "slotAvailable",
-        label: "Can book",
-        sub: "this slot",
+        label: D.slotAvailable.label,
+        sub: "या स्लॉटवर",
         value: bookingAvail,
         className:
           bookingAvail < 0
             ? "bg-red-50 border-red-200 hover:bg-red-100"
             : "bg-emerald-50 border-emerald-200 hover:bg-emerald-100",
         valueClass: bookingAvail < 0 ? "text-red-700" : "text-emerald-700",
-        title: "Plants open for new bookings on this slot",
+        title: D.slotAvailable.mr,
         onClick: (e) => open(e, "available"),
       }
 
   const remainingCell = {
     key: "remaining",
     definitionKey: "slotRemaining",
-    label: "Delivery to dispatch",
-    sub: "queue left",
+    label: D.slotRemaining.label,
+    sub: "रांग बाकी",
     value: toDispatch,
     className: "bg-amber-50 border-amber-200 hover:bg-amber-100",
     valueClass: "text-amber-900",
-    title: "Orders still waiting to dispatch from this slot",
+    title: D.slotRemaining.mr,
     onClick: (e) => open(e, "remaining"),
   }
 
   const dispatchedCell = {
     key: "dispatched",
     definitionKey: "slotDispatched",
-    label: "Dispatched",
-    sub: "orders loaded",
+    label: D.slotDispatched.label,
+    sub: "पाठवले",
     value: dispatched,
     className: "bg-violet-50 border-violet-200 hover:bg-violet-100",
     valueClass: "text-violet-800",
-    title: "Plants already dispatched on orders for this slot",
+    title: D.slotDispatched.mr,
     onClick: (e) => open(e, "dispatched"),
   }
 

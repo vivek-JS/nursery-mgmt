@@ -39,8 +39,7 @@ const MetricDefinitionIcon = ({ definitionKey }) => {
         onMouseDown={(e) => e.stopPropagation()}
         slotProps={{ paper: { className: "max-w-xs" } }}>
         <div className="px-3 py-2 max-w-[16rem]">
-          <p className="text-xs font-semibold text-slate-800">{def.title}</p>
-          <p className="text-xs text-slate-700 mt-1 leading-snug" lang="mr">
+          <p className="text-xs text-slate-800 leading-snug" lang="mr">
             {def.mr}
           </p>
         </div>
