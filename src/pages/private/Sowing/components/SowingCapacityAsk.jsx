@@ -90,7 +90,11 @@ function SheetBrief({ advice, focus = "all" }) {
   if (!good.length && !bad.length && !hold.length) {
     return (
       <Typography fontSize={15} fontWeight={700} color="#f8fafc">
-        Nothing to book or sow in this date range.
+        {focus === "book"
+          ? "Nothing is free to book in this date range."
+          : focus === "sow"
+            ? "Nothing needs sowing before you book."
+            : "Nothing to book or sow in this date range."}
       </Typography>
     )
   }
