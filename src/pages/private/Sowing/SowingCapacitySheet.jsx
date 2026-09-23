@@ -28,7 +28,6 @@ import {
   fmt,
   formatShortRange,
   rangeForPreset,
-  seedPlanDetail,
   STATUS_STYLE,
   ymd,
 } from "./capacitySheetUtils"
@@ -42,7 +41,6 @@ const PRESETS = [
 
 const SHEET_COLUMNS = [
   { key: "plant", label: "Plant & subtype", align: "left", type: "text" },
-  { key: "seed", label: "Seed plan", align: "left", type: "text" },
   { key: "delivery", label: "Delivery", align: "left", type: "date" },
   { key: "booked", label: "Booked", align: "right", type: "number" },
   { key: "sowed", label: "Sowed", align: "right", type: "number" },
@@ -64,51 +62,40 @@ const SLOT_COLUMNS = [
 
 const STATUS_RANK = { needs_sowing: 0, saleable_excess: 1, fulfilled: 2 }
 
-const excelCell = {
-  border: "1px solid #d0d7de",
-  fontSize: 13,
-  py: 0.6,
-  px: 1,
-  whiteSpace: "nowrap",
+const NUM_COLOR = {
+  booked: "#111827",
+  sowed: "#059669",
+  gap: "#ea580c",
+  excess: "#2563eb",
+  canBook: "#047857",
 }
 
-const COLUMN_FILL = {
-  booked: { bg: "#e2e8f0", strong: "#cbd5e1", color: "#0f172a", head: "#94a3b8" },
-  sowed: { bg: "#bbf7d0", strong: "#86efac", color: "#14532d", head: "#4ade80" },
-  gap: { bg: "#fed7aa", strong: "#fdba74", color: "#9a3412", head: "#fb923c" },
-  excess: { bg: "#bfdbfe", strong: "#93c5fd", color: "#1e3a8a", head: "#60a5fa" },
-  canBook: { bg: "#bbf7d0", strong: "#86efac", color: "#14532d", head: "#4ade80" },
+const excelCell = {
+  borderBottom: "1px solid #eef2f6",
+  borderRight: "1px solid #f1f5f9",
+  fontSize: 13,
+  py: 1,
+  px: 1.25,
+  whiteSpace: "nowrap",
+  fontVariantNumeric: "tabular-nums",
 }
 
 const excelHead = {
   ...excelCell,
-  fontWeight: 800,
-  color: "#1f2937",
+  bgcolor: "#f8fafc",
+  color: "#64748b",
+  fontSize: 11,
+  fontWeight: 700,
+  letterSpacing: 0.4,
+  textTransform: "uppercase",
   position: "sticky",
   top: 0,
   zIndex: 2,
 }
 
-function columnFill(key, value) {
-  const fill = COLUMN_FILL[key]
-  if (!fill) return {}
-  const active = hasAmount(value)
-  return {
-    bgcolor: active ? fill.strong : fill.bg,
-    color: fill.color,
-    fontWeight: 800,
-  }
-}
-
-function headFill(key) {
-  const fill = COLUMN_FILL[key]
-  if (!fill) return { bgcolor: "#e5e7eb", color: "#111827" }
-  return { bgcolor: fill.head, color: "#111827" }
-}
-
-function statusFill(status) {
-  const meta = STATUS_STYLE[status] || STATUS_STYLE.fulfilled
-  return { bgcolor: meta.dot, color: "#ffffff", fontWeight: 800 }
+function numberColor(key, value) {
+  if (!hasAmount(value)) return { color: "transparent" }
+  return { color: NUM_COLOR[key] || "#111827", fontWeight: 700 }
 }
 
 function dayKey(value) {
@@ -123,7 +110,6 @@ function dayKey(value) {
 
 function sheetSortValue(row, key) {
   if (key === "plant") return `${row.plantName || ""} ${row.subtypeName || ""}`.toLowerCase()
-  if (key === "seed") return String(row.seedPlanLabel || "").toLowerCase()
   if (key === "delivery") return dayKey(row.deliveryFrom || row.startDay)
   if (key === "status") return STATUS_RANK[row.status] ?? 9
   return Number(row[key]) || 0
@@ -187,7 +173,7 @@ function SortHead({ columns, sort, onSort, withLead = false }) {
         <TableCell
           key={column.key}
           align={column.align}
-          sx={{ ...excelHead, ...headFill(column.key) }}
+          sx={excelHead}
           sortDirection={sort.key === column.key ? sort.dir : false}
         >
           <TableSortLabel
@@ -196,7 +182,7 @@ function SortHead({ columns, sort, onSort, withLead = false }) {
             onClick={() => onSort(column)}
             sx={{
               color: "inherit",
-              "& .MuiTableSortLabel-icon": { color: "#111827 !important" },
+              "& .MuiTableSortLabel-icon": { color: "#94a3b8 !important" },
             }}
           >
             {column.label}
@@ -233,20 +219,20 @@ function SlotTable({ slots, onOpen }) {
             sx={{ cursor: "pointer", bgcolor: index % 2 ? "#f8fafc" : "#fff" }}
           >
             <TableCell sx={{ ...excelCell, fontWeight: 700 }}>{formatShortRange(slot.startDay, slot.endDay)}</TableCell>
-            <TableCell align="right" sx={{ ...excelCell, ...columnFill("booked", slot.booked) }}>{hasAmount(slot.booked) ? fmt(slot.booked) : ""}</TableCell>
-            <TableCell align="right" sx={{ ...excelCell, ...columnFill("sowed", slot.sowed) }}>
+            <TableCell align="right" sx={{ ...excelCell, ...numberColor("booked", slot.booked) }}>{hasAmount(slot.booked) ? fmt(slot.booked) : ""}</TableCell>
+            <TableCell align="right" sx={{ ...excelCell, ...numberColor("sowed", slot.sowed) }}>
               {hasAmount(slot.sowed) ? fmt(slot.sowed) : ""}
             </TableCell>
-            <TableCell align="right" sx={{ ...excelCell, ...columnFill("gap", slot.gap) }}>
+            <TableCell align="right" sx={{ ...excelCell, ...numberColor("gap", slot.gap) }}>
               {hasAmount(slot.gap) ? fmt(slot.gap) : ""}
             </TableCell>
-            <TableCell align="right" sx={{ ...excelCell, ...columnFill("excess", slot.excess) }}>
+            <TableCell align="right" sx={{ ...excelCell, ...numberColor("excess", slot.excess) }}>
               {hasAmount(slot.excess) ? `+${fmt(slot.excess)}` : ""}
             </TableCell>
-            <TableCell align="right" sx={{ ...excelCell, ...columnFill("canBook", slot.canBook) }}>
+            <TableCell align="right" sx={{ ...excelCell, ...numberColor("canBook", slot.canBook) }}>
               {hasAmount(slot.canBook) ? fmt(slot.canBook) : ""}
             </TableCell>
-            <TableCell sx={{ ...excelCell, ...statusFill(slot.status) }}>
+            <TableCell sx={{ ...excelCell, color: (STATUS_STYLE[slot.status] || STATUS_STYLE.fulfilled).color, fontWeight: 700 }}>
               {(STATUS_STYLE[slot.status] || STATUS_STYLE.fulfilled).label}
             </TableCell>
           </TableRow>
@@ -266,7 +252,6 @@ function downloadCsv(rows, from, to) {
   const header = [
     "Plant",
     "Subtype",
-    "Seed plan",
     "Delivery from",
     "Delivery to",
     "Booked",
@@ -283,7 +268,6 @@ function downloadCsv(rows, from, to) {
       [
         row.plantName,
         row.subtypeName,
-        row.seedPlanLabel,
         row.deliveryFrom,
         row.deliveryTo,
         row.booked,
@@ -315,6 +299,7 @@ export default function SowingCapacitySheet() {
   const [error, setError] = useState("")
   const [plants, setPlants] = useState([])
   const [totals, setTotals] = useState(null)
+  const [seedSources, setSeedSources] = useState(null)
   const [openSubtype, setOpenSubtype] = useState("")
   const [slotId, setSlotId] = useState(null)
   const [sort, setSort] = useState({ key: "plant", dir: "asc" })
@@ -328,12 +313,15 @@ export default function SowingCapacitySheet() {
       if (res?.data?.success) {
         setPlants(res.data.plants || [])
         setTotals(res.data.totals || null)
+        setSeedSources(res.data.seedSources || null)
       } else {
         setPlants([])
+        setSeedSources(null)
         setError(res?.data?.message || "Could not load capacity")
       }
     } catch (err) {
       setPlants([])
+      setSeedSources(null)
       setError(err?.response?.data?.message || err?.message || "Could not load capacity")
     } finally {
       setLoading(false)
@@ -396,7 +384,7 @@ export default function SowingCapacitySheet() {
   }, [rows, search, totals])
 
   return (
-    <Box sx={{ bgcolor: "#f4f7fb", minHeight: "100%", p: { xs: 1.5, md: 2.5 } }}>
+    <Box sx={{ bgcolor: "#f6f8fb", minHeight: "100%", p: { xs: 1.5, md: 2.5 } }}>
       <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" alignItems={{ md: "center" }} spacing={1.5} mb={2}>
         <Box>
           <Stack direction="row" spacing={1} alignItems="center">
@@ -507,13 +495,15 @@ export default function SowingCapacitySheet() {
         </Stack>
       </Stack>
 
+      <SeedSourceStrip sources={seedSources} />
+
       {error ? (
         <Alert severity="error" sx={{ mb: 1.5 }}>
           {error}
         </Alert>
       ) : null}
 
-      <Box sx={{ bgcolor: "#fff", border: "1px solid #e2e8f0", borderRadius: 2.5, overflow: "hidden" }}>
+      <Box sx={{ bgcolor: "#fff", border: "1px solid #e8edf3", borderRadius: 3, overflow: "hidden", boxShadow: "0 8px 24px rgba(15, 23, 42, 0.04)" }}>
         <Stack direction="row" justifyContent="space-between" alignItems="center" px={2} py={1.25} flexWrap="wrap" useFlexGap>
           <Typography fontWeight={800}>
             Plant & Subtype Capacity Master{" "}
@@ -522,9 +512,9 @@ export default function SowingCapacitySheet() {
             </Typography>
           </Typography>
           <Stack direction="row" spacing={1.5}>
-            <Legend swatch="#fdba74" label="Gap to Sow" />
-            <Legend swatch="#93c5fd" label="Saleable Excess" />
-            <Legend swatch="#86efac" label="Booking Open" />
+            <Legend swatch={NUM_COLOR.gap} label="Gap" />
+            <Legend swatch={NUM_COLOR.excess} label="Excess" />
+            <Legend swatch={NUM_COLOR.canBook} label="Can book" />
           </Stack>
         </Stack>
 
@@ -536,7 +526,7 @@ export default function SowingCapacitySheet() {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={10} sx={excelCell}>
+                  <TableCell colSpan={9} sx={excelCell}>
                     <Box display="flex" justifyContent="center" py={4}>
                       <CircularProgress size={28} />
                     </Box>
@@ -545,7 +535,7 @@ export default function SowingCapacitySheet() {
               ) : null}
               {!loading && sortedRows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={10} sx={excelCell}>
+                  <TableCell colSpan={9} sx={excelCell}>
                     <Alert severity="info">No sowing-allowed slots in this range.</Alert>
                   </TableCell>
                 </TableRow>
@@ -574,37 +564,33 @@ export default function SowingCapacitySheet() {
                       <TableCell sx={excelCell}>
                         <Stack direction="row" spacing={1} alignItems="center">
                           <Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: meta.dot, flexShrink: 0 }} />
-                          <Typography fontWeight={800} fontSize={13}>
+                          <Typography fontWeight={700} fontSize={13.5} color="#0f172a">
                             {row.plantName} - {row.subtypeName}
                           </Typography>
                         </Stack>
                       </TableCell>
-                      <TableCell sx={excelCell}>
-                        <Typography fontWeight={700} fontSize={13}>{row.seedPlanLabel}</Typography>
-                        <Typography variant="caption" color="text.secondary">{seedPlanDetail(row.seedPlanLabel)}</Typography>
-                      </TableCell>
-                      <TableCell sx={excelCell}>{formatShortRange(row.deliveryFrom, row.deliveryTo)}</TableCell>
-                      <TableCell align="right" sx={{ ...excelCell, ...columnFill("booked", row.booked) }}>
+                      <TableCell sx={{ ...excelCell, color: "#475569" }}>{formatShortRange(row.deliveryFrom, row.deliveryTo)}</TableCell>
+                      <TableCell align="right" sx={{ ...excelCell, ...numberColor("booked", row.booked) }}>
                         <MetricButton onClick={openSlot}>{hasAmount(row.booked) ? fmt(row.booked) : ""}</MetricButton>
                       </TableCell>
-                      <TableCell align="right" sx={{ ...excelCell, ...columnFill("sowed", row.sowed) }}>
+                      <TableCell align="right" sx={{ ...excelCell, ...numberColor("sowed", row.sowed) }}>
                         <MetricButton onClick={openSlot}>{hasAmount(row.sowed) ? fmt(row.sowed) : ""}</MetricButton>
                       </TableCell>
-                      <TableCell align="right" sx={{ ...excelCell, ...columnFill("gap", row.gap) }}>
+                      <TableCell align="right" sx={{ ...excelCell, ...numberColor("gap", row.gap) }}>
                         <MetricButton onClick={openSlot}>{hasAmount(row.gap) ? fmt(row.gap) : ""}</MetricButton>
                       </TableCell>
-                      <TableCell align="right" sx={{ ...excelCell, ...columnFill("excess", row.excess) }}>
+                      <TableCell align="right" sx={{ ...excelCell, ...numberColor("excess", row.excess) }}>
                         <MetricButton onClick={openSlot}>{hasAmount(row.excess) ? `+${fmt(row.excess)}` : ""}</MetricButton>
                       </TableCell>
-                      <TableCell align="right" sx={{ ...excelCell, ...columnFill("canBook", row.canBook) }}>
+                      <TableCell align="right" sx={{ ...excelCell, ...numberColor("canBook", row.canBook) }}>
                         <MetricButton onClick={openSlot}>{hasAmount(row.canBook) ? fmt(row.canBook) : ""}</MetricButton>
                       </TableCell>
-                      <TableCell sx={{ ...excelCell, ...statusFill(row.status) }}>
+                      <TableCell sx={{ ...excelCell, color: meta.color, fontWeight: 700 }}>
                         {meta.label}
                       </TableCell>
                     </TableRow>
                     <TableRow>
-                      <TableCell colSpan={10} sx={{ p: 0, border: open ? "1px solid #d0d7de" : 0, bgcolor: "#f8fafc" }}>
+                      <TableCell colSpan={9} sx={{ p: 0, borderBottom: open ? "1px solid #eef2f6" : 0, bgcolor: "#fafbfc" }}>
                         <Collapse in={open} unmountOnExit>
                           <Box sx={{ p: 1.25 }}>
                             <SlotTable slots={row.slots} onOpen={setSlotId} />
@@ -645,6 +631,60 @@ export default function SowingCapacitySheet() {
       </Box>
 
       <SowingCapacityDrawer slotId={slotId} onClose={() => setSlotId(null)} />
+    </Box>
+  )
+}
+
+const SEED_LABELS = [
+  ["COMPANY", "Company seed"],
+  ["RAISING", "Raising seed"],
+  ["MIXED", "Mixed seed"],
+]
+
+function SeedSourceStrip({ sources }) {
+  if (!sources) return null
+  const cards = SEED_LABELS.map(([key, label]) => ({ key, label, bucket: sources[key] })).filter(
+    (item) => hasAmount(item.bucket?.plants) || hasAmount(item.bucket?.covered) || hasAmount(item.bucket?.gap)
+  )
+  if (!cards.length) return null
+  return (
+    <Stack direction={{ xs: "column", md: "row" }} spacing={1.25} mb={1.5}>
+      {cards.map(({ key, label, bucket }) => (
+        <Box
+          key={key}
+          sx={{
+            flex: 1,
+            bgcolor: "#fff",
+            border: "1px solid #e8edf3",
+            borderRadius: 2.5,
+            px: 2,
+            py: 1.25,
+            boxShadow: "0 4px 16px rgba(15, 23, 42, 0.03)",
+          }}
+        >
+          <Typography variant="caption" fontWeight={800} color="#64748b" letterSpacing={0.4}>
+            {label.toUpperCase()}
+          </Typography>
+          <Stack direction="row" spacing={2.5} mt={0.75}>
+            <SeedStat label="Booked" value={bucket.plants} color={NUM_COLOR.booked} />
+            <SeedStat label="Sowed" value={bucket.covered} color={NUM_COLOR.sowed} />
+            <SeedStat label="Gap" value={bucket.gap} color={NUM_COLOR.gap} />
+          </Stack>
+        </Box>
+      ))}
+    </Stack>
+  )
+}
+
+function SeedStat({ label, value, color }) {
+  return (
+    <Box>
+      <Typography variant="caption" color="#94a3b8" fontWeight={700}>
+        {label}
+      </Typography>
+      <Typography fontWeight={800} fontSize={18} color={hasAmount(value) ? color : "#cbd5e1"} sx={{ fontVariantNumeric: "tabular-nums" }}>
+        {hasAmount(value) ? fmt(value) : "—"}
+      </Typography>
     </Box>
   )
 }
