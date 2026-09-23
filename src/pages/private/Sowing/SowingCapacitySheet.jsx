@@ -14,6 +14,7 @@ import {
   TableCell,
   TableHead,
   TableRow,
+  TableSortLabel,
   TextField,
   Typography,
 } from "@mui/material"
@@ -39,8 +40,75 @@ const PRESETS = [
   { id: "month", label: "This Month" },
 ]
 
-const GRID =
-  "minmax(210px,1.5fr) 128px 148px 108px 108px 96px 118px 108px 148px 32px"
+const SHEET_COLUMNS = [
+  { key: "plant", label: "Plant & subtype", align: "left", type: "text" },
+  { key: "seed", label: "Seed plan", align: "left", type: "text" },
+  { key: "delivery", label: "Delivery", align: "left", type: "date" },
+  { key: "booked", label: "Booked", align: "right", type: "number" },
+  { key: "sowed", label: "Sowed", align: "right", type: "number" },
+  { key: "gap", label: "Gap", align: "right", type: "number" },
+  { key: "excess", label: "Excess", align: "right", type: "number" },
+  { key: "canBook", label: "Can book", align: "right", type: "number" },
+  { key: "status", label: "Status", align: "left", type: "text" },
+]
+
+const SLOT_COLUMNS = [
+  { key: "delivery", label: "Delivery", align: "left", type: "date" },
+  { key: "booked", label: "Booked", align: "right", type: "number" },
+  { key: "sowed", label: "Sowed", align: "right", type: "number" },
+  { key: "gap", label: "Gap", align: "right", type: "number" },
+  { key: "excess", label: "Excess", align: "right", type: "number" },
+  { key: "canBook", label: "Can book", align: "right", type: "number" },
+  { key: "status", label: "Status", align: "left", type: "text" },
+]
+
+const STATUS_RANK = { needs_sowing: 0, saleable_excess: 1, fulfilled: 2 }
+
+const excelCell = {
+  border: "1px solid #d0d7de",
+  fontSize: 13,
+  py: 0.6,
+  px: 1,
+  whiteSpace: "nowrap",
+}
+
+const excelHead = {
+  ...excelCell,
+  bgcolor: "#f3f4f6",
+  fontWeight: 800,
+  color: "#374151",
+  position: "sticky",
+  top: 0,
+  zIndex: 2,
+}
+
+function dayKey(value) {
+  const text = String(value || "")
+  if (/^\d{2}-\d{2}-\d{4}$/.test(text)) {
+    const [d, m, y] = text.split("-")
+    return Number(`${y}${m}${d}`)
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return Number(text.replace(/-/g, ""))
+  return 0
+}
+
+function sheetSortValue(row, key) {
+  if (key === "plant") return `${row.plantName || ""} ${row.subtypeName || ""}`.toLowerCase()
+  if (key === "seed") return String(row.seedPlanLabel || "").toLowerCase()
+  if (key === "delivery") return dayKey(row.deliveryFrom || row.startDay)
+  if (key === "status") return STATUS_RANK[row.status] ?? 9
+  return Number(row[key]) || 0
+}
+
+function compareRows(a, b, sort) {
+  const av = sheetSortValue(a, sort.key)
+  const bv = sheetSortValue(b, sort.key)
+  let order = 0
+  if (typeof av === "string" || typeof bv === "string") order = String(av).localeCompare(String(bv))
+  else order = av - bv
+  if (order === 0) order = `${a.plantName || ""} ${a.subtypeName || ""}`.localeCompare(`${b.plantName || ""} ${b.subtypeName || ""}`)
+  return sort.dir === "desc" ? -order : order
+}
 
 function StatusChip({ status }) {
   const meta = STATUS_STYLE[status] || STATUS_STYLE.fulfilled
@@ -144,47 +212,69 @@ function rowHasNumbers(row) {
   )
 }
 
+function SortHead({ columns, sort, onSort, withLead = false }) {
+  return (
+    <TableRow>
+      {withLead ? <TableCell sx={{ ...excelHead, width: 36 }} /> : null}
+      {columns.map((column) => (
+        <TableCell key={column.key} align={column.align} sx={excelHead} sortDirection={sort.key === column.key ? sort.dir : false}>
+          <TableSortLabel
+            active={sort.key === column.key}
+            direction={sort.key === column.key ? sort.dir : "asc"}
+            onClick={() => onSort(column)}
+            sx={{
+              color: "inherit",
+              "& .MuiTableSortLabel-icon": { color: "#16a34a !important" },
+            }}
+          >
+            {column.label}
+          </TableSortLabel>
+        </TableCell>
+      ))}
+    </TableRow>
+  )
+}
+
 function SlotTable({ slots, onOpen }) {
-  const visible = (slots || []).filter(rowHasNumbers)
+  const [sort, setSort] = useState({ key: "delivery", dir: "asc" })
+  const visible = useMemo(() => {
+    return (slots || []).filter(rowHasNumbers).slice().sort((a, b) => compareRows(a, b, sort))
+  }, [slots, sort])
+  const onSort = (column) => {
+    setSort((prev) => {
+      if (prev.key === column.key) return { key: column.key, dir: prev.dir === "asc" ? "desc" : "asc" }
+      return { key: column.key, dir: column.type === "number" ? "desc" : "asc" }
+    })
+  }
   if (!visible.length) return null
   return (
-    <Table size="small" sx={{ bgcolor: "#fff", border: "1px solid #e2e8f0", borderRadius: 1 }}>
+    <Table size="small" sx={{ bgcolor: "#fff", borderCollapse: "collapse" }}>
       <TableHead>
-        <TableRow sx={{ bgcolor: "#f8fafc" }}>
-          {["Delivery", "Booked", "Sowed", "Gap", "Excess", "Can book", "Status"].map((label) => (
-            <TableCell
-              key={label}
-              align={label === "Delivery" || label === "Status" ? "left" : "right"}
-              sx={{ fontWeight: 800, color: "#64748b", fontSize: 12, borderBottom: "1px solid #e2e8f0" }}
-            >
-              {label}
-            </TableCell>
-          ))}
-        </TableRow>
+        <SortHead columns={SLOT_COLUMNS} sort={sort} onSort={onSort} />
       </TableHead>
       <TableBody>
-        {visible.map((slot) => (
+        {visible.map((slot, index) => (
           <TableRow
             key={slot.slotId}
             hover
             onClick={() => onOpen(slot.slotId)}
-            sx={{ cursor: "pointer" }}
+            sx={{ cursor: "pointer", bgcolor: index % 2 ? "#f8fafc" : "#fff" }}
           >
-            <TableCell sx={{ fontWeight: 700 }}>{formatShortRange(slot.startDay, slot.endDay)}</TableCell>
-            <TableCell align="right">{hasAmount(slot.booked) ? fmt(slot.booked) : ""}</TableCell>
-            <TableCell align="right" sx={{ color: "#15803d", fontWeight: 700 }}>
+            <TableCell sx={{ ...excelCell, fontWeight: 700 }}>{formatShortRange(slot.startDay, slot.endDay)}</TableCell>
+            <TableCell align="right" sx={excelCell}>{hasAmount(slot.booked) ? fmt(slot.booked) : ""}</TableCell>
+            <TableCell align="right" sx={{ ...excelCell, color: "#15803d", fontWeight: 700 }}>
               {hasAmount(slot.sowed) ? fmt(slot.sowed) : ""}
             </TableCell>
-            <TableCell align="right" sx={{ color: "#c2410c", fontWeight: 800 }}>
+            <TableCell align="right" sx={{ ...excelCell, color: "#c2410c", fontWeight: 800 }}>
               {hasAmount(slot.gap) ? fmt(slot.gap) : ""}
             </TableCell>
-            <TableCell align="right" sx={{ color: "#1d4ed8", fontWeight: 800 }}>
+            <TableCell align="right" sx={{ ...excelCell, color: "#1d4ed8", fontWeight: 800 }}>
               {hasAmount(slot.excess) ? `+${fmt(slot.excess)}` : ""}
             </TableCell>
-            <TableCell align="right" sx={{ color: "#15803d", fontWeight: 800 }}>
+            <TableCell align="right" sx={{ ...excelCell, color: "#15803d", fontWeight: 800 }}>
               {hasAmount(slot.canBook) ? fmt(slot.canBook) : ""}
             </TableCell>
-            <TableCell>
+            <TableCell sx={excelCell}>
               <StatusChip status={slot.status} />
             </TableCell>
           </TableRow>
@@ -255,6 +345,7 @@ export default function SowingCapacitySheet() {
   const [totals, setTotals] = useState(null)
   const [openSubtype, setOpenSubtype] = useState("")
   const [slotId, setSlotId] = useState(null)
+  const [sort, setSort] = useState({ key: "plant", dir: "asc" })
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -308,6 +399,15 @@ export default function SowingCapacitySheet() {
         .filter(rowHasNumbers)
     )
   }, [plants, search])
+
+  const sortedRows = useMemo(() => rows.slice().sort((a, b) => compareRows(a, b, sort)), [rows, sort])
+
+  const onSort = (column) => {
+    setSort((prev) => {
+      if (prev.key === column.key) return { key: column.key, dir: prev.dir === "asc" ? "desc" : "asc" }
+      return { key: column.key, dir: column.type === "number" ? "desc" : "asc" }
+    })
+  }
 
   const visibleTotals = useMemo(() => {
     if (!search.trim()) return totals
@@ -456,115 +556,100 @@ export default function SowingCapacitySheet() {
           </Stack>
         </Stack>
 
-        <Box sx={{ overflowX: "auto" }}>
-          <Box sx={{ minWidth: 1180 }}>
-            <Box
-              sx={{
-                display: "grid",
-                gridTemplateColumns: GRID,
-                px: 2,
-                py: 1,
-                bgcolor: "#f8fafc",
-                borderTop: "1px solid #e2e8f0",
-                borderBottom: "1px solid #e2e8f0",
-              }}
-            >
-              {["Plant & subtype", "Seed plan", "Delivery date / range", "Booked plants", "Sowed (covered)", "Sowing gap", "Saleable excess", "Can book now", "Action / status", ""].map(
-                (label) => (
-                  <Typography key={label || "expand"} variant="caption" fontWeight={800} color="text.secondary">
-                    {label}
-                  </Typography>
+        <Box sx={{ overflow: "auto", maxHeight: "calc(100vh - 280px)" }}>
+          <Table size="small" stickyHeader sx={{ borderCollapse: "separate", borderSpacing: 0, minWidth: 1100 }}>
+            <TableHead>
+              <SortHead columns={SHEET_COLUMNS} sort={sort} onSort={onSort} withLead />
+            </TableHead>
+            <TableBody>
+              {loading ? (
+                <TableRow>
+                  <TableCell colSpan={10} sx={excelCell}>
+                    <Box display="flex" justifyContent="center" py={4}>
+                      <CircularProgress size={28} />
+                    </Box>
+                  </TableCell>
+                </TableRow>
+              ) : null}
+              {!loading && sortedRows.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={10} sx={excelCell}>
+                    <Alert severity="info">No sowing-allowed slots in this range.</Alert>
+                  </TableCell>
+                </TableRow>
+              ) : null}
+              {sortedRows.map((row, index) => {
+                const key = `${row.plantId}-${row.subtypeId}`
+                const open = openSubtype === key
+                const meta = STATUS_STYLE[row.status] || STATUS_STYLE.fulfilled
+                const openSlot = () => row.slots?.[0] && setSlotId(row.slots[0].slotId)
+                const rowBg = open ? "#f0fdf4" : index % 2 ? "#f8fafc" : "#fff"
+                return (
+                  <React.Fragment key={key}>
+                    <TableRow hover sx={{ bgcolor: rowBg, cursor: "pointer" }} onClick={() => setOpenSubtype(open ? "" : key)}>
+                      <TableCell sx={excelCell}>
+                        <IconButton
+                          size="small"
+                          aria-label={open ? "Hide slots" : "Show slots"}
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            setOpenSubtype(open ? "" : key)
+                          }}
+                        >
+                          <ExpandMoreIcon sx={{ transform: open ? "rotate(180deg)" : "none", transition: "0.2s" }} />
+                        </IconButton>
+                      </TableCell>
+                      <TableCell sx={excelCell}>
+                        <Stack direction="row" spacing={1} alignItems="center">
+                          <Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: meta.dot, flexShrink: 0 }} />
+                          <Typography fontWeight={800} fontSize={13}>
+                            {row.plantName} - {row.subtypeName}
+                          </Typography>
+                        </Stack>
+                      </TableCell>
+                      <TableCell sx={excelCell}>
+                        <Typography fontWeight={700} fontSize={13}>{row.seedPlanLabel}</Typography>
+                        <Typography variant="caption" color="text.secondary">{seedPlanDetail(row.seedPlanLabel)}</Typography>
+                      </TableCell>
+                      <TableCell sx={excelCell}>{formatShortRange(row.deliveryFrom, row.deliveryTo)}</TableCell>
+                      <TableCell align="right" sx={excelCell}>
+                        <MetricButton onClick={openSlot}>{hasAmount(row.booked) ? fmt(row.booked) : ""}</MetricButton>
+                      </TableCell>
+                      <TableCell align="right" sx={excelCell}>
+                        <MetricButton onClick={openSlot}>{hasAmount(row.sowed) ? fmt(row.sowed) : ""}</MetricButton>
+                      </TableCell>
+                      <TableCell align="right" sx={excelCell}>
+                        <MetricButton onClick={openSlot}><GapValue value={row.gap} /></MetricButton>
+                      </TableCell>
+                      <TableCell align="right" sx={excelCell}>
+                        <MetricButton onClick={openSlot}>
+                          <PillValue value={row.excess} prefix="+" color="#1d4ed8" bg="#eff6ff" border="#bfdbfe" />
+                        </MetricButton>
+                      </TableCell>
+                      <TableCell align="right" sx={excelCell}>
+                        <MetricButton onClick={openSlot}>
+                          <PillValue value={row.canBook} color="#15803d" bg="#f0fdf4" border="#bbf7d0" />
+                        </MetricButton>
+                      </TableCell>
+                      <TableCell sx={excelCell}>
+                        <StatusChip status={row.status} />
+                      </TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell colSpan={10} sx={{ p: 0, border: open ? "1px solid #d0d7de" : 0, bgcolor: "#f8fafc" }}>
+                        <Collapse in={open} unmountOnExit>
+                          <Box sx={{ p: 1.25 }}>
+                            <SlotTable slots={row.slots} onOpen={setSlotId} />
+                          </Box>
+                        </Collapse>
+                      </TableCell>
+                    </TableRow>
+                  </React.Fragment>
                 )
-              )}
-            </Box>
-
-            {loading ? (
-              <Box display="flex" justifyContent="center" py={6}>
-                <CircularProgress size={28} />
-              </Box>
-            ) : null}
-
-            {!loading && rows.length === 0 ? (
-              <Box px={2} py={3}>
-                <Alert severity="info">No sowing-allowed slots in this range.</Alert>
-              </Box>
-            ) : null}
-
-            {rows.map((row) => {
-              const key = `${row.plantId}-${row.subtypeId}`
-              const open = openSubtype === key
-              const meta = STATUS_STYLE[row.status] || STATUS_STYLE.fulfilled
-              const openSlot = () => row.slots?.[0] && setSlotId(row.slots[0].slotId)
-              return (
-                <Box key={key} sx={{ borderBottom: "1px solid #eef2f6" }}>
-                  <Box
-                    onClick={() => setOpenSubtype(open ? "" : key)}
-                    sx={{
-                      display: "grid",
-                      gridTemplateColumns: GRID,
-                      alignItems: "center",
-                      px: 2,
-                      py: 1.25,
-                      cursor: "pointer",
-                      "&:hover": { bgcolor: "#f8fafc" },
-                    }}
-                  >
-                    <Stack direction="row" spacing={1.25} alignItems="center">
-                      <Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: meta.dot, flexShrink: 0 }} />
-                      <Box>
-                        <Typography fontWeight={800} fontSize={14}>
-                          {row.plantName} - {row.subtypeName}
-                        </Typography>
-                      </Box>
-                    </Stack>
-                    <Box>
-                      <Typography fontWeight={700} fontSize={13}>
-                        {row.seedPlanLabel}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        {seedPlanDetail(row.seedPlanLabel)}
-                      </Typography>
-                    </Box>
-                    <Typography fontSize={13} fontWeight={600}>
-                      {formatShortRange(row.deliveryFrom, row.deliveryTo)}
-                    </Typography>
-                    <MetricButton onClick={openSlot}>{hasAmount(row.booked) ? fmt(row.booked) : ""}</MetricButton>
-                    <MetricButton onClick={openSlot}>{hasAmount(row.sowed) ? fmt(row.sowed) : ""}</MetricButton>
-                    <Box display="flex" justifyContent="flex-end">
-                      <MetricButton onClick={openSlot} sx={{ color: "inherit" }}>
-                        <GapValue value={row.gap} />
-                      </MetricButton>
-                    </Box>
-                    <Box display="flex" justifyContent="flex-end">
-                      <MetricButton onClick={openSlot}>
-                        <PillValue value={row.excess} prefix="+" color="#1d4ed8" bg="#eff6ff" border="#bfdbfe" />
-                      </MetricButton>
-                    </Box>
-                    <Box display="flex" justifyContent="flex-end">
-                      <MetricButton onClick={openSlot}>
-                        <PillValue value={row.canBook} color="#15803d" bg="#f0fdf4" border="#bbf7d0" />
-                      </MetricButton>
-                    </Box>
-                    <StatusChip status={row.status} />
-                    <IconButton
-                      size="small"
-                      aria-label={open ? "Hide slots" : "Show slots"}
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        setOpenSubtype(open ? "" : key)
-                      }}
-                    >
-                      <ExpandMoreIcon sx={{ transform: open ? "rotate(180deg)" : "none", transition: "0.2s" }} />
-                    </IconButton>
-                  </Box>
-                  <Collapse in={open}>
-                    <Box sx={{ mx: 2, mb: 1.5 }}>
-                      <SlotTable slots={row.slots} onOpen={setSlotId} />
-                    </Box>
-                  </Collapse>
-                </Box>
-              )
-            })}
+              })}
+            </TableBody>
+          </Table>
+        </Box>
 
             {visibleTotals ? (
               <Stack
@@ -589,8 +674,6 @@ export default function SowingCapacitySheet() {
                 </Stack>
               </Stack>
             ) : null}
-          </Box>
-        </Box>
       </Box>
 
       <SowingCapacityDrawer slotId={slotId} onClose={() => setSlotId(null)} />
