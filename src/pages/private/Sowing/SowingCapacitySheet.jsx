@@ -7,27 +7,37 @@ import {
   CircularProgress,
   Collapse,
   IconButton,
+  InputAdornment,
   Stack,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableRow,
   TextField,
   Typography,
 } from "@mui/material"
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore"
-import { Link as RouterLink } from "react-router-dom"
+import CalendarMonthOutlinedIcon from "@mui/icons-material/CalendarMonthOutlined"
+import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined"
+import SearchIcon from "@mui/icons-material/Search"
 import { NetworkManager, API } from "network/core"
 import SowingCapacityDrawer from "./components/SowingCapacityDrawer"
-import { fmt, rangeForPreset, STATUS_STYLE, ymd } from "./capacitySheetUtils"
+import {
+  fmt,
+  formatLongDay,
+  formatShortRange,
+  rangeForPreset,
+  seedPlanDetail,
+  slotCardTone,
+  STATUS_STYLE,
+  ymd,
+} from "./capacitySheetUtils"
 
 const PRESETS = [
   { id: "today", label: "Today" },
-  { id: "7", label: "Next 7 days" },
-  { id: "14", label: "Next 14 days" },
-  { id: "month", label: "This month" },
+  { id: "7", label: "Next 7 Days" },
+  { id: "14", label: "Next 14 Days" },
+  { id: "month", label: "This Month" },
 ]
+
+const GRID =
+  "minmax(210px,1.5fr) 128px 148px 108px 108px 96px 118px 108px 148px 32px"
 
 function StatusChip({ status }) {
   const meta = STATUS_STYLE[status] || STATUS_STYLE.fulfilled
@@ -35,21 +45,210 @@ function StatusChip({ status }) {
     <Chip
       size="small"
       label={meta.label}
-      sx={{ fontWeight: 800, bgcolor: meta.bg, color: meta.color, border: `1px solid ${meta.border}` }}
+      sx={{
+        height: 26,
+        fontWeight: 700,
+        fontSize: 12,
+        bgcolor: meta.bg,
+        color: meta.color,
+        border: `1px solid ${meta.border}`,
+        "& .MuiChip-label": { px: 1.1 },
+      }}
     />
   )
 }
 
-function NumButton({ value, color, onClick }) {
+function MetricButton({ children, onClick, sx }) {
   return (
     <Button
       size="small"
-      onClick={onClick}
-      sx={{ minWidth: 0, fontWeight: 800, color: color || "inherit", textTransform: "none" }}
+      onClick={(event) => {
+        event.stopPropagation()
+        onClick()
+      }}
+      sx={{
+        minWidth: 0,
+        p: 0,
+        fontWeight: 800,
+        fontSize: 14,
+        color: "#0f172a",
+        textTransform: "none",
+        width: "100%",
+        justifyContent: "flex-end",
+        "&:hover": { bgcolor: "transparent", textDecoration: "underline" },
+        ...sx,
+      }}
     >
-      {fmt(value)}
+      {children}
     </Button>
   )
+}
+
+function GapValue({ value }) {
+  if (!Number(value)) return <Typography fontWeight={700}>0</Typography>
+  return (
+    <Box
+      sx={{
+        display: "inline-flex",
+        px: 1,
+        py: 0.25,
+        borderRadius: 1,
+        border: "1px solid #fdba74",
+        bgcolor: "#fff7ed",
+        color: "#c2410c",
+        fontWeight: 800,
+        fontSize: 13,
+      }}
+    >
+      {fmt(value)}
+    </Box>
+  )
+}
+
+function PillValue({ value, color, bg, border, prefix = "" }) {
+  if (!Number(value)) return <Typography fontWeight={700}>0</Typography>
+  return (
+    <Box
+      sx={{
+        display: "inline-flex",
+        px: 1,
+        py: 0.25,
+        borderRadius: 1,
+        border: `1px solid ${border}`,
+        bgcolor: bg,
+        color,
+        fontWeight: 800,
+        fontSize: 13,
+      }}
+    >
+      {prefix}
+      {fmt(value)}
+    </Box>
+  )
+}
+
+function SlotCard({ slot, onOpen }) {
+  const tone = slotCardTone(slot)
+  const coveredPct = slot.booked > 0 ? Math.round((slot.sowed / slot.booked) * 100) : 0
+  return (
+    <Box
+      onClick={() => onOpen(slot.slotId)}
+      sx={{
+        flex: "1 1 240px",
+        minWidth: 230,
+        maxWidth: 320,
+        p: 1.5,
+        borderRadius: 2,
+        border: `1px solid ${tone.border}`,
+        bgcolor: "#fff",
+        cursor: "pointer",
+        "&:hover": { boxShadow: "0 4px 14px rgba(15,23,42,0.06)" },
+      }}
+    >
+      <Stack direction="row" justifyContent="space-between" alignItems="center" mb={1.25} spacing={1}>
+        <Typography fontWeight={800} fontSize={14}>
+          {formatLongDay(slot.startDay)}
+          {slot.startDay !== slot.endDay ? ` to ${formatLongDay(slot.endDay)}` : ""}
+        </Typography>
+        <Chip
+          size="small"
+          label={tone.badge}
+          sx={{
+            height: 22,
+            fontSize: 10,
+            fontWeight: 800,
+            letterSpacing: 0.3,
+            bgcolor: tone.badgeBg,
+            color: tone.badgeColor,
+          }}
+        />
+      </Stack>
+      <CardLine label="Booked" value={fmt(slot.booked)} />
+      <CardLine
+        label="Sowed"
+        value={slot.booked > 0 ? `${fmt(slot.sowed)} (${coveredPct}%)` : fmt(slot.sowed)}
+        valueColor="#15803d"
+      />
+      <CardLine
+        label={slot.gap > 0 ? "Gap to Sow" : "Gap"}
+        value={slot.gap > 0 ? `-${fmt(slot.gap)}` : "0"}
+        valueColor={slot.gap > 0 ? "#c2410c" : "#0f172a"}
+        strong={slot.gap > 0}
+      />
+      <CardLine
+        label={slot.excess > 0 ? "Excess Ready" : "Saleable Excess"}
+        value={slot.excess > 0 ? `+${fmt(slot.excess)}` : "0"}
+        valueColor={slot.excess > 0 ? "#1d4ed8" : "#0f172a"}
+      />
+      <CardLine
+        label="Can Book Now"
+        value={slot.canBook > 0 ? `+${fmt(slot.canBook)}` : "0"}
+        valueColor={slot.canBook > 0 ? "#15803d" : "#0f172a"}
+      />
+    </Box>
+  )
+}
+
+function CardLine({ label, value, valueColor = "#0f172a", strong = false }) {
+  return (
+    <Stack direction="row" justifyContent="space-between" spacing={2} sx={{ py: 0.35 }}>
+      <Typography variant="body2" color="text.secondary">
+        {label}:
+      </Typography>
+      <Typography variant="body2" fontWeight={strong ? 800 : 700} color={valueColor}>
+        {value}
+      </Typography>
+    </Stack>
+  )
+}
+
+function csvEscape(value) {
+  const text = String(value ?? "")
+  if (/[",\n]/.test(text)) return `"${text.replace(/"/g, '""')}"`
+  return text
+}
+
+function downloadCsv(rows, from, to) {
+  const header = [
+    "Plant",
+    "Subtype",
+    "Seed plan",
+    "Delivery from",
+    "Delivery to",
+    "Booked",
+    "Sowed",
+    "Gap",
+    "Excess",
+    "Can book",
+    "Status",
+  ]
+  const lines = [header.join(",")]
+  rows.forEach((row) => {
+    const meta = STATUS_STYLE[row.status] || STATUS_STYLE.fulfilled
+    lines.push(
+      [
+        row.plantName,
+        row.subtypeName,
+        row.seedPlanLabel,
+        row.deliveryFrom,
+        row.deliveryTo,
+        row.booked,
+        row.sowed,
+        row.gap,
+        row.excess,
+        row.canBook,
+        meta.label,
+      ]
+        .map(csvEscape)
+        .join(",")
+    )
+  })
+  const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" })
+  const link = document.createElement("a")
+  link.href = URL.createObjectURL(blob)
+  link.download = `sowing-capacity-${from}-to-${to}.csv`
+  link.click()
+  setTimeout(() => URL.revokeObjectURL(link.href), 1000)
 }
 
 export default function SowingCapacitySheet() {
@@ -98,167 +297,349 @@ export default function SowingCapacitySheet() {
     setTo(range.to)
   }
 
-  const filtered = useMemo(() => {
+  const rows = useMemo(() => {
     const q = search.trim().toLowerCase()
-    if (!q) return plants
-    return plants
-      .map((plant) => ({
-        ...plant,
-        subtypes: (plant.subtypes || []).filter(
-          (st) =>
+    return plants.flatMap((plant) =>
+      (plant.subtypes || [])
+        .filter((subtype) => {
+          if (!q) return true
+          return (
             plant.plantName.toLowerCase().includes(q) ||
-            String(st.subtypeName || "").toLowerCase().includes(q)
-        ),
-      }))
-      .filter((plant) => plant.subtypes.length)
+            String(subtype.subtypeName || "").toLowerCase().includes(q)
+          )
+        })
+        .map((subtype) => ({
+          ...subtype,
+          plantId: plant.plantId,
+          plantName: plant.plantName,
+        }))
+    )
   }, [plants, search])
 
-  return (
-    <Box p={3} sx={{ bgcolor: "#f8fafc", minHeight: "100vh" }}>
-      <Typography variant="h4" fontWeight={800} color="#0f172a">
-        Sowing & booking capacity
-      </Typography>
-      <Typography variant="body2" color="text.secondary" mb={2}>
-        Sowing-allowed plants. Numbers are live booked, sowed, gap, excess, and remaining bookable capacity.
-      </Typography>
+  const visibleTotals = useMemo(() => {
+    if (!search.trim()) return totals
+    return rows.reduce(
+      (acc, row) => ({
+        booked: acc.booked + (Number(row.booked) || 0),
+        sowed: acc.sowed + (Number(row.sowed) || 0),
+        gap: acc.gap + (Number(row.gap) || 0),
+        excess: acc.excess + (Number(row.excess) || 0),
+        canBook: acc.canBook + (Number(row.canBook) || 0),
+      }),
+      { booked: 0, sowed: 0, gap: 0, excess: 0, canBook: 0 }
+    )
+  }, [rows, search, totals])
 
-      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap mb={2}>
-        {PRESETS.map((item) => (
-          <Chip
-            key={item.id}
-            label={item.label}
-            clickable
-            color={!custom && preset === item.id ? "success" : "default"}
-            onClick={() => applyPreset(item.id)}
-            sx={{ fontWeight: 700 }}
+  return (
+    <Box sx={{ bgcolor: "#f4f7fb", minHeight: "100%", p: { xs: 1.5, md: 2.5 } }}>
+      <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" alignItems={{ md: "center" }} spacing={1.5} mb={2}>
+        <Box>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Typography variant="h5" fontWeight={800} color="#0f172a">
+              Sowing & Booking Capacity
+            </Typography>
+            <Chip label="Live" size="small" sx={{ bgcolor: "#dcfce7", color: "#166534", fontWeight: 800, height: 22 }} />
+          </Stack>
+          <Typography variant="body2" color="text.secondary">
+            Sowing-allowed plants. Booked, sowed, gap, excess, and remaining bookable capacity.
+          </Typography>
+        </Box>
+        <Stack direction="row" spacing={1} alignItems="center">
+          <TextField
+            size="small"
+            placeholder="Search plant or subtype"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon fontSize="small" />
+                </InputAdornment>
+              ),
+            }}
+            sx={{ minWidth: 240, bgcolor: "#fff", borderRadius: 2 }}
           />
-        ))}
-        <Chip
-          label="Custom range"
-          clickable
-          color={custom ? "success" : "default"}
-          onClick={() => setCustom(true)}
-          sx={{ fontWeight: 700 }}
-        />
+          <Button
+            variant="outlined"
+            startIcon={<FileDownloadOutlinedIcon />}
+            onClick={() => downloadCsv(rows, from, to)}
+            disabled={!rows.length}
+            sx={{ textTransform: "none", fontWeight: 700, bgcolor: "#fff", borderColor: "#e2e8f0", color: "#334155" }}
+          >
+            Export
+          </Button>
+        </Stack>
       </Stack>
 
-      {custom ? (
-        <Stack direction="row" spacing={1} mb={2} alignItems="center">
-          <TextField size="small" type="date" label="From" value={from} onChange={(e) => setFrom(e.target.value)} InputLabelProps={{ shrink: true }} />
-          <TextField size="small" type="date" label="To" value={to} onChange={(e) => setTo(e.target.value)} InputLabelProps={{ shrink: true }} />
+      <Stack
+        direction={{ xs: "column", lg: "row" }}
+        justifyContent="space-between"
+        alignItems={{ lg: "center" }}
+        spacing={1.5}
+        sx={{ bgcolor: "#fff", border: "1px solid #e2e8f0", borderRadius: 2, px: 1.5, py: 1, mb: 1.5 }}
+      >
+        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+          <Typography variant="caption" fontWeight={800} color="text.secondary" letterSpacing={0.4}>
+            DELIVERY PERIOD
+          </Typography>
+          <Button
+            size="small"
+            startIcon={<CalendarMonthOutlinedIcon />}
+            onClick={() => setCustom(true)}
+            sx={{
+              textTransform: "none",
+              fontWeight: 700,
+              color: "#0f172a",
+              border: "1px solid #e2e8f0",
+              borderRadius: 2,
+              px: 1.25,
+            }}
+          >
+            {formatShortRange(from, to)}
+          </Button>
+          {custom ? (
+            <>
+              <TextField size="small" type="date" value={from} onChange={(event) => setFrom(event.target.value)} />
+              <TextField size="small" type="date" value={to} onChange={(event) => setTo(event.target.value)} />
+            </>
+          ) : null}
         </Stack>
-      ) : (
-        <Typography variant="caption" color="text.secondary" display="block" mb={2}>
-          {from} → {to}
-        </Typography>
-      )}
-
-      {totals ? (
-        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap mb={2}>
-          <Chip label={`Booked ${fmt(totals.booked)}`} />
-          <Chip label={`Sowed ${fmt(totals.sowed)}`} />
-          <Chip label={`Gap ${fmt(totals.gap)}`} sx={{ bgcolor: "#fff7ed", color: "#c2410c", fontWeight: 800 }} />
-          <Chip label={`Excess ${fmt(totals.excess)}`} sx={{ bgcolor: "#ecfdf5", color: "#047857", fontWeight: 800 }} />
-          <Chip label={`Can book ${fmt(totals.canBook)}`} sx={{ fontWeight: 800 }} />
+        <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
+          {PRESETS.map((item) => {
+            const selected = !custom && preset === item.id
+            return (
+              <Button
+                key={item.id}
+                size="small"
+                onClick={() => applyPreset(item.id)}
+                sx={{
+                  textTransform: "none",
+                  fontWeight: 700,
+                  borderRadius: 2,
+                  color: selected ? "#fff" : "#475569",
+                  bgcolor: selected ? "#16a34a" : "transparent",
+                  "&:hover": { bgcolor: selected ? "#15803d" : "#f1f5f9" },
+                }}
+              >
+                {item.label}
+              </Button>
+            )
+          })}
+          <Button
+            size="small"
+            onClick={() => setCustom(true)}
+            sx={{
+              textTransform: "none",
+              fontWeight: 700,
+              borderRadius: 2,
+              border: "1px solid #e2e8f0",
+              color: custom ? "#166534" : "#475569",
+              bgcolor: custom ? "#f0fdf4" : "#fff",
+            }}
+          >
+            Custom Range
+          </Button>
         </Stack>
+      </Stack>
+
+      {error ? (
+        <Alert severity="error" sx={{ mb: 1.5 }}>
+          {error}
+        </Alert>
       ) : null}
 
-      <TextField
-        size="small"
-        placeholder="Search plant or subtype"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        sx={{ mb: 2, maxWidth: 360 }}
-      />
+      <Box sx={{ bgcolor: "#fff", border: "1px solid #e2e8f0", borderRadius: 2.5, overflow: "hidden" }}>
+        <Stack direction="row" justifyContent="space-between" alignItems="center" px={2} py={1.25} flexWrap="wrap" useFlexGap>
+          <Typography fontWeight={800}>
+            Plant & Subtype Capacity Master{" "}
+            <Typography component="span" variant="body2" color="text.secondary" fontWeight={600}>
+              ({rows.length} varieties active)
+            </Typography>
+          </Typography>
+          <Stack direction="row" spacing={1.5}>
+            <Legend swatch="#fdba74" label="Gap to Sow" />
+            <Legend swatch="#93c5fd" label="Saleable Excess" />
+            <Legend swatch="#86efac" label="Booking Open" />
+          </Stack>
+        </Stack>
 
-      {error ? <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert> : null}
-      {loading ? (
-        <Box display="flex" justifyContent="center" py={6}>
-          <CircularProgress />
-        </Box>
-      ) : null}
-
-      {!loading && filtered.length === 0 ? (
-        <Alert severity="info">No sowing-allowed slots in this range.</Alert>
-      ) : null}
-
-      <Stack spacing={1.5}>
-        {filtered.map((plant) => (
-          <Box key={plant.plantId} sx={{ bgcolor: "#fff", border: "1px solid #e2e8f0", borderRadius: 2, overflow: "hidden" }}>
-            <Box sx={{ px: 2, py: 1.25, bgcolor: "#f0fdf4" }}>
-              <Typography fontWeight={800}>{plant.plantName}</Typography>
-              <Typography variant="caption" color="text.secondary">
-                Booked {fmt(plant.booked)} · sowed {fmt(plant.sowed)} · gap {fmt(plant.gap)} · excess {fmt(plant.excess)} · can book {fmt(plant.canBook)}
-              </Typography>
+        <Box sx={{ overflowX: "auto" }}>
+          <Box sx={{ minWidth: 1180 }}>
+            <Box
+              sx={{
+                display: "grid",
+                gridTemplateColumns: GRID,
+                px: 2,
+                py: 1,
+                bgcolor: "#f8fafc",
+                borderTop: "1px solid #e2e8f0",
+                borderBottom: "1px solid #e2e8f0",
+              }}
+            >
+              {["Plant & subtype", "Seed plan", "Delivery date / range", "Booked plants", "Sowed (covered)", "Sowing gap", "Saleable excess", "Can book now", "Action / status", ""].map(
+                (label) => (
+                  <Typography key={label || "expand"} variant="caption" fontWeight={800} color="text.secondary">
+                    {label}
+                  </Typography>
+                )
+              )}
             </Box>
-            {(plant.subtypes || []).map((subtype) => {
-              const key = `${plant.plantId}-${subtype.subtypeId}`
+
+            {loading ? (
+              <Box display="flex" justifyContent="center" py={6}>
+                <CircularProgress size={28} />
+              </Box>
+            ) : null}
+
+            {!loading && rows.length === 0 ? (
+              <Box px={2} py={3}>
+                <Alert severity="info">No sowing-allowed slots in this range.</Alert>
+              </Box>
+            ) : null}
+
+            {rows.map((row) => {
+              const key = `${row.plantId}-${row.subtypeId}`
               const open = openSubtype === key
+              const meta = STATUS_STYLE[row.status] || STATUS_STYLE.fulfilled
+              const openSlot = () => row.slots?.[0] && setSlotId(row.slots[0].slotId)
               return (
-                <Box key={key} sx={{ borderTop: "1px solid #e2e8f0" }}>
-                  <Box display="flex" alignItems="center" gap={1} px={1.5} py={1}>
-                    <IconButton size="small" onClick={() => setOpenSubtype(open ? "" : key)} aria-label="Show slots">
-                      <ExpandMoreIcon sx={{ transform: open ? "rotate(180deg)" : "none" }} />
-                    </IconButton>
-                    <Box flex={1} minWidth={140}>
-                      <Typography
-                        component={RouterLink}
-                        to={`/u/sowing-capacity/${plant.plantId}/${subtype.subtypeId}?from=${from}&to=${to}`}
-                        fontWeight={800}
-                        color="#0f766e"
-                        sx={{ textDecoration: "none" }}
-                      >
-                        {subtype.subtypeName}
+                <Box key={key} sx={{ borderBottom: "1px solid #eef2f6" }}>
+                  <Box
+                    onClick={() => setOpenSubtype(open ? "" : key)}
+                    sx={{
+                      display: "grid",
+                      gridTemplateColumns: GRID,
+                      alignItems: "center",
+                      px: 2,
+                      py: 1.25,
+                      cursor: "pointer",
+                      "&:hover": { bgcolor: "#f8fafc" },
+                    }}
+                  >
+                    <Stack direction="row" spacing={1.25} alignItems="center">
+                      <Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: meta.dot, flexShrink: 0 }} />
+                      <Box>
+                        <Typography fontWeight={800} fontSize={14}>
+                          {row.plantName} - {row.subtypeName}
+                        </Typography>
+                      </Box>
+                    </Stack>
+                    <Box>
+                      <Typography fontWeight={700} fontSize={13}>
+                        {row.seedPlanLabel}
                       </Typography>
-                      <Typography variant="caption" display="block" color="text.secondary">
-                        {subtype.seedPlanLabel} · {subtype.deliveryFrom} → {subtype.deliveryTo}
+                      <Typography variant="caption" color="text.secondary">
+                        {seedPlanDetail(row.seedPlanLabel)}
                       </Typography>
                     </Box>
-                    <NumButton value={subtype.booked} onClick={() => subtype.slots[0] && setSlotId(subtype.slots[0].slotId)} />
-                    <NumButton value={subtype.sowed} onClick={() => subtype.slots[0] && setSlotId(subtype.slots[0].slotId)} />
-                    <NumButton value={subtype.gap} color="#c2410c" onClick={() => subtype.slots[0] && setSlotId(subtype.slots[0].slotId)} />
-                    <NumButton value={subtype.excess} color="#047857" onClick={() => subtype.slots[0] && setSlotId(subtype.slots[0].slotId)} />
-                    <NumButton value={subtype.canBook} onClick={() => subtype.slots[0] && setSlotId(subtype.slots[0].slotId)} />
-                    <StatusChip status={subtype.status} />
+                    <Typography fontSize={13} fontWeight={600}>
+                      {formatShortRange(row.deliveryFrom, row.deliveryTo)}
+                    </Typography>
+                    <MetricButton onClick={openSlot}>{fmt(row.booked)}</MetricButton>
+                    <MetricButton onClick={openSlot}>{fmt(row.sowed)}</MetricButton>
+                    <Box display="flex" justifyContent="flex-end">
+                      <MetricButton onClick={openSlot} sx={{ color: "inherit" }}>
+                        <GapValue value={row.gap} />
+                      </MetricButton>
+                    </Box>
+                    <Box display="flex" justifyContent="flex-end">
+                      <MetricButton onClick={openSlot}>
+                        <PillValue value={row.excess} prefix="+" color="#1d4ed8" bg="#eff6ff" border="#bfdbfe" />
+                      </MetricButton>
+                    </Box>
+                    <Box display="flex" justifyContent="flex-end">
+                      <MetricButton onClick={openSlot}>
+                        <PillValue value={row.canBook} color="#15803d" bg="#f0fdf4" border="#bbf7d0" />
+                      </MetricButton>
+                    </Box>
+                    <StatusChip status={row.status} />
+                    <IconButton
+                      size="small"
+                      aria-label={open ? "Hide slots" : "Show slots"}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        setOpenSubtype(open ? "" : key)
+                      }}
+                    >
+                      <ExpandMoreIcon sx={{ transform: open ? "rotate(180deg)" : "none", transition: "0.2s" }} />
+                    </IconButton>
                   </Box>
                   <Collapse in={open}>
-                    <Table size="small">
-                      <TableHead>
-                        <TableRow>
-                          <TableCell>Delivery</TableCell>
-                          <TableCell>Seed</TableCell>
-                          <TableCell align="right">Booked</TableCell>
-                          <TableCell align="right">Sowed</TableCell>
-                          <TableCell align="right">Gap</TableCell>
-                          <TableCell align="right">Excess</TableCell>
-                          <TableCell align="right">Can book</TableCell>
-                          <TableCell>Status</TableCell>
-                        </TableRow>
-                      </TableHead>
-                      <TableBody>
-                        {subtype.slots.map((slot) => (
-                          <TableRow key={slot.slotId} hover>
-                            <TableCell>{slot.startDay === slot.endDay ? slot.startDay : `${slot.startDay} → ${slot.endDay}`}</TableCell>
-                            <TableCell>{slot.seedPlanLabel}</TableCell>
-                            <TableCell align="right"><NumButton value={slot.booked} onClick={() => setSlotId(slot.slotId)} /></TableCell>
-                            <TableCell align="right"><NumButton value={slot.sowed} onClick={() => setSlotId(slot.slotId)} /></TableCell>
-                            <TableCell align="right"><NumButton value={slot.gap} color="#c2410c" onClick={() => setSlotId(slot.slotId)} /></TableCell>
-                            <TableCell align="right"><NumButton value={slot.excess} color="#047857" onClick={() => setSlotId(slot.slotId)} /></TableCell>
-                            <TableCell align="right"><NumButton value={slot.canBook} onClick={() => setSlotId(slot.slotId)} /></TableCell>
-                            <TableCell><StatusChip status={slot.status} /></TableCell>
-                          </TableRow>
+                    <Box sx={{ mx: 2, mb: 1.5, p: 1.5, border: "1px solid #e2e8f0", borderRadius: 2, bgcolor: "#f8fafc" }}>
+                      <Stack direction="row" justifyContent="space-between" alignItems="center" mb={1.25}>
+                        <Typography variant="caption" fontWeight={800} letterSpacing={0.4} color="text.secondary">
+                          Date-wise sowing breakdown · {row.plantName} - {row.subtypeName}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary" fontWeight={700}>
+                          {(row.slots || []).length} slots
+                        </Typography>
+                      </Stack>
+                      <Stack direction="row" spacing={1.25} sx={{ overflowX: "auto", pb: 0.5 }}>
+                        {(row.slots || []).map((slot) => (
+                          <SlotCard key={slot.slotId} slot={slot} onOpen={setSlotId} />
                         ))}
-                      </TableBody>
-                    </Table>
+                      </Stack>
+                    </Box>
                   </Collapse>
                 </Box>
               )
             })}
+
+            {visibleTotals ? (
+              <Stack
+                direction="row"
+                justifyContent="space-between"
+                alignItems="center"
+                flexWrap="wrap"
+                useFlexGap
+                sx={{ px: 2, py: 1.25, bgcolor: "#f8fafc" }}
+              >
+                <Typography variant="body2" color="text.secondary">
+                  Total varieties: <b>{rows.length}</b>
+                  {"  ·  "}
+                  Delivery window: <b>{formatShortRange(from, to)}</b>
+                </Typography>
+                <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
+                  <FooterStat label="Booked" value={fmt(visibleTotals.booked)} />
+                  <FooterStat label="Sowed" value={fmt(visibleTotals.sowed)} />
+                  <FooterStat label="Gap" value={fmt(visibleTotals.gap)} color="#c2410c" />
+                  <FooterStat label="Excess" value={signed(visibleTotals.excess)} color="#1d4ed8" />
+                  <FooterStat label="Can Book" value={signed(visibleTotals.canBook)} color="#15803d" />
+                </Stack>
+              </Stack>
+            ) : null}
           </Box>
-        ))}
-      </Stack>
+        </Box>
+      </Box>
 
       <SowingCapacityDrawer slotId={slotId} onClose={() => setSlotId(null)} />
     </Box>
+  )
+}
+
+function Legend({ swatch, label }) {
+  return (
+    <Stack direction="row" spacing={0.6} alignItems="center">
+      <Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: swatch }} />
+      <Typography variant="caption" color="text.secondary" fontWeight={700}>
+        {label}
+      </Typography>
+    </Stack>
+  )
+}
+
+function signed(value) {
+  const n = Number(value) || 0
+  return n > 0 ? `+${fmt(n)}` : fmt(n)
+}
+
+function FooterStat({ label, value, color = "#0f172a" }) {
+  return (
+    <Typography variant="body2" color="text.secondary">
+      {label}:{" "}
+      <Typography component="span" fontWeight={800} color={color}>
+        {value}
+      </Typography>
+    </Typography>
   )
 }
