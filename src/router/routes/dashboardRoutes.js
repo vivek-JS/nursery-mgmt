@@ -130,6 +130,7 @@ export const DashboardMenus = [
   new MenuPath("Slots Managment", <BiotechIcon />, "/u/slots"),
   new MenuPath("Lagwad Analysis", <InsightsIcon />, "/u/lagwad-analysis"),
   new MenuPath("Sowing Gap Analysis", <TrendingDownIcon />, "/u/sowing-gap-analysis"),
+  new MenuPath("Sowing Capacity", <QueryStatsIcon />, "/u/sowing-capacity"),
   new MenuPath(
     "Direct Sow Portal",
     <EventNoteIcon />,

@@ -69,6 +69,8 @@ const WhatsAppManagement = React.lazy(() => import("pages/private/whatsapp/Whats
 const SowingManagement = React.lazy(() => import("pages/private/Sowing/SowingManagement"))
 const PlantAvailability = React.lazy(() => import("pages/private/Sowing/PlantAvailability"))
 const SowingGapAnalysis = React.lazy(() => import("pages/private/Sowing/SowingGapAnalysis"))
+const SowingCapacitySheet = React.lazy(() => import("pages/private/Sowing/SowingCapacitySheet"))
+const SowingCapacitySubtype = React.lazy(() => import("pages/private/Sowing/SowingCapacitySubtype"))
 const SowingBookingGapAnalysis = React.lazy(() => import("pages/private/Sowing/SowingBookingGapAnalysis"))
 const OldSowingGapAnalysis = React.lazy(() => import("pages/private/Sowing/OldSowingGapAnalysis"))
 const AdminDirectSowPortal = React.lazy(() => import("pages/private/Sowing/AdminDirectSowPortal"))
@@ -182,6 +184,8 @@ export const PrivateRoutes = [
   { path: "/u/sowing", component: SowingManagement },
   { path: "/u/plant-availability", component: PlantAvailability },
   { path: "/u/sowing-gap-analysis", component: SowingGapAnalysis },
+  { path: "/u/sowing-capacity/:plantId/:subtypeId", component: SowingCapacitySubtype },
+  { path: "/u/sowing-capacity", component: SowingCapacitySheet },
   { path: "/u/sowing-booking-gap-analysis", component: SowingBookingGapAnalysis },
   { path: "/u/old-sowing-gap-analysis", component: OldSowingGapAnalysis },
   { path: "/u/admin-direct-sow", component: AdminDirectSowPortal },

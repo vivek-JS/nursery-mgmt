@@ -1330,6 +1330,8 @@ export const API = {
     GET_PLANT_AVAILABILITY: new APIRouter("/sowing/plant-availability", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_ALL_PLANTS_AVAILABILITY: new APIRouter("/sowing/all-plants-availability", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_PLANTS_GAP_SUMMARY: new APIRouter("/sowing/plants-gap-summary", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_CAPACITY_SHEET: new APIRouter("/sowing/capacity-sheet", HTTP_METHODS.GET, OFFLINE.PROFILE),
+    GET_CAPACITY_SLOT: new APIRouter("/sowing/capacity-sheet/slot/:slotId", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_SLOT_ORDERS_SUMMARY: new APIRouter("/sowing/slot-orders/:slotId", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_TODAY_SOWING_CARDS: new APIRouter("/sowing/today-sowing-cards", HTTP_METHODS.GET, OFFLINE.PROFILE),
     GET_TODAY_SOWING_CARDS_LITE: new APIRouter("/sowing/today-sowing-cards-lite", HTTP_METHODS.GET, OFFLINE.PROFILE),
