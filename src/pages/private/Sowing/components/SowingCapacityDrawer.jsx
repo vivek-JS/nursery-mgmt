@@ -100,14 +100,13 @@ export default function SowingCapacityDrawer({ slotId, onClose }) {
           <>
             <Chip size="small" label={status.label} sx={{ mt: 1.5, fontWeight: 800, bgcolor: status.bg, color: status.color }} />
             <Stack direction="row" flexWrap="wrap" gap={1.5} mt={2}>
-              <Stat label="Booked" value={slot.booked} />
-              <Stat label="Sowed" value={slot.sowed} />
               <Stat label="Gap" value={slot.gap} color="#c2410c" />
-              <Stat label="Excess" value={slot.excess} color="#047857" />
-              <Stat label="Can book" value={slot.canBook} />
+              <Stat label="Can book" value={slot.canBook} color="#047857" />
+              <Stat label="Booked" value={slot.booked} />
+              <Stat label="Sowed" value={slot.sowed} color="#059669" />
             </Stack>
             <Typography variant="caption" color="text.secondary" display="block" mt={1}>
-              Reserved {fmt(slot.orderReservedPlants)} · physical sowed {fmt(slot.primarySowed)} · capacity {fmt(slot.totalPlants)}
+              Can book is sowed plants left after order cover.
             </Typography>
 
             <Divider sx={{ my: 2 }} />

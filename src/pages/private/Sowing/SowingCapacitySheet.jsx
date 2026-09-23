@@ -41,22 +41,20 @@ const PRESETS = [
 
 const SHEET_COLUMNS = [
   { key: "plant", label: "Plant & subtype", align: "left", type: "text" },
-  { key: "delivery", label: "Delivery", align: "left", type: "date" },
+  { key: "delivery", label: "Date range", align: "left", type: "date" },
+  { key: "gap", label: "Gap", align: "right", type: "number" },
+  { key: "canBook", label: "Can book", align: "right", type: "number" },
   { key: "booked", label: "Booked", align: "right", type: "number" },
   { key: "sowed", label: "Sowed", align: "right", type: "number" },
-  { key: "gap", label: "Gap", align: "right", type: "number" },
-  { key: "excess", label: "Excess", align: "right", type: "number" },
-  { key: "canBook", label: "Can book", align: "right", type: "number" },
   { key: "status", label: "Status", align: "left", type: "text" },
 ]
 
 const SLOT_COLUMNS = [
-  { key: "delivery", label: "Delivery", align: "left", type: "date" },
+  { key: "delivery", label: "Date range", align: "left", type: "date" },
+  { key: "gap", label: "Gap", align: "right", type: "number" },
+  { key: "canBook", label: "Can book", align: "right", type: "number" },
   { key: "booked", label: "Booked", align: "right", type: "number" },
   { key: "sowed", label: "Sowed", align: "right", type: "number" },
-  { key: "gap", label: "Gap", align: "right", type: "number" },
-  { key: "excess", label: "Excess", align: "right", type: "number" },
-  { key: "canBook", label: "Can book", align: "right", type: "number" },
   { key: "status", label: "Status", align: "left", type: "text" },
 ]
 
@@ -219,18 +217,15 @@ function SlotTable({ slots, onOpen }) {
             sx={{ cursor: "pointer", bgcolor: index % 2 ? "#f8fafc" : "#fff" }}
           >
             <TableCell sx={{ ...excelCell, fontWeight: 700 }}>{formatShortRange(slot.startDay, slot.endDay)}</TableCell>
-            <TableCell align="right" sx={{ ...excelCell, ...numberColor("booked", slot.booked) }}>{hasAmount(slot.booked) ? fmt(slot.booked) : ""}</TableCell>
-            <TableCell align="right" sx={{ ...excelCell, ...numberColor("sowed", slot.sowed) }}>
-              {hasAmount(slot.sowed) ? fmt(slot.sowed) : ""}
-            </TableCell>
             <TableCell align="right" sx={{ ...excelCell, ...numberColor("gap", slot.gap) }}>
               {hasAmount(slot.gap) ? fmt(slot.gap) : ""}
             </TableCell>
-            <TableCell align="right" sx={{ ...excelCell, ...numberColor("excess", slot.excess) }}>
-              {hasAmount(slot.excess) ? `+${fmt(slot.excess)}` : ""}
-            </TableCell>
             <TableCell align="right" sx={{ ...excelCell, ...numberColor("canBook", slot.canBook) }}>
               {hasAmount(slot.canBook) ? fmt(slot.canBook) : ""}
+            </TableCell>
+            <TableCell align="right" sx={{ ...excelCell, ...numberColor("booked", slot.booked) }}>{hasAmount(slot.booked) ? fmt(slot.booked) : ""}</TableCell>
+            <TableCell align="right" sx={{ ...excelCell, ...numberColor("sowed", slot.sowed) }}>
+              {hasAmount(slot.sowed) ? fmt(slot.sowed) : ""}
             </TableCell>
             <TableCell sx={{ ...excelCell, color: (STATUS_STYLE[slot.status] || STATUS_STYLE.fulfilled).color, fontWeight: 700 }}>
               {(STATUS_STYLE[slot.status] || STATUS_STYLE.fulfilled).label}
@@ -254,11 +249,10 @@ function downloadCsv(rows, from, to) {
     "Subtype",
     "Delivery from",
     "Delivery to",
+    "Gap",
+    "Can book",
     "Booked",
     "Sowed",
-    "Gap",
-    "Excess",
-    "Can book",
     "Status",
   ]
   const lines = [header.join(",")]
@@ -270,11 +264,10 @@ function downloadCsv(rows, from, to) {
         row.subtypeName,
         row.deliveryFrom,
         row.deliveryTo,
+        row.gap,
+        row.canBook,
         row.booked,
         row.sowed,
-        row.gap,
-        row.excess,
-        row.canBook,
         meta.label,
       ]
         .map(csvEscape)
@@ -394,7 +387,7 @@ export default function SowingCapacitySheet() {
             <Chip label="Live" size="small" sx={{ bgcolor: "#dcfce7", color: "#166534", fontWeight: 800, height: 22 }} />
           </Stack>
           <Typography variant="body2" color="text.secondary">
-            Sowing-allowed plants. Booked, sowed, gap, excess, and remaining bookable capacity.
+            Sowing-allowed plants. Gap, plants you can still book from sowed excess, then booked and sowed.
           </Typography>
         </Box>
         <Stack direction="row" spacing={1} alignItems="center">
@@ -513,7 +506,6 @@ export default function SowingCapacitySheet() {
           </Typography>
           <Stack direction="row" spacing={1.5}>
             <Legend swatch={NUM_COLOR.gap} label="Gap" />
-            <Legend swatch={NUM_COLOR.excess} label="Excess" />
             <Legend swatch={NUM_COLOR.canBook} label="Can book" />
           </Stack>
         </Stack>
@@ -526,7 +518,7 @@ export default function SowingCapacitySheet() {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={9} sx={excelCell}>
+                  <TableCell colSpan={8} sx={excelCell}>
                     <Box display="flex" justifyContent="center" py={4}>
                       <CircularProgress size={28} />
                     </Box>
@@ -535,7 +527,7 @@ export default function SowingCapacitySheet() {
               ) : null}
               {!loading && sortedRows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} sx={excelCell}>
+                  <TableCell colSpan={8} sx={excelCell}>
                     <Alert severity="info">No sowing-allowed slots in this range.</Alert>
                   </TableCell>
                 </TableRow>
@@ -590,7 +582,7 @@ export default function SowingCapacitySheet() {
                       </TableCell>
                     </TableRow>
                     <TableRow>
-                      <TableCell colSpan={9} sx={{ p: 0, borderBottom: open ? "1px solid #eef2f6" : 0, bgcolor: "#fafbfc" }}>
+                      <TableCell colSpan={8} sx={{ p: 0, borderBottom: open ? "1px solid #eef2f6" : 0, bgcolor: "#fafbfc" }}>
                         <Collapse in={open} unmountOnExit>
                           <Box sx={{ p: 1.25 }}>
                             <SlotTable slots={row.slots} onOpen={setSlotId} />
@@ -620,11 +612,10 @@ export default function SowingCapacitySheet() {
                   Delivery window: <b>{formatShortRange(from, to)}</b>
                 </Typography>
                 <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
-                  {hasAmount(visibleTotals.booked) ? <FooterStat label="Booked" value={fmt(visibleTotals.booked)} /> : null}
-                  {hasAmount(visibleTotals.sowed) ? <FooterStat label="Sowed" value={fmt(visibleTotals.sowed)} /> : null}
                   {hasAmount(visibleTotals.gap) ? <FooterStat label="Gap" value={fmt(visibleTotals.gap)} color="#c2410c" /> : null}
-                  {hasAmount(visibleTotals.excess) ? <FooterStat label="Excess" value={signed(visibleTotals.excess)} color="#1d4ed8" /> : null}
-                  {hasAmount(visibleTotals.canBook) ? <FooterStat label="Can Book" value={signed(visibleTotals.canBook)} color="#15803d" /> : null}
+                  {hasAmount(visibleTotals.canBook) ? <FooterStat label="Can book" value={fmt(visibleTotals.canBook)} color="#047857" /> : null}
+                  {hasAmount(visibleTotals.booked) ? <FooterStat label="Booked" value={fmt(visibleTotals.booked)} /> : null}
+                  {hasAmount(visibleTotals.sowed) ? <FooterStat label="Sowed" value={fmt(visibleTotals.sowed)} color="#059669" /> : null}
                 </Stack>
               </Stack>
             ) : null}
@@ -698,11 +689,6 @@ function Legend({ swatch, label }) {
       </Typography>
     </Stack>
   )
-}
-
-function signed(value) {
-  const n = Number(value) || 0
-  return n > 0 ? `+${fmt(n)}` : fmt(n)
 }
 
 function FooterStat({ label, value, color = "#0f172a" }) {

@@ -77,11 +77,10 @@ export default function SowingCapacitySubtype() {
             {subtype.seedPlanLabel} · {from} → {to} · {status.label}
           </Typography>
           <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap mb={3}>
+            <Typography fontWeight={700} color="#c2410c">Gap {fmt(subtype.gap)}</Typography>
+            <Typography fontWeight={700} color="#047857">Can book {fmt(subtype.canBook)}</Typography>
             <Typography fontWeight={700}>Booked {fmt(subtype.booked)}</Typography>
             <Typography fontWeight={700}>Sowed {fmt(subtype.sowed)}</Typography>
-            <Typography fontWeight={700} color="#c2410c">Gap {fmt(subtype.gap)}</Typography>
-            <Typography fontWeight={700} color="#047857">Excess {fmt(subtype.excess)}</Typography>
-            <Typography fontWeight={700}>Can book {fmt(subtype.canBook)}</Typography>
           </Stack>
           <Stack spacing={1.25}>
             {subtype.slots.map((slot) => (
@@ -105,7 +104,7 @@ export default function SowingCapacitySubtype() {
                   <Box sx={{ width: `${(slot.sowed / maxBar) * 100}%`, height: "100%", bgcolor: "#059669" }} />
                 </Box>
                 <Typography variant="caption" color="text.secondary">
-                  Booked {fmt(slot.booked)} · sowed {fmt(slot.sowed)} · gap {fmt(slot.gap)} · excess {fmt(slot.excess)} · can book {fmt(slot.canBook)}
+                  Gap {fmt(slot.gap)} · can book {fmt(slot.canBook)} · booked {fmt(slot.booked)} · sowed {fmt(slot.sowed)}
                 </Typography>
               </Box>
             ))}
