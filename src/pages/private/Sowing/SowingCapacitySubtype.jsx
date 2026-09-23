@@ -77,8 +77,8 @@ export default function SowingCapacitySubtype() {
             {subtype.seedPlanLabel} · {from} → {to} · {status.label}
           </Typography>
           <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap mb={3}>
-            <Typography fontWeight={700} color="#047857">Can book {fmt(subtype.canBook)}</Typography>
-            <Typography fontWeight={700} color="#c2410c">Gap {fmt(subtype.gap)}</Typography>
+            <Typography fontWeight={700} color={Number(subtype.canBook) < 0 ? "#e11d48" : "#047857"}>Can book {fmt(subtype.canBook)}</Typography>
+            <Typography fontWeight={700} color="#e11d48">Gap {fmt(subtype.gap)}</Typography>
             <Typography fontWeight={700}>Booked {fmt(subtype.booked)}</Typography>
             <Typography fontWeight={700}>Sowed {fmt(subtype.sowed)}</Typography>
           </Stack>

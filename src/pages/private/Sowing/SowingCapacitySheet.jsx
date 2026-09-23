@@ -63,9 +63,13 @@ const STATUS_RANK = { needs_sowing: 0, saleable_excess: 1, fulfilled: 2 }
 const NUM_COLOR = {
   booked: "#111827",
   sowed: "#059669",
-  gap: "#ea580c",
+  gap: "#e11d48",
   canBook: "#047857",
 }
+
+const NEED_SOW = "#e11d48"
+const NEED_HOVER = "#fff1f2"
+const BOOK_HOVER = "#f0fdf4"
 
 const excelCell = {
   borderBottom: "1px solid #eef2f6",
@@ -90,9 +94,17 @@ const excelHead = {
   zIndex: 2,
 }
 
-function numberColor(key, value) {
-  if (!hasAmount(value)) return { color: "transparent" }
-  return { color: NUM_COLOR[key] || "#111827", fontWeight: 700 }
+function metricSx(key, value, columnHover) {
+  const n = Number(value) || 0
+  const needsSow = (key === "gap" && n > 0) || (key === "canBook" && n < 0)
+  const canSell = key === "canBook" && n > 0
+  return {
+    ...excelCell,
+    color: n === 0 ? "transparent" : needsSow ? NEED_SOW : NUM_COLOR[key] || "#111827",
+    fontWeight: n === 0 ? 400 : 700,
+    bgcolor: columnHover ? (needsSow ? NEED_HOVER : canSell ? BOOK_HOVER : "#f8fafc") : undefined,
+    transition: "background-color 0.15s ease",
+  }
 }
 
 function dayKey(value) {
@@ -152,17 +164,22 @@ function hasAmount(value) {
   return Number(value) > 0
 }
 
+function metricText(value) {
+  const n = Number(value) || 0
+  return n === 0 ? "" : fmt(n)
+}
+
 function rowHasNumbers(row) {
   return (
     hasAmount(row?.booked) ||
     hasAmount(row?.sowed) ||
     hasAmount(row?.gap) ||
     hasAmount(row?.excess) ||
-    hasAmount(row?.canBook)
+    Number(row?.canBook) !== 0
   )
 }
 
-function SortHead({ columns, sort, onSort, withLead = false }) {
+function SortHead({ columns, sort, onSort, withLead = false, hoverCol = "", onHover }) {
   return (
     <TableRow>
       {withLead ? <TableCell sx={{ ...excelHead, width: 36 }} /> : null}
@@ -170,8 +187,20 @@ function SortHead({ columns, sort, onSort, withLead = false }) {
         <TableCell
           key={column.key}
           align={column.align}
-          sx={excelHead}
+          sx={{
+            ...excelHead,
+            bgcolor:
+              hoverCol === column.key
+                ? column.key === "gap"
+                  ? NEED_HOVER
+                  : column.key === "canBook"
+                    ? BOOK_HOVER
+                    : "#f1f5f9"
+                : excelHead.bgcolor,
+          }}
           sortDirection={sort.key === column.key ? sort.dir : false}
+          onMouseEnter={() => onHover?.(column.key)}
+          onMouseLeave={() => onHover?.("")}
         >
           <TableSortLabel
             active={sort.key === column.key}
@@ -194,6 +223,7 @@ function SortHead({ columns, sort, onSort, withLead = false }) {
 
 function SlotTable({ slots, onOpen }) {
   const [sort, setSort] = useState({ key: "delivery", dir: "asc" })
+  const [hoverCol, setHoverCol] = useState("")
   const visible = useMemo(() => {
     return (slots || []).filter(rowHasNumbers).slice().sort((a, b) => compareRows(a, b, sort))
   }, [slots, sort])
@@ -207,7 +237,7 @@ function SlotTable({ slots, onOpen }) {
   return (
     <Table size="small" sx={{ bgcolor: "#fff", borderCollapse: "collapse" }}>
       <TableHead>
-        <SortHead columns={SLOT_COLUMNS} sort={sort} onSort={onSort} />
+        <SortHead columns={SLOT_COLUMNS} sort={sort} onSort={onSort} hoverCol={hoverCol} onHover={setHoverCol} />
       </TableHead>
       <TableBody>
         {visible.map((slot, index) => (
@@ -218,15 +248,15 @@ function SlotTable({ slots, onOpen }) {
             sx={{ cursor: "pointer", bgcolor: index % 2 ? "#f8fafc" : "#fff" }}
           >
             <TableCell sx={{ ...excelCell, fontWeight: 700 }}>{formatShortRange(slot.startDay, slot.endDay)}</TableCell>
-            <TableCell align="right" sx={{ ...excelCell, ...numberColor("canBook", slot.canBook) }}>
-              {hasAmount(slot.canBook) ? fmt(slot.canBook) : ""}
+            <TableCell align="right" sx={metricSx("canBook", slot.canBook, hoverCol === "canBook")} onMouseEnter={() => setHoverCol("canBook")} onMouseLeave={() => setHoverCol("")}>
+              {metricText(slot.canBook)}
             </TableCell>
-            <TableCell align="right" sx={{ ...excelCell, ...numberColor("gap", slot.gap) }}>
-              {hasAmount(slot.gap) ? fmt(slot.gap) : ""}
+            <TableCell align="right" sx={metricSx("gap", slot.gap, hoverCol === "gap")} onMouseEnter={() => setHoverCol("gap")} onMouseLeave={() => setHoverCol("")}>
+              {metricText(slot.gap)}
             </TableCell>
-            <TableCell align="right" sx={{ ...excelCell, ...numberColor("booked", slot.booked) }}>{hasAmount(slot.booked) ? fmt(slot.booked) : ""}</TableCell>
-            <TableCell align="right" sx={{ ...excelCell, ...numberColor("sowed", slot.sowed) }}>
-              {hasAmount(slot.sowed) ? fmt(slot.sowed) : ""}
+            <TableCell align="right" sx={metricSx("booked", slot.booked, hoverCol === "booked")} onMouseEnter={() => setHoverCol("booked")} onMouseLeave={() => setHoverCol("")}>{metricText(slot.booked)}</TableCell>
+            <TableCell align="right" sx={metricSx("sowed", slot.sowed, hoverCol === "sowed")} onMouseEnter={() => setHoverCol("sowed")} onMouseLeave={() => setHoverCol("")}>
+              {metricText(slot.sowed)}
             </TableCell>
             <TableCell sx={{ ...excelCell, color: (STATUS_STYLE[slot.status] || STATUS_STYLE.fulfilled).color, fontWeight: 700 }}>
               {(STATUS_STYLE[slot.status] || STATUS_STYLE.fulfilled).label}
@@ -297,6 +327,7 @@ export default function SowingCapacitySheet() {
   const [openSubtype, setOpenSubtype] = useState("")
   const [slotId, setSlotId] = useState(null)
   const [sort, setSort] = useState({ key: "plant", dir: "asc" })
+  const [hoverCol, setHoverCol] = useState("")
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -514,7 +545,7 @@ export default function SowingCapacitySheet() {
         <Box sx={{ overflow: "auto", maxHeight: "calc(100vh - 280px)" }}>
           <Table size="small" stickyHeader sx={{ borderCollapse: "separate", borderSpacing: 0, width: "100%", minWidth: 1100 }}>
             <TableHead>
-              <SortHead columns={SHEET_COLUMNS} sort={sort} onSort={onSort} withLead />
+              <SortHead columns={SHEET_COLUMNS} sort={sort} onSort={onSort} withLead hoverCol={hoverCol} onHover={setHoverCol} />
             </TableHead>
             <TableBody>
               {loading ? (
@@ -563,17 +594,17 @@ export default function SowingCapacitySheet() {
                         </Stack>
                       </TableCell>
                       <TableCell sx={{ ...excelCell, color: "#475569" }}>{formatShortRange(row.deliveryFrom, row.deliveryTo)}</TableCell>
-                      <TableCell align="right" sx={{ ...excelCell, ...numberColor("canBook", row.canBook) }}>
-                        <MetricButton onClick={openSlot}>{hasAmount(row.canBook) ? fmt(row.canBook) : ""}</MetricButton>
+                      <TableCell align="right" sx={metricSx("canBook", row.canBook, hoverCol === "canBook")} onMouseEnter={() => setHoverCol("canBook")} onMouseLeave={() => setHoverCol("")}>
+                        <MetricButton onClick={openSlot}>{metricText(row.canBook)}</MetricButton>
                       </TableCell>
-                      <TableCell align="right" sx={{ ...excelCell, ...numberColor("gap", row.gap) }}>
-                        <MetricButton onClick={openSlot}>{hasAmount(row.gap) ? fmt(row.gap) : ""}</MetricButton>
+                      <TableCell align="right" sx={metricSx("gap", row.gap, hoverCol === "gap")} onMouseEnter={() => setHoverCol("gap")} onMouseLeave={() => setHoverCol("")}>
+                        <MetricButton onClick={openSlot}>{metricText(row.gap)}</MetricButton>
                       </TableCell>
-                      <TableCell align="right" sx={{ ...excelCell, ...numberColor("booked", row.booked) }}>
-                        <MetricButton onClick={openSlot}>{hasAmount(row.booked) ? fmt(row.booked) : ""}</MetricButton>
+                      <TableCell align="right" sx={metricSx("booked", row.booked, hoverCol === "booked")} onMouseEnter={() => setHoverCol("booked")} onMouseLeave={() => setHoverCol("")}>
+                        <MetricButton onClick={openSlot}>{metricText(row.booked)}</MetricButton>
                       </TableCell>
-                      <TableCell align="right" sx={{ ...excelCell, ...numberColor("sowed", row.sowed) }}>
-                        <MetricButton onClick={openSlot}>{hasAmount(row.sowed) ? fmt(row.sowed) : ""}</MetricButton>
+                      <TableCell align="right" sx={metricSx("sowed", row.sowed, hoverCol === "sowed")} onMouseEnter={() => setHoverCol("sowed")} onMouseLeave={() => setHoverCol("")}>
+                        <MetricButton onClick={openSlot}>{metricText(row.sowed)}</MetricButton>
                       </TableCell>
                       <TableCell sx={{ ...excelCell, color: meta.color, fontWeight: 700 }}>
                         {meta.label}
@@ -610,8 +641,10 @@ export default function SowingCapacitySheet() {
                   Delivery window: <b>{formatShortRange(from, to)}</b>
                 </Typography>
                 <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
-                  {hasAmount(visibleTotals.canBook) ? <FooterStat label="Can book" value={fmt(visibleTotals.canBook)} color="#047857" /> : null}
-                  {hasAmount(visibleTotals.gap) ? <FooterStat label="Gap" value={fmt(visibleTotals.gap)} color="#c2410c" /> : null}
+                  {Number(visibleTotals.canBook) !== 0 ? (
+                    <FooterStat label="Can book" value={fmt(visibleTotals.canBook)} color={Number(visibleTotals.canBook) < 0 ? NEED_SOW : "#047857"} />
+                  ) : null}
+                  {hasAmount(visibleTotals.gap) ? <FooterStat label="Gap" value={fmt(visibleTotals.gap)} color={NEED_SOW} /> : null}
                   {hasAmount(visibleTotals.booked) ? <FooterStat label="Booked" value={fmt(visibleTotals.booked)} /> : null}
                   {hasAmount(visibleTotals.sowed) ? <FooterStat label="Sowed" value={fmt(visibleTotals.sowed)} color="#059669" /> : null}
                 </Stack>

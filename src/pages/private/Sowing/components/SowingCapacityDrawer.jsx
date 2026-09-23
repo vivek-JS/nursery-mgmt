@@ -100,13 +100,13 @@ export default function SowingCapacityDrawer({ slotId, onClose }) {
           <>
             <Chip size="small" label={status.label} sx={{ mt: 1.5, fontWeight: 800, bgcolor: status.bg, color: status.color }} />
             <Stack direction="row" flexWrap="wrap" gap={1.5} mt={2}>
-              <Stat label="Can book" value={slot.canBook} color="#047857" />
-              <Stat label="Gap" value={slot.gap} color="#c2410c" />
+              <Stat label="Can book" value={slot.canBook} color={Number(slot.canBook) < 0 ? "#e11d48" : "#047857"} />
+              <Stat label="Gap" value={slot.gap} color="#e11d48" />
               <Stat label="Booked" value={slot.booked} />
               <Stat label="Sowed" value={slot.sowed} color="#059669" />
             </Stack>
             <Typography variant="caption" color="text.secondary" display="block" mt={1}>
-              Can book is sowed plants left after order cover.
+              Can book is excess minus gap. A minus means the gap is higher and more sowing is needed.
             </Typography>
 
             <Divider sx={{ my: 2 }} />
