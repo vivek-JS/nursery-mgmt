@@ -82,27 +82,77 @@ function PointLane({ kicker, title, points, tone, wash, lineFor }) {
   )
 }
 
-function SheetBrief({ advice, focus = "all" }) {
+function StoryCard({ kicker, title, line, extra, tone, wash }) {
+  if (!title && !line) return null
+  return (
+    <Box sx={{ mt: 1.15, borderRadius: 3, px: 1.5, py: 1.25, background: wash }}>
+      <Typography fontSize={11} fontWeight={800} letterSpacing={1.1} color={tone}>
+        {kicker}
+      </Typography>
+      <Typography fontSize={15} fontWeight={800} color="#f8fafc" mt={0.3} lineHeight={1.3}>
+        {title}
+      </Typography>
+      <Typography fontSize={13} color="#e2e8f0" mt={0.45} lineHeight={1.45}>
+        {line}
+      </Typography>
+      {extra ? (
+        <Typography fontSize={13} color="#cbd5e1" mt={0.45} lineHeight={1.45}>
+          {extra}
+        </Typography>
+      ) : null}
+    </Box>
+  )
+}
+
+function SheetBrief({ advice, context, focus = "all" }) {
   const plants = advice?.plants || []
   const good = focus === "sow" ? [] : advicePoints(plants, "book")
   const bad = focus === "book" ? [] : advicePoints(plants, "sow_first")
   const hold = focus === "all" ? advicePoints(plants, "wait") : []
-  if (!good.length && !bad.length && !hold.length) {
-    return (
-      <Typography fontSize={15} fontWeight={700} color="#f8fafc">
+  const empty =
+    !good.length && !bad.length && !hold.length ? (
+      <Typography fontSize={15} fontWeight={700} color="#f8fafc" mt={focus === "all" ? 1.2 : 0}>
         {focus === "book"
           ? "Nothing is free to book in this date range."
           : focus === "sow"
             ? "Nothing needs sowing before you book."
             : "Nothing to book or sow in this date range."}
       </Typography>
-    )
-  }
+    ) : null
   return (
     <Box>
-      <Typography fontSize={13} color="#94a3b8">
+      {focus === "all" && context?.booking ? (
+        <>
+          <StoryCard
+            kicker="BOOKING FLOW"
+            title={context.booking.title}
+            line={context.booking.line}
+            extra={context.booking.why}
+            tone="#67e8f9"
+            wash="linear-gradient(180deg, rgba(34,211,238,0.18), rgba(34,211,238,0.05))"
+          />
+          <StoryCard
+            kicker="WEATHER"
+            title={context.weather?.title || "Weather"}
+            line={context.weather?.line}
+            tone="#93c5fd"
+            wash="linear-gradient(180deg, rgba(59,130,246,0.18), rgba(59,130,246,0.05))"
+          />
+          <StoryCard
+            kicker="MANDI"
+            title={context.mandi?.title || "Mandi"}
+            line={context.mandi?.line}
+            tone="#fcd34d"
+            wash="linear-gradient(180deg, rgba(245,158,11,0.16), rgba(245,158,11,0.05))"
+          />
+        </>
+      ) : null}
+      {empty}
+      {empty ? null : (
+      <Typography fontSize={13} color="#94a3b8" mt={1.6}>
         From our sheet, in plain words
       </Typography>
+      )}
       <PointLane
         kicker="GOOD"
         title={good.length === 1 ? "Book this one" : `Book these ${good.length}`}
@@ -119,7 +169,7 @@ function SheetBrief({ advice, focus = "all" }) {
         wash="linear-gradient(180deg, rgba(244,63,94,0.2), rgba(244,63,94,0.06))"
         lineFor={(point) => `You are short by about ${fmt(Math.abs(point.canBook))}. Sow first, then take the order.`}
       />
-      {hold.length ? (
+      {empty ? null : hold.length ? (
         <Typography fontSize={13} color="#cbd5e1" mt={1.4} lineHeight={1.45}>
           Leave the rest. {hold.length === 1 ? "One variety has" : `${hold.length} varieties have`} nothing extra right now.
         </Typography>
@@ -444,6 +494,7 @@ export default function SowingCapacityAsk({ from, to }) {
                       {advice ? (
                         <SheetBrief
                           advice={advice}
+                          context={message.result?.context}
                           focus={
                             message.intro
                               ? "all"
