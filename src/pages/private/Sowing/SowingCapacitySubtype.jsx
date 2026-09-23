@@ -22,7 +22,7 @@ export default function SowingCapacitySubtype() {
   const [error, setError] = useState("")
   const [subtype, setSubtype] = useState(null)
   const [plantName, setPlantName] = useState("")
-  const [slotId, setSlotId] = useState(null)
+  const [detail, setDetail] = useState(null)
 
   useEffect(() => {
     let cancelled = false
@@ -86,7 +86,7 @@ export default function SowingCapacitySubtype() {
             {subtype.slots.map((slot) => (
               <Box
                 key={slot.slotId}
-                onClick={() => setSlotId(slot.slotId)}
+                onClick={() => setDetail({ slotIds: [slot.slotId], focus: "slot" })}
                 sx={{ p: 1.5, bgcolor: "#fff", border: "1px solid #e2e8f0", borderRadius: 2, cursor: "pointer" }}
               >
                 <Stack direction="row" justifyContent="space-between" mb={1}>
@@ -111,7 +111,7 @@ export default function SowingCapacitySubtype() {
           </Stack>
         </>
       ) : null}
-      <SowingCapacityDrawer slotId={slotId} onClose={() => setSlotId(null)} />
+      <SowingCapacityDrawer detail={detail} onClose={() => setDetail(null)} />
     </Box>
   )
 }

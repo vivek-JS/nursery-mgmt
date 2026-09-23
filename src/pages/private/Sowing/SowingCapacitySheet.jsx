@@ -245,14 +245,32 @@ function SlotTable({ slots, onOpen }) {
           <TableRow
             key={slot.slotId}
             hover
-            onClick={() => onOpen(slot.slotId)}
+            onClick={() => onOpen(slot.slotId, "slot")}
             sx={{ cursor: "pointer", bgcolor: index % 2 ? "#f8fafc" : "#fff" }}
           >
             <TableCell sx={{ ...excelCell, fontWeight: 700 }}>{formatShortRange(slot.startDay, slot.endDay)}</TableCell>
-            <TableCell align="right" sx={metricSx("canBook", slot.canBook, hoverCol === "canBook")} onMouseEnter={() => setHoverCol("canBook")} onMouseLeave={() => setHoverCol("")}>
+            <TableCell
+              align="right"
+              sx={metricSx("canBook", slot.canBook, hoverCol === "canBook")}
+              onMouseEnter={() => setHoverCol("canBook")}
+              onMouseLeave={() => setHoverCol("")}
+              onClick={(event) => {
+                event.stopPropagation()
+                onOpen(slot.slotId, "canBook")
+              }}
+            >
               {metricText(slot.canBook)}
             </TableCell>
-            <TableCell align="right" sx={metricSx("gap", slot.gap, hoverCol === "gap")} onMouseEnter={() => setHoverCol("gap")} onMouseLeave={() => setHoverCol("")}>
+            <TableCell
+              align="right"
+              sx={metricSx("gap", slot.gap, hoverCol === "gap")}
+              onMouseEnter={() => setHoverCol("gap")}
+              onMouseLeave={() => setHoverCol("")}
+              onClick={(event) => {
+                event.stopPropagation()
+                onOpen(slot.slotId, "gap")
+              }}
+            >
               {metricText(slot.gap)}
             </TableCell>
             <TableCell align="right" sx={metricSx("booked", slot.booked, hoverCol === "booked")} onMouseEnter={() => setHoverCol("booked")} onMouseLeave={() => setHoverCol("")}>{metricText(slot.booked)}</TableCell>
@@ -326,7 +344,7 @@ export default function SowingCapacitySheet() {
   const [totals, setTotals] = useState(null)
   const [seedSources, setSeedSources] = useState(null)
   const [openSubtype, setOpenSubtype] = useState("")
-  const [slotId, setSlotId] = useState(null)
+  const [detail, setDetail] = useState(null)
   const [sort, setSort] = useState({ key: "plant", dir: "asc" })
   const [hoverCol, setHoverCol] = useState("")
 
@@ -570,7 +588,19 @@ export default function SowingCapacitySheet() {
                 const key = `${row.plantId}-${row.subtypeId}`
                 const open = openSubtype === key
                 const meta = STATUS_STYLE[row.status] || STATUS_STYLE.fulfilled
-                const openSlot = () => row.slots?.[0] && setSlotId(row.slots[0].slotId)
+                const idsFor = (focus) => {
+                  const slots = row.slots || []
+                  const picked = slots.filter((slot) => {
+                    if (focus === "gap") return hasAmount(slot.gap)
+                    if (focus === "canBook") return Number(slot.canBook) !== 0 || hasAmount(slot.excess)
+                    return true
+                  })
+                  return (picked.length ? picked : slots).map((slot) => slot.slotId).filter(Boolean)
+                }
+                const openDetail = (focus) => {
+                  const slotIds = idsFor(focus)
+                  if (slotIds.length) setDetail({ slotIds, focus })
+                }
                 const rowBg = open ? "#f0fdf4" : index % 2 ? "#f8fafc" : "#fff"
                 return (
                   <React.Fragment key={key}>
@@ -597,16 +627,16 @@ export default function SowingCapacitySheet() {
                       </TableCell>
                       <TableCell sx={{ ...excelCell, color: "#475569" }}>{formatShortRange(row.deliveryFrom, row.deliveryTo)}</TableCell>
                       <TableCell align="right" sx={metricSx("canBook", row.canBook, hoverCol === "canBook")} onMouseEnter={() => setHoverCol("canBook")} onMouseLeave={() => setHoverCol("")}>
-                        <MetricButton onClick={openSlot}>{metricText(row.canBook)}</MetricButton>
+                        <MetricButton onClick={() => openDetail("canBook")}>{metricText(row.canBook)}</MetricButton>
                       </TableCell>
                       <TableCell align="right" sx={metricSx("gap", row.gap, hoverCol === "gap")} onMouseEnter={() => setHoverCol("gap")} onMouseLeave={() => setHoverCol("")}>
-                        <MetricButton onClick={openSlot}>{metricText(row.gap)}</MetricButton>
+                        <MetricButton onClick={() => openDetail("gap")}>{metricText(row.gap)}</MetricButton>
                       </TableCell>
                       <TableCell align="right" sx={metricSx("booked", row.booked, hoverCol === "booked")} onMouseEnter={() => setHoverCol("booked")} onMouseLeave={() => setHoverCol("")}>
-                        <MetricButton onClick={openSlot}>{metricText(row.booked)}</MetricButton>
+                        <MetricButton onClick={() => openDetail("slot")}>{metricText(row.booked)}</MetricButton>
                       </TableCell>
                       <TableCell align="right" sx={metricSx("sowed", row.sowed, hoverCol === "sowed")} onMouseEnter={() => setHoverCol("sowed")} onMouseLeave={() => setHoverCol("")}>
-                        <MetricButton onClick={openSlot}>{metricText(row.sowed)}</MetricButton>
+                        <MetricButton onClick={() => openDetail("slot")}>{metricText(row.sowed)}</MetricButton>
                       </TableCell>
                       <TableCell sx={{ ...excelCell, color: meta.color, fontWeight: 700 }}>
                         {meta.label}
@@ -616,7 +646,7 @@ export default function SowingCapacitySheet() {
                       <TableCell colSpan={8} sx={{ p: 0, borderBottom: open ? "1px solid #eef2f6" : 0, bgcolor: "#fafbfc" }}>
                         <Collapse in={open} unmountOnExit>
                           <Box sx={{ p: 1.25 }}>
-                            <SlotTable slots={row.slots} onOpen={setSlotId} />
+                            <SlotTable slots={row.slots} onOpen={(slotId, focus) => setDetail({ slotIds: [slotId], focus: focus || "slot" })} />
                           </Box>
                         </Collapse>
                       </TableCell>
@@ -654,7 +684,7 @@ export default function SowingCapacitySheet() {
             ) : null}
       </Box>
 
-      <SowingCapacityDrawer slotId={slotId} onClose={() => setSlotId(null)} />
+      <SowingCapacityDrawer detail={detail} onClose={() => setDetail(null)} />
     </Box>
   )
 }
