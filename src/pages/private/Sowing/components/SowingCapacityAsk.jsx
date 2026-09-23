@@ -15,135 +15,109 @@ import SendRoundedIcon from "@mui/icons-material/SendRounded"
 import { NetworkManager, API } from "network/core"
 import { fmt } from "../capacitySheetUtils"
 
-const PROMPTS = ["Only what we can book", "Only what to sow", "Hold list"]
+const PROMPTS = ["What can we book?", "What should we sow first?"]
 
-function lanePlants(plants, action) {
-  return (plants || [])
-    .map((plant) => {
-      const subtypes = (plant.subtypes || []).filter((row) => row.action === action)
-      if (plant.action !== action && !subtypes.length) return null
-      const canBook =
-        plant.action === action
-          ? plant.canBook
-          : subtypes.reduce((sum, row) => sum + (Number(row.canBook) || 0), 0)
-      return { ...plant, canBook, subtypes }
-    })
-    .filter(Boolean)
+const SHOW = 4
+
+function advicePoints(plants, action) {
+  const points = []
+  ;(plants || []).forEach((plant) => {
+    const subtypes = (plant.subtypes || []).filter((row) => row.action === action)
+    if (subtypes.length) {
+      subtypes.forEach((row) => {
+        points.push({
+          key: `${plant.plant}-${row.name}`,
+          name: row.name && row.name !== plant.plant ? `${plant.plant} · ${row.name}` : plant.plant,
+          canBook: Number(row.canBook) || 0,
+        })
+      })
+      return
+    }
+    if (plant.action === action) {
+      points.push({
+        key: plant.plant,
+        name: plant.plant,
+        canBook: Number(plant.canBook) || 0,
+      })
+    }
+  })
+  points.sort((a, b) => (action === "sow_first" ? a.canBook - b.canBook : b.canBook - a.canBook))
+  return points
 }
 
-function PlantRow({ plant, tone }) {
+function PointCard({ point, tone, line }) {
   return (
-    <Box sx={{ py: 0.85, "& + &": { borderTop: "1px solid rgba(255,255,255,0.06)" } }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="baseline" spacing={1}>
-        <Typography fontWeight={800} fontSize={14} color="#f8fafc">
-          {plant.plant}
-        </Typography>
-        <Typography fontWeight={800} fontSize={14} color={tone}>
-          {fmt(plant.canBook)}
-        </Typography>
-      </Stack>
-      <Typography fontSize={11} color="#94a3b8">
-        Gap {fmt(plant.gap)} · Booked {fmt(plant.booked)} · Sowed {fmt(plant.sowed)}
+    <Box sx={{ mt: 0.85, pl: 1.25, borderLeft: `3px solid ${tone}` }}>
+      <Typography fontWeight={800} fontSize={14.5} color="#f8fafc" lineHeight={1.3}>
+        {point.name}
       </Typography>
-      {plant.subtypes?.length ? (
-        <Stack direction="row" flexWrap="wrap" useFlexGap spacing={0.5} mt={0.7}>
-          {plant.subtypes.map((row) => (
-            <Box
-              key={row.name}
-              sx={{
-                px: 0.85,
-                py: 0.28,
-                borderRadius: 999,
-                bgcolor: "rgba(255,255,255,0.06)",
-                border: "1px solid rgba(255,255,255,0.08)",
-              }}
-            >
-              <Typography fontSize={11} color="#e2e8f0">
-                {row.name} · {fmt(row.canBook)}
-              </Typography>
-            </Box>
-          ))}
-        </Stack>
+      <Typography fontSize={13} color="#cbd5e1" lineHeight={1.45} mt={0.2}>
+        {line}
+      </Typography>
+    </Box>
+  )
+}
+
+function PointLane({ kicker, title, points, tone, wash, lineFor }) {
+  if (!points.length) return null
+  const shown = points.slice(0, SHOW)
+  const rest = points.length - shown.length
+  return (
+    <Box sx={{ mt: 1.35, borderRadius: 3, px: 1.5, py: 1.35, background: wash }}>
+      <Typography fontSize={11} fontWeight={800} letterSpacing={1.1} color={tone}>
+        {kicker}
+      </Typography>
+      <Typography fontSize={15} fontWeight={800} color="#f8fafc" mt={0.35} lineHeight={1.3}>
+        {title}
+      </Typography>
+      {shown.map((point) => (
+        <PointCard key={point.key} point={point} tone={tone} line={lineFor(point)} />
+      ))}
+      {rest > 0 ? (
+        <Typography fontSize={12} color="#94a3b8" mt={1}>
+          + {rest} more on the sheet
+        </Typography>
       ) : null}
     </Box>
   )
 }
 
-function Lane({ title, hint, plants, accent, wash }) {
-  if (!plants.length) return null
-  return (
-    <Box sx={{ mt: 1.15, borderRadius: 2.5, px: 1.25, py: 1, background: wash, border: `1px solid ${accent}33` }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center">
-        <Typography fontSize={11} fontWeight={800} letterSpacing={1.2} color={accent}>
-          {title}
-        </Typography>
-        <Typography fontSize={11} fontWeight={800} color={accent}>
-          {plants.length}
-        </Typography>
-      </Stack>
-      <Typography fontSize={12} color="#cbd5e1" mt={0.25}>
-        {hint}
-      </Typography>
-      {plants.map((plant) => (
-        <PlantRow key={plant.plant} plant={plant} tone={accent} />
-      ))}
-    </Box>
-  )
-}
-
-function SheetBrief({ advice }) {
+function SheetBrief({ advice, focus = "all" }) {
   const plants = advice?.plants || []
-  const good = lanePlants(plants, "book")
-  const bad = lanePlants(plants, "sow_first")
-  const hold = lanePlants(plants, "wait")
-  const total = Math.max(good.length + bad.length + hold.length, 1)
-  const headline =
-    good.length && bad.length
-      ? `${good.length} good to book. ${bad.length} need sowing first.`
-      : good.length
-        ? `${good.length} good to book in this window.`
-        : bad.length
-          ? `${bad.length} need sowing before more bookings.`
-          : advice?.summary
+  const good = focus === "sow" ? [] : advicePoints(plants, "book")
+  const bad = focus === "book" ? [] : advicePoints(plants, "sow_first")
+  const hold = focus === "all" ? advicePoints(plants, "wait") : []
+  if (!good.length && !bad.length && !hold.length) {
+    return (
+      <Typography fontSize={15} fontWeight={700} color="#f8fafc">
+        Nothing to book or sow in this date range.
+      </Typography>
+    )
+  }
   return (
     <Box>
-      <Typography fontSize={16} fontWeight={800} color="#f8fafc" lineHeight={1.35}>
-        {headline}
+      <Typography fontSize={13} color="#94a3b8">
+        From our sheet, in plain words
       </Typography>
-      <Box sx={{ display: "flex", height: 7, borderRadius: 99, overflow: "hidden", mt: 1.15, bgcolor: "rgba(255,255,255,0.06)" }}>
-        <Box sx={{ width: `${(good.length / total) * 100}%`, bgcolor: "#34d399" }} />
-        <Box sx={{ width: `${(hold.length / total) * 100}%`, bgcolor: "#fbbf24" }} />
-        <Box sx={{ width: `${(bad.length / total) * 100}%`, bgcolor: "#fb7185" }} />
-      </Box>
-      <Lane
-        title="GOOD"
-        hint="Spare sowed plants. These can be booked."
-        plants={good}
-        accent="#6ee7b7"
-        wash="linear-gradient(180deg, rgba(16,185,129,0.18), rgba(16,185,129,0.05))"
+      <PointLane
+        kicker="GOOD"
+        title={good.length === 1 ? "Book this one" : `Book these ${good.length}`}
+        points={good}
+        tone="#6ee7b7"
+        wash="linear-gradient(180deg, rgba(16,185,129,0.2), rgba(16,185,129,0.06))"
+        lineFor={(point) => `You can take about ${fmt(point.canBook)} more. They are already sown and still free.`}
       />
-      <Lane
-        title="NEEDS SOWING"
-        hint="Gap is ahead of excess. Sow these before booking."
-        plants={bad}
-        accent="#fda4af"
-        wash="linear-gradient(180deg, rgba(244,63,94,0.18), rgba(244,63,94,0.05))"
+      <PointLane
+        kicker="DO THIS FIRST"
+        title={bad.length === 1 ? "Sow this before the next order" : `Sow these ${bad.length} before you book`}
+        points={bad}
+        tone="#fda4af"
+        wash="linear-gradient(180deg, rgba(244,63,94,0.2), rgba(244,63,94,0.06))"
+        lineFor={(point) => `You are short by about ${fmt(Math.abs(point.canBook))}. Sow first, then take the order.`}
       />
-      <Lane
-        title="HOLD"
-        hint="Nothing spare yet, or it is safer to wait."
-        plants={hold}
-        accent="#fcd34d"
-        wash="linear-gradient(180deg, rgba(245,158,11,0.14), rgba(245,158,11,0.04))"
-      />
-      {advice?.downside ? (
-        <Typography fontSize={12.5} color="#fecdd3" mt={1.25} lineHeight={1.45}>
-          {advice.downside}
-        </Typography>
-      ) : null}
-      {advice?.weatherNote ? (
-        <Typography fontSize={11.5} color="#94a3b8" mt={0.8} lineHeight={1.45}>
-          {advice.weatherNote}
+      {hold.length ? (
+        <Typography fontSize={13} color="#cbd5e1" mt={1.4} lineHeight={1.45}>
+          Leave the rest. {hold.length === 1 ? "One variety has" : `${hold.length} varieties have`} nothing extra right now.
         </Typography>
       ) : null}
     </Box>
@@ -463,7 +437,20 @@ export default function SowingCapacityAsk({ from, to }) {
                           {message.error}
                         </Typography>
                       ) : null}
-                      {advice ? <SheetBrief advice={advice} /> : null}
+                      {advice ? (
+                        <SheetBrief
+                          advice={advice}
+                          focus={
+                            message.intro
+                              ? "all"
+                              : /sow/i.test(message.question)
+                                ? "sow"
+                                : /book/i.test(message.question)
+                                  ? "book"
+                                  : "all"
+                          }
+                        />
+                      ) : null}
                     </Box>
                   </Box>
                 )
