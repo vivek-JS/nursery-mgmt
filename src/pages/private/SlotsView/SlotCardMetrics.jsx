@@ -54,8 +54,8 @@ const SlotCardMetrics = ({
   const bookedCell = {
     key: "booked",
     definitionKey: "slotBooked",
-    label: D.slotBooked.label,
-    sub: "रोल वगळून",
+    label: "Booked",
+    sub: "excl. rolled",
     value: booked,
     className: "bg-blue-50 border-blue-200 hover:bg-blue-100",
     valueClass: "text-blue-700",
@@ -74,15 +74,15 @@ const SlotCardMetrics = ({
   const sowingGapCell = {
     key: "sowingGap",
     definitionKey: "slotSowingGap",
-    label: D.slotSowingGap.label,
+    label: "Sowing gap",
     sub:
       sowingGap > 0
-        ? "पेरणी बाकी"
+        ? "need sow"
         : hasSowingFromOtherSlot(slot)
-          ? "दुसरीकडे पेरले"
+          ? "sowed elsewhere"
           : hasCoverDetail
-            ? "येथे पूर्ण"
-            : "पेरणी बाकी",
+            ? "covered here"
+            : "need sow",
     value: sowingGap,
     className:
       sowingGap > 0
@@ -108,8 +108,8 @@ const SlotCardMetrics = ({
     ? {
         key: "excessAvail",
         definitionKey: "slotExcess",
-        label: D.slotExcess.label,
-        sub: "ऑर्डरनंतर",
+        label: "Can book",
+        sub: "after orders",
         value: excessAvail,
         className: "bg-emerald-50 border-emerald-200 hover:bg-emerald-100",
         valueClass: "text-emerald-700",
@@ -119,8 +119,8 @@ const SlotCardMetrics = ({
     : {
         key: "available",
         definitionKey: "slotAvailable",
-        label: D.slotAvailable.label,
-        sub: "या स्लॉटवर",
+        label: "Can book",
+        sub: "this slot",
         value: bookingAvail,
         className:
           bookingAvail < 0
@@ -134,8 +134,8 @@ const SlotCardMetrics = ({
   const remainingCell = {
     key: "remaining",
     definitionKey: "slotRemaining",
-    label: D.slotRemaining.label,
-    sub: "रांग बाकी",
+    label: "Delivery to dispatch",
+    sub: "queue left",
     value: toDispatch,
     className: "bg-amber-50 border-amber-200 hover:bg-amber-100",
     valueClass: "text-amber-900",
@@ -146,8 +146,8 @@ const SlotCardMetrics = ({
   const dispatchedCell = {
     key: "dispatched",
     definitionKey: "slotDispatched",
-    label: D.slotDispatched.label,
-    sub: "पाठवले",
+    label: "Dispatched",
+    sub: "orders loaded",
     value: dispatched,
     className: "bg-violet-50 border-violet-200 hover:bg-violet-100",
     valueClass: "text-violet-800",

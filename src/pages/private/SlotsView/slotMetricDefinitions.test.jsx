@@ -35,6 +35,7 @@ describe("slot metric Marathi definitions", () => {
   it("shows a Marathi definition on each month overview tile", () => {
     render(<MonthOverviewPanel summary={summary} sowingAllowed={false} />)
 
+    expect(screen.getByText("Available for booking")).toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", { name: "Available for booking definition" }))
     expect(
       screen.getByText(/नवीन बुकिंगसाठी मोकळी असलेली एकूण रोपे/)
@@ -50,11 +51,10 @@ describe("slot metric Marathi definitions", () => {
       />
     )
 
-    expect(screen.getByText("प्रत्यक्ष")).toBeInTheDocument()
-    expect(screen.getByText("स्लॉटवर, पेरणी % नाही")).toBeInTheDocument()
+    expect(screen.getByText("Actual")).toBeInTheDocument()
+    expect(screen.getByText("on slot (no sow %)")).toBeInTheDocument()
     expect(screen.queryByText("Sow")).not.toBeInTheDocument()
     expect(screen.queryByText("90% sellable")).not.toBeInTheDocument()
-    expect(screen.queryByText("९०% विक्रीयोग्य")).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole("button", { name: "Actual definition" }))
     expect(

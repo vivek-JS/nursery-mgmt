@@ -208,10 +208,10 @@ const SlotLagwadMetrics = ({
     Boolean(slot?.isCurrentDateSlot) && slotHasRolledLagwadOnCurrent(slot) && onOpenRolledLagwad
 
   const readyLabel = lagwadSowingMode
-    ? D.lagwadReady.label
+    ? "Ready"
     : isFutureSlot
-      ? "कॅलेंडर तयार"
-      : "प्रत्यक्ष तयार"
+      ? "Calendar ready"
+      : "Actual ready"
 
   const actualReadySub = isFutureSlot
     ? storedReadyOnSlot > pipelineReadyToday
@@ -235,8 +235,8 @@ const SlotLagwadMetrics = ({
           ? "in delivery window"
           : "awaiting in window"
 
-  const sowLabel = lagwadSowingMode ? D.lagwadSow.label : D.lagwadActual.label
-  const sowSub = lagwadSowingMode ? "९०% विक्रीयोग्य" : "स्लॉटवर, पेरणी % नाही"
+  const sowLabel = lagwadSowingMode ? "Sow" : "Actual"
+  const sowSub = lagwadSowingMode ? "90% sellable" : "on slot (no sow %)"
   const sowTitle = lagwadSowingMode ? D.lagwadSow.mr : D.lagwadActual.mr
 
   const cells = compact
@@ -268,7 +268,7 @@ const SlotLagwadMetrics = ({
         {
           key: "expected",
           definitionKey: "lagwadExpected",
-          label: D.lagwadExpected.label,
+          label: "Exp. ready",
           sub: isFutureSlot ? "in window · await mark" : expReadySub,
           value: expTileValue,
           className: "bg-violet-50 border-violet-200 hover:bg-violet-100 cursor-pointer",
@@ -282,8 +282,8 @@ const SlotLagwadMetrics = ({
         {
           key: "sellable",
           definitionKey: lagwadSowingMode ? "lagwadSow" : "lagwadActual",
-          label: lagwadSowingMode ? "विक्रीयोग्य" : D.lagwadActual.label,
-          sub: lagwadSowingMode ? "९०% प्रत्यक्ष" : "स्लॉटवर",
+          label: lagwadSowingMode ? "Sellable" : "Actual",
+          sub: lagwadSowingMode ? "90% actual" : "on slot",
           value: actualPlants,
           className: "bg-teal-50 border-teal-200 hover:bg-teal-100",
           valueClass: "text-teal-900",
@@ -294,8 +294,8 @@ const SlotLagwadMetrics = ({
         {
           key: "mortality",
           definitionKey: "lagwadMortality",
-          label: D.lagwadMortality.label,
-          sub: mortality > 0 ? "टॅप → हलवा" : lagwadSowingMode ? "१०% राखीव" : "—",
+          label: "Exp. mort.",
+          sub: mortality > 0 ? "tap → transfer" : lagwadSowingMode ? "10% reserve" : "—",
           value: mortality,
           className:
             mortality > 0
@@ -321,7 +321,7 @@ const SlotLagwadMetrics = ({
         {
           key: "expReady",
           definitionKey: "lagwadExpected",
-          label: D.lagwadExpected.label,
+          label: "Exp. ready",
           sub: isFutureSlot ? "expected in window" : expReadySub,
           value: expTileValue,
           className: "bg-violet-50 border-violet-200 hover:bg-violet-100 cursor-pointer",
