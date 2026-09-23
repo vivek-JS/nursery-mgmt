@@ -24,6 +24,7 @@ import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined"
 import SearchIcon from "@mui/icons-material/Search"
 import { NetworkManager, API } from "network/core"
 import SowingCapacityDrawer from "./components/SowingCapacityDrawer"
+import SowingCapacityAsk from "./components/SowingCapacityAsk"
 import {
   fmt,
   formatShortRange,
@@ -446,6 +447,7 @@ export default function SowingCapacitySheet() {
           >
             Export
           </Button>
+          <SowingCapacityAsk from={from} to={to} />
         </Stack>
       </Stack>
 
