@@ -72,14 +72,43 @@ const excelCell = {
   whiteSpace: "nowrap",
 }
 
+const COLUMN_FILL = {
+  booked: { bg: "#e2e8f0", strong: "#cbd5e1", color: "#0f172a", head: "#94a3b8" },
+  sowed: { bg: "#bbf7d0", strong: "#86efac", color: "#14532d", head: "#4ade80" },
+  gap: { bg: "#fed7aa", strong: "#fdba74", color: "#9a3412", head: "#fb923c" },
+  excess: { bg: "#bfdbfe", strong: "#93c5fd", color: "#1e3a8a", head: "#60a5fa" },
+  canBook: { bg: "#bbf7d0", strong: "#86efac", color: "#14532d", head: "#4ade80" },
+}
+
 const excelHead = {
   ...excelCell,
-  bgcolor: "#f3f4f6",
   fontWeight: 800,
-  color: "#374151",
+  color: "#1f2937",
   position: "sticky",
   top: 0,
   zIndex: 2,
+}
+
+function columnFill(key, value) {
+  const fill = COLUMN_FILL[key]
+  if (!fill) return {}
+  const active = hasAmount(value)
+  return {
+    bgcolor: active ? fill.strong : fill.bg,
+    color: fill.color,
+    fontWeight: 800,
+  }
+}
+
+function headFill(key) {
+  const fill = COLUMN_FILL[key]
+  if (!fill) return { bgcolor: "#e5e7eb", color: "#111827" }
+  return { bgcolor: fill.head, color: "#111827" }
+}
+
+function statusFill(status) {
+  const meta = STATUS_STYLE[status] || STATUS_STYLE.fulfilled
+  return { bgcolor: meta.dot, color: "#ffffff", fontWeight: 800 }
 }
 
 function dayKey(value) {
@@ -110,25 +139,6 @@ function compareRows(a, b, sort) {
   return sort.dir === "desc" ? -order : order
 }
 
-function StatusChip({ status }) {
-  const meta = STATUS_STYLE[status] || STATUS_STYLE.fulfilled
-  return (
-    <Chip
-      size="small"
-      label={meta.label}
-      sx={{
-        height: 26,
-        fontWeight: 700,
-        fontSize: 12,
-        bgcolor: meta.bg,
-        color: meta.color,
-        border: `1px solid ${meta.border}`,
-        "& .MuiChip-label": { px: 1.1 },
-      }}
-    />
-  )
-}
-
 function MetricButton({ children, onClick, sx }) {
   return (
     <Button
@@ -142,7 +152,7 @@ function MetricButton({ children, onClick, sx }) {
         p: 0,
         fontWeight: 800,
         fontSize: 14,
-        color: "#0f172a",
+        color: "inherit",
         textTransform: "none",
         width: "100%",
         justifyContent: "flex-end",
@@ -157,49 +167,6 @@ function MetricButton({ children, onClick, sx }) {
 
 function hasAmount(value) {
   return Number(value) > 0
-}
-
-function GapValue({ value }) {
-  if (!hasAmount(value)) return null
-  return (
-    <Box
-      sx={{
-        display: "inline-flex",
-        px: 1,
-        py: 0.25,
-        borderRadius: 1,
-        border: "1px solid #fdba74",
-        bgcolor: "#fff7ed",
-        color: "#c2410c",
-        fontWeight: 800,
-        fontSize: 13,
-      }}
-    >
-      {fmt(value)}
-    </Box>
-  )
-}
-
-function PillValue({ value, color, bg, border, prefix = "" }) {
-  if (!hasAmount(value)) return null
-  return (
-    <Box
-      sx={{
-        display: "inline-flex",
-        px: 1,
-        py: 0.25,
-        borderRadius: 1,
-        border: `1px solid ${border}`,
-        bgcolor: bg,
-        color,
-        fontWeight: 800,
-        fontSize: 13,
-      }}
-    >
-      {prefix}
-      {fmt(value)}
-    </Box>
-  )
 }
 
 function rowHasNumbers(row) {
@@ -217,14 +184,19 @@ function SortHead({ columns, sort, onSort, withLead = false }) {
     <TableRow>
       {withLead ? <TableCell sx={{ ...excelHead, width: 36 }} /> : null}
       {columns.map((column) => (
-        <TableCell key={column.key} align={column.align} sx={excelHead} sortDirection={sort.key === column.key ? sort.dir : false}>
+        <TableCell
+          key={column.key}
+          align={column.align}
+          sx={{ ...excelHead, ...headFill(column.key) }}
+          sortDirection={sort.key === column.key ? sort.dir : false}
+        >
           <TableSortLabel
             active={sort.key === column.key}
             direction={sort.key === column.key ? sort.dir : "asc"}
             onClick={() => onSort(column)}
             sx={{
               color: "inherit",
-              "& .MuiTableSortLabel-icon": { color: "#16a34a !important" },
+              "& .MuiTableSortLabel-icon": { color: "#111827 !important" },
             }}
           >
             {column.label}
@@ -261,21 +233,21 @@ function SlotTable({ slots, onOpen }) {
             sx={{ cursor: "pointer", bgcolor: index % 2 ? "#f8fafc" : "#fff" }}
           >
             <TableCell sx={{ ...excelCell, fontWeight: 700 }}>{formatShortRange(slot.startDay, slot.endDay)}</TableCell>
-            <TableCell align="right" sx={excelCell}>{hasAmount(slot.booked) ? fmt(slot.booked) : ""}</TableCell>
-            <TableCell align="right" sx={{ ...excelCell, color: "#15803d", fontWeight: 700 }}>
+            <TableCell align="right" sx={{ ...excelCell, ...columnFill("booked", slot.booked) }}>{hasAmount(slot.booked) ? fmt(slot.booked) : ""}</TableCell>
+            <TableCell align="right" sx={{ ...excelCell, ...columnFill("sowed", slot.sowed) }}>
               {hasAmount(slot.sowed) ? fmt(slot.sowed) : ""}
             </TableCell>
-            <TableCell align="right" sx={{ ...excelCell, color: "#c2410c", fontWeight: 800 }}>
+            <TableCell align="right" sx={{ ...excelCell, ...columnFill("gap", slot.gap) }}>
               {hasAmount(slot.gap) ? fmt(slot.gap) : ""}
             </TableCell>
-            <TableCell align="right" sx={{ ...excelCell, color: "#1d4ed8", fontWeight: 800 }}>
+            <TableCell align="right" sx={{ ...excelCell, ...columnFill("excess", slot.excess) }}>
               {hasAmount(slot.excess) ? `+${fmt(slot.excess)}` : ""}
             </TableCell>
-            <TableCell align="right" sx={{ ...excelCell, color: "#15803d", fontWeight: 800 }}>
+            <TableCell align="right" sx={{ ...excelCell, ...columnFill("canBook", slot.canBook) }}>
               {hasAmount(slot.canBook) ? fmt(slot.canBook) : ""}
             </TableCell>
-            <TableCell sx={excelCell}>
-              <StatusChip status={slot.status} />
+            <TableCell sx={{ ...excelCell, ...statusFill(slot.status) }}>
+              {(STATUS_STYLE[slot.status] || STATUS_STYLE.fulfilled).label}
             </TableCell>
           </TableRow>
         ))}
@@ -557,7 +529,7 @@ export default function SowingCapacitySheet() {
         </Stack>
 
         <Box sx={{ overflow: "auto", maxHeight: "calc(100vh - 280px)" }}>
-          <Table size="small" stickyHeader sx={{ borderCollapse: "separate", borderSpacing: 0, minWidth: 1100 }}>
+          <Table size="small" stickyHeader sx={{ borderCollapse: "separate", borderSpacing: 0, width: "100%", minWidth: 1100 }}>
             <TableHead>
               <SortHead columns={SHEET_COLUMNS} sort={sort} onSort={onSort} withLead />
             </TableHead>
@@ -612,27 +584,23 @@ export default function SowingCapacitySheet() {
                         <Typography variant="caption" color="text.secondary">{seedPlanDetail(row.seedPlanLabel)}</Typography>
                       </TableCell>
                       <TableCell sx={excelCell}>{formatShortRange(row.deliveryFrom, row.deliveryTo)}</TableCell>
-                      <TableCell align="right" sx={excelCell}>
+                      <TableCell align="right" sx={{ ...excelCell, ...columnFill("booked", row.booked) }}>
                         <MetricButton onClick={openSlot}>{hasAmount(row.booked) ? fmt(row.booked) : ""}</MetricButton>
                       </TableCell>
-                      <TableCell align="right" sx={excelCell}>
+                      <TableCell align="right" sx={{ ...excelCell, ...columnFill("sowed", row.sowed) }}>
                         <MetricButton onClick={openSlot}>{hasAmount(row.sowed) ? fmt(row.sowed) : ""}</MetricButton>
                       </TableCell>
-                      <TableCell align="right" sx={excelCell}>
-                        <MetricButton onClick={openSlot}><GapValue value={row.gap} /></MetricButton>
+                      <TableCell align="right" sx={{ ...excelCell, ...columnFill("gap", row.gap) }}>
+                        <MetricButton onClick={openSlot}>{hasAmount(row.gap) ? fmt(row.gap) : ""}</MetricButton>
                       </TableCell>
-                      <TableCell align="right" sx={excelCell}>
-                        <MetricButton onClick={openSlot}>
-                          <PillValue value={row.excess} prefix="+" color="#1d4ed8" bg="#eff6ff" border="#bfdbfe" />
-                        </MetricButton>
+                      <TableCell align="right" sx={{ ...excelCell, ...columnFill("excess", row.excess) }}>
+                        <MetricButton onClick={openSlot}>{hasAmount(row.excess) ? `+${fmt(row.excess)}` : ""}</MetricButton>
                       </TableCell>
-                      <TableCell align="right" sx={excelCell}>
-                        <MetricButton onClick={openSlot}>
-                          <PillValue value={row.canBook} color="#15803d" bg="#f0fdf4" border="#bbf7d0" />
-                        </MetricButton>
+                      <TableCell align="right" sx={{ ...excelCell, ...columnFill("canBook", row.canBook) }}>
+                        <MetricButton onClick={openSlot}>{hasAmount(row.canBook) ? fmt(row.canBook) : ""}</MetricButton>
                       </TableCell>
-                      <TableCell sx={excelCell}>
-                        <StatusChip status={row.status} />
+                      <TableCell sx={{ ...excelCell, ...statusFill(row.status) }}>
+                        {meta.label}
                       </TableCell>
                     </TableRow>
                     <TableRow>
