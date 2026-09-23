@@ -179,6 +179,8 @@ function SortHead({ columns, sort, onSort, withLead = false }) {
             onClick={() => onSort(column)}
             sx={{
               color: "inherit",
+              width: column.align === "right" ? "100%" : undefined,
+              flexDirection: column.align === "right" ? "row-reverse" : "row",
               "& .MuiTableSortLabel-icon": { color: "#94a3b8 !important" },
             }}
           >
@@ -561,20 +563,17 @@ export default function SowingCapacitySheet() {
                         </Stack>
                       </TableCell>
                       <TableCell sx={{ ...excelCell, color: "#475569" }}>{formatShortRange(row.deliveryFrom, row.deliveryTo)}</TableCell>
+                      <TableCell align="right" sx={{ ...excelCell, ...numberColor("gap", row.gap) }}>
+                        <MetricButton onClick={openSlot}>{hasAmount(row.gap) ? fmt(row.gap) : ""}</MetricButton>
+                      </TableCell>
+                      <TableCell align="right" sx={{ ...excelCell, ...numberColor("canBook", row.canBook) }}>
+                        <MetricButton onClick={openSlot}>{hasAmount(row.canBook) ? fmt(row.canBook) : ""}</MetricButton>
+                      </TableCell>
                       <TableCell align="right" sx={{ ...excelCell, ...numberColor("booked", row.booked) }}>
                         <MetricButton onClick={openSlot}>{hasAmount(row.booked) ? fmt(row.booked) : ""}</MetricButton>
                       </TableCell>
                       <TableCell align="right" sx={{ ...excelCell, ...numberColor("sowed", row.sowed) }}>
                         <MetricButton onClick={openSlot}>{hasAmount(row.sowed) ? fmt(row.sowed) : ""}</MetricButton>
-                      </TableCell>
-                      <TableCell align="right" sx={{ ...excelCell, ...numberColor("gap", row.gap) }}>
-                        <MetricButton onClick={openSlot}>{hasAmount(row.gap) ? fmt(row.gap) : ""}</MetricButton>
-                      </TableCell>
-                      <TableCell align="right" sx={{ ...excelCell, ...numberColor("excess", row.excess) }}>
-                        <MetricButton onClick={openSlot}>{hasAmount(row.excess) ? `+${fmt(row.excess)}` : ""}</MetricButton>
-                      </TableCell>
-                      <TableCell align="right" sx={{ ...excelCell, ...numberColor("canBook", row.canBook) }}>
-                        <MetricButton onClick={openSlot}>{hasAmount(row.canBook) ? fmt(row.canBook) : ""}</MetricButton>
                       </TableCell>
                       <TableCell sx={{ ...excelCell, color: meta.color, fontWeight: 700 }}>
                         {meta.label}
