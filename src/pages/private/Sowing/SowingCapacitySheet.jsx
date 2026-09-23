@@ -64,7 +64,6 @@ const NUM_COLOR = {
   booked: "#111827",
   sowed: "#059669",
   gap: "#ea580c",
-  excess: "#2563eb",
   canBook: "#047857",
 }
 
