@@ -165,6 +165,7 @@ function rowHasNumbers(row) {
   return (
     hasAmount(row?.booked) ||
     hasAmount(row?.sowed) ||
+    hasAmount(row?.primarySowed) ||
     hasAmount(row?.gap) ||
     hasAmount(row?.excess) ||
     Number(row?.canBook) !== 0
@@ -526,7 +527,7 @@ export default function SowingCapacitySheet() {
           <Typography fontWeight={800}>
             Plant & Subtype Capacity Master{" "}
             <Typography component="span" variant="body2" color="text.secondary" fontWeight={600}>
-              ({rows.length} varieties active)
+              ({rows.length} varieties)
             </Typography>
           </Typography>
           <Stack direction="row" spacing={1.5}>
