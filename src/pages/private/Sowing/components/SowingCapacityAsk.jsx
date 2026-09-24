@@ -256,8 +256,7 @@ export default function SowingCapacityAsk({ from, to }) {
         const instance = NetworkManager(API.sowing.ASK_CAPACITY)
         const response = await instance.request({
           district: district || undefined,
-          from,
-          to,
+          ...(from && to ? { from, to } : { all: true }),
           question: "Open with our full Maharashtra sheet. What is good to book, and what needs sowing, plant by plant and subtype by subtype?",
         })
         if (cancelled) return
@@ -314,8 +313,7 @@ export default function SowingCapacityAsk({ from, to }) {
       const instance = NetworkManager(API.sowing.ASK_CAPACITY)
       const response = await instance.request({
         district: district || undefined,
-        from,
-        to,
+        ...(from && to ? { from, to } : { all: true }),
         question: text,
       })
       if (response?.data?.success) {

@@ -324,7 +324,10 @@ function downloadCsv(rows, from, to) {
 }
 
 export default function SowingCapacitySheet() {
-  const [{ from, to }] = useState(() => rangeForPreset("14"))
+  const initialRange = rangeForPreset("14")
+  const [from, setFrom] = useState(initialRange.from)
+  const [to, setTo] = useState(initialRange.to)
+  const [applied, setApplied] = useState({ from: initialRange.from, to: initialRange.to, n: 0 })
   const [search, setSearch] = useState("")
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
@@ -341,7 +344,8 @@ export default function SowingCapacitySheet() {
     setError("")
     try {
       const instance = NetworkManager(API.sowing.GET_CAPACITY_SHEET)
-      const res = await instance.request({}, { from, to })
+      const query = applied.from && applied.to ? { from: applied.from, to: applied.to } : { all: "1" }
+      const res = await instance.request({}, query)
       if (res?.data?.success) {
         setPlants(res.data.plants || [])
         setTotals(res.data.totals || null)
@@ -358,11 +362,24 @@ export default function SowingCapacitySheet() {
     } finally {
       setLoading(false)
     }
-  }, [from, to])
+  }, [applied])
 
   useEffect(() => {
     load()
   }, [load])
+
+  const fetchSheet = () => {
+    if ((from && !to) || (!from && to)) {
+      setError("Choose both dates, or clear both.")
+      return
+    }
+    if (from && to && to < from) {
+      setError("The end date has to be on or after the start date.")
+      return
+    }
+    setError("")
+    setApplied((prev) => ({ from, to, n: prev.n + 1 }))
+  }
 
   const rows = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -439,14 +456,61 @@ export default function SowingCapacitySheet() {
           <Button
             variant="outlined"
             startIcon={<FileDownloadOutlinedIcon />}
-            onClick={() => downloadCsv(rows, from, to)}
+            onClick={() => downloadCsv(rows, applied.from || "all", applied.to || "all")}
             disabled={!rows.length}
             sx={{ textTransform: "none", fontWeight: 700, bgcolor: "#fff", borderColor: "#e2e8f0", color: "#334155" }}
           >
             Export
           </Button>
-          <SowingCapacityAsk from={from} to={to} />
+          <SowingCapacityAsk from={applied.from} to={applied.to} />
         </Stack>
+      </Stack>
+
+      <Stack
+        direction="row"
+        spacing={1}
+        alignItems="center"
+        flexWrap="wrap"
+        useFlexGap
+        sx={{ bgcolor: "#fff", border: "1px solid #e2e8f0", borderRadius: 2, px: 1.5, py: 1, mb: 1.5 }}
+      >
+        <TextField
+          size="small"
+          type="date"
+          label="From"
+          value={from}
+          onChange={(event) => setFrom(event.target.value)}
+          InputLabelProps={{ shrink: true }}
+          sx={{ bgcolor: "#fff", minWidth: 160 }}
+        />
+        <TextField
+          size="small"
+          type="date"
+          label="To"
+          value={to}
+          onChange={(event) => setTo(event.target.value)}
+          InputLabelProps={{ shrink: true }}
+          sx={{ bgcolor: "#fff", minWidth: 160 }}
+        />
+        <Button
+          variant="outlined"
+          onClick={() => {
+            setFrom("")
+            setTo("")
+          }}
+          disabled={!from && !to}
+          sx={{ textTransform: "none", fontWeight: 700, bgcolor: "#fff", borderColor: "#e2e8f0", color: "#334155" }}
+        >
+          Clear
+        </Button>
+        <Button
+          variant="contained"
+          onClick={fetchSheet}
+          disabled={loading}
+          sx={{ textTransform: "none", fontWeight: 800, bgcolor: "#0f172a" }}
+        >
+          Fetch
+        </Button>
       </Stack>
 
       <SeedSourceStrip sources={seedSources} />
