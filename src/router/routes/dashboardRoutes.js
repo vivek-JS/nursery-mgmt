@@ -58,7 +58,7 @@ export const DashboardMenus = [
     <EmojiEventsIcon />,
     "/u/rewards-admin",
     null,
-    ["ADMIN", "SUPER_ADMIN", "SUPERADMIN", "OFFICE_ADMIN"]
+    ["ADMIN", "SUPER_ADMIN", "SUPERADMIN"]
   ),
   new MenuPath(
     "My Rewards",
@@ -88,14 +88,12 @@ export const DashboardMenus = [
     <LocalShippingOutlinedIcon />,
     "/u/delivery-report",
     null,
-    ["DISPATCH_MANAGER", "ADMIN", "SUPER_ADMIN", "SUPERADMIN", "OFFICE_ADMIN", "OFFICEADMIN"]
+    ["DISPATCH_MANAGER", "ADMIN", "SUPER_ADMIN", "SUPERADMIN"]
   ),
   new MenuPath("Employees", <GroupIcon />, "/u/employeese"),
   new MenuPath("Attendance", <EventNoteIcon />, "/u/attendance", null, [
     "SUPER_ADMIN",
     "SUPERADMIN",
-    "OFFICE_ADMIN",
-    "OFFICEADMIN",
   ]),
   new MenuPath("Farmers", <BiotechIcon />, "/u/farmers"),
   new MenuPath(
@@ -125,7 +123,7 @@ export const DashboardMenus = [
     <MonitorHeartIcon />,
     "/u/secondary-dispatch-monitor",
     null,
-    ["SUPER_ADMIN", "SUPERADMIN", "ADMIN", "DISPATCH_MANAGER", "OFFICE_ADMIN", "OFFICEADMIN"]
+    ["SUPER_ADMIN", "SUPERADMIN", "ADMIN", "DISPATCH_MANAGER"]
   ),
   new MenuPath("Slots Managment", <BiotechIcon />, "/u/slots"),
   new MenuPath("Lagwad Analysis", <InsightsIcon />, "/u/lagwad-analysis"),

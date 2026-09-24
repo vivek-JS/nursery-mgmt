@@ -263,8 +263,6 @@ export default function PrivateLayout(props) {
       p === "/u/dashboard" ||
       p === "/u/plants" ||
       p.startsWith("/u/plants/") ||
-      p === "/u/sowing" ||
-      p.startsWith("/u/sowing/") ||
       p === "/u/sowing-gap-analysis" ||
       p.startsWith("/u/sowing-gap-analysis/") ||
       p === "/u/sowing-capacity" ||
@@ -279,8 +277,6 @@ export default function PrivateLayout(props) {
       p.startsWith("/u/cms/") ||
       p === "/u/employeese" ||
       p.startsWith("/u/employeese/") ||
-      p === "/u/attendance" ||
-      p.startsWith("/u/attendance/") ||
       p === "/u/inventory" ||
       p.startsWith("/u/inventory") ||
       p === "/u/dealers" ||
@@ -289,12 +285,8 @@ export default function PrivateLayout(props) {
       p.startsWith("/u/farmers/") ||
       p === "/u/dispatched-vehicles" ||
       p.startsWith("/u/dispatched-vehicles/") ||
-      p === "/u/delivery-report" ||
-      p.startsWith("/u/delivery-report/") ||
       p === "/u/admin-direct-sow" ||
       p.startsWith("/u/admin-direct-sow/") ||
-      p === "/u/rewards-admin" ||
-      p.startsWith("/u/rewards-admin/") ||
       p === AGRI_HUB_PATH ||
       p.startsWith(`${AGRI_HUB_PATH}/`)
 
@@ -359,45 +351,37 @@ export default function PrivateLayout(props) {
       const allowedTitles = [
         "Orders",
         "Plants and Products",
-        "Sowing Management",
         "Sowing Gap Analysis",
         "Sowing Capacity",
         "Lagwad Analysis",
         "Direct Sow Portal",
         "Slots Managment",
         "Admin Stats",
-        "Delivery Report",
         "Dispatched Vehicles",
         "CMS",
         "Farmers",
         "Employees",
-        "Attendance",
         "Inventory",
         "Ram Agri Input",
-        "Dealers",
-        "Reward Programs"
+        "Dealers"
       ]
       const allowedRoutes = [
         "/u/dashboard",
         "/u/plants",
-        "/u/sowing",
         "/u/sowing-gap-analysis",
         "/u/sowing-capacity",
         "/u/lagwad-analysis",
         "/u/admin-direct-sow",
         "/u/slots",
         "/u/admin-stats",
-        "/u/delivery-report",
         "/u/dispatched-vehicles",
         "/u/cms",
         "/u/farmers",
         "/u/employeese",
-        "/u/attendance",
         "/u/inventory",
         "/u/inventory/ram-agri-sales-dashboard",
         AGRI_HUB_PATH,
-        "/u/dealers",
-        "/u/rewards-admin"
+        "/u/dealers"
       ]
       const hasAccess = allowedTitles.includes(menuItem.title) || allowedRoutes.includes(menuItem.route)
       return hasAccess
