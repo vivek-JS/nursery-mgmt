@@ -149,10 +149,10 @@ export function canSeeBiotechSeedMaster(user) {
 
 /**
  * Inventory PO auto-approve + auto GRN on create.
- * Super Admin, Ram Agri Master (inputs/biotech master), Ram Agri Sales Manager.
+ * Super Admin, Office Admin, Ram Agri Master, Ram Agri Sales Manager.
  */
 export function canPurchaseOrderAutoAccept(user) {
-  if (isSuperAdminUser(user) || isRamAgriSalesProgramLead(user)) return true
+  if (isSuperAdminUser(user) || isOfficeAdminUser(user) || isRamAgriSalesProgramLead(user)) return true
   return false
 }
 
