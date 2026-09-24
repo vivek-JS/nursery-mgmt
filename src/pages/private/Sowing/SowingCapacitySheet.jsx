@@ -578,8 +578,6 @@ export default function SowingCapacitySheet() {
               >
                 <Typography variant="body2" color="text.secondary">
                   Total varieties: <b>{rows.length}</b>
-                  {"  ·  "}
-                  Delivery window: <b>{formatShortRange(from, to)}</b>
                 </Typography>
                 <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
                   {Number(visibleTotals.canBook) !== 0 ? (
