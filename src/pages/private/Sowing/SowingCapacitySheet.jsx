@@ -19,7 +19,6 @@ import {
   Typography,
 } from "@mui/material"
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore"
-import CalendarMonthOutlinedIcon from "@mui/icons-material/CalendarMonthOutlined"
 import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined"
 import SearchIcon from "@mui/icons-material/Search"
 import { NetworkManager, API } from "network/core"
@@ -30,15 +29,7 @@ import {
   formatShortRange,
   rangeForPreset,
   STATUS_STYLE,
-  ymd,
 } from "./capacitySheetUtils"
-
-const PRESETS = [
-  { id: "today", label: "Today" },
-  { id: "7", label: "Next 7 Days" },
-  { id: "14", label: "Next 14 Days" },
-  { id: "month", label: "This Month" },
-]
 
 const SHEET_COLUMNS = [
   { key: "plant", label: "Plant & subtype", align: "left", type: "text" },
@@ -333,10 +324,7 @@ function downloadCsv(rows, from, to) {
 }
 
 export default function SowingCapacitySheet() {
-  const [preset, setPreset] = useState("14")
-  const [custom, setCustom] = useState(false)
-  const [from, setFrom] = useState(() => rangeForPreset("14").from)
-  const [to, setTo] = useState(() => rangeForPreset("14").to)
+  const [{ from, to }] = useState(() => rangeForPreset("14"))
   const [search, setSearch] = useState("")
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
@@ -375,14 +363,6 @@ export default function SowingCapacitySheet() {
   useEffect(() => {
     load()
   }, [load])
-
-  const applyPreset = (id) => {
-    const range = rangeForPreset(id, ymd(new Date()))
-    setPreset(id)
-    setCustom(false)
-    setFrom(range.from)
-    setTo(range.to)
-  }
 
   const rows = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -466,77 +446,6 @@ export default function SowingCapacitySheet() {
             Export
           </Button>
           <SowingCapacityAsk from={from} to={to} />
-        </Stack>
-      </Stack>
-
-      <Stack
-        direction={{ xs: "column", lg: "row" }}
-        justifyContent="space-between"
-        alignItems={{ lg: "center" }}
-        spacing={1.5}
-        sx={{ bgcolor: "#fff", border: "1px solid #e2e8f0", borderRadius: 2, px: 1.5, py: 1, mb: 1.5 }}
-      >
-        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-          <Typography variant="caption" fontWeight={800} color="text.secondary" letterSpacing={0.4}>
-            DELIVERY PERIOD
-          </Typography>
-          <Button
-            size="small"
-            startIcon={<CalendarMonthOutlinedIcon />}
-            onClick={() => setCustom(true)}
-            sx={{
-              textTransform: "none",
-              fontWeight: 700,
-              color: "#0f172a",
-              border: "1px solid #e2e8f0",
-              borderRadius: 2,
-              px: 1.25,
-            }}
-          >
-            {formatShortRange(from, to)}
-          </Button>
-          {custom ? (
-            <>
-              <TextField size="small" type="date" value={from} onChange={(event) => setFrom(event.target.value)} />
-              <TextField size="small" type="date" value={to} onChange={(event) => setTo(event.target.value)} />
-            </>
-          ) : null}
-        </Stack>
-        <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
-          {PRESETS.map((item) => {
-            const selected = !custom && preset === item.id
-            return (
-              <Button
-                key={item.id}
-                size="small"
-                onClick={() => applyPreset(item.id)}
-                sx={{
-                  textTransform: "none",
-                  fontWeight: 700,
-                  borderRadius: 2,
-                  color: selected ? "#fff" : "#475569",
-                  bgcolor: selected ? "#16a34a" : "transparent",
-                  "&:hover": { bgcolor: selected ? "#15803d" : "#f1f5f9" },
-                }}
-              >
-                {item.label}
-              </Button>
-            )
-          })}
-          <Button
-            size="small"
-            onClick={() => setCustom(true)}
-            sx={{
-              textTransform: "none",
-              fontWeight: 700,
-              borderRadius: 2,
-              border: "1px solid #e2e8f0",
-              color: custom ? "#166534" : "#475569",
-              bgcolor: custom ? "#f0fdf4" : "#fff",
-            }}
-          >
-            Custom Range
-          </Button>
         </Stack>
       </Stack>
 
