@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react"
+import React, { useCallback, useEffect, useMemo, useState } from "react"
 import {
   Box,
   Typography,
@@ -10,8 +10,10 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableContainer,
   TableHead,
   TableRow,
+  TableSortLabel,
   TablePagination,
   CircularProgress,
   Drawer,
@@ -161,11 +163,53 @@ function printCompletionPdf(row) {
   w.document.close()
 }
 
+const PAGE_SIZE = 40
+
+const COLUMNS = [
+  { id: "sowDate", label: "Sow date", align: "left" },
+  { id: "added", label: "Date added", align: "left" },
+  { id: "request", label: "Request", align: "left" },
+  { id: "plant", label: "Plant", align: "left" },
+  { id: "plants", label: "Plants", align: "right" },
+  { id: "packets", label: "Pkt used / ret", align: "right" },
+  { id: "labour", label: "Labour", align: "right" },
+  { id: "orders", label: "Orders", align: "left" },
+  { id: "slot", label: "Slot affected", align: "left" },
+  { id: "batch", label: "Batch", align: "left" },
+]
+
+const gridCell = {
+  border: "1px solid #d1d5db",
+  fontSize: 12,
+  py: 0.6,
+  px: 1,
+  whiteSpace: "nowrap",
+}
+
+function sortValue(row, key) {
+  if (key === "orders") return row.linkedOrders?.length || 0
+  if (key === "slot") return row.affectedSlot?.label || ""
+  if (key === "batch") return row.batchNumber || ""
+  if (key === "labour") return (Number(row.laboursLadies) || 0) + (Number(row.laboursGents) || 0)
+  if (key === "plants") return Number(row.sowedQuantity) || 0
+  if (key === "packets") return Number(row.packetsUsed) || 0
+  if (key === "sowDate") return new Date(row.sowingDate || row.sowingCompletedDate || 0).getTime()
+  if (key === "added") return new Date(row.createdAt || 0).getTime()
+  if (key === "request") return row.requestNumber || ""
+  if (key === "plant") return `${row.plantName || ""} ${row.subtypeName || ""}`
+  return ""
+}
+
 export default function CompletedSowingEntries({ refreshToken = 0 }) {
   const [q, setQ] = useState("")
   const [qDebounced, setQDebounced] = useState("")
   const [page, setPage] = useState(0)
-  const [rowsPerPage, setRowsPerPage] = useState(10)
+  const [sortKey, setSortKey] = useState("sowDate")
+  const [sortDir, setSortDir] = useState("desc")
+  const [sowFrom, setSowFrom] = useState("")
+  const [sowTo, setSowTo] = useState("")
+  const [addedFrom, setAddedFrom] = useState("")
+  const [addedTo, setAddedTo] = useState("")
   const [loading, setLoading] = useState(false)
   const [items, setItems] = useState([])
   const [total, setTotal] = useState(0)
@@ -194,8 +238,14 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
         {},
         {
           page: page + 1,
-          limit: rowsPerPage,
+          limit: PAGE_SIZE,
+          sort: sortKey,
+          dir: sortDir,
           ...(qDebounced ? { q: qDebounced } : {}),
+          ...(sowFrom ? { sowFrom } : {}),
+          ...(sowTo ? { sowTo } : {}),
+          ...(addedFrom ? { addedFrom } : {}),
+          ...(addedTo ? { addedTo } : {}),
         }
       )
       const body = res?.data
@@ -214,7 +264,7 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
     } finally {
       setLoading(false)
     }
-  }, [page, rowsPerPage, qDebounced])
+  }, [page, qDebounced, sortKey, sortDir, sowFrom, sowTo, addedFrom, addedTo])
 
   useEffect(() => {
     load()
@@ -226,7 +276,27 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
 
   useEffect(() => {
     setPage(0)
-  }, [qDebounced])
+  }, [qDebounced, sortKey, sortDir, sowFrom, sowTo, addedFrom, addedTo])
+
+  const rows = useMemo(() => {
+    const pageOnly = sortKey === "orders" || sortKey === "slot" || sortKey === "batch"
+    if (!pageOnly) return items
+    const dir = sortDir === "asc" ? 1 : -1
+    return [...items].sort((a, b) => {
+      const va = sortValue(a, sortKey)
+      const vb = sortValue(b, sortKey)
+      if (typeof va === "number" && typeof vb === "number") return (va - vb) * dir
+      return String(va).localeCompare(String(vb)) * dir
+    })
+  }, [items, sortKey, sortDir])
+
+  const toggleSort = (id) => {
+    if (sortKey === id) setSortDir((d) => (d === "asc" ? "desc" : "asc"))
+    else {
+      setSortKey(id)
+      setSortDir(id === "request" || id === "plant" || id === "slot" || id === "batch" ? "asc" : "desc")
+    }
+  }
 
   return (
     <Box
@@ -256,7 +326,7 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
           <Box>
             <Typography fontWeight={900}>Completed sowing entries</Typography>
             <Typography variant="caption" sx={{ opacity: 0.9 }}>
-              Search by order #, request #, plant, or farmer · Print PDF per entry
+              40 per page · click a column to sort · filter sow date or date added
             </Typography>
           </Box>
           <Stack direction="row" spacing={1} alignItems="center">
@@ -287,6 +357,56 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
       </Box>
 
       <Box sx={{ p: 1.5 }}>
+        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 1.25 }}>
+          <TextField
+            size="small"
+            type="date"
+            label="Sow from"
+            value={sowFrom}
+            onChange={(e) => setSowFrom(e.target.value)}
+            InputLabelProps={{ shrink: true }}
+            sx={{ width: 150 }}
+          />
+          <TextField
+            size="small"
+            type="date"
+            label="Sow to"
+            value={sowTo}
+            onChange={(e) => setSowTo(e.target.value)}
+            InputLabelProps={{ shrink: true }}
+            sx={{ width: 150 }}
+          />
+          <TextField
+            size="small"
+            type="date"
+            label="Added from"
+            value={addedFrom}
+            onChange={(e) => setAddedFrom(e.target.value)}
+            InputLabelProps={{ shrink: true }}
+            sx={{ width: 150 }}
+          />
+          <TextField
+            size="small"
+            type="date"
+            label="Added to"
+            value={addedTo}
+            onChange={(e) => setAddedTo(e.target.value)}
+            InputLabelProps={{ shrink: true }}
+            sx={{ width: 150 }}
+          />
+          <Button
+            size="small"
+            onClick={() => {
+              setSowFrom("")
+              setSowTo("")
+              setAddedFrom("")
+              setAddedTo("")
+            }}
+            sx={{ textTransform: "none" }}
+          >
+            Clear dates
+          </Button>
+        </Stack>
         {error && (
           <Alert severity="error" sx={{ mb: 1.5 }}>
             {error}
@@ -299,55 +419,68 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
         ) : items.length === 0 ? (
           <Alert severity="info">No completed sowing entries yet.</Alert>
         ) : (
-          <Box sx={{ overflowX: "auto" }}>
-            <Table size="small">
+          <TableContainer sx={{ border: "1px solid #d1d5db", maxHeight: 640 }}>
+            <Table size="small" stickyHeader sx={{ borderCollapse: "collapse" }}>
               <TableHead>
                 <TableRow>
-                  <TableCell sx={{ fontWeight: 800 }}>Date</TableCell>
-                  <TableCell sx={{ fontWeight: 800 }}>Request</TableCell>
-                  <TableCell sx={{ fontWeight: 800 }}>Plant</TableCell>
-                  <TableCell sx={{ fontWeight: 800 }} align="right">
-                    Plants
-                  </TableCell>
-                  <TableCell sx={{ fontWeight: 800 }} align="right">
-                    Pkt used / ret
-                  </TableCell>
-                  <TableCell sx={{ fontWeight: 800 }} align="right">
-                    Labour
-                  </TableCell>
-                  <TableCell sx={{ fontWeight: 800 }}>Orders</TableCell>
-                  <TableCell sx={{ fontWeight: 800 }}>Slot affected</TableCell>
-                  <TableCell sx={{ fontWeight: 800 }}>Batch</TableCell>
-                  <TableCell sx={{ fontWeight: 800 }} align="center">
+                  {COLUMNS.map((col) => (
+                    <TableCell
+                      key={col.id}
+                      align={col.align}
+                      sortDirection={sortKey === col.id ? sortDir : false}
+                      sx={{
+                        ...gridCell,
+                        fontWeight: 800,
+                        bgcolor: "#e5e7eb",
+                        position: "sticky",
+                        top: 0,
+                        zIndex: 2,
+                      }}
+                    >
+                      <TableSortLabel
+                        active={sortKey === col.id}
+                        direction={sortKey === col.id ? sortDir : "asc"}
+                        onClick={() => toggleSort(col.id)}
+                      >
+                        {col.label}
+                      </TableSortLabel>
+                    </TableCell>
+                  ))}
+                  <TableCell
+                    align="center"
+                    sx={{ ...gridCell, fontWeight: 800, bgcolor: "#e5e7eb", position: "sticky", top: 0, zIndex: 2 }}
+                  >
                     Print
                   </TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
-                {items.map((row) => (
+                {rows.map((row, idx) => (
                   <TableRow
                     key={row._id || row.requestNumber}
                     hover
-                    sx={{ cursor: "pointer" }}
+                    sx={{
+                      cursor: "pointer",
+                      bgcolor: idx % 2 === 0 ? "#fff" : "#f9fafb",
+                    }}
                     onClick={() => setDetail(row)}
                   >
-                    <TableCell>{fmtDate(row.sowingCompletedDate)}</TableCell>
-                    <TableCell>
-                      <Typography fontWeight={700} fontSize="0.8rem">
-                        {row.requestNumber}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>
+                    <TableCell sx={gridCell}>{fmtDay(row.sowingDate || row.sowingCompletedDate)}</TableCell>
+                    <TableCell sx={gridCell}>{fmtDate(row.createdAt)}</TableCell>
+                    <TableCell sx={{ ...gridCell, fontWeight: 700 }}>{row.requestNumber}</TableCell>
+                    <TableCell sx={gridCell}>
                       {row.plantName} · {row.subtypeName}
                     </TableCell>
-                    <TableCell align="right">{row.sowedQuantity ?? "—"}</TableCell>
-                    <TableCell align="right">
+                    <TableCell sx={gridCell} align="right">
+                      {row.sowedQuantity ?? "—"}
+                    </TableCell>
+                    <TableCell sx={gridCell} align="right">
                       {Number(row.packetsUsed) || 0} / {Number(row.packetsReturned) || 0}
                     </TableCell>
-                    <TableCell align="right">
+                    <TableCell sx={gridCell} align="right">
                       {(Number(row.laboursLadies) || 0) + (Number(row.laboursGents) || 0)}
                     </TableCell>
-                    <TableCell>
+                    <TableCell sx={gridCell}>
                       <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
                         {row.isExcess && (
                           <Chip
@@ -363,7 +496,7 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
                         />
                       </Stack>
                     </TableCell>
-                    <TableCell onClick={(e) => e.stopPropagation()}>
+                    <TableCell sx={gridCell} onClick={(e) => e.stopPropagation()}>
                       {row.affectedSlot ? (
                         <Tooltip title="Click for slot details">
                           <Chip
@@ -382,12 +515,8 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
                         </Typography>
                       )}
                     </TableCell>
-                    <TableCell>
-                      <Typography fontSize="0.75rem" fontWeight={600}>
-                        {row.batchNumber || "—"}
-                      </Typography>
-                    </TableCell>
-                    <TableCell align="center" onClick={(e) => e.stopPropagation()}>
+                    <TableCell sx={gridCell}>{row.batchNumber || "—"}</TableCell>
+                    <TableCell sx={gridCell} align="center" onClick={(e) => e.stopPropagation()}>
                       <Tooltip title="Print PDF (orders + batch + date)">
                         <IconButton size="small" color="primary" onClick={() => printCompletionPdf(row)}>
                           <PrintIcon fontSize="small" />
@@ -403,14 +532,10 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
               count={total}
               page={page}
               onPageChange={(_, p) => setPage(p)}
-              rowsPerPage={rowsPerPage}
-              onRowsPerPageChange={(e) => {
-                setRowsPerPage(parseInt(e.target.value, 10))
-                setPage(0)
-              }}
-              rowsPerPageOptions={[10, 20, 50]}
+              rowsPerPage={PAGE_SIZE}
+              rowsPerPageOptions={[PAGE_SIZE]}
             />
-          </Box>
+          </TableContainer>
         )}
       </Box>
 

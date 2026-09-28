@@ -300,7 +300,7 @@ export default function PendingSowingOrdersPanel({ refreshToken = 0, onLoaded, o
     setError("")
     try {
       const instance = NetworkManager(API.sowing.GET_ADMIN_DIRECT_SOW_ORDERS)
-      const res = await instance.request({}, { date: todayYmd() })
+      const res = await instance.request({}, { date: todayYmd(), acceptedOnly: "1" })
       const body = res?.data
       if (body?.success) {
         const next = (body.groups || []).filter((g) => (Number(g.orderCount) || 0) > 0)
@@ -385,10 +385,10 @@ export default function PendingSowingOrdersPanel({ refreshToken = 0, onLoaded, o
       <Stack direction="row" alignItems="center" justifyContent="space-between" mb={1.5} flexWrap="wrap" gap={1}>
         <Box>
           <Typography fontWeight={900} fontSize="1.05rem" color="#92400e">
-            All orders pending sowing
+            Accepted orders still to sow
           </Typography>
           <Typography variant="caption" color="text.secondary" fontWeight={600}>
-            Grouped by plant and subtype · sow → ready-date slot covers order
+            Accepted orders only · sowing not done yet
           </Typography>
         </Box>
         <IconButton size="small" onClick={load} sx={{ bgcolor: "#fef3c7" }}>
