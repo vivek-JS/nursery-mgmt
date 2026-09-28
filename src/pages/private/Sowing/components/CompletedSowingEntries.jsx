@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react"
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   Box,
   Typography,
@@ -14,7 +14,6 @@ import {
   TableHead,
   TableRow,
   TableSortLabel,
-  TablePagination,
   CircularProgress,
   Drawer,
   Alert,
@@ -179,11 +178,26 @@ const COLUMNS = [
 ]
 
 const gridCell = {
-  border: "1px solid #d1d5db",
-  fontSize: 12,
-  py: 0.6,
-  px: 1,
+  borderRight: "1px solid #d1fae5",
+  borderBottom: "1px solid #e2e8f0",
+  fontSize: 12.5,
+  py: 0.85,
+  px: 1.15,
   whiteSpace: "nowrap",
+  color: "#134e4a",
+}
+
+const COL_TINT = {
+  sowDate: "#ecfdf5",
+  added: "#eff6ff",
+  request: "#f0fdfa",
+  plant: "#ffffff",
+  plants: "#fffbeb",
+  packets: "#f8fafc",
+  labour: "#faf5ff",
+  orders: "#fff7ed",
+  slot: "#f0f9ff",
+  batch: "#f8fafc",
 }
 
 function sortValue(row, key) {
@@ -203,7 +217,7 @@ function sortValue(row, key) {
 export default function CompletedSowingEntries({ refreshToken = 0 }) {
   const [q, setQ] = useState("")
   const [qDebounced, setQDebounced] = useState("")
-  const [page, setPage] = useState(0)
+  const [page, setPage] = useState(1)
   const [sortKey, setSortKey] = useState("sowDate")
   const [sortDir, setSortDir] = useState("desc")
   const [sowFrom, setSowFrom] = useState("")
@@ -211,11 +225,16 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
   const [addedFrom, setAddedFrom] = useState("")
   const [addedTo, setAddedTo] = useState("")
   const [loading, setLoading] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [items, setItems] = useState([])
   const [total, setTotal] = useState(0)
   const [error, setError] = useState("")
   const [detail, setDetail] = useState(null)
   const [slotPop, setSlotPop] = useState({ anchor: null, slot: null, row: null })
+  const scrollRef = useRef(null)
+  const sentinelRef = useRef(null)
+  const requestSeq = useRef(0)
+  const busyRef = useRef(false)
 
   useEffect(() => {
     const t = setTimeout(() => setQDebounced(q.trim()), 350)
@@ -229,54 +248,87 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
   }
   const closeSlotPop = () => setSlotPop({ anchor: null, slot: null, row: null })
 
-  const load = useCallback(async () => {
-    try {
-      setLoading(true)
-      setError("")
-      const instance = NetworkManager(API.sowing.GET_SOWING_COMPLETIONS)
-      const res = await instance.request(
-        {},
-        {
-          page: page + 1,
-          limit: PAGE_SIZE,
-          sort: sortKey,
-          dir: sortDir,
-          ...(qDebounced ? { q: qDebounced } : {}),
-          ...(sowFrom ? { sowFrom } : {}),
-          ...(sowTo ? { sowTo } : {}),
-          ...(addedFrom ? { addedFrom } : {}),
-          ...(addedTo ? { addedTo } : {}),
-        }
-      )
-      const body = res?.data
-      if (body?.success) {
-        setItems(body.items || [])
-        setTotal(body.total || 0)
-      } else {
+  const load = useCallback(
+    async (nextPage, replace) => {
+      if (!replace && busyRef.current) return
+      const seq = ++requestSeq.current
+      busyRef.current = true
+      if (replace) {
+        setLoading(true)
         setItems([])
-        setTotal(0)
-        setError(body?.message || "Failed to load")
+      } else {
+        setLoadingMore(true)
       }
-    } catch (e) {
-      setItems([])
-      setTotal(0)
-      setError(e?.message || "Failed to load completions")
-    } finally {
-      setLoading(false)
-    }
-  }, [page, qDebounced, sortKey, sortDir, sowFrom, sowTo, addedFrom, addedTo])
+      setError("")
+      try {
+        const instance = NetworkManager(API.sowing.GET_SOWING_COMPLETIONS)
+        const res = await instance.request(
+          {},
+          {
+            page: nextPage,
+            limit: PAGE_SIZE,
+            sort: sortKey,
+            dir: sortDir,
+            ...(qDebounced ? { q: qDebounced } : {}),
+            ...(sowFrom ? { sowFrom } : {}),
+            ...(sowTo ? { sowTo } : {}),
+            ...(addedFrom ? { addedFrom } : {}),
+            ...(addedTo ? { addedTo } : {}),
+          }
+        )
+        if (seq !== requestSeq.current) return
+        const body = res?.data
+        if (body?.success) {
+          const next = body.items || []
+          setItems((prev) => (replace ? next : [...prev, ...next]))
+          setTotal(body.total || 0)
+          setPage(nextPage)
+        } else if (replace) {
+          setItems([])
+          setTotal(0)
+          setError(body?.message || "Failed to load")
+        } else {
+          setError(body?.message || "Failed to load more")
+        }
+      } catch (e) {
+        if (seq !== requestSeq.current) return
+        if (replace) {
+          setItems([])
+          setTotal(0)
+        }
+        setError(e?.message || "Failed to load completions")
+      } finally {
+        if (seq === requestSeq.current) {
+          busyRef.current = false
+          setLoading(false)
+          setLoadingMore(false)
+        }
+      }
+    },
+    [qDebounced, sortKey, sortDir, sowFrom, sowTo, addedFrom, addedTo]
+  )
 
   useEffect(() => {
-    load()
-  }, [load])
+    load(1, true)
+  }, [load, refreshToken])
+
+  const hasMore = items.length < total
 
   useEffect(() => {
-    if (refreshToken > 0) load()
-  }, [refreshToken, load])
-
-  useEffect(() => {
-    setPage(0)
-  }, [qDebounced, sortKey, sortDir, sowFrom, sowTo, addedFrom, addedTo])
+    const root = scrollRef.current
+    const target = sentinelRef.current
+    if (!root || !target || !hasMore) return undefined
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting && !loading && !loadingMore) {
+          load(page + 1, false)
+        }
+      },
+      { root, rootMargin: "160px" }
+    )
+    observer.observe(target)
+    return () => observer.disconnect()
+  }, [hasMore, loading, loadingMore, page, load])
 
   const rows = useMemo(() => {
     const pageOnly = sortKey === "orders" || sortKey === "slot" || sortKey === "batch"
@@ -326,7 +378,7 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
           <Box>
             <Typography fontWeight={900}>Completed sowing entries</Typography>
             <Typography variant="caption" sx={{ opacity: 0.9 }}>
-              40 per page · click a column to sort · filter sow date or date added
+              Scroll for more · click a column to sort · filter sow date or date added
             </Typography>
           </Box>
           <Stack direction="row" spacing={1} alignItems="center">
@@ -349,7 +401,7 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
                 ),
               }}
             />
-            <IconButton onClick={() => load()} sx={{ color: "#fff" }} size="small">
+            <IconButton onClick={() => load(1, true)} sx={{ color: "#fff" }} size="small">
               <RefreshIcon />
             </IconButton>
           </Stack>
@@ -419,8 +471,17 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
         ) : items.length === 0 ? (
           <Alert severity="info">No completed sowing entries yet.</Alert>
         ) : (
-          <TableContainer sx={{ border: "1px solid #d1d5db", maxHeight: 640 }}>
-            <Table size="small" stickyHeader sx={{ borderCollapse: "collapse" }}>
+          <TableContainer
+            ref={scrollRef}
+            sx={{
+              maxHeight: "68vh",
+              borderRadius: 2,
+              border: "1px solid #99f6e4",
+              boxShadow: "inset 0 0 0 1px rgba(15,118,110,0.06)",
+              background: "linear-gradient(180deg, #f0fdfa 0%, #ffffff 80px)",
+            }}
+          >
+            <Table size="small" stickyHeader sx={{ borderCollapse: "separate", borderSpacing: 0 }}>
               <TableHead>
                 <TableRow>
                   {COLUMNS.map((col) => (
@@ -431,10 +492,17 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
                       sx={{
                         ...gridCell,
                         fontWeight: 800,
-                        bgcolor: "#e5e7eb",
+                        letterSpacing: 0.2,
+                        color: "#ecfeff",
+                        bgcolor: "#0f766e",
+                        borderBottom: "2px solid #115e59",
+                        borderRight: "1px solid rgba(255,255,255,0.12)",
                         position: "sticky",
                         top: 0,
                         zIndex: 2,
+                        "& .MuiTableSortLabel-root": { color: "#ecfeff" },
+                        "& .MuiTableSortLabel-root.Mui-active": { color: "#fff" },
+                        "& .MuiTableSortLabel-icon": { color: "#99f6e4 !important" },
                       }}
                     >
                       <TableSortLabel
@@ -448,7 +516,16 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
                   ))}
                   <TableCell
                     align="center"
-                    sx={{ ...gridCell, fontWeight: 800, bgcolor: "#e5e7eb", position: "sticky", top: 0, zIndex: 2 }}
+                    sx={{
+                      ...gridCell,
+                      fontWeight: 800,
+                      color: "#ecfeff",
+                      bgcolor: "#0f766e",
+                      borderBottom: "2px solid #115e59",
+                      position: "sticky",
+                      top: 0,
+                      zIndex: 2,
+                    }}
                   >
                     Print
                   </TableCell>
@@ -461,26 +538,38 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
                     hover
                     sx={{
                       cursor: "pointer",
-                      bgcolor: idx % 2 === 0 ? "#fff" : "#f9fafb",
+                      bgcolor: idx % 2 === 0 ? "#ffffff" : "#f0fdfa",
+                      transition: "background 0.15s ease",
+                      "&:hover": { bgcolor: "#ccfbf1" },
                     }}
                     onClick={() => setDetail(row)}
                   >
-                    <TableCell sx={gridCell}>{fmtDay(row.sowingDate || row.sowingCompletedDate)}</TableCell>
-                    <TableCell sx={gridCell}>{fmtDate(row.createdAt)}</TableCell>
-                    <TableCell sx={{ ...gridCell, fontWeight: 700 }}>{row.requestNumber}</TableCell>
-                    <TableCell sx={gridCell}>
-                      {row.plantName} · {row.subtypeName}
+                    <TableCell sx={{ ...gridCell, bgcolor: COL_TINT.sowDate, fontWeight: 800, color: "#047857" }}>
+                      {fmtDay(row.sowingDate || row.sowingCompletedDate)}
                     </TableCell>
-                    <TableCell sx={gridCell} align="right">
+                    <TableCell sx={{ ...gridCell, bgcolor: COL_TINT.added, color: "#1d4ed8", fontWeight: 700 }}>
+                      {fmtDate(row.createdAt)}
+                    </TableCell>
+                    <TableCell sx={{ ...gridCell, bgcolor: COL_TINT.request, fontWeight: 800, color: "#0f766e" }}>
+                      {row.requestNumber}
+                    </TableCell>
+                    <TableCell sx={{ ...gridCell, bgcolor: idx % 2 === 0 ? "#fff" : "#f7fee7", fontWeight: 700 }}>
+                      {row.plantName}
+                      <Typography component="span" sx={{ color: "#64748b", fontWeight: 600 }}>
+                        {" "}
+                        · {row.subtypeName}
+                      </Typography>
+                    </TableCell>
+                    <TableCell sx={{ ...gridCell, bgcolor: COL_TINT.plants, fontWeight: 900, color: "#b45309" }} align="right">
                       {row.sowedQuantity ?? "—"}
                     </TableCell>
-                    <TableCell sx={gridCell} align="right">
+                    <TableCell sx={{ ...gridCell, bgcolor: COL_TINT.packets }} align="right">
                       {Number(row.packetsUsed) || 0} / {Number(row.packetsReturned) || 0}
                     </TableCell>
-                    <TableCell sx={gridCell} align="right">
+                    <TableCell sx={{ ...gridCell, bgcolor: COL_TINT.labour, color: "#6d28d9", fontWeight: 800 }} align="right">
                       {(Number(row.laboursLadies) || 0) + (Number(row.laboursGents) || 0)}
                     </TableCell>
-                    <TableCell sx={gridCell}>
+                    <TableCell sx={{ ...gridCell, bgcolor: COL_TINT.orders }}>
                       <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
                         {row.isExcess && (
                           <Chip
@@ -496,7 +585,7 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
                         />
                       </Stack>
                     </TableCell>
-                    <TableCell sx={gridCell} onClick={(e) => e.stopPropagation()}>
+                    <TableCell sx={{ ...gridCell, bgcolor: COL_TINT.slot }} onClick={(e) => e.stopPropagation()}>
                       {row.affectedSlot ? (
                         <Tooltip title="Click for slot details">
                           <Chip
@@ -515,7 +604,9 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
                         </Typography>
                       )}
                     </TableCell>
-                    <TableCell sx={gridCell}>{row.batchNumber || "—"}</TableCell>
+                    <TableCell sx={{ ...gridCell, bgcolor: COL_TINT.batch, fontWeight: 700 }}>
+                      {row.batchNumber || "—"}
+                    </TableCell>
                     <TableCell sx={gridCell} align="center" onClick={(e) => e.stopPropagation()}>
                       <Tooltip title="Print PDF (orders + batch + date)">
                         <IconButton size="small" color="primary" onClick={() => printCompletionPdf(row)}>
@@ -525,16 +616,23 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
                     </TableCell>
                   </TableRow>
                 ))}
+                <TableRow ref={sentinelRef}>
+                  <TableCell colSpan={COLUMNS.length + 1} sx={{ border: 0, py: 1.5, textAlign: "center", bgcolor: "#f0fdfa" }}>
+                    {loadingMore ? (
+                      <CircularProgress size={22} sx={{ color: "#0f766e" }} />
+                    ) : hasMore ? (
+                      <Typography variant="caption" color="text.secondary" fontWeight={700}>
+                        Scroll for more · {items.length} of {total}
+                      </Typography>
+                    ) : (
+                      <Typography variant="caption" sx={{ color: "#0f766e", fontWeight: 800 }}>
+                        {total} entries
+                      </Typography>
+                    )}
+                  </TableCell>
+                </TableRow>
               </TableBody>
             </Table>
-            <TablePagination
-              component="div"
-              count={total}
-              page={page}
-              onPageChange={(_, p) => setPage(p)}
-              rowsPerPage={PAGE_SIZE}
-              rowsPerPageOptions={[PAGE_SIZE]}
-            />
           </TableContainer>
         )}
       </Box>
