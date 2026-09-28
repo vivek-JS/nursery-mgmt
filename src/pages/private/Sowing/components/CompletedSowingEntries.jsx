@@ -167,7 +167,6 @@ const PAGE_SIZE = 40
 const COLUMNS = [
   { id: "sowDate", label: "Sow date", align: "left" },
   { id: "added", label: "Date added", align: "left" },
-  { id: "request", label: "Request", align: "left" },
   { id: "plant", label: "Plant", align: "left" },
   { id: "plants", label: "Plants", align: "right" },
   { id: "packets", label: "Pkt used / ret", align: "right" },
@@ -190,7 +189,6 @@ const gridCell = {
 const COL_TINT = {
   sowDate: "#ecfdf5",
   added: "#eff6ff",
-  request: "#f0fdfa",
   plant: "#ffffff",
   plants: "#fffbeb",
   packets: "#f8fafc",
@@ -209,7 +207,6 @@ function sortValue(row, key) {
   if (key === "packets") return Number(row.packetsUsed) || 0
   if (key === "sowDate") return new Date(row.sowingDate || row.sowingCompletedDate || 0).getTime()
   if (key === "added") return new Date(row.createdAt || 0).getTime()
-  if (key === "request") return row.requestNumber || ""
   if (key === "plant") return `${row.plantName || ""} ${row.subtypeName || ""}`
   return ""
 }
@@ -346,7 +343,7 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
     if (sortKey === id) setSortDir((d) => (d === "asc" ? "desc" : "asc"))
     else {
       setSortKey(id)
-      setSortDir(id === "request" || id === "plant" || id === "slot" || id === "batch" ? "asc" : "desc")
+      setSortDir(id === "plant" || id === "slot" || id === "batch" ? "asc" : "desc")
     }
   }
 
@@ -549,9 +546,6 @@ export default function CompletedSowingEntries({ refreshToken = 0 }) {
                     </TableCell>
                     <TableCell sx={{ ...gridCell, bgcolor: COL_TINT.added, color: "#1d4ed8", fontWeight: 700 }}>
                       {fmtDate(row.createdAt)}
-                    </TableCell>
-                    <TableCell sx={{ ...gridCell, bgcolor: COL_TINT.request, fontWeight: 800, color: "#0f766e" }}>
-                      {row.requestNumber}
                     </TableCell>
                     <TableCell sx={{ ...gridCell, bgcolor: idx % 2 === 0 ? "#fff" : "#f7fee7", fontWeight: 700 }}>
                       {row.plantName}
